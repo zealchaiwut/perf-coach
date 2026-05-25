@@ -5,7 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weight – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    .chart-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 720px;
+      margin-bottom: 2rem;
+    }
+
     .weight-form {
       display: flex;
       flex-direction: column;
@@ -94,8 +102,13 @@
 <body>
   <header>
     <h1>Weight</h1>
+    <span id="env-label" class="env-label"></span>
   </header>
   <main>
+    <div class="chart-wrapper">
+      <canvas id="weight-chart"></canvas>
+    </div>
+
     <form id="weight-form" class="weight-form" novalidate>
       <div class="form-row">
         <label for="weight-input">Weight (kg)</label>
@@ -114,6 +127,8 @@
 
     <p style="margin-top:2rem"><a href="index.html">Back</a></p>
   </main>
+  <script src="js/mock-data.js"></script>
   <script src="js/weight.js"></script>
+  <script src="js/env.js"></script>
 </body>
 </html>

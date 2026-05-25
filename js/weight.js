@@ -30,6 +30,48 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function chartData(entries) {
+  const source = entries.length > 0 ? entries : MOCK_WEIGHT_ENTRIES;
+  const sorted = source.slice().sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    labels: sorted.map(e => e.date),
+    weights: sorted.map(e => e.weight),
+  };
+}
+
+let weightChart = null;
+
+function renderChart(entries) {
+  const { labels, weights } = chartData(entries);
+  if (weightChart) {
+    weightChart.data.labels = labels;
+    weightChart.data.datasets[0].data = weights;
+    weightChart.update();
+    return;
+  }
+  const ctx = document.getElementById('weight-chart').getContext('2d');
+  weightChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Weight (kg)',
+        data: weights,
+        tension: 0.3,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        x: { title: { display: true, text: 'Date' } },
+        y: { title: { display: true, text: 'Weight (kg)' } },
+      },
+    },
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('weight-form');
   const weightInput = document.getElementById('weight-input');
@@ -37,7 +79,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const errorMsg = document.getElementById('weight-error');
 
   dateInput.value = todayISO();
-  renderEntries(loadEntries());
+
+  const entries = loadEntries();
+  renderEntries(entries);
+  renderChart(entries);
 
   form.addEventListener('submit', e => {
     e.preventDefault();
@@ -55,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     entries.push(entry);
     saveEntries(entries);
     renderEntries(entries);
+    renderChart(entries);
     form.reset();
     dateInput.value = todayISO();
   });
