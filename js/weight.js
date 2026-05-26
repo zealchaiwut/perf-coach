@@ -5,6 +5,143 @@ function todayISO() {
 const MA_COLOR = '#16a34a';
 const DAILY_COLOR = '#9ca3af';
 
+function isoDateStr(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Returns ISO week Monday date string for a given YYYY-MM-DD string
+function weekMondayStr(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
+  const offset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + offset);
+  return isoDateStr(monday);
+}
+
+function fmtShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function renderSummaryCards(entries) {
+  const today = todayISO();
+
+  // === Card 1: This week avg ===
+  const thisMonday = weekMondayStr(today);
+  const thisSundayDate = new Date(thisMonday + 'T00:00:00');
+  thisSundayDate.setDate(thisSundayDate.getDate() + 6);
+  const thisSunday = isoDateStr(thisSundayDate);
+
+  const prevMondayDate = new Date(thisMonday + 'T00:00:00');
+  prevMondayDate.setDate(prevMondayDate.getDate() - 7);
+  const prevMonday = isoDateStr(prevMondayDate);
+  const prevSundayDate = new Date(prevMondayDate);
+  prevSundayDate.setDate(prevMondayDate.getDate() + 6);
+  const prevSunday = isoDateStr(prevSundayDate);
+
+  const thisWeekEntries = entries.filter(e => e.recorded_date >= thisMonday && e.recorded_date <= thisSunday);
+  const prevWeekEntries = entries.filter(e => e.recorded_date >= prevMonday && e.recorded_date <= prevSunday);
+
+  const avgVal = document.getElementById('card-week-avg-value');
+  const avgMeta = document.getElementById('card-week-avg-meta');
+  const avgSub = document.getElementById('card-week-avg-sub');
+
+  if (thisWeekEntries.length < 2) {
+    avgVal.innerHTML = '<span class="card-need-data">Need more data</span>';
+    avgMeta.textContent = '';
+    avgSub.textContent = '';
+  } else {
+    const thisAvg = thisWeekEntries.reduce((s, e) => s + e.weight_kg, 0) / thisWeekEntries.length;
+    avgVal.textContent = thisAvg.toFixed(1) + ' kg';
+    if (prevWeekEntries.length >= 1) {
+      const prevAvg = prevWeekEntries.reduce((s, e) => s + e.weight_kg, 0) / prevWeekEntries.length;
+      const diff = thisAvg - prevAvg;
+      const isLoss = diff < 0;
+      const color = isLoss ? 'var(--color-text-success)' : 'var(--color-text-danger)';
+      const arrow = isLoss ? '↓' : '↑';
+      avgMeta.innerHTML = `<span style="color:${color}">${arrow} ${Math.abs(diff).toFixed(1)} kg</span>`;
+      avgSub.textContent = `last week: ${prevAvg.toFixed(1)} kg`;
+    } else {
+      avgMeta.textContent = '';
+      avgSub.textContent = 'No previous week data';
+    }
+  }
+
+  // === Card 2: 30-day trend ===
+  const thirtyAgoDate = new Date(today + 'T00:00:00');
+  thirtyAgoDate.setDate(thirtyAgoDate.getDate() - 29);
+  const thirtyAgo = isoDateStr(thirtyAgoDate);
+
+  const window30 = entries
+    .filter(e => e.recorded_date >= thirtyAgo && e.recorded_date <= today)
+    .sort((a, b) => a.recorded_date.localeCompare(b.recorded_date));
+
+  const trendVal = document.getElementById('card-trend-value');
+  const trendMeta = document.getElementById('card-trend-meta');
+  const trendSub = document.getElementById('card-trend-sub');
+
+  const uniqueDays30 = new Set(window30.map(e => e.recorded_date)).size;
+  if (uniqueDays30 < 14) {
+    trendVal.innerHTML = '<span class="card-need-data">Need more data</span>';
+    trendMeta.textContent = '';
+    trendSub.textContent = '';
+  } else {
+    const first = window30[0];
+    const last = window30[window30.length - 1];
+    const change = last.weight_kg - first.weight_kg;
+    const isLoss = change < 0;
+    const color = isLoss ? 'var(--color-text-success)' : 'var(--color-text-danger)';
+    const arrow = isLoss ? '↘' : '↗';
+    trendVal.innerHTML = `<span style="color:${color}">${arrow} ${Math.abs(change).toFixed(1)} kg</span>`;
+    trendMeta.textContent = `${first.weight_kg} → ${last.weight_kg} kg`;
+    trendSub.textContent = `${fmtShortDate(first.recorded_date)} – ${fmtShortDate(last.recorded_date)}`;
+  }
+
+  // === Card 3: Days logged ===
+  const loggedDays = new Set(
+    entries
+      .filter(e => e.recorded_date >= thisMonday && e.recorded_date <= thisSunday)
+      .map(e => e.recorded_date)
+  );
+
+  const daysVal = document.getElementById('card-days-value');
+  const daysDots = document.getElementById('card-days-dots');
+  const daysSub = document.getElementById('card-days-sub');
+
+  daysVal.textContent = `${loggedDays.size} / 7`;
+
+  const CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const monday = new Date(thisMonday + 'T00:00:00');
+  const dots = [];
+  for (let i = 0; i < 7; i++) {
+    const dayDate = new Date(monday);
+    dayDate.setDate(monday.getDate() + i);
+    const dayStr = isoDateStr(dayDate);
+    const logged = loggedDays.has(dayStr);
+    const isToday = dayStr === today;
+    const isPast = dayStr < today;
+    let cls, inner;
+    if (logged) {
+      cls = 'day-dot logged';
+      inner = CHECK_SVG;
+    } else if (isToday) {
+      cls = 'day-dot today-pending';
+      inner = '';
+    } else if (isPast) {
+      cls = 'day-dot missed';
+      inner = '';
+    } else {
+      cls = 'day-dot missed';
+      inner = '';
+    }
+    dots.push(`<span class="${cls}" title="${dayStr}">${inner}</span>`);
+  }
+  daysDots.innerHTML = dots.join('');
+
+  daysSub.textContent = loggedDays.has(today) ? 'Mon – Sun' : 'Mon – Sun · today not logged';
+}
+
 let allEntries = [];
 let currentRange = '30d';
 let showAvg = true;
@@ -178,6 +315,7 @@ async function loadAndRender() {
     const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`);
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     allEntries = await res.json();
+    renderSummaryCards(allEntries);
     renderEntries(allEntries);
     renderChart(allEntries);
   } catch (e) {
