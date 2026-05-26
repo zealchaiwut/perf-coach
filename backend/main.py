@@ -2,12 +2,14 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
 from backend.models import User
+
+__version__ = "0.1.0"
 
 app = FastAPI()
 
@@ -22,15 +24,16 @@ def health():
     return JSONResponse({"status": "ok", "database": check_db(), "environment": environment})
 
 
+@app.get("/api/environment")
+def get_environment():
+    return JSONResponse({"environment": environment, "version": __version__})
+
+
 @app.get("/api/users")
 def get_users():
     with Session(engine) as session:
         users = session.query(User).order_by(User.name).all()
         return JSONResponse([{"id": str(u.id), "name": u.name} for u in users])
-
-
-# Serve HTML pages at their natural paths
-from fastapi.responses import FileResponse
 
 
 @app.get("/")
