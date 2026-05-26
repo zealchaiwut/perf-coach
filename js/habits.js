@@ -23,9 +23,79 @@ async function loadAndRender(userId) {
     const habits = await habitsRes.json();
     todayLogs = await logsRes.json();
     render(habits);
+    fetchAllStats(habits, userId);
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
   }
+}
+
+function streakIcon(streak) {
+  if (streak >= 100) return '🔥🔥🔥';
+  if (streak >= 30) return '🔥🔥';
+  if (streak >= 7) return '🔥';
+  return '🔥';
+}
+
+function renderStreakEl(el, data) {
+  if (!data || data.streak === 0) {
+    if (data && data.days_completed === 0) {
+      el.textContent = 'No streak yet';
+      el.className = 'habit-streak streak-none';
+    } else {
+      el.textContent = '—';
+      el.className = 'habit-streak streak-zero';
+    }
+    return;
+  }
+  el.textContent = `${streakIcon(data.streak)} ${data.streak}`;
+  el.className = 'habit-streak';
+}
+
+function renderRateEl(el, data) {
+  if (!data || data.days_completed === 0) {
+    el.textContent = '—';
+    el.className = 'habit-rate rate-grey';
+    return;
+  }
+  const pct = Math.round(data.completion_rate * 100);
+  el.textContent = `${pct}% (${data.days_completed}/${data.days_total})`;
+  if (pct >= 80) {
+    el.className = 'habit-rate rate-green';
+  } else if (pct >= 50) {
+    el.className = 'habit-rate rate-yellow';
+  } else {
+    el.className = 'habit-rate rate-grey';
+  }
+}
+
+async function fetchStats(habitId, userId) {
+  try {
+    const res = await fetch(
+      `/api/habits/stats?user_id=${encodeURIComponent(userId)}&habit_id=${encodeURIComponent(habitId)}&days=30`
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAllStats(habits, userId) {
+  await Promise.all(habits.map(async habit => {
+    const data = await fetchStats(habit.id, userId);
+    const row = document.getElementById(`habit-row-${habit.id}`);
+    if (!row) return;
+    renderStreakEl(row.querySelector('.habit-streak'), data);
+    renderRateEl(row.querySelector('.habit-rate'), data);
+  }));
+}
+
+async function refreshStatsForHabit(habitId) {
+  const data = await fetchStats(habitId, currentUserId);
+  const row = document.getElementById(`habit-row-${habitId}`);
+  if (!row) return;
+  renderStreakEl(row.querySelector('.habit-streak'), data);
+  renderRateEl(row.querySelector('.habit-rate'), data);
 }
 
 function render(habits) {
@@ -52,6 +122,7 @@ function render(habits) {
 
     const li = document.createElement('li');
     li.className = 'habit-row' + (done ? ' habit-done' : '');
+    li.id = `habit-row-${habit.id}`;
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -63,6 +134,14 @@ function render(habits) {
     name.className = 'habit-name';
     name.textContent = habit.name;
 
+    const streak = document.createElement('span');
+    streak.className = 'habit-streak streak-loading';
+    streak.textContent = '…';
+
+    const rate = document.createElement('span');
+    rate.className = 'habit-rate rate-loading';
+    rate.textContent = '…';
+
     const del = document.createElement('button');
     del.className = 'habit-delete';
     del.textContent = 'Delete';
@@ -71,6 +150,8 @@ function render(habits) {
 
     li.appendChild(checkbox);
     li.appendChild(name);
+    li.appendChild(streak);
+    li.appendChild(rate);
     li.appendChild(del);
     list.appendChild(li);
   });
@@ -102,7 +183,26 @@ async function toggleLog(habitId, logId, checkbox) {
       return;
     }
   }
-  await loadAndRender(currentUserId);
+  // Reload today's logs and re-render, then refresh stats for this habit only
+  try {
+    const logsRes = await fetch(
+      `/api/habits/logs?user_id=${encodeURIComponent(currentUserId)}&from=${TODAY}&to=${TODAY}`
+    );
+    if (logsRes.ok) todayLogs = await logsRes.json();
+  } catch { /* keep stale logs */ }
+
+  const row = document.getElementById(`habit-row-${habitId}`);
+  if (row) {
+    const newLog = todayLogs.find(l => l.habit_id === habitId);
+    if (newLog) {
+      row.classList.add('habit-done');
+      checkbox.checked = true;
+    } else {
+      row.classList.remove('habit-done');
+      checkbox.checked = false;
+    }
+  }
+  refreshStatsForHabit(habitId);
 }
 
 async function deleteHabit(habitId) {
