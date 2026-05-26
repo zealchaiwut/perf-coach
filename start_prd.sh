@@ -39,8 +39,10 @@ except Exception as e:
     sys.exit(1)
 EOF
 
+source .venv/bin/activate
+
 echo "Applying database migrations (PRD)..."
-alembic upgrade head
+uv run alembic upgrade head
 
 echo "Starting perf-coach backend (PRD) on http://localhost:$PORT"
-exec uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
+exec uv run uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
