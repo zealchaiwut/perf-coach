@@ -471,37 +471,53 @@ def get_active_streak(user_id: str):
         raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from datetime import timedelta
+    from sqlalchemy import text as _sql_text
     today = _date.today()
 
     with Session(engine) as session:
-        weight_dates = {
-            row.recorded_date
-            for row in session.query(WeightEntry.recorded_date)
-            .filter(WeightEntry.user_id == uid)
-            .all()
-        }
-        habit_dates = {
-            row.logged_date
-            for row in session.query(HabitLog.logged_date)
-            .filter(HabitLog.user_id == uid)
-            .all()
-        }
-        workout_dates = {
-            row.workout_date
-            for row in session.query(Workout.workout_date)
-            .filter(Workout.user_id == uid)
-            .all()
-        }
+        rows = session.execute(
+            _sql_text("""
+                SELECT DISTINCT d FROM (
+                    SELECT recorded_date AS d FROM weight_entries WHERE user_id = :uid
+                    UNION
+                    SELECT logged_date AS d FROM habit_logs WHERE user_id = :uid
+                    UNION
+                    SELECT workout_date AS d FROM workouts WHERE user_id = :uid
+                ) sub
+                ORDER BY d
+            """),
+            {"uid": str(uid)},
+        ).fetchall()
 
-        all_active = weight_dates | habit_dates | workout_dates
+    if not rows:
+        return JSONResponse({"current_streak": 0, "longest_streak": 0, "last_active_date": None})
 
-        streak = 0
-        check = today
-        while check in all_active:
-            streak += 1
-            check = check - timedelta(days=1)
+    sorted_asc = [row[0] for row in rows]
+    all_dates = set(sorted_asc)
+    last_active = sorted_asc[-1]
 
-        return JSONResponse({"streak": streak})
+    # Longest streak across all time
+    longest = run = 1
+    for i in range(1, len(sorted_asc)):
+        if (sorted_asc[i] - sorted_asc[i - 1]).days == 1:
+            run += 1
+            if run > longest:
+                longest = run
+        else:
+            run = 1
+
+    # Current streak (forgiving: if today has no entry, start from yesterday)
+    check = today if today in all_dates else today - timedelta(days=1)
+    current_streak = 0
+    while check in all_dates:
+        current_streak += 1
+        check -= timedelta(days=1)
+
+    return JSONResponse({
+        "current_streak": current_streak,
+        "longest_streak": longest,
+        "last_active_date": str(last_active),
+    })
 
 
 @app.get("/")

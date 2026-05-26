@@ -167,9 +167,14 @@
       var res = await fetch('/api/stats/active-streak?user_id=' + encodeURIComponent(userId));
       if (!res.ok) throw new Error('server error');
       var data = await res.json();
-      setText('card-streak-value', '🔥 ' + data.streak);
-      setText('card-streak-sub', 'consecutive days');
-      setClass('card-streak-sub', 'muted');
+      setText('card-streak-value', '🔥 ' + data.current_streak);
+      if (data.current_streak >= 7) {
+        setText('card-streak-sub', 'Best ever: ' + data.longest_streak);
+        setClass('card-streak-sub', '');
+      } else {
+        setText('card-streak-sub', 'consecutive days');
+        setClass('card-streak-sub', 'muted');
+      }
     } catch (e) {
       setText('card-streak-value', '🔥 0');
       setText('card-streak-sub', 'Unable to load');
