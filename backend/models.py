@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, UniqueConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 
@@ -47,3 +47,31 @@ class HabitLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (UniqueConstraint("habit_id", "logged_date", name="uq_habit_logs_habit_date"),)
+
+
+class Workout(Base):
+    __tablename__ = "workouts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    workout_date = Column(Date, nullable=False)
+    workout_type = Column(String(50), nullable=False)
+    remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class WorkoutExercise(Base):
+    __tablename__ = "workout_exercises"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id"), nullable=False)
+    display_order = Column(Integer, server_default=text("0"), nullable=False)
+    name = Column(String(200), nullable=False)
+    sets = Column(Integer, nullable=True)
+    reps = Column(Integer, nullable=True)
+    weight_kg = Column(Numeric(6, 2), nullable=True)
+    duration = Column(String(20), nullable=True)
+    rpe = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
