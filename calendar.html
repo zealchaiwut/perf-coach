@@ -24,23 +24,28 @@
     }
 
     .cal-nav-btn {
-      padding: 0.3rem 0.65rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
       background: #fff;
       border: 1px solid #d1d5db;
       border-radius: 4px;
-      font-size: 1.1rem;
-      line-height: 1;
       cursor: pointer;
       color: #374151;
+      flex-shrink: 0;
     }
 
     .cal-nav-btn:hover { background: #f3f4f6; }
 
+    .cal-nav-btn svg { pointer-events: none; }
+
     .cal-month-label {
-      font-size: 1rem;
+      font-size: 1.25rem;
       font-weight: 600;
       color: #1a1a1a;
-      min-width: 148px;
+      min-width: 180px;
       text-align: center;
     }
 
@@ -81,6 +86,10 @@
       cursor: pointer;
     }
 
+    .cal-grid-scroll {
+      width: 100%;
+    }
+
     .cal-grid {
       width: 100%;
       border: 1px solid #e5e5e5;
@@ -108,7 +117,10 @@
     .cal-grid-cells {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
+      transition: opacity 75ms ease;
     }
+
+    .cal-grid-cells.fading { opacity: 0; }
 
     .cal-cell {
       min-height: 90px;
@@ -116,6 +128,7 @@
       border-bottom: 1px solid #e5e5e5;
       padding: 0.375rem 0.5rem;
       background: #fff;
+      overflow: hidden;
     }
 
     .cal-cell:nth-child(7n) { border-right: none; }
@@ -134,6 +147,9 @@
       font-size: 0.8125rem;
       font-weight: 500;
       color: #374151;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .cal-cell.today .cal-day-num {
@@ -141,13 +157,26 @@
       font-weight: 700;
     }
 
-    @media (max-width: 699px) {
+    /* < 900px: shrink cells to 60px min-height */
+    @media (max-width: 899px) {
       .cal-cell {
         min-height: 60px;
         padding: 0.25rem 0.3rem;
       }
 
       .cal-day-num { font-size: 0.75rem; }
+    }
+
+    /* < 700px: allow horizontal scroll so grid never crashes */
+    @media (max-width: 699px) {
+      .cal-grid-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .cal-grid {
+        min-width: 420px;
+      }
     }
   </style>
 </head>
@@ -159,9 +188,13 @@
   <main>
     <div class="cal-toolbar">
       <div class="cal-nav">
-        <button class="cal-nav-btn" id="prev-btn" aria-label="Previous month">&#8249;</button>
+        <button class="cal-nav-btn" id="prev-btn" aria-label="Previous month">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
         <span class="cal-month-label" id="month-label"></span>
-        <button class="cal-nav-btn" id="next-btn" aria-label="Next month">&#8250;</button>
+        <button class="cal-nav-btn" id="next-btn" aria-label="Next month">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
         <button class="cal-today-btn" id="today-btn">Today</button>
       </div>
       <div class="cal-filters">
@@ -177,17 +210,19 @@
       </div>
     </div>
 
-    <div class="cal-grid">
-      <div class="cal-grid-header">
-        <div class="cal-dow">Mon</div>
-        <div class="cal-dow">Tue</div>
-        <div class="cal-dow">Wed</div>
-        <div class="cal-dow">Thu</div>
-        <div class="cal-dow">Fri</div>
-        <div class="cal-dow">Sat</div>
-        <div class="cal-dow">Sun</div>
+    <div class="cal-grid-scroll">
+      <div class="cal-grid">
+        <div class="cal-grid-header">
+          <div class="cal-dow">Mon</div>
+          <div class="cal-dow">Tue</div>
+          <div class="cal-dow">Wed</div>
+          <div class="cal-dow">Thu</div>
+          <div class="cal-dow">Fri</div>
+          <div class="cal-dow">Sat</div>
+          <div class="cal-dow">Sun</div>
+        </div>
+        <div class="cal-grid-cells" id="cal-grid-cells"></div>
       </div>
-      <div class="cal-grid-cells" id="cal-grid-cells"></div>
     </div>
 
     <nav style="margin-top: 2rem">

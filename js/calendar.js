@@ -64,28 +64,65 @@
     }
   }
 
+  // Fade out → update → fade in (~150ms total)
+  function withFade(action) {
+    const grid = document.getElementById('cal-grid-cells');
+    grid.classList.add('fading');
+    setTimeout(() => {
+      action();
+      render();
+      grid.classList.remove('fading');
+    }, 75);
+  }
+
   function navigate(delta) {
-    let { year, month } = state;
-    month += delta;
-    if (month > 11) { year++; month = 0; }
-    if (month < 0) { year--; month = 11; }
-    state = { year, month };
-    writeMonthToURL(year, month);
-    render();
+    withFade(() => {
+      let { year, month } = state;
+      month += delta;
+      if (month > 11) { year++; month = 0; }
+      if (month < 0) { year--; month = 11; }
+      state = { year, month };
+      writeMonthToURL(year, month);
+    });
+  }
+
+  function goToToday() {
+    withFade(() => {
+      const now = new Date();
+      state = { year: now.getFullYear(), month: now.getMonth() };
+      writeMonthToURL(state.year, state.month);
+    });
   }
 
   document.getElementById('prev-btn').addEventListener('click', () => navigate(-1));
   document.getElementById('next-btn').addEventListener('click', () => navigate(1));
-  document.getElementById('today-btn').addEventListener('click', () => {
-    const now = new Date();
-    state = { year: now.getFullYear(), month: now.getMonth() };
-    writeMonthToURL(state.year, state.month);
-    render();
-  });
+  document.getElementById('today-btn').addEventListener('click', goToToday);
 
   window.addEventListener('popstate', () => {
     state = readMonthFromURL();
     render();
+  });
+
+  // Keyboard shortcuts: ←/→ navigate, Home = today, Esc = close modal
+  document.addEventListener('keydown', (e) => {
+    const tag = (document.activeElement && document.activeElement.tagName.toLowerCase()) || '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      navigate(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      navigate(1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      goToToday();
+    } else if (e.key === 'Escape') {
+      // Placeholder: close any open modal (wired up in P4-10)
+      const overlay = document.querySelector('.modal-overlay');
+      if (overlay) overlay.remove();
+    }
   });
 
   render();
