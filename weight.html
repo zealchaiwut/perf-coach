@@ -133,6 +133,55 @@
       margin-bottom: 1rem;
       min-height: 1.2em;
     }
+
+    .range-filter {
+      display: inline-flex;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 0.75rem;
+    }
+
+    .range-btn {
+      padding: 0.375rem 0.875rem;
+      background: #fff;
+      border: none;
+      border-right: 1px solid #d1d5db;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    .range-btn:last-child {
+      border-right: none;
+    }
+
+    .range-btn:hover:not(.active) {
+      background: #f3f4f6;
+    }
+
+    .range-btn.active {
+      background: #1a1a1a;
+      color: #fff;
+    }
+
+    .ma-toggle {
+      margin-top: 0.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+      color: #444;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .ma-toggle input[type="checkbox"] {
+      cursor: pointer;
+      width: 1rem;
+      height: 1rem;
+    }
   </style>
 </head>
 <body>
@@ -150,8 +199,20 @@
 
     <p id="api-error" role="alert"></p>
 
+    <div class="range-filter" role="group" aria-label="Chart date range">
+      <button class="range-btn" data-range="7d" type="button">7d</button>
+      <button class="range-btn" data-range="30d" type="button">30d</button>
+      <button class="range-btn" data-range="90d" type="button">90d</button>
+      <button class="range-btn" data-range="all" type="button">All</button>
+    </div>
+
     <div class="chart-wrapper">
       <canvas id="weight-chart"></canvas>
+    </div>
+
+    <div class="ma-toggle">
+      <input type="checkbox" id="avg-toggle" checked>
+      <label for="avg-toggle">Show moving average</label>
     </div>
 
     <form id="weight-form" class="weight-form" novalidate>
