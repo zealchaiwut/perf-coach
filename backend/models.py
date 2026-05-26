@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, UniqueConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -61,6 +61,13 @@ class Workout(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
+    exercises = relationship(
+        "WorkoutExercise",
+        back_populates="workout",
+        cascade="all, delete-orphan",
+        order_by="WorkoutExercise.display_order",
+    )
+
 
 class WorkoutExercise(Base):
     __tablename__ = "workout_exercises"
@@ -75,3 +82,5 @@ class WorkoutExercise(Base):
     duration = Column(String(20), nullable=True)
     rpe = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    workout = relationship("Workout", back_populates="exercises")
