@@ -1,4 +1,5 @@
 import os
+from datetime import date, timedelta
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -46,3 +47,84 @@ with Session(engine) as session:
             print(f"Seeded {len(SEED_HABITS)} habits for {len(users)} user(s)")
     else:
         print(f"Habits table already has {habit_count} row(s) — skipping habit seed")
+
+with Session(engine) as session:
+    workout_count = session.execute(text("SELECT COUNT(*) FROM workouts")).scalar()
+    if workout_count == 0:
+        alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+        if alice:
+            today = date.today()
+            seed_workouts = [
+                {
+                    "user_id": str(alice.id),
+                    "name": "Morning Strength",
+                    "workout_date": str(today - timedelta(days=3)),
+                    "workout_type": "Strength",
+                    "remarks": "Felt strong today",
+                    "exercises": [
+                        {"name": "Bench Press", "sets": 4, "reps": 8, "weight_kg": 80, "rpe": 8},
+                        {"name": "Squat", "sets": 4, "reps": 6, "weight_kg": 100, "rpe": 8},
+                        {"name": "Pull-up", "sets": 3, "reps": 8, "weight_kg": None, "rpe": 7},
+                    ],
+                },
+                {
+                    "user_id": str(alice.id),
+                    "name": "Easy Run",
+                    "workout_date": str(today - timedelta(days=7)),
+                    "workout_type": "Running",
+                    "remarks": "5k recovery pace",
+                    "exercises": [
+                        {"name": "5k Run", "sets": None, "reps": None, "weight_kg": None, "duration": "28:00", "rpe": 5},
+                    ],
+                },
+                {
+                    "user_id": str(alice.id),
+                    "name": "Upper Push",
+                    "workout_date": str(today - timedelta(days=10)),
+                    "workout_type": "Strength",
+                    "remarks": "",
+                    "exercises": [
+                        {"name": "Overhead Press", "sets": 4, "reps": 10, "weight_kg": 50, "rpe": 7},
+                        {"name": "Tricep Dip", "sets": 3, "reps": 12, "weight_kg": None, "rpe": 6},
+                        {"name": "Lateral Raise", "sets": 3, "reps": 15, "weight_kg": 10, "rpe": 6},
+                    ],
+                },
+            ]
+            for w in seed_workouts:
+                result = session.execute(
+                    text(
+                        "INSERT INTO workouts (user_id, name, workout_date, workout_type, remarks)"
+                        " VALUES (:user_id, :name, :workout_date, :workout_type, :remarks)"
+                        " RETURNING id"
+                    ),
+                    {
+                        "user_id": w["user_id"],
+                        "name": w["name"],
+                        "workout_date": w["workout_date"],
+                        "workout_type": w["workout_type"],
+                        "remarks": w["remarks"] or None,
+                    },
+                )
+                workout_id = result.fetchone().id
+                for i, ex in enumerate(w["exercises"]):
+                    session.execute(
+                        text(
+                            "INSERT INTO workout_exercises"
+                            " (workout_id, display_order, name, sets, reps, weight_kg, duration, rpe)"
+                            " VALUES (:workout_id, :display_order, :name, :sets, :reps, :weight_kg, :duration, :rpe)"
+                        ),
+                        {
+                            "workout_id": str(workout_id),
+                            "display_order": i,
+                            "name": ex["name"],
+                            "sets": ex.get("sets"),
+                            "reps": ex.get("reps"),
+                            "weight_kg": ex.get("weight_kg"),
+                            "duration": ex.get("duration"),
+                            "rpe": ex.get("rpe"),
+                        },
+                    )
+            session.commit()
+            print(f"Seeded {len(seed_workouts)} workouts for Alice")
+    else:
+        print(f"Workouts table already has {workout_count} row(s) — skipping workout seed")

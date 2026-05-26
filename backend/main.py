@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import Habit, HabitLog, User, WeightEntry
+from backend.models import Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
 
 __version__ = "0.1.0"
 
@@ -481,3 +481,241 @@ def habits():
 @app.get("/users.html")
 def users_page():
     return FileResponse(str(_static_root / "users.html"))
+
+
+# ── Workout endpoints ─────────────────────────────────────────────────────────
+
+class ExerciseIn(BaseModel):
+    name: str
+    sets: Optional[int] = None
+    reps: Optional[int] = None
+    weight_kg: Optional[float] = None
+    duration: Optional[str] = None
+    rpe: Optional[int] = None
+    display_order: int = 0
+
+
+class WorkoutIn(BaseModel):
+    user_id: str
+    name: str
+    workout_date: str  # YYYY-MM-DD
+    workout_type: str
+    remarks: Optional[str] = None
+    exercises: list[ExerciseIn] = []
+
+
+class WorkoutPatch(BaseModel):
+    name: Optional[str] = None
+    workout_date: Optional[str] = None
+    workout_type: Optional[str] = None
+    remarks: Optional[str] = None
+    exercises: Optional[list[ExerciseIn]] = None
+
+
+def _exercise_dict(e: WorkoutExercise) -> dict:
+    return {
+        "id": str(e.id),
+        "display_order": e.display_order,
+        "name": e.name,
+        "sets": e.sets,
+        "reps": e.reps,
+        "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
+        "duration": e.duration,
+        "rpe": e.rpe,
+    }
+
+
+def _workout_dict(w: Workout, exercises: list) -> dict:
+    return {
+        "id": str(w.id),
+        "user_id": str(w.user_id),
+        "name": w.name,
+        "workout_date": str(w.workout_date),
+        "workout_type": w.workout_type,
+        "remarks": w.remarks,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+        "updated_at": w.updated_at.isoformat() if w.updated_at else None,
+        "exercises": [_exercise_dict(e) for e in exercises],
+    }
+
+
+@app.get("/api/workouts")
+def get_workouts(user_id: str, days: int = Query(default=30, ge=1, le=365)):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    from datetime import timedelta, datetime, timezone
+    cutoff = _date.today() - timedelta(days=days)
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_date >= cutoff)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .all()
+        )
+        result = []
+        for w in workouts:
+            exs = (
+                session.query(WorkoutExercise)
+                .filter(WorkoutExercise.workout_id == w.id)
+                .order_by(WorkoutExercise.display_order)
+                .all()
+            )
+            result.append(_workout_dict(w, exs))
+        return JSONResponse(result)
+
+
+@app.post("/api/workouts", status_code=201)
+def post_workout(body: WorkoutIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Workout name is required")
+    if not body.exercises:
+        raise HTTPException(status_code=400, detail="At least one exercise is required")
+    try:
+        workout_date = _date.fromisoformat(body.workout_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_date; use YYYY-MM-DD")
+    for ex in body.exercises:
+        if ex.rpe is not None and not (1 <= ex.rpe <= 10):
+            raise HTTPException(status_code=400, detail="RPE must be between 1 and 10")
+    from datetime import datetime, timezone
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        workout = Workout(
+            user_id=uid,
+            name=name,
+            workout_date=workout_date,
+            workout_type=body.workout_type.strip(),
+            remarks=body.remarks.strip() if body.remarks else None,
+        )
+        session.add(workout)
+        session.flush()
+        exercises = []
+        for ex in body.exercises:
+            e = WorkoutExercise(
+                workout_id=workout.id,
+                display_order=ex.display_order,
+                name=ex.name.strip(),
+                sets=ex.sets,
+                reps=ex.reps,
+                weight_kg=ex.weight_kg,
+                duration=ex.duration,
+                rpe=ex.rpe,
+            )
+            session.add(e)
+            exercises.append(e)
+        session.commit()
+        session.refresh(workout)
+        for e in exercises:
+            session.refresh(e)
+        return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
+
+
+@app.get("/api/workouts/{workout_id}")
+def get_workout(workout_id: str):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+        return JSONResponse(_workout_dict(workout, exercises))
+
+
+@app.patch("/api/workouts/{workout_id}")
+def patch_workout(workout_id: str, body: WorkoutPatch):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    from datetime import datetime, timezone
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if body.name is not None:
+            name = body.name.strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Workout name is required")
+            workout.name = name
+        if body.workout_date is not None:
+            try:
+                workout.workout_date = _date.fromisoformat(body.workout_date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid workout_date; use YYYY-MM-DD")
+        if body.workout_type is not None:
+            workout.workout_type = body.workout_type.strip()
+        if body.remarks is not None:
+            workout.remarks = body.remarks.strip() or None
+        workout.updated_at = datetime.now(timezone.utc)
+        if body.exercises is not None:
+            if not body.exercises:
+                raise HTTPException(status_code=400, detail="At least one exercise is required")
+            for ex in body.exercises:
+                if ex.rpe is not None and not (1 <= ex.rpe <= 10):
+                    raise HTTPException(status_code=400, detail="RPE must be between 1 and 10")
+            session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+            exercises = []
+            for ex in body.exercises:
+                e = WorkoutExercise(
+                    workout_id=wid,
+                    display_order=ex.display_order,
+                    name=ex.name.strip(),
+                    sets=ex.sets,
+                    reps=ex.reps,
+                    weight_kg=ex.weight_kg,
+                    duration=ex.duration,
+                    rpe=ex.rpe,
+                )
+                session.add(e)
+                exercises.append(e)
+            session.commit()
+            for e in exercises:
+                session.refresh(e)
+        else:
+            session.commit()
+            exercises = (
+                session.query(WorkoutExercise)
+                .filter(WorkoutExercise.workout_id == wid)
+                .order_by(WorkoutExercise.display_order)
+                .all()
+            )
+        session.refresh(workout)
+        return JSONResponse(_workout_dict(workout, exercises))
+
+
+@app.delete("/api/workouts/{workout_id}", status_code=204)
+def delete_workout(workout_id: str):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+        session.delete(workout)
+        session.commit()
+    return Response(status_code=204)
+
+
+@app.get("/training.html")
+def training():
+    return FileResponse(str(_static_root / "training.html"))
