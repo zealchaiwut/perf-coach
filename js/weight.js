@@ -2,43 +2,138 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function chartData(entries) {
-  const source = entries.length > 0 ? entries : MOCK_WEIGHT_ENTRIES;
-  const sorted = source.slice().sort((a, b) => a.recorded_date.localeCompare(b.recorded_date));
-  return {
-    labels: sorted.map(e => e.recorded_date),
-    weights: sorted.map(e => e.weight_kg),
-  };
-}
+const MA_COLOR = '#16a34a';
+const DAILY_COLOR = '#9ca3af';
 
+let allEntries = [];
+let currentRange = '30d';
+let showAvg = true;
 let weightChart = null;
 
+function readUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const r = params.get('range');
+  if (['7d', '30d', '90d', 'all'].includes(r)) currentRange = r;
+  if (params.get('avg') === 'false') showAvg = false;
+}
+
+function updateUrl() {
+  const params = new URLSearchParams(window.location.search);
+  params.set('range', currentRange);
+  params.set('avg', showAvg ? 'true' : 'false');
+  history.replaceState(null, '', '?' + params.toString());
+}
+
+function syncRangeButtons() {
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === currentRange);
+  });
+}
+
+function syncAvgCheckbox() {
+  const cb = document.getElementById('avg-toggle');
+  if (cb) cb.checked = showAvg;
+}
+
+function filterByRange(entries, range) {
+  if (range === 'all') return entries;
+  const days = { '7d': 7, '30d': 30, '90d': 90 }[range];
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (days - 1));
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return entries.filter(e => e.recorded_date >= cutoffStr);
+}
+
+function computeMovingAverage(visibleSorted, allSorted) {
+  const dateToWeight = {};
+  for (const e of allSorted) dateToWeight[e.recorded_date] = e.weight_kg;
+
+  return visibleSorted.map(entry => {
+    const base = new Date(entry.recorded_date + 'T00:00:00');
+    const windowWeights = [];
+    for (let d = 6; d >= 0; d--) {
+      const check = new Date(base);
+      check.setDate(check.getDate() - d);
+      const key = check.toISOString().slice(0, 10);
+      if (dateToWeight[key] !== undefined) windowWeights.push(dateToWeight[key]);
+    }
+    if (windowWeights.length < 3) return null;
+    const avg = windowWeights.reduce((a, b) => a + b, 0) / windowWeights.length;
+    return Math.round(avg * 100) / 100;
+  });
+}
+
 function renderChart(entries) {
-  const { labels, weights } = chartData(entries);
+  const source = entries.length > 0 ? entries : MOCK_WEIGHT_ENTRIES;
+  const allSorted = source.slice().sort((a, b) => a.recorded_date.localeCompare(b.recorded_date));
+  const visibleSorted = filterByRange(allSorted, currentRange);
+
+  const labels = visibleSorted.map(e => e.recorded_date);
+  const weights = visibleSorted.map(e => e.weight_kg);
+
+  const pointRadii = weights.map((_, i) => i === weights.length - 1 ? 7 : 3);
+  const pointHoverRadii = weights.map((_, i) => i === weights.length - 1 ? 9 : 5);
+
+  const maValues = computeMovingAverage(visibleSorted, allSorted);
+  const effectiveShowAvg = showAvg && visibleSorted.length >= 7;
+
+  const allValues = [...weights, ...maValues.filter(v => v !== null)];
+  const padding = 0.5;
+  const minY = allValues.length ? Math.min(...allValues) - padding : undefined;
+  const maxY = allValues.length ? Math.max(...allValues) + padding : undefined;
+
   if (weightChart) {
     weightChart.data.labels = labels;
     weightChart.data.datasets[0].data = weights;
+    weightChart.data.datasets[0].pointRadius = pointRadii;
+    weightChart.data.datasets[0].pointHoverRadius = pointHoverRadii;
+    weightChart.data.datasets[1].data = maValues;
+    weightChart.data.datasets[1].hidden = !effectiveShowAvg;
+    if (minY !== undefined) weightChart.options.scales.y.min = minY;
+    if (maxY !== undefined) weightChart.options.scales.y.max = maxY;
     weightChart.update();
     return;
   }
+
   const ctx = document.getElementById('weight-chart').getContext('2d');
   weightChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: 'Weight (kg)',
-        data: weights,
-        tension: 0.3,
-        fill: false,
-      }],
+      datasets: [
+        {
+          label: 'Daily',
+          data: weights,
+          showLine: false,
+          pointRadius: pointRadii,
+          pointHoverRadius: pointHoverRadii,
+          pointBackgroundColor: DAILY_COLOR,
+          pointBorderColor: DAILY_COLOR,
+          borderColor: DAILY_COLOR,
+        },
+        {
+          label: '7-day average',
+          data: maValues,
+          borderColor: MA_COLOR,
+          backgroundColor: 'transparent',
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          hidden: !effectiveShowAvg,
+          spanGaps: false,
+        },
+      ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: true,
       scales: {
         x: { title: { display: true, text: 'Date' } },
-        y: { title: { display: true, text: 'Weight (kg)' } },
+        y: {
+          title: { display: true, text: 'Weight (kg)' },
+          min: minY,
+          max: maxY,
+        },
       },
     },
   });
@@ -82,9 +177,9 @@ async function loadAndRender() {
   try {
     const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`);
     if (!res.ok) throw new Error(`Server error ${res.status}`);
-    const entries = await res.json();
-    renderEntries(entries);
-    renderChart(entries);
+    allEntries = await res.json();
+    renderEntries(allEntries);
+    renderChart(allEntries);
   } catch (e) {
     showApiError('Unable to load data: ' + e.message);
   }
@@ -103,6 +198,8 @@ async function deleteEntry(entryId) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  readUrlParams();
+
   const userSelect = document.getElementById('user-select');
   const form = document.getElementById('weight-form');
   const weightInput = document.getElementById('weight-input');
@@ -111,7 +208,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   dateInput.value = todayISO();
 
-  // Load users into selector (AC-5)
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentRange = btn.dataset.range;
+      updateUrl();
+      syncRangeButtons();
+      renderChart(allEntries);
+    });
+  });
+  syncRangeButtons();
+
+  const avgToggle = document.getElementById('avg-toggle');
+  avgToggle.addEventListener('change', () => {
+    showAvg = avgToggle.checked;
+    updateUrl();
+    renderChart(allEntries);
+  });
+  syncAvgCheckbox();
+
+  // Load users into selector
   try {
     const res = await fetch('/api/users');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -125,7 +240,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Add "+ Add user..." option at the bottom
   const addUserOpt = document.createElement('option');
   addUserOpt.value = '__add__';
   addUserOpt.textContent = '+ Add user...';
@@ -133,10 +247,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let prevUserId = userSelect.value;
 
-  // Load entries for initial user (AC-8)
   await loadAndRender();
 
-  // Reload on user change (AC-8); handle inline add-user
   userSelect.addEventListener('change', () => {
     if (userSelect.value === '__add__') {
       userSelect.value = prevUserId;
@@ -189,14 +301,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (res.status === 409) {
-        // AC-7: do not reset form, show specific error
         errorMsg.textContent = 'You already have an entry for this date — delete it first.';
         return;
       }
 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
 
-      // AC-6: reset form and refresh list + chart
       form.reset();
       dateInput.value = todayISO();
       await loadAndRender();
