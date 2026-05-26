@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 .env
+.env.prd
+.env.uat
 *.log
 venv/
+.venv
 .DS_Store
