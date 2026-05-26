@@ -8,6 +8,7 @@
   let currentUserId = null;
   let calData = emptyData();
   let loadSeq = 0;
+  let modalDirty = false;
 
   function emptyData() {
     return { weights: {}, habits: [], habitLogs: {}, workouts: {} };
@@ -98,6 +99,8 @@
     const isToday = dateStr === todayStr;
     const isPast = dateStr < todayStr;
 
+    cell.dataset.date = dateStr;
+
     // Top row: day number + optional weight value
     const top = document.createElement('div');
     top.className = 'cal-cell-top';
@@ -165,7 +168,7 @@
       cell.appendChild(row);
     }
 
-    cell.style.cursor = 'pointer';
+    cell.addEventListener('click', () => openDayModal(dateStr));
   }
 
   function render() {
@@ -265,6 +268,350 @@
     });
   }
 
+  // ── Day-detail modal ──────────────────────────────────────────────────────────
+
+  function openDayModal(dateStr) {
+    modalDirty = false;
+
+    const todayStr = toLocalDateStr(new Date());
+    const isFuture = dateStr > todayStr;
+    const isToday = dateStr === todayStr;
+
+    const d = new Date(dateStr + 'T00:00:00');
+    const title = d.toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay day-modal-overlay';
+
+    const box = document.createElement('div');
+    box.className = 'modal-box day-modal-box';
+
+    const header = document.createElement('div');
+    header.className = 'day-modal-header';
+
+    const titleEl = document.createElement('h2');
+    titleEl.className = 'day-modal-title';
+    titleEl.textContent = title;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'day-modal-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.innerHTML = '&times;';
+
+    header.appendChild(titleEl);
+    header.appendChild(closeBtn);
+    box.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'day-modal-body';
+    box.appendChild(body);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    function closeModal() {
+      overlay.remove();
+      if (modalDirty) refreshGridCell(dateStr);
+    }
+
+    overlay._close = closeModal;
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+    if (isFuture) {
+      const msg = document.createElement('p');
+      msg.className = 'day-modal-future-msg';
+      msg.textContent = 'Cannot log entries for future dates';
+      body.appendChild(msg);
+      return;
+    }
+
+    renderModalContent(body, dateStr, isToday);
+  }
+
+  async function renderModalContent(body, dateStr, isToday) {
+    body.innerHTML = '<div class="day-modal-loading">Loading…</div>';
+
+    try {
+      const enc = s => encodeURIComponent(s);
+      const [wR, hR, lR, tR] = await Promise.all([
+        fetch(`/api/weight?user_id=${enc(currentUserId)}`),
+        fetch(`/api/habits?user_id=${enc(currentUserId)}`),
+        fetch(`/api/habits/logs?user_id=${enc(currentUserId)}&from=${dateStr}&to=${dateStr}`),
+        fetch(`/api/workouts?user_id=${enc(currentUserId)}&from=${dateStr}&to=${dateStr}`),
+      ]);
+      const allWeights = wR.ok ? await wR.json() : [];
+      const habits = hR.ok ? await hR.json() : [];
+      const logs = lR.ok ? await lR.json() : [];
+      const workouts = tR.ok ? await tR.json() : [];
+
+      const weightEntry = allWeights.find(w => w.recorded_date === dateStr) || null;
+      const logMap = {};
+      for (const l of logs) logMap[l.habit_id] = l.id;
+
+      body.innerHTML = '';
+      renderWeightSection(body, weightEntry, dateStr);
+      renderHabitsSection(body, habits, logMap, dateStr, isToday);
+      renderTrainingSection(body, workouts, dateStr);
+    } catch {
+      body.innerHTML = '<p class="day-modal-error">Failed to load data.</p>';
+    }
+  }
+
+  function renderWeightSection(body, weightEntry, dateStr) {
+    const section = document.createElement('section');
+    section.className = 'day-modal-section';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'day-modal-section-title';
+    h3.textContent = 'Weight';
+    section.appendChild(h3);
+
+    if (weightEntry) {
+      const p = document.createElement('p');
+      p.className = 'day-modal-weight-value';
+      p.textContent = `${parseFloat(weightEntry.weight_kg).toFixed(1)} kg`;
+      section.appendChild(p);
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'day-modal-add-btn';
+      btn.textContent = '+ Log weight for this day';
+      btn.addEventListener('click', () => { btn.remove(); showInlineWeightForm(section, dateStr); });
+      section.appendChild(btn);
+    }
+
+    body.appendChild(section);
+  }
+
+  function showInlineWeightForm(section, dateStr) {
+    const form = document.createElement('form');
+    form.className = 'day-modal-inline-form';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.1';
+    input.min = '1';
+    input.max = '999';
+    input.placeholder = 'kg';
+    input.className = 'day-modal-weight-input';
+    input.required = true;
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'submit';
+    saveBtn.className = 'btn-primary btn-sm';
+    saveBtn.textContent = 'Save';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn-secondary btn-sm';
+    cancelBtn.textContent = 'Cancel';
+
+    const errEl = document.createElement('span');
+    errEl.className = 'day-modal-form-error';
+
+    form.appendChild(input);
+    form.appendChild(saveBtn);
+    form.appendChild(cancelBtn);
+    form.appendChild(errEl);
+    section.appendChild(form);
+    input.focus();
+
+    cancelBtn.addEventListener('click', () => {
+      form.remove();
+      const btn = document.createElement('button');
+      btn.className = 'day-modal-add-btn';
+      btn.textContent = '+ Log weight for this day';
+      btn.addEventListener('click', () => { btn.remove(); showInlineWeightForm(section, dateStr); });
+      section.appendChild(btn);
+    });
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errEl.textContent = '';
+      const raw = input.value.trim();
+      if (!raw || isNaN(+raw) || +raw <= 0) {
+        errEl.textContent = 'Enter a valid weight.';
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/weight?user_id=${encodeURIComponent(currentUserId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: +raw, recorded_date: dateStr }),
+        });
+        if (res.status === 409) {
+          errEl.textContent = 'Already logged for this date.';
+          saveBtn.disabled = false;
+          return;
+        }
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
+        modalDirty = true;
+        form.remove();
+        const p = document.createElement('p');
+        p.className = 'day-modal-weight-value';
+        p.textContent = `${(+raw).toFixed(1)} kg`;
+        section.appendChild(p);
+      } catch (err) {
+        errEl.textContent = 'Failed: ' + err.message;
+        saveBtn.disabled = false;
+      }
+    });
+  }
+
+  function renderHabitsSection(body, habits, logMap, dateStr, isToday) {
+    const section = document.createElement('section');
+    section.className = 'day-modal-section';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'day-modal-section-title';
+    h3.textContent = 'Habits';
+    section.appendChild(h3);
+
+    if (habits.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'day-modal-empty';
+      p.textContent = 'No habits yet.';
+      section.appendChild(p);
+      body.appendChild(section);
+      return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'day-modal-habit-list';
+
+    for (const habit of habits) {
+      const done = habit.id in logMap;
+      const li = document.createElement('li');
+      li.className = 'day-modal-habit-item';
+
+      if (isToday) {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = done;
+        cb.id = `modal-cb-${habit.id}`;
+        cb.className = 'day-modal-habit-cb';
+
+        const label = document.createElement('label');
+        label.htmlFor = `modal-cb-${habit.id}`;
+        label.textContent = habit.name;
+
+        cb.addEventListener('change', async () => {
+          cb.disabled = true;
+          modalDirty = true;
+          try {
+            if (cb.checked) {
+              const res = await fetch('/api/habits/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ habit_id: habit.id, user_id: currentUserId, logged_date: dateStr }),
+              });
+              if (res.status === 201) {
+                const newLog = await res.json();
+                logMap[habit.id] = newLog.id;
+              } else if (res.status !== 409) {
+                throw new Error();
+              }
+            } else {
+              const logId = logMap[habit.id];
+              if (logId) {
+                const res = await fetch(`/api/habits/logs/${encodeURIComponent(logId)}`, { method: 'DELETE' });
+                if (!res.ok && res.status !== 404) throw new Error();
+                delete logMap[habit.id];
+              }
+            }
+          } catch {
+            cb.checked = !cb.checked;
+          }
+          cb.disabled = false;
+        });
+
+        li.appendChild(cb);
+        li.appendChild(label);
+      } else {
+        // Past — read-only
+        const stateEl = document.createElement('span');
+        stateEl.className = `day-modal-habit-state ${done ? 'state-done' : 'state-missed'}`;
+        stateEl.setAttribute('aria-label', done ? 'Done' : 'Missed');
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'day-modal-habit-name';
+        nameEl.textContent = habit.name;
+
+        li.appendChild(stateEl);
+        li.appendChild(nameEl);
+      }
+
+      list.appendChild(li);
+    }
+
+    section.appendChild(list);
+    body.appendChild(section);
+  }
+
+  function renderTrainingSection(body, workouts, dateStr) {
+    const section = document.createElement('section');
+    section.className = 'day-modal-section';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'day-modal-section-title';
+    h3.textContent = 'Training';
+    section.appendChild(h3);
+
+    if (workouts.length > 0) {
+      const list = document.createElement('ul');
+      list.className = 'day-modal-training-list';
+      for (const w of workouts) {
+        const li = document.createElement('li');
+        li.className = 'day-modal-training-item';
+        const parts = [w.workout_type, w.name];
+        if (w.exercise_count) parts.push(`${w.exercise_count} ex`);
+        if (w.remarks) parts.push(w.remarks);
+        li.textContent = parts.filter(Boolean).join(' · ');
+        list.appendChild(li);
+      }
+      section.appendChild(list);
+    } else {
+      const p = document.createElement('p');
+      p.className = 'day-modal-empty';
+      p.textContent = 'No training logged.';
+      section.appendChild(p);
+    }
+
+    const logBtn = document.createElement('a');
+    logBtn.className = 'day-modal-add-btn';
+    logBtn.href = `training.html?date=${dateStr}`;
+    logBtn.textContent = '+ Log training';
+    section.appendChild(logBtn);
+
+    body.appendChild(section);
+  }
+
+  function refreshGridCell(dateStr) {
+    const cell = document.querySelector(`.cal-cell[data-date="${dateStr}"]`);
+    if (!cell || cell.classList.contains('out-of-month')) return;
+
+    const d = new Date(dateStr + 'T00:00:00');
+    fetchCalendarData(currentUserId, state.year, state.month).then(() => {
+      cell.innerHTML = '';
+      populateCell(cell, d, true);
+
+      const showWeight = document.getElementById('filter-weight').checked;
+      const showHabits = document.getElementById('filter-habits').checked;
+      const showTraining = document.getElementById('filter-training').checked;
+      const wtEl = cell.querySelector('.cal-weight-val');
+      const hRow = cell.querySelector('.cal-habits-row');
+      const tRow = cell.querySelector('.cal-training-row');
+      if (wtEl) wtEl.hidden = !showWeight;
+      if (hRow) hRow.hidden = !showHabits;
+      if (tRow) tRow.hidden = !showTraining;
+    });
+  }
+
+  // ── Event wiring ──────────────────────────────────────────────────────────────
+
   document.getElementById('prev-btn').addEventListener('click', () => navigate(-1));
   document.getElementById('next-btn').addEventListener('click', () => navigate(1));
   document.getElementById('today-btn').addEventListener('click', goToToday);
@@ -296,8 +643,8 @@
       e.preventDefault();
       goToToday();
     } else if (e.key === 'Escape') {
-      const overlay = document.querySelector('.modal-overlay');
-      if (overlay) overlay.remove();
+      const overlay = document.querySelector('.day-modal-overlay');
+      if (overlay && overlay._close) overlay._close();
     }
   });
 

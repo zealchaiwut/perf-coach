@@ -130,6 +130,7 @@
       padding: 0.375rem 0.5rem;
       background: #fff;
       overflow: hidden;
+      cursor: pointer;
     }
 
     .cal-cell:nth-child(7n) { border-right: none; }
@@ -139,9 +140,13 @@
     .cal-cell.out-of-month {
       opacity: 0.4;
       background: #fafafa;
+      cursor: default;
     }
 
     .cal-cell.today { background: #e0f2fe; }
+
+    .cal-cell:not(.out-of-month):hover { background: #f0f9ff; }
+    .cal-cell.today:not(.out-of-month):hover { background: #bae6fd; }
 
     .cal-day-num {
       display: block;
@@ -278,6 +283,202 @@
       padding: 1px 7px;
       border-radius: 4px;
       font-weight: 500;
+    }
+
+    /* ── Day-detail modal ── */
+
+    .day-modal-box {
+      max-width: 520px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .day-modal-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #e5e5e5;
+      flex-shrink: 0;
+    }
+
+    .day-modal-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      line-height: 1.3;
+      margin: 0;
+    }
+
+    .day-modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      line-height: 1;
+      cursor: pointer;
+      color: #6b7280;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .day-modal-close:hover { color: #1a1a1a; }
+
+    .day-modal-body {
+      overflow-y: auto;
+      padding-top: 1rem;
+    }
+
+    .day-modal-future-msg {
+      color: #6b7280;
+      font-size: 0.9375rem;
+      margin: 0;
+    }
+
+    .day-modal-loading,
+    .day-modal-error {
+      font-size: 0.875rem;
+      color: #aaa;
+    }
+
+    .day-modal-error { color: #c0392b; }
+
+    .day-modal-section {
+      margin-bottom: 1.25rem;
+    }
+
+    .day-modal-section:last-child { margin-bottom: 0; }
+
+    .day-modal-section-title {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin: 0 0 0.5rem;
+    }
+
+    .day-modal-weight-value {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin: 0;
+    }
+
+    .day-modal-add-btn {
+      display: inline-block;
+      background: none;
+      border: 1px dashed #9ca3af;
+      border-radius: 4px;
+      color: #374151;
+      font-size: 0.8125rem;
+      padding: 0.35rem 0.75rem;
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 0.25rem;
+      font-family: inherit;
+    }
+
+    .day-modal-add-btn:hover { border-color: #6b7280; background: #f9fafb; }
+
+    .day-modal-inline-form {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.25rem;
+    }
+
+    .day-modal-weight-input {
+      padding: 0.35rem 0.6rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9375rem;
+      width: 110px;
+    }
+
+    .day-modal-weight-input:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    .day-modal-form-error {
+      font-size: 0.8125rem;
+      color: #c0392b;
+      width: 100%;
+    }
+
+    .day-modal-habit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .day-modal-habit-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9375rem;
+    }
+
+    .day-modal-habit-cb {
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .day-modal-habit-item label { cursor: pointer; }
+
+    .day-modal-habit-state {
+      width: 1rem;
+      height: 1rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .day-modal-habit-state.state-done {
+      background: #16a34a;
+      font-size: 0.625rem;
+      color: #fff;
+    }
+
+    .day-modal-habit-state.state-done::after { content: '✓'; }
+
+    .day-modal-habit-state.state-missed { background: #e5e7eb; }
+
+    .day-modal-habit-name {
+      font-size: 0.9375rem;
+      color: #374151;
+    }
+
+    .day-modal-training-list {
+      list-style: none;
+      margin: 0 0 0.5rem;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .day-modal-training-item {
+      font-size: 0.875rem;
+      color: #374151;
+    }
+
+    .day-modal-empty {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin: 0 0 0.4rem;
     }
 
     /* < 900px: shrink cells to 60px min-height */
