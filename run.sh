@@ -25,5 +25,11 @@ fi
 
 export ENVIRONMENT PORT DATABASE_URL_PRD DATABASE_URL_UAT
 
+echo "Applying database migrations (ENVIRONMENT=$ENVIRONMENT)..."
+alembic upgrade head
+
+echo "Seeding database..."
+python backend/seed.py
+
 echo "Starting perf-coach backend (ENVIRONMENT=$ENVIRONMENT) on http://localhost:$PORT"
 exec uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"

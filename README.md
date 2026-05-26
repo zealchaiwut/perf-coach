@@ -22,6 +22,32 @@ Personal performance dashboard. Tracks weight and habits.
 
 The server serves the static HTML pages and exposes `/api/health` to verify the DB connection.
 
+## Database migrations (Alembic)
+
+Migrations live in `alembic/versions/`. The connection string is read from the `DATABASE_URL_PRD` or `DATABASE_URL_UAT` env var based on `ENVIRONMENT`.
+
+**Apply migrations (run automatically by `./run.sh`):**
+
+    alembic upgrade head
+
+**Generate a new migration after editing `backend/models.py`:**
+
+    make migrate MSG="your description here"
+
+**Roll back the last migration:**
+
+    alembic downgrade -1
+
+**Apply to both UAT and PRD Neon branches:**
+
+1. Apply to UAT first and verify in the Neon dashboard:
+
+       ENVIRONMENT=UAT alembic upgrade head
+
+2. Once verified, apply to PRD:
+
+       ENVIRONMENT=PRD alembic upgrade head
+
 ### Static-only (no backend)
 
 Open `index.html` in a browser, or serve the directory:
