@@ -37,6 +37,7 @@
 
     select.addEventListener('change', function () {
       localStorage.setItem(STORAGE_KEY, select.value);
+      window.dispatchEvent(new CustomEvent('userChanged', { detail: { userId: select.value } }));
     });
 
     wrapper.appendChild(label);
@@ -48,6 +49,8 @@
     } else {
       header.appendChild(wrapper);
     }
+
+    window.dispatchEvent(new CustomEvent('userReady', { detail: { userId: current } }));
   }
 
   fetch('/api/users')
