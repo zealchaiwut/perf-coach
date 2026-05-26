@@ -47,3 +47,32 @@ nav a {
 
 .env-label.uat { background: #fff3cd; color: #856404; }
 .env-label.prd { background: #d1ecf1; color: #0c5460; }
+
+.user-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.75rem;
+}
+
+.user-selector-label {
+  font-size: 0.8125rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.user-selector select {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+}
+
+.user-selector select:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+}
