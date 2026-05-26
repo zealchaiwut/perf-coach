@@ -463,9 +463,55 @@ def delete_habit_log(log_id: str):
     return Response(status_code=204)
 
 
+@app.get("/api/stats/active-streak")
+def get_active_streak(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from datetime import timedelta
+    today = _date.today()
+
+    with Session(engine) as session:
+        weight_dates = {
+            row.recorded_date
+            for row in session.query(WeightEntry.recorded_date)
+            .filter(WeightEntry.user_id == uid)
+            .all()
+        }
+        habit_dates = {
+            row.logged_date
+            for row in session.query(HabitLog.logged_date)
+            .filter(HabitLog.user_id == uid)
+            .all()
+        }
+        workout_dates = {
+            row.workout_date
+            for row in session.query(Workout.workout_date)
+            .filter(Workout.user_id == uid)
+            .all()
+        }
+
+        all_active = weight_dates | habit_dates | workout_dates
+
+        streak = 0
+        check = today
+        while check in all_active:
+            streak += 1
+            check = check - timedelta(days=1)
+
+        return JSONResponse({"streak": streak})
+
+
 @app.get("/")
 def index():
     return FileResponse(str(_static_root / "index.html"))
+
+
+@app.get("/home.html")
+def home():
+    return FileResponse(str(_static_root / "home.html"))
 
 
 @app.get("/weight.html")

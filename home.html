@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .today-heading {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #444;
+      margin: 0 0 1rem;
+    }
+
+    .dash-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 699px) {
+      .dash-cards {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .dash-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      min-height: 110px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .dash-card-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 0.2rem;
+    }
+
+    .dash-card-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .dash-card-sub {
+      font-size: 0.8125rem;
+      color: #555;
+      margin-top: auto;
+    }
+
+    .dash-card-sub.pending {
+      color: #d97706;
+    }
+
+    .dash-card-sub.done {
+      color: #16a34a;
+    }
+
+    .dash-card-sub.muted {
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Home</h1>
+    <span id="env-label" class="env-label"></span>
+  </header>
+  <main>
+    <p class="today-heading" id="today-label"></p>
+
+    <div class="dash-cards" id="dash-cards">
+      <div class="dash-card" id="card-weight">
+        <div class="dash-card-label">Weight</div>
+        <div class="dash-card-value" id="card-weight-value">—</div>
+        <div class="dash-card-sub muted" id="card-weight-sub">Loading…</div>
+      </div>
+
+      <div class="dash-card" id="card-habits">
+        <div class="dash-card-label">Habits</div>
+        <div class="dash-card-value" id="card-habits-value">—</div>
+        <div class="dash-card-sub" id="card-habits-sub">Loading…</div>
+      </div>
+
+      <div class="dash-card" id="card-training">
+        <div class="dash-card-label">Training</div>
+        <div class="dash-card-value" id="card-training-value">—</div>
+        <div class="dash-card-sub muted" id="card-training-sub"></div>
+      </div>
+
+      <div class="dash-card" id="card-streak">
+        <div class="dash-card-label">Active days</div>
+        <div class="dash-card-value" id="card-streak-value">—</div>
+        <div class="dash-card-sub muted" id="card-streak-sub">consecutive days</div>
+      </div>
+    </div>
+
+    <nav>
+      <a href="weight.html">Weight</a>
+      <a href="habits.html">Habits</a>
+      <a href="users.html">Users</a>
+    </nav>
+  </main>
+
+  <script src="js/home.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>
