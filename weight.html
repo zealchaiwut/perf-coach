@@ -97,6 +97,42 @@
     .entry-weight {
       font-weight: 600;
     }
+
+    .entry-delete {
+      background: none;
+      border: none;
+      color: #c0392b;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      padding: 0;
+    }
+    .entry-delete:hover { text-decoration: underline; }
+
+    .user-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      max-width: 360px;
+      margin-bottom: 1.5rem;
+    }
+    .user-row label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #444;
+    }
+    .user-row select {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+
+    #api-error {
+      color: #c0392b;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+      min-height: 1.2em;
+    }
   </style>
 </head>
 <body>
@@ -105,6 +141,15 @@
     <span id="env-label" class="env-label"></span>
   </header>
   <main>
+    <div class="user-row">
+      <label for="user-select">User</label>
+      <select id="user-select">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+
+    <p id="api-error" role="alert"></p>
+
     <div class="chart-wrapper">
       <canvas id="weight-chart"></canvas>
     </div>
