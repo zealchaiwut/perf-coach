@@ -125,11 +125,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // Add "+ Add user..." option at the bottom
+  const addUserOpt = document.createElement('option');
+  addUserOpt.value = '__add__';
+  addUserOpt.textContent = '+ Add user...';
+  userSelect.appendChild(addUserOpt);
+
+  let prevUserId = userSelect.value;
+
   // Load entries for initial user (AC-8)
   await loadAndRender();
 
-  // Reload on user change (AC-8)
-  userSelect.addEventListener('change', () => loadAndRender());
+  // Reload on user change (AC-8); handle inline add-user
+  userSelect.addEventListener('change', () => {
+    if (userSelect.value === '__add__') {
+      userSelect.value = prevUserId;
+      if (typeof window.buildAddUserModal === 'function') {
+        window.buildAddUserModal(function (newUser) {
+          fetch('/api/users')
+            .then(r => r.json())
+            .then(freshUsers => {
+              userSelect.innerHTML = freshUsers
+                .map(u => `<option value="${u.id}"${u.id === newUser.id ? ' selected' : ''}>${u.name}</option>`)
+                .join('') + '<option value="__add__">+ Add user...</option>';
+              prevUserId = newUser.id;
+              loadAndRender();
+            })
+            .catch(() => {});
+        });
+      }
+      return;
+    }
+    prevUserId = userSelect.value;
+    loadAndRender();
+  });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
