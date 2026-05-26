@@ -38,7 +38,102 @@ def get_environment():
 def get_users():
     with Session(engine) as session:
         users = session.query(User).order_by(User.name).all()
-        return JSONResponse([{"id": str(u.id), "name": u.name} for u in users])
+        result = []
+        for u in users:
+            wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
+            hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
+            result.append({
+                "id": str(u.id),
+                "name": u.name,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "weight_count": wcount,
+                "habits_count": hcount,
+            })
+        return JSONResponse(result)
+
+
+# ── User management endpoints ─────────────────────────────────────────────────
+
+class UserIn(BaseModel):
+    name: str
+
+
+@app.post("/api/users", status_code=201)
+def create_user(body: UserIn):
+    name = body.name.strip()
+    if not (1 <= len(name) <= 100):
+        raise HTTPException(status_code=400, detail="Name must be 1–100 characters")
+    with Session(engine) as session:
+        user = User(name=name)
+        session.add(user)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(status_code=409, content={"error": "Name already exists"})
+        session.refresh(user)
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(user.id),
+                "name": user.name,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            },
+        )
+
+
+@app.patch("/api/users/{user_id}")
+def rename_user(user_id: str, body: UserIn):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    name = body.name.strip()
+    if not (1 <= len(name) <= 100):
+        raise HTTPException(status_code=400, detail="Name must be 1–100 characters")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.name = name
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(status_code=409, content={"error": "Name already exists"})
+        session.refresh(user)
+        return JSONResponse({
+            "id": str(user.id),
+            "name": user.name,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        })
+
+
+@app.delete("/api/users/{user_id}", status_code=204)
+def delete_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        total = session.query(User).count()
+        if total <= 1:
+            return JSONResponse(
+                status_code=409,
+                content={"error": "At least one user must exist"},
+            )
+        habit_ids = [h.id for h in session.query(Habit.id).filter(Habit.user_id == uid).all()]
+        if habit_ids:
+            session.query(HabitLog).filter(HabitLog.habit_id.in_(habit_ids)).delete(synchronize_session=False)
+        session.query(HabitLog).filter(HabitLog.user_id == uid).delete(synchronize_session=False)
+        session.query(Habit).filter(Habit.user_id == uid).delete(synchronize_session=False)
+        session.query(WeightEntry).filter(WeightEntry.user_id == uid).delete(synchronize_session=False)
+        session.delete(user)
+        session.commit()
+    return Response(status_code=204)
 
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
@@ -315,3 +410,8 @@ def weight():
 @app.get("/habits.html")
 def habits():
     return FileResponse(str(_static_root / "habits.html"))
+
+
+@app.get("/users.html")
+def users_page():
+    return FileResponse(str(_static_root / "users.html"))
