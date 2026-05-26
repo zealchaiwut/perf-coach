@@ -7,6 +7,101 @@
   <link rel="stylesheet" href="css/styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    :root {
+      --color-text-success: #16a34a;
+      --color-text-danger: #dc2626;
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 699px) {
+      .summary-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .summary-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      min-height: 110px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .card-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 0.2rem;
+    }
+
+    .card-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .card-meta {
+      font-size: 0.875rem;
+      color: #555;
+    }
+
+    .card-sublabel {
+      font-size: 0.75rem;
+      color: #999;
+      margin-top: auto;
+      padding-top: 0.25rem;
+    }
+
+    .card-need-data {
+      font-size: 1rem;
+      color: #aaa;
+      font-weight: 400;
+    }
+
+    .card-dots {
+      display: flex;
+      gap: 0.3rem;
+      align-items: center;
+      margin: 0.2rem 0;
+    }
+
+    .day-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      flex-shrink: 0;
+    }
+
+    .day-dot.logged {
+      background: #dcfce7;
+      color: var(--color-text-success);
+    }
+
+    .day-dot.missed {
+      background: #f3f4f6;
+      color: #d1d5db;
+    }
+
+    .day-dot.today-pending {
+      border: 2px dashed #9ca3af;
+      background: transparent;
+    }
+
     .chart-wrapper {
       position: relative;
       width: 100%;
@@ -149,6 +244,27 @@
     </div>
 
     <p id="api-error" role="alert"></p>
+
+    <div class="summary-cards" id="summary-cards">
+      <div class="summary-card">
+        <div class="card-label">This week avg</div>
+        <div class="card-value" id="card-week-avg-value">--</div>
+        <div class="card-meta" id="card-week-avg-meta"></div>
+        <div class="card-sublabel" id="card-week-avg-sub"></div>
+      </div>
+      <div class="summary-card">
+        <div class="card-label">30-day trend</div>
+        <div class="card-value" id="card-trend-value">--</div>
+        <div class="card-meta" id="card-trend-meta"></div>
+        <div class="card-sublabel" id="card-trend-sub"></div>
+      </div>
+      <div class="summary-card">
+        <div class="card-label">Days logged</div>
+        <div class="card-value" id="card-days-value">--</div>
+        <div class="card-dots" id="card-days-dots"></div>
+        <div class="card-sublabel" id="card-days-sub"></div>
+      </div>
+    </div>
 
     <div class="chart-wrapper">
       <canvas id="weight-chart"></canvas>
