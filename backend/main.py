@@ -529,6 +529,11 @@ def users_page():
     return FileResponse(str(_static_root / "users.html"))
 
 
+@app.get("/calendar.html")
+def calendar_page():
+    return FileResponse(str(_static_root / "calendar.html"))
+
+
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
