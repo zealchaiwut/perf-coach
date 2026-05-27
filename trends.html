@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trends – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    main { max-width: 900px; }
+
+    /* ── Date-range toolbar ── */
+    .trends-toolbar {
+      display: flex;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .range-presets {
+      display: flex;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .range-btn {
+      padding: 0.4rem 0.875rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #555;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .range-btn:hover:not(.active) {
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    .range-btn.active {
+      background: #1a1a1a;
+      color: #fff;
+      border-color: #1a1a1a;
+    }
+
+    /* ── Custom date inputs ── */
+    .custom-range {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .custom-range label {
+      font-size: 0.8125rem;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .custom-range input[type="date"] {
+      padding: 0.35rem 0.6rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      color: #1a1a1a;
+      background: #fff;
+    }
+
+    .custom-range input[type="date"]:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    /* ── Chart grid ── */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.25rem;
+    }
+
+    @media (max-width: 599px) {
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ── Chart slot ── */
+    .chart-slot {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-slot-header {
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .chart-slot-title {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .chart-slot-body {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      position: relative;
+    }
+
+    /* ── Loading skeleton ── */
+    .slot-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      width: 100%;
+    }
+
+    .skeleton-spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #e5e5e5;
+      border-top-color: #1a1a1a;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .skeleton-bar-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .skeleton-bar {
+      height: 10px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+    }
+
+    .skeleton-bar:nth-child(1) { width: 100%; }
+    .skeleton-bar:nth-child(2) { width: 80%; }
+    .skeleton-bar:nth-child(3) { width: 90%; }
+    .skeleton-bar:nth-child(4) { width: 70%; }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Empty state ── */
+    .slot-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      text-align: center;
+    }
+
+    .slot-empty-icon {
+      font-size: 1.5rem;
+      opacity: 0.35;
+    }
+
+    .slot-empty-text {
+      font-size: 0.875rem;
+      color: #aaa;
+    }
+
+    /* ── Page-level empty state ── */
+    .trends-empty-banner {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 2rem 1.5rem;
+      text-align: center;
+      color: #888;
+      font-size: 0.9375rem;
+      margin-bottom: 1.25rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Trends</h1>
+    <span id="env-label" class="env-label"></span>
+  </header>
+  <nav class="main-nav">
+    <a href="home.html">Home</a>
+    <a href="calendar.html">Calendar</a>
+    <a href="weight.html">Weight</a>
+    <a href="habits.html">Habits</a>
+    <a href="training.html">Training</a>
+    <a href="trends.html" class="active">Trends</a>
+  </nav>
+  <main>
+
+    <!-- Date-range toolbar -->
+    <div class="trends-toolbar">
+      <div class="range-presets" role="group" aria-label="Date range presets">
+        <button class="range-btn" data-range="7d">7d</button>
+        <button class="range-btn" data-range="30d">30d</button>
+        <button class="range-btn" data-range="90d">90d</button>
+        <button class="range-btn" data-range="custom">Custom</button>
+      </div>
+      <div class="custom-range" id="custom-range-inputs" hidden>
+        <label for="range-from">From</label>
+        <input type="date" id="range-from" name="from">
+        <label for="range-to">To</label>
+        <input type="date" id="range-to" name="to">
+      </div>
+    </div>
+
+    <!-- Empty-state banner (shown when no data for range) -->
+    <div class="trends-empty-banner" id="trends-empty-banner" hidden>
+      No data for this range. Try a wider date range or log some entries first.
+    </div>
+
+    <!-- Chart placeholder slots -->
+    <div class="chart-grid" id="chart-grid">
+
+      <div class="chart-slot" id="slot-readiness">
+        <div class="chart-slot-header">
+          <h2 class="chart-slot-title">Readiness Score</h2>
+        </div>
+        <div class="chart-slot-body" id="slot-readiness-body">
+          <div class="slot-loading">
+            <div class="skeleton-spinner"></div>
+            <div class="skeleton-bar-wrap">
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-slot" id="slot-hrv-rhr">
+        <div class="chart-slot-header">
+          <h2 class="chart-slot-title">HRV / Resting HR</h2>
+        </div>
+        <div class="chart-slot-body" id="slot-hrv-rhr-body">
+          <div class="slot-loading">
+            <div class="skeleton-spinner"></div>
+            <div class="skeleton-bar-wrap">
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-slot" id="slot-sleep-energy">
+        <div class="chart-slot-header">
+          <h2 class="chart-slot-title">Sleep &amp; Energy</h2>
+        </div>
+        <div class="chart-slot-body" id="slot-sleep-energy-body">
+          <div class="slot-loading">
+            <div class="skeleton-spinner"></div>
+            <div class="skeleton-bar-wrap">
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-slot" id="slot-tss">
+        <div class="chart-slot-header">
+          <h2 class="chart-slot-title">TSS Correlation</h2>
+        </div>
+        <div class="chart-slot-body" id="slot-tss-body">
+          <div class="slot-loading">
+            <div class="skeleton-spinner"></div>
+            <div class="skeleton-bar-wrap">
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /chart-grid -->
+  </main>
+
+  <script src="js/trends.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>
