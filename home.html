@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .today-heading {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #444;
+      margin: 0 0 1rem;
+    }
+
+    .dash-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 699px) {
+      .dash-cards {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .dash-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      min-height: 110px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .dash-card-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 0.2rem;
+    }
+
+    .dash-card-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .dash-card-sub {
+      font-size: 0.8125rem;
+      color: #555;
+      margin-top: auto;
+    }
+
+    .dash-card-sub.pending {
+      color: #d97706;
+    }
+
+    .dash-card-sub.done {
+      color: #16a34a;
+    }
+
+    .dash-card-sub.muted {
+      color: #aaa;
+    }
+
+    /* ── Summary sections ── */
+    .dash-section {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+    }
+
+    .dash-section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .dash-section-icon {
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .dash-section-title {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      flex: 1;
+    }
+
+    .dash-section-link {
+      font-size: 0.8125rem;
+      color: #0070f3;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .dash-section-link:hover { text-decoration: underline; }
+
+    .dash-section-body {
+      padding: 0.75rem 1.25rem;
+    }
+
+    /* Weight mini chart */
+    .mini-chart-wrap {
+      position: relative;
+      height: 80px;
+    }
+
+    /* Habits list */
+    .home-habit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .home-habit-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #f5f5f5;
+      font-size: 0.875rem;
+    }
+
+    .home-habit-row:last-child { border-bottom: none; }
+
+    .home-habit-cb {
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid #ccc;
+      border-radius: 3px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #16a34a;
+    }
+
+    .home-habit-cb.checked {
+      background: #dcfce7;
+      border-color: #16a34a;
+    }
+
+    .home-habit-name { flex: 1; color: #1a1a1a; }
+
+    .home-habit-streak { font-size: 0.75rem; color: #555; white-space: nowrap; }
+
+    .home-habit-rate { font-size: 0.75rem; color: #888; white-space: nowrap; }
+
+    /* Training list */
+    .home-training-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .home-training-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #f5f5f5;
+      font-size: 0.875rem;
+    }
+
+    .home-training-row:last-child { border-bottom: none; }
+
+    .home-training-icon { font-size: 1rem; flex-shrink: 0; }
+
+    .home-training-name { flex: 1; color: #1a1a1a; font-weight: 500; }
+
+    .home-training-date { font-size: 0.75rem; color: #888; white-space: nowrap; }
+
+    .home-training-meta { font-size: 0.75rem; color: #555; white-space: nowrap; }
+
+    /* Empty state */
+    .dash-section-empty {
+      font-size: 0.875rem;
+      color: #aaa;
+      padding: 0.25rem 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Home</h1>
+    <span id="env-label" class="env-label"></span>
+  </header>
+  <main>
+    <p class="today-heading" id="today-label"></p>
+
+    <div class="dash-cards" id="dash-cards">
+      <div class="dash-card" id="card-weight">
+        <div class="dash-card-label">Weight</div>
+        <div class="dash-card-value" id="card-weight-value">—</div>
+        <div class="dash-card-sub muted" id="card-weight-sub">Loading…</div>
+      </div>
+
+      <div class="dash-card" id="card-habits">
+        <div class="dash-card-label">Habits</div>
+        <div class="dash-card-value" id="card-habits-value">—</div>
+        <div class="dash-card-sub" id="card-habits-sub">Loading…</div>
+      </div>
+
+      <div class="dash-card" id="card-training">
+        <div class="dash-card-label">Training</div>
+        <div class="dash-card-value" id="card-training-value">—</div>
+        <div class="dash-card-sub muted" id="card-training-sub"></div>
+      </div>
+
+      <div class="dash-card" id="card-streak">
+        <div class="dash-card-label">Active days</div>
+        <div class="dash-card-value" id="card-streak-value">—</div>
+        <div class="dash-card-sub muted" id="card-streak-sub">consecutive days</div>
+      </div>
+    </div>
+
+    <!-- Weight summary section -->
+    <section class="dash-section" id="section-weight">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">⚖️</span>
+        <h2 class="dash-section-title">Weight</h2>
+        <a href="weight.html" class="dash-section-link">Open Weight tab →</a>
+      </div>
+      <div class="dash-section-body" id="section-weight-body">
+        <div class="mini-chart-wrap">
+          <canvas id="mini-weight-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Habits summary section -->
+    <section class="dash-section" id="section-habits">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">✅</span>
+        <h2 class="dash-section-title">Habits today</h2>
+        <a href="habits.html" class="dash-section-link">Open Habits tab →</a>
+      </div>
+      <div class="dash-section-body" id="section-habits-body">
+        <ul class="home-habit-list" id="home-habit-list"></ul>
+      </div>
+    </section>
+
+    <!-- Training summary section -->
+    <section class="dash-section" id="section-training">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">🏋️</span>
+        <h2 class="dash-section-title">Recent training</h2>
+        <a href="#" class="dash-section-link">Open Training tab →</a>
+      </div>
+      <div class="dash-section-body" id="section-training-body">
+        <ul class="home-training-list" id="home-training-list"></ul>
+      </div>
+    </section>
+
+    <nav>
+      <a href="weight.html">Weight</a>
+      <a href="habits.html">Habits</a>
+      <a href="calendar.html">Calendar</a>
+      <a href="users.html">Users</a>
+    </nav>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="js/home.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>
