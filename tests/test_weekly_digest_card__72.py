@@ -207,14 +207,16 @@ def test_ac_no_llm_endpoint_in_home_js():
 def test_ac_mock_data_hrv_last_3_days_below_avg():
     """MOCK_TRENDS_SUMMARY must have last 3 HRV values below the reported avg."""
     mock_js = (pathlib.Path(__file__).parent.parent / "js" / "mock-data.js").read_text()
-    # Extract avg from mock data
-    avg_match = re.search(r"avg:\s*([\d.]+),\s*min:", mock_js)
-    series_match = re.findall(r"\{[^}]*value:\s*(\d+)[^}]*\}", mock_js)
-    if avg_match and len(series_match) >= 3:
-        avg = float(avg_match.group(1))
-        last_3 = [float(v) for v in series_match[-3:]]
-        assert all(v < avg for v in last_3), \
-            f"MOCK_TRENDS_SUMMARY: last 3 HRV values {last_3} must all be below avg {avg}"
+    # Extract HRV block specifically
+    hrv_match = re.search(r"hrv:\s*\{.*?avg:\s*([\d.]+)", mock_js, re.DOTALL)
+    hrv_series_match = re.search(r"hrv:\s*\{[^}]*series:\s*\[(.*?)\]", mock_js, re.DOTALL)
+    if hrv_match and hrv_series_match:
+        avg = float(hrv_match.group(1))
+        values = [float(v) for v in re.findall(r"value:\s*(\d+)", hrv_series_match.group(1))]
+        if len(values) >= 3:
+            last_3 = values[-3:]
+            assert all(v < avg for v in last_3), \
+                f"MOCK_TRENDS_SUMMARY: last 3 HRV values {last_3} must all be below avg {avg}"
 
 
 # ── AC: API — fewer than 7 days yields null averages ─────────────────────────
