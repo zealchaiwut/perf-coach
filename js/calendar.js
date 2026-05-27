@@ -11,7 +11,7 @@
   let modalDirty = false;
 
   function emptyData() {
-    return { weights: {}, habits: [], habitLogs: {}, workouts: {} };
+    return { weights: {}, habits: [], habitLogs: {}, workouts: {}, dailyMetrics: {} };
   }
 
   function readMonthFromURL() {
@@ -47,17 +47,19 @@
     const { from, to } = monthRange(year, month);
     const enc = s => encodeURIComponent(s);
     try {
-      const [wR, hR, lR, tR] = await Promise.all([
+      const [wR, hR, lR, tR, mR] = await Promise.all([
         fetch(`/api/weight?user_id=${enc(userId)}`),
         fetch(`/api/habits?user_id=${enc(userId)}`),
         fetch(`/api/habits/logs?user_id=${enc(userId)}&from=${from}&to=${to}`),
         fetch(`/api/workouts?user_id=${enc(userId)}&from=${from}&to=${to}`),
+        fetch(`/api/calendar/month?user_id=${enc(userId)}&year=${year}&month=${month + 1}`),
       ]);
-      const [weights, habits, logs, workouts] = await Promise.all([
+      const [weights, habits, logs, workouts, calMonthData] = await Promise.all([
         wR.ok ? wR.json() : [],
         hR.ok ? hR.json() : [],
         lR.ok ? lR.json() : [],
         tR.ok ? tR.json() : [],
+        mR.ok ? mR.json() : [],
       ]);
 
       const weightMap = {};
@@ -79,7 +81,15 @@
         workoutMap[w.workout_date].push(w);
       }
 
-      calData = { weights: weightMap, habits, habitLogs: logMap, workouts: workoutMap };
+      // Build daily_metrics map from the calendar/month response
+      const metricsMap = {};
+      for (const d of calMonthData) {
+        if (d.energy != null || d.sleep_quality != null) {
+          metricsMap[d.date] = { energy: d.energy, sleep_quality: d.sleep_quality };
+        }
+      }
+
+      calData = { weights: weightMap, habits, habitLogs: logMap, workouts: workoutMap, dailyMetrics: metricsMap };
     } catch {
       // calData stays as emptyData() set by caller; cells remain empty
     }
@@ -168,6 +178,33 @@
       cell.appendChild(row);
     }
 
+    // Recovery dots: energy (⚡) and sleep quality (💤) in bottom-right
+    const dayMetrics = calData.dailyMetrics[dateStr];
+    if (dayMetrics && (dayMetrics.energy != null || dayMetrics.sleep_quality != null)) {
+      const dotsRow = document.createElement('div');
+      dotsRow.className = 'cal-recovery-dots';
+
+      if (dayMetrics.sleep_quality != null) {
+        const dot = document.createElement('span');
+        dot.className = `cal-recovery-dot cal-recovery-dot--sleep scale-${dayMetrics.sleep_quality}`;
+        dot.setAttribute('aria-label', `Sleep quality: ${dayMetrics.sleep_quality}/5`);
+        dot.title = `Sleep: ${dayMetrics.sleep_quality}/5`;
+        dot.dataset.tooltip = `Sleep: ${dayMetrics.sleep_quality}/5`;
+        dotsRow.appendChild(dot);
+      }
+
+      if (dayMetrics.energy != null) {
+        const dot = document.createElement('span');
+        dot.className = `cal-recovery-dot cal-recovery-dot--energy scale-${dayMetrics.energy}`;
+        dot.setAttribute('aria-label', `Energy: ${dayMetrics.energy}/5`);
+        dot.title = `Energy: ${dayMetrics.energy}/5`;
+        dot.dataset.tooltip = `Energy: ${dayMetrics.energy}/5`;
+        dotsRow.appendChild(dot);
+      }
+
+      cell.appendChild(dotsRow);
+    }
+
     cell.addEventListener('click', () => openDayModal(dateStr));
   }
 
@@ -177,6 +214,7 @@
     const showWeight = document.getElementById('filter-weight').checked;
     const showHabits = document.getElementById('filter-habits').checked;
     const showTraining = document.getElementById('filter-training').checked;
+    const showRecovery = document.getElementById('filter-recovery').checked;
 
     document.getElementById('month-label').textContent = `${MONTH_NAMES[month]} ${year}`;
 
@@ -209,9 +247,11 @@
       const wtEl = cell.querySelector('.cal-weight-val');
       const hRow = cell.querySelector('.cal-habits-row');
       const tRow = cell.querySelector('.cal-training-row');
+      const rRow = cell.querySelector('.cal-recovery-dots');
       if (wtEl) wtEl.hidden = !showWeight;
       if (hRow) hRow.hidden = !showHabits;
       if (tRow) tRow.hidden = !showTraining;
+      if (rRow) rRow.hidden = !showRecovery;
 
       grid.appendChild(cell);
     }
@@ -221,9 +261,11 @@
     const showWeight = document.getElementById('filter-weight').checked;
     const showHabits = document.getElementById('filter-habits').checked;
     const showTraining = document.getElementById('filter-training').checked;
+    const showRecovery = document.getElementById('filter-recovery').checked;
     document.querySelectorAll('.cal-weight-val').forEach(el => { el.hidden = !showWeight; });
     document.querySelectorAll('.cal-habits-row').forEach(el => { el.hidden = !showHabits; });
     document.querySelectorAll('.cal-training-row').forEach(el => { el.hidden = !showTraining; });
+    document.querySelectorAll('.cal-recovery-dots').forEach(el => { el.hidden = !showRecovery; });
   }
 
   // Fetch data for current state, then re-render. Uses loadSeq to discard stale results.
@@ -601,12 +643,15 @@
       const showWeight = document.getElementById('filter-weight').checked;
       const showHabits = document.getElementById('filter-habits').checked;
       const showTraining = document.getElementById('filter-training').checked;
+      const showRecovery = document.getElementById('filter-recovery').checked;
       const wtEl = cell.querySelector('.cal-weight-val');
       const hRow = cell.querySelector('.cal-habits-row');
       const tRow = cell.querySelector('.cal-training-row');
+      const rRow = cell.querySelector('.cal-recovery-dots');
       if (wtEl) wtEl.hidden = !showWeight;
       if (hRow) hRow.hidden = !showHabits;
       if (tRow) tRow.hidden = !showTraining;
+      if (rRow) rRow.hidden = !showRecovery;
     });
   }
 
@@ -619,6 +664,7 @@
   document.getElementById('filter-weight').addEventListener('change', applyFilters);
   document.getElementById('filter-habits').addEventListener('change', applyFilters);
   document.getElementById('filter-training').addEventListener('change', applyFilters);
+  document.getElementById('filter-recovery').addEventListener('change', applyFilters);
 
   window.addEventListener('popstate', () => {
     state = readMonthFromURL();
