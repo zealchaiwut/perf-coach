@@ -519,7 +519,7 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: {
             callbacks: {
               title(items) { return dates[items[0].dataIndex]; },
@@ -530,21 +530,24 @@
                 const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
                 return `Next-day readiness: ${v}  (${band})`;
               },
+              afterBody() {
+                return ['Readiness shown is for the day after this TSS value'];
+              },
             },
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 12 } }, grid: { display: false } },
           yTSS: {
             type: 'linear', position: 'left', min: 0,
-            title: { display: true, text: 'TSS', font: { size: 10 }, color: 'rgba(99,102,241,0.9)' },
-            ticks: { font: { size: 10 } },
+            title: { display: true, text: 'TSS', font: { size: 11 }, color: 'rgba(99,102,241,0.9)' },
+            ticks: { font: { size: 12 } },
             grid: { color: 'rgba(0,0,0,0.05)' },
           },
           yReadiness: {
             type: 'linear', position: 'right', min: 0, max: 100,
-            title: { display: true, text: 'Readiness', font: { size: 10 }, color: '#f59e0b' },
-            ticks: { stepSize: 20, font: { size: 10 } },
+            title: { display: true, text: 'Readiness', font: { size: 11 }, color: '#f59e0b' },
+            ticks: { stepSize: 20, font: { size: 12 } },
             grid: { drawOnChartArea: false },
           },
         },
@@ -557,7 +560,7 @@
     const tssByDate = {};
     summary.tss.series.forEach(s => { if (s.value !== null) tssByDate[s.date] = s.value; });
     const readinessByDate = {};
-    summary.readiness.series.forEach(s => { if (s.score !== null) readinessByDate[s.date] = s.score; });
+    summary.readiness.series.forEach(s => { if (s.value !== null) readinessByDate[s.date] = s.value; });
     const dates = summary.tss.series.map(s => s.date);
     renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
   }
