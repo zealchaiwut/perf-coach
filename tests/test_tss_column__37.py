@@ -1,11 +1,18 @@
 """
 Tests for issue #37: Add TSS column to workouts with manual input and tss_source flag
-Server under test: http://127.0.0.1:9001
+Runs against UAT environment
 """
+import os
 import httpx
 import pytest
 
-BASE = "http://127.0.0.1:9001"
+# Resolved from UAT .env at runtime; see tester skill Step 0.
+# Default kept only as a last-resort fallback if BASE_URL not exported.
+BASE = os.environ.get("UAT_BASE_URL") or f"http://localhost:{os.environ.get('UAT_PORT', '9001')}"
+if not BASE.startswith("http"):
+    raise RuntimeError(
+        "UAT_BASE_URL / UAT_PORT not set. Run the tester skill's Step 0 to resolve UAT before pytest."
+    )
 
 
 @pytest.fixture(scope="module")
