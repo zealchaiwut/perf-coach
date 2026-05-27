@@ -62,6 +62,7 @@
 
     .meta-field input[type="text"],
     .meta-field input[type="date"],
+    .meta-field input[type="number"],
     .meta-field textarea {
       padding: 0.45rem 0.75rem;
       border: 1px solid #ccc;
@@ -273,70 +274,6 @@
       color: #aaa;
       border-color: #e5e5e5;
       cursor: not-allowed;
-    }
-
-    /* ── TSS placeholder ── */
-    .tss-placeholder {
-      border: 2px dashed #d1d5db;
-      border-radius: 8px;
-      padding: 1.25rem;
-      margin-bottom: 1.5rem;
-      max-width: 680px;
-      background: #fafafa;
-    }
-
-    .tss-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .tss-header span:first-child {
-      font-weight: 600;
-      font-size: 0.9375rem;
-      color: #6b7280;
-    }
-
-    .sprint-badge {
-      background: #e5e7eb;
-      color: #6b7280;
-      font-size: 0.6875rem;
-      font-weight: 700;
-      padding: 0.15rem 0.45rem;
-      border-radius: 999px;
-      letter-spacing: 0.05em;
-    }
-
-    .tss-desc {
-      font-size: 0.875rem;
-      color: #9ca3af;
-      margin: 0 0 1rem;
-    }
-
-    .tss-cards {
-      display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-    }
-
-    .tss-card {
-      flex: 1;
-      min-width: 80px;
-      background: #f3f4f6;
-      border-radius: 6px;
-      padding: 0.75rem;
-      text-align: center;
-      font-size: 0.8125rem;
-      color: #9ca3af;
-      opacity: 0.4;
-    }
-
-    .tss-card span {
-      display: block;
-      font-size: 1rem;
-      font-weight: 600;
-      margin-top: 0.25rem;
     }
 
     /* ── Form actions ── */
@@ -572,9 +509,14 @@
           <input id="custom-type-input" type="text" placeholder="Type name…" style="display:none" maxlength="50">
         </div>
 
-        <div class="meta-field full-width">
+        <div class="meta-field">
           <label for="workout-remarks">Remarks</label>
           <textarea id="workout-remarks" placeholder="Optional notes…" rows="2" maxlength="1000"></textarea>
+        </div>
+
+        <div class="meta-field">
+          <label for="workout-tss">TSS <span style="font-weight:400;color:#999">(optional)</span></label>
+          <input id="workout-tss" type="number" min="0" step="1" placeholder="e.g. 85">
         </div>
       </div>
 
@@ -602,21 +544,6 @@
         <div class="table-actions">
           <button id="add-exercise-btn" type="button">+ Add exercise</button>
           <button id="add-section-btn" type="button" disabled title="Coming in sprint-5">+ Add section (Cooldown, Extra, WOD…)</button>
-        </div>
-      </div>
-
-      <!-- TSS placeholder -->
-      <div class="tss-placeholder">
-        <div class="tss-header">
-          <span>Training Stress Score (TSS)</span>
-          <span class="sprint-badge">SPRINT-5</span>
-        </div>
-        <p class="tss-desc">TSS calculation per exercise and per muscle group will appear here. Coming in sprint-5 after we discuss the formula.</p>
-        <div class="tss-cards">
-          <div class="tss-card">Quads<span>— TSS</span></div>
-          <div class="tss-card">Chest<span>— TSS</span></div>
-          <div class="tss-card">Core<span>— TSS</span></div>
-          <div class="tss-card">Total<span>— TSS</span></div>
         </div>
       </div>
 

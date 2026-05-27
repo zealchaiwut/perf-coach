@@ -212,6 +212,7 @@
     document.getElementById('workout-name').value = '';
     document.getElementById('workout-date').value = todayIso();
     document.getElementById('workout-remarks').value = '';
+    document.getElementById('workout-tss').value = '';
     document.getElementById('exercises-tbody').innerHTML = '';
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
@@ -225,6 +226,7 @@
     document.getElementById('workout-name').value = workout.name;
     document.getElementById('workout-date').value = workout.workout_date;
     document.getElementById('workout-remarks').value = workout.remarks || '';
+    document.getElementById('workout-tss').value = workout.tss != null ? workout.tss : '';
     document.getElementById('exercises-tbody').innerHTML = '';
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
@@ -279,12 +281,15 @@
     if (!validateForm()) return;
 
     var rows = getExerciseRows().filter(function (r) { return r.name; });
+    var tssRaw = document.getElementById('workout-tss').value.trim();
+    var tssVal = tssRaw !== '' ? parseFloat(tssRaw) : null;
     var payload = {
       user_id: currentUserId,
       name: document.getElementById('workout-name').value.trim(),
       workout_date: document.getElementById('workout-date').value,
       workout_type: getSelectedType(),
       remarks: document.getElementById('workout-remarks').value.trim() || null,
+      tss: tssVal,
       exercises: rows,
     };
 

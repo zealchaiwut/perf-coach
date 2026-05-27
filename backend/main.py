@@ -570,6 +570,7 @@ class WorkoutIn(BaseModel):
     workout_date: str  # YYYY-MM-DD
     workout_type: str
     remarks: Optional[str] = None
+    tss: Optional[float] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -578,6 +579,7 @@ class WorkoutPatch(BaseModel):
     workout_date: Optional[str] = None
     workout_type: Optional[str] = None
     remarks: Optional[str] = None
+    tss: Optional[float] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -625,6 +627,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
         "remarks": w.remarks,
+        "tss": w.tss,
+        "tss_source": w.tss_source,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
     }
@@ -637,6 +641,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "name": w.name,
         "workout_type": w.workout_type,
         "remarks": w.remarks,
+        "tss": w.tss,
+        "tss_source": w.tss_source,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
     }
@@ -715,6 +721,8 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
     if workout_date > _date.today():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
+    if body.tss is not None and body.tss < 0:
+        raise HTTPException(status_code=422, detail="tss must be >= 0")
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -727,6 +735,8 @@ def post_workout(body: WorkoutIn):
             workout_date=workout_date,
             workout_type=body.workout_type.strip(),
             remarks=body.remarks.strip() if body.remarks else None,
+            tss=body.tss,
+            tss_source='manual' if body.tss is not None else None,
         )
         session.add(workout)
         session.flush()
@@ -781,6 +791,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.workout_type = t
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
+        if 'tss' in body.model_fields_set:
+            if body.tss is None:
+                workout.tss = None
+                workout.tss_source = None
+            else:
+                if body.tss < 0:
+                    raise HTTPException(status_code=422, detail="tss must be >= 0")
+                workout.tss = body.tss
+                workout.tss_source = 'manual'
         session.commit()
         exercises = (
             session.query(WorkoutExercise)

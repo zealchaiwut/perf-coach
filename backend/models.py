@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -58,7 +58,14 @@ class Workout(Base):
     name = Column(String(200), nullable=False)
     workout_type = Column(String(50), nullable=False)
     remarks = Column(Text, nullable=True)
+    tss = Column(Float, nullable=True)
+    tss_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
+        CheckConstraint("tss_source IS NULL OR tss_source IN ('manual', 'calculated')", name="ck_workouts_tss_source_values"),
+    )
 
     exercises = relationship(
         "WorkoutExercise",
