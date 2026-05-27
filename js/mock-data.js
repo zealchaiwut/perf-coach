@@ -152,6 +152,26 @@ const MOCK_TRENDS_SUMMARY = {
   },
 };
 
+// MOCK — today's readiness record used when /api/readiness/today is unavailable
+const MOCK_READINESS_TODAY = {
+  date: '2026-05-27',
+  score: 73,
+  hrv_contribution: 18.75,
+  rhr_contribution: 20.0,
+  sleep_contribution: 20.0,
+  energy_contribution: 18.75,
+  missing_data: { hrv: false, rhr: false, sleep: false, energy: false },
+};
+
+// MOCK — today's daily metrics used when /api/daily-metrics is unavailable
+const MOCK_DAILY_METRICS_TODAY = {
+  date: '2026-05-27',
+  hrv: 44,
+  resting_hr: 58,
+  sleep_hours: 7.1,
+  energy: 4,
+};
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
