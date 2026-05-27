@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -139,4 +139,25 @@ class DailyMetric(Base):
             "mood IS NULL OR (mood >= 1 AND mood <= 5)",
             name="ck_daily_metrics_mood",
         ),
+    )
+
+
+class DailyReadiness(Base):
+    __tablename__ = "daily_readiness"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False)
+    score = Column(Numeric(5, 2), nullable=False)
+    components = Column(JSONB, nullable=False)
+    computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    daily_metric_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("daily_metrics.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_daily_readiness_user_date"),
+        CheckConstraint("score >= 0 AND score <= 100", name="ck_daily_readiness_score_range"),
     )
