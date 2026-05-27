@@ -1,12 +1,19 @@
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 const MA_COLOR = '#16a34a';
 const DAILY_COLOR = '#9ca3af';
 
 function isoDateStr(date) {
-  return date.toISOString().slice(0, 10);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // Returns ISO week Monday date string for a given YYYY-MM-DD string
@@ -177,7 +184,7 @@ function filterByRange(entries, range) {
   const days = { '7d': 7, '30d': 30, '90d': 90 }[range];
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - (days - 1));
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const cutoffStr = isoDateStr(cutoff);
   return entries.filter(e => e.recorded_date >= cutoffStr);
 }
 
@@ -191,7 +198,7 @@ function computeMovingAverage(visibleSorted, allSorted) {
     for (let d = 6; d >= 0; d--) {
       const check = new Date(base);
       check.setDate(check.getDate() - d);
-      const key = check.toISOString().slice(0, 10);
+      const key = isoDateStr(check);
       if (dateToWeight[key] !== undefined) windowWeights.push(dateToWeight[key]);
     }
     if (windowWeights.length < 3) return null;
