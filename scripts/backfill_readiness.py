@@ -154,7 +154,7 @@ def main() -> None:
                         INSERT INTO daily_readiness
                             (user_id, date, score, components, daily_metric_id)
                         VALUES
-                            (:uid, :date, :score, :components::jsonb, :metric_id)
+                            (:uid, :date, :score, CAST(:components AS jsonb), :metric_id)
                         ON CONFLICT (user_id, date) DO NOTHING
                         """
                     ),
