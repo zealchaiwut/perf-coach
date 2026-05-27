@@ -199,6 +199,12 @@
       padding: 0.25rem 0;
     }
 
+    /* Weekly digest trend chart */
+    .trend-chart-wrap {
+      position: relative;
+      height: 160px;
+    }
+
     /* ── Today's check-in card ── */
     .checkin-toggle {
       background: none;
@@ -500,6 +506,18 @@
       </div>
       <div class="dash-section-body" id="section-training-body">
         <ul class="home-training-list" id="home-training-list"></ul>
+      </div>
+    </section>
+
+    <!-- Weekly digest section -->
+    <section class="dash-section" id="section-trend">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">📊</span>
+        <h2 class="dash-section-title">7-day digest</h2>
+        <a href="trends.html" class="dash-section-link">View Trends →</a>
+      </div>
+      <div class="dash-section-body" id="section-trend-body">
+        <div class="trend-chart-wrap"><canvas id="trend-chart"></canvas></div>
       </div>
     </section>
 
