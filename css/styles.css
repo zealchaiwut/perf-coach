@@ -1,5 +1,8 @@
 * { box-sizing: border-box; }
 
+/* Ensure [hidden] always hides elements even when a class sets display:flex/block */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;

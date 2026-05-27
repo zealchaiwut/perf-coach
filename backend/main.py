@@ -36,20 +36,23 @@ def get_environment():
 
 @app.get("/api/users")
 def get_users():
-    with Session(engine) as session:
-        users = session.query(User).order_by(User.name).all()
-        result = []
-        for u in users:
-            wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
-            hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
-            result.append({
-                "id": str(u.id),
-                "name": u.name,
-                "created_at": u.created_at.isoformat() if u.created_at else None,
-                "weight_count": wcount,
-                "habits_count": hcount,
-            })
-        return JSONResponse(result)
+    try:
+        with Session(engine) as session:
+            users = session.query(User).order_by(User.name).all()
+            result = []
+            for u in users:
+                wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
+                hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
+                result.append({
+                    "id": str(u.id),
+                    "name": u.name,
+                    "created_at": u.created_at.isoformat() if u.created_at else None,
+                    "weight_count": wcount,
+                    "habits_count": hcount,
+                })
+            return JSONResponse(result)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable: " + str(exc))
 
 
 # ── User management endpoints ─────────────────────────────────────────────────
