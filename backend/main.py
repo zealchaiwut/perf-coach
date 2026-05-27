@@ -1630,3 +1630,35 @@ def get_trends_summary(
             "tss": _delta_pct(tss_avg, prev_tss_avg),
         },
     })
+
+
+# ── Readiness compute endpoint ────────────────────────────────────────────────
+
+@app.post("/api/readiness/compute", status_code=200)
+def compute_readiness_score(
+    user_id: str = Query(...),
+    date: Optional[str] = Query(default=None),
+):
+    """
+    Trigger readiness computation for a user on a given date (defaults to today).
+    Idempotent: existing rows are upserted with freshly computed values.
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    target_date = _date.today()
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+
+    from services.readiness.job import compute_and_store
+    row = compute_and_store(str(uid), target_date)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No daily_metrics row found for this user on this date",
+        )
+    return JSONResponse(row)
