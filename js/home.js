@@ -732,6 +732,143 @@
     });
   }
 
+  // ── Weekly digest card ─────────────────────────────────────────────────────
+
+  var DIGEST_CACHE_KEY = 'perf-coach.weekly-digest';
+
+  function getDigestCache() {
+    try {
+      var cached = JSON.parse(localStorage.getItem(DIGEST_CACHE_KEY));
+      if (cached && cached.date === todayISO()) return cached.data;
+    } catch (_) {}
+    return null;
+  }
+
+  function setDigestCache(data) {
+    try {
+      localStorage.setItem(DIGEST_CACHE_KEY, JSON.stringify({ date: todayISO(), data: data }));
+    } catch (_) {}
+  }
+
+  function _daysWithData(payload) {
+    if (!payload || !payload.readiness || !payload.readiness.series) return 0;
+    var count = 0;
+    payload.readiness.series.forEach(function (s) { if (s.score != null) count++; });
+    return count;
+  }
+
+  function _parseDeltaInt(str) {
+    if (str == null) return null;
+    var n = parseInt(str, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaFloat(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace(/[^0-9.\-+]/g, ''));
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaPct(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace('%', ''));
+    return isNaN(n) ? null : n;
+  }
+
+  // Minimum absolute delta required before a line is shown
+  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, rhr: 2, tss_pct: 15 };
+
+  function buildDigestLines(payload) {
+    var lines = [];
+    var deltas = payload.deltas || {};
+    var d;
+
+    if (payload.readiness && payload.readiness.avg != null) {
+      d = _parseDeltaInt(deltas.readiness);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
+        lines.push('Avg readiness ' + Math.round(payload.readiness.avg) + ' (' + (d > 0 ? '+' : '') + d + ' vs last week)');
+      }
+    }
+
+    if (payload.sleep && payload.sleep.avg_hours != null) {
+      d = _parseDeltaFloat(deltas.sleep);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
+        lines.push('Avg sleep ' + Number(payload.sleep.avg_hours).toFixed(1) + 'h (' + (d > 0 ? '+' : '') + Number(d).toFixed(1) + 'h vs last week)');
+      }
+    }
+
+    if (payload.hrv && payload.hrv.avg != null) {
+      d = _parseDeltaInt(deltas.hrv);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.hrv) {
+        lines.push('Avg HRV ' + Math.round(payload.hrv.avg) + ' ms (' + (d > 0 ? '+' : '') + d + ' vs last week)');
+      }
+    }
+
+    if (payload.tss && payload.tss.total != null) {
+      d = _parseDeltaPct(deltas.tss);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss_pct) {
+        lines.push('Weekly load ' + Math.round(payload.tss.total) + ' TSS (' + deltas.tss + ' vs last week)');
+      }
+    }
+
+    if (payload.rhr && payload.rhr.avg != null) {
+      d = _parseDeltaInt(deltas.rhr);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.rhr) {
+        lines.push('Avg resting HR ' + Math.round(payload.rhr.avg) + ' bpm (' + (d > 0 ? '+' : '') + d + ' vs last week)');
+      }
+    }
+
+    return lines.slice(0, 5);
+  }
+
+  function renderDigestSection(payload) {
+    var body = document.getElementById('section-digest-body');
+    if (!body) return;
+
+    if (!payload || _daysWithData(payload) < 3) {
+      body.innerHTML = '<p class="digest-empty">Not enough data yet</p>';
+      return;
+    }
+
+    var lines = buildDigestLines(payload);
+
+    if (lines.length === 0) {
+      body.innerHTML = '<p class="digest-empty">No notable changes this week</p>';
+      return;
+    }
+
+    var ul = document.createElement('ul');
+    ul.className = 'digest-lines';
+    lines.forEach(function (text) {
+      var li = document.createElement('li');
+      li.className = 'digest-line';
+      li.textContent = text;
+      ul.appendChild(li);
+    });
+    body.innerHTML = '';
+    body.appendChild(ul);
+  }
+
+  async function loadWeeklyDigestSection(userId) {
+    var cached = getDigestCache();
+    if (cached) {
+      renderDigestSection(cached);
+      return;
+    }
+
+    var data = null;
+    try {
+      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
+      if (!res.ok) throw new Error('server error');
+      data = await res.json();
+    } catch (_) {
+      data = (typeof MOCK_TRENDS_SUMMARY !== 'undefined') ? MOCK_TRENDS_SUMMARY : null;
+    }
+
+    setDigestCache(data);
+    renderDigestSection(data);
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
@@ -740,6 +877,7 @@
     loadTrainingSection(userId);
     loadCheckinSection(userId);
     loadTrendChart(userId);
+    loadWeeklyDigestSection(userId);
   }
 
   setTodayLabel();
