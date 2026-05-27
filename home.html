@@ -205,6 +205,169 @@
       height: 160px;
     }
 
+    /* ── Readiness card ── */
+    .readiness-card {
+      border-radius: 10px;
+      border-width: 1px;
+      border-style: solid;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+
+    .readiness-card--green { border-color: #86efac; background: #f0fdf4; }
+    .readiness-card--amber { border-color: #fcd34d; background: #fffbeb; }
+    .readiness-card--red   { border-color: #fca5a5; background: #fef2f2; }
+
+    .readiness-summary {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+    }
+
+    .readiness-score-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      min-width: 60px;
+    }
+
+    .readiness-score {
+      font-size: 2.5rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .readiness-score--green { color: #16a34a; }
+    .readiness-score--amber { color: #d97706; }
+    .readiness-score--red   { color: #dc2626; }
+
+    .readiness-score-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #888;
+      margin-top: 0.15rem;
+    }
+
+    .readiness-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+
+    .readiness-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      width: fit-content;
+    }
+
+    .readiness-pill--green { background: #dcfce7; color: #15803d; }
+    .readiness-pill--amber { background: #fef9c3; color: #b45309; }
+    .readiness-pill--red   { background: #fee2e2; color: #b91c1c; }
+
+    .readiness-interp {
+      font-size: 0.8125rem;
+      color: #555;
+    }
+
+    .readiness-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      padding: 0 1.25rem 0.85rem;
+    }
+
+    .readiness-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.04);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .readiness-chip-label { color: #555; }
+
+    .readiness-chip-delta { }
+    .readiness-chip-delta--pos { color: #16a34a; }
+    .readiness-chip-delta--neg { color: #dc2626; }
+    .readiness-chip-delta--neu { color: #888; }
+
+    .readiness-expand-icon {
+      flex-shrink: 0;
+      font-size: 0.9rem;
+      color: #aaa;
+      transition: transform 0.15s ease;
+      align-self: center;
+    }
+
+    .readiness-expand-icon.open { transform: rotate(180deg); }
+
+    /* expanded breakdown */
+    .readiness-breakdown {
+      border-top: 1px solid rgba(0,0,0,0.07);
+      padding: 0.75rem 1.25rem 1rem;
+    }
+
+    .readiness-breakdown-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+
+    .readiness-breakdown-row:last-child { border-bottom: none; }
+
+    .readiness-breakdown-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .readiness-breakdown-name {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      min-width: 52px;
+    }
+
+    .readiness-breakdown-value {
+      font-size: 0.8125rem;
+      color: #1a1a1a;
+    }
+
+    .readiness-breakdown-baseline {
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    .readiness-breakdown-delta {
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-left: auto;
+    }
+
+    .readiness-breakdown-expl {
+      font-size: 0.75rem;
+      color: #777;
+    }
+
     /* ── Today's check-in card ── */
     .checkin-toggle {
       background: none;
@@ -419,6 +582,23 @@
         <div class="dash-card-value" id="card-streak-value">—</div>
         <div class="dash-card-sub muted" id="card-streak-sub">consecutive days</div>
       </div>
+    </div>
+
+    <!-- Readiness card -->
+    <div class="readiness-card" id="readiness-card" role="button" aria-expanded="false" aria-label="Readiness score — tap to expand">
+      <div class="readiness-summary">
+        <div class="readiness-score-wrap">
+          <div class="readiness-score" id="readiness-score">—</div>
+          <div class="readiness-score-label">Readiness</div>
+        </div>
+        <div class="readiness-main">
+          <span class="readiness-pill" id="readiness-pill">Loading…</span>
+          <span class="readiness-interp" id="readiness-interp"></span>
+        </div>
+        <span class="readiness-expand-icon" id="readiness-expand-icon">▾</span>
+      </div>
+      <div class="readiness-chips" id="readiness-chips"></div>
+      <div class="readiness-breakdown" id="readiness-breakdown" hidden></div>
     </div>
 
     <!-- Today's check-in card -->

@@ -869,9 +869,235 @@
     renderDigestSection(data);
   }
 
+  // ── Readiness card ────────────────────────────────────────────────────────
+
+  var READINESS_THRESHOLDS = { red: 50, amber: 70 };
+
+  var READINESS_LABELS = {
+    green: 'Green — go',
+    amber: 'Amber — moderate',
+    red:   'Red — back off',
+  };
+
+  var READINESS_INTERP = {
+    green: "You're well-recovered and ready to perform.",
+    amber: 'Keep it moderate — listen to your body.',
+    red:   'Your body needs extra recovery today.',
+  };
+
+  var READINESS_COMP_EXPL = {
+    HRV:    'Heart rate variability reflects autonomic recovery.',
+    RHR:    'Elevated resting HR signals residual fatigue.',
+    Sleep:  'Sleep quality and duration drive physical restoration.',
+    Energy: 'Subjective energy level shapes workout quality.',
+  };
+
+  function readinessBand(score) {
+    if (score == null) return 'neutral';
+    if (score < READINESS_THRESHOLDS.red)   return 'red';
+    if (score < READINESS_THRESHOLDS.amber) return 'amber';
+    return 'green';
+  }
+
+  function fmtDeltaPct(pct) {
+    if (pct == null) return null;
+    var rounded = Math.round(pct);
+    return (rounded >= 0 ? '+' : '') + rounded + '%';
+  }
+
+  function deltaClass(pct) {
+    if (pct == null) return 'neu';
+    if (Math.abs(pct) <= 2) return 'neu';
+    return pct > 0 ? 'pos' : 'neg';
+  }
+
+  function applyReadinessCard(readiness, metrics, trends) {
+    var card   = document.getElementById('readiness-card');
+    var scoreEl = document.getElementById('readiness-score');
+    var pillEl  = document.getElementById('readiness-pill');
+    var interpEl = document.getElementById('readiness-interp');
+    var chipsEl = document.getElementById('readiness-chips');
+    var bdEl    = document.getElementById('readiness-breakdown');
+    if (!card) return;
+
+    var score = readiness ? Math.round(readiness.score) : null;
+    var band  = readinessBand(score);
+
+    // Apply color band to card
+    card.classList.remove('readiness-card--green', 'readiness-card--amber', 'readiness-card--red');
+    if (band !== 'neutral') card.classList.add('readiness-card--' + band);
+
+    // Score
+    scoreEl.textContent = score != null ? score : '—';
+    scoreEl.className = 'readiness-score' + (band !== 'neutral' ? ' readiness-score--' + band : '');
+
+    // Pill
+    pillEl.textContent = band !== 'neutral' ? READINESS_LABELS[band] : '—';
+    pillEl.className = 'readiness-pill' + (band !== 'neutral' ? ' readiness-pill--' + band : '');
+
+    // Interpretation
+    interpEl.textContent = band !== 'neutral' ? READINESS_INTERP[band] : '';
+
+    // Component data
+    var missing = (readiness && readiness.missing_data) || {};
+    var todayHrv    = metrics ? metrics.hrv       : null;
+    var todayRhr    = metrics ? metrics.resting_hr : null;
+    var todaySleep  = metrics ? metrics.sleep_hours : null;
+    var todayEnergy = metrics ? metrics.energy     : null;
+    var baseHrv     = trends && trends.hrv    ? trends.hrv.avg        : null;
+    var baseRhr     = trends && trends.rhr    ? trends.rhr.avg        : null;
+    var baseSleep   = trends && trends.sleep  ? trends.sleep.avg_hours : null;
+    var baseEnergy  = trends && trends.energy ? trends.energy.avg     : null;
+
+    function pctDelta(val, base) {
+      if (val == null || base == null || base === 0) return null;
+      return (val - base) / base * 100;
+    }
+
+    var components = [
+      {
+        key: 'hrv',   label: 'HRV',
+        missing: missing.hrv,
+        value: todayHrv,    unit: 'ms',
+        baseline: baseHrv,  baseUnit: 'ms',
+        delta: pctDelta(todayHrv, baseHrv),
+      },
+      {
+        key: 'rhr',   label: 'RHR',
+        missing: missing.rhr,
+        value: todayRhr,    unit: 'bpm',
+        baseline: baseRhr,  baseUnit: 'bpm',
+        // lower RHR is better: invert delta sign for display
+        delta: pctDelta(baseRhr, todayRhr),
+      },
+      {
+        key: 'sleep', label: 'Sleep',
+        missing: missing.sleep,
+        value: todaySleep,    unit: 'h',
+        baseline: baseSleep,  baseUnit: 'h',
+        delta: pctDelta(todaySleep, baseSleep),
+      },
+      {
+        key: 'energy', label: 'Energy',
+        missing: missing.energy,
+        value: todayEnergy,    unit: '/5',
+        baseline: baseEnergy,  baseUnit: '/5',
+        delta: pctDelta(todayEnergy, baseEnergy),
+      },
+    ];
+
+    // Render chips
+    chipsEl.innerHTML = '';
+    components.forEach(function (c) {
+      var chip = document.createElement('span');
+      chip.className = 'readiness-chip';
+      var lbl = document.createElement('span');
+      lbl.className = 'readiness-chip-label';
+      lbl.textContent = c.label;
+      var dlt = document.createElement('span');
+      dlt.className = 'readiness-chip-delta';
+      if (c.missing || c.value == null) {
+        dlt.textContent = '—';
+        dlt.classList.add('readiness-chip-delta--neu');
+      } else {
+        var dStr = c.delta != null ? fmtDeltaPct(c.delta) : '—';
+        dlt.textContent = dStr;
+        dlt.classList.add('readiness-chip-delta--' + deltaClass(c.delta));
+      }
+      chip.appendChild(lbl);
+      chip.appendChild(dlt);
+      chipsEl.appendChild(chip);
+    });
+
+    // Render breakdown
+    bdEl.innerHTML = '';
+    components.forEach(function (c) {
+      var row = document.createElement('div');
+      row.className = 'readiness-breakdown-row';
+
+      var hdr = document.createElement('div');
+      hdr.className = 'readiness-breakdown-header';
+
+      var name = document.createElement('span');
+      name.className = 'readiness-breakdown-name';
+      name.textContent = c.label;
+
+      var valEl = document.createElement('span');
+      valEl.className = 'readiness-breakdown-value';
+      valEl.textContent = (c.missing || c.value == null) ? '—' : (Number.isInteger(c.value) ? c.value : Number(c.value).toFixed(1)) + ' ' + c.unit;
+
+      var blEl = document.createElement('span');
+      blEl.className = 'readiness-breakdown-baseline';
+      blEl.textContent = c.baseline != null ? 'baseline ' + (Number.isInteger(c.baseline) ? Math.round(c.baseline) : Number(c.baseline).toFixed(1)) + ' ' + c.baseUnit : '';
+
+      var dltEl = document.createElement('span');
+      dltEl.className = 'readiness-breakdown-delta';
+      if (c.missing || c.value == null || c.delta == null) {
+        dltEl.textContent = '—';
+        dltEl.style.color = '#aaa';
+      } else {
+        var dStr = fmtDeltaPct(c.delta);
+        dltEl.textContent = dStr;
+        var dc = deltaClass(c.delta);
+        dltEl.style.color = dc === 'pos' ? '#16a34a' : dc === 'neg' ? '#dc2626' : '#888';
+      }
+
+      hdr.appendChild(name);
+      hdr.appendChild(valEl);
+      hdr.appendChild(blEl);
+      hdr.appendChild(dltEl);
+
+      var expl = document.createElement('div');
+      expl.className = 'readiness-breakdown-expl';
+      expl.textContent = READINESS_COMP_EXPL[c.label] || '';
+
+      row.appendChild(hdr);
+      row.appendChild(expl);
+      bdEl.appendChild(row);
+    });
+  }
+
+  function initReadinessToggle() {
+    var card = document.getElementById('readiness-card');
+    if (!card) return;
+    card.addEventListener('click', function () {
+      var bd   = document.getElementById('readiness-breakdown');
+      var icon = document.getElementById('readiness-expand-icon');
+      if (!bd) return;
+      var isOpen = !bd.hidden;
+      bd.hidden = isOpen;
+      if (icon) icon.classList.toggle('open', !isOpen);
+      card.setAttribute('aria-expanded', String(!isOpen));
+    });
+  }
+
+  async function loadReadinessCard(userId) {
+    var today = todayISO();
+    var readiness = null, metrics = null, trends = null;
+
+    try {
+      var [rRes, mRes, tRes] = await Promise.all([
+        fetch('/api/readiness/today?user_id=' + encodeURIComponent(userId)),
+        fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today),
+        fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'),
+      ]);
+      if (rRes.ok)  readiness = await rRes.json();
+      if (mRes.ok)  metrics   = await mRes.json();
+      if (tRes.ok)  trends    = await tRes.json();
+    } catch (_) {}
+
+    // Fall back to mock data when API is unavailable
+    if (!readiness && typeof MOCK_READINESS_TODAY !== 'undefined') readiness = MOCK_READINESS_TODAY;
+    if (!metrics   && typeof MOCK_DAILY_METRICS_TODAY !== 'undefined') metrics = MOCK_DAILY_METRICS_TODAY;
+    if (!trends    && typeof MOCK_TRENDS_SUMMARY !== 'undefined')      trends  = MOCK_TRENDS_SUMMARY;
+
+    applyReadinessCard(readiness, metrics, trends);
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
+    loadReadinessCard(userId);
     loadWeightSection(userId);
     loadHabitsSection(userId);
     loadTrainingSection(userId);
@@ -884,6 +1110,7 @@
   wireUpPillGroups();
   initCheckinToggle();
   initCheckinSave();
+  initReadinessToggle();
 
   window.addEventListener('userReady', function (e) {
     _checkinUserId = e.detail.userId;
