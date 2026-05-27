@@ -449,6 +449,128 @@
     }
   }
 
+  // ── Sleep / Energy / Mood 7-day trend chart ───────────────────────────────
+
+  var trendChart = null;
+
+  async function loadTrendChart(userId) {
+    var body = document.getElementById('section-trend-body');
+    if (!body) return;
+    try {
+      var res = await fetch(
+        '/api/daily-metrics/trend?user_id=' + encodeURIComponent(userId) + '&days=7'
+      );
+      if (!res.ok) throw new Error('server error');
+      var data = await res.json();
+
+      var labels = data.map(function (d) {
+        var dt = new Date(d.date + 'T00:00:00');
+        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      });
+      var sleepData = data.map(function (d) { return d.sleep_hours; });
+      var energyData = data.map(function (d) { return d.energy; });
+      var moodData = data.map(function (d) { return d.mood; });
+
+      if (!body.querySelector('#trend-chart')) {
+        body.innerHTML = '<div class="trend-chart-wrap"><canvas id="trend-chart"></canvas></div>';
+      }
+
+      if (trendChart) {
+        trendChart.data.labels = labels;
+        trendChart.data.datasets[0].data = sleepData;
+        trendChart.data.datasets[1].data = energyData;
+        trendChart.data.datasets[2].data = moodData;
+        trendChart.update();
+        return;
+      }
+
+      var ctx = document.getElementById('trend-chart').getContext('2d');
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Sleep (h)',
+              data: sleepData,
+              yAxisID: 'ySleep',
+              borderColor: '#6366f1',
+              backgroundColor: 'rgba(99,102,241,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+            {
+              label: 'Energy',
+              data: energyData,
+              yAxisID: 'yScore',
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+            {
+              label: 'Mood',
+              data: moodData,
+              yAxisID: 'yScore',
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16,185,129,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { font: { size: 11 }, boxWidth: 12, padding: 8 },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { font: { size: 10 }, maxRotation: 0 },
+              grid: { display: false },
+            },
+            ySleep: {
+              type: 'linear',
+              position: 'left',
+              min: 0,
+              max: 12,
+              title: { display: true, text: 'Sleep (h)', font: { size: 10 } },
+              ticks: { font: { size: 10 }, stepSize: 3 },
+              grid: { color: 'rgba(0,0,0,0.06)' },
+            },
+            yScore: {
+              type: 'linear',
+              position: 'right',
+              min: 0,
+              max: 5,
+              title: { display: true, text: '1–5', font: { size: 10 } },
+              ticks: { font: { size: 10 }, stepSize: 1 },
+              grid: { display: false },
+            },
+          },
+          animation: false,
+        },
+      });
+    } catch (e) {
+      body.innerHTML = '<p class="dash-section-empty">Unable to load trend data</p>';
+    }
+  }
+
   // ── Today's check-in card ──────────────────────────────────────────────────
 
   var CHECKIN_COLLAPSE_KEY = 'perf-coach.checkin-collapsed';
@@ -593,6 +715,7 @@
           var mm = String(saved.getMinutes()).padStart(2, '0');
           setCheckinStatus('Saved at ' + hh + ':' + mm, '');
           setTimeout(function () { setCheckinStatus('', ''); }, 3000);
+          loadTrendChart(_checkinUserId);
         } else {
           var errBody;
           try { errBody = await res.json(); } catch (_) { errBody = {}; }
@@ -616,6 +739,7 @@
     loadHabitsSection(userId);
     loadTrainingSection(userId);
     loadCheckinSection(userId);
+    loadTrendChart(userId);
   }
 
   setTodayLabel();

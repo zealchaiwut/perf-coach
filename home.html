@@ -119,6 +119,12 @@
       height: 80px;
     }
 
+    /* Sleep / energy / mood trend chart */
+    .trend-chart-wrap {
+      position: relative;
+      height: 180px;
+    }
+
     /* Habits list */
     .home-habit-list {
       list-style: none;
@@ -441,6 +447,20 @@
             <span class="checkin-saved" id="checkin-saved"></span>
             <span class="checkin-error" id="checkin-error"></span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sleep / Energy / Mood 7-day trend chart -->
+    <section class="dash-section" id="section-trend">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">📈</span>
+        <h2 class="dash-section-title">7-day trend</h2>
+        <span class="dash-section-link" style="color:#888;font-size:0.75rem">Sleep · Energy · Mood</span>
+      </div>
+      <div class="dash-section-body" id="section-trend-body">
+        <div class="trend-chart-wrap">
+          <canvas id="trend-chart"></canvas>
         </div>
       </div>
     </section>

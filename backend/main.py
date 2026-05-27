@@ -1226,6 +1226,47 @@ def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
         return JSONResponse(_daily_metric_dict(row))
 
 
+@app.get("/api/daily-metrics/trend")
+def get_daily_metrics_trend(
+    user_id: str,
+    days: int = Query(default=7, ge=1, le=90),
+):
+    from datetime import timedelta
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    window_start = today - timedelta(days=days - 1)
+
+    with Session(engine) as session:
+        rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= window_start,
+                DailyMetric.metric_date <= today,
+            )
+            .all()
+        )
+        by_date = {str(r.metric_date): r for r in rows}
+
+        result = []
+        for i in range(days):
+            d = window_start + timedelta(days=i)
+            d_str = str(d)
+            r = by_date.get(d_str)
+            result.append({
+                "date": d_str,
+                "sleep_hours": float(r.sleep_hours) if r and r.sleep_hours is not None else None,
+                "energy": r.energy if r else None,
+                "mood": r.mood if r else None,
+            })
+
+        return JSONResponse(result)
+
+
 @app.delete("/api/daily-metrics/{user_id}/{metric_date}", status_code=204)
 def delete_daily_metric(user_id: str, metric_date: str):
     try:
