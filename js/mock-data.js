@@ -74,83 +74,206 @@ const MOCK_DAILY_TREND = [
   { date: '2026-05-27', sleep_hours: 7.0, energy: 4, mood: 4 },
 ];
 
-// MOCK — pre-computed 7-day trends summary used when /trends/summary?range=7d is unavailable
-// Shape mirrors the real GET /trends/summary response.
-const MOCK_TRENDS_SUMMARY = {
-  range: { from: '2026-05-21', to: '2026-05-27', days: 7 },
-  readiness: {
-    series: [
-      { date: '2026-05-21', score: 68 }, { date: '2026-05-22', score: 72 },
-      { date: '2026-05-23', score: 70 }, { date: '2026-05-24', score: 75 },
-      { date: '2026-05-25', score: 74 }, { date: '2026-05-26', score: 71 },
-      { date: '2026-05-27', score: 73 },
-    ],
-    avg: 73.0, min: 68, max: 75,
-  },
-  hrv: {
-    series: [
-      { date: '2026-05-21', value: 42 }, { date: '2026-05-22', value: 45 },
-      { date: '2026-05-23', value: 43 }, { date: '2026-05-24', value: 46 },
-      { date: '2026-05-25', value: 44 }, { date: '2026-05-26', value: 43 },
-      { date: '2026-05-27', value: 44 },
-    ],
-    avg: 44.0, min: 42, max: 46,
-  },
-  rhr: {
-    series: [
-      { date: '2026-05-21', value: 57 }, { date: '2026-05-22', value: 56 },
-      { date: '2026-05-23', value: 58 }, { date: '2026-05-24', value: 57 },
-      { date: '2026-05-25', value: 56 }, { date: '2026-05-26', value: 57 },
-      { date: '2026-05-27', value: 57 },
-    ],
-    avg: 57.0, min: 56, max: 58,
-  },
-  sleep: {
-    series: [
-      { date: '2026-05-21', hours: 7.5, quality: 4 }, { date: '2026-05-22', hours: 6.8, quality: 3 },
-      { date: '2026-05-23', hours: 7.0, quality: 4 }, { date: '2026-05-24', hours: 7.2, quality: 4 },
-      { date: '2026-05-25', hours: 7.5, quality: 5 }, { date: '2026-05-26', hours: 6.5, quality: 3 },
-      { date: '2026-05-27', hours: 7.1, quality: 4 },
-    ],
-    avg_hours: 7.1, min_hours: 6.5, max_hours: 7.5,
-  },
-  energy: {
-    series: [
-      { date: '2026-05-21', value: 3 }, { date: '2026-05-22', value: 4 },
-      { date: '2026-05-23', value: 3 }, { date: '2026-05-24', value: 4 },
-      { date: '2026-05-25', value: 4 }, { date: '2026-05-26', value: 3 },
-      { date: '2026-05-27', value: 4 },
-    ],
-    avg: 3.6, min: 3, max: 4,
-  },
-  mood: {
-    series: [
-      { date: '2026-05-21', value: 4 }, { date: '2026-05-22', value: 3 },
-      { date: '2026-05-23', value: 4 }, { date: '2026-05-24', value: 4 },
-      { date: '2026-05-25', value: 5 }, { date: '2026-05-26', value: 3 },
-      { date: '2026-05-27', value: 4 },
-    ],
-    avg: 3.9, min: 3, max: 5,
-  },
-  tss: {
-    series: [
-      { date: '2026-05-21', value: 85 }, { date: '2026-05-22', value: 110 },
-      { date: '2026-05-23', value: null }, { date: '2026-05-24', value: 120 },
-      { date: '2026-05-25', value: 145 }, { date: '2026-05-26', value: 95 },
-      { date: '2026-05-27', value: 115 },
-    ],
-    avg: 111.7, total: 670.0,
-  },
-  deltas: {
-    readiness: '+4',
-    hrv: '-5',
-    rhr: '+1',
-    sleep: '-0.5h',
-    energy: '+0.2',
-    mood: '-0.1',
-    tss: '+70%',
-  },
-};
+// ── Mock GET /trends/summary aggregation endpoint ─────────────────────────────
+//
+// mockGetTrendsSummary(params) mirrors the server-side endpoint shape exactly.
+// params: { range?: '7d'|'30d'|'90d', from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD' }
+// Throws an Error with .status = 400 for invalid params.
+
+function _fmtD(d) {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+function _shiftDate(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return _fmtD(d);
+}
+
+function _daysBetween(from, to) {
+  return Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 86400000);
+}
+
+// 120-day raw metrics indexed by date, covering 2026-01-28 to 2026-05-27.
+// ~20% of days are gaps (null) to simulate missing log entries.
+const _MOCK_DAILY_RAW = (() => {
+  const TODAY = '2026-05-27';
+  const map = {};
+  for (let i = 0; i < 120; i++) {
+    const date = _shiftDate(TODAY, i - 119);
+    const gap = (i % 7 === 3) || (i % 13 === 6);
+    map[date] = {
+      readiness: gap ? null : Math.max(30, Math.min(95, Math.round(62 + 18 * Math.sin(i * 0.14) + (i % 7) * 1.2))),
+      hrv:       gap ? null : Math.max(25, Math.min(70, Math.round(44 + 9  * Math.sin(i * 0.11) + (i % 5)))),
+      rhr:       gap ? null : Math.max(44, Math.min(74, Math.round(59 - 7  * Math.sin(i * 0.11) - (i % 4)))),
+      sleep:     gap ? null : Math.round(Math.max(4.5, Math.min(9.5, 6.9 + 1.1 * Math.sin(i * 0.19))) * 10) / 10,
+      energy:    gap ? null : Math.max(1, Math.min(5, Math.round(3 + 1.5 * Math.sin(i * 0.16)))),
+      mood:      gap ? null : Math.max(1, Math.min(5, Math.round(3.2 + 1.3 * Math.sin(i * 0.21)))),
+    };
+  }
+  // Overlay richer existing readiness data for the most recent 30 days
+  MOCK_READINESS.forEach(r => {
+    if (map[r.date]) map[r.date].readiness = r.readiness_score;
+  });
+  return map;
+})();
+
+// TSS by date: existing workout data + generated history for earlier days
+const _MOCK_TSS_BY_DATE = (() => {
+  const TODAY = '2026-05-27';
+  const map = {};
+  for (let i = 0; i < 90; i++) {
+    const date = _shiftDate(TODAY, i - 89);
+    if (i % 2 === 0 && i % 5 !== 0) {
+      map[date] = Math.round(45 + 80 * Math.abs(Math.sin(i * 0.17)));
+    }
+  }
+  MOCK_TSS.forEach(({ date, tss }) => { map[date] = (map[date] || 0) + tss; });
+  return map;
+})();
+
+// ── Aggregation helpers ───────────────────────────────────────────────────────
+
+function _safeAvg(vals) {
+  const v = vals.filter(x => x !== null && x !== undefined);
+  if (!v.length) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length * 100) / 100;
+}
+
+function _safeMin(vals) {
+  const v = vals.filter(x => x !== null);
+  return v.length ? Math.min(...v) : null;
+}
+
+function _safeMax(vals) {
+  const v = vals.filter(x => x !== null);
+  return v.length ? Math.max(...v) : null;
+}
+
+function _safeStddev(vals) {
+  const v = vals.filter(x => x !== null);
+  if (v.length < 2) return null;
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  return Math.round(Math.sqrt(v.reduce((s, x) => s + (x - mean) ** 2, 0) / v.length) * 100) / 100;
+}
+
+function _computeDelta(curAvg, prevAvg) {
+  if (curAvg === null || prevAvg === null || prevAvg === 0) {
+    return { value: null, pct: null, direction: 'flat' };
+  }
+  const val = Math.round((curAvg - prevAvg) * 100) / 100;
+  const pct = Math.round((val / Math.abs(prevAvg)) * 10000) / 100;
+  const direction = val > 0.005 ? 'up' : val < -0.005 ? 'down' : 'flat';
+  return { value: val, pct, direction };
+}
+
+function _buildSeries(dates, getVal) {
+  return dates.map(date => ({ date, value: getVal(date) }));
+}
+
+// ── Public mock endpoint ──────────────────────────────────────────────────────
+
+function mockGetTrendsSummary(params) {
+  const hasRange = params.range != null;
+  const hasFrom  = Boolean(params.from);
+  const hasTo    = Boolean(params.to);
+
+  if (hasRange && (hasFrom || hasTo)) {
+    const e = new Error('range and from/to are mutually exclusive'); e.status = 400; throw e;
+  }
+
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  let from, to;
+
+  if (hasFrom || hasTo) {
+    if (!hasFrom || !hasTo) {
+      const e = new Error('Both from and to are required for a custom date range'); e.status = 400; throw e;
+    }
+    if (!DATE_RE.test(params.from) || !DATE_RE.test(params.to)) {
+      const e = new Error('Invalid date format — use YYYY-MM-DD'); e.status = 400; throw e;
+    }
+    from = params.from; to = params.to;
+  } else {
+    const range = hasRange ? params.range : '30d';
+    if (!['7d', '30d', '90d'].includes(range)) {
+      const e = new Error(`Invalid range "${range}" — allowed: 7d, 30d, 90d`); e.status = 400; throw e;
+    }
+    const n = parseInt(range, 10);
+    const todayD = new Date('2026-05-27T00:00:00');
+    const fromD  = new Date(todayD); fromD.setDate(todayD.getDate() - n + 1);
+    from = _fmtD(fromD); to = _fmtD(todayD);
+  }
+
+  const totalDays = _daysBetween(from, to) + 1;
+  const prevTo    = _shiftDate(from, -1);
+  const prevFrom  = _shiftDate(prevTo, -(totalDays - 1));
+
+  const dates     = Array.from({ length: totalDays }, (_, i) => _shiftDate(from, i));
+  const prevDates = Array.from({ length: totalDays }, (_, i) => _shiftDate(prevFrom, i));
+
+  function raw(date, field)  { return (_MOCK_DAILY_RAW[date] || {})[field] ?? null; }
+  function vals(ds, field)   { return ds.map(d => raw(d, field)); }
+  function series(field)     { return _buildSeries(dates, d => raw(d, field)); }
+  function delta(field)      { return _computeDelta(_safeAvg(vals(dates, field)), _safeAvg(vals(prevDates, field))); }
+
+  // readiness
+  const readSeries = series('readiness');
+  const readVals   = readSeries.map(s => s.value);
+  const readLatest = [...readVals].reverse().find(v => v !== null) ?? null;
+
+  // hrv (baseline covers all available data for a stable reference)
+  const hrvSeries  = series('hrv');
+  const hrvVals    = hrvSeries.map(s => s.value);
+  const allHrv     = Object.values(_MOCK_DAILY_RAW).map(r => r.hrv).filter(v => v !== null);
+
+  // rhr
+  const rhrSeries  = series('rhr');
+  const rhrVals    = rhrSeries.map(s => s.value);
+  const rhrLatest  = [...rhrVals].reverse().find(v => v !== null) ?? null;
+
+  // tss
+  const tssSeries  = _buildSeries(dates, d => _MOCK_TSS_BY_DATE[d] ?? null);
+  const tssVals    = tssSeries.map(s => s.value);
+  const tssValid   = tssVals.filter(v => v !== null);
+  const prevTssVals = prevDates.map(d => _MOCK_TSS_BY_DATE[d] ?? null);
+
+  return {
+    meta: { range: hasRange ? params.range : null, from, to, days: totalDays },
+    readiness: {
+      avg: _safeAvg(readVals), min: _safeMin(readVals), max: _safeMax(readVals), latest: readLatest,
+      series: readSeries, delta: delta('readiness'),
+    },
+    hrv: {
+      avg: _safeAvg(hrvVals), baseline_mean: _safeAvg(allHrv), baseline_sd: _safeStddev(allHrv),
+      series: hrvSeries, delta: delta('hrv'),
+    },
+    rhr: {
+      avg: _safeAvg(rhrVals), min: _safeMin(rhrVals), max: _safeMax(rhrVals), latest: rhrLatest,
+      series: rhrSeries, delta: delta('rhr'),
+    },
+    sleep: {
+      avg: _safeAvg(vals(dates, 'sleep')),
+      series: series('sleep'), delta: delta('sleep'),
+    },
+    energy: {
+      avg: _safeAvg(vals(dates, 'energy')),
+      series: series('energy'), delta: delta('energy'),
+    },
+    mood: {
+      avg: _safeAvg(vals(dates, 'mood')),
+      series: series('mood'), delta: delta('mood'),
+    },
+    tss: {
+      total: tssValid.length ? Math.round(tssValid.reduce((a, b) => a + b, 0)) : null,
+      avg: _safeAvg(tssVals),
+      series: tssSeries,
+      delta: _computeDelta(_safeAvg(tssVals), _safeAvg(prevTssVals)),
+    },
+  };
+}
 
 // MOCK — today's readiness record used when /api/readiness/today is unavailable
 const MOCK_READINESS_TODAY = {
