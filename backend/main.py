@@ -558,8 +558,8 @@ def calendar_page():
 class ExerciseIn(BaseModel):
     name: str
     sets: Optional[int] = None
-    reps: Optional[str] = None
-    weight: Optional[str] = None
+    reps: Optional[int] = None
+    weight_kg: Optional[float] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
 
@@ -583,8 +583,8 @@ class WorkoutPatch(BaseModel):
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
     sets: Optional[int] = None
-    reps: Optional[str] = None
-    weight: Optional[str] = None
+    reps: Optional[int] = None
+    weight_kg: Optional[float] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
 
@@ -610,7 +610,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
-        "weight": e.weight,
+        "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
         "duration": e.duration,
         "rpe": e.rpe,
         "created_at": e.created_at.isoformat() if e.created_at else None,
@@ -738,7 +738,7 @@ def post_workout(body: WorkoutIn):
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
-                weight=ex.weight,
+                weight_kg=ex.weight_kg,
                 duration=ex.duration,
                 rpe=ex.rpe,
             )
@@ -861,7 +861,7 @@ def append_exercise(workout_id: str, body: ExerciseIn):
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
-            weight=body.weight,
+            weight_kg=body.weight_kg,
             duration=body.duration,
             rpe=body.rpe,
         )
@@ -896,8 +896,8 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
             ex.sets = body.sets
         if body.reps is not None:
             ex.reps = body.reps
-        if body.weight is not None:
-            ex.weight = body.weight
+        if body.weight_kg is not None:
+            ex.weight_kg = body.weight_kg
         if body.duration is not None:
             ex.duration = body.duration
         if body.rpe is not None:
