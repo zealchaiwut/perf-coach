@@ -93,7 +93,7 @@ def compute_and_store(user_id: str, target_date: date) -> Optional[dict]:
         session.execute(
             text("""
                 INSERT INTO daily_readiness (user_id, date, score, components, computed_at, daily_metric_id)
-                VALUES (:uid, :d, :score, :components::jsonb, now(), :metric_id)
+                VALUES (:uid, :d, :score, CAST(:components AS jsonb), now(), :metric_id)
                 ON CONFLICT (user_id, date) DO UPDATE SET
                     score = EXCLUDED.score,
                     components = EXCLUDED.components,
