@@ -458,18 +458,18 @@
     if (!body) return;
     try {
       var res = await fetch(
-        '/api/daily-metrics/trend?user_id=' + encodeURIComponent(userId) + '&days=7'
+        '/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'
       );
       if (!res.ok) throw new Error('server error');
-      var data = await res.json();
+      var summary = await res.json();
 
-      var labels = data.map(function (d) {
+      var labels = summary.sleep.series.map(function (d) {
         var dt = new Date(d.date + 'T00:00:00');
         return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
       });
-      var sleepData = data.map(function (d) { return d.sleep_hours; });
-      var energyData = data.map(function (d) { return d.energy; });
-      var moodData = data.map(function (d) { return d.mood; });
+      var sleepData = summary.sleep.series.map(function (d) { return d.hours; });
+      var energyData = summary.energy.series.map(function (d) { return d.value; });
+      var moodData = summary.mood.series.map(function (d) { return d.value; });
 
       if (!body.querySelector('#trend-chart')) {
         body.innerHTML = '<div class="trend-chart-wrap"><canvas id="trend-chart"></canvas></div>';
