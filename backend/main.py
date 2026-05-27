@@ -553,6 +553,16 @@ def calendar_page():
     return FileResponse(str(_static_root / "calendar.html"))
 
 
+@app.get("/trends.html")
+def trends_page():
+    return FileResponse(str(_static_root / "trends.html"))
+
+
+@app.get("/trends")
+def trends_redirect():
+    return FileResponse(str(_static_root / "trends.html"))
+
+
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
