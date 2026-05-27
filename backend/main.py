@@ -558,8 +558,8 @@ def calendar_page():
 class ExerciseIn(BaseModel):
     name: str
     sets: Optional[int] = None
-    reps: Optional[int] = None
-    weight_kg: Optional[float] = None
+    reps: Optional[str] = None
+    weight: Optional[str] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
 
@@ -583,8 +583,8 @@ class WorkoutPatch(BaseModel):
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
     sets: Optional[int] = None
-    reps: Optional[int] = None
-    weight_kg: Optional[float] = None
+    reps: Optional[str] = None
+    weight: Optional[str] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
 
@@ -610,7 +610,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
-        "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
+        "weight": e.weight,
         "duration": e.duration,
         "rpe": e.rpe,
         "created_at": e.created_at.isoformat() if e.created_at else None,
@@ -626,7 +626,6 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_type": w.workout_type,
         "remarks": w.remarks,
         "created_at": w.created_at.isoformat() if w.created_at else None,
-        "updated_at": w.updated_at.isoformat() if w.updated_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
     }
 
@@ -701,7 +700,6 @@ def get_workout(workout_id: str):
 
 @app.post("/api/workouts", status_code=201)
 def post_workout(body: WorkoutIn):
-    from datetime import datetime, timezone
     try:
         uid = _uuid.UUID(body.user_id)
     except ValueError:
@@ -740,7 +738,7 @@ def post_workout(body: WorkoutIn):
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
-                weight_kg=ex.weight_kg,
+                weight=ex.weight,
                 duration=ex.duration,
                 rpe=ex.rpe,
             )
@@ -755,7 +753,6 @@ def post_workout(body: WorkoutIn):
 
 @app.patch("/api/workouts/{workout_id}")
 def patch_workout(workout_id: str, body: WorkoutPatch):
-    from datetime import datetime, timezone
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -784,7 +781,6 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.workout_type = t
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
-        workout.updated_at = datetime.now(timezone.utc)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -865,7 +861,7 @@ def append_exercise(workout_id: str, body: ExerciseIn):
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
-            weight_kg=body.weight_kg,
+            weight=body.weight,
             duration=body.duration,
             rpe=body.rpe,
         )
@@ -900,8 +896,8 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
             ex.sets = body.sets
         if body.reps is not None:
             ex.reps = body.reps
-        if body.weight_kg is not None:
-            ex.weight_kg = body.weight_kg
+        if body.weight is not None:
+            ex.weight = body.weight
         if body.duration is not None:
             ex.duration = body.duration
         if body.rpe is not None:

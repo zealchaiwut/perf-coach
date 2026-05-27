@@ -57,36 +57,40 @@ with Session(engine) as session:
             seed_workouts = [
                 {
                     "user_id": str(alice.id),
-                    "name": "Morning Strength",
+                    "name": "Morning Strength A",
                     "workout_date": str(today - timedelta(days=3)),
-                    "workout_type": "Strength",
+                    "workout_type": "strength",
                     "remarks": "Felt strong today",
                     "exercises": [
-                        {"name": "Bench Press", "sets": 4, "reps": 8, "weight_kg": 80, "rpe": 8},
-                        {"name": "Squat", "sets": 4, "reps": 6, "weight_kg": 100, "rpe": 8},
-                        {"name": "Pull-up", "sets": 3, "reps": 8, "weight_kg": None, "rpe": 7},
+                        {"name": "Shoulder Press", "sets": 4, "reps": "10,8,8,6", "weight": "BB 40kg", "rpe": 8},
+                        {"name": "DB Row", "sets": 4, "reps": "10", "weight": "DB 24kg", "rpe": 7},
+                        {"name": "Squat", "sets": 4, "reps": "6", "weight": "BB 80kg", "rpe": 8},
+                        {"name": "Lateral Raise", "sets": 3, "reps": "15", "weight": "DB 8kg", "rpe": 6},
                     ],
                 },
                 {
                     "user_id": str(alice.id),
                     "name": "Easy Run",
                     "workout_date": str(today - timedelta(days=7)),
-                    "workout_type": "Running",
-                    "remarks": "5k recovery pace",
+                    "workout_type": "running",
+                    "remarks": "Recovery pace",
                     "exercises": [
-                        {"name": "5k Run", "sets": None, "reps": None, "weight_kg": None, "duration": "28:00", "rpe": 5},
+                        {"name": "5k Run", "sets": None, "reps": None, "weight": None, "duration": "28 min", "rpe": 5},
+                        {"name": "Cool-down Walk", "sets": None, "reps": None, "weight": None, "duration": "10 min", "rpe": 2},
                     ],
                 },
                 {
                     "user_id": str(alice.id),
                     "name": "Upper Push",
-                    "workout_date": str(today - timedelta(days=10)),
-                    "workout_type": "Strength",
+                    "workout_date": str(today - timedelta(days=14)),
+                    "workout_type": "strength",
                     "remarks": "",
                     "exercises": [
-                        {"name": "Overhead Press", "sets": 4, "reps": 10, "weight_kg": 50, "rpe": 7},
-                        {"name": "Tricep Dip", "sets": 3, "reps": 12, "weight_kg": None, "rpe": 6},
-                        {"name": "Lateral Raise", "sets": 3, "reps": 15, "weight_kg": 10, "rpe": 6},
+                        {"name": "Bench Press", "sets": 4, "reps": "8", "weight": "BB 60kg", "rpe": 7},
+                        {"name": "Overhead Press", "sets": 3, "reps": "10", "weight": "BB 40kg", "rpe": 7},
+                        {"name": "Tricep Dip", "sets": 3, "reps": "AMRAP", "weight": "BW", "rpe": 8},
+                        {"name": "Cable Fly", "sets": 3, "reps": "12", "weight": "15kg", "rpe": 6},
+                        {"name": "Face Pull", "sets": 3, "reps": "15", "weight": "20kg", "rpe": 5},
                     ],
                 },
             ]
@@ -110,8 +114,8 @@ with Session(engine) as session:
                     session.execute(
                         text(
                             "INSERT INTO workout_exercises"
-                            " (workout_id, display_order, name, sets, reps, weight_kg, duration, rpe)"
-                            " VALUES (:workout_id, :display_order, :name, :sets, :reps, :weight_kg, :duration, :rpe)"
+                            " (workout_id, display_order, name, sets, reps, weight, duration, rpe)"
+                            " VALUES (:workout_id, :display_order, :name, :sets, :reps, :weight, :duration, :rpe)"
                         ),
                         {
                             "workout_id": str(workout_id),
@@ -119,7 +123,7 @@ with Session(engine) as session:
                             "name": ex["name"],
                             "sets": ex.get("sets"),
                             "reps": ex.get("reps"),
-                            "weight_kg": ex.get("weight_kg"),
+                            "weight": ex.get("weight"),
                             "duration": ex.get("duration"),
                             "rpe": ex.get("rpe"),
                         },

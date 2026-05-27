@@ -27,8 +27,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(200), nullable=False),
         sa.Column("workout_date", sa.Date(), nullable=False),
+        sa.Column("name", sa.String(200), nullable=False),
         sa.Column("workout_type", sa.String(50), nullable=False),
         sa.Column("remarks", sa.Text(), nullable=True),
         sa.Column(
@@ -37,14 +37,12 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=True,
         ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=True,
-        ),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+    )
+    op.execute(
+        "CREATE INDEX ix_workouts_user_id_workout_date"
+        " ON workouts (user_id, workout_date DESC)"
     )
 
     op.create_table(
@@ -64,9 +62,9 @@ def upgrade() -> None:
         ),
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("sets", sa.Integer(), nullable=True),
-        sa.Column("reps", sa.Integer(), nullable=True),
-        sa.Column("weight_kg", sa.Numeric(6, 2), nullable=True),
-        sa.Column("duration", sa.String(20), nullable=True),
+        sa.Column("reps", sa.String(50), nullable=True),
+        sa.Column("weight", sa.String(50), nullable=True),
+        sa.Column("duration", sa.String(50), nullable=True),
         sa.Column("rpe", sa.Integer(), nullable=True),
         sa.Column(
             "created_at",
@@ -74,11 +72,29 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=True,
         ),
-        sa.ForeignKeyConstraint(["workout_id"], ["workouts.id"]),
+        sa.ForeignKeyConstraint(["workout_id"], ["workouts.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint(
+            "sets IS NULL OR sets > 0",
+            name="ck_workout_exercises_sets_positive",
+        ),
+        sa.CheckConstraint(
+            "rpe IS NULL OR (rpe >= 1 AND rpe <= 10)",
+            name="ck_workout_exercises_rpe_range",
+        ),
+    )
+    op.create_index(
+        "ix_workout_exercises_workout_id_display_order",
+        "workout_exercises",
+        ["workout_id", "display_order"],
     )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_workout_exercises_workout_id_display_order",
+        table_name="workout_exercises",
+    )
     op.drop_table("workout_exercises")
+    op.execute("DROP INDEX IF EXISTS ix_workouts_user_id_workout_date")
     op.drop_table("workouts")
