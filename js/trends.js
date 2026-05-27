@@ -142,18 +142,14 @@
   }
 
   // ── Summary API ───────────────────────────────────────────────────────────────
+  // Calls mockGetTrendsSummary (from mock-data.js) which implements the full
+  // GET /trends/summary aggregation spec client-side until a backend is available.
 
-  async function fetchSummary(state, userId) {
-    let url = '/trends/summary?user_id=' + encodeURIComponent(userId);
-    if (state.type === 'custom') {
-      if (state.from) url += '&from=' + state.from;
-      if (state.to) url += '&to=' + state.to;
-    } else {
-      url += '&range=' + state.preset;
-    }
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('server error');
-    return res.json();
+  async function fetchSummary(state) {
+    const params = state.type === 'custom'
+      ? { from: state.from || undefined, to: state.to || undefined }
+      : { range: state.preset };
+    return mockGetTrendsSummary(params);
   }
 
   // ── Chart.js color-band plugin ────────────────────────────────────────────────
@@ -274,7 +270,7 @@
   function renderReadinessFromSummary(bodyEl, summary) {
     const series = summary.readiness.series;
     const dates = series.map(s => s.date);
-    const scores = series.map(s => s.score);
+    const scores = series.map(s => s.value);
     if (dates.length === 0 || scores.every(v => v === null)) {
       showEmpty(bodyEl);
       emptyBanner.hidden = false;
@@ -377,7 +373,7 @@
   let sleepEnergyChart = null;
 
   function renderSleepEnergyChart(bodyEl, summary) {
-    const sleepData = summary.sleep.series.map(s => s.hours);
+    const sleepData = summary.sleep.series.map(s => s.value);
     const energyData = summary.energy.series.map(s => s.value);
     const moodData = summary.mood.series.map(s => s.value);
     const labels = summary.sleep.series.map(s => formatLabel(s.date));
@@ -572,7 +568,7 @@
     const tssByDate = {};
     summary.tss.series.forEach(s => { if (s.value !== null) tssByDate[s.date] = s.value; });
     const readinessByDate = {};
-    summary.readiness.series.forEach(s => { if (s.score !== null) readinessByDate[s.date] = s.score; });
+    summary.readiness.series.forEach(s => { if (s.value !== null) readinessByDate[s.date] = s.value; });
     const dates = summary.tss.series.map(s => s.date);
     renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
   }
@@ -653,7 +649,7 @@
       return;
     }
 
-    fetchSummary(state, _userId)
+    fetchSummary(state)
       .then(summary => {
         renderReadinessFromSummary(readinessBodyEl, summary);
         renderHrvRhrChart(hrvRhrBodyEl, summary);
