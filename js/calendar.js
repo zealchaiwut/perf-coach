@@ -43,23 +43,33 @@
     return { from, to };
   }
 
+  // Readiness thresholds mirror home.js: red < 50, amber 50–70, green > 70
+  function readinessBandClass(score) {
+    if (score == null) return 'readiness-gray';
+    if (score < 50)   return 'readiness-red';
+    if (score <= 70)  return 'readiness-amber';
+    return 'readiness-green';
+  }
+
   async function fetchCalendarData(userId, year, month) {
     const { from, to } = monthRange(year, month);
     const enc = s => encodeURIComponent(s);
     try {
-      const [wR, hR, lR, tR, mR] = await Promise.all([
+      const [wR, hR, lR, tR, mR, rdR] = await Promise.all([
         fetch(`/api/weight?user_id=${enc(userId)}`),
         fetch(`/api/habits?user_id=${enc(userId)}`),
         fetch(`/api/habits/logs?user_id=${enc(userId)}&from=${from}&to=${to}`),
         fetch(`/api/workouts?user_id=${enc(userId)}&from=${from}&to=${to}`),
         fetch(`/api/calendar/month?user_id=${enc(userId)}&year=${year}&month=${month + 1}`),
+        fetch(`/api/readiness?user_id=${enc(userId)}&from=${from}&to=${to}`),
       ]);
-      const [weights, habits, logs, workouts, calMonthData] = await Promise.all([
+      const [weights, habits, logs, workouts, calMonthData, readinessData] = await Promise.all([
         wR.ok ? wR.json() : [],
         hR.ok ? hR.json() : [],
         lR.ok ? lR.json() : [],
         tR.ok ? tR.json() : [],
         mR.ok ? mR.json() : [],
+        rdR.ok ? rdR.json() : [],
       ]);
 
       const weightMap = {};
@@ -81,11 +91,21 @@
         workoutMap[w.workout_date].push(w);
       }
 
-      // Build daily_metrics map from the calendar/month response
+      // Build daily_metrics map: energy + sleep_quality from calendar endpoint;
+      // readiness_score from /api/readiness (null = no data, gray dot).
       const metricsMap = {};
       for (const d of calMonthData) {
         if (d.energy != null || d.sleep_quality != null) {
-          metricsMap[d.date] = { energy: d.energy, sleep_quality: d.sleep_quality };
+          metricsMap[d.date] = { energy: d.energy, sleep_quality: d.sleep_quality, readiness_score: null };
+        }
+      }
+      for (const r of readinessData) {
+        if (r != null && r.score != null) {
+          if (!metricsMap[r.date]) {
+            metricsMap[r.date] = { energy: null, sleep_quality: null, readiness_score: r.score };
+          } else {
+            metricsMap[r.date].readiness_score = r.score;
+          }
         }
       }
 
@@ -178,18 +198,29 @@
       cell.appendChild(row);
     }
 
-    // Recovery dots: energy (⚡) and sleep quality (💤) in bottom-right
+    // Recovery dots: sleep quality, energy, and readiness in bottom-right.
+    // Three-dot layout (sleep | energy | readiness): three 8px dots with 3px gaps = 30px,
+    // which fits the minimum cell width at all supported viewport sizes.
     const dayMetrics = calData.dailyMetrics[dateStr];
-    if (dayMetrics && (dayMetrics.energy != null || dayMetrics.sleep_quality != null)) {
+    if (dayMetrics) {
       const dotsRow = document.createElement('div');
       dotsRow.className = 'cal-recovery-dots';
+
+      // Combined tooltip on the container surfaces all three values in one hover.
+      const tooltipParts = [];
+      const readinessLabel = dayMetrics.readiness_score != null
+        ? `Readiness: ${dayMetrics.readiness_score}`
+        : 'Readiness: No data';
+      tooltipParts.push(readinessLabel);
+      if (dayMetrics.energy != null)       tooltipParts.push(`Energy: ${dayMetrics.energy}/5`);
+      if (dayMetrics.sleep_quality != null) tooltipParts.push(`Sleep: ${dayMetrics.sleep_quality}/5`);
+      dotsRow.dataset.tooltip = tooltipParts.join(' · ');
 
       if (dayMetrics.sleep_quality != null) {
         const dot = document.createElement('span');
         dot.className = `cal-recovery-dot cal-recovery-dot--sleep scale-${dayMetrics.sleep_quality}`;
         dot.setAttribute('aria-label', `Sleep quality: ${dayMetrics.sleep_quality}/5`);
         dot.title = `Sleep: ${dayMetrics.sleep_quality}/5`;
-        dot.dataset.tooltip = `Sleep: ${dayMetrics.sleep_quality}/5`;
         dotsRow.appendChild(dot);
       }
 
@@ -198,9 +229,15 @@
         dot.className = `cal-recovery-dot cal-recovery-dot--energy scale-${dayMetrics.energy}`;
         dot.setAttribute('aria-label', `Energy: ${dayMetrics.energy}/5`);
         dot.title = `Energy: ${dayMetrics.energy}/5`;
-        dot.dataset.tooltip = `Energy: ${dayMetrics.energy}/5`;
         dotsRow.appendChild(dot);
       }
+
+      // Readiness dot: colored by band, gray when data is absent.
+      const rdot = document.createElement('span');
+      rdot.className = `cal-recovery-dot cal-recovery-dot--readiness ${readinessBandClass(dayMetrics.readiness_score)}`;
+      rdot.setAttribute('aria-label', readinessLabel);
+      rdot.title = readinessLabel;
+      dotsRow.appendChild(rdot);
 
       cell.appendChild(dotsRow);
     }
