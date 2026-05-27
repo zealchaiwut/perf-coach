@@ -33,6 +33,8 @@ def _create_workout(client, user_id, *, tss=None, **kwargs):
     }
     if tss is not None:
         payload["tss"] = tss
+    if "remarks" in kwargs:
+        payload["remarks"] = kwargs["remarks"]
     res = client.post("/api/workouts", json=payload)
     assert res.status_code == 201, f"Failed to create workout: {res.text}"
     return res.json()

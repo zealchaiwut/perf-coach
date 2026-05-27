@@ -156,3 +156,55 @@ with Session(engine) as session:
             print(f"Seeded {len(seed_workouts)} workouts for Alice (5 exercises per strength workout)")
     else:
         print(f"Workouts table already has {workout_count} row(s) with adequate exercise data — skipping workout seed")
+
+with Session(engine) as session:
+    alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+    if alice:
+        dm_count = session.execute(
+            text("SELECT COUNT(*) FROM daily_metrics WHERE user_id = :uid"),
+            {"uid": str(alice.id)},
+        ).scalar()
+        if dm_count == 0:
+            today = date.today()
+            # 14 days of realistic recovery data (rhr 50-60, hrv 40-80,
+            # sleep 6.5-8.5, quality/energy/mood 2-5), most recent first
+            seed_metrics = [
+                {"resting_hr": 52, "hrv": 72, "sleep_hours": "7.5", "sleep_quality": 4, "energy": 4, "mood": 4, "notes": None},
+                {"resting_hr": 55, "hrv": 58, "sleep_hours": "6.8", "sleep_quality": 3, "energy": 3, "mood": 3, "notes": None},
+                {"resting_hr": 50, "hrv": 75, "sleep_hours": "8.0", "sleep_quality": 5, "energy": 5, "mood": 4, "notes": "Great night"},
+                {"resting_hr": 58, "hrv": 45, "sleep_hours": "6.5", "sleep_quality": 2, "energy": 2, "mood": 3, "notes": "Restless"},
+                {"resting_hr": 54, "hrv": 68, "sleep_hours": "7.2", "sleep_quality": 4, "energy": 4, "mood": 4, "notes": None},
+                {"resting_hr": 57, "hrv": 52, "sleep_hours": "7.0", "sleep_quality": 3, "energy": 3, "mood": 3, "notes": None},
+                {"resting_hr": 51, "hrv": 80, "sleep_hours": "8.5", "sleep_quality": 5, "energy": 5, "mood": 5, "notes": "Peak day"},
+                {"resting_hr": 53, "hrv": 65, "sleep_hours": "7.3", "sleep_quality": 4, "energy": 4, "mood": 4, "notes": None},
+                {"resting_hr": 60, "hrv": 40, "sleep_hours": "6.5", "sleep_quality": 2, "energy": 2, "mood": 2, "notes": "Stressed"},
+                {"resting_hr": 56, "hrv": 55, "sleep_hours": "6.8", "sleep_quality": 3, "energy": 3, "mood": 3, "notes": None},
+                {"resting_hr": 52, "hrv": 70, "sleep_hours": "7.8", "sleep_quality": 4, "energy": 4, "mood": 5, "notes": None},
+                {"resting_hr": 54, "hrv": 63, "sleep_hours": "7.5", "sleep_quality": 4, "energy": 4, "mood": 4, "notes": None},
+                {"resting_hr": 59, "hrv": 48, "sleep_hours": "6.5", "sleep_quality": 3, "energy": 3, "mood": 3, "notes": None},
+                {"resting_hr": 51, "hrv": 77, "sleep_hours": "8.0", "sleep_quality": 5, "energy": 5, "mood": 4, "notes": "Refreshed"},
+            ]
+            rows = [
+                {
+                    "user_id": str(alice.id),
+                    "metric_date": str(today - timedelta(days=i + 1)),
+                    **m,
+                }
+                for i, m in enumerate(seed_metrics)
+            ]
+            session.execute(
+                text(
+                    "INSERT INTO daily_metrics"
+                    " (user_id, metric_date, resting_hr, hrv, sleep_hours,"
+                    "  sleep_quality, energy, mood, notes)"
+                    " VALUES (:user_id, :metric_date, :resting_hr, :hrv, :sleep_hours,"
+                    "         :sleep_quality, :energy, :mood, :notes)"
+                ),
+                rows,
+            )
+            session.commit()
+            print(f"Seeded {len(rows)} daily_metrics rows for Alice")
+        else:
+            print(f"Alice already has {dm_count} daily_metrics row(s) — skipping daily metrics seed")
+    else:
+        print("Alice not found — skipping daily metrics seed")
