@@ -1288,3 +1288,236 @@ def delete_daily_metric(user_id: str, metric_date: str):
         session.delete(row)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Trends summary endpoint ────────────────────────────────────────────────────
+
+def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
+    """0-100 readiness score computed from available daily metric fields."""
+    components = []
+    if hrv is not None:
+        # HRV: typical 20-100 ms → map to 0-100
+        components.append(min(100.0, max(0.0, (float(hrv) - 20.0) / 80.0 * 100.0)))
+    if resting_hr is not None:
+        # RHR: lower is better; 40 bpm → 100, 90 bpm → 0
+        components.append(max(0.0, min(100.0, (90.0 - float(resting_hr)) * 2.0)))
+    if sleep_hours is not None:
+        # sleep: 4 h → 0, 9 h → 100
+        components.append(max(0.0, min(100.0, (float(sleep_hours) - 4.0) / 5.0 * 100.0)))
+    if sleep_quality is not None:
+        components.append((float(sleep_quality) - 1.0) / 4.0 * 100.0)
+    if energy is not None:
+        components.append((float(energy) - 1.0) / 4.0 * 100.0)
+    if mood is not None:
+        components.append((float(mood) - 1.0) / 4.0 * 100.0)
+    if not components:
+        return None
+    return round(sum(components) / len(components))
+
+
+def _agg_stats(values):
+    non_null = [v for v in values if v is not None]
+    if not non_null:
+        return None, None, None
+    return round(sum(non_null) / len(non_null), 1), min(non_null), max(non_null)
+
+
+def _delta_int(curr, prev):
+    if curr is None or prev is None:
+        return None
+    diff = round(curr - prev)
+    return f"+{diff}" if diff >= 0 else str(diff)
+
+
+def _delta_hours(curr, prev):
+    if curr is None or prev is None:
+        return None
+    diff = curr - prev
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:.1f}h"
+
+
+def _delta_decimal(curr, prev, places=1):
+    if curr is None or prev is None:
+        return None
+    diff = curr - prev
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:.{places}f}"
+
+
+def _delta_pct(curr, prev):
+    if curr is None or prev is None or prev == 0:
+        return None
+    pct = round((curr - prev) / prev * 100)
+    return f"+{pct}%" if pct >= 0 else f"{pct}%"
+
+
+@app.get("/trends/summary")
+def get_trends_summary(
+    user_id: str,
+    range_preset: Optional[str] = Query(default=None, alias="range"),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    from datetime import timedelta
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+
+    if from_date and to_date:
+        try:
+            from_d = _date.fromisoformat(from_date)
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+        if from_d > to_d:
+            raise HTTPException(status_code=400, detail="from must be before to")
+    elif range_preset:
+        if range_preset not in ("7d", "30d", "90d"):
+            raise HTTPException(status_code=400, detail="range must be 7d, 30d, or 90d")
+        n = int(range_preset[:-1])
+        to_d = today
+        from_d = today - timedelta(days=n - 1)
+    else:
+        to_d = today
+        from_d = today - timedelta(days=29)
+
+    days_count = (to_d - from_d).days + 1
+    prev_to_d = from_d - timedelta(days=1)
+    prev_from_d = prev_to_d - timedelta(days=days_count - 1)
+
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+        by_date = {str(m.metric_date): m for m in metrics}
+
+        prev_metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= prev_from_d,
+                DailyMetric.metric_date <= prev_to_d,
+            )
+            .all()
+        )
+        prev_by_date = {str(m.metric_date): m for m in prev_metrics}
+
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+                Workout.tss.isnot(None),
+            )
+            .all()
+        )
+        tss_by_date: dict = {}
+        for w in workouts:
+            d = str(w.workout_date)
+            tss_by_date[d] = tss_by_date.get(d, 0.0) + (w.tss or 0.0)
+
+        prev_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_from_d,
+                Workout.workout_date <= prev_to_d,
+                Workout.tss.isnot(None),
+            )
+            .all()
+        )
+        prev_tss_by_date: dict = {}
+        for w in prev_workouts:
+            d = str(w.workout_date)
+            prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
+
+    def _date_range(start, end):
+        dates = []
+        cur = start
+        while cur <= end:
+            dates.append(str(cur))
+            cur += timedelta(days=1)
+        return dates
+
+    all_dates = _date_range(from_d, to_d)
+    prev_dates = _date_range(prev_from_d, prev_to_d)
+
+    readiness_series, hrv_series, rhr_series, sleep_series, energy_series, mood_series, tss_series = [], [], [], [], [], [], []
+
+    for d in all_dates:
+        m = by_date.get(d)
+        sh = float(m.sleep_hours) if m and m.sleep_hours is not None else None
+        readiness_series.append({"date": d, "score": _compute_readiness(
+            m.hrv if m else None, m.resting_hr if m else None, sh,
+            m.sleep_quality if m else None, m.energy if m else None, m.mood if m else None,
+        )})
+        hrv_series.append({"date": d, "value": m.hrv if m else None})
+        rhr_series.append({"date": d, "value": m.resting_hr if m else None})
+        sleep_series.append({"date": d, "hours": sh, "quality": m.sleep_quality if m else None})
+        energy_series.append({"date": d, "value": m.energy if m else None})
+        mood_series.append({"date": d, "value": m.mood if m else None})
+        tss_val = tss_by_date.get(d)
+        tss_series.append({"date": d, "value": round(tss_val, 1) if tss_val is not None else None})
+
+    r_avg, r_min, r_max = _agg_stats([s["score"] for s in readiness_series])
+    hrv_avg, hrv_min, hrv_max = _agg_stats([s["value"] for s in hrv_series])
+    rhr_avg, rhr_min, rhr_max = _agg_stats([s["value"] for s in rhr_series])
+    sleep_avg, sleep_min, sleep_max = _agg_stats([s["hours"] for s in sleep_series])
+    energy_avg, energy_min, energy_max = _agg_stats([s["value"] for s in energy_series])
+    mood_avg, mood_min, mood_max = _agg_stats([s["value"] for s in mood_series])
+    tss_vals = [s["value"] for s in tss_series if s["value"] is not None]
+    tss_avg = round(sum(tss_vals) / len(tss_vals), 1) if tss_vals else None
+    tss_total = round(sum(tss_vals), 1) if tss_vals else None
+
+    def _prev_metric_avg(field):
+        vals = [float(getattr(m, field)) for d in prev_dates if (m := prev_by_date.get(d)) and getattr(m, field) is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def _prev_readiness_avg():
+        vals = []
+        for d in prev_dates:
+            m = prev_by_date.get(d)
+            if not m:
+                continue
+            sh = float(m.sleep_hours) if m.sleep_hours is not None else None
+            r = _compute_readiness(m.hrv, m.resting_hr, sh, m.sleep_quality, m.energy, m.mood)
+            if r is not None:
+                vals.append(r)
+        return sum(vals) / len(vals) if vals else None
+
+    prev_tss_vals = [prev_tss_by_date[d] for d in prev_dates if d in prev_tss_by_date]
+    prev_tss_avg = sum(prev_tss_vals) / len(prev_tss_vals) if prev_tss_vals else None
+
+    prev_r_avg = _prev_readiness_avg()
+
+    return JSONResponse({
+        "range": {"from": str(from_d), "to": str(to_d), "days": days_count},
+        "readiness": {"series": readiness_series, "avg": r_avg, "min": r_min, "max": r_max},
+        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max},
+        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max},
+        "sleep": {"series": sleep_series, "avg_hours": sleep_avg, "min_hours": sleep_min, "max_hours": sleep_max},
+        "energy": {"series": energy_series, "avg": energy_avg, "min": energy_min, "max": energy_max},
+        "mood": {"series": mood_series, "avg": mood_avg, "min": mood_min, "max": mood_max},
+        "tss": {"series": tss_series, "avg": tss_avg, "total": tss_total},
+        "deltas": {
+            "readiness": _delta_int(r_avg, prev_r_avg),
+            "hrv": _delta_int(hrv_avg, _prev_metric_avg("hrv")),
+            "rhr": _delta_int(rhr_avg, _prev_metric_avg("resting_hr")),
+            "sleep": _delta_hours(sleep_avg, _prev_metric_avg("sleep_hours")),
+            "energy": _delta_decimal(energy_avg, _prev_metric_avg("energy")),
+            "mood": _delta_decimal(mood_avg, _prev_metric_avg("mood")),
+            "tss": _delta_pct(tss_avg, prev_tss_avg),
+        },
+    })

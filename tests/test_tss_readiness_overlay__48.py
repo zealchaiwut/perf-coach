@@ -233,9 +233,10 @@ def test_ac6_tss_chart_loads_with_range_state():
 
 
 def test_ac6_tss_fetches_workouts_api():
-    """trends.js must fetch /api/workouts with from/to params."""
-    assert "/api/workouts" in JS, (
-        "trends.js must call GET /api/workouts?from=&to= to retrieve TSS data."
+    """trends.js must fetch TSS data — either from /api/workouts or /trends/summary (issue #52)."""
+    # Issue #52 migrated TSS fetching to /trends/summary; either endpoint is acceptable.
+    assert "/api/workouts" in JS or "/trends/summary" in JS, (
+        "trends.js must fetch TSS data from /api/workouts or /trends/summary."
     )
 
 
