@@ -131,7 +131,9 @@
         allWorkouts = allWorkouts.concat(w.workouts || []);
       });
     } catch (e) {
-      allWorkouts = (typeof MOCK_TRAINING_WORKOUTS !== 'undefined') ? MOCK_TRAINING_WORKOUTS.slice() : [];
+      var mockWorkouts = (typeof MOCK_TRAINING_WORKOUTS !== 'undefined') ? MOCK_TRAINING_WORKOUTS.slice() : [];
+      var mockRest     = (typeof MOCK_REST_DAYS       !== 'undefined') ? MOCK_REST_DAYS.slice()       : [];
+      allWorkouts = mockWorkouts.concat(mockRest);
     }
 
     document.getElementById('log-loading').hidden = true;
@@ -140,19 +142,26 @@
 
   // ── Filtering ─────────────────────────────────────────────────────────────
 
-  function filterWorkouts(workouts) {
+  function filterWorkouts(items) {
     var range = getDateRange();
     // Custom with no dates set → show nothing (empty state)
     if (filters.dateRange === 'custom' && !filters.customFrom && !filters.customTo) return [];
-    return workouts.filter(function (w) {
+    return items.filter(function (w) {
       if (range.from && w.date < range.from) return false;
       if (range.to   && w.date > range.to)   return false;
+      // Rest days are hidden when a specific workout type is selected
+      if (filters.type !== 'all' && w.type === 'rest') return false;
       if (filters.type !== 'all' && w.type !== filters.type) return false;
       if (filters.search) {
-        var q     = filters.search.toLowerCase();
-        var title = (w.title || '').toLowerCase();
-        var notes = (w.notes || '').toLowerCase();
-        if (title.indexOf(q) === -1 && notes.indexOf(q) === -1) return false;
+        var q = filters.search.toLowerCase();
+        if (w.type === 'rest') {
+          var rn = ((w.metrics && w.metrics.notes) || '').toLowerCase();
+          if (rn.indexOf(q) === -1) return false;
+        } else {
+          var title = (w.title || '').toLowerCase();
+          var notes = (w.notes || '').toLowerCase();
+          if (title.indexOf(q) === -1 && notes.indexOf(q) === -1) return false;
+        }
       }
       return true;
     });
@@ -160,17 +169,29 @@
 
   // ── Grouping ──────────────────────────────────────────────────────────────
 
-  function groupByWeek(workouts) {
+  function groupByWeek(items) {
     var map = {};
-    workouts.forEach(function (w) {
+    items.forEach(function (w) {
       var monday = getMondayOfWeek(w.date);
       if (!map[monday]) map[monday] = [];
       map[monday].push(w);
     });
     return Object.keys(map).sort().reverse().map(function (monday) {
-      var wkts = map[monday].slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
-      var s = computeSummary(wkts);
-      return { week_start: monday, week_end: addDays(monday, 6), label: formatWeekLabel(monday), summary: s, workouts: wkts };
+      var all = map[monday];
+
+      // Workout-only entries drive the summary
+      var workoutEntries = all.filter(function (w) { return w.type !== 'rest'; });
+
+      // Suppress rest days for dates that also have a workout
+      var workoutDates = {};
+      workoutEntries.forEach(function (w) { workoutDates[w.date] = true; });
+
+      var visible = all
+        .filter(function (w) { return w.type !== 'rest' || !workoutDates[w.date]; })
+        .sort(function (a, b) { return b.date.localeCompare(a.date); });
+
+      var s = computeSummary(workoutEntries);
+      return { week_start: monday, week_end: addDays(monday, 6), label: formatWeekLabel(monday), summary: s, workouts: visible };
     });
   }
 
@@ -264,6 +285,7 @@
     var dotMap = {};
     weekDates.forEach(function (d) { dotMap[d] = []; });
     allWorkouts.forEach(function (w) {
+      if (w.type === 'rest') return;
       if (Object.prototype.hasOwnProperty.call(dotMap, w.date)) {
         if (dotMap[w.date].indexOf(w.type) === -1) dotMap[w.date].push(w.type);
       }
@@ -348,7 +370,9 @@
       label.textContent = formatDayFull(dateStr);
       section.appendChild(label);
 
-      dayMap[dateStr].forEach(function (w) { section.appendChild(buildWorkoutRow(w)); });
+      dayMap[dateStr].forEach(function (w) {
+        section.appendChild(w.type === 'rest' ? buildRestDayRow(w) : buildWorkoutRow(w));
+      });
       groupEl.appendChild(section);
     });
 
@@ -417,10 +441,45 @@
     return row;
   }
 
+  function buildRestDayRow(entry) {
+    var row = document.createElement('div');
+    row.className = 'workout-row rest-day-row';
+
+    var d       = new Date(entry.date + 'T00:00:00');
+    var dayNum  = d.getDate();
+    var dayName = DAY_SHORT[d.getDay()];
+
+    var m = entry.metrics || {};
+    var meta = [];
+    if (m.energy        != null) meta.push('Energy ' + m.energy + '/5');
+    if (m.sleep_quality != null) meta.push('Sleep ' + m.sleep_quality + '/5');
+    if (m.resting_hr    != null) meta.push('RHR ' + m.resting_hr + ' bpm');
+    if (m.hrv           != null) meta.push('HRV ' + m.hrv + ' ms');
+    if (m.sleep_hours   != null) meta.push(m.sleep_hours + 'h sleep');
+    if (m.notes) {
+      var n = m.notes.length > 80 ? m.notes.substring(0, 80) + '…' : m.notes;
+      meta.push(n);
+    }
+
+    row.innerHTML =
+      '<div class="wr-date">' +
+        '<span class="wr-day-num">'  + dayNum  + '</span>' +
+        '<span class="wr-day-name">' + dayName + '</span>' +
+      '</div>' +
+      '<span class="wr-badge wr-badge--rest">Rest</span>' +
+      '<div class="wr-content">' +
+        '<div class="wr-title">Rest day</div>' +
+        '<div class="wr-meta">' + escHtml(meta.join(' · ')) + '</div>' +
+      '</div>' +
+      '<span class="wr-chevron" aria-hidden="true">›</span>';
+
+    return row;
+  }
+
   // ── Export ────────────────────────────────────────────────────────────────
 
   function handleExport() {
-    var visible = filterWorkouts(allWorkouts);
+    var visible = filterWorkouts(allWorkouts).filter(function (w) { return w.type !== 'rest'; });
     if (!visible.length) { alert('No workouts to export.'); return; }
 
     var cols = ['date','type','title','distance','duration','tss','avg_hr','source'];
