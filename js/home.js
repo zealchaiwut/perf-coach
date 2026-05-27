@@ -874,9 +874,9 @@
   var READINESS_THRESHOLDS = { red: 50, amber: 70 };
 
   var READINESS_LABELS = {
-    green: 'Green — go',
-    amber: 'Amber — moderate',
-    red:   'Red — back off',
+    green: 'Green - go',
+    amber: 'Amber - moderate',
+    red:   'Red - back off',
   };
 
   var READINESS_INTERP = {
@@ -894,99 +894,127 @@
 
   function readinessBand(score) {
     if (score == null) return 'neutral';
-    if (score < READINESS_THRESHOLDS.red)   return 'red';
-    if (score < READINESS_THRESHOLDS.amber) return 'amber';
+    if (score < READINESS_THRESHOLDS.red)    return 'red';
+    if (score <= READINESS_THRESHOLDS.amber) return 'amber';
     return 'green';
   }
 
-  function fmtDeltaPct(pct) {
-    if (pct == null) return null;
-    var rounded = Math.round(pct);
-    return (rounded >= 0 ? '+' : '') + rounded + '%';
+  function fmtAbsDelta(val, unit) {
+    if (val == null) return null;
+    var rounded = Math.round(val * 10) / 10;
+    var sign = rounded >= 0 ? '+' : '';
+    var num = Number.isInteger(rounded) ? rounded : rounded.toFixed(1);
+    return sign + num + (unit ? ' ' + unit : '');
   }
 
-  function deltaClass(pct) {
-    if (pct == null) return 'neu';
-    if (Math.abs(pct) <= 2) return 'neu';
-    return pct > 0 ? 'pos' : 'neg';
+  function deltaClass(dispDelta) {
+    if (dispDelta == null) return 'neu';
+    if (Math.abs(dispDelta) < 0.5) return 'neu';
+    return dispDelta > 0 ? 'pos' : 'neg';
+  }
+
+  function buildInterpretation(band, components) {
+    var hrv   = components.find(function (c) { return c.key === 'hrv'; });
+    var rhr   = components.find(function (c) { return c.key === 'rhr'; });
+    var sleep = components.find(function (c) { return c.key === 'sleep'; });
+    var en    = components.find(function (c) { return c.key === 'energy'; });
+
+    var hrvD   = hrv   && !hrv.missing   ? hrv.dispDelta   : null;
+    var rhrD   = rhr   && !rhr.missing   ? rhr.dispDelta   : null;
+    var sleepD = sleep && !sleep.missing ? sleep.dispDelta : null;
+    var enD    = en    && !en.missing    ? en.dispDelta    : null;
+
+    if (band === 'green') {
+      if (hrvD   != null && hrvD   >= 5)    return 'HRV is up — autonomic recovery looks strong.';
+      if (sleepD != null && sleepD >= 0.5)  return 'Good sleep last night — body is primed to go.';
+      if (enD    != null && enD    >= 1)    return 'Energy is high — a great time for a quality session.';
+      return "You're well-recovered and ready to perform.";
+    }
+    if (band === 'amber') {
+      if (sleepD != null && sleepD < -0.5)  return 'Sleep was below your average — moderate intensity is wise.';
+      if (rhrD   != null && rhrD   < -1)    return 'Resting HR is slightly elevated — ease into today.';
+      if (hrvD   != null && hrvD   < -3)    return 'HRV is a touch low — a moderate session makes sense.';
+      return 'Keep it moderate — listen to your body today.';
+    }
+    if (band === 'red') {
+      if (hrvD   != null && hrvD   < -8)    return 'HRV is significantly suppressed — prioritise rest today.';
+      if (sleepD != null && sleepD < -1)    return 'Sleep deficit detected — a full rest day is recommended.';
+      if (rhrD   != null && rhrD   < -2)    return 'Resting HR is elevated — your body is still recovering.';
+      return 'Your body needs extra recovery today.';
+    }
+    return '';
   }
 
   function applyReadinessCard(readiness, metrics, trends) {
-    var card   = document.getElementById('readiness-card');
-    var scoreEl = document.getElementById('readiness-score');
-    var pillEl  = document.getElementById('readiness-pill');
+    var card     = document.getElementById('readiness-card');
+    var scoreEl  = document.getElementById('readiness-score');
+    var pillEl   = document.getElementById('readiness-pill');
     var interpEl = document.getElementById('readiness-interp');
-    var chipsEl = document.getElementById('readiness-chips');
-    var bdEl    = document.getElementById('readiness-breakdown');
+    var chipsEl  = document.getElementById('readiness-chips');
+    var bdEl     = document.getElementById('readiness-breakdown');
     if (!card) return;
 
     var score = readiness ? Math.round(readiness.score) : null;
     var band  = readinessBand(score);
 
-    // Apply color band to card
     card.classList.remove('readiness-card--green', 'readiness-card--amber', 'readiness-card--red');
     if (band !== 'neutral') card.classList.add('readiness-card--' + band);
 
-    // Score
     scoreEl.textContent = score != null ? score : '—';
     scoreEl.className = 'readiness-score' + (band !== 'neutral' ? ' readiness-score--' + band : '');
 
-    // Pill
     pillEl.textContent = band !== 'neutral' ? READINESS_LABELS[band] : '—';
     pillEl.className = 'readiness-pill' + (band !== 'neutral' ? ' readiness-pill--' + band : '');
 
-    // Interpretation
-    interpEl.textContent = band !== 'neutral' ? READINESS_INTERP[band] : '';
-
-    // Component data
     var missing = (readiness && readiness.missing_data) || {};
-    var todayHrv    = metrics ? metrics.hrv       : null;
+    var todayHrv    = metrics ? metrics.hrv        : null;
     var todayRhr    = metrics ? metrics.resting_hr : null;
     var todaySleep  = metrics ? metrics.sleep_hours : null;
-    var todayEnergy = metrics ? metrics.energy     : null;
-    var baseHrv     = trends && trends.hrv    ? trends.hrv.avg        : null;
-    var baseRhr     = trends && trends.rhr    ? trends.rhr.avg        : null;
+    var todayEnergy = metrics ? metrics.energy      : null;
+    var baseHrv     = trends && trends.hrv    ? trends.hrv.avg         : null;
+    var baseRhr     = trends && trends.rhr    ? trends.rhr.avg         : null;
     var baseSleep   = trends && trends.sleep  ? trends.sleep.avg_hours : null;
-    var baseEnergy  = trends && trends.energy ? trends.energy.avg     : null;
+    var baseEnergy  = trends && trends.energy ? trends.energy.avg      : null;
 
-    function pctDelta(val, base) {
-      if (val == null || base == null || base === 0) return null;
-      return (val - base) / base * 100;
+    function absDelta(a, b) {
+      return (a == null || b == null) ? null : a - b;
     }
 
     var components = [
       {
-        key: 'hrv',   label: 'HRV',
-        missing: missing.hrv,
-        value: todayHrv,    unit: 'ms',
-        baseline: baseHrv,  baseUnit: 'ms',
-        delta: pctDelta(todayHrv, baseHrv),
+        key: 'hrv',    label: 'HRV',    missing: missing.hrv,
+        value: todayHrv,    unit: 'ms',  baseline: baseHrv,    baseUnit: 'ms',
+        deltaUnit: 'ms',
+        rawDelta:  absDelta(todayHrv, baseHrv),
+        dispDelta: absDelta(todayHrv, baseHrv),
       },
       {
-        key: 'rhr',   label: 'RHR',
-        missing: missing.rhr,
-        value: todayRhr,    unit: 'bpm',
-        baseline: baseRhr,  baseUnit: 'bpm',
-        // lower RHR is better: invert delta sign for display
-        delta: pctDelta(baseRhr, todayRhr),
+        key: 'rhr',    label: 'RHR',    missing: missing.rhr,
+        value: todayRhr,    unit: 'bpm', baseline: baseRhr,    baseUnit: 'bpm',
+        deltaUnit: 'bpm',
+        rawDelta:  absDelta(todayRhr, baseRhr),
+        // lower RHR is better — invert sign for colour class only
+        dispDelta: absDelta(baseRhr, todayRhr),
       },
       {
-        key: 'sleep', label: 'Sleep',
-        missing: missing.sleep,
-        value: todaySleep,    unit: 'h',
-        baseline: baseSleep,  baseUnit: 'h',
-        delta: pctDelta(todaySleep, baseSleep),
+        key: 'sleep',  label: 'Sleep',  missing: missing.sleep,
+        value: todaySleep,  unit: 'h',   baseline: baseSleep,  baseUnit: 'h',
+        deltaUnit: 'h',
+        rawDelta:  absDelta(todaySleep, baseSleep),
+        dispDelta: absDelta(todaySleep, baseSleep),
       },
       {
-        key: 'energy', label: 'Energy',
-        missing: missing.energy,
-        value: todayEnergy,    unit: '/5',
-        baseline: baseEnergy,  baseUnit: '/5',
-        delta: pctDelta(todayEnergy, baseEnergy),
+        key: 'energy', label: 'Energy', missing: missing.energy,
+        value: todayEnergy, unit: '/5',  baseline: baseEnergy, baseUnit: '/5',
+        deltaUnit: '',
+        rawDelta:  absDelta(todayEnergy, baseEnergy),
+        dispDelta: absDelta(todayEnergy, baseEnergy),
       },
     ];
 
-    // Render chips
+    interpEl.textContent = band !== 'neutral' ? buildInterpretation(band, components) : '';
+
+    // Chips
     chipsEl.innerHTML = '';
     components.forEach(function (c) {
       var chip = document.createElement('span');
@@ -1000,16 +1028,16 @@
         dlt.textContent = '—';
         dlt.classList.add('readiness-chip-delta--neu');
       } else {
-        var dStr = c.delta != null ? fmtDeltaPct(c.delta) : '—';
+        var dStr = c.rawDelta != null ? fmtAbsDelta(c.rawDelta, c.deltaUnit) : '—';
         dlt.textContent = dStr;
-        dlt.classList.add('readiness-chip-delta--' + deltaClass(c.delta));
+        dlt.classList.add('readiness-chip-delta--' + deltaClass(c.dispDelta));
       }
       chip.appendChild(lbl);
       chip.appendChild(dlt);
       chipsEl.appendChild(chip);
     });
 
-    // Render breakdown
+    // Breakdown
     bdEl.innerHTML = '';
     components.forEach(function (c) {
       var row = document.createElement('div');
@@ -1024,21 +1052,25 @@
 
       var valEl = document.createElement('span');
       valEl.className = 'readiness-breakdown-value';
-      valEl.textContent = (c.missing || c.value == null) ? '—' : (Number.isInteger(c.value) ? c.value : Number(c.value).toFixed(1)) + ' ' + c.unit;
+      valEl.textContent = (c.missing || c.value == null)
+        ? '—'
+        : (Number.isInteger(c.value) ? c.value : Number(c.value).toFixed(1)) + ' ' + c.unit;
 
       var blEl = document.createElement('span');
       blEl.className = 'readiness-breakdown-baseline';
-      blEl.textContent = c.baseline != null ? 'baseline ' + (Number.isInteger(c.baseline) ? Math.round(c.baseline) : Number(c.baseline).toFixed(1)) + ' ' + c.baseUnit : '';
+      blEl.textContent = c.baseline != null
+        ? 'baseline ' + (Number.isInteger(c.baseline) ? Math.round(c.baseline) : Number(c.baseline).toFixed(1)) + ' ' + c.baseUnit
+        : '';
 
       var dltEl = document.createElement('span');
       dltEl.className = 'readiness-breakdown-delta';
-      if (c.missing || c.value == null || c.delta == null) {
+      if (c.missing || c.value == null || c.rawDelta == null) {
         dltEl.textContent = '—';
         dltEl.style.color = '#aaa';
       } else {
-        var dStr = fmtDeltaPct(c.delta);
+        var dStr = fmtAbsDelta(c.rawDelta, c.deltaUnit);
         dltEl.textContent = dStr;
-        var dc = deltaClass(c.delta);
+        var dc = deltaClass(c.dispDelta);
         dltEl.style.color = dc === 'pos' ? '#16a34a' : dc === 'neg' ? '#dc2626' : '#888';
       }
 
