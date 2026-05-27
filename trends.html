@@ -194,6 +194,23 @@
       color: #aaa;
     }
 
+    /* ── Full-width chart slot ── */
+    .chart-slot--full {
+      grid-column: 1 / -1;
+    }
+
+    .chart-slot--full .chart-slot-body {
+      min-height: 260px;
+    }
+
+    /* ── Slot subtitle ── */
+    .chart-slot-subtitle {
+      margin: 0.2rem 0 0;
+      font-size: 0.75rem;
+      color: #888;
+      font-weight: 400;
+    }
+
     /* ── Page-level empty state ── */
     .trends-empty-banner {
       background: #fff;
@@ -297,9 +314,10 @@
         </div>
       </div>
 
-      <div class="chart-slot" id="slot-tss">
+      <div class="chart-slot chart-slot--full" id="slot-tss">
         <div class="chart-slot-header">
-          <h2 class="chart-slot-title">TSS Correlation</h2>
+          <h2 class="chart-slot-title">Training Load vs Next-Day Readiness</h2>
+          <p class="chart-slot-subtitle">Bars = daily TSS &nbsp;·&nbsp; Line = readiness the <em>following</em> day</p>
         </div>
         <div class="chart-slot-body" id="slot-tss-body">
           <div class="slot-loading">
