@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, DailyReadiness, Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
+from backend.models import DailyMetric, Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
 
 __version__ = "0.1.0"
 
@@ -1632,179 +1632,33 @@ def get_trends_summary(
     })
 
 
-# ── Readiness read endpoints ───────────────────────────────────────────────────
+# ── Readiness compute endpoint ────────────────────────────────────────────────
 
-def _readiness_response_dict(row, metric) -> dict:
-    """Build the public readiness response from a DailyReadiness row and its source metric."""
-    components = row.components or {}
-    missing_data = {
-        "hrv": metric is None or metric.hrv is None,
-        "rhr": metric is None or metric.resting_hr is None,
-        "sleep": metric is None or metric.sleep_quality is None,
-        "energy": metric is None or metric.energy is None,
-    }
-    return {
-        "date": str(row.date),
-        "score": float(row.score),
-        "hrv_contribution": components.get("hrv_contribution", 0.0),
-        "rhr_contribution": components.get("rhr_contribution", 0.0),
-        "sleep_contribution": components.get("sleep_contribution", 0.0),
-        "energy_contribution": components.get("energy_contribution", 0.0),
-        "missing_data": missing_data,
-    }
-
-
-@app.get(
-    "/api/readiness/today",
-    summary="Get today's readiness score",
-    response_description="Readiness object for the current calendar day",
-)
-def get_readiness_today(user_id: str = Query(..., description="User UUID")):
-    """
-    Return the pre-computed readiness score for the current calendar day (server timezone).
-
-    **Response shape**:
-    ```json
-    {
-      "date": "2026-05-27",
-      "score": 66.25,
-      "hrv_contribution": 12.34,
-      "rhr_contribution": 10.0,
-      "sleep_contribution": 25.0,
-      "energy_contribution": 18.75,
-      "missing_data": {
-        "hrv": false,
-        "rhr": false,
-        "sleep": false,
-        "energy": true
-      }
-    }
-    ```
-
-    `missing_data` flags indicate which source signals in `daily_metrics` were absent
-    (NULL) when the score was computed.
-
-    Returns **404** when no readiness record exists for today.
-    """
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
-    today = _date.today()
-    with Session(engine) as session:
-        row = (
-            session.query(DailyReadiness)
-            .filter(DailyReadiness.user_id == uid, DailyReadiness.date == today)
-            .first()
-        )
-        if row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No readiness record found for today ({today})",
-            )
-        metric = (
-            session.get(DailyMetric, row.daily_metric_id)
-            if row.daily_metric_id is not None
-            else None
-        )
-        return JSONResponse(_readiness_response_dict(row, metric))
-
-
-@app.get(
-    "/api/readiness",
-    summary="Get readiness scores for a date range",
-    response_description="Array of readiness objects (or null) ordered by date ascending",
-)
-def get_readiness_range(
-    user_id: str = Query(..., description="User UUID"),
-    from_date: str = Query(..., alias="from", description="Start date inclusive (YYYY-MM-DD)"),
-    to_date: str = Query(..., alias="to", description="End date inclusive (YYYY-MM-DD)"),
+@app.post("/api/readiness/compute", status_code=200)
+def compute_readiness_score(
+    user_id: str = Query(...),
+    date: Optional[str] = Query(default=None),
 ):
     """
-    Return pre-computed readiness scores for every calendar day in [from, to].
-
-    The response is an array with exactly `(to - from + 1)` entries, ordered ascending
-    by date. Days that have no readiness record are represented as `null` — they are
-    never omitted from the array.
-
-    **Example response** for a 3-day range where the middle day has no data:
-    ```json
-    [
-      {
-        "date": "2026-05-01",
-        "score": 72.50,
-        "hrv_contribution": 14.20,
-        "rhr_contribution": 9.80,
-        "sleep_contribution": 25.00,
-        "energy_contribution": 23.50,
-        "missing_data": {"hrv": false, "rhr": false, "sleep": false, "energy": false}
-      },
-      null,
-      {
-        "date": "2026-05-03",
-        "score": 58.00,
-        "hrv_contribution": 0.0,
-        "rhr_contribution": 12.50,
-        "sleep_contribution": 25.00,
-        "energy_contribution": 20.50,
-        "missing_data": {"hrv": true, "rhr": false, "sleep": false, "energy": false}
-      }
-    ]
-    ```
-
-    Returns **400** if `from` or `to` are missing, or if `from` is after `to`.
+    Trigger readiness computation for a user on a given date (defaults to today).
+    Idempotent: existing rows are upserted with freshly computed values.
     """
     try:
         uid = _uuid.UUID(user_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
+    target_date = _date.today()
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
 
-    try:
-        from_d = _date.fromisoformat(from_date)
-        to_d = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-
-    if from_d > to_d:
-        raise HTTPException(status_code=400, detail="'from' must not be after 'to'")
-
-    from datetime import timedelta
-
-    with Session(engine) as session:
-        rows = (
-            session.query(DailyReadiness)
-            .filter(
-                DailyReadiness.user_id == uid,
-                DailyReadiness.date >= from_d,
-                DailyReadiness.date <= to_d,
-            )
-            .order_by(DailyReadiness.date)
-            .all()
+    from services.readiness.job import compute_and_store
+    row = compute_and_store(str(uid), target_date)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No daily_metrics row found for this user on this date",
         )
-        by_date = {str(r.date): r for r in rows}
-
-        # Collect all referenced daily_metric_id values for a single batch fetch
-        metric_ids = [r.daily_metric_id for r in rows if r.daily_metric_id is not None]
-        metrics_by_id: dict = {}
-        if metric_ids:
-            metric_rows = (
-                session.query(DailyMetric)
-                .filter(DailyMetric.id.in_(metric_ids))
-                .all()
-            )
-            metrics_by_id = {m.id: m for m in metric_rows}
-
-        result = []
-        cur = from_d
-        while cur <= to_d:
-            d_str = str(cur)
-            row = by_date.get(d_str)
-            if row is None:
-                result.append(None)
-            else:
-                metric = metrics_by_id.get(row.daily_metric_id) if row.daily_metric_id else None
-                result.append(_readiness_response_dict(row, metric))
-            cur += timedelta(days=1)
-
-        return JSONResponse(result)
+    return JSONResponse(row)
