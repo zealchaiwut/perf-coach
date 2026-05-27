@@ -1,3 +1,37 @@
+// MOCK — daily readiness scores for the Trends page chart (30 days ending 2026-05-27)
+const MOCK_READINESS = [
+  { date: '2026-04-28', readiness_score: 71 },
+  { date: '2026-04-29', readiness_score: 68 },
+  { date: '2026-04-30', readiness_score: 55 },
+  { date: '2026-05-01', readiness_score: 72 },
+  { date: '2026-05-02', readiness_score: 78 },
+  { date: '2026-05-03', readiness_score: null },
+  { date: '2026-05-04', readiness_score: 66 },
+  { date: '2026-05-05', readiness_score: 62 },
+  { date: '2026-05-06', readiness_score: 58 },
+  { date: '2026-05-07', readiness_score: 49 },
+  { date: '2026-05-08', readiness_score: 44 },
+  { date: '2026-05-09', readiness_score: 38 },
+  { date: '2026-05-10', readiness_score: 42 },
+  { date: '2026-05-11', readiness_score: null },
+  { date: '2026-05-12', readiness_score: 55 },
+  { date: '2026-05-13', readiness_score: 63 },
+  { date: '2026-05-14', readiness_score: 70 },
+  { date: '2026-05-15', readiness_score: 74 },
+  { date: '2026-05-16', readiness_score: 76 },
+  { date: '2026-05-17', readiness_score: 72 },
+  { date: '2026-05-18', readiness_score: 68 },
+  { date: '2026-05-19', readiness_score: null },
+  { date: '2026-05-20', readiness_score: 73 },
+  { date: '2026-05-21', readiness_score: 79 },
+  { date: '2026-05-22', readiness_score: 81 },
+  { date: '2026-05-23', readiness_score: 75 },
+  { date: '2026-05-24', readiness_score: 69 },
+  { date: '2026-05-25', readiness_score: 64 },
+  { date: '2026-05-26', readiness_score: 70 },
+  { date: '2026-05-27', readiness_score: 73 },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },

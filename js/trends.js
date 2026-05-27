@@ -2,14 +2,17 @@
   const PRESETS = ['7d', '30d', '90d'];
   const DEFAULT_PRESET = '30d';
 
+  // Readiness thresholds matching the Sprint 8 readiness card
+  const READINESS_RED_MAX = 39;
+  const READINESS_AMBER_MAX = 69;
+
   const presetBtns = document.querySelectorAll('.range-btn[data-range]');
   const customInputs = document.getElementById('custom-range-inputs');
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
   const emptyBanner = document.getElementById('trends-empty-banner');
 
-  const slots = [
-    { id: 'slot-readiness-body' },
+  const otherSlots = [
     { id: 'slot-hrv-rhr-body' },
     { id: 'slot-sleep-energy-body' },
     { id: 'slot-tss-body' },
@@ -43,7 +46,6 @@
   // ── UI state ─────────────────────────────────────────────────────────────────
 
   function applyRangeState(state) {
-    // Update preset buttons
     presetBtns.forEach(btn => {
       const isActive =
         state.type === 'preset'
@@ -52,7 +54,6 @@
       btn.classList.toggle('active', isActive);
     });
 
-    // Show/hide custom inputs
     const isCustom = state.type === 'custom';
     customInputs.hidden = !isCustom;
     if (isCustom) {
@@ -64,7 +65,7 @@
     loadChartData(state);
   }
 
-  // ── Chart slot state ─────────────────────────────────────────────────────────
+  // ── Chart slot helpers ───────────────────────────────────────────────────────
 
   function showLoading(bodyEl) {
     bodyEl.innerHTML = `
@@ -87,7 +88,6 @@
       </div>`;
   }
 
-  // Resolve the date window for the current range state
   function resolveDateWindow(state) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -103,28 +103,257 @@
     };
   }
 
-  // Placeholder: sibling issues will replace showEmpty with real chart renders.
-  // For now, simulate an async data check and display empty state.
-  function loadChartData(state) {
-    const window = resolveDateWindow(state);
-    const hasValidWindow = window.from && window.to && window.from <= window.to;
+  // ── Date utilities ────────────────────────────────────────────────────────────
 
-    // Show loading spinners in every slot
-    slots.forEach(({ id }) => showLoading(document.getElementById(id)));
+  function buildDateRange(from, to) {
+    const dates = [];
+    const cur = new Date(from + 'T00:00:00');
+    const end = new Date(to + 'T00:00:00');
+    while (cur <= end) {
+      dates.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  }
+
+  function formatLabel(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  // ── Rolling average ───────────────────────────────────────────────────────────
+
+  function compute7DayRollingAvg(scores) {
+    return scores.map((_, i) => {
+      const window = scores.slice(Math.max(0, i - 6), i + 1).filter(v => v !== null);
+      if (window.length === 0) return null;
+      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      return Math.round(avg * 10) / 10;
+    });
+  }
+
+  // ── Chart.js color-band plugin ────────────────────────────────────────────────
+
+  const readinessBandPlugin = {
+    id: 'readinessBands',
+    beforeDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      const y = scales.y;
+
+      const bands = [
+        { from: 70, to: 100, color: 'rgba(22, 163, 74, 0.08)' },
+        { from: 40, to: 70,  color: 'rgba(217, 119, 6, 0.08)' },
+        { from: 0,  to: 40,  color: 'rgba(220, 38, 38, 0.08)' },
+      ];
+
+      bands.forEach(({ from, to, color }) => {
+        const top    = y.getPixelForValue(to);
+        const bottom = y.getPixelForValue(from);
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.fillRect(chartArea.left, top, chartArea.width, bottom - top);
+        ctx.restore();
+      });
+    },
+  };
+
+  // ── Readiness chart ───────────────────────────────────────────────────────────
+
+  let readinessChart = null;
+
+  function renderReadinessChart(bodyEl, dates, scores, showAvg) {
+    const labels = dates.map(formatLabel);
+    const avgScores = showAvg ? compute7DayRollingAvg(scores) : [];
+
+    // Ensure canvas is present (or reset after empty/loading state)
+    if (!bodyEl.querySelector('canvas')) {
+      bodyEl.innerHTML = '<canvas id="chart-readiness" style="display:block;width:100%;"></canvas>';
+    }
+
+    const datasets = [
+      {
+        label: 'Readiness',
+        data: scores,
+        borderColor: '#0070f3',
+        backgroundColor: 'rgba(0,112,243,0.12)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#0070f3',
+        fill: false,
+        spanGaps: false,
+        tension: 0.3,
+        order: 2,
+      },
+    ];
+
+    if (showAvg) {
+      datasets.push({
+        label: '7-day avg',
+        data: avgScores,
+        borderColor: '#f59e0b',
+        backgroundColor: 'transparent',
+        borderWidth: 2.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        fill: false,
+        spanGaps: true,
+        tension: 0.4,
+        order: 1,
+      });
+    }
+
+    if (readinessChart) {
+      readinessChart.data.labels = labels;
+      readinessChart.data.datasets = datasets;
+      readinessChart.options.plugins.tooltip.callbacks =
+        buildTooltipCallbacks(dates, scores, showAvg ? compute7DayRollingAvg(scores) : null);
+      readinessChart.update();
+      return;
+    }
+
+    const avgForTooltip = showAvg ? compute7DayRollingAvg(scores) : null;
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    readinessChart = new Chart(ctx, {
+      type: 'line',
+      plugins: [readinessBandPlugin],
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: buildTooltipCallbacks(dates, scores, avgForTooltip),
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              font: { size: 10 },
+            },
+            grid: { display: false },
+          },
+          y: {
+            min: 0,
+            max: 100,
+            ticks: { stepSize: 20, font: { size: 10 } },
+            grid: { color: 'rgba(0,0,0,0.05)' },
+          },
+        },
+        animation: { duration: 200 },
+      },
+    });
+  }
+
+  function buildTooltipCallbacks(dates, scores, avgScores) {
+    return {
+      title(items) {
+        const i = items[0].dataIndex;
+        return dates[i] || items[0].label;
+      },
+      afterBody(items) {
+        if (!avgScores) return [];
+        const i = items[0].dataIndex;
+        const avg = avgScores[i];
+        if (avg === null) return [];
+        return [`7-day avg: ${avg}`];
+      },
+      label(item) {
+        const v = item.raw;
+        if (item.datasetIndex === 1) return null; // avg handled in afterBody
+        if (v === null) return 'Readiness: —';
+        const band =
+          v >= 70 ? 'Good' :
+          v >= 40 ? 'Moderate' : 'Low';
+        return `Readiness: ${v}  (${band})`;
+      },
+    };
+  }
+
+  // ── Fetch + render ────────────────────────────────────────────────────────────
+
+  async function fetchReadiness(from, to) {
+    const res = await fetch(`/api/readiness?from=${from}&to=${to}`);
+    if (!res.ok) throw new Error('server error');
+    return res.json();
+  }
+
+  function filterMockReadiness(from, to) {
+    return (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : [])
+      .filter(r => r.date >= from && r.date <= to);
+  }
+
+  function loadChartData(state) {
+    const win = resolveDateWindow(state);
+    const hasValidWindow = win.from && win.to && win.from <= win.to;
+
+    const readinessBodyEl = document.getElementById('slot-readiness-body');
+    showLoading(readinessBodyEl);
+    otherSlots.forEach(({ id }) => showLoading(document.getElementById(id)));
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
-      slots.forEach(({ id }) => showEmpty(document.getElementById(id)));
+      showEmpty(readinessBodyEl);
+      otherSlots.forEach(({ id }) => showEmpty(document.getElementById(id)));
       emptyBanner.hidden = false;
       return;
     }
 
-    // Simulate async fetch — sibling issues will swap this out for real calls.
+    fetchReadiness(win.from, win.to)
+      .then(data => renderReadinessFromData(readinessBodyEl, win, data))
+      .catch(() => {
+        // Fall back to mock data
+        const data = filterMockReadiness(win.from, win.to);
+        renderReadinessFromData(readinessBodyEl, win, data);
+      });
+
+    // Other slots are out of scope — show empty state after brief delay
     setTimeout(() => {
-      // No real data yet; show empty state in each slot
-      slots.forEach(({ id }) => showEmpty(document.getElementById(id)));
+      otherSlots.forEach(({ id }) => showEmpty(document.getElementById(id)));
+    }, 400);
+  }
+
+  function renderReadinessFromData(bodyEl, win, data) {
+    const dates = buildDateRange(win.from, win.to);
+
+    if (dates.length === 0) {
+      showEmpty(bodyEl);
       emptyBanner.hidden = false;
-    }, 600);
+      return;
+    }
+
+    // Build score array aligned to the full date range (null for missing days)
+    const scoreByDate = Object.fromEntries(
+      (data || []).map(r => [r.date, r.readiness_score])
+    );
+    const scores = dates.map(d =>
+      d in scoreByDate ? scoreByDate[d] : null
+    );
+
+    const hasAnyData = scores.some(v => v !== null);
+    if (!hasAnyData) {
+      showEmpty(bodyEl);
+      emptyBanner.hidden = false;
+      return;
+    }
+
+    emptyBanner.hidden = true;
+    const showAvg = dates.length >= 7;
+    renderReadinessChart(bodyEl, dates, scores, showAvg);
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────────

@@ -118,6 +118,14 @@
       justify-content: center;
       padding: 1.25rem;
       position: relative;
+      min-height: 200px;
+    }
+
+    .chart-slot-body canvas {
+      position: absolute;
+      inset: 0.75rem;
+      width: calc(100% - 1.5rem) !important;
+      height: calc(100% - 1.5rem) !important;
     }
 
     /* ── Loading skeleton ── */
@@ -309,6 +317,8 @@
     </div><!-- /chart-grid -->
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="js/mock-data.js"></script>
   <script src="js/trends.js"></script>
   <script src="js/env.js"></script>
 </body>
