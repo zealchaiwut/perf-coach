@@ -195,14 +195,14 @@
     pendingDeleteId = userId;
     document.getElementById('delete-modal-text').textContent =
       'Delete ' + user.name + '? This will permanently delete all their weight entries and habit logs.';
-    document.getElementById('delete-modal').hidden = false;
+    document.getElementById('delete-modal').classList.add('is-open');
   }
 
   async function confirmDelete() {
     if (!pendingDeleteId) return;
     var userId = pendingDeleteId;
     pendingDeleteId = null;
-    document.getElementById('delete-modal').hidden = true;
+    document.getElementById('delete-modal').classList.remove('is-open');
 
     try {
       var res = await fetch('/api/users/' + userId, { method: 'DELETE' });
@@ -231,7 +231,7 @@
     document.getElementById('delete-confirm-btn').addEventListener('click', confirmDelete);
     document.getElementById('delete-cancel-btn').addEventListener('click', function () {
       pendingDeleteId = null;
-      document.getElementById('delete-modal').hidden = true;
+      document.getElementById('delete-modal').classList.remove('is-open');
     });
 
     loadUsers();

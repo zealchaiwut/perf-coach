@@ -20,6 +20,7 @@
         '</div>' +
       '</div>';
 
+    overlay.classList.add('is-open');
     document.body.appendChild(overlay);
 
     var inp = overlay.querySelector('#_modal-name-input');
