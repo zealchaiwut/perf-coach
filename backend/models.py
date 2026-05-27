@@ -88,3 +88,48 @@ class WorkoutExercise(Base):
     )
 
     workout = relationship("Workout", back_populates="exercises")
+
+
+class DailyMetric(Base):
+    __tablename__ = "daily_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    metric_date = Column(Date, nullable=False)
+    resting_hr = Column(Integer, nullable=True)
+    hrv = Column(Integer, nullable=True)
+    sleep_hours = Column(Numeric(3, 1), nullable=True)
+    sleep_quality = Column(Integer, nullable=True)
+    energy = Column(Integer, nullable=True)
+    mood = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric_date", name="uq_daily_metrics_user_date"),
+        CheckConstraint(
+            "resting_hr IS NULL OR (resting_hr >= 20 AND resting_hr <= 200)",
+            name="ck_daily_metrics_resting_hr",
+        ),
+        CheckConstraint(
+            "hrv IS NULL OR (hrv >= 0 AND hrv <= 300)",
+            name="ck_daily_metrics_hrv",
+        ),
+        CheckConstraint(
+            "sleep_hours IS NULL OR (sleep_hours >= 0 AND sleep_hours <= 24)",
+            name="ck_daily_metrics_sleep_hours",
+        ),
+        CheckConstraint(
+            "sleep_quality IS NULL OR (sleep_quality >= 1 AND sleep_quality <= 5)",
+            name="ck_daily_metrics_sleep_quality",
+        ),
+        CheckConstraint(
+            "energy IS NULL OR (energy >= 1 AND energy <= 5)",
+            name="ck_daily_metrics_energy",
+        ),
+        CheckConstraint(
+            "mood IS NULL OR (mood >= 1 AND mood <= 5)",
+            name="ck_daily_metrics_mood",
+        ),
+    )
