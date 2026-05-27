@@ -1,5 +1,5 @@
 """
-Tests for issue #49: Home dashboard — weekly digest card (template-based, 7-day summary)
+Tests for issue #49 / #50: Home dashboard — weekly digest card (template-based, 7-day summary)
 Server under test: http://127.0.0.1:9001
 """
 import datetime
