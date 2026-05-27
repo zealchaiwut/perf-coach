@@ -609,6 +609,128 @@
     });
   }
 
+  // ── Weekly digest card ─────────────────────────────────────────────────────
+
+  var DIGEST_CACHE_KEY = 'perf-coach.weekly-digest';
+
+  function getDigestCache() {
+    try {
+      var cached = JSON.parse(localStorage.getItem(DIGEST_CACHE_KEY));
+      if (cached && cached.date === todayISO()) return cached.data;
+    } catch (_) {}
+    return null;
+  }
+
+  function setDigestCache(data) {
+    try {
+      localStorage.setItem(DIGEST_CACHE_KEY, JSON.stringify({ date: todayISO(), data: data }));
+    } catch (_) {}
+  }
+
+  // Suppress a summary line if the delta is below this threshold per metric
+  var DIGEST_MIN_DELTA = {
+    readiness: 2,
+    sleep: 0.3,
+    hrv: 3,
+    rhr: 2,
+    tss: 20,
+  };
+
+  function buildDigestLines(summary) {
+    var lines = [];
+    var d, sign;
+
+    if (summary.avg_readiness != null) {
+      d = summary.readiness_delta;
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
+        sign = d > 0 ? '+' : '';
+        lines.push('Avg readiness ' + Math.round(summary.avg_readiness) + ' (' + sign + Math.round(d) + ' vs last week)');
+      }
+    }
+
+    if (summary.avg_sleep_hours != null) {
+      d = summary.sleep_delta;
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
+        sign = d > 0 ? '+' : '';
+        lines.push('Avg sleep ' + Number(summary.avg_sleep_hours).toFixed(1) + 'h (' + sign + Number(d).toFixed(1) + 'h vs last week)');
+      }
+    }
+
+    if (summary.avg_hrv != null) {
+      d = summary.hrv_delta;
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.hrv) {
+        sign = d > 0 ? '+' : '';
+        lines.push('Avg HRV ' + Math.round(summary.avg_hrv) + ' ms (' + sign + Math.round(d) + ' vs last week)');
+      }
+    }
+
+    if (summary.total_tss != null) {
+      d = summary.tss_delta;
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss) {
+        sign = d > 0 ? '+' : '';
+        lines.push('Weekly load ' + Math.round(summary.total_tss) + ' TSS (' + sign + Math.round(d) + ' vs last week)');
+      }
+    }
+
+    if (summary.avg_rhr != null) {
+      d = summary.rhr_delta;
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.rhr) {
+        sign = d > 0 ? '+' : '';
+        lines.push('Avg resting HR ' + Math.round(summary.avg_rhr) + ' bpm (' + sign + Math.round(d) + ' vs last week)');
+      }
+    }
+
+    return lines.slice(0, 5);
+  }
+
+  function renderDigestSection(summary) {
+    var body = document.getElementById('section-digest-body');
+    if (!body) return;
+
+    if (!summary || summary.days_with_data < 3) {
+      body.innerHTML = '<p class="digest-empty">Not enough data yet</p>';
+      return;
+    }
+
+    var lines = buildDigestLines(summary);
+
+    if (lines.length === 0) {
+      body.innerHTML = '<p class="digest-empty">No notable changes this week</p>';
+      return;
+    }
+
+    var ul = document.createElement('ul');
+    ul.className = 'digest-lines';
+    lines.forEach(function (text) {
+      var li = document.createElement('li');
+      li.className = 'digest-line';
+      li.textContent = text;
+      ul.appendChild(li);
+    });
+    body.innerHTML = '';
+    body.appendChild(ul);
+  }
+
+  async function loadWeeklyDigestSection(userId) {
+    var cached = getDigestCache();
+    if (cached) {
+      renderDigestSection(cached);
+      return;
+    }
+
+    var data = null;
+    try {
+      var res = await fetch('/api/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
+      if (!res.ok) throw new Error('server error');
+      data = await res.json();
+    } catch (_) {
+      data = (typeof MOCK_TRENDS_SUMMARY !== 'undefined') ? MOCK_TRENDS_SUMMARY : null;
+    }
+
+    setDigestCache(data);
+    renderDigestSection(data);
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
@@ -616,6 +738,7 @@
     loadHabitsSection(userId);
     loadTrainingSection(userId);
     loadCheckinSection(userId);
+    loadWeeklyDigestSection(userId);
   }
 
   setTodayLabel();

@@ -338,6 +338,41 @@
       font-size: 0.8125rem;
       color: #c0392b;
     }
+
+    /* ── Weekly digest card ── */
+    .dash-section--link {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .dash-section--link:hover {
+      border-color: #c8c8c8;
+      background: #fafafa;
+    }
+
+    .digest-lines {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .digest-line {
+      font-size: 0.875rem;
+      color: #333;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid #f5f5f5;
+    }
+
+    .digest-line:last-child { border-bottom: none; }
+
+    .digest-empty {
+      font-size: 0.875rem;
+      color: #aaa;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -445,6 +480,18 @@
       </div>
     </section>
 
+    <!-- Weekly digest card -->
+    <a href="trends.html?range=7d" class="dash-section dash-section--link" id="section-digest" aria-label="Weekly digest — view 7-day trends">
+      <div class="dash-section-header">
+        <span class="dash-section-icon">📊</span>
+        <h2 class="dash-section-title">This week</h2>
+        <span class="dash-section-link">7d Trends →</span>
+      </div>
+      <div class="dash-section-body" id="section-digest-body">
+        <p class="digest-empty">Loading…</p>
+      </div>
+    </a>
+
     <!-- Weight summary section -->
     <section class="dash-section" id="section-weight">
       <div class="dash-section-header">
@@ -492,6 +539,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="js/mock-data.js"></script>
   <script src="js/home.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
