@@ -204,6 +204,18 @@ const MOCK_WORKOUTS = [
   { id: 22, date: '2026-04-28', type: 'lift', title: 'Heavy deadlifts',          duration_minutes: 60,  distance_km: null, weight_context: '120 kg DL',    avg_hr: 132, tss: 52,  source: 'manual', notes: '3×5 near PR' },
 ];
 
+// MOCK — rest days (daily_metrics rows with no workout on that date)
+// Dates chosen so they do not overlap with any MOCK_WORKOUTS date.
+const MOCK_REST_DAYS = [
+  { date: '2026-05-23', type: 'rest', metrics: { energy: 3, sleep_quality: null, sleep_hours: null, resting_hr: null, hrv: null, mood: null, notes: 'Tired legs after long run yesterday' } },
+  { date: '2026-05-18', type: 'rest', metrics: { energy: 4, sleep_quality: 4, sleep_hours: 8.0, resting_hr: 52, hrv: 68, mood: 4, notes: '' } },
+  { date: '2026-05-12', type: 'rest', metrics: { energy: 2, sleep_quality: 3, sleep_hours: 6.0, resting_hr: 58, hrv: 45, mood: 2, notes: 'Felt run down, skipped session' } },
+  { date: '2026-05-10', type: 'rest', metrics: { energy: null, sleep_quality: null, sleep_hours: 7.5, resting_hr: 55, hrv: null, mood: null, notes: '' } },
+  { date: '2026-05-09', type: 'rest', metrics: { energy: 3, sleep_quality: 3, sleep_hours: 7.0, resting_hr: null, hrv: null, mood: 3, notes: '' } },
+  { date: '2026-05-03', type: 'rest', metrics: { energy: 4, sleep_quality: 5, sleep_hours: 9.0, resting_hr: 50, hrv: 72, mood: 4, notes: 'Great recovery day' } },
+  { date: '2026-04-27', type: 'rest', metrics: { energy: 3, sleep_quality: null, sleep_hours: null, resting_hr: null, hrv: null, mood: null, notes: '' } },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
