@@ -327,7 +327,7 @@ def test_ac8_tss_slot_exists():
 
 def test_ac8_four_chart_slots_present():
     """trends.html must have exactly 4 chart slot containers."""
-    slots = re.findall(r'class="chart-slot"', HTML)
+    slots = re.findall(r'class="chart-slot(?:"|[ ])', HTML)
     assert len(slots) == 4, \
         f"trends.html must have 4 chart slots, found {len(slots)}"
 
