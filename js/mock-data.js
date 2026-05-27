@@ -172,6 +172,40 @@ const MOCK_DAILY_METRICS_TODAY = {
   energy: 4,
 };
 
+// MOCK — 30-day sleep quality (1–5), energy (1–5), mood (1–5) ending 2026-05-27; null = no entry that day
+const MOCK_SEM = [
+  { date: '2026-04-28', sleep_quality: 4, energy: 3, mood: 3 },
+  { date: '2026-04-29', sleep_quality: 3, energy: 3, mood: 4 },
+  { date: '2026-04-30', sleep_quality: 4, energy: 4, mood: 4 },
+  { date: '2026-05-01', sleep_quality: 5, energy: 4, mood: 5 },
+  { date: '2026-05-02', sleep_quality: 4, energy: 3, mood: 4 },
+  { date: '2026-05-03', sleep_quality: null, energy: null, mood: null },
+  { date: '2026-05-04', sleep_quality: 3, energy: 2, mood: 3 },
+  { date: '2026-05-05', sleep_quality: 2, energy: 2, mood: 2 },
+  { date: '2026-05-06', sleep_quality: 3, energy: 3, mood: 3 },
+  { date: '2026-05-07', sleep_quality: 2, energy: 2, mood: 2 },
+  { date: '2026-05-08', sleep_quality: 2, energy: 1, mood: 2 },
+  { date: '2026-05-09', sleep_quality: 1, energy: 1, mood: 1 },
+  { date: '2026-05-10', sleep_quality: 2, energy: 2, mood: 2 },
+  { date: '2026-05-11', sleep_quality: null, energy: null, mood: null },
+  { date: '2026-05-12', sleep_quality: 3, energy: 3, mood: 3 },
+  { date: '2026-05-13', sleep_quality: 3, energy: 3, mood: 4 },
+  { date: '2026-05-14', sleep_quality: 4, energy: 4, mood: 4 },
+  { date: '2026-05-15', sleep_quality: 4, energy: 4, mood: 4 },
+  { date: '2026-05-16', sleep_quality: 4, energy: 4, mood: 5 },
+  { date: '2026-05-17', sleep_quality: 4, energy: 3, mood: 4 },
+  { date: '2026-05-18', sleep_quality: 3, energy: 3, mood: 3 },
+  { date: '2026-05-19', sleep_quality: null, energy: null, mood: null },
+  { date: '2026-05-20', sleep_quality: 4, energy: 4, mood: 4 },
+  { date: '2026-05-21', sleep_quality: 4, energy: 3, mood: 4 },
+  { date: '2026-05-22', sleep_quality: 3, energy: 4, mood: 3 },
+  { date: '2026-05-23', sleep_quality: 4, energy: 3, mood: 4 },
+  { date: '2026-05-24', sleep_quality: 4, energy: 4, mood: 4 },
+  { date: '2026-05-25', sleep_quality: 5, energy: 4, mood: 5 },
+  { date: '2026-05-26', sleep_quality: 3, energy: 3, mood: 3 },
+  { date: '2026-05-27', sleep_quality: 4, energy: 4, mood: 4 },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
