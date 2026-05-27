@@ -92,7 +92,9 @@ formats. Strict typing would complicate historical data entry and sprint-5 TSS p
 |----------|-------------|
 | a1b2c3d4e5f6 | Create users and weight_entries |
 | b2c3d4e5f6a7 | Create habits and habit_logs |
-| c3d4e5f6a7b8 | Create workouts and workout_exercises |
+| c3d4e5f6a7b8 | Create workouts table |
+| d4e5f6a7b8c9 | Create workout_exercises table |
 
 Run `alembic upgrade head` to apply all migrations.
-Run `alembic downgrade -1` (or `-2`) to roll back.
+Run `alembic downgrade -1` to roll back one step.
+Run `alembic downgrade -2` to roll back both workout-related tables.
