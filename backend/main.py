@@ -1662,3 +1662,107 @@ def compute_readiness_score(
             detail="No daily_metrics row found for this user on this date",
         )
     return JSONResponse(row)
+
+
+# ── Readiness GET endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/readiness/today")
+def get_readiness_today(user_id: str = Query(...)):
+    """
+    Return today's readiness record for a user.
+
+    Response shape:
+      { date, score, missing_data: { hrv, rhr, sleep, energy },
+        hrv_contribution, rhr_contribution, sleep_contribution, energy_contribution }
+
+    Returns 404 when no readiness row exists for today (card falls back to mock data).
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        row = session.execute(
+            _text(
+                "SELECT dr.date, dr.score, dr.components, "
+                "       dm.hrv, dm.resting_hr, dm.sleep_quality, dm.energy "
+                "FROM daily_readiness dr "
+                "LEFT JOIN daily_metrics dm ON dm.id = dr.daily_metric_id "
+                "WHERE dr.user_id = :uid AND dr.date = :d"
+            ),
+            {"uid": str(uid), "d": str(today)},
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No readiness record for today")
+
+    comp = row.components or {}
+    return JSONResponse({
+        "date": str(row.date),
+        "score": float(row.score),
+        "hrv_contribution": comp.get("hrv_contribution"),
+        "rhr_contribution": comp.get("rhr_contribution"),
+        "sleep_contribution": comp.get("sleep_contribution"),
+        "energy_contribution": comp.get("energy_contribution"),
+        "missing_data": {
+            "hrv": row.hrv is None,
+            "rhr": row.resting_hr is None,
+            "sleep": row.sleep_quality is None,
+            "energy": row.energy is None,
+        },
+    })
+
+
+@app.get("/api/readiness")
+def get_readiness_range(
+    user_id: str = Query(...),
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+):
+    """
+    Return daily readiness scores for a date range (one entry per day, null if missing).
+
+    Response: list of { date, score } or null per day in [from, to].
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        d_from = _date.fromisoformat(from_date)
+        d_to = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+
+    if d_from > d_to:
+        raise HTTPException(status_code=400, detail="from must be <= to")
+
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        rows = session.execute(
+            _text(
+                "SELECT date, score FROM daily_readiness "
+                "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
+                "ORDER BY date"
+            ),
+            {"uid": str(uid), "from_d": str(d_from), "to_d": str(d_to)},
+        ).fetchall()
+
+    by_date = {str(r.date): float(r.score) for r in rows}
+
+    result = []
+    d = d_from
+    from datetime import timedelta
+    while d <= d_to:
+        ds = str(d)
+        if ds in by_date:
+            result.append({"date": ds, "score": by_date[ds]})
+        else:
+            result.append(None)
+        d += timedelta(days=1)
+
+    return JSONResponse(result)
