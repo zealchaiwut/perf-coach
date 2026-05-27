@@ -627,72 +627,87 @@
     } catch (_) {}
   }
 
-  // Suppress a summary line if the delta is below this threshold per metric
-  var DIGEST_MIN_DELTA = {
-    readiness: 2,
-    sleep: 0.3,
-    hrv: 3,
-    rhr: 2,
-    tss: 20,
-  };
+  function _daysWithData(payload) {
+    if (!payload || !payload.readiness || !payload.readiness.series) return 0;
+    var count = 0;
+    payload.readiness.series.forEach(function (s) { if (s.score != null) count++; });
+    return count;
+  }
 
-  function buildDigestLines(summary) {
+  function _parseDeltaInt(str) {
+    if (str == null) return null;
+    var n = parseInt(str, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaFloat(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace(/[^0-9.\-+]/g, ''));
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaPct(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace('%', ''));
+    return isNaN(n) ? null : n;
+  }
+
+  // Minimum absolute delta required before a line is shown
+  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, rhr: 2, tss_pct: 15 };
+
+  function buildDigestLines(payload) {
     var lines = [];
-    var d, sign;
+    var deltas = payload.deltas || {};
+    var d;
 
-    if (summary.avg_readiness != null) {
-      d = summary.readiness_delta;
+    if (payload.readiness && payload.readiness.avg != null) {
+      d = _parseDeltaInt(deltas.readiness);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
-        sign = d > 0 ? '+' : '';
-        lines.push('Avg readiness ' + Math.round(summary.avg_readiness) + ' (' + sign + Math.round(d) + ' vs last week)');
+        lines.push('Avg readiness ' + Math.round(payload.readiness.avg) + ' (' + (d > 0 ? '+' : '') + d + ' vs last week)');
       }
     }
 
-    if (summary.avg_sleep_hours != null) {
-      d = summary.sleep_delta;
+    if (payload.sleep && payload.sleep.avg_hours != null) {
+      d = _parseDeltaFloat(deltas.sleep);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
-        sign = d > 0 ? '+' : '';
-        lines.push('Avg sleep ' + Number(summary.avg_sleep_hours).toFixed(1) + 'h (' + sign + Number(d).toFixed(1) + 'h vs last week)');
+        lines.push('Avg sleep ' + Number(payload.sleep.avg_hours).toFixed(1) + 'h (' + (d > 0 ? '+' : '') + Number(d).toFixed(1) + 'h vs last week)');
       }
     }
 
-    if (summary.avg_hrv != null) {
-      d = summary.hrv_delta;
+    if (payload.hrv && payload.hrv.avg != null) {
+      d = _parseDeltaInt(deltas.hrv);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.hrv) {
-        sign = d > 0 ? '+' : '';
-        lines.push('Avg HRV ' + Math.round(summary.avg_hrv) + ' ms (' + sign + Math.round(d) + ' vs last week)');
+        lines.push('Avg HRV ' + Math.round(payload.hrv.avg) + ' ms (' + (d > 0 ? '+' : '') + d + ' vs last week)');
       }
     }
 
-    if (summary.total_tss != null) {
-      d = summary.tss_delta;
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss) {
-        sign = d > 0 ? '+' : '';
-        lines.push('Weekly load ' + Math.round(summary.total_tss) + ' TSS (' + sign + Math.round(d) + ' vs last week)');
+    if (payload.tss && payload.tss.total != null) {
+      d = _parseDeltaPct(deltas.tss);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss_pct) {
+        lines.push('Weekly load ' + Math.round(payload.tss.total) + ' TSS (' + deltas.tss + ' vs last week)');
       }
     }
 
-    if (summary.avg_rhr != null) {
-      d = summary.rhr_delta;
+    if (payload.rhr && payload.rhr.avg != null) {
+      d = _parseDeltaInt(deltas.rhr);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.rhr) {
-        sign = d > 0 ? '+' : '';
-        lines.push('Avg resting HR ' + Math.round(summary.avg_rhr) + ' bpm (' + sign + Math.round(d) + ' vs last week)');
+        lines.push('Avg resting HR ' + Math.round(payload.rhr.avg) + ' bpm (' + (d > 0 ? '+' : '') + d + ' vs last week)');
       }
     }
 
     return lines.slice(0, 5);
   }
 
-  function renderDigestSection(summary) {
+  function renderDigestSection(payload) {
     var body = document.getElementById('section-digest-body');
     if (!body) return;
 
-    if (!summary || summary.days_with_data < 3) {
+    if (!payload || _daysWithData(payload) < 3) {
       body.innerHTML = '<p class="digest-empty">Not enough data yet</p>';
       return;
     }
 
-    var lines = buildDigestLines(summary);
+    var lines = buildDigestLines(payload);
 
     if (lines.length === 0) {
       body.innerHTML = '<p class="digest-empty">No notable changes this week</p>';
@@ -720,7 +735,7 @@
 
     var data = null;
     try {
-      var res = await fetch('/api/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
+      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
       if (!res.ok) throw new Error('server error');
       data = await res.json();
     } catch (_) {
