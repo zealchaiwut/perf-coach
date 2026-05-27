@@ -135,7 +135,8 @@
 
   function compute7DayRollingAvg(scores) {
     return scores.map((_, i) => {
-      const window = scores.slice(Math.max(0, i - 6), i + 1).filter(v => v !== null);
+      if (i < 6) return null;
+      const window = scores.slice(i - 6, i + 1).filter(v => v !== null);
       if (window.length === 0) return null;
       return Math.round(window.reduce((a, b) => a + b, 0) / window.length * 10) / 10;
     });
@@ -235,7 +236,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        interaction: { mode: 'index', axis: 'x', intersect: false },
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
           tooltip: { callbacks: buildTooltipCallbacks(dates, scores, avgForTooltip) },
@@ -252,17 +253,22 @@
   function buildTooltipCallbacks(dates, scores, avgScores) {
     return {
       title(items) { return dates[items[0].dataIndex] || items[0].label; },
-      afterBody(items) {
-        if (!avgScores) return [];
-        const avg = avgScores[items[0].dataIndex];
-        return avg === null ? [] : [`7-day avg: ${avg}`];
-      },
       label(item) {
         if (item.datasetIndex === 1) return null;
         const v = item.raw;
-        if (v === null) return 'Readiness: —';
+        if (v === null) return 'Readiness: — (no data logged)';
         const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
         return `Readiness: ${v}  (${band})`;
+      },
+      afterBody(items) {
+        const idx = items[0].dataIndex;
+        const lines = [];
+        if (avgScores) {
+          const avg = avgScores[idx];
+          lines.push(avg === null ? '7-day avg: —' : `7-day avg: ${avg}`);
+        }
+        if (scores[idx] === null) lines.push('⚠ Missing data');
+        return lines;
       },
     };
   }
