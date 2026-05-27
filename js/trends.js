@@ -15,7 +15,6 @@
   const otherSlots = [
     { id: 'slot-hrv-rhr-body' },
     { id: 'slot-sleep-energy-body' },
-    { id: 'slot-tss-body' },
   ];
 
   // ── URL helpers ──────────────────────────────────────────────────────────────
@@ -98,19 +97,26 @@
     const from = new Date(today);
     from.setDate(today.getDate() - days + 1);
     return {
-      from: from.toISOString().slice(0, 10),
-      to: today.toISOString().slice(0, 10),
+      from: toLocalDateStr(from),
+      to: toLocalDateStr(today),
     };
   }
 
   // ── Date utilities ────────────────────────────────────────────────────────────
+
+  function toLocalDateStr(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
 
   function buildDateRange(from, to) {
     const dates = [];
     const cur = new Date(from + 'T00:00:00');
     const end = new Date(to + 'T00:00:00');
     while (cur <= end) {
-      dates.push(cur.toISOString().slice(0, 10));
+      dates.push(toLocalDateStr(cur));
       cur.setDate(cur.getDate() + 1);
     }
     return dates;
@@ -284,6 +290,187 @@
     };
   }
 
+  // ── TSS overlay chart ─────────────────────────────────────────────────────────
+
+  let tssOverlayChart = null;
+
+  function addOneDay(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function showTSSEmpty(bodyEl, message) {
+    const text = message || 'No data for this range';
+    bodyEl.innerHTML = `
+      <div class="slot-empty">
+        <div class="slot-empty-icon">📭</div>
+        <div class="slot-empty-text">${text}</div>
+      </div>`;
+  }
+
+  function renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate) {
+    const tssValues = dates.map(d => tssByDate[d] ?? null);
+    const nextDayReadiness = dates.map(d => readinessByDate[addOneDay(d)] ?? null);
+
+    const validPairs = dates.filter((_, i) => tssValues[i] !== null && nextDayReadiness[i] !== null).length;
+    if (validPairs < 2) {
+      if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+      showTSSEmpty(bodyEl, 'Not enough data — log at least 2 days of workouts and next-day readiness to see this chart');
+      return;
+    }
+
+    if (!bodyEl.querySelector('canvas')) {
+      bodyEl.innerHTML = '<canvas id="chart-tss" style="display:block;width:100%;"></canvas>';
+    }
+
+    const labels = dates.map(formatLabel);
+    const datasets = [
+      {
+        label: 'Daily TSS',
+        data: tssValues,
+        type: 'bar',
+        yAxisID: 'yTSS',
+        backgroundColor: 'rgba(99,102,241,0.55)',
+        borderColor: 'rgba(99,102,241,0.85)',
+        borderWidth: 1,
+        order: 2,
+      },
+      {
+        label: 'Next-day Readiness',
+        data: nextDayReadiness,
+        type: 'line',
+        yAxisID: 'yReadiness',
+        borderColor: '#f59e0b',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#f59e0b',
+        fill: false,
+        spanGaps: false,
+        tension: 0.3,
+        order: 1,
+      },
+    ];
+
+    if (tssOverlayChart) {
+      tssOverlayChart.data.labels = labels;
+      tssOverlayChart.data.datasets = datasets;
+      tssOverlayChart.update();
+      return;
+    }
+
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    tssOverlayChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: {
+              title(items) {
+                const i = items[0].dataIndex;
+                return dates[i];
+              },
+              label(item) {
+                if (item.datasetIndex === 0) {
+                  const v = item.raw;
+                  return v === null ? 'TSS: —' : `TSS: ${v}`;
+                }
+                const v = item.raw;
+                if (v === null) return 'Next-day readiness: —';
+                const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
+                return `Next-day readiness: ${v}  (${band})`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 10,
+              maxRotation: 0,
+              font: { size: 10 },
+            },
+            grid: { display: false },
+          },
+          yTSS: {
+            type: 'linear',
+            position: 'left',
+            min: 0,
+            title: {
+              display: true,
+              text: 'TSS',
+              font: { size: 10 },
+              color: 'rgba(99,102,241,0.9)',
+            },
+            ticks: { font: { size: 10 } },
+            grid: { color: 'rgba(0,0,0,0.05)' },
+          },
+          yReadiness: {
+            type: 'linear',
+            position: 'right',
+            min: 0,
+            max: 100,
+            title: {
+              display: true,
+              text: 'Readiness',
+              font: { size: 10 },
+              color: '#f59e0b',
+            },
+            ticks: { stepSize: 20, font: { size: 10 } },
+            grid: { drawOnChartArea: false },
+          },
+        },
+        animation: { duration: 200 },
+      },
+    });
+  }
+
+  function filterMockTSS(from, to) {
+    return (typeof MOCK_TSS !== 'undefined' ? MOCK_TSS : [])
+      .filter(r => r.date >= from && r.date <= to);
+  }
+
+  function buildTSSByDate(entries) {
+    const byDate = {};
+    entries.forEach(({ date, tss }) => {
+      byDate[date] = (byDate[date] || 0) + tss;
+    });
+    return byDate;
+  }
+
+  function loadTSSChart(bodyEl, win) {
+    showLoading(bodyEl);
+
+    fetch(`/api/workouts?from=${win.from}&to=${win.to}`)
+      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+      .then(workouts => renderTSSFromData(bodyEl, win, workouts))
+      .catch(() => {
+        const mockWorkouts = filterMockTSS(win.from, win.to);
+        renderTSSFromData(bodyEl, win, mockWorkouts);
+      });
+  }
+
+  function renderTSSFromData(bodyEl, win, workouts) {
+    const dates = buildDateRange(win.from, win.to);
+    const tssByDate = buildTSSByDate(workouts || []);
+    const readinessByDate = Object.fromEntries(
+      (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : [])
+        .map(r => [r.date, r.readiness_score])
+    );
+    renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
+  }
+
   // ── Fetch + render ────────────────────────────────────────────────────────────
 
   async function fetchReadiness(from, to) {
@@ -304,11 +491,14 @@
     const readinessBodyEl = document.getElementById('slot-readiness-body');
     showLoading(readinessBodyEl);
     otherSlots.forEach(({ id }) => showLoading(document.getElementById(id)));
+    showLoading(document.getElementById('slot-tss-body'));
+    if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
       showEmpty(readinessBodyEl);
       otherSlots.forEach(({ id }) => showEmpty(document.getElementById(id)));
+      showTSSEmpty(document.getElementById('slot-tss-body'));
       emptyBanner.hidden = false;
       return;
     }
@@ -320,6 +510,8 @@
         const data = filterMockReadiness(win.from, win.to);
         renderReadinessFromData(readinessBodyEl, win, data);
       });
+
+    loadTSSChart(document.getElementById('slot-tss-body'), win);
 
     // Other slots are out of scope — show empty state after brief delay
     setTimeout(() => {

@@ -32,6 +32,37 @@ const MOCK_READINESS = [
   { date: '2026-05-27', readiness_score: 73 },
 ];
 
+// MOCK — daily TSS (Training Stress Score) per workout; multiple entries on same date = multiple workouts
+const MOCK_TSS = [
+  { date: '2026-04-28', tss: 120 },
+  { date: '2026-04-29', tss: 145 },
+  { date: '2026-04-30', tss:  60 },
+  { date: '2026-05-02', tss:  30 },
+  { date: '2026-05-03', tss:  85 },
+  { date: '2026-05-04', tss: 110 },
+  { date: '2026-05-05', tss: 130 },
+  { date: '2026-05-06', tss: 160 },
+  { date: '2026-05-07', tss:  95 },
+  { date: '2026-05-08', tss:  70 },
+  { date: '2026-05-10', tss:  25 },
+  { date: '2026-05-12', tss:  40 },
+  { date: '2026-05-13', tss:  55 },
+  { date: '2026-05-14', tss:  45 },
+  { date: '2026-05-15', tss:  50 },
+  { date: '2026-05-16', tss:  60 },
+  { date: '2026-05-17', tss: 140 },
+  { date: '2026-05-19', tss:  35 },
+  { date: '2026-05-20', tss:  65 },
+  { date: '2026-05-21', tss:  90 },
+  { date: '2026-05-22', tss:  85 },
+  { date: '2026-05-22', tss:  70 }, // double session
+  { date: '2026-05-23', tss: 175 },
+  { date: '2026-05-24', tss: 120 },
+  { date: '2026-05-25', tss:  45 },
+  { date: '2026-05-26', tss:  30 },
+  { date: '2026-05-27', tss:  55 },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
