@@ -75,6 +75,24 @@
       box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
     }
 
+    .range-btn--apply {
+      background: #1a1a1a;
+      color: #fff;
+      border-color: #1a1a1a;
+    }
+
+    .range-btn--apply:hover {
+      background: #333;
+      border-color: #333;
+      color: #fff;
+    }
+
+    .custom-range-error {
+      font-size: 0.8125rem;
+      color: #dc2626;
+      white-space: nowrap;
+    }
+
     /* ── Chart grid ── */
     .chart-grid {
       display: grid;
@@ -252,6 +270,9 @@
         <input type="date" id="range-from" name="from">
         <label for="range-to">To</label>
         <input type="date" id="range-to" name="to">
+        <button class="range-btn range-btn--apply" id="custom-confirm-btn" type="button">Apply</button>
+        <button class="range-btn" id="custom-cancel-btn" type="button">Cancel</button>
+        <span class="custom-range-error" id="custom-range-error" hidden>From must be before To</span>
       </div>
     </div>
 

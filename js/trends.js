@@ -3,12 +3,17 @@
   const DEFAULT_PRESET = '30d';
 
   let _userId = null;
+  let _pickerOpen = false;
+  let _lastAppliedPreset = null;
 
   const presetBtns = document.querySelectorAll('.range-btn[data-range]');
   const customInputs = document.getElementById('custom-range-inputs');
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
   const emptyBanner = document.getElementById('trends-empty-banner');
+  const confirmBtn = document.getElementById('custom-confirm-btn');
+  const cancelBtn = document.getElementById('custom-cancel-btn');
+  const rangeError = document.getElementById('custom-range-error');
 
   // ── URL helpers ──────────────────────────────────────────────────────────────
 
@@ -35,6 +40,19 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
+  function openPicker() {
+    _pickerOpen = true;
+    customInputs.hidden = false;
+    rangeError.hidden = true;
+    fromInput.focus();
+  }
+
+  function closePicker() {
+    _pickerOpen = false;
+    customInputs.hidden = true;
+    rangeError.hidden = true;
+  }
+
   function applyRangeState(state) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
@@ -42,11 +60,8 @@
         : btn.dataset.range === 'custom';
       btn.classList.toggle('active', isActive);
     });
-    const isCustom = state.type === 'custom';
-    customInputs.hidden = !isCustom;
-    if (isCustom) {
-      if (state.from) fromInput.value = state.from;
-      if (state.to) toInput.value = state.to;
+    if (state.type === 'preset') {
+      _lastAppliedPreset = state.preset;
     }
     writeRangeToURL(state);
     loadChartData(state);
@@ -654,25 +669,47 @@
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+        presetBtns.forEach(b => b.classList.toggle('active', b.dataset.range === 'custom'));
+        openPicker();
       } else {
+        closePicker();
         applyRangeState({ type: 'preset', preset: range });
       }
     });
   });
 
-  function onCustomDateChange() {
-    if (fromInput.value || toInput.value) {
-      applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+  confirmBtn.addEventListener('click', () => {
+    const from = fromInput.value;
+    const to = toInput.value;
+    if (!from || !to) {
+      rangeError.textContent = 'Both From and To dates are required';
+      rangeError.hidden = false;
+      return;
     }
-  }
+    if (from > to) {
+      rangeError.textContent = 'From must be before To';
+      rangeError.hidden = false;
+      return;
+    }
+    closePicker();
+    applyRangeState({ type: 'custom', from, to });
+  });
 
-  fromInput.addEventListener('change', onCustomDateChange);
-  toInput.addEventListener('change', onCustomDateChange);
+  cancelBtn.addEventListener('click', () => {
+    closePicker();
+    applyRangeState({ type: 'preset', preset: _lastAppliedPreset || DEFAULT_PRESET });
+  });
 
   // ── Boot ─────────────────────────────────────────────────────────────────────
 
   const _initialState = readRangeFromURL();
+
+  if (_initialState.type === 'custom') {
+    if (_initialState.from) fromInput.value = _initialState.from;
+    if (_initialState.to) toInput.value = _initialState.to;
+  } else {
+    _lastAppliedPreset = _initialState.preset;
+  }
 
   window.addEventListener('userReady', e => {
     _userId = e.detail.userId;
@@ -681,6 +718,13 @@
 
   window.addEventListener('userChanged', e => {
     _userId = e.detail.userId;
-    applyRangeState(readRangeFromURL());
+    const state = readRangeFromURL();
+    if (state.type === 'custom') {
+      if (state.from) fromInput.value = state.from;
+      if (state.to) toInput.value = state.to;
+    } else {
+      _lastAppliedPreset = state.preset;
+    }
+    applyRangeState(state);
   });
 })();
