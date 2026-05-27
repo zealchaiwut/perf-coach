@@ -1,7 +1,33 @@
-const TODAY = new Date().toISOString().slice(0, 10);
+function getLocalDateString() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getLocalTimeString() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `${hh}:${min} (${tz})`;
+}
+
+function scheduleMidnightRefresh() {
+  const now = new Date();
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const msUntilMidnight = tomorrow - now;
+  const timer = setTimeout(() => {
+    if (currentUserId) loadAndRender(currentUserId);
+  }, msUntilMidnight);
+  window.addEventListener('pagehide', () => clearTimeout(timer), { once: true });
+}
 
 let currentUserId = null;
 let todayLogs = [];
+let lastFetchedDate = null;
+let lastFetchedAt = null;
 
 function showError(msg) {
   const el = document.getElementById('api-error');
@@ -12,20 +38,38 @@ function clearError() { showError(''); }
 
 async function loadAndRender(userId) {
   currentUserId = userId;
+  const today = getLocalDateString();
   clearError();
   try {
     const [habitsRes, logsRes] = await Promise.all([
       fetch(`/api/habits?user_id=${encodeURIComponent(userId)}`),
-      fetch(`/api/habits/logs?user_id=${encodeURIComponent(userId)}&from=${TODAY}&to=${TODAY}`),
+      fetch(`/api/habits/logs?user_id=${encodeURIComponent(userId)}&from=${today}&to=${today}`),
     ]);
     if (!habitsRes.ok) throw new Error(`Server error ${habitsRes.status}`);
     if (!logsRes.ok) throw new Error(`Server error ${logsRes.status}`);
     const habits = await habitsRes.json();
     todayLogs = await logsRes.json();
+    lastFetchedDate = today;
+    lastFetchedAt = Date.now();
     render(habits);
     fetchAllStats(habits, userId);
+    updateRefreshTimestamp();
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
+  }
+}
+
+function updateRefreshTimestamp() {
+  const el = document.getElementById('habits-last-refreshed');
+  if (el) el.textContent = `Last refreshed: ${getLocalTimeString()}`;
+}
+
+function checkDayRollover() {
+  if (!currentUserId) return;
+  const today = getLocalDateString();
+  const staleFetch = lastFetchedAt && (Date.now() - lastFetchedAt) > 5 * 60 * 1000;
+  if (today !== lastFetchedDate || staleFetch) {
+    loadAndRender(currentUserId);
   }
 }
 
@@ -158,13 +202,14 @@ function render(habits) {
 }
 
 async function toggleLog(habitId, logId, checkbox) {
+  const today = getLocalDateString();
   clearError();
   if (checkbox.checked) {
     try {
       const res = await fetch('/api/habits/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ habit_id: habitId, user_id: currentUserId, logged_date: TODAY }),
+        body: JSON.stringify({ habit_id: habitId, user_id: currentUserId, logged_date: today }),
       });
       if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
     } catch (e) {
@@ -183,10 +228,9 @@ async function toggleLog(habitId, logId, checkbox) {
       return;
     }
   }
-  // Reload today's logs and re-render, then refresh stats for this habit only
   try {
     const logsRes = await fetch(
-      `/api/habits/logs?user_id=${encodeURIComponent(currentUserId)}&from=${TODAY}&to=${TODAY}`
+      `/api/habits/logs?user_id=${encodeURIComponent(currentUserId)}&from=${today}&to=${today}`
     );
     if (logsRes.ok) todayLogs = await logsRes.json();
   } catch { /* keep stale logs */ }
@@ -261,5 +305,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-window.addEventListener('userReady', e => loadAndRender(e.detail.userId));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkDayRollover();
+});
+
+window.addEventListener('userReady', e => {
+  loadAndRender(e.detail.userId);
+  scheduleMidnightRefresh();
+});
 window.addEventListener('userChanged', e => loadAndRender(e.detail.userId));

@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
+from backend.models import DailyMetric, Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
 
 __version__ = "0.1.0"
 
@@ -570,6 +570,7 @@ class WorkoutIn(BaseModel):
     workout_date: str  # YYYY-MM-DD
     workout_type: str
     remarks: Optional[str] = None
+    tss: Optional[float] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -578,6 +579,7 @@ class WorkoutPatch(BaseModel):
     workout_date: Optional[str] = None
     workout_type: Optional[str] = None
     remarks: Optional[str] = None
+    tss: Optional[float] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -625,8 +627,9 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
         "remarks": w.remarks,
+        "tss": w.tss,
+        "tss_source": w.tss_source,
         "created_at": w.created_at.isoformat() if w.created_at else None,
-        "updated_at": w.updated_at.isoformat() if w.updated_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
     }
 
@@ -638,6 +641,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "name": w.name,
         "workout_type": w.workout_type,
         "remarks": w.remarks,
+        "tss": w.tss,
+        "tss_source": w.tss_source,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
     }
@@ -701,7 +706,6 @@ def get_workout(workout_id: str):
 
 @app.post("/api/workouts", status_code=201)
 def post_workout(body: WorkoutIn):
-    from datetime import datetime, timezone
     try:
         uid = _uuid.UUID(body.user_id)
     except ValueError:
@@ -717,6 +721,8 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
     if workout_date > _date.today():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
+    if body.tss is not None and body.tss < 0:
+        raise HTTPException(status_code=422, detail="tss must be >= 0")
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -729,6 +735,8 @@ def post_workout(body: WorkoutIn):
             workout_date=workout_date,
             workout_type=body.workout_type.strip(),
             remarks=body.remarks.strip() if body.remarks else None,
+            tss=body.tss,
+            tss_source='manual' if body.tss is not None else None,
         )
         session.add(workout)
         session.flush()
@@ -755,7 +763,6 @@ def post_workout(body: WorkoutIn):
 
 @app.patch("/api/workouts/{workout_id}")
 def patch_workout(workout_id: str, body: WorkoutPatch):
-    from datetime import datetime, timezone
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -784,7 +791,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.workout_type = t
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
-        workout.updated_at = datetime.now(timezone.utc)
+        if 'tss' in body.model_fields_set:
+            if body.tss is None:
+                workout.tss = None
+                workout.tss_source = None
+            else:
+                if body.tss < 0:
+                    raise HTTPException(status_code=422, detail="tss must be >= 0")
+                workout.tss = body.tss
+                workout.tss_source = 'manual'
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -928,5 +943,297 @@ def delete_exercise(workout_id: str, exercise_id: str):
         if ex is None or ex.workout_id != wid:
             raise HTTPException(status_code=404, detail="Exercise not found in this workout")
         session.delete(ex)
+        session.commit()
+    return Response(status_code=204)
+
+
+# ── Daily metrics endpoints ────────────────────────────────────────────────────
+
+class DailyMetricIn(BaseModel):
+    user_id: str
+    metric_date: str  # YYYY-MM-DD
+    resting_hr: Optional[int] = None
+    hrv: Optional[int] = None
+    sleep_hours: Optional[float] = None
+    sleep_quality: Optional[int] = None
+    energy: Optional[int] = None
+    mood: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class DailyMetricBody(BaseModel):
+    resting_hr: Optional[int] = None
+    hrv: Optional[int] = None
+    sleep_hours: Optional[float] = None
+    sleep_quality: Optional[int] = None
+    energy: Optional[int] = None
+    mood: Optional[int] = None
+    notes: Optional[str] = None
+
+
+def _validate_metric_fields(
+    resting_hr: Optional[int] = None,
+    hrv: Optional[int] = None,
+    sleep_hours: Optional[float] = None,
+    sleep_quality: Optional[int] = None,
+    energy: Optional[int] = None,
+    mood: Optional[int] = None,
+) -> None:
+    if resting_hr is not None and not (20 <= resting_hr <= 200):
+        raise HTTPException(status_code=422, detail={"field": "resting_hr", "error": "resting_hr must be between 20 and 200"})
+    if hrv is not None and not (0 <= hrv <= 300):
+        raise HTTPException(status_code=422, detail={"field": "hrv", "error": "hrv must be between 0 and 300"})
+    if sleep_hours is not None and not (0 <= sleep_hours <= 24):
+        raise HTTPException(status_code=422, detail={"field": "sleep_hours", "error": "sleep_hours must be between 0 and 24"})
+    if sleep_quality is not None and not (1 <= sleep_quality <= 5):
+        raise HTTPException(status_code=422, detail={"field": "sleep_quality", "error": "sleep_quality must be between 1 and 5"})
+    if energy is not None and not (1 <= energy <= 5):
+        raise HTTPException(status_code=422, detail={"field": "energy", "error": "energy must be between 1 and 5"})
+    if mood is not None and not (1 <= mood <= 5):
+        raise HTTPException(status_code=422, detail={"field": "mood", "error": "mood must be between 1 and 5"})
+
+
+def _daily_metric_dict(m: DailyMetric) -> dict:
+    return {
+        "id": str(m.id),
+        "user_id": str(m.user_id),
+        "metric_date": str(m.metric_date),
+        "resting_hr": m.resting_hr,
+        "hrv": m.hrv,
+        "sleep_hours": float(m.sleep_hours) if m.sleep_hours is not None else None,
+        "sleep_quality": m.sleep_quality,
+        "energy": m.energy,
+        "mood": m.mood,
+        "notes": m.notes,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+        "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+    }
+
+
+@app.get("/api/daily-metrics")
+def list_daily_metrics(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    from datetime import timedelta
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    today = _date.today()
+    if from_date is None and to_date is None:
+        from_d = today - timedelta(days=29)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - timedelta(days=29)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    with Session(engine) as session:
+        rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .order_by(DailyMetric.metric_date.desc())
+            .all()
+        )
+        return JSONResponse([_daily_metric_dict(r) for r in rows])
+
+
+@app.get("/api/daily-metrics/{user_id}/{metric_date}")
+def get_daily_metric(user_id: str, metric_date: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        md = _date.fromisoformat(metric_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
+    with Session(engine) as session:
+        row = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == md)
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Daily metric not found")
+        return JSONResponse(_daily_metric_dict(row))
+
+
+@app.post("/api/daily-metrics", status_code=201)
+def create_daily_metric(body: DailyMetricIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        md = _date.fromisoformat(body.metric_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid metric_date; use YYYY-MM-DD")
+    if md > _date.today():
+        raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
+    _validate_metric_fields(
+        resting_hr=body.resting_hr,
+        hrv=body.hrv,
+        sleep_hours=body.sleep_hours,
+        sleep_quality=body.sleep_quality,
+        energy=body.energy,
+        mood=body.mood,
+    )
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        row = DailyMetric(
+            user_id=uid,
+            metric_date=md,
+            resting_hr=body.resting_hr,
+            hrv=body.hrv,
+            sleep_hours=body.sleep_hours,
+            sleep_quality=body.sleep_quality,
+            energy=body.energy,
+            mood=body.mood,
+            notes=body.notes,
+        )
+        session.add(row)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "A daily metric already exists for this user on this date; use PATCH to update it"},
+            )
+        session.refresh(row)
+        return JSONResponse(status_code=201, content=_daily_metric_dict(row))
+
+
+@app.patch("/api/daily-metrics/{user_id}/{metric_date}")
+def patch_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        md = _date.fromisoformat(metric_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
+    if md > _date.today():
+        raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
+    _validate_metric_fields(
+        resting_hr=body.resting_hr,
+        hrv=body.hrv,
+        sleep_hours=body.sleep_hours,
+        sleep_quality=body.sleep_quality,
+        energy=body.energy,
+        mood=body.mood,
+    )
+    with Session(engine) as session:
+        row = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == md)
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Daily metric not found; use POST to create it")
+        if body.resting_hr is not None:
+            row.resting_hr = body.resting_hr
+        if body.hrv is not None:
+            row.hrv = body.hrv
+        if body.sleep_hours is not None:
+            row.sleep_hours = body.sleep_hours
+        if body.sleep_quality is not None:
+            row.sleep_quality = body.sleep_quality
+        if body.energy is not None:
+            row.energy = body.energy
+        if body.mood is not None:
+            row.mood = body.mood
+        if body.notes is not None:
+            row.notes = body.notes
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_daily_metric_dict(row))
+
+
+@app.put("/api/daily-metrics/{user_id}/{metric_date}")
+def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        md = _date.fromisoformat(metric_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
+    if md > _date.today():
+        raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
+    _validate_metric_fields(
+        resting_hr=body.resting_hr,
+        hrv=body.hrv,
+        sleep_hours=body.sleep_hours,
+        sleep_quality=body.sleep_quality,
+        energy=body.energy,
+        mood=body.mood,
+    )
+    with Session(engine) as session:
+        row = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == md)
+            .first()
+        )
+        if row is None:
+            user = session.get(User, uid)
+            if user is None:
+                raise HTTPException(status_code=404, detail="User not found")
+            row = DailyMetric(
+                user_id=uid,
+                metric_date=md,
+                resting_hr=body.resting_hr,
+                hrv=body.hrv,
+                sleep_hours=body.sleep_hours,
+                sleep_quality=body.sleep_quality,
+                energy=body.energy,
+                mood=body.mood,
+                notes=body.notes,
+            )
+            session.add(row)
+        else:
+            row.resting_hr = body.resting_hr
+            row.hrv = body.hrv
+            row.sleep_hours = body.sleep_hours
+            row.sleep_quality = body.sleep_quality
+            row.energy = body.energy
+            row.mood = body.mood
+            row.notes = body.notes
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_daily_metric_dict(row))
+
+
+@app.delete("/api/daily-metrics/{user_id}/{metric_date}", status_code=204)
+def delete_daily_metric(user_id: str, metric_date: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        md = _date.fromisoformat(metric_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
+    with Session(engine) as session:
+        row = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == md)
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Daily metric not found")
+        session.delete(row)
         session.commit()
     return Response(status_code=204)

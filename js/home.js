@@ -449,22 +449,188 @@
     }
   }
 
+  // ── Today's check-in card ──────────────────────────────────────────────────
+
+  var CHECKIN_COLLAPSE_KEY = 'perf-coach.checkin-collapsed';
+
+  function pillGroupValue(groupId) {
+    var active = document.querySelector('#' + groupId + ' .pill.active');
+    return active ? parseInt(active.getAttribute('data-val'), 10) : null;
+  }
+
+  function setPillGroupValue(groupId, val) {
+    var pills = document.querySelectorAll('#' + groupId + ' .pill');
+    pills.forEach(function (p) {
+      if (parseInt(p.getAttribute('data-val'), 10) === val) {
+        p.classList.add('active');
+      } else {
+        p.classList.remove('active');
+      }
+    });
+  }
+
+  function wireUpPillGroups() {
+    ['pills-sleep-quality', 'pills-energy', 'pills-mood'].forEach(function (gid) {
+      var group = document.getElementById(gid);
+      if (!group) return;
+      group.querySelectorAll('.pill').forEach(function (p) {
+        p.addEventListener('click', function () {
+          var wasActive = p.classList.contains('active');
+          group.querySelectorAll('.pill').forEach(function (q) { q.classList.remove('active'); });
+          if (!wasActive) p.classList.add('active');
+        });
+      });
+    });
+  }
+
+  function getCheckinInputs() {
+    var rhr = document.getElementById('checkin-rhr');
+    var hrv = document.getElementById('checkin-hrv');
+    var sleep = document.getElementById('checkin-sleep');
+    var notes = document.getElementById('checkin-notes');
+    return {
+      resting_hr: rhr && rhr.value !== '' ? parseInt(rhr.value, 10) : null,
+      hrv: hrv && hrv.value !== '' ? parseInt(hrv.value, 10) : null,
+      sleep_hours: sleep && sleep.value !== '' ? parseFloat(sleep.value) : null,
+      sleep_quality: pillGroupValue('pills-sleep-quality'),
+      energy: pillGroupValue('pills-energy'),
+      mood: pillGroupValue('pills-mood'),
+      notes: notes && notes.value.trim() !== '' ? notes.value.trim() : null,
+    };
+  }
+
+  function fillCheckinForm(data) {
+    var rhr = document.getElementById('checkin-rhr');
+    var hrv = document.getElementById('checkin-hrv');
+    var sleep = document.getElementById('checkin-sleep');
+    var notes = document.getElementById('checkin-notes');
+    if (rhr) rhr.value = data.resting_hr !== null && data.resting_hr !== undefined ? data.resting_hr : '';
+    if (hrv) hrv.value = data.hrv !== null && data.hrv !== undefined ? data.hrv : '';
+    if (sleep) sleep.value = data.sleep_hours !== null && data.sleep_hours !== undefined ? data.sleep_hours : '';
+    if (notes) notes.value = data.notes || '';
+    setPillGroupValue('pills-sleep-quality', data.sleep_quality);
+    setPillGroupValue('pills-energy', data.energy);
+    setPillGroupValue('pills-mood', data.mood);
+  }
+
+  function setCheckinStatus(savedText, errorText) {
+    var savedEl = document.getElementById('checkin-saved');
+    var errorEl = document.getElementById('checkin-error');
+    if (savedEl) savedEl.textContent = savedText || '';
+    if (errorEl) errorEl.textContent = errorText || '';
+  }
+
+  function applyCheckinCollapse() {
+    var body = document.getElementById('checkin-body');
+    var toggle = document.getElementById('checkin-toggle');
+    var collapsed = localStorage.getItem(CHECKIN_COLLAPSE_KEY) === '1';
+    if (!body || !toggle) return;
+    if (collapsed) {
+      body.hidden = true;
+      toggle.classList.add('collapsed');
+    } else {
+      body.hidden = false;
+      toggle.classList.remove('collapsed');
+    }
+  }
+
+  function initCheckinToggle() {
+    var toggle = document.getElementById('checkin-toggle');
+    if (!toggle) return;
+    applyCheckinCollapse();
+    toggle.addEventListener('click', function () {
+      var body = document.getElementById('checkin-body');
+      var isCollapsed = body && body.hidden;
+      if (isCollapsed) {
+        body.hidden = false;
+        toggle.classList.remove('collapsed');
+        localStorage.setItem(CHECKIN_COLLAPSE_KEY, '0');
+      } else {
+        body.hidden = true;
+        toggle.classList.add('collapsed');
+        localStorage.setItem(CHECKIN_COLLAPSE_KEY, '1');
+      }
+    });
+  }
+
+  async function loadCheckinSection(userId) {
+    var today = todayISO();
+    try {
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
+      if (res.ok) {
+        var data = await res.json();
+        fillCheckinForm(data);
+      }
+      // 404 is expected if no row yet — leave form empty
+    } catch (e) {
+      // Network failure — leave form empty, don't block UI
+    }
+  }
+
+  var _checkinUserId = null;
+
+  function initCheckinSave() {
+    var btn = document.getElementById('checkin-save');
+    if (!btn) return;
+    btn.addEventListener('click', async function () {
+      if (!_checkinUserId) return;
+      var today = todayISO();
+      var payload = getCheckinInputs();
+      btn.disabled = true;
+      setCheckinStatus('', '');
+      try {
+        var res = await fetch(
+          '/api/daily-metrics/' + encodeURIComponent(_checkinUserId) + '/' + today,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (res.ok) {
+          var saved = new Date();
+          var hh = String(saved.getHours()).padStart(2, '0');
+          var mm = String(saved.getMinutes()).padStart(2, '0');
+          setCheckinStatus('Saved at ' + hh + ':' + mm, '');
+          setTimeout(function () { setCheckinStatus('', ''); }, 3000);
+        } else {
+          var errBody;
+          try { errBody = await res.json(); } catch (_) { errBody = {}; }
+          var msg = (errBody && errBody.detail)
+            ? (typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail))
+            : ('Save failed (' + res.status + ')');
+          setCheckinStatus('', msg);
+        }
+      } catch (e) {
+        setCheckinStatus('', 'Network error — please try again');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
     loadWeightSection(userId);
     loadHabitsSection(userId);
     loadTrainingSection(userId);
+    loadCheckinSection(userId);
   }
 
   setTodayLabel();
+  wireUpPillGroups();
+  initCheckinToggle();
+  initCheckinSave();
 
   window.addEventListener('userReady', function (e) {
+    _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
   });
 
   window.addEventListener('userChanged', function (e) {
+    _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
   });
