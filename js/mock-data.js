@@ -63,6 +63,17 @@ const MOCK_TSS = [
   { date: '2026-05-27', tss:  55 },
 ];
 
+// MOCK — 7-day sleep / energy / mood trend (null = no entry that day)
+const MOCK_DAILY_TREND = [
+  { date: '2026-05-21', sleep_hours: 7.0, energy: 3, mood: 3 },
+  { date: '2026-05-22', sleep_hours: 6.5, energy: 2, mood: 3 },
+  { date: '2026-05-23', sleep_hours: null, energy: null, mood: null },
+  { date: '2026-05-24', sleep_hours: 8.0, energy: 4, mood: 4 },
+  { date: '2026-05-25', sleep_hours: 7.5, energy: 4, mood: 5 },
+  { date: '2026-05-26', sleep_hours: 6.0, energy: 3, mood: 3 },
+  { date: '2026-05-27', sleep_hours: 7.0, energy: 4, mood: 4 },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
