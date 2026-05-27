@@ -89,12 +89,12 @@ const MOCK_TRENDS_SUMMARY = {
   },
   hrv: {
     series: [
-      { date: '2026-05-21', value: 42 }, { date: '2026-05-22', value: 45 },
-      { date: '2026-05-23', value: 43 }, { date: '2026-05-24', value: 46 },
-      { date: '2026-05-25', value: 44 }, { date: '2026-05-26', value: 43 },
-      { date: '2026-05-27', value: 44 },
+      { date: '2026-05-21', value: 49 }, { date: '2026-05-22', value: 51 },
+      { date: '2026-05-23', value: 48 }, { date: '2026-05-24', value: 50 },
+      { date: '2026-05-25', value: 38 }, { date: '2026-05-26', value: 37 },
+      { date: '2026-05-27', value: 36 },
     ],
-    avg: 44.0, min: 42, max: 46,
+    avg: 44.1, min: 36, max: 51,
   },
   rhr: {
     series: [

@@ -734,19 +734,21 @@
 
   // ── Weekly digest card ─────────────────────────────────────────────────────
 
-  var DIGEST_CACHE_KEY = 'perf-coach.weekly-digest';
+  function digestCacheKey(userId) {
+    return 'perf-coach.weekly-digest.' + (userId || 'anon');
+  }
 
-  function getDigestCache() {
+  function getDigestCache(userId) {
     try {
-      var cached = JSON.parse(localStorage.getItem(DIGEST_CACHE_KEY));
+      var cached = JSON.parse(localStorage.getItem(digestCacheKey(userId)));
       if (cached && cached.date === todayISO()) return cached.data;
     } catch (_) {}
     return null;
   }
 
-  function setDigestCache(data) {
+  function setDigestCache(userId, data) {
     try {
-      localStorage.setItem(DIGEST_CACHE_KEY, JSON.stringify({ date: todayISO(), data: data }));
+      localStorage.setItem(digestCacheKey(userId), JSON.stringify({ date: todayISO(), data: data }));
     } catch (_) {}
   }
 
@@ -775,14 +777,35 @@
     return isNaN(n) ? null : n;
   }
 
+  function _peakTssDay(series) {
+    if (!series || !series.length) return null;
+    var maxVal = -Infinity;
+    var maxDate = null;
+    series.forEach(function (s) {
+      if (s.value != null && s.value > maxVal) { maxVal = s.value; maxDate = s.date; }
+    });
+    if (!maxDate) return null;
+    return new Date(maxDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
+  function _hrvTrailingBelowCount(series, avg) {
+    if (!series || !series.length || avg == null) return 0;
+    var count = 0;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value != null && series[i].value < avg) { count++; } else { break; }
+    }
+    return count;
+  }
+
   // Minimum absolute delta required before a line is shown
-  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, rhr: 2, tss_pct: 15 };
+  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, tss_pct: 15 };
 
   function buildDigestLines(payload) {
     var lines = [];
     var deltas = payload.deltas || {};
     var d;
 
+    // Avg readiness with week-over-week delta
     if (payload.readiness && payload.readiness.avg != null) {
       d = _parseDeltaInt(deltas.readiness);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
@@ -790,31 +813,35 @@
       }
     }
 
+    // Sleep change in hours ("Sleep up 0.4h" / "Sleep down 0.4h")
     if (payload.sleep && payload.sleep.avg_hours != null) {
       d = _parseDeltaFloat(deltas.sleep);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
-        lines.push('Avg sleep ' + Number(payload.sleep.avg_hours).toFixed(1) + 'h (' + (d > 0 ? '+' : '') + Number(d).toFixed(1) + 'h vs last week)');
+        var sleepDir = d > 0 ? 'up' : 'down';
+        lines.push('Sleep ' + sleepDir + ' ' + Math.abs(d).toFixed(1) + 'h');
       }
     }
 
-    if (payload.hrv && payload.hrv.avg != null) {
-      d = _parseDeltaInt(deltas.hrv);
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.hrv) {
-        lines.push('Avg HRV ' + Math.round(payload.hrv.avg) + ' ms (' + (d > 0 ? '+' : '') + d + ' vs last week)');
-      }
-    }
-
-    if (payload.tss && payload.tss.total != null) {
+    // TSS % change with peak day called out
+    if (payload.tss && payload.tss.series) {
       d = _parseDeltaPct(deltas.tss);
       if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss_pct) {
-        lines.push('Weekly load ' + Math.round(payload.tss.total) + ' TSS (' + deltas.tss + ' vs last week)');
+        var tssDir = d > 0 ? 'up' : 'down';
+        var tssPeak = _peakTssDay(payload.tss.series);
+        var tssLine = 'TSS ' + tssDir + ' ' + Math.abs(Math.round(d)) + '%';
+        if (tssPeak) tssLine += ' — biggest day ' + tssPeak;
+        lines.push(tssLine);
       }
     }
 
-    if (payload.rhr && payload.rhr.avg != null) {
-      d = _parseDeltaInt(deltas.rhr);
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.rhr) {
-        lines.push('Avg resting HR ' + Math.round(payload.rhr.avg) + ' bpm (' + (d > 0 ? '+' : '') + d + ' vs last week)');
+    // HRV trending below baseline last N days
+    if (payload.hrv && payload.hrv.avg != null && payload.hrv.series) {
+      d = _parseDeltaInt(deltas.hrv);
+      if (d != null && d <= -DIGEST_MIN_DELTA.hrv) {
+        var belowCount = _hrvTrailingBelowCount(payload.hrv.series, payload.hrv.avg);
+        if (belowCount >= 2) {
+          lines.push('HRV trending below baseline last ' + belowCount + ' day' + (belowCount === 1 ? '' : 's'));
+        }
       }
     }
 
@@ -825,8 +852,8 @@
     var body = document.getElementById('section-digest-body');
     if (!body) return;
 
-    if (!payload || _daysWithData(payload) < 3) {
-      body.innerHTML = '<p class="digest-empty">Not enough data yet</p>';
+    if (!payload || _daysWithData(payload) < 7) {
+      body.innerHTML = '<p class="digest-empty">Not enough data yet — keep logging.</p>';
       return;
     }
 
@@ -850,7 +877,7 @@
   }
 
   async function loadWeeklyDigestSection(userId) {
-    var cached = getDigestCache();
+    var cached = getDigestCache(userId);
     if (cached) {
       renderDigestSection(cached);
       return;
@@ -865,7 +892,7 @@
       data = (typeof MOCK_TRENDS_SUMMARY !== 'undefined') ? MOCK_TRENDS_SUMMARY : null;
     }
 
-    setDigestCache(data);
+    setDigestCache(userId, data);
     renderDigestSection(data);
   }
 
