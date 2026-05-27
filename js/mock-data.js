@@ -172,6 +172,38 @@ const MOCK_DAILY_METRICS_TODAY = {
   energy: 4,
 };
 
+// MOCK — training log workouts for log.html (30+ days ending 2026-05-27)
+// Shape mirrors GET /training_log response workouts array.
+const MOCK_WORKOUTS = [
+  // Week May 25–31
+  { id: 1,  date: '2026-05-27', type: 'run',  title: 'Morning tempo run',       duration_minutes: 45,  distance_km: 9.2,  weight_context: null,           avg_hr: 158, tss: 65,  source: 'strava', notes: 'Felt strong through the hills' },
+  { id: 2,  date: '2026-05-26', type: 'lift', title: 'Upper body strength',      duration_minutes: 60,  distance_km: null, weight_context: '80 kg bench',  avg_hr: 128, tss: 42,  source: 'manual', notes: '' },
+  { id: 3,  date: '2026-05-25', type: 'wod',  title: 'CrossFit Fran',            duration_minutes: 30,  distance_km: null, weight_context: null,           avg_hr: 172, tss: 78,  source: 'manual', notes: '3:45 Rx' },
+  { id: 4,  date: '2026-05-24', type: 'bike', title: 'Easy recovery ride',       duration_minutes: 40,  distance_km: 18.5, weight_context: null,           avg_hr: 135, tss: 38,  source: 'strava', notes: '' },
+  // Week May 18–24
+  { id: 5,  date: '2026-05-22', type: 'run',  title: 'Long run',                 duration_minutes: 90,  distance_km: 18.4, weight_context: null,           avg_hr: 148, tss: 120, source: 'strava', notes: 'Easy aerobic pace' },
+  { id: 6,  date: '2026-05-22', type: 'lift', title: 'Leg day',                  duration_minutes: 55,  distance_km: null, weight_context: '100 kg squat', avg_hr: 130, tss: 55,  source: 'manual', notes: '' },
+  { id: 7,  date: '2026-05-21', type: 'run',  title: 'Interval session',         duration_minutes: 50,  distance_km: 10.5, weight_context: null,           avg_hr: 168, tss: 88,  source: 'strava', notes: '6×800 m @ 5 K pace' },
+  { id: 8,  date: '2026-05-20', type: 'bike', title: 'Zwift Zone 2',             duration_minutes: 75,  distance_km: 35.0, weight_context: null,           avg_hr: 138, tss: 82,  source: 'strava', notes: '' },
+  { id: 9,  date: '2026-05-19', type: 'wod',  title: 'Hero WOD — Murph',         duration_minutes: 50,  distance_km: null, weight_context: null,           avg_hr: 162, tss: 95,  source: 'manual', notes: 'With vest' },
+  // Week May 11–17
+  { id: 10, date: '2026-05-17', type: 'run',  title: 'Easy 5 km',               duration_minutes: 30,  distance_km: 5.2,  weight_context: null,           avg_hr: 142, tss: 28,  source: 'strava', notes: '' },
+  { id: 11, date: '2026-05-16', type: 'lift', title: 'Push day',                 duration_minutes: 45,  distance_km: null, weight_context: '75 kg bench',  avg_hr: 122, tss: 35,  source: 'manual', notes: '' },
+  { id: 12, date: '2026-05-15', type: 'bike', title: 'Weekend endurance ride',   duration_minutes: 120, distance_km: 65.0, weight_context: null,           avg_hr: 145, tss: 118, source: 'strava', notes: 'Hilly route, great weather' },
+  { id: 13, date: '2026-05-14', type: 'run',  title: 'Track workout',            duration_minutes: 55,  distance_km: 12.0, weight_context: null,           avg_hr: 165, tss: 72,  source: 'strava', notes: '10×400 m' },
+  { id: 14, date: '2026-05-13', type: 'lift', title: 'Pull day',                 duration_minutes: 50,  distance_km: null, weight_context: '90 kg deadlift', avg_hr: 125, tss: 38, source: 'manual', notes: '' },
+  // Week May 4–10
+  { id: 15, date: '2026-05-08', type: 'run',  title: 'Recovery jog',             duration_minutes: 25,  distance_km: 4.5,  weight_context: null,           avg_hr: 135, tss: 18,  source: 'manual', notes: '' },
+  { id: 16, date: '2026-05-07', type: 'wod',  title: 'AMRAP 20 min',             duration_minutes: 25,  distance_km: null, weight_context: null,           avg_hr: 168, tss: 60,  source: 'manual', notes: '8 rounds+' },
+  { id: 17, date: '2026-05-06', type: 'bike', title: 'Morning spin',             duration_minutes: 45,  distance_km: 22.0, weight_context: null,           avg_hr: 140, tss: 55,  source: 'strava', notes: '' },
+  { id: 18, date: '2026-05-05', type: 'run',  title: 'Long run',                 duration_minutes: 80,  distance_km: 15.5, weight_context: null,           avg_hr: 150, tss: 105, source: 'strava', notes: 'Feeling heavy in the legs' },
+  { id: 19, date: '2026-05-04', type: 'lift', title: 'Full body strength',       duration_minutes: 65,  distance_km: null, weight_context: '85 kg squat',  avg_hr: 128, tss: 48,  source: 'manual', notes: '' },
+  // Week Apr 27 – May 3
+  { id: 20, date: '2026-04-30', type: 'run',  title: 'Easy aerobic run',         duration_minutes: 40,  distance_km: 7.8,  weight_context: null,           avg_hr: 140, tss: 35,  source: 'strava', notes: '' },
+  { id: 21, date: '2026-04-29', type: 'bike', title: 'Road ride',                duration_minutes: 95,  distance_km: 48.0, weight_context: null,           avg_hr: 152, tss: 110, source: 'strava', notes: 'Great weather' },
+  { id: 22, date: '2026-04-28', type: 'lift', title: 'Heavy deadlifts',          duration_minutes: 60,  distance_km: null, weight_context: '120 kg DL',    avg_hr: 132, tss: 52,  source: 'manual', notes: '3×5 near PR' },
+];
+
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-18', weight_kg: 74.2 },
