@@ -9,6 +9,9 @@
 
   var state = { search: '', type: 'all', range: '30d', weekOffset: 0 };
   var visibleWorkouts = [];
+  // allWorkoutsByDate: { 'YYYY-MM-DD': ['run', 'lift', ...], ... }
+  // Populated from the API response; used by the week strip for dots.
+  var allWorkoutsByDate = null;
 
   // ── Date helpers ──────────────────────────────────────────────────────────
 
@@ -76,11 +79,16 @@
 
     var today = todayYMD();
     var dotsByDate = {};
-    var allWorkouts = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
-    allWorkouts.forEach(function (w) {
-      if (!dotsByDate[w.date]) dotsByDate[w.date] = [];
-      if (dotsByDate[w.date].indexOf(w.type) === -1) dotsByDate[w.date].push(w.type);
-    });
+    if (allWorkoutsByDate !== null) {
+      dotsByDate = allWorkoutsByDate;
+    } else {
+      // Fallback to mock data until the first API response arrives
+      var mockWks = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
+      mockWks.forEach(function (w) {
+        if (!dotsByDate[w.date]) dotsByDate[w.date] = [];
+        if (dotsByDate[w.date].indexOf(w.type) === -1) dotsByDate[w.date].push(w.type);
+      });
+    }
 
     var container = document.getElementById('week-pills');
     container.innerHTML = '';
@@ -411,6 +419,18 @@
     }
 
     visibleWorkouts = (data.weeks || []).reduce(function (acc, w) { return acc.concat(w.workouts); }, []);
+
+    // Rebuild dot index from the loaded workouts (all non-rest entries in the response)
+    var newDotsByDate = {};
+    (data.weeks || []).forEach(function (week) {
+      (week.workouts || []).forEach(function (w) {
+        if (!newDotsByDate[w.date]) newDotsByDate[w.date] = [];
+        if (newDotsByDate[w.date].indexOf(w.type) === -1) newDotsByDate[w.date].push(w.type);
+      });
+    });
+    allWorkoutsByDate = newDotsByDate;
+
+    setSyncText(visibleWorkouts);
     renderList(data.weeks || []);
     renderWeekStrip();
   }
@@ -500,12 +520,15 @@
 
   // ── Sync subtitle ─────────────────────────────────────────────────────────
 
-  function setSyncText() {
+  function setSyncText(workoutsForSync) {
     var el = document.getElementById('sync-text');
     if (!el) return;
-    var allWorkouts = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
-    if (allWorkouts.length === 0) return;
-    var latest = allWorkouts.slice().sort(function (a, b) { return b.date < a.date ? -1 : 1; })[0];
+    var source = workoutsForSync;
+    if (!source || source.length === 0) {
+      source = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
+    }
+    if (source.length === 0) return;
+    var latest = source.slice().sort(function (a, b) { return b.date < a.date ? -1 : 1; })[0];
     var d = isoToDate(latest.date);
     el.textContent = 'Last synced: ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
@@ -513,7 +536,7 @@
   // ── Init ──────────────────────────────────────────────────────────────────
 
   function init() {
-    setSyncText();
+    setSyncText(null); // initial render with mock data; will be updated after API call
     loadFromURL();
     setupListeners();
     renderWeekStrip();

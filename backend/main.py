@@ -1876,7 +1876,7 @@ def get_training_log(
         if uid is not None:
             q = q.filter(Workout.user_id == uid)
         if types and types != "all":
-            q = q.filter(Workout.workout_type == types)
+            q = q.filter(Workout.workout_type.ilike(types))
         if search:
             like = f"%{search}%"
             q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
