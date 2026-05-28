@@ -496,6 +496,7 @@
     document.getElementById('detail-panel-date').textContent  = '';
     document.getElementById('detail-stat-grid').innerHTML     = '';
     document.getElementById('detail-panel-source').classList.add('is-hidden');
+    document.getElementById('detail-strava-btn').style.display = 'none';
 
     panel.classList.add('is-open');
     logBody.classList.add('panel-open');
@@ -587,6 +588,19 @@
         '<span class="stat-cell-value">' + escHtml(s.value) + '</span>';
       grid.appendChild(cell);
     });
+
+    document.getElementById('detail-edit-btn').onclick = function () {
+      location.href = 'training.html?edit=' + encodeURIComponent(workout.id);
+    };
+
+    var stravaBtn = document.getElementById('detail-strava-btn');
+    var isStrava  = (workout.source || '').toLowerCase() === 'strava';
+    if (isStrava && workout.strava_activity_url) {
+      stravaBtn.href = workout.strava_activity_url;
+      stravaBtn.style.display = '';
+    } else {
+      stravaBtn.style.display = 'none';
+    }
   }
 
   // ── Export CSV ────────────────────────────────────────────────────────────

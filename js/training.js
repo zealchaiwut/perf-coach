@@ -433,6 +433,14 @@
     document.getElementById('workout-date').value = todayIso();
     addExerciseRow(null);
 
+    var editId = new URLSearchParams(location.search).get('edit');
+    if (editId) {
+      fetch('/api/workouts/' + encodeURIComponent(editId))
+        .then(function (res) { if (!res.ok) throw new Error('not found'); return res.json(); })
+        .then(function (workout) { fillForm(workout); })
+        .catch(function () { /* leave default new-workout form */ });
+    }
+
     document.querySelectorAll('.training-tab').forEach(function (btn) {
       btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
     });
