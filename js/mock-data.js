@@ -427,3 +427,51 @@ const MOCK_WEIGHT_ENTRIES = [
   { recorded_date: '2026-05-23', weight_kg: 73.8 },
   { recorded_date: '2026-05-24', weight_kg: 73.3 },
 ];
+
+// MOCK — training log workouts used when GET /training_log is unavailable.
+// Each entry mirrors the shape returned by the real endpoint's workouts array.
+// Fields: id, date (YYYY-MM-DD), type (run|lift|wod|bike), title, duration_min,
+//         distance_km, avg_hr, tss, source (Strava|Manual), notes,
+//         pace_per_km (e.g. "4:56"), top_weight_kg
+const MOCK_TRAINING_WORKOUTS = [
+  // ── Week May 25 – 31 (current week) ──
+  { id: 'w-001', date: '2026-05-27', type: 'lift', title: 'Morning Strength',      duration_min: 60,  distance_km: null, avg_hr: null, tss: 55,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 120 },
+  { id: 'w-002', date: '2026-05-25', type: 'run',  title: 'Sunday Long Run',       duration_min: 75,  distance_km: 15.2, avg_hr: 148,  tss: 85,  source: 'Strava', notes: null,              pace_per_km: '4:56', top_weight_kg: null },
+  // ── Week May 18 – 24 ──
+  { id: 'w-003', date: '2026-05-24', type: 'run',  title: 'Saturday Long Run',     duration_min: 92,  distance_km: 18.0, avg_hr: 151,  tss: 108, source: 'Strava', notes: null,              pace_per_km: '5:06', top_weight_kg: null },
+  { id: 'w-004', date: '2026-05-23', type: 'run',  title: 'Easy Recovery Run',     duration_min: 31,  distance_km: 5.0,  avg_hr: 132,  tss: 28,  source: 'Strava', notes: null,              pace_per_km: '6:12', top_weight_kg: null },
+  { id: 'w-005', date: '2026-05-22', type: 'wod',  title: 'CrossFit Benchmark',    duration_min: 28,  distance_km: null, avg_hr: 172,  tss: 92,  source: 'Manual', notes: 'Fran – 3:42',    pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-006', date: '2026-05-22', type: 'lift', title: 'Heavy Deadlifts',       duration_min: 70,  distance_km: null, avg_hr: null, tss: 65,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 180 },
+  { id: 'w-007', date: '2026-05-21', type: 'bike', title: 'Evening Spin',          duration_min: 88,  distance_km: 38.0, avg_hr: 143,  tss: 78,  source: 'Strava', notes: null,              pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-008', date: '2026-05-19', type: 'run',  title: 'Tempo Tuesday',         duration_min: 44,  distance_km: 8.0,  avg_hr: 162,  tss: 72,  source: 'Strava', notes: null,              pace_per_km: '5:30', top_weight_kg: null },
+  // ── Week May 11 – 17 ──
+  { id: 'w-009', date: '2026-05-17', type: 'run',  title: 'Long Run',              duration_min: 108, distance_km: 22.0, avg_hr: 154,  tss: 122, source: 'Strava', notes: null,              pace_per_km: '4:54', top_weight_kg: null },
+  { id: 'w-010', date: '2026-05-16', type: 'run',  title: 'Interval Training',     duration_min: 54,  distance_km: 10.0, avg_hr: 168,  tss: 88,  source: 'Strava', notes: '6×1km @ 4:10',  pace_per_km: '5:24', top_weight_kg: null },
+  { id: 'w-011', date: '2026-05-15', type: 'lift', title: 'Pull Day',              duration_min: 58,  distance_km: null, avg_hr: null, tss: 48,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 90  },
+  { id: 'w-012', date: '2026-05-14', type: 'bike', title: 'Recovery Ride',         duration_min: 52,  distance_km: 25.0, avg_hr: 128,  tss: 32,  source: 'Strava', notes: null,              pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-013', date: '2026-05-13', type: 'run',  title: '5k Time Trial',         duration_min: 22,  distance_km: 5.0,  avg_hr: 175,  tss: 55,  source: 'Strava', notes: 'New PB!',        pace_per_km: '4:24', top_weight_kg: null },
+  { id: 'w-014', date: '2026-05-12', type: 'lift', title: 'Push Day',              duration_min: 55,  distance_km: null, avg_hr: null, tss: 45,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 100 },
+  // ── Week May 4 – 10 ──
+  { id: 'w-015', date: '2026-05-10', type: 'run',  title: 'Recovery Run',          duration_min: 34,  distance_km: 6.0,  avg_hr: 135,  tss: 30,  source: 'Strava', notes: null,              pace_per_km: '5:40', top_weight_kg: null },
+  { id: 'w-016', date: '2026-05-08', type: 'bike', title: 'Long Ride',             duration_min: 132, distance_km: 58.0, avg_hr: 146,  tss: 128, source: 'Strava', notes: null,              pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-017', date: '2026-05-07', type: 'wod',  title: 'Murph',                 duration_min: 42,  distance_km: null, avg_hr: 166,  tss: 105, source: 'Manual', notes: '42:05 with vest', pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-018', date: '2026-05-06', type: 'run',  title: 'Easy Run',              duration_min: 40,  distance_km: 7.0,  avg_hr: 140,  tss: 38,  source: 'Strava', notes: null,              pace_per_km: '5:42', top_weight_kg: null },
+  { id: 'w-019', date: '2026-05-05', type: 'lift', title: 'Full Body',             duration_min: 62,  distance_km: null, avg_hr: null, tss: 58,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 140 },
+  // ── Week Apr 27 – May 3 ──
+  { id: 'w-020', date: '2026-05-02', type: 'run',  title: 'Easy Jog',              duration_min: 34,  distance_km: 6.0,  avg_hr: 138,  tss: 32,  source: 'Strava', notes: null,              pace_per_km: '5:40', top_weight_kg: null },
+  { id: 'w-021', date: '2026-04-30', type: 'wod',  title: 'Benchmark WOD',         duration_min: 32,  distance_km: null, avg_hr: 168,  tss: 82,  source: 'Manual', notes: 'Helen – 10:22',  pace_per_km: null,  top_weight_kg: null },
+  { id: 'w-022', date: '2026-04-29', type: 'lift', title: 'Strength A',            duration_min: 60,  distance_km: null, avg_hr: null, tss: 52,  source: 'Manual', notes: null,              pace_per_km: null,  top_weight_kg: 130 },
+  { id: 'w-023', date: '2026-04-28', type: 'run',  title: 'Monday Run',            duration_min: 50,  distance_km: 9.0,  avg_hr: 150,  tss: 65,  source: 'Strava', notes: null,              pace_per_km: '5:33', top_weight_kg: null },
+];
+
+// MOCK — rest day entries used when GET /training_log?include_rest=true is unavailable.
+// Each entry has type "rest" with a metrics object mirroring the real API shape.
+// Only dates that have no workout in MOCK_TRAINING_WORKOUTS appear here.
+const MOCK_REST_DAYS = [
+  { id: 'r-001', date: '2026-05-26', type: 'rest', metrics: { energy: 3, mood: 3, resting_hr: 56, hrv: 61, sleep_hours: 6.0, sleep_quality: 3, notes: 'Tired after yesterday\'s long run' } },
+  { id: 'r-002', date: '2026-05-20', type: 'rest', metrics: { energy: 4, mood: 4, resting_hr: 54, hrv: 68, sleep_hours: 7.5, sleep_quality: 4, notes: null } },
+  { id: 'r-003', date: '2026-05-18', type: 'rest', metrics: { energy: 3, mood: null, resting_hr: 57, hrv: 62, sleep_hours: null, sleep_quality: null, notes: 'Recovery day' } },
+  { id: 'r-004', date: '2026-05-11', type: 'rest', metrics: { energy: 2, mood: 2, resting_hr: 61, hrv: 52, sleep_hours: 5.5, sleep_quality: 2, notes: 'Legs heavy, skipped planned run' } },
+  { id: 'r-005', date: '2026-05-09', type: 'rest', metrics: { energy: 3, mood: 3, resting_hr: 58, hrv: 59, sleep_hours: 7.0, sleep_quality: 3, notes: null } },
+  { id: 'r-006', date: '2026-05-04', type: 'rest', metrics: { energy: 5, mood: 4, resting_hr: 52, hrv: 72, sleep_hours: 8.5, sleep_quality: 5, notes: 'Great sleep, feeling fresh!' } },
+];
