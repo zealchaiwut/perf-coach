@@ -212,12 +212,6 @@
     }
 
     /* ── HRV / RHR stacked sub-charts ── */
-    #slot-hrv-rhr-body {
-      padding: 0;
-      align-items: stretch;
-      min-height: unset;
-    }
-
     .hrv-rhr-stack {
       width: 100%;
       display: flex;
@@ -255,6 +249,13 @@
     .hrv-rhr-canvas-wrap {
       position: relative;
       height: 150px;
+    }
+
+    .hrv-rhr-canvas-wrap canvas {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
     }
 
     .hrv-rhr-sub-empty {
@@ -340,14 +341,33 @@
           <h2 class="chart-slot-title">HRV &amp; Resting HR</h2>
           <p class="chart-slot-subtitle">Shaded band = baseline ±1 SD &nbsp;·&nbsp; larger dot = today</p>
         </div>
-        <div class="chart-slot-body" id="slot-hrv-rhr-body">
-          <div class="slot-loading">
-            <div class="skeleton-spinner"></div>
-            <div class="skeleton-bar-wrap">
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
+        <div class="hrv-rhr-stack">
+          <div class="hrv-rhr-sub">
+            <div class="hrv-rhr-sub-label" id="hrv-sub-label">HRV (ms)</div>
+            <div id="slot-hrv-body" class="hrv-rhr-canvas-wrap">
+              <div class="slot-loading">
+                <div class="skeleton-spinner"></div>
+                <div class="skeleton-bar-wrap">
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="hrv-rhr-sub hrv-rhr-sub--sep">
+            <div class="hrv-rhr-sub-label" id="rhr-sub-label">Resting HR (bpm)</div>
+            <div id="slot-rhr-body" class="hrv-rhr-canvas-wrap">
+              <div class="slot-loading">
+                <div class="skeleton-spinner"></div>
+                <div class="skeleton-bar-wrap">
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

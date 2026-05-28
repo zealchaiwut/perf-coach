@@ -282,8 +282,10 @@
       const { ctx, chartArea, scales } = chart;
       if (!chartArea) return;
       const y = scales.y;
-      const top = y.getPixelForValue(cfg.mean + cfg.sd);
-      const bottom = y.getPixelForValue(cfg.mean - cfg.sd);
+      const baseline_mean = cfg.mean;
+      const baseline_sd = cfg.sd;
+      const top = y.getPixelForValue(baseline_mean + baseline_sd);
+      const bottom = y.getPixelForValue(baseline_mean - baseline_sd);
       ctx.save();
       ctx.fillStyle = cfg.color || 'rgba(0,112,243,0.12)';
       ctx.fillRect(chartArea.left, top, chartArea.width, bottom - top);
@@ -383,48 +385,34 @@
     });
   }
 
-  function renderHrvRhrStacked(bodyEl, hrvInfo, rhrInfo, today) {
-    const hasHrvData = hrvInfo && hrvInfo.series && hrvInfo.series.some(s => s.value !== null);
-    const hasRhrData = rhrInfo && rhrInfo.series && rhrInfo.series.some(s => s.value !== null);
-
-    if (!hasHrvData && !hasRhrData) { showEmpty(bodyEl); return; }
-
-    const approxBadge = '<span class="hrv-rhr-approx">approximate</span>';
-    bodyEl.innerHTML = `
-      <div class="hrv-rhr-stack">
-        <div class="hrv-rhr-sub">
-          <div class="hrv-rhr-sub-label">
-            HRV (ms)${hrvInfo && hrvInfo.is_approximate ? ' ' + approxBadge : ''}
-          </div>
-          <div class="hrv-rhr-canvas-wrap">
-            ${hasHrvData ? '<canvas id="canvas-hrv"></canvas>' : '<div class="hrv-rhr-sub-empty">No HRV data</div>'}
-          </div>
-        </div>
-        <div class="hrv-rhr-sub hrv-rhr-sub--sep">
-          <div class="hrv-rhr-sub-label">
-            Resting HR (bpm)${rhrInfo && rhrInfo.is_approximate ? ' ' + approxBadge : ''}
-          </div>
-          <div class="hrv-rhr-canvas-wrap">
-            ${hasRhrData ? '<canvas id="canvas-rhr"></canvas>' : '<div class="hrv-rhr-sub-empty">No RHR data</div>'}
-          </div>
-        </div>
-      </div>`;
-
-    if (hasHrvData) {
-      const ctx = bodyEl.querySelector('#canvas-hrv').getContext('2d');
-      hrvSubChart = buildSubChart(
-        ctx, hrvInfo.series, 'HRV', 'ms', '#0070f3',
-        hrvInfo.baseline_mean ?? null, hrvInfo.baseline_sd ?? null, today
-      );
+  function renderHrvChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
     }
-
-    if (hasRhrData) {
-      const ctx = bodyEl.querySelector('#canvas-rhr').getContext('2d');
-      rhrSubChart = buildSubChart(
-        ctx, rhrInfo.series, 'Resting HR', 'bpm', '#ef4444',
-        rhrInfo.baseline_mean ?? null, rhrInfo.baseline_sd ?? null, today
-      );
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('hrv-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'HRV (ms) <span class="hrv-rhr-approx">approximate</span>';
     }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    hrvSubChart = buildSubChart(ctx, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
+  }
+
+  function renderRhrChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
+    }
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('rhr-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'Resting HR (bpm) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    rhrSubChart = buildSubChart(ctx, info.series, 'Resting HR', 'bpm', '#ef4444', baseline_mean, baseline_sd, today);
   }
 
   // ── Sleep / Energy / Mood chart ───────────────────────────────────────────────
@@ -589,7 +577,7 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: {
             callbacks: {
               title(items) { return dates[items[0].dataIndex]; },
@@ -600,21 +588,24 @@
                 const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
                 return `Next-day readiness: ${v}  (${band})`;
               },
+              afterBody() {
+                return ['Readiness shown is for the day after this TSS value'];
+              },
             },
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 12 } }, grid: { display: false } },
           yTSS: {
             type: 'linear', position: 'left', min: 0,
-            title: { display: true, text: 'TSS', font: { size: 10 }, color: 'rgba(99,102,241,0.9)' },
-            ticks: { font: { size: 10 } },
+            title: { display: true, text: 'TSS', font: { size: 12 }, color: 'rgba(99,102,241,0.9)' },
+            ticks: { font: { size: 12 } },
             grid: { color: 'rgba(0,0,0,0.05)' },
           },
           yReadiness: {
             type: 'linear', position: 'right', min: 0, max: 100,
-            title: { display: true, text: 'Readiness', font: { size: 10 }, color: '#f59e0b' },
-            ticks: { stepSize: 20, font: { size: 10 } },
+            title: { display: true, text: 'Readiness', font: { size: 12 }, color: '#f59e0b' },
+            ticks: { stepSize: 20, font: { size: 12 } },
             grid: { drawOnChartArea: false },
           },
         },
@@ -667,27 +658,26 @@
       emptyBanner.hidden = false;
     }
 
-    const hrvRhrBodyEl = document.getElementById('slot-hrv-rhr-body');
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
     const allHrvRhr = typeof MOCK_HRV_RHR !== 'undefined' ? MOCK_HRV_RHR : [];
     const filteredHrvRhr = allHrvRhr.filter(r => r.date >= win.from && r.date <= win.to);
+    const today = toLocalDateStr(new Date());
     if (filteredHrvRhr.length > 0) {
       const { mean: hrvMean, sd: hrvSd } = computeStats(allHrvRhr.map(r => r.hrv));
       const { mean: rhrMean, sd: rhrSd } = computeStats(allHrvRhr.map(r => r.rhr));
       const isApprox = allHrvRhr.length < 30;
-      renderHrvRhrStacked(
-        hrvRhrBodyEl,
-        {
-          series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
-          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox,
-        },
-        {
-          series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
-          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox,
-        },
-        toLocalDateStr(new Date())
-      );
+      renderHrvChart(hrvBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
+          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox },
+        today);
+      renderRhrChart(rhrBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
+          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox },
+        today);
     } else {
-      showEmpty(hrvRhrBodyEl);
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
     }
 
     showEmpty(document.getElementById('slot-sleep-energy-body'));
@@ -710,12 +700,14 @@
     const hasValidWindow = win.from && win.to && win.from <= win.to;
 
     const readinessBodyEl = document.getElementById('slot-readiness-body');
-    const hrvRhrBodyEl = document.getElementById('slot-hrv-rhr-body');
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
     const sleepEnergyBodyEl = document.getElementById('slot-sleep-energy-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
     showLoading(readinessBodyEl);
-    showLoading(hrvRhrBodyEl);
+    showLoading(hrvBodyEl);
+    showLoading(rhrBodyEl);
     showLoading(sleepEnergyBodyEl);
     showLoading(tssBodyEl);
     if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
@@ -725,7 +717,8 @@
 
     if (!hasValidWindow) {
       showEmpty(readinessBodyEl);
-      showEmpty(hrvRhrBodyEl);
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
       showEmpty(sleepEnergyBodyEl);
       showTSSEmpty(tssBodyEl);
       emptyBanner.hidden = false;
@@ -734,8 +727,10 @@
 
     fetchSummary(state, _userId)
       .then(summary => {
+        const today = toLocalDateStr(new Date());
         renderReadinessFromSummary(readinessBodyEl, summary);
-        renderHrvRhrStacked(hrvRhrBodyEl, summary.hrv, summary.rhr, toLocalDateStr(new Date()));
+        renderHrvChart(hrvBodyEl, summary.hrv, today);
+        renderRhrChart(rhrBodyEl, summary.rhr, today);
         renderSleepEnergyChart(sleepEnergyBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })
