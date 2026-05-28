@@ -205,6 +205,142 @@
       height: 160px;
     }
 
+    /* ── Stat summary cards (Row 2: Weight · Sleep · TSS · HRV) ── */
+    .stat-cards-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 879px) {
+      .stat-cards-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .stat-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 160px;
+    }
+
+    .stat-card-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .stat-card-icon-wrap {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9375rem;
+      flex-shrink: 0;
+    }
+
+    .stat-card-icon-wrap--weight { background: #dde6f8; }
+    .stat-card-icon-wrap--sleep  { background: #ebe5f9; }
+    .stat-card-icon-wrap--tss    { background: #ffe1d4; }
+    .stat-card-icon-wrap--hrv    { background: #d4f0e2; }
+
+    .stat-card-label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #333;
+      flex: 1;
+    }
+
+    .stat-card-menu {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #bbb;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0.15rem 0.3rem;
+      border-radius: 4px;
+      transition: color 0.1s, background 0.1s;
+    }
+
+    .stat-card-menu:hover { color: #555; background: rgba(0,0,0,0.04); }
+
+    .stat-card-value {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .stat-card-big {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+
+    .stat-card-unit {
+      font-size: 0.875rem;
+      color: #666;
+      font-weight: 500;
+    }
+
+    .stat-delta-pill {
+      margin-left: auto;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .stat-delta-pill--up   { background: #dff5d6; color: #2d5e10; }
+    .stat-delta-pill--down { background: #ffd9d9; color: #7a1a1a; }
+    .stat-delta-pill--flat { background: #f1f4fa; color: #666; }
+
+    .stat-sparkline {
+      width: 100%;
+      height: 44px;
+      display: block;
+      overflow: visible;
+    }
+
+    .stat-card-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.6875rem;
+      color: #999;
+      margin-top: auto;
+    }
+
+    /* skeleton shimmer */
+    .stat-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      height: 100%;
+    }
+
+    .stat-skeleton-line {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e4e4e4 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: stat-shimmer 1.3s infinite;
+      border-radius: 4px;
+    }
+
+    @keyframes stat-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
     /* ── Readiness card ── */
     .readiness-card {
       border-radius: 10px;
@@ -582,6 +718,42 @@
         <div class="dash-card-label">Active days</div>
         <div class="dash-card-value" id="card-streak-value">—</div>
         <div class="dash-card-sub muted" id="card-streak-sub">consecutive days</div>
+      </div>
+    </div>
+
+    <!-- Stat summary cards: Weight · Sleep · Weekly TSS · HRV -->
+    <div class="stat-cards-row" id="stat-cards-row">
+      <div class="stat-card" id="stat-card-weight">
+        <div class="stat-skeleton">
+          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
+          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
+          <div class="stat-skeleton-line" style="height:44px"></div>
+          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
+        </div>
+      </div>
+      <div class="stat-card" id="stat-card-sleep">
+        <div class="stat-skeleton">
+          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
+          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
+          <div class="stat-skeleton-line" style="height:44px"></div>
+          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
+        </div>
+      </div>
+      <div class="stat-card" id="stat-card-tss">
+        <div class="stat-skeleton">
+          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
+          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
+          <div class="stat-skeleton-line" style="height:44px"></div>
+          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
+        </div>
+      </div>
+      <div class="stat-card" id="stat-card-hrv">
+        <div class="stat-skeleton">
+          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
+          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
+          <div class="stat-skeleton-line" style="height:44px"></div>
+          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
+        </div>
       </div>
     </div>
 
