@@ -2,9 +2,10 @@
   'use strict';
 
   // ── State ─────────────────────────────────────────────────────────────────
-  var filters              = { type: 'all', search: '', from: '', to: '' };
-  var lastWeeks            = [];
+  var filters               = { type: 'all', search: '', from: '', to: '' };
+  var lastWeeks             = [];
   var activeDetailWorkoutId = null;
+  var activeTriggerEl       = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -48,6 +49,39 @@
     if (!secsPerKm) return '';
     var m = Math.floor(secsPerKm / 60), s = Math.round(secsPerKm % 60);
     return m + ':' + pad(s) + '/km';
+  }
+
+  // Detail panel duration: h:mm:ss or m:ss; null → em-dash
+  function fmtDurationDetail(secs) {
+    if (secs == null) return '—';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+    return m + ':' + pad(s);
+  }
+
+  // Run pace: returns "M:SS /km"; null/zero inputs → em-dash
+  function fmtPaceFromSec(durSeconds, distKm) {
+    if (!durSeconds || !distKm || distKm === 0) return '—';
+    var secsPerKm = durSeconds / distKm;
+    var pm = Math.floor(secsPerKm / 60);
+    var ps = Math.round(secsPerKm % 60);
+    return pm + ':' + pad(ps) + ' /km';
+  }
+
+  // Bike speed: returns "X.X km/h"; null/zero inputs → em-dash
+  function fmtSpeedKmh(durSeconds, distKm) {
+    if (!durSeconds || !distKm || distKm === 0) return '—';
+    var speed = distKm / (durSeconds / 3600);
+    return speed.toFixed(1) + ' km/h';
+  }
+
+  // Format ISO date string as "Tue, May 28"
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    return DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
   }
 
   // ── URL sync ──────────────────────────────────────────────────────────────
@@ -386,8 +420,16 @@
     row.className = 'entry-row entry-row--' + esc(w.type || 'other');
 
     if (w.id) {
+      row.setAttribute('tabindex', '0');
+      var rowRef = row;
       row.addEventListener('click', function () {
-        openDetailPanel(w.id);
+        openDetailPanel(w.id, rowRef);
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openDetailPanel(w.id, rowRef);
+        }
       });
     }
 
@@ -454,8 +496,9 @@
   }
 
   // ── Detail panel ──────────────────────────────────────────────────────────
-  function openDetailPanel(workoutId) {
+  function openDetailPanel(workoutId, triggerEl) {
     activeDetailWorkoutId = workoutId;
+    activeTriggerEl = triggerEl || null;
     var overlay = document.getElementById('detail-overlay');
     var panel   = document.getElementById('detail-panel');
     if (overlay) { overlay.classList.add('is-open'); overlay.removeAttribute('aria-hidden'); }
@@ -465,27 +508,34 @@
   }
 
   function closeDetailPanel() {
+    var trigger = activeTriggerEl;
     activeDetailWorkoutId = null;
+    activeTriggerEl = null;
     var overlay = document.getElementById('detail-overlay');
     var panel   = document.getElementById('detail-panel');
     if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
     if (panel)   panel.classList.remove('is-open');
     document.body.style.overflow = '';
+    if (trigger) trigger.focus();
   }
 
   function fetchAndRenderDetail(workoutId) {
-    var loadingEl = document.getElementById('detail-panel-loading');
-    var errorEl   = document.getElementById('detail-panel-error');
-    var contentEl = document.getElementById('detail-panel-content');
-    var titleEl   = document.getElementById('detail-panel-title-text');
-    var editBtn   = document.getElementById('detail-edit-btn');
-    var stravaBtn = document.getElementById('detail-strava-btn');
+    var loadingEl    = document.getElementById('detail-panel-loading');
+    var errorEl      = document.getElementById('detail-panel-error');
+    var contentEl    = document.getElementById('detail-panel-content');
+    var titleEl      = document.getElementById('detail-panel-title-text');
+    var dateEl       = document.getElementById('detail-panel-date');
+    var sourcePillEl = document.getElementById('detail-panel-source-pill');
+    var editBtn      = document.getElementById('detail-edit-btn');
+    var stravaBtn    = document.getElementById('detail-strava-btn');
 
-    if (loadingEl) loadingEl.style.display = '';
-    if (errorEl)   errorEl.style.display   = 'none';
-    if (contentEl) contentEl.innerHTML     = '';
-    if (stravaBtn) stravaBtn.style.display = 'none';
-    if (titleEl)   titleEl.textContent     = 'Workout';
+    if (loadingEl)    loadingEl.style.display = '';
+    if (errorEl)      errorEl.style.display   = 'none';
+    if (contentEl)    contentEl.innerHTML      = '';
+    if (stravaBtn)    stravaBtn.style.display  = 'none';
+    if (titleEl)      titleEl.textContent      = 'Workout';
+    if (dateEl)       dateEl.textContent        = '';
+    if (sourcePillEl) sourcePillEl.hidden       = true;
 
     fetch('/api/workouts/' + workoutId)
       .then(function (res) {
@@ -494,11 +544,26 @@
       })
       .then(function (workout) {
         if (loadingEl) loadingEl.style.display = 'none';
-        renderDetailContent(workout);
+
         if (titleEl && workout.name) titleEl.textContent = workout.name;
+
+        if (dateEl && workout.workout_date) {
+          dateEl.textContent = fmtDate(workout.workout_date);
+        }
+
+        if (sourcePillEl) {
+          var srcLabel = workout.source === 'strava' ? 'Strava' : 'Manual';
+          sourcePillEl.textContent = srcLabel;
+          sourcePillEl.className = 'detail-source-pill detail-source-pill--' +
+            (workout.source === 'strava' ? 'strava' : 'manual');
+          sourcePillEl.hidden = false;
+        }
+
+        renderDetailContent(workout);
+
         if (editBtn)  editBtn.href = '/workout-edit/' + workout.id;
         if (stravaBtn && workout.strava_activity_url) {
-          stravaBtn.href         = workout.strava_activity_url;
+          stravaBtn.href          = workout.strava_activity_url;
           stravaBtn.style.display = '';
         }
       })
@@ -518,49 +583,73 @@
     var contentEl = document.getElementById('detail-panel-content');
     if (!contentEl) return;
 
-    var meta = [];
-    if (workout.workout_date) meta.push(workout.workout_date);
-    if (workout.workout_type) {
-      meta.push(workout.workout_type.charAt(0).toUpperCase() + workout.workout_type.slice(1));
-    }
+    var em = '—';
 
-    var stats = [];
-    if (workout.duration_seconds) stats.push(['Duration', fmtDuration(workout.duration_seconds)]);
-    if (workout.distance_km)      stats.push(['Distance', (+workout.distance_km).toFixed(1) + ' km']);
-    if (workout.avg_hr)           stats.push(['Avg HR', workout.avg_hr + ' bpm']);
-    if (workout.max_hr)           stats.push(['Max HR', workout.max_hr + ' bpm']);
-    if (workout.elevation_m)      stats.push(['Elevation', workout.elevation_m + ' m']);
-    if (workout.tss != null)      stats.push(['TSS', (+workout.tss).toFixed(0)]);
+    // Pace/speed guard variables
+    var hasDist = workout.distance_km != null;
+    var hasDur  = workout.duration_seconds != null;
+    var isRun   = workout.workout_type === 'run';
+    var isBike  = workout.workout_type === 'bike';
+    var showPaceSpeed = (isRun || isBike) && hasDist && hasDur;
 
-    var html = '';
+    // Fixed 2×3 stat grid (2 cols, 3 rows)
+    var distStr = hasDist ? (+workout.distance_km).toFixed(2) + ' km' : em;
+    var durStr  = fmtDurationDetail(workout.duration_seconds);
+    var paceStr = showPaceSpeed
+      ? (isBike
+          ? fmtSpeedKmh(workout.duration_seconds, workout.distance_km)
+          : fmtPaceFromSec(workout.duration_seconds, workout.distance_km))
+      : em;
+    var hrStr   = workout.avg_hr != null ? workout.avg_hr + ' bpm' : em;
+    var elevStr = workout.elevation_m != null ? workout.elevation_m + ' m' : em;
+    var tssStr  = workout.tss != null ? (+workout.tss).toFixed(0) : em;
 
-    if (meta.length) {
-      html += '<p class="detail-meta">' + esc(meta.join(' · ')) + '</p>';
-    }
+    var stats = [
+      ['Distance', distStr],
+      ['Duration', durStr],
+      ['Avg Pace', paceStr],
+      ['Avg HR',   hrStr],
+      ['Elevation', elevStr],
+      ['TSS',      tssStr],
+    ];
 
-    if (stats.length) {
-      html += '<div class="detail-stats">';
-      stats.forEach(function (s) {
+    var html = '<div class="detail-stats">';
+    stats.forEach(function (s) {
+      html +=
+        '<div class="detail-stat">' +
+          '<span class="detail-stat-label">' + esc(s[0]) + '</span>' +
+          '<span class="detail-stat-value">' + esc(String(s[1])) + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    // Exercises section — only when non-empty
+    var exercises = workout.exercises || [];
+    if (exercises.length) {
+      html += '<p class="detail-section-title">Exercises</p>';
+      html += '<div class="exercises-section">';
+      exercises.forEach(function (ex) {
+        var parts = [];
+        if (ex.sets != null && ex.reps != null) parts.push(ex.sets + ' \xd7 ' + ex.reps);
+        else if (ex.sets != null)               parts.push(ex.sets + ' sets');
+        if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
+        if (ex.rpe != null)       parts.push('RPE ' + ex.rpe);
         html +=
-          '<div class="detail-stat">' +
-            '<span class="detail-stat-label">' + esc(s[0]) + '</span>' +
-            '<span class="detail-stat-value">' + esc(String(s[1])) + '</span>' +
+          '<div class="exercise-item">' +
+            '<span class="exercise-name">' + esc(ex.name || '') + '</span>' +
+            (parts.length
+              ? '<span class="exercise-meta">' + esc(parts.join(' · ')) + '</span>'
+              : '') +
           '</div>';
       });
       html += '</div>';
     }
 
+    // Notes section — only when non-empty
     if (workout.remarks) {
       html +=
         '<p class="detail-section-title">Notes</p>' +
         '<p class="detail-notes-body">' + esc(workout.remarks) + '</p>';
-    }
-
-    if (workout.exercises && workout.exercises.length) {
-      html += '<p class="detail-section-title">Exercises (' + workout.exercises.length + ')</p>';
-      workout.exercises.forEach(function (ex) {
-        html += '<div class="detail-exercise-item">' + esc(ex.name || '') + '</div>';
-      });
     }
 
     contentEl.innerHTML = html;

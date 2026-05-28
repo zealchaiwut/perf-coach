@@ -306,32 +306,41 @@ def test_log_html_week_pills_overflow_auto(client):
 
 
 def test_log_html_mobile_detail_panel_full_width(client):
-    """On mobile the detail panel must cover the full screen (width: 100%)."""
+    """On mobile (<768px) the detail panel must cover the full screen (width: 100%).
+
+    Issue #130 updated the breakpoint from 599px to 767px (AC: panel is full-screen
+    on <768px devices). The detail panel styles live in the 767px media query block.
+    """
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
-    mobile_idx = src.rfind("max-width: 599px")
+    # Feature #130 moved detail-panel mobile styles to a dedicated 767px breakpoint
+    mobile_idx = src.rfind("max-width: 767px")
     if mobile_idx == -1:
-        mobile_idx = src.rfind("max-width:599px")
-    assert mobile_idx != -1, "Mobile media query must exist"
+        mobile_idx = src.rfind("max-width:767px")
+    assert mobile_idx != -1, "Detail-panel mobile media query (767px) must exist"
     mobile_section = src[mobile_idx:mobile_idx + 1000]
     assert "detail-panel" in mobile_section and "100%" in mobile_section, (
-        "The detail panel must be set to width: 100% inside the mobile media query"
+        "The detail panel must be set to width: 100% inside the @media (max-width: 767px) block"
     )
 
 
 def test_log_html_mobile_close_btn_tap_target(client):
-    """The detail close button must have a 44px tap target inside the mobile media query."""
+    """The detail close button must have a 44px tap target inside the mobile media query.
+
+    Issue #130 updated the breakpoint from 599px to 767px (AC: full-screen sheet on <768px).
+    """
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
-    mobile_idx = src.rfind("max-width: 599px")
+    # Feature #130 moved detail-panel mobile styles to a dedicated 767px breakpoint
+    mobile_idx = src.rfind("max-width: 767px")
     if mobile_idx == -1:
-        mobile_idx = src.rfind("max-width:599px")
-    assert mobile_idx != -1, "Mobile media query must exist"
+        mobile_idx = src.rfind("max-width:767px")
+    assert mobile_idx != -1, "Detail-panel mobile media query (767px) must exist"
     mobile_section = src[mobile_idx:mobile_idx + 1000]
     assert "detail-close-btn" in mobile_section, (
-        ".detail-close-btn must be styled inside the mobile media query"
+        ".detail-close-btn must be styled inside the @media (max-width: 767px) block"
     )
     close_idx = mobile_section.find("detail-close-btn")
     surrounding = mobile_section[close_idx:close_idx + 200]
