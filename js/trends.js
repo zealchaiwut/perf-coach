@@ -699,7 +699,19 @@
       emptyBanner.hidden = false;
     }
 
-    showEmpty(document.getElementById('slot-hrv-rhr-body'));
+    const mockSummary = typeof MOCK_TRENDS_SUMMARY !== 'undefined' ? MOCK_TRENDS_SUMMARY : null;
+    const hrvRhrBodyEl = document.getElementById('slot-hrv-rhr-body');
+    if (mockSummary?.hrv?.series && mockSummary?.rhr?.series) {
+      const filteredHrv = mockSummary.hrv.series.filter(s => s.date >= win.from && s.date <= win.to);
+      const filteredRhr = mockSummary.rhr.series.filter(s => s.date >= win.from && s.date <= win.to);
+      if (filteredHrv.length > 0 || filteredRhr.length > 0) {
+        renderHrvRhrChart(hrvRhrBodyEl, { hrv: { series: filteredHrv }, rhr: { series: filteredRhr } });
+      } else {
+        showEmpty(hrvRhrBodyEl);
+      }
+    } else {
+      showEmpty(hrvRhrBodyEl);
+    }
 
     const semBodyEl = document.getElementById('slot-sem-body');
     const allSem = typeof MOCK_SEM !== 'undefined' ? MOCK_SEM : [];

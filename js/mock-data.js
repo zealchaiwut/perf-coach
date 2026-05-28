@@ -108,7 +108,7 @@ const MOCK_TRENDS_SUMMARY = {
   sleep: {
     series: [
       { date: '2026-05-21', hours: 7.5, quality: 4 }, { date: '2026-05-22', hours: 6.8, quality: 3 },
-      { date: '2026-05-23', hours: 7.0, quality: 4 }, { date: '2026-05-24', hours: 7.2, quality: 4 },
+      { date: '2026-05-23', hours: null, quality: null }, { date: '2026-05-24', hours: 7.2, quality: 4 },
       { date: '2026-05-25', hours: 7.5, quality: 5 }, { date: '2026-05-26', hours: 6.5, quality: 3 },
       { date: '2026-05-27', hours: 7.1, quality: 4 },
     ],
@@ -117,7 +117,7 @@ const MOCK_TRENDS_SUMMARY = {
   energy: {
     series: [
       { date: '2026-05-21', value: 3 }, { date: '2026-05-22', value: 4 },
-      { date: '2026-05-23', value: 3 }, { date: '2026-05-24', value: 4 },
+      { date: '2026-05-23', value: null }, { date: '2026-05-24', value: 4 },
       { date: '2026-05-25', value: 4 }, { date: '2026-05-26', value: 3 },
       { date: '2026-05-27', value: 4 },
     ],
@@ -126,7 +126,7 @@ const MOCK_TRENDS_SUMMARY = {
   mood: {
     series: [
       { date: '2026-05-21', value: 4 }, { date: '2026-05-22', value: 3 },
-      { date: '2026-05-23', value: 4 }, { date: '2026-05-24', value: 4 },
+      { date: '2026-05-23', value: null }, { date: '2026-05-24', value: 4 },
       { date: '2026-05-25', value: 5 }, { date: '2026-05-26', value: 3 },
       { date: '2026-05-27', value: 4 },
     ],
