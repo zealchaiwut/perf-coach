@@ -35,18 +35,51 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
-  function applyRangeState(state) {
+  let _confirmedState = null;
+
+  function setActiveChip(state) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
         ? btn.dataset.range === state.preset
         : btn.dataset.range === 'custom';
       btn.classList.toggle('active', isActive);
     });
+  }
+
+  function openCustomPicker() {
+    if (_confirmedState?.type === 'custom') {
+      if (_confirmedState.from) fromInput.value = _confirmedState.from;
+      if (_confirmedState.to) toInput.value = _confirmedState.to;
+    }
+    presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.range === 'custom'));
+    customInputs.hidden = false;
+    fromInput.focus();
+  }
+
+  function closeCustomPicker() {
+    customInputs.hidden = true;
+    const errEl = document.getElementById('custom-range-error');
+    if (errEl) { errEl.textContent = ''; errEl.hidden = true; }
+  }
+
+  function commitState(state) {
+    _confirmedState = state;
+    setActiveChip(state);
+    closeCustomPicker();
+    writeRangeToURL(state);
+    loadChartData(state);
+  }
+
+  function applyRangeState(state) {
+    _confirmedState = state;
+    setActiveChip(state);
     const isCustom = state.type === 'custom';
-    customInputs.hidden = !isCustom;
     if (isCustom) {
       if (state.from) fromInput.value = state.from;
       if (state.to) toInput.value = state.to;
+      customInputs.hidden = false;
+    } else {
+      customInputs.hidden = true;
     }
     writeRangeToURL(state);
     loadChartData(state);
@@ -858,25 +891,43 @@
 
   // ── Event handlers ────────────────────────────────────────────────────────────
 
+  const applyBtn  = document.getElementById('custom-apply');
+  const cancelBtn = document.getElementById('custom-cancel');
+  const rangeErr  = document.getElementById('custom-range-error');
+
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+        openCustomPicker();
       } else {
-        applyRangeState({ type: 'preset', preset: range });
+        commitState({ type: 'preset', preset: range });
       }
     });
   });
 
-  function onCustomDateChange() {
-    if (fromInput.value || toInput.value) {
-      applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+  applyBtn?.addEventListener('click', () => {
+    const from = fromInput.value;
+    const to   = toInput.value;
+    if (!from || !to) {
+      rangeErr.textContent = 'Please select both a From and To date.';
+      rangeErr.hidden = false;
+      return;
     }
-  }
+    if (from > to) {
+      rangeErr.textContent = '"From" must not be after "To".';
+      rangeErr.hidden = false;
+      return;
+    }
+    rangeErr.textContent = '';
+    rangeErr.hidden = true;
+    commitState({ type: 'custom', from, to });
+  });
 
-  fromInput.addEventListener('change', onCustomDateChange);
-  toInput.addEventListener('change', onCustomDateChange);
+  cancelBtn?.addEventListener('click', () => {
+    closeCustomPicker();
+    if (_confirmedState) setActiveChip(_confirmedState);
+  });
 
   // ── SEM toggle handlers ───────────────────────────────────────────────────────
 
