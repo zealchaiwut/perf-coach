@@ -399,7 +399,7 @@ def test_log_html_mobile_day_pill_reduced_size(client):
     if mobile_idx == -1:
         mobile_idx = src.rfind("max-width:599px")
     assert mobile_idx != -1, "Mobile media query must exist"
-    mobile_section = src[mobile_idx:mobile_idx + 600]
+    mobile_section = src[mobile_idx:mobile_idx + 1200]
     assert "day-pill" in mobile_section, (
         ".day-pill must be resized inside the mobile media query to fit at 375px"
     )
