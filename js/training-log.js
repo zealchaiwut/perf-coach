@@ -245,16 +245,60 @@
     if (!weeks.length) {
       var msg = document.createElement('p');
       msg.className   = 'log-empty';
-      msg.textContent = 'No workouts found.';
+      msg.textContent = 'No workouts in this range.';
       container.appendChild(msg);
       return;
     }
     weeks.forEach(function (week) { container.appendChild(buildWeekGroup(week)); });
   }
 
+  function renderRestDayRow(entry) {
+    var row = document.createElement('div');
+    row.className = 'rest-day-row';
+
+    var badge = document.createElement('span');
+    badge.className = 'rest-badge';
+    badge.textContent = 'Rest';
+    row.appendChild(badge);
+
+    var info = document.createElement('div');
+    info.className = 'rest-metrics';
+
+    var labelParts = [];
+    if (entry.sleep_hours != null) labelParts.push('sleep ' + entry.sleep_hours + 'h');
+    if (entry.energy != null) labelParts.push('energy ' + entry.energy);
+    if (entry.mood != null) labelParts.push('mood ' + entry.mood);
+    if (entry.resting_hr != null) labelParts.push('RHR ' + entry.resting_hr);
+
+    var label = document.createElement('span');
+    label.className = 'rest-day-label';
+    label.textContent = 'Rest day' + (labelParts.length ? ' - ' + labelParts.join(', ') : '');
+    info.appendChild(label);
+
+    var m = entry.metrics || {};
+    if (m.hrv != null) {
+      var hrvEl = document.createElement('span');
+      hrvEl.className = 'rest-metric-item';
+      hrvEl.textContent = 'HRV ' + m.hrv;
+      info.appendChild(hrvEl);
+    }
+
+    if (m.notes) {
+      var noteText = String(m.notes);
+      var notesEl = document.createElement('span');
+      notesEl.className = 'rest-notes';
+      notesEl.textContent = noteText.length > 80 ? noteText.slice(0, 80) + '…' : noteText;
+      info.appendChild(notesEl);
+    }
+
+    row.appendChild(info);
+    return row;
+  }
+
   function buildWeekGroup(week) {
-    var s     = week.summary || {};
-    var parts = [(s.workout_count || 0) + ' workout' + (s.workout_count !== 1 ? 's' : '')];
+    var s  = week.summary || {};
+    var ws = week.workouts || [];
+    var parts = [ws.length + ' workout' + (ws.length !== 1 ? 's' : '')];
     if (s.total_distance_km > 0) parts.push((+s.total_distance_km).toFixed(1) + ' km');
     if (s.total_time_minutes > 0) parts.push(fmtDuration(s.total_time_minutes * 60));
     if (s.total_tss > 0) parts.push('TSS ' + (+s.total_tss).toFixed(0));
@@ -288,7 +332,9 @@
       dl.textContent = DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
       sec.appendChild(dl);
 
-      dayMap[dateStr].forEach(function (entry) { sec.appendChild(buildEntryRow(entry)); });
+      dayMap[dateStr].forEach(function (entry) {
+        sec.appendChild(entry.type === 'rest' ? renderRestDayRow(entry) : buildEntryRow(entry));
+      });
       groupEl.appendChild(sec);
     });
 
