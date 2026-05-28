@@ -682,6 +682,16 @@ def trends_redirect():
     return FileResponse(str(_static_root / "trends.html"))
 
 
+@app.get("/log.html")
+def log_page():
+    return FileResponse(str(_static_root / "log.html"))
+
+
+@app.get("/log")
+def log_route():
+    return FileResponse(str(_static_root / "log.html"))
+
+
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
@@ -1928,4 +1938,3 @@ def get_training_log(
         })
 
     return JSONResponse({"weeks": weeks})
-
