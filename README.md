@@ -1,6 +1,6 @@
 # perf-coach
 
-Personal performance dashboard. Tracks weight and habits.
+Personal performance dashboard. Tracks weight, habits, readiness, training log, and performance trends.
 
 ## PRD vs UAT environments
 
@@ -70,6 +70,11 @@ Each script:
 | `GET /api/environment` | Returns `{"environment": "PRD"\|"UAT", "version": "0.1.0"}` |
 | `GET /api/health` | Returns DB connection status |
 | `GET /api/users` | Returns list of users |
+| `GET /training_log` | Returns training log entries; pass `include_rest=true` to include rest days |
+| `GET /trends/summary` | Returns trend aggregations (readiness, HRV, RHR, sleep, energy, mood, TSS) for a date range |
+| `GET /api/readiness/today` | Returns today's computed readiness score for a user |
+| `GET /api/readiness` | Returns readiness scores over a date range |
+| `POST /api/readiness/compute` | Computes and stores today's readiness score |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 
