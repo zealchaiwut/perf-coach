@@ -532,10 +532,10 @@ const MOCK_TRAINING_WORKOUTS = [
 // plus a full metrics object for backward compat. Only dates that have no workout
 // in MOCK_TRAINING_WORKOUTS appear here.
 const MOCK_REST_DAYS = [
-  { id: 'r-001', date: '2026-05-26', type: 'rest', sleep_hours: 6.0, energy: 3, mood: 3, resting_hr: 56, metrics: { energy: 3, mood: 3, resting_hr: 56, hrv: 61, sleep_hours: 6.0, sleep_quality: 3, notes: 'Tired after yesterday\'s long run' } },
-  { id: 'r-002', date: '2026-05-20', type: 'rest', sleep_hours: 7.5, energy: 4, mood: 4, resting_hr: 54, metrics: { energy: 4, mood: 4, resting_hr: 54, hrv: 68, sleep_hours: 7.5, sleep_quality: 4, notes: null } },
+  { id: 'r-001', date: '2026-05-23', type: 'rest', sleep_hours: 6.0, energy: 3, mood: 3, resting_hr: 56, metrics: { energy: 3, mood: 3, resting_hr: 56, hrv: 61, sleep_hours: 6.0, sleep_quality: 3, notes: 'Tired after long run week' } },
+  { id: 'r-002', date: '2026-05-01', type: 'rest', sleep_hours: 7.5, energy: 4, mood: 4, resting_hr: 54, metrics: { energy: 4, mood: 4, resting_hr: 54, hrv: 68, sleep_hours: 7.5, sleep_quality: 4, notes: null } },
   { id: 'r-003', date: '2026-05-18', type: 'rest', sleep_hours: null, energy: 3, mood: null, resting_hr: 57, metrics: { energy: 3, mood: null, resting_hr: 57, hrv: 62, sleep_hours: null, sleep_quality: null, notes: 'Recovery day' } },
   { id: 'r-004', date: '2026-05-11', type: 'rest', sleep_hours: 5.5, energy: 2, mood: 2, resting_hr: 61, metrics: { energy: 2, mood: 2, resting_hr: 61, hrv: 52, sleep_hours: 5.5, sleep_quality: 2, notes: 'Legs heavy, skipped planned run' } },
   { id: 'r-005', date: '2026-05-09', type: 'rest', sleep_hours: 7.0, energy: 3, mood: 3, resting_hr: 58, metrics: { energy: 3, mood: 3, resting_hr: 58, hrv: 59, sleep_hours: 7.0, sleep_quality: 3, notes: null } },
-  { id: 'r-006', date: '2026-05-04', type: 'rest', sleep_hours: 8.5, energy: 5, mood: 4, resting_hr: 52, metrics: { energy: 5, mood: 4, resting_hr: 52, hrv: 72, sleep_hours: 8.5, sleep_quality: 5, notes: 'Great sleep, feeling fresh!' } },
+  { id: 'r-006', date: '2026-05-03', type: 'rest', sleep_hours: 8.5, energy: 5, mood: 4, resting_hr: 52, metrics: { energy: 5, mood: 4, resting_hr: 52, hrv: 72, sleep_hours: 8.5, sleep_quality: 5, notes: 'Great sleep, feeling fresh!' } },
 ];
