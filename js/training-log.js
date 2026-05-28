@@ -377,16 +377,18 @@
 
   function renderList(weeks) {
     var list = document.getElementById('workout-list');
-    list.innerHTML = '';
+    var emptyMsg = document.getElementById('log-empty-msg');
+    // Remove loading-msg and any previous week sections
+    Array.from(list.children).forEach(function (child) {
+      if (child.id !== 'log-empty-msg') child.remove();
+    });
 
     if (!weeks || weeks.length === 0) {
-      var msg = document.createElement('p');
-      msg.className = 'empty-msg';
-      msg.textContent = 'No workouts in this range — log one or sync Strava';
-      list.appendChild(msg);
+      if (emptyMsg) emptyMsg.style.display = '';
       return;
     }
 
+    if (emptyMsg) emptyMsg.style.display = 'none';
     weeks.forEach(function (week) { list.appendChild(renderWeekSection(week)); });
   }
 
@@ -395,7 +397,16 @@
   async function applyFilters() {
     syncToURL();
     var list = document.getElementById('workout-list');
-    list.innerHTML = '<p class="loading-msg">Loading…</p>';
+    var emptyMsg = document.getElementById('log-empty-msg');
+    // Show loading, hide empty state, clear previous results
+    Array.from(list.children).forEach(function (child) {
+      if (child.id !== 'log-empty-msg') child.remove();
+    });
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    var loadingEl = document.createElement('p');
+    loadingEl.className = 'loading-msg';
+    loadingEl.textContent = 'Loading…';
+    list.insertBefore(loadingEl, emptyMsg || null);
 
     var range = getFromTo();
     var data;
@@ -492,7 +503,7 @@
       applyFilters();
     });
 
-    document.getElementById('export-btn').addEventListener('click', exportCSV);
+    document.getElementById('log-export-btn').addEventListener('click', exportCSV);
 
     document.getElementById('log-workout-btn').addEventListener('click', function () {
       location.href = 'training.html';
@@ -502,7 +513,7 @@
   // ── Sync subtitle ─────────────────────────────────────────────────────────
 
   function setSyncText() {
-    var el = document.getElementById('sync-text');
+    var el = document.getElementById('log-sync-sub');
     if (!el) return;
     var allWorkouts = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
     if (allWorkouts.length === 0) return;
