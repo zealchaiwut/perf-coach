@@ -1652,6 +1652,121 @@ def get_trends_summary(
     })
 
 
+# ── Training log endpoint ─────────────────────────────────────────────────────
+
+@app.get("/training_log")
+def get_training_log(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    user_id: Optional[str] = Query(default=None),
+):
+    from datetime import timedelta
+
+    today = _date.today()
+
+    if from_date is None:
+        from_d = today - timedelta(days=29)
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid from date; use YYYY-MM-DD")
+
+    if to_date is None:
+        to_d = today
+    else:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        q = session.query(Workout).filter(
+            Workout.workout_date >= from_d,
+            Workout.workout_date <= to_d,
+        )
+
+        if user_id:
+            try:
+                uid = _uuid.UUID(user_id)
+                q = q.filter(Workout.user_id == uid)
+            except ValueError:
+                pass
+
+        if types and types.lower() != "all":
+            q = q.filter(Workout.workout_type.ilike(types))
+
+        if search:
+            like = f"%{search}%"
+            q = q.filter(
+                Workout.name.ilike(like) | Workout.remarks.ilike(like)
+            )
+
+        workouts = q.order_by(Workout.workout_date.desc(), Workout.created_at.desc()).all()
+
+    def _week_monday(d):
+        return d - timedelta(days=d.weekday())
+
+    def _week_label(mon):
+        this_mon = _week_monday(today)
+        if mon == this_mon:
+            return "This week"
+        sun = mon + timedelta(days=6)
+        return f"{mon.strftime('%b')} {mon.day} – {sun.day}"
+
+    weeks_map: dict = {}
+    week_order: list = []
+
+    for w in workouts:
+        mon = _week_monday(w.workout_date)
+        key = str(mon)
+        if key not in weeks_map:
+            sun = mon + timedelta(days=6)
+            weeks_map[key] = {
+                "week_start": str(mon),
+                "week_end": str(sun),
+                "label": _week_label(mon),
+                "workouts": [],
+            }
+            week_order.append(key)
+
+        weeks_map[key]["workouts"].append({
+            "id": str(w.id),
+            "date": str(w.workout_date),
+            "type": w.workout_type,
+            "title": w.name,
+            "duration_minutes": None,
+            "distance_km": None,
+            "weight_context": None,
+            "avg_hr": None,
+            "tss": w.tss,
+            "source": w.tss_source or "manual",
+            "notes": w.remarks or "",
+        })
+
+    weeks = []
+    for key in week_order:
+        week = weeks_map[key]
+        ws = week["workouts"]
+        total_tss = sum(wr["tss"] for wr in ws if wr["tss"] is not None)
+        weeks.append({
+            "week_start": week["week_start"],
+            "week_end": week["week_end"],
+            "label": week["label"],
+            "summary": {
+                "workout_count": len(ws),
+                "total_distance_km": 0.0,
+                "total_tss": round(total_tss, 1),
+                "total_time_minutes": 0,
+            },
+            "workouts": ws,
+        })
+
+    return JSONResponse({"weeks": weeks})
+
+
 # ── Readiness compute endpoint ────────────────────────────────────────────────
 
 @app.post("/api/readiness/compute", status_code=200)
