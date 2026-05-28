@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ ! -f .env.uat ]; then
-  echo "ERROR: .env.uat not found. Create it with ENVIRONMENT, PORT, and DATABASE_URL_UAT set." >&2
+if [ ! -f .env ]; then
+  echo "ERROR: .env not found. Create it with DATABASE_URL_UAT and DATABASE_URL_PRD set." >&2
   exit 1
 fi
 
 set -a
 # shellcheck disable=SC1091
-source .env.uat
+source .env
 set +a
 
-if [ -z "${DATABASE_URL_UAT:-}" ]; then
-  echo "ERROR: DATABASE_URL_UAT is not set in .env.uat." >&2
-  exit 1
-fi
-
-if [ -z "${PORT:-}" ]; then
-  echo "ERROR: PORT is not set in .env.uat." >&2
-  exit 1
-fi
-
+# Environment and port are always determined by the script, not .env
 export ENVIRONMENT=UAT
-export PORT DATABASE_URL_PRD DATABASE_URL_UAT
+export PORT=9001
+
+if [ -z "${DATABASE_URL_UAT:-}" ]; then
+  echo "ERROR: DATABASE_URL_UAT is not set in .env." >&2
+  exit 1
+fi
+
+# Log target DB host (not password)
+python3 - <<'EOF'
+import os, sys
+from urllib.parse import urlparse
+url = os.environ.get("DATABASE_URL_UAT", "")
+host = urlparse(url).hostname or "(unknown)"
+print(f"Target DB host (UAT): {host}")
+EOF
 
 echo "Verifying database connection (UAT)..."
 python3 - <<'EOF'

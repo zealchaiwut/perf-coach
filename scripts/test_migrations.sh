@@ -1,82 +1,98 @@
 #!/usr/bin/env bash
-# Migration idempotency test.
-#
-# Requires Docker. Spins up a fresh PostgreSQL container, then:
-#   Run 1 — applies all migrations from scratch (normal deploy).
-#   Run 2 — runs `alembic upgrade head` again; must be a no-op with no errors.
-#   Run 3 — simulates the actual bug: one table already exists in the DB but
-#            alembic_version has no record of it. upgrade head must still succeed.
+# Test that all migrations are idempotent and alembic has exactly one head.
 #
 # Usage:
-#   cd <repo-root>/uat
-#   bash scripts/test_migrations.sh
+#   TEST_DATABASE_URL=postgresql://user:pass@host/db bash scripts/test_migrations.sh
 #
-# Exit codes: 0 = all tests passed, 1 = any test failed.
-
+# Requires a throwaway Postgres database — this script resets it completely.
+# Never point this at UAT or PRD data.
 set -euo pipefail
 
-DB_CONTAINER="perf_coach_migration_test_$$"
-DB_NAME="perf_coach_test"
-DB_USER="postgres"
-DB_PASSWORD="testpass"
-DB_PORT="5433"
-TEST_DB_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}"
+if [ -z "${TEST_DATABASE_URL:-}" ]; then
+  echo "ERROR: TEST_DATABASE_URL env var required." >&2
+  echo "       Point it at a throwaway Postgres DB, e.g.:" >&2
+  echo "       TEST_DATABASE_URL=postgresql://... bash scripts/test_migrations.sh" >&2
+  exit 1
+fi
 
-cleanup() {
-    echo "Cleaning up container..."
-    docker rm -f "$DB_CONTAINER" 2>/dev/null || true
-}
-trap cleanup EXIT
-
-echo "=== Starting fresh PostgreSQL container ==="
-docker run -d \
-    --name "$DB_CONTAINER" \
-    -e POSTGRES_USER="$DB_USER" \
-    -e POSTGRES_PASSWORD="$DB_PASSWORD" \
-    -e POSTGRES_DB="$DB_NAME" \
-    -p "${DB_PORT}:5432" \
-    postgres:15
-
-echo "Waiting for PostgreSQL to be ready..."
-for i in $(seq 1 30); do
-    if docker exec "$DB_CONTAINER" pg_isready -U "$DB_USER" -q 2>/dev/null; then
-        echo "PostgreSQL is ready."
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "ERROR: PostgreSQL did not become ready in time." >&2
-        exit 1
-    fi
-    sleep 1
-done
-
+export DATABASE_URL_PRD="$TEST_DATABASE_URL"
 export ENVIRONMENT=PRD
-export DATABASE_URL_PRD="$TEST_DB_URL"
-export DATABASE_URL_UAT=""
 
+PASS=0
+FAIL=0
+
+pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
+fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
+
+# Drop all tables and alembic_version so each test starts from a clean slate.
+reset_db() {
+  python3 - <<'PYEOF'
+import os
+from sqlalchemy import create_engine, text
+
+engine = create_engine(os.environ["DATABASE_URL_PRD"])
+with engine.connect() as conn:
+    conn.execute(text("DROP SCHEMA public CASCADE"))
+    conn.execute(text("CREATE SCHEMA public"))
+    conn.commit()
+PYEOF
+}
+
+# ── Test 1: alembic upgrade head twice on a fresh DB ─────────────────────────
 echo ""
-echo "=== Run 1: fresh DB — all migrations from scratch ==="
-uv run alembic upgrade head
-echo "PASS: Run 1 succeeded."
+echo "=== Test 1: double alembic upgrade head on fresh DB ==="
+reset_db
+alembic upgrade head
 
+SECOND_OUT=$(alembic upgrade head 2>&1)
+if echo "$SECOND_OUT" | grep -q "Running upgrade"; then
+  fail "second upgrade applied unexpected migration steps"
+else
+  pass "second upgrade applied no new migrations"
+fi
+
+# ── Test 2: upgrade head when daily_readiness pre-exists ─────────────────────
 echo ""
-echo "=== Run 2: already-migrated DB — must be a no-op ==="
-uv run alembic upgrade head
-echo "PASS: Run 2 succeeded (idempotency confirmed)."
+echo "=== Test 2: alembic upgrade head with pre-existing daily_readiness ==="
+reset_db
+python3 - <<'PYEOF'
+import os
+from sqlalchemy import create_engine, text
 
+engine = create_engine(os.environ["DATABASE_URL_PRD"])
+with engine.connect() as conn:
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+    conn.execute(text("""
+        CREATE TABLE daily_readiness (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL,
+            date        DATE NOT NULL,
+            score       NUMERIC(5,2) NOT NULL,
+            components  JSONB NOT NULL,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            daily_metric_id UUID
+        )
+    """))
+    conn.commit()
+PYEOF
+
+if alembic upgrade head 2>&1; then
+  pass "upgrade head with pre-existing daily_readiness exits 0"
+else
+  fail "upgrade head with pre-existing daily_readiness failed"
+fi
+
+# ── Test 3: alembic heads returns exactly one head ───────────────────────────
 echo ""
-echo "=== Run 3: simulate orphan table (bug reproduction) ==="
-# Delete the alembic_version record for d4e5f6a7b8c9 to simulate a failed
-# migration commit, then verify upgrade head still succeeds even though
-# workout_exercises already exists in the DB.
-docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" \
-    -c "DELETE FROM alembic_version WHERE version_num = 'd4e5f6a7b8c9';" \
-    -c "UPDATE alembic_version SET version_num = 'c3d4e5f6a7b8';"
+echo "=== Test 3: alembic heads returns exactly one head ==="
+HEAD_COUNT=$(alembic heads 2>/dev/null | grep -c "(head)" || true)
+if [ "$HEAD_COUNT" -eq 1 ]; then
+  pass "alembic heads returns exactly one head"
+else
+  fail "alembic heads returned $HEAD_COUNT heads (expected 1)"
+fi
 
-# Now workout_exercises exists in the DB but alembic thinks we're at c3d4e5f6a7b8
-# Running upgrade head must not fail with DuplicateTable.
-uv run alembic upgrade head
-echo "PASS: Run 3 succeeded (orphan table handled gracefully)."
-
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
-echo "=== All migration tests passed ==="
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
