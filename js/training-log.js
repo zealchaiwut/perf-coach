@@ -307,17 +307,22 @@
   function renderRestDayRow(entry) {
     var d = isoToDate(entry.date);
     var m = entry.metrics || {};
+    var sleep_hours = entry.sleep_hours != null ? entry.sleep_hours : m.sleep_hours;
+    var energy      = entry.energy     != null ? entry.energy     : m.energy;
+    var mood        = entry.mood       != null ? entry.mood       : m.mood;
+    var resting_hr  = entry.resting_hr != null ? entry.resting_hr : m.resting_hr;
+    var hrv         = m.hrv;
+    var notes       = m.notes;
 
-    var metricParts = [];
-    if (m.energy != null)        metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Energy</span> ' + m.energy + '/5</span>');
-    if (m.sleep_quality != null) metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Sleep</span> ' + m.sleep_quality + '/5</span>');
-    if (m.sleep_hours != null)   metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Sleep hrs</span> ' + m.sleep_hours + 'h</span>');
-    if (m.resting_hr != null)    metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">RHR</span> ' + m.resting_hr + ' bpm</span>');
-    if (m.hrv != null)           metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">HRV</span> ' + m.hrv + ' ms</span>');
+    var parts = [];
+    if (sleep_hours != null) parts.push('sleep ' + sleep_hours + 'h');
+    if (energy != null)      parts.push('energy ' + energy);
+    if (mood != null)        parts.push('mood ' + mood);
+    var label = 'Rest day' + (parts.length ? ' - ' + parts.join(', ') : '');
 
     var notesPart = '';
-    if (m.notes) {
-      var truncated = m.notes.length > 80 ? m.notes.slice(0, 80) + '…' : m.notes;
+    if (notes) {
+      var truncated = notes.length > 80 ? notes.slice(0, 80) + '…' : notes;
       notesPart = '<span class="rest-notes">' + escHtml(truncated) + '</span>';
     }
 
@@ -332,7 +337,7 @@
       '</div>' +
       '<span class="rest-badge">Rest</span>' +
       '<div class="rest-metrics">' +
-        (metricParts.length ? metricParts.join('') : '<span class="rest-metric-item">Rest day</span>') +
+        '<span class="rest-day-label">' + escHtml(label) + '</span>' +
         notesPart +
       '</div>';
 
