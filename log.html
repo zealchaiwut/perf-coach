@@ -421,13 +421,168 @@
       font-size: 0.9375rem;
     }
 
+    /* ── Empty state ── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3.5rem 1.5rem;
+      text-align: center;
+    }
+
+    .empty-state-icon {
+      width: 56px;
+      height: 56px;
+      margin-bottom: 1rem;
+      color: #d1d5db;
+    }
+
+    .empty-state-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #374151;
+      margin: 0 0 0.4rem;
+    }
+
+    .empty-state-desc {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin: 0 0 1.25rem;
+      max-width: 280px;
+    }
+
+    /* ── List error state ── */
+    .list-error-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3.5rem 1.5rem;
+      text-align: center;
+    }
+
+    .list-error-icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 1rem;
+      color: #f87171;
+    }
+
+    .list-error-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #374151;
+      margin: 0 0 0.35rem;
+    }
+
+    .list-error-desc {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin: 0;
+    }
+
+    /* ── Detail panel loading skeleton ── */
+    .detail-loading-skeleton {
+      padding: 0;
+    }
+
+    .skeleton-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .skeleton-stat-cell {
+      height: 72px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.4s infinite;
+    }
+
+    /* ── Detail panel error state ── */
+    .detail-error-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2.5rem 1rem;
+      text-align: center;
+    }
+
+    .detail-error-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 0.75rem;
+      color: #f87171;
+    }
+
+    .detail-error-msg {
+      font-size: 0.875rem;
+      color: #374151;
+      font-weight: 600;
+      margin: 0 0 0.25rem;
+    }
+
+    .detail-error-sub {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      margin: 0;
+    }
+
+    /* ── Detail panel action footer ── */
+    .detail-panel-footer {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid #e5e5e5;
+      display: flex;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .detail-action-btn {
+      flex: 1;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+
+    .detail-action-btn:focus-visible {
+      outline: 2px solid #0070f3;
+      outline-offset: 2px;
+    }
+
+    .detail-btn-edit {
+      background: #fff;
+      border: 1px solid #d1d5db;
+      color: #1a1a1a;
+    }
+
+    .detail-btn-edit:hover { background: #f5f5f5; border-color: #9ca3af; }
+
+    .detail-btn-strava {
+      background: #fc4c02;
+      border: 1px solid #fc4c02;
+      color: #fff;
+    }
+
     /* ── Responsive ≥380px ── */
     @media (max-width: 599px) {
       header { padding: 0.75rem 1rem; }
 
+      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; }
+
       .week-strip-container { padding: 0.75rem 1rem; }
 
       .week-pills { justify-content: flex-start; }
+
+      .day-pill { min-width: 42px; padding: 0.4rem 0.4rem; }
 
       .filter-bar {
         padding: 0.75rem 1rem;
@@ -751,7 +906,28 @@
   <!-- Log body: list + detail panel -->
   <div class="log-body" id="log-body">
     <div id="workout-list">
-      <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one.</p>
+      <div class="empty-state" id="log-empty-msg" style="display:none">
+        <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+          <line x1="8" y1="14" x2="16" y2="14"/>
+          <line x1="8" y1="17" x2="12" y2="17"/>
+        </svg>
+        <p class="empty-state-title">No workouts here yet</p>
+        <p class="empty-state-desc">Log your first workout to start tracking your training.</p>
+        <button class="btn-primary" id="log-empty-cta">Log a workout</button>
+      </div>
+      <div class="list-error-state" id="log-error-msg" style="display:none">
+        <svg class="list-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p class="list-error-title">Couldn't load workouts</p>
+        <p class="list-error-desc" id="log-error-desc">Check your connection and try again.</p>
+      </div>
     </div>
 
     <!-- Workout detail panel -->
@@ -770,6 +946,25 @@
         </div>
       </div>
       <div class="detail-panel-body">
+        <div id="detail-panel-loading" class="detail-loading-skeleton" style="display:none">
+          <div class="skeleton-stat-grid">
+            <div class="skeleton-stat-cell"></div>
+            <div class="skeleton-stat-cell"></div>
+            <div class="skeleton-stat-cell"></div>
+            <div class="skeleton-stat-cell"></div>
+            <div class="skeleton-stat-cell"></div>
+            <div class="skeleton-stat-cell"></div>
+          </div>
+        </div>
+        <div id="detail-panel-error" class="detail-error-state" style="display:none">
+          <svg class="detail-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <p class="detail-error-msg">Could not load workout</p>
+          <p class="detail-error-sub">The workout may have been deleted or the server is unavailable.</p>
+        </div>
         <div class="detail-stat-grid" id="detail-stat-grid"></div>
         <div id="detail-exercise-section" class="detail-section" style="display:none">
           <div class="detail-section-title">Exercise Breakdown</div>
@@ -789,6 +984,10 @@
           <div class="detail-section-title">Notes</div>
           <p id="detail-notes-text" class="detail-notes-text"></p>
         </div>
+      </div>
+      <div class="detail-panel-footer">
+        <button id="detail-edit-btn" class="detail-action-btn detail-btn-edit" aria-label="Edit workout">Edit</button>
+        <a id="detail-strava-btn" class="detail-action-btn detail-btn-strava" target="_blank" rel="noopener noreferrer" aria-label="Open in Strava" style="display:none">Open in Strava</a>
       </div>
     </aside>
   </div>
