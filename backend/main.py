@@ -672,6 +672,16 @@ def trends_redirect():
     return FileResponse(str(_static_root / "trends.html"))
 
 
+@app.get("/log.html")
+def log_page():
+    return FileResponse(str(_static_root / "log.html"))
+
+
+@app.get("/log")
+def log_route():
+    return FileResponse(str(_static_root / "log.html"))
+
+
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
@@ -1808,3 +1818,156 @@ def get_readiness_range(
             cur += timedelta(days=1)
 
         return JSONResponse(result)
+
+
+# ── Training log endpoint ─────────────────────────────────────────────────────
+
+def _metric_has_data(m: DailyMetric) -> bool:
+    return any(
+        v is not None
+        for v in (m.energy, m.mood, m.resting_hr, m.hrv, m.sleep_hours, m.sleep_quality, m.notes)
+    )
+
+
+@app.get("/training_log")
+def get_training_log(
+    user_id: Optional[str] = Query(default=None),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    include_rest: bool = Query(default=True),
+):
+    from datetime import timedelta
+
+    today = _date.today()
+
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - timedelta(days=29)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid from date; use YYYY-MM-DD")
+
+    try:
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
+
+    uid = None
+    if user_id:
+        try:
+            uid = _uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        from sqlalchemy import or_ as _or
+        q = session.query(Workout).filter(
+            Workout.workout_date >= from_d,
+            Workout.workout_date <= to_d,
+        )
+        if uid is not None:
+            q = q.filter(Workout.user_id == uid)
+        if types and types.lower() != "all":
+            q = q.filter(Workout.workout_type.ilike(types))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(_or(Workout.name.ilike(like), Workout.remarks.ilike(like)))
+        workouts = q.order_by(Workout.workout_date.desc(), Workout.created_at.desc()).all()
+
+        workout_dates = {str(w.workout_date) for w in workouts}
+
+        rest_entries: list = []
+        if include_rest and (not types or types.lower() == "all") and not search:
+            mq = session.query(DailyMetric).filter(
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            if uid is not None:
+                mq = mq.filter(DailyMetric.user_id == uid)
+            for m in mq.all():
+                if str(m.metric_date) not in workout_dates and _metric_has_data(m):
+                    rest_entries.append({
+                        "date": str(m.metric_date),
+                        "type": "rest",
+                        "metrics": {
+                            "energy": m.energy,
+                            "mood": m.mood,
+                            "sleep_quality": m.sleep_quality,
+                            "sleep_hours": float(m.sleep_hours) if m.sleep_hours is not None else None,
+                            "resting_hr": m.resting_hr,
+                            "hrv": m.hrv,
+                            "notes": m.notes,
+                        },
+                    })
+
+    def _week_monday(d):
+        return d - timedelta(days=d.weekday())
+
+    def _week_label(mon):
+        this_mon = _week_monday(today)
+        if mon == this_mon:
+            return "This week"
+        sun = mon + timedelta(days=6)
+        return f"{mon.strftime('%b')} {mon.day} – {sun.day}"
+
+    workout_entries = [
+        {
+            "id": str(w.id),
+            "date": str(w.workout_date),
+            "type": w.workout_type,
+            "title": w.name,
+            "duration_min": None,
+            "distance_km": None,
+            "avg_hr": None,
+            "tss": float(w.tss) if w.tss is not None else None,
+            "source": w.tss_source or "manual",
+            "notes": w.remarks or "",
+        }
+        for w in workouts
+    ]
+
+    all_entries = workout_entries + rest_entries
+    all_entries.sort(key=lambda e: e["date"], reverse=True)
+
+    weeks_map: dict = {}
+    week_order: list = []
+
+    for entry in all_entries:
+        d_obj = _date.fromisoformat(entry["date"])
+        mon = _week_monday(d_obj)
+        key = str(mon)
+        if key not in weeks_map:
+            sun = mon + timedelta(days=6)
+            weeks_map[key] = {
+                "week_start": key,
+                "week_end": str(sun),
+                "label": _week_label(mon),
+                "entries": [],
+                "workouts": [],
+            }
+            week_order.append(key)
+        weeks_map[key]["entries"].append(entry)
+        if entry["type"] != "rest":
+            weeks_map[key]["workouts"].append(entry)
+
+    week_order.sort(reverse=True)
+
+    weeks = []
+    for key in week_order:
+        wk = weeks_map[key]
+        ws = wk["workouts"]
+        weeks.append({
+            "week_start": wk["week_start"],
+            "week_end": wk["week_end"],
+            "label": wk["label"],
+            "entries": wk["entries"],
+            "workouts": ws,
+            "summary": {
+                "workout_count": len(ws),
+                "total_distance_km": round(sum((w.get("distance_km") or 0) for w in ws), 1),
+                "total_tss": round(sum((w.get("tss") or 0) for w in ws), 1),
+                "total_time_minutes": sum((w.get("duration_min") or 0) for w in ws),
+            },
+        })
+
+    return JSONResponse({"weeks": weeks})

@@ -122,13 +122,16 @@
       if (range.to)   params.set('to',   range.to);
       if (filters.type && filters.type !== 'all') params.set('types', filters.type);
       if (filters.search) params.set('search', filters.search);
-      var url = '/training_log' + (params.toString() ? '?' + params.toString() : '');
+      params.set('include_rest', filters.type === 'all' || !filters.type ? 'true' : 'false');
+      var uid = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : null;
+      if (uid) params.set('user_id', uid);
+      var url = '/training_log?' + params.toString();
       var res = await fetch(url);
       if (!res.ok) throw new Error('server ' + res.status);
       var data = await res.json();
       allWorkouts = [];
       (data.weeks || []).forEach(function (w) {
-        allWorkouts = allWorkouts.concat(w.workouts || []);
+        allWorkouts = allWorkouts.concat(w.entries || w.workouts || []);
       });
     } catch (e) {
       var mockWorkouts = (typeof MOCK_TRAINING_WORKOUTS !== 'undefined') ? MOCK_TRAINING_WORKOUTS.slice() : [];
