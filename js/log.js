@@ -122,7 +122,7 @@
       if (range.to)   params.set('to',   range.to);
       if (filters.type && filters.type !== 'all') params.set('types', filters.type);
       if (filters.search) params.set('search', filters.search);
-      var url = '/training_log' + (params.toString() ? '?' + params.toString() : '');
+      var url = '/api/training-log' + (params.toString() ? '?' + params.toString() : '');
       var res = await fetch(url);
       if (!res.ok) throw new Error('server ' + res.status);
       var data = await res.json();

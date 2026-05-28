@@ -147,7 +147,7 @@
   }
 
   // ── Mock API ──────────────────────────────────────────────────────────────
-  // Simulates GET /training_log?from=&to=&types=&search=&include_rest=
+  // Simulates GET /api/training-log?from=&to=&types=&search=&include_rest=
   // Returns { weeks: [...] } matching the documented JSON shape.
 
   function mockFetch(params) {
@@ -419,7 +419,7 @@
     var data;
 
     try {
-      var url = '/training_log?from=' + range.from + '&to=' + range.to +
+      var url = '/api/training-log?from=' + range.from + '&to=' + range.to +
         (state.type !== 'all' ? '&types=' + encodeURIComponent(state.type) : '') +
         (state.search ? '&search=' + encodeURIComponent(state.search) : '');
       var res = await fetch(url);
