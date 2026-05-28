@@ -1879,7 +1879,7 @@ def _week_label(mon_key: str) -> str:
     if mon == this_mon:
         return "This week"
     sun = mon + timedelta(days=6)
-    return mon.strftime("%b %-d") + " – " + str(sun.day)
+    return mon.strftime("%b %-d") + "–" + str(sun.day)
 
 
 def _metric_has_data(m: DailyMetric) -> bool:
@@ -1968,19 +1968,30 @@ def get_training_log(
                         },
                     })
 
+    def _pace(w) -> "float | None":
+        t = w.workout_type.lower() if w.workout_type else ""
+        if t not in ("run", "bike"):
+            return None
+        if w.duration_seconds is None or w.distance_km is None or float(w.distance_km) == 0:
+            return None
+        return round(w.duration_seconds / float(w.distance_km), 2)
+
     workout_entries = [
         {
             "date": str(w.workout_date),
             "type": w.workout_type,
             "id": str(w.id),
             "title": w.name,
+            "duration_seconds": w.duration_seconds,
             "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
             "distance_km": float(w.distance_km) if w.distance_km is not None else None,
-            "weight_context": w.remarks,
             "avg_hr": w.avg_hr,
+            "elevation_m": w.elevation_m,
+            "average_pace_seconds_per_km": _pace(w),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
             "notes": w.remarks or "",
+            "weight_context": w.remarks,
         }
         for w in workouts
     ]
