@@ -421,10 +421,12 @@
   function renderList(weeks) {
     var list = document.getElementById('workout-list');
     var emptyMsg = document.getElementById('log-empty-msg');
-    // Remove loading-msg and any previous week sections
+    var errorMsg = document.getElementById('log-error-msg');
+    // Remove skeleton and week sections; preserve the static state elements
     Array.from(list.children).forEach(function (child) {
-      if (child.id !== 'log-empty-msg') child.remove();
+      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
     });
+    if (errorMsg) errorMsg.style.display = 'none';
 
     if (!weeks || weeks.length === 0) {
       if (emptyMsg) emptyMsg.style.display = '';
@@ -435,17 +437,30 @@
     weeks.forEach(function (week) { list.appendChild(renderWeekSection(week)); });
   }
 
+  function renderListError() {
+    var list = document.getElementById('workout-list');
+    var emptyMsg = document.getElementById('log-empty-msg');
+    var errorMsg = document.getElementById('log-error-msg');
+    Array.from(list.children).forEach(function (child) {
+      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
+    });
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    if (errorMsg) errorMsg.style.display = '';
+  }
+
   // ── Apply filters ─────────────────────────────────────────────────────────
 
   async function applyFilters() {
     syncToURL();
     var list = document.getElementById('workout-list');
-    var emptyMsg = document.getElementById('log-empty-msg');
-    // Show loading, hide empty state, clear previous results
+    var emptyMsg  = document.getElementById('log-empty-msg');
+    var errorMsg  = document.getElementById('log-error-msg');
+    // Show skeleton, hide state elements, clear previous week sections
     Array.from(list.children).forEach(function (child) {
-      if (child.id !== 'log-empty-msg') child.remove();
+      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
     });
     if (emptyMsg) emptyMsg.style.display = 'none';
+    if (errorMsg) errorMsg.style.display = 'none';
     var loadingEl = document.createElement('div');
     loadingEl.className = 'skeleton-list';
     loadingEl.innerHTML =
@@ -462,10 +477,12 @@
         (state.type !== 'all' ? '&types=' + encodeURIComponent(state.type) : '') +
         (state.search ? '&search=' + encodeURIComponent(state.search) : '');
       var res = await fetch(url);
-      if (!res.ok) throw new Error('server error');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
     } catch (_) {
-      data = mockFetch({ from: range.from, to: range.to, types: state.type, search: state.search });
+      loadingEl.remove();
+      renderListError();
+      return;
     }
 
     visibleWorkouts = (data.weeks || []).reduce(function (acc, w) { return acc.concat(w.workouts); }, []);
@@ -492,27 +509,40 @@
     var panel   = document.getElementById('detail-panel');
     var logBody = document.getElementById('log-body');
 
-    document.getElementById('detail-panel-title').textContent = 'Loading…';
+    // Reset header
+    document.getElementById('detail-panel-title').textContent = '';
     document.getElementById('detail-panel-date').textContent  = '';
-    document.getElementById('detail-stat-grid').innerHTML     = '';
     document.getElementById('detail-panel-source').classList.add('is-hidden');
     document.getElementById('detail-strava-btn').style.display = 'none';
+
+    // Reset body
+    document.getElementById('detail-stat-grid').innerHTML = '';
     document.getElementById('detail-exercise-section').style.display = 'none';
     document.getElementById('detail-exercise-tbody').innerHTML        = '';
     document.getElementById('detail-notes-section').style.display    = 'none';
     document.getElementById('detail-notes-text').textContent          = '';
+    var existingEx = document.getElementById('detail-exercises-section');
+    if (existingEx) existingEx.remove();
+
+    // Show loading skeleton, hide error state
+    document.getElementById('detail-panel-loading').style.display = '';
+    document.getElementById('detail-panel-error').style.display   = 'none';
 
     panel.classList.add('is-open');
     logBody.classList.add('panel-open');
 
     fetch('/api/workouts/' + encodeURIComponent(workoutId))
       .then(function (res) {
-        if (!res.ok) throw new Error('not found');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       })
-      .then(renderPanelContent)
+      .then(function (data) {
+        document.getElementById('detail-panel-loading').style.display = 'none';
+        renderPanelContent(data);
+      })
       .catch(function () {
-        document.getElementById('detail-panel-title').textContent = 'Could not load workout';
+        document.getElementById('detail-panel-loading').style.display = 'none';
+        document.getElementById('detail-panel-error').style.display   = '';
       });
   }
 
@@ -741,6 +771,10 @@
     document.getElementById('log-export-btn').addEventListener('click', exportCSV);
 
     document.getElementById('log-workout-btn').addEventListener('click', function () {
+      location.href = 'training.html';
+    });
+
+    document.getElementById('log-empty-cta').addEventListener('click', function () {
       location.href = 'training.html';
     });
 
