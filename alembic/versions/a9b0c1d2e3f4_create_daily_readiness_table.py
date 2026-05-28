@@ -21,6 +21,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import inspect
 
 revision: str = "a9b0c1d2e3f4"
 down_revision: Union[str, None] = "f6a7b8c9d0e1"
@@ -29,6 +30,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if inspect(bind).has_table("daily_readiness"):
+        return  # already created by the parallel branch (59a1b2c3d4e5)
     op.create_table(
         "daily_readiness",
         sa.Column(
@@ -86,5 +90,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if not sa.inspect(bind).has_table("daily_readiness"):
+        return
     op.execute("DROP INDEX IF EXISTS ix_daily_readiness_user_date")
     op.drop_table("daily_readiness")
