@@ -461,7 +461,7 @@
       top: 0;
       right: 0;
       bottom: 0;
-      width: 420px;
+      width: 380px;
       max-width: 100vw;
       background: #fff;
       box-shadow: -4px 0 24px rgba(0,0,0,0.12);
@@ -475,12 +475,23 @@
     .detail-panel.is-open { transform: translateX(0); }
 
     .detail-panel-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
       padding: 1rem 1.25rem;
       border-bottom: 1px solid #e5e5e5;
       flex-shrink: 0;
+    }
+
+    .detail-header-top {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .detail-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+      flex-wrap: wrap;
     }
 
     .detail-close-btn {
@@ -510,6 +521,27 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .detail-panel-date {
+      font-size: 0.8125rem;
+      color: #888;
+    }
+
+    .detail-source-pill {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: #e5e5e5;
+      color: #555;
+    }
+
+    .detail-source-pill--strava {
+      background: #fc4c02;
+      color: #fff;
     }
 
     .detail-panel-body {
@@ -580,25 +612,35 @@
       color: #333;
     }
 
-    .detail-exercise-item {
-      font-size: 0.9375rem;
+    .exercises-section { margin-bottom: 0.25rem; }
+
+    .exercise-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
       padding: 0.35rem 0;
       border-bottom: 1px solid #f0f0f0;
-      color: #333;
     }
 
-    .detail-exercise-item:last-child { border-bottom: none; }
+    .exercise-item:last-child { border-bottom: none; }
+
+    .exercise-name {
+      font-size: 0.9375rem;
+      color: #1a1a1a;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .exercise-meta {
+      font-size: 0.8125rem;
+      color: #888;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
 
     /* ── Responsive ────────────────────────────────────────────────────────── */
-    @media (max-width: 599px) {
-      header { padding: 0.75rem 1rem; }
-      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; white-space: nowrap; }
-      #week-strip { padding: 0.75rem 1rem; }
-      #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
-      .fb-search-wrap { flex: none; }
-      .dr-panel { left: 0; right: 0; }
-      #log-list { padding: 1rem; }
-
+    @media (max-width: 767px) {
       .detail-panel { width: 100%; }
 
       .detail-close-btn {
@@ -607,6 +649,16 @@
         min-width: 44px;
         min-height: 44px;
       }
+    }
+
+    @media (max-width: 599px) {
+      header { padding: 0.75rem 1rem; }
+      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; white-space: nowrap; }
+      #week-strip { padding: 0.75rem 1rem; }
+      #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
+      .fb-search-wrap { flex: none; }
+      .dr-panel { left: 0; right: 0; }
+      #log-list { padding: 1rem; }
 
       .workout-primary-metric { display: none; }
       .source-pill { display: none; }
@@ -663,8 +715,14 @@
   <!-- Detail panel -->
   <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-panel-title-text">
     <div class="detail-panel-header">
-      <button id="detail-close-btn" class="detail-close-btn" aria-label="Close workout details">&#x2715;</button>
-      <h2 class="detail-panel-title" id="detail-panel-title-text">Workout</h2>
+      <div class="detail-header-top">
+        <h2 class="detail-panel-title" id="detail-panel-title-text">Workout</h2>
+        <button id="detail-close-btn" class="detail-close-btn" aria-label="Close workout details">&#x2715;</button>
+      </div>
+      <div class="detail-header-meta">
+        <span id="detail-panel-date" class="detail-panel-date"></span>
+        <span id="detail-panel-source-pill" class="detail-source-pill" hidden></span>
+      </div>
     </div>
 
     <div id="detail-panel-loading" style="display:none" aria-busy="true">
