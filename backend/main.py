@@ -1949,6 +1949,10 @@ def get_training_log(
                     rest_entries.append({
                         "date": str(m.metric_date),
                         "type": "rest",
+                        "sleep_hours": float(m.sleep_hours) if m.sleep_hours is not None else None,
+                        "energy": m.energy,
+                        "mood": m.mood,
+                        "resting_hr": m.resting_hr,
                         "metrics": {
                             "energy": m.energy,
                             "mood": m.mood,
