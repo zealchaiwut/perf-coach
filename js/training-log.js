@@ -110,8 +110,7 @@
   }
 
   function scrollToDate(dateStr) {
-    // Try to scroll directly to a workout row with this date
-    var row = document.querySelector('.workout-row[data-date="' + dateStr + '"]');
+    var row = document.querySelector('.workout-row[data-date="' + dateStr + '"], .rest-day-row[data-date="' + dateStr + '"]');
     if (row) {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
