@@ -205,15 +205,44 @@
       flex-wrap: wrap;
     }
 
+    .week-section-label-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
     .week-section-label {
       font-size: 0.9375rem;
       font-weight: 700;
       color: #1a1a1a;
     }
 
-    .week-section-summary { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    .week-section-daterange {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      font-weight: 400;
+    }
+
+    .week-section-summary { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
 
     .week-section-summary span { font-size: 0.8125rem; color: #666; }
+
+    /* ── Skeleton loading ── */
+    .skeleton-list { padding: 0; }
+
+    .skeleton-row {
+      height: 68px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.4s infinite;
+      margin-bottom: 0.5rem;
+    }
+
+    @keyframes skeleton-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
 
     /* ── Workout row ── */
     .workout-row {
@@ -460,8 +489,7 @@
 
   <!-- Workout list -->
   <div id="workout-list">
-    <p class="loading-msg">Loading…</p>
-    <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one or sync Strava</p>
+    <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one.</p>
   </div>
 
   <script src="js/mock-data.js"></script>
