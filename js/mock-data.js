@@ -109,7 +109,8 @@ const _MOCK_DAILY_RAW = (() => {
       readiness: gap ? null : Math.max(30, Math.min(95, Math.round(62 + 18 * Math.sin(i * 0.14) + (i % 7) * 1.2))),
       hrv:       gap ? null : Math.max(25, Math.min(70, Math.round(44 + 9  * Math.sin(i * 0.11) + (i % 5)))),
       rhr:       gap ? null : Math.max(44, Math.min(74, Math.round(59 - 7  * Math.sin(i * 0.11) - (i % 4)))),
-      sleep:     gap ? null : Math.round(Math.max(4.5, Math.min(9.5, 6.9 + 1.1 * Math.sin(i * 0.19))) * 10) / 10,
+      sleep:         gap ? null : Math.round(Math.max(4.5, Math.min(9.5, 6.9 + 1.1 * Math.sin(i * 0.19))) * 10) / 10,
+      sleep_quality: gap ? null : Math.max(1, Math.min(5, Math.round(3 + 1.5 * Math.sin(i * 0.19)))),
       energy:    gap ? null : Math.max(1, Math.min(5, Math.round(3 + 1.5 * Math.sin(i * 0.16)))),
       mood:      gap ? null : Math.max(1, Math.min(5, Math.round(3.2 + 1.3 * Math.sin(i * 0.21)))),
     };
@@ -258,7 +259,8 @@ function mockGetTrendsSummary(params) {
     },
     sleep: {
       avg: _safeAvg(vals(dates, 'sleep')),
-      series: series('sleep'), delta: delta('sleep'),
+      series: dates.map(d => ({ date: d, value: raw(d, 'sleep'), quality: raw(d, 'sleep_quality') })),
+      delta: delta('sleep'),
     },
     energy: {
       avg: _safeAvg(vals(dates, 'energy')),
