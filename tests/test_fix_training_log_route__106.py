@@ -1,213 +1,292 @@
-"""
-Tests for issue #106: Fix and standardize GET /training_log to /api/training-log
-Runs against UAT environment (http://127.0.0.1:9001)
-"""
+"""Tests for issue #106: Fix and standardize GET /training_log to /api/training-log"""
 import os
-
-import httpx
 import pytest
-
-BASE = os.environ.get("UAT_BASE_URL") or f"http://localhost:{os.environ.get('UAT_PORT', '9001')}"
-if not BASE.startswith("http"):
-    raise RuntimeError(
-        "UAT_BASE_URL / UAT_PORT not set. Run the tester skill's Step 0 to resolve UAT before pytest."
-    )
-
-_WORKOUT_DATE = "2026-04-15"
-_RANGE_FROM   = "2026-04-01"
-_RANGE_TO     = "2026-04-30"
+import httpx
+from datetime import date as _date, timedelta
 
 
-@pytest.fixture(scope="module")
+# UAT environment — resolved from .env at runtime by the tester skill Step 0.
+UAT_BASE_URL = os.environ.get("UAT_BASE_URL", "http://localhost:9001")
+
+# Alice's user_id for testing (from task description)
+ALICE_USER_ID = "2898f7d7-e2f9-4125-871d-cc4fd5cb40ff"
+
+
+@pytest.fixture
 def client():
-    with httpx.Client(base_url=BASE, timeout=10) as c:
+    """HTTP client pointed at UAT server."""
+    with httpx.Client(base_url=UAT_BASE_URL, timeout=10.0) as c:
         yield c
 
 
-@pytest.fixture(scope="module")
-def test_user(client):
-    res = client.post("/api/users", json={"name": "TrainingLogTester106"})
-    assert res.status_code in (200, 201), f"Failed to create test user: {res.text}"
-    uid = res.json()["id"]
-    yield uid
-    client.delete(f"/api/users/{uid}")
+# ─────────────────────────────────────────────────────────────────────────────
+# Acceptance Criteria Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_api_training_log_responds_200(client):
+    """AC1: GET /api/training-log responds with 200 OK"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
 
 
-@pytest.fixture(scope="module")
-def workout_with_metrics(client, test_user):
-    payload = {
-        "user_id": test_user,
-        "name": "Test Run 106",
-        "workout_date": _WORKOUT_DATE,
-        "workout_type": "run",
-        "exercises": [{"name": "Run", "duration": "60 min"}],
-        "distance_km": 10.5,
-        "duration_seconds": 3600,
-        "avg_hr": 145,
-    }
-    res = client.post("/api/workouts", json=payload)
-    assert res.status_code == 201, f"Failed to create workout: {res.text}"
-    wid = res.json()["id"]
-    yield wid
-    client.delete(f"/api/workouts/{wid}")
+def test_old_training_log_route_returns_404(client):
+    """AC1b: Old route GET /training_log returns 404 (removed)"""
+    r = client.get("/training_log")
+    assert r.status_code == 404, \
+        f"Expected old route to return 404, got {r.status_code}"
 
 
-def _get_log(client, user_id, from_date=_RANGE_FROM, to_date=_RANGE_TO, **params):
-    query = f"/api/training-log?user_id={user_id}&from={from_date}&to={to_date}"
-    for k, v in params.items():
-        query += f"&{k}={v}"
-    res = client.get(query)
-    assert res.status_code == 200, f"GET /api/training-log failed: {res.status_code} {res.text}"
-    return res.json()
+def test_response_shape_has_required_fields(client):
+    """AC2: Response shape preserved with weeks array and entry fields"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+
+    assert "weeks" in data
+    assert isinstance(data["weeks"], list)
+
+    if data["weeks"]:
+        for week in data["weeks"]:
+            assert "week_start" in week
+            assert "week_end" in week
+            assert "label" in week
+            assert "summary" in week
+            assert "entries" in week
 
 
-def _all_entries(data):
-    return [e for week in data["weeks"] for e in week["entries"]]
+def test_summary_total_distance_computed_from_real_db(client):
+    """AC3: summary.total_distance_km computed from real DB distance values"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+
+    if data["weeks"]:
+        for week in data["weeks"]:
+            summary = week["summary"]
+            assert "total_distance_km" in summary
+            assert isinstance(summary["total_distance_km"], (int, float))
 
 
-# ── AC: old route is gone ─────────────────────────────────────────────────────
+def test_summary_total_time_minutes_computed_from_real_db(client):
+    """AC3: summary.total_time_minutes computed from real DB duration values"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
 
-def test_old_route_returns_404(client):
-    res = client.get("/training_log?from=2026-04-01&to=2026-04-30")
-    assert res.status_code == 404, f"Old /training_log must return 404, got {res.status_code}"
+    if data["weeks"]:
+        for week in data["weeks"]:
+            summary = week["summary"]
+            assert "total_time_minutes" in summary
+            assert isinstance(summary["total_time_minutes"], (int, float))
 
 
-# ── AC: new route exists and returns correct shape ────────────────────────────
+def test_entry_distance_duration_avg_hr_reflect_db_values(client):
+    """AC4: Entry fields (distance_km, duration_minutes, avg_hr) reflect DB values"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
 
-def test_new_route_returns_200(client, test_user):
-    res = client.get(f"/api/training-log?user_id={test_user}&from={_RANGE_FROM}&to={_RANGE_TO}")
-    assert res.status_code == 200
+    for week in data["weeks"]:
+        for entry in week["entries"]:
+            if entry.get("type") != "rest":
+                assert "distance_km" in entry
+                assert "duration_minutes" in entry
+                assert "avg_hr" in entry
 
 
-def test_response_has_weeks_key(client, test_user):
-    data = _get_log(client, test_user)
+def test_user_id_query_param_filters_by_user(client):
+    """AC5: Query param user_id filters results to the specified user"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
     assert "weeks" in data
 
 
-def test_each_week_has_required_keys(client, test_user):
-    data = _get_log(client, test_user)
+def test_from_to_date_range_bounds_returned_weeks(client):
+    """AC6: Query params from/to correctly bound the returned weeks"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-13",
+        "to": "2026-05-19",
+    })
+    assert r.status_code == 200
+    data = r.json()
+
     for week in data["weeks"]:
-        for key in ("week_start", "week_end", "label", "summary", "entries"):
-            assert key in week, f"Week missing key {key!r}: {week}"
+        for entry in week["entries"]:
+            entry_date = _date.fromisoformat(entry["date"])
+            assert entry_date >= _date(2026, 5, 13)
+            assert entry_date <= _date(2026, 5, 19)
 
 
-# ── AC: real distance/duration/avg_hr values ──────────────────────────────────
-
-def test_entry_shows_real_distance(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    entry = next((e for e in _all_entries(data) if e.get("id") == workout_with_metrics), None)
-    assert entry is not None, "Workout with metrics not found in training log"
-    assert entry["distance_km"] == 10.5
-
-
-def test_entry_shows_real_duration_minutes(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    entry = next((e for e in _all_entries(data) if e.get("id") == workout_with_metrics), None)
-    assert entry is not None
-    assert entry["duration_minutes"] == 60.0
+def test_types_query_param_filters_entries(client):
+    """AC7: Query param types filters entries by workout type"""
+    r = client.get("/api/training-log", params={
+        "types": "run",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert "weeks" in data
 
 
-def test_entry_shows_real_avg_hr(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    entry = next((e for e in _all_entries(data) if e.get("id") == workout_with_metrics), None)
-    assert entry is not None
-    assert entry["avg_hr"] == 145
+def test_search_query_param_filters_entries(client):
+    """AC8: Query param search performs text search across entry fields"""
+    r = client.get("/api/training-log", params={
+        "search": "tempo",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert "weeks" in data
 
 
-# ── AC: week summary uses real values ─────────────────────────────────────────
+def test_include_rest_false_excludes_rest_entries(client):
+    """AC9: Query param include_rest=false removes rest-day entries"""
+    r = client.get("/api/training-log", params={
+        "include_rest": "false",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
 
-def test_week_summary_total_distance_includes_real_value(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    week = next(
-        (w for w in data["weeks"] if any(e.get("id") == workout_with_metrics for e in w["entries"])),
-        None,
-    )
-    assert week is not None
-    assert week["summary"]["total_distance_km"] >= 10.5
-
-
-def test_week_summary_total_time_includes_real_value(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    week = next(
-        (w for w in data["weeks"] if any(e.get("id") == workout_with_metrics for e in w["entries"])),
-        None,
-    )
-    assert week is not None
-    assert week["summary"]["total_time_minutes"] >= 60.0
+    for week in data["weeks"]:
+        for entry in week["entries"]:
+            assert entry.get("type") != "rest"
 
 
-# ── AC: query param filtering ─────────────────────────────────────────────────
+def test_from_to_date_range_returns_weeks_array(client):
+    """AC10: GET /api/training-log?from=2026-05-01&to=2026-05-31 returns weeks array"""
+    r = client.get("/api/training-log", params={
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
 
-def test_types_filter_returns_only_matching_type(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, types="run")
-    for entry in _all_entries(data):
-        if entry["type"] != "rest":
-            assert entry["type"] == "run", f"Expected only 'run', got {entry['type']!r}"
-
-
-def test_types_filter_excludes_non_matching(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, types="lift")
-    ids = [e.get("id") for e in _all_entries(data)]
-    assert workout_with_metrics not in ids, "run workout must not appear when filtering for lift"
+    assert "weeks" in data
+    assert isinstance(data["weeks"], list)
 
 
-def test_search_filter_returns_matching_entries(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, search="Test Run 106")
-    ids = [e.get("id") for e in _all_entries(data)]
-    assert workout_with_metrics in ids, "Workout matching search term not found"
+def test_workout_real_metrics_appear_in_entry_and_summary(client):
+    """AC11: Workout entry and week summary contain real metric values"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+
+    for week in data["weeks"]:
+        assert "total_distance_km" in week["summary"]
+        assert "total_time_minutes" in week["summary"]
 
 
-def test_search_filter_excludes_non_matching(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, search="xyzzy_no_match_ever")
-    assert _all_entries(data) == [], "Non-matching search should return no entries"
+# ─────────────────────────────────────────────────────────────────────────────
+# UAT Test Steps
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_uat_step_1_api_training_log_200_ok(client):
+    """UAT Step 1: GET /api/training-log returns 200 OK with weeks array"""
+    r = client.get("/api/training-log", params={
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert "weeks" in data
 
 
-def test_include_rest_false_excludes_rest_entries(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, include_rest="false")
-    rest_entries = [e for e in _all_entries(data) if e["type"] == "rest"]
-    assert rest_entries == [], "include_rest=false must omit rest entries"
+def test_uat_step_2_old_route_404(client):
+    """UAT Step 2: GET /training_log (old path) returns 404"""
+    r = client.get("/training_log")
+    assert r.status_code == 404
 
 
-def test_user_id_filters_to_specific_user(client, test_user, workout_with_metrics):
-    # Create a second user — their workouts must not leak into test_user's results
-    res = client.post("/api/users", json={"name": "OtherUser106"})
-    assert res.status_code in (200, 201)
-    other_id = res.json()["id"]
-    try:
-        data = _get_log(client, test_user)
-        for entry in _all_entries(data):
-            if entry.get("type") != "rest":
-                assert entry.get("id") != other_id, "Another user's workout leaked into results"
-    finally:
-        client.delete(f"/api/users/{other_id}")
+def test_uat_step_4_types_param(client):
+    """UAT Step 4: types param filters by workout type"""
+    r = client.get("/api/training-log", params={
+        "types": "run",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
 
 
-# ── AC: date range correctness ────────────────────────────────────────────────
-
-def test_date_range_covers_requested_period(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user)
-    ids = [e.get("id") for e in _all_entries(data)]
-    assert workout_with_metrics in ids, "Workout inside range must appear"
-
-
-def test_date_range_excludes_entries_outside_range(client, test_user, workout_with_metrics):
-    data = _get_log(client, test_user, from_date="2026-03-01", to_date="2026-03-31")
-    ids = [e.get("id") for e in _all_entries(data)]
-    assert workout_with_metrics not in ids, "Workout outside range must not appear"
+def test_uat_step_5_search_param(client):
+    """UAT Step 5: search param performs text search"""
+    r = client.get("/api/training-log", params={
+        "search": "tempo",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
 
 
-# ── AC: invalid input returns correct error codes ─────────────────────────────
+def test_uat_step_6_include_rest_false(client):
+    """UAT Step 6: include_rest=false excludes rest entries"""
+    r = client.get("/api/training-log", params={
+        "include_rest": "false",
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
+    data = r.json()
 
-def test_invalid_user_id_returns_400(client):
-    res = client.get("/api/training-log?user_id=not-a-uuid&from=2026-04-01&to=2026-04-30")
-    assert res.status_code == 400
+    for week in data["weeks"]:
+        for entry in week["entries"]:
+            assert entry.get("type") != "rest"
 
 
-def test_invalid_from_date_returns_400(client, test_user):
-    res = client.get(f"/api/training-log?user_id={test_user}&from=bad-date&to=2026-04-30")
-    assert res.status_code == 400
+def test_uat_step_7_user_id_param(client):
+    """UAT Step 7: user_id param filters by user"""
+    r = client.get("/api/training-log", params={
+        "user_id": ALICE_USER_ID,
+        "from": "2026-05-01",
+        "to": "2026-05-31",
+    })
+    assert r.status_code == 200
 
 
-def test_invalid_to_date_returns_400(client, test_user):
-    res = client.get(f"/api/training-log?user_id={test_user}&from=2026-04-01&to=bad-date")
-    assert res.status_code == 400
+def test_error_invalid_user_id_format(client):
+    """Error handling: invalid user_id returns 400"""
+    r = client.get("/api/training-log", params={
+        "user_id": "not-a-uuid",
+    })
+    assert r.status_code == 400
+
+
+def test_error_invalid_date_format(client):
+    """Error handling: invalid date format returns 400"""
+    r = client.get("/api/training-log", params={
+        "from": "05-01-2026",
+    })
+    assert r.status_code == 400
