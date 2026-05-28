@@ -553,6 +553,135 @@ def calendar_page():
     return FileResponse(str(_static_root / "calendar.html"))
 
 
+@app.get("/api/calendar/month")
+def get_calendar_month(
+    user_id: str,
+    year: int = Query(...),
+    month: int = Query(...),
+):
+    """Return per-day calendar data for the given month.
+
+    Response shape: a list of objects, one per calendar day in the month:
+      {
+        date: "YYYY-MM-DD",
+        weight: float | null,
+        habits_done: int,
+        workouts: int,
+        energy: int | null,        # 1–5
+        sleep_quality: int | null  # 1–5
+      }
+    """
+    from datetime import date as _date, timedelta
+    import calendar as _cal
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="month must be 1–12")
+
+    days_in_month = _cal.monthrange(year, month)[1]
+    from_d = _date(year, month, 1)
+    to_d = _date(year, month, days_in_month)
+
+    with Session(engine) as session:
+        # Weight entries
+        weight_rows = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.recorded_date >= from_d,
+                WeightEntry.recorded_date <= to_d,
+            )
+            .all()
+        )
+        weight_by_date = {str(w.recorded_date): float(w.weight_kg) for w in weight_rows}
+
+        # Habit log counts per date
+        log_rows = (
+            session.query(HabitLog.logged_date)
+            .filter(
+                HabitLog.user_id == uid,
+                HabitLog.logged_date >= from_d,
+                HabitLog.logged_date <= to_d,
+            )
+            .all()
+        )
+        habits_by_date: dict = {}
+        for (ld,) in log_rows:
+            key = str(ld)
+            habits_by_date[key] = habits_by_date.get(key, 0) + 1
+
+        # Workout counts per date
+        workout_rows = (
+            session.query(Workout.workout_date)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .all()
+        )
+        workouts_by_date: dict = {}
+        for (wd,) in workout_rows:
+            key = str(wd)
+            workouts_by_date[key] = workouts_by_date.get(key, 0) + 1
+
+        # Daily metrics (energy + sleep_quality)
+        metric_rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+        metrics_by_date: dict = {}
+        for m in metric_rows:
+            metrics_by_date[str(m.metric_date)] = {
+                "energy": m.energy,
+                "sleep_quality": m.sleep_quality,
+            }
+
+    days = []
+    for day in range(1, days_in_month + 1):
+        d = str(_date(year, month, day))
+        m = metrics_by_date.get(d, {})
+        days.append({
+            "date": d,
+            "weight": weight_by_date.get(d),
+            "habits_done": habits_by_date.get(d, 0),
+            "workouts": workouts_by_date.get(d, 0),
+            "energy": m.get("energy"),
+            "sleep_quality": m.get("sleep_quality"),
+        })
+
+    return JSONResponse(days)
+
+
+@app.get("/log.html")
+def log_page():
+    return FileResponse(str(_static_root / "log.html"))
+
+
+@app.get("/log")
+def log_redirect():
+    return FileResponse(str(_static_root / "log.html"))
+
+
+@app.get("/trends.html")
+def trends_page():
+    return FileResponse(str(_static_root / "trends.html"))
+
+
+@app.get("/trends")
+def trends_redirect():
+    return FileResponse(str(_static_root / "trends.html"))
+
+
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
@@ -1216,6 +1345,47 @@ def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
         return JSONResponse(_daily_metric_dict(row))
 
 
+@app.get("/api/daily-metrics/trend")
+def get_daily_metrics_trend(
+    user_id: str,
+    days: int = Query(default=7, ge=1, le=90),
+):
+    from datetime import timedelta
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    window_start = today - timedelta(days=days - 1)
+
+    with Session(engine) as session:
+        rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= window_start,
+                DailyMetric.metric_date <= today,
+            )
+            .all()
+        )
+        by_date = {str(r.metric_date): r for r in rows}
+
+        result = []
+        for i in range(days):
+            d = window_start + timedelta(days=i)
+            d_str = str(d)
+            r = by_date.get(d_str)
+            result.append({
+                "date": d_str,
+                "sleep_hours": float(r.sleep_hours) if r and r.sleep_hours is not None else None,
+                "energy": r.energy if r else None,
+                "mood": r.mood if r else None,
+            })
+
+        return JSONResponse(result)
+
+
 @app.delete("/api/daily-metrics/{user_id}/{metric_date}", status_code=204)
 def delete_daily_metric(user_id: str, metric_date: str):
     try:
@@ -1237,3 +1407,565 @@ def delete_daily_metric(user_id: str, metric_date: str):
         session.delete(row)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Trends summary endpoint ────────────────────────────────────────────────────
+
+def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
+    """0-100 readiness score computed from available daily metric fields."""
+    components = []
+    if hrv is not None:
+        # HRV: typical 20-100 ms → map to 0-100
+        components.append(min(100.0, max(0.0, (float(hrv) - 20.0) / 80.0 * 100.0)))
+    if resting_hr is not None:
+        # RHR: lower is better; 40 bpm → 100, 90 bpm → 0
+        components.append(max(0.0, min(100.0, (90.0 - float(resting_hr)) * 2.0)))
+    if sleep_hours is not None:
+        # sleep: 4 h → 0, 9 h → 100
+        components.append(max(0.0, min(100.0, (float(sleep_hours) - 4.0) / 5.0 * 100.0)))
+    if sleep_quality is not None:
+        components.append((float(sleep_quality) - 1.0) / 4.0 * 100.0)
+    if energy is not None:
+        components.append((float(energy) - 1.0) / 4.0 * 100.0)
+    if mood is not None:
+        components.append((float(mood) - 1.0) / 4.0 * 100.0)
+    if not components:
+        return None
+    return round(sum(components) / len(components))
+
+
+def _agg_stats(values):
+    non_null = [v for v in values if v is not None]
+    if not non_null:
+        return None, None, None
+    return round(sum(non_null) / len(non_null), 1), min(non_null), max(non_null)
+
+
+def _delta_int(curr, prev):
+    if curr is None or prev is None:
+        return None
+    diff = round(curr - prev)
+    return f"+{diff}" if diff >= 0 else str(diff)
+
+
+def _delta_hours(curr, prev):
+    if curr is None or prev is None:
+        return None
+    diff = curr - prev
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:.1f}h"
+
+
+def _delta_decimal(curr, prev, places=1):
+    if curr is None or prev is None:
+        return None
+    diff = curr - prev
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:.{places}f}"
+
+
+def _delta_pct(curr, prev):
+    if curr is None or prev is None or prev == 0:
+        return None
+    pct = round((curr - prev) / prev * 100)
+    return f"+{pct}%" if pct >= 0 else f"{pct}%"
+
+
+@app.get("/trends/summary")
+def get_trends_summary(
+    user_id: str,
+    range_preset: Optional[str] = Query(default=None, alias="range"),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    from datetime import timedelta
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+
+    if from_date and to_date:
+        try:
+            from_d = _date.fromisoformat(from_date)
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+        if from_d > to_d:
+            raise HTTPException(status_code=400, detail="from must be before to")
+    elif range_preset:
+        if range_preset not in ("7d", "30d", "90d"):
+            raise HTTPException(status_code=400, detail="range must be 7d, 30d, or 90d")
+        n = int(range_preset[:-1])
+        to_d = today
+        from_d = today - timedelta(days=n - 1)
+    else:
+        to_d = today
+        from_d = today - timedelta(days=29)
+
+    days_count = (to_d - from_d).days + 1
+    prev_to_d = from_d - timedelta(days=1)
+    prev_from_d = prev_to_d - timedelta(days=days_count - 1)
+
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+        by_date = {str(m.metric_date): m for m in metrics}
+
+        prev_metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= prev_from_d,
+                DailyMetric.metric_date <= prev_to_d,
+            )
+            .all()
+        )
+        prev_by_date = {str(m.metric_date): m for m in prev_metrics}
+
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+                Workout.tss.isnot(None),
+            )
+            .all()
+        )
+        tss_by_date: dict = {}
+        for w in workouts:
+            d = str(w.workout_date)
+            tss_by_date[d] = tss_by_date.get(d, 0.0) + (w.tss or 0.0)
+
+        prev_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_from_d,
+                Workout.workout_date <= prev_to_d,
+                Workout.tss.isnot(None),
+            )
+            .all()
+        )
+        prev_tss_by_date: dict = {}
+        for w in prev_workouts:
+            d = str(w.workout_date)
+            prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
+
+        baseline_from_d = to_d - timedelta(days=29)
+        baseline_metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+
+    baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
+    baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
+
+    def _baseline_stats(vals):
+        if not vals:
+            return None, None
+        mean = sum(vals) / len(vals)
+        sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+        return round(mean, 1), round(sd, 1)
+
+    hrv_baseline_mean, hrv_baseline_sd = _baseline_stats(baseline_hrv_vals)
+    rhr_baseline_mean, rhr_baseline_sd = _baseline_stats(baseline_rhr_vals)
+    hrv_is_approx = len(baseline_hrv_vals) < 30
+    rhr_is_approx = len(baseline_rhr_vals) < 30
+
+    def _date_range(start, end):
+        dates = []
+        cur = start
+        while cur <= end:
+            dates.append(str(cur))
+            cur += timedelta(days=1)
+        return dates
+
+    all_dates = _date_range(from_d, to_d)
+    prev_dates = _date_range(prev_from_d, prev_to_d)
+
+    readiness_series, hrv_series, rhr_series, sleep_series, energy_series, mood_series, tss_series = [], [], [], [], [], [], []
+
+    for d in all_dates:
+        m = by_date.get(d)
+        sh = float(m.sleep_hours) if m and m.sleep_hours is not None else None
+        readiness_series.append({"date": d, "score": _compute_readiness(
+            m.hrv if m else None, m.resting_hr if m else None, sh,
+            m.sleep_quality if m else None, m.energy if m else None, m.mood if m else None,
+        )})
+        hrv_series.append({"date": d, "value": m.hrv if m else None})
+        rhr_series.append({"date": d, "value": m.resting_hr if m else None})
+        sleep_series.append({"date": d, "hours": sh, "quality": m.sleep_quality if m else None})
+        energy_series.append({"date": d, "value": m.energy if m else None})
+        mood_series.append({"date": d, "value": m.mood if m else None})
+        tss_val = tss_by_date.get(d)
+        tss_series.append({"date": d, "value": round(tss_val, 1) if tss_val is not None else None})
+
+    r_avg, r_min, r_max = _agg_stats([s["score"] for s in readiness_series])
+    hrv_avg, hrv_min, hrv_max = _agg_stats([s["value"] for s in hrv_series])
+    rhr_avg, rhr_min, rhr_max = _agg_stats([s["value"] for s in rhr_series])
+    sleep_avg, sleep_min, sleep_max = _agg_stats([s["hours"] for s in sleep_series])
+    energy_avg, energy_min, energy_max = _agg_stats([s["value"] for s in energy_series])
+    mood_avg, mood_min, mood_max = _agg_stats([s["value"] for s in mood_series])
+    tss_vals = [s["value"] for s in tss_series if s["value"] is not None]
+    tss_avg = round(sum(tss_vals) / len(tss_vals), 1) if tss_vals else None
+    tss_total = round(sum(tss_vals), 1) if tss_vals else None
+
+    def _prev_metric_avg(field):
+        vals = [float(getattr(m, field)) for d in prev_dates if (m := prev_by_date.get(d)) and getattr(m, field) is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def _prev_readiness_avg():
+        vals = []
+        for d in prev_dates:
+            m = prev_by_date.get(d)
+            if not m:
+                continue
+            sh = float(m.sleep_hours) if m.sleep_hours is not None else None
+            r = _compute_readiness(m.hrv, m.resting_hr, sh, m.sleep_quality, m.energy, m.mood)
+            if r is not None:
+                vals.append(r)
+        return sum(vals) / len(vals) if vals else None
+
+    prev_tss_vals = [prev_tss_by_date[d] for d in prev_dates if d in prev_tss_by_date]
+    prev_tss_avg = sum(prev_tss_vals) / len(prev_tss_vals) if prev_tss_vals else None
+
+    prev_r_avg = _prev_readiness_avg()
+
+    return JSONResponse({
+        "range": {"from": str(from_d), "to": str(to_d), "days": days_count},
+        "readiness": {"series": readiness_series, "avg": r_avg, "min": r_min, "max": r_max},
+        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max,
+                "baseline_mean": hrv_baseline_mean, "baseline_sd": hrv_baseline_sd, "is_approximate": hrv_is_approx},
+        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max,
+                "baseline_mean": rhr_baseline_mean, "baseline_sd": rhr_baseline_sd, "is_approximate": rhr_is_approx},
+        "sleep": {"series": sleep_series, "avg_hours": sleep_avg, "min_hours": sleep_min, "max_hours": sleep_max},
+        "energy": {"series": energy_series, "avg": energy_avg, "min": energy_min, "max": energy_max},
+        "mood": {"series": mood_series, "avg": mood_avg, "min": mood_min, "max": mood_max},
+        "tss": {"series": tss_series, "avg": tss_avg, "total": tss_total},
+        "deltas": {
+            "readiness": _delta_int(r_avg, prev_r_avg),
+            "hrv": _delta_int(hrv_avg, _prev_metric_avg("hrv")),
+            "rhr": _delta_int(rhr_avg, _prev_metric_avg("resting_hr")),
+            "sleep": _delta_hours(sleep_avg, _prev_metric_avg("sleep_hours")),
+            "energy": _delta_decimal(energy_avg, _prev_metric_avg("energy")),
+            "mood": _delta_decimal(mood_avg, _prev_metric_avg("mood")),
+            "tss": _delta_pct(tss_avg, prev_tss_avg),
+        },
+    })
+
+
+# ── Readiness compute endpoint ────────────────────────────────────────────────
+
+@app.post("/api/readiness/compute", status_code=200)
+def compute_readiness_score(
+    user_id: str = Query(...),
+    date: Optional[str] = Query(default=None),
+):
+    """
+    Trigger readiness computation for a user on a given date (defaults to today).
+    Idempotent: existing rows are upserted with freshly computed values.
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    target_date = _date.today()
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+
+    from services.readiness.job import compute_and_store
+    row = compute_and_store(str(uid), target_date)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No daily_metrics row found for this user on this date",
+        )
+    return JSONResponse(row)
+
+
+# ── Readiness GET endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/readiness/today")
+def get_readiness_today(user_id: str = Query(...)):
+    """
+    Return today's readiness record for a user.
+
+    Response shape:
+      { date, score, missing_data: { hrv, rhr, sleep, energy },
+        hrv_contribution, rhr_contribution, sleep_contribution, energy_contribution }
+
+    Returns 404 when no readiness row exists for today (card falls back to mock data).
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        row = session.execute(
+            _text(
+                "SELECT dr.date, dr.score, dr.components, "
+                "       dm.hrv, dm.resting_hr, dm.sleep_quality, dm.energy "
+                "FROM daily_readiness dr "
+                "LEFT JOIN daily_metrics dm ON dm.id = dr.daily_metric_id "
+                "WHERE dr.user_id = :uid AND dr.date = :d"
+            ),
+            {"uid": str(uid), "d": str(today)},
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No readiness record for today")
+
+    comp = row.components or {}
+    return JSONResponse({
+        "date": str(row.date),
+        "score": float(row.score),
+        "hrv_contribution": comp.get("hrv_contribution"),
+        "rhr_contribution": comp.get("rhr_contribution"),
+        "sleep_contribution": comp.get("sleep_contribution"),
+        "energy_contribution": comp.get("energy_contribution"),
+        "missing_data": {
+            "hrv": row.hrv is None,
+            "rhr": row.resting_hr is None,
+            "sleep": row.sleep_quality is None,
+            "energy": row.energy is None,
+        },
+    })
+
+
+@app.get("/api/readiness")
+def get_readiness_range(
+    user_id: str = Query(...),
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+):
+    """
+    Return daily readiness scores for a date range (one entry per day, null if missing).
+
+    Response: list of { date, score } or null per day in [from, to].
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        d_from = _date.fromisoformat(from_date)
+        d_to = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+
+    if d_from > d_to:
+        raise HTTPException(status_code=400, detail="from must be <= to")
+
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        rows = session.execute(
+            _text(
+                "SELECT date, score FROM daily_readiness "
+                "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
+                "ORDER BY date"
+            ),
+            {"uid": str(uid), "from_d": str(d_from), "to_d": str(d_to)},
+        ).fetchall()
+
+    by_date = {str(r.date): float(r.score) for r in rows}
+
+    result = []
+    d = d_from
+    from datetime import timedelta
+    while d <= d_to:
+        ds = str(d)
+        if ds in by_date:
+            result.append({"date": ds, "score": by_date[ds]})
+        else:
+            result.append(None)
+        d += timedelta(days=1)
+
+    return JSONResponse(result)
+
+
+# ── Training Log endpoint ─────────────────────────────────────────────────────
+
+def _week_key_and_bounds(date_obj):
+    from datetime import timedelta
+    dow = date_obj.weekday()  # 0=Mon
+    mon = date_obj - timedelta(days=dow)
+    sun = mon + timedelta(days=6)
+    return str(mon), str(sun)
+
+
+def _week_label(mon_key: str) -> str:
+    from datetime import date as _d2, timedelta
+    today = _d2.today()
+    this_mon = today - timedelta(days=today.weekday())
+    mon = _d2.fromisoformat(mon_key)
+    if mon == this_mon:
+        return "This week"
+    sun = mon + timedelta(days=6)
+    return mon.strftime("%b %-d") + " – " + str(sun.day)
+
+
+def _metric_has_data(m: DailyMetric) -> bool:
+    return any(
+        v is not None
+        for v in (m.energy, m.mood, m.resting_hr, m.hrv, m.sleep_hours, m.sleep_quality, m.notes)
+    )
+
+
+@app.get("/training_log")
+def get_training_log(
+    user_id: Optional[str] = Query(default=None),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    include_rest: bool = Query(default=True),
+):
+    from datetime import timedelta
+    today = _date.today()
+
+    uid = None
+    if user_id:
+        try:
+            uid = _uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d = today - timedelta(days=29) if from_date is None else None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid from date; use YYYY-MM-DD")
+
+    to_d = today if to_date is None else None
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        from sqlalchemy import or_
+        q = session.query(Workout).filter(
+            Workout.workout_date >= from_d,
+            Workout.workout_date <= to_d,
+        )
+        if uid is not None:
+            q = q.filter(Workout.user_id == uid)
+        if types and types != "all":
+            q = q.filter(Workout.workout_type.ilike(types))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
+        workouts = q.order_by(Workout.workout_date.desc(), Workout.created_at.desc()).all()
+
+        workout_dates = {str(w.workout_date) for w in workouts}
+
+        rest_entries: list = []
+        if include_rest and (not types or types == "all") and not search:
+            mq = session.query(DailyMetric).filter(
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            if uid is not None:
+                mq = mq.filter(DailyMetric.user_id == uid)
+            metrics = mq.all()
+            for m in metrics:
+                if str(m.metric_date) not in workout_dates and _metric_has_data(m):
+                    rest_entries.append({
+                        "date": str(m.metric_date),
+                        "type": "rest",
+                        "metrics": {
+                            "energy": m.energy,
+                            "mood": m.mood,
+                            "sleep_quality": m.sleep_quality,
+                            "sleep_hours": float(m.sleep_hours) if m.sleep_hours is not None else None,
+                            "resting_hr": m.resting_hr,
+                            "hrv": m.hrv,
+                            "notes": m.notes,
+                        },
+                    })
+
+    workout_entries = [
+        {
+            "date": str(w.workout_date),
+            "type": w.workout_type,
+            "id": str(w.id),
+            "title": w.name,
+            "duration_minutes": None,
+            "distance_km": None,
+            "weight_context": w.remarks,
+            "avg_hr": None,
+            "tss": float(w.tss) if w.tss is not None else None,
+            "source": w.tss_source or "manual",
+            "notes": w.remarks or "",
+        }
+        for w in workouts
+    ]
+
+    all_entries = workout_entries + rest_entries
+    all_entries.sort(key=lambda e: e["date"], reverse=True)
+
+    weeks_map: dict = {}
+    week_order: list = []
+
+    for entry in all_entries:
+        d_obj = _date.fromisoformat(entry["date"])
+        mon_key, sun_key = _week_key_and_bounds(d_obj)
+        if mon_key not in weeks_map:
+            weeks_map[mon_key] = {
+                "week_start": mon_key,
+                "week_end": sun_key,
+                "label": _week_label(mon_key),
+                "entries": [],
+                "workouts": [],
+            }
+            week_order.append(mon_key)
+        weeks_map[mon_key]["entries"].append(entry)
+        if entry["type"] != "rest":
+            weeks_map[mon_key]["workouts"].append(entry)
+
+    week_order.sort(reverse=True)
+
+    weeks = []
+    for key in week_order:
+        wk = weeks_map[key]
+        ws = wk["workouts"]
+        weeks.append({
+            "week_start": wk["week_start"],
+            "week_end": wk["week_end"],
+            "label": wk["label"],
+            "entries": wk["entries"],
+            "workouts": ws,
+            "summary": {
+                "workout_count": len(ws),
+                "total_distance_km": sum((w.get("distance_km") or 0) for w in ws),
+                "total_tss": sum((w.get("tss") or 0) for w in ws),
+                "total_time_minutes": sum((w.get("duration_minutes") or 0) for w in ws),
+            },
+        })
+
+    return JSONResponse({"weeks": weeks})

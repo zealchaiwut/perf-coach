@@ -449,6 +449,128 @@
     }
   }
 
+  // ── Sleep / Energy / Mood 7-day digest chart ──────────────────────────────
+
+  var trendChart = null;
+
+  async function loadTrendChart(userId) {
+    var body = document.getElementById('section-trend-body');
+    if (!body) return;
+    try {
+      var res = await fetch(
+        '/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'
+      );
+      if (!res.ok) throw new Error('server error');
+      var summary = await res.json();
+
+      var labels = summary.sleep.series.map(function (d) {
+        var dt = new Date(d.date + 'T00:00:00');
+        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      });
+      var sleepData = summary.sleep.series.map(function (d) { return d.hours; });
+      var energyData = summary.energy.series.map(function (d) { return d.value; });
+      var moodData = summary.mood.series.map(function (d) { return d.value; });
+
+      if (!body.querySelector('#trend-chart')) {
+        body.innerHTML = '<div class="trend-chart-wrap"><canvas id="trend-chart"></canvas></div>';
+      }
+
+      if (trendChart) {
+        trendChart.data.labels = labels;
+        trendChart.data.datasets[0].data = sleepData;
+        trendChart.data.datasets[1].data = energyData;
+        trendChart.data.datasets[2].data = moodData;
+        trendChart.update();
+        return;
+      }
+
+      var ctx = document.getElementById('trend-chart').getContext('2d');
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Sleep (h)',
+              data: sleepData,
+              yAxisID: 'ySleep',
+              borderColor: '#6366f1',
+              backgroundColor: 'rgba(99,102,241,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+            {
+              label: 'Energy',
+              data: energyData,
+              yAxisID: 'yScore',
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+            {
+              label: 'Mood',
+              data: moodData,
+              yAxisID: 'yScore',
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16,185,129,0.08)',
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: false,
+              fill: false,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { font: { size: 11 }, boxWidth: 12, padding: 8 },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { font: { size: 10 }, maxRotation: 0 },
+              grid: { display: false },
+            },
+            ySleep: {
+              type: 'linear',
+              position: 'left',
+              min: 0,
+              max: 12,
+              title: { display: true, text: 'Sleep (h)', font: { size: 10 } },
+              ticks: { font: { size: 10 }, stepSize: 3 },
+              grid: { color: 'rgba(0,0,0,0.06)' },
+            },
+            yScore: {
+              type: 'linear',
+              position: 'right',
+              min: 0,
+              max: 5,
+              title: { display: true, text: '1–5', font: { size: 10 } },
+              ticks: { font: { size: 10 }, stepSize: 1 },
+              grid: { display: false },
+            },
+          },
+          animation: false,
+        },
+      });
+    } catch (e) {
+      body.innerHTML = '<p class="dash-section-empty">Unable to load trend data</p>';
+    }
+  }
+
   // ── Today's check-in card ──────────────────────────────────────────────────
 
   var CHECKIN_COLLAPSE_KEY = 'perf-coach.checkin-collapsed';
@@ -593,6 +715,7 @@
           var mm = String(saved.getMinutes()).padStart(2, '0');
           setCheckinStatus('Saved at ' + hh + ':' + mm, '');
           setTimeout(function () { setCheckinStatus('', ''); }, 3000);
+          loadTrendChart(_checkinUserId);
         } else {
           var errBody;
           try { errBody = await res.json(); } catch (_) { errBody = {}; }
@@ -609,37 +732,746 @@
     });
   }
 
+  // ── Weekly digest card ─────────────────────────────────────────────────────
+
+  function digestCacheKey(userId) {
+    return 'perf-coach.weekly-digest.' + (userId || 'anon');
+  }
+
+  function getDigestCache(userId) {
+    try {
+      var cached = JSON.parse(localStorage.getItem(digestCacheKey(userId)));
+      if (cached && cached.date === todayISO()) return cached.data;
+    } catch (_) {}
+    return null;
+  }
+
+  function setDigestCache(userId, data) {
+    try {
+      localStorage.setItem(digestCacheKey(userId), JSON.stringify({ date: todayISO(), data: data }));
+    } catch (_) {}
+  }
+
+  function _daysWithData(payload) {
+    if (!payload || !payload.readiness || !payload.readiness.series) return 0;
+    var count = 0;
+    payload.readiness.series.forEach(function (s) { if (s.score != null) count++; });
+    return count;
+  }
+
+  function _parseDeltaInt(str) {
+    if (str == null) return null;
+    var n = parseInt(str, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaFloat(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace(/[^0-9.\-+]/g, ''));
+    return isNaN(n) ? null : n;
+  }
+
+  function _parseDeltaPct(str) {
+    if (str == null) return null;
+    var n = parseFloat(String(str).replace('%', ''));
+    return isNaN(n) ? null : n;
+  }
+
+  function _peakTssDay(series) {
+    if (!series || !series.length) return null;
+    var maxVal = -Infinity;
+    var maxDate = null;
+    series.forEach(function (s) {
+      if (s.value != null && s.value > maxVal) { maxVal = s.value; maxDate = s.date; }
+    });
+    if (!maxDate) return null;
+    return new Date(maxDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
+  function _hrvTrailingBelowCount(series, avg) {
+    if (!series || !series.length || avg == null) return 0;
+    var count = 0;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value != null && series[i].value < avg) { count++; } else { break; }
+    }
+    return count;
+  }
+
+  // Minimum absolute delta required before a line is shown
+  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, tss_pct: 15 };
+
+  function buildDigestLines(payload) {
+    var lines = [];
+    var deltas = payload.deltas || {};
+    var d;
+
+    // Avg readiness with week-over-week delta
+    if (payload.readiness && payload.readiness.avg != null) {
+      d = _parseDeltaInt(deltas.readiness);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
+        lines.push('Avg readiness ' + Math.round(payload.readiness.avg) + ' (' + (d > 0 ? '+' : '') + d + ' vs last week)');
+      }
+    }
+
+    // Sleep change in hours ("Sleep up 0.4h" / "Sleep down 0.4h")
+    if (payload.sleep && payload.sleep.avg_hours != null) {
+      d = _parseDeltaFloat(deltas.sleep);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
+        var sleepDir = d > 0 ? 'up' : 'down';
+        lines.push('Sleep ' + sleepDir + ' ' + Math.abs(d).toFixed(1) + 'h');
+      }
+    }
+
+    // TSS % change with peak day called out
+    if (payload.tss && payload.tss.series) {
+      d = _parseDeltaPct(deltas.tss);
+      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss_pct) {
+        var tssDir = d > 0 ? 'up' : 'down';
+        var tssPeak = _peakTssDay(payload.tss.series);
+        var tssLine = 'TSS ' + tssDir + ' ' + Math.abs(Math.round(d)) + '%';
+        if (tssPeak) tssLine += ' — biggest day ' + tssPeak;
+        lines.push(tssLine);
+      }
+    }
+
+    // HRV trending below baseline last N days
+    if (payload.hrv && payload.hrv.avg != null && payload.hrv.series) {
+      d = _parseDeltaInt(deltas.hrv);
+      if (d != null && d <= -DIGEST_MIN_DELTA.hrv) {
+        var belowCount = _hrvTrailingBelowCount(payload.hrv.series, payload.hrv.avg);
+        if (belowCount >= 2) {
+          lines.push('HRV trending below baseline last ' + belowCount + ' day' + (belowCount === 1 ? '' : 's'));
+        }
+      }
+    }
+
+    return lines.slice(0, 5);
+  }
+
+  function renderDigestSection(payload) {
+    var body = document.getElementById('section-digest-body');
+    if (!body) return;
+
+    if (!payload || _daysWithData(payload) < 7) {
+      body.innerHTML = '<p class="digest-empty">Not enough data yet — keep logging.</p>';
+      return;
+    }
+
+    var lines = buildDigestLines(payload);
+
+    if (lines.length === 0) {
+      body.innerHTML = '<p class="digest-empty">No notable changes this week</p>';
+      return;
+    }
+
+    var ul = document.createElement('ul');
+    ul.className = 'digest-lines';
+    lines.forEach(function (text) {
+      var li = document.createElement('li');
+      li.className = 'digest-line';
+      li.textContent = text;
+      ul.appendChild(li);
+    });
+    body.innerHTML = '';
+    body.appendChild(ul);
+  }
+
+  async function loadWeeklyDigestSection(userId) {
+    var cached = getDigestCache(userId);
+    if (cached) {
+      renderDigestSection(cached);
+      return;
+    }
+
+    var data = null;
+    try {
+      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
+      if (!res.ok) throw new Error('server error');
+      data = await res.json();
+    } catch (_) {
+      data = (typeof MOCK_TRENDS_SUMMARY !== 'undefined') ? MOCK_TRENDS_SUMMARY : null;
+    }
+
+    setDigestCache(userId, data);
+    renderDigestSection(data);
+  }
+
+  // ── Readiness card ────────────────────────────────────────────────────────
+
+  var READINESS_THRESHOLDS = { red: 50, amber: 70 };
+
+  var READINESS_LABELS = {
+    green: 'Green - go',
+    amber: 'Amber - moderate',
+    red:   'Red - back off',
+  };
+
+  var READINESS_INTERP = {
+    green: "You're well-recovered and ready to perform.",
+    amber: 'Keep it moderate — listen to your body.',
+    red:   'Your body needs extra recovery today.',
+  };
+
+  var READINESS_COMP_EXPL = {
+    HRV:    'Heart rate variability reflects autonomic recovery.',
+    RHR:    'Elevated resting HR signals residual fatigue.',
+    Sleep:  'Sleep quality and duration drive physical restoration.',
+    Energy: 'Subjective energy level shapes workout quality.',
+  };
+
+  function readinessBand(score) {
+    if (score == null) return 'neutral';
+    if (score < READINESS_THRESHOLDS.red)    return 'red';
+    if (score <= READINESS_THRESHOLDS.amber) return 'amber';
+    return 'green';
+  }
+
+  function fmtAbsDelta(val, unit) {
+    if (val == null) return null;
+    var rounded = Math.round(val * 10) / 10;
+    var sign = rounded >= 0 ? '+' : '';
+    var num = Number.isInteger(rounded) ? rounded : rounded.toFixed(1);
+    return sign + num + (unit ? ' ' + unit : '');
+  }
+
+  function deltaClass(dispDelta) {
+    if (dispDelta == null) return 'neu';
+    if (Math.abs(dispDelta) < 0.5) return 'neu';
+    return dispDelta > 0 ? 'pos' : 'neg';
+  }
+
+  function buildInterpretation(band, components) {
+    var hrv   = components.find(function (c) { return c.key === 'hrv'; });
+    var rhr   = components.find(function (c) { return c.key === 'rhr'; });
+    var sleep = components.find(function (c) { return c.key === 'sleep'; });
+    var en    = components.find(function (c) { return c.key === 'energy'; });
+
+    var hrvD   = hrv   && !hrv.missing   ? hrv.dispDelta   : null;
+    var rhrD   = rhr   && !rhr.missing   ? rhr.dispDelta   : null;
+    var sleepD = sleep && !sleep.missing ? sleep.dispDelta : null;
+    var enD    = en    && !en.missing    ? en.dispDelta    : null;
+
+    if (band === 'green') {
+      if (hrvD   != null && hrvD   >= 5)    return 'HRV is up — autonomic recovery looks strong.';
+      if (sleepD != null && sleepD >= 0.5)  return 'Good sleep last night — body is primed to go.';
+      if (enD    != null && enD    >= 1)    return 'Energy is high — a great time for a quality session.';
+      return "You're well-recovered and ready to perform.";
+    }
+    if (band === 'amber') {
+      if (sleepD != null && sleepD < -0.5)  return 'Sleep was below your average — moderate intensity is wise.';
+      if (rhrD   != null && rhrD   < -1)    return 'Resting HR is slightly elevated — ease into today.';
+      if (hrvD   != null && hrvD   < -3)    return 'HRV is a touch low — a moderate session makes sense.';
+      return 'Keep it moderate — listen to your body today.';
+    }
+    if (band === 'red') {
+      if (hrvD   != null && hrvD   < -8)    return 'HRV is significantly suppressed — prioritise rest today.';
+      if (sleepD != null && sleepD < -1)    return 'Sleep deficit detected — a full rest day is recommended.';
+      if (rhrD   != null && rhrD   < -2)    return 'Resting HR is elevated — your body is still recovering.';
+      return 'Your body needs extra recovery today.';
+    }
+    return '';
+  }
+
+  function applyReadinessCard(readiness, metrics, trends) {
+    var card     = document.getElementById('readiness-card');
+    var scoreEl  = document.getElementById('readiness-score');
+    var pillEl   = document.getElementById('readiness-pill');
+    var interpEl = document.getElementById('readiness-interp');
+    var chipsEl  = document.getElementById('readiness-chips');
+    var bdEl     = document.getElementById('readiness-breakdown');
+    if (!card) return;
+
+    var score = readiness ? Math.round(readiness.score) : null;
+    var band  = readinessBand(score);
+
+    card.classList.remove('readiness-card--green', 'readiness-card--amber', 'readiness-card--red');
+    if (band !== 'neutral') card.classList.add('readiness-card--' + band);
+
+    scoreEl.textContent = score != null ? score : '—';
+    scoreEl.className = 'readiness-score' + (band !== 'neutral' ? ' readiness-score--' + band : '');
+
+    pillEl.textContent = band !== 'neutral' ? READINESS_LABELS[band] : '—';
+    pillEl.className = 'readiness-pill' + (band !== 'neutral' ? ' readiness-pill--' + band : '');
+
+    var missing = (readiness && readiness.missing_data) || {};
+    var todayHrv    = metrics ? metrics.hrv        : null;
+    var todayRhr    = metrics ? metrics.resting_hr : null;
+    var todaySleep  = metrics ? metrics.sleep_hours : null;
+    var todayEnergy = metrics ? metrics.energy      : null;
+    var baseHrv     = trends && trends.hrv    ? trends.hrv.avg         : null;
+    var baseRhr     = trends && trends.rhr    ? trends.rhr.avg         : null;
+    var baseSleep   = trends && trends.sleep  ? trends.sleep.avg_hours : null;
+    var baseEnergy  = trends && trends.energy ? trends.energy.avg      : null;
+
+    function absDelta(a, b) {
+      return (a == null || b == null) ? null : a - b;
+    }
+
+    var components = [
+      {
+        key: 'hrv',    label: 'HRV',    missing: missing.hrv,
+        value: todayHrv,    unit: 'ms',  baseline: baseHrv,    baseUnit: 'ms',
+        deltaUnit: 'ms',
+        rawDelta:  absDelta(todayHrv, baseHrv),
+        dispDelta: absDelta(todayHrv, baseHrv),
+      },
+      {
+        key: 'rhr',    label: 'RHR',    missing: missing.rhr,
+        value: todayRhr,    unit: 'bpm', baseline: baseRhr,    baseUnit: 'bpm',
+        deltaUnit: 'bpm',
+        rawDelta:  absDelta(todayRhr, baseRhr),
+        // lower RHR is better — invert sign for colour class only
+        dispDelta: absDelta(baseRhr, todayRhr),
+      },
+      {
+        key: 'sleep',  label: 'Sleep',  missing: missing.sleep,
+        value: todaySleep,  unit: 'h',   baseline: baseSleep,  baseUnit: 'h',
+        deltaUnit: 'h',
+        rawDelta:  absDelta(todaySleep, baseSleep),
+        dispDelta: absDelta(todaySleep, baseSleep),
+      },
+      {
+        key: 'energy', label: 'Energy', missing: missing.energy,
+        value: todayEnergy, unit: '/5',  baseline: baseEnergy, baseUnit: '/5',
+        deltaUnit: '',
+        rawDelta:  absDelta(todayEnergy, baseEnergy),
+        dispDelta: absDelta(todayEnergy, baseEnergy),
+      },
+    ];
+
+    interpEl.textContent = band !== 'neutral' ? buildInterpretation(band, components) : '';
+
+    // Chips
+    chipsEl.innerHTML = '';
+    components.forEach(function (c) {
+      var chip = document.createElement('span');
+      chip.className = 'readiness-chip';
+      var lbl = document.createElement('span');
+      lbl.className = 'readiness-chip-label';
+      lbl.textContent = c.label;
+      var dlt = document.createElement('span');
+      dlt.className = 'readiness-chip-delta';
+      if (c.missing || c.value == null) {
+        dlt.textContent = '—';
+        dlt.classList.add('readiness-chip-delta--neu');
+      } else {
+        var dStr = c.rawDelta != null ? fmtAbsDelta(c.rawDelta, c.deltaUnit) : '—';
+        dlt.textContent = dStr;
+        dlt.classList.add('readiness-chip-delta--' + deltaClass(c.dispDelta));
+      }
+      chip.appendChild(lbl);
+      chip.appendChild(dlt);
+      chipsEl.appendChild(chip);
+    });
+
+    // Breakdown
+    bdEl.innerHTML = '';
+    components.forEach(function (c) {
+      var row = document.createElement('div');
+      row.className = 'readiness-breakdown-row';
+
+      var hdr = document.createElement('div');
+      hdr.className = 'readiness-breakdown-header';
+
+      var name = document.createElement('span');
+      name.className = 'readiness-breakdown-name';
+      name.textContent = c.label;
+
+      var valEl = document.createElement('span');
+      valEl.className = 'readiness-breakdown-value';
+      valEl.textContent = (c.missing || c.value == null)
+        ? '—'
+        : (Number.isInteger(c.value) ? c.value : Number(c.value).toFixed(1)) + ' ' + c.unit;
+
+      var blEl = document.createElement('span');
+      blEl.className = 'readiness-breakdown-baseline';
+      blEl.textContent = c.baseline != null
+        ? 'baseline ' + (Number.isInteger(c.baseline) ? Math.round(c.baseline) : Number(c.baseline).toFixed(1)) + ' ' + c.baseUnit
+        : '';
+
+      var dltEl = document.createElement('span');
+      dltEl.className = 'readiness-breakdown-delta';
+      if (c.missing || c.value == null || c.rawDelta == null) {
+        dltEl.textContent = '—';
+        dltEl.style.color = '#aaa';
+      } else {
+        var dStr = fmtAbsDelta(c.rawDelta, c.deltaUnit);
+        dltEl.textContent = dStr;
+        var dc = deltaClass(c.dispDelta);
+        dltEl.style.color = dc === 'pos' ? '#16a34a' : dc === 'neg' ? '#dc2626' : '#888';
+      }
+
+      hdr.appendChild(name);
+      hdr.appendChild(valEl);
+      hdr.appendChild(blEl);
+      hdr.appendChild(dltEl);
+
+      var expl = document.createElement('div');
+      expl.className = 'readiness-breakdown-expl';
+      expl.textContent = READINESS_COMP_EXPL[c.label] || '';
+
+      row.appendChild(hdr);
+      row.appendChild(expl);
+      bdEl.appendChild(row);
+    });
+  }
+
+  function initReadinessToggle() {
+    var card = document.getElementById('readiness-card');
+    if (!card) return;
+    card.addEventListener('click', function () {
+      var bd   = document.getElementById('readiness-breakdown');
+      var icon = document.getElementById('readiness-expand-icon');
+      if (!bd) return;
+      var isOpen = !bd.hidden;
+      bd.hidden = isOpen;
+      if (icon) icon.classList.toggle('open', !isOpen);
+      card.setAttribute('aria-expanded', String(!isOpen));
+    });
+  }
+
+  async function loadReadinessCard(userId) {
+    var today = todayISO();
+    var readiness = null, metrics = null, trends = null;
+
+    try {
+      var [rRes, mRes, tRes] = await Promise.all([
+        fetch('/api/readiness/today?user_id=' + encodeURIComponent(userId)),
+        fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today),
+        fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'),
+      ]);
+      if (rRes.ok)  readiness = await rRes.json();
+      if (mRes.ok)  metrics   = await mRes.json();
+      if (tRes.ok)  trends    = await tRes.json();
+    } catch (_) {}
+
+    // Fall back to mock data when API is unavailable
+    if (!readiness && typeof MOCK_READINESS_TODAY !== 'undefined') readiness = MOCK_READINESS_TODAY;
+    if (!metrics   && typeof MOCK_DAILY_METRICS_TODAY !== 'undefined') metrics = MOCK_DAILY_METRICS_TODAY;
+    if (!trends    && typeof MOCK_TRENDS_SUMMARY !== 'undefined')      trends  = MOCK_TRENDS_SUMMARY;
+
+    applyReadinessCard(readiness, metrics, trends);
+  }
+
+  // ── Stat summary cards (Weight · Sleep · Weekly TSS · HRV) ───────────────
+
+  function _svgNormY(val, minV, maxV, H, pad) {
+    if (maxV === minV) return H - pad;
+    return H - pad - ((val - minV) / (maxV - minV)) * (H - 2 * pad);
+  }
+
+  function _svgLineSpark(vals, color, baselineVal) {
+    var W = 240, H = 44, PAD = 5;
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
+    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
+
+    var minV = Math.min.apply(null, nonNull);
+    var maxV = Math.max.apply(null, nonNull);
+    if (baselineVal !== null && baselineVal !== undefined) {
+      minV = Math.min(minV, baselineVal);
+      maxV = Math.max(maxV, baselineVal);
+    }
+    // Avoid flat line when all values identical
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    var d = '', lastPt = null;
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      if (v === null || v === undefined) continue;
+      var x = vals.length > 1 ? (i / (vals.length - 1)) * W : W / 2;
+      var y = _svgNormY(v, minV, maxV, H, PAD);
+      d += (d === '' ? 'M' : ' L') + x.toFixed(1) + ',' + y.toFixed(1);
+      lastPt = { x: x, y: y };
+    }
+
+    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    if (d) {
+      out += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+    if (baselineVal !== null && baselineVal !== undefined) {
+      var by = _svgNormY(baselineVal, minV, maxV, H, PAD);
+      out += '<line x1="0" y1="' + by.toFixed(1) + '" x2="' + W + '" y2="' + by.toFixed(1) + '" stroke="' + color + '" stroke-width="1.5" stroke-dasharray="3 5" opacity="0.45"/>';
+    }
+    if (lastPt) {
+      out += '<circle cx="' + lastPt.x.toFixed(1) + '" cy="' + lastPt.y.toFixed(1) + '" r="3" fill="' + color + '"/>';
+    }
+    out += '</svg>';
+    return out;
+  }
+
+  function _svgBarSpark(vals, peakIdx, lightColor, darkColor) {
+    var W = 240, H = 44, BAR_W = 22, START_X = 6, STEP = 30;
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined && v > 0; });
+    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
+    var maxV = Math.max.apply(null, nonNull);
+
+    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      var x = START_X + i * STEP;
+      if (!v) {
+        out += '<rect x="' + x + '" y="' + (H - 2) + '" width="' + BAR_W + '" height="2" rx="1" fill="' + lightColor + '" opacity="0.25"/>';
+        continue;
+      }
+      var barH = Math.max(3, (v / maxV) * (H - 4));
+      var y = (H - barH).toFixed(1);
+      var fill = i === peakIdx ? darkColor : lightColor;
+      out += '<rect x="' + x + '" y="' + y + '" width="' + BAR_W + '" height="' + barH.toFixed(1) + '" rx="3" fill="' + fill + '"/>';
+    }
+    out += '</svg>';
+    return out;
+  }
+
+  function _deltaPill(text, direction) {
+    return '<span class="stat-delta-pill stat-delta-pill--' + direction + '">' + (text || '—') + '</span>';
+  }
+
+  function _statCardHTML(iconClass, iconEmoji, label, bigVal, unitStr, pillHTML, sparkSVG, footLeft, footRight) {
+    return '<div class="stat-card-head">' +
+        '<div class="stat-card-icon-wrap ' + iconClass + '">' + iconEmoji + '</div>' +
+        '<span class="stat-card-label">' + label + '</span>' +
+        '<button class="stat-card-menu" type="button" title="More options" onclick="console.log(\'⋯ ' + label + ' card\')" aria-label="More options">⋯</button>' +
+      '</div>' +
+      '<div class="stat-card-value">' +
+        '<span class="stat-card-big">' + bigVal + '</span>' +
+        '<span class="stat-card-unit">' + unitStr + '</span>' +
+        pillHTML +
+      '</div>' +
+      sparkSVG +
+      '<div class="stat-card-footer">' +
+        '<span>' + footLeft + '</span>' +
+        '<span>' + footRight + '</span>' +
+      '</div>';
+  }
+
+  function _emptyStatCard(label) {
+    return '<div class="stat-card-head"><span class="stat-card-label">' + label + '</span></div>' +
+      '<div class="stat-card-value"><span class="stat-card-big">—</span></div>' +
+      '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>' +
+      '<div class="stat-card-footer"><span>No data</span></div>';
+  }
+
+  function _relDateShort(dateStr) {
+    var today = todayISO();
+    if (dateStr === today) return 'today';
+    var yday = new Date();
+    yday.setDate(yday.getDate() - 1);
+    if (dateStr === yday.toISOString().slice(0, 10)) return 'yesterday';
+    var d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function renderWeightStatCard(weightEntries) {
+    var el = document.getElementById('stat-card-weight');
+    if (!el) return;
+    if (!weightEntries || !weightEntries.length) { el.innerHTML = _emptyStatCard('Weight'); return; }
+
+    var sorted = weightEntries.slice().sort(function (a, b) { return a.recorded_date.localeCompare(b.recorded_date); });
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 29);
+    var cutoffStr = cutoff.toISOString().slice(0, 10);
+    var recent = sorted.filter(function (e) { return e.recorded_date >= cutoffStr; });
+
+    var latest = recent.length ? recent[recent.length - 1] : null;
+    if (!latest) { el.innerHTML = _emptyStatCard('Weight'); return; }
+
+    var sparkVals = recent.map(function (e) { return e.weight_kg; });
+
+    var pillHTML;
+    if (recent.length >= 2) {
+      var delta = latest.weight_kg - recent[0].weight_kg;
+      var absD = Math.abs(delta);
+      var direction = absD < 0.1 ? 'flat' : (delta < 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absD.toFixed(1) + ' / 30d', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--weight', '⚖️', 'Weight',
+      latest.weight_kg.toFixed(1), 'kg',
+      pillHTML, _svgLineSpark(sparkVals, '#2b4ca8', null),
+      '30d trend', 'Last log: ' + _relDateShort(latest.recorded_date)
+    );
+  }
+
+  function renderSleepStatCard(summary) {
+    var el = document.getElementById('stat-card-sleep');
+    if (!el) return;
+    var series = summary && summary.sleep && summary.sleep.series;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Sleep'); return; }
+
+    var last7 = series.slice(-7);
+    var vals = last7.map(function (s) { return s.hours; });
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
+
+    var lastNight = null;
+    for (var i = last7.length - 1; i >= 0; i--) {
+      if (last7[i].hours !== null && last7[i].hours !== undefined) { lastNight = last7[i].hours; break; }
+    }
+    if (lastNight === null) { el.innerHTML = _emptyStatCard('Sleep'); return; }
+
+    var avg7 = nonNull.length ? nonNull.reduce(function (s, v) { return s + v; }, 0) / nonNull.length : null;
+    var pillHTML;
+    if (avg7 !== null) {
+      var delta = lastNight - avg7;
+      var absD = Math.abs(delta);
+      var direction = absD < 0.15 ? 'flat' : (delta > 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absD.toFixed(1) + 'h / 7d avg', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--sleep', '🌙', 'Sleep',
+      lastNight.toFixed(1), 'h',
+      pillHTML, _svgLineSpark(vals, '#4f3c8c', null),
+      'Last 7 nights', 'Target: 8 h'
+    );
+  }
+
+  function renderTSSStatCard(summary) {
+    var el = document.getElementById('stat-card-tss');
+    if (!el) return;
+    var series = summary && summary.tss && summary.tss.series;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Weekly load (TSS)'); return; }
+
+    var last7 = series.slice(-7);
+    var prev7 = series.slice(-14, -7);
+    var thisWeekTotal = last7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+    var lastWeekTotal = prev7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+
+    var last8 = series.slice(-8);
+    var sparkVals = last8.map(function (d) { return d.value; });
+    var peakIdx = -1, peakVal = -Infinity;
+    sparkVals.forEach(function (v, i) {
+      if (v !== null && v !== undefined && v > peakVal) { peakVal = v; peakIdx = i; }
+    });
+
+    var bigDay = null;
+    if (peakIdx >= 0 && last8[peakIdx]) {
+      bigDay = new Date(last8[peakIdx].date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    }
+
+    var pillHTML;
+    if (lastWeekTotal > 0) {
+      var wowPct = ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100;
+      var absP = Math.abs(wowPct);
+      var direction = absP < 5 ? 'flat' : (wowPct > 0 ? 'up' : 'down');
+      var sign = wowPct > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absP.toFixed(0) + '% WoW', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--tss', '🔥', 'Weekly load (TSS)',
+      Math.round(thisWeekTotal), 'TSS',
+      pillHTML, _svgBarSpark(sparkVals, peakIdx, '#f4b89a', '#8a3d12'),
+      'Last 8 days', bigDay ? 'Big day: ' + bigDay : '—'
+    );
+  }
+
+  function renderHRVStatCard(summary) {
+    var el = document.getElementById('stat-card-hrv');
+    if (!el) return;
+    var series = summary && summary.hrv && summary.hrv.series;
+    var baseline = summary && summary.hrv && summary.hrv.baseline_mean;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('HRV'); return; }
+
+    var sparkVals = series.map(function (d) { return d.value; });
+    var latestHrv = null;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value !== null && series[i].value !== undefined) { latestHrv = series[i].value; break; }
+    }
+    if (latestHrv === null) { el.innerHTML = _emptyStatCard('HRV'); return; }
+
+    var pillHTML;
+    if (baseline !== null && baseline !== undefined) {
+      var delta = latestHrv - baseline;
+      var absD = Math.abs(delta);
+      var direction = absD < 2 ? 'flat' : (delta > 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + Math.round(absD) + ' vs baseline', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    var footLeft = baseline !== null && baseline !== undefined
+      ? '30d baseline ' + Math.round(baseline) + ' ms'
+      : '30d trend';
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--hrv', '💓', 'HRV',
+      Math.round(latestHrv), 'ms',
+      pillHTML, _svgLineSpark(sparkVals, '#1e6438', baseline),
+      footLeft, ''
+    );
+  }
+
+  async function loadStatCards(userId) {
+    var summary = null;
+    try {
+      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=30d');
+      if (res.ok) summary = await res.json();
+    } catch (_) {}
+
+    renderSleepStatCard(summary);
+    renderTSSStatCard(summary);
+    renderHRVStatCard(summary);
+
+    // Weight is not in trends/summary — issue a separate query
+    if (summary && summary.weight) {
+      renderWeightStatCard(summary.weight);
+    } else {
+      var weightEntries = null;
+      try {
+        var wRes = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
+        if (wRes.ok) weightEntries = await wRes.json();
+      } catch (_) {}
+      renderWeightStatCard(weightEntries);
+    }
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
+    loadReadinessCard(userId);
     loadWeightSection(userId);
     loadHabitsSection(userId);
     loadTrainingSection(userId);
     loadCheckinSection(userId);
+    loadTrendChart(userId);
+    loadWeeklyDigestSection(userId);
   }
 
   setTodayLabel();
   wireUpPillGroups();
   initCheckinToggle();
   initCheckinSave();
+  initReadinessToggle();
 
   window.addEventListener('userReady', function (e) {
     _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
+    loadStatCards(e.detail.userId);
   });
 
   window.addEventListener('userChanged', function (e) {
     _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
+    loadStatCards(e.detail.userId);
   });
 
   // Refresh when returning to tab (handles cross-tab entry submissions)
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-      if (uid) { refreshCards(uid); refreshSections(uid); }
+      if (uid) { refreshCards(uid); refreshSections(uid); loadStatCards(uid); }
     }
   });
 }());

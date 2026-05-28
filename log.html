@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training Log – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* ── Page header ── */
+    .log-sync-text {
+      margin: 0;
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    /* ── Week strip ── */
+    .week-strip-container {
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 0.75rem 2rem;
+    }
+
+    .week-strip-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .week-nav-btn {
+      background: none;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 0.2rem 0.55rem;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: #666;
+      line-height: 1;
+    }
+
+    .week-nav-btn:hover { background: #f5f5f5; color: #1a1a1a; }
+
+    .week-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      min-width: 120px;
+      text-align: center;
+    }
+
+    .week-pills {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      padding-bottom: 0.25rem;
+      justify-content: center;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .week-pills::-webkit-scrollbar { height: 3px; }
+    .week-pills::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+    .day-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.1rem;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      min-width: 46px;
+      flex-shrink: 0;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .day-pill:hover { background: #f5f5f5; border-color: #ccc; }
+
+    .day-pill.today {
+      background: #1a1a1a;
+      border-color: #1a1a1a;
+    }
+
+    .day-pill.today .day-name,
+    .day-pill.today .day-num { color: #fff; }
+
+    .day-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: #888;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .day-num {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      line-height: 1;
+    }
+
+    .day-dots {
+      display: flex;
+      gap: 2px;
+      min-height: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0.75rem 2rem;
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .filter-search {
+      flex: 1;
+      min-width: 160px;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-family: inherit;
+    }
+
+    .filter-search:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
+    }
+
+    .filter-type-chips { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+    .type-filter-chip {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #555;
+      white-space: nowrap;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+      font-family: inherit;
+    }
+
+    .type-filter-chip:hover { border-color: #bbb; color: #1a1a1a; }
+
+    .type-filter-chip.active {
+      background: #1a1a1a;
+      border-color: #1a1a1a;
+      color: #fff;
+    }
+
+    .filter-range-select {
+      padding: 0.3rem 1.75rem 0.3rem 0.75rem;
+      border: 1px solid #ddd;
+      border-radius: 999px;
+      background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 0.55rem center;
+      -webkit-appearance: none;
+      appearance: none;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #555;
+      font-family: inherit;
+    }
+
+    .filter-range-select:focus { outline: none; border-color: #0070f3; }
+
+    /* ── Workout list ── */
+    #workout-list {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem;
+    }
+
+    /* ── Week section ── */
+    .week-section { margin-bottom: 2rem; }
+
+    .week-section-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #e5e5e5;
+      flex-wrap: wrap;
+    }
+
+    .week-section-label {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .week-section-summary { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+    .week-section-summary span { font-size: 0.8125rem; color: #666; }
+
+    /* ── Workout row ── */
+    .workout-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      background: #fff;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .workout-row:hover { background: #f8f9ff; border-color: #b3c0f0; }
+
+    .workout-date-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 32px;
+      flex-shrink: 0;
+    }
+
+    .workout-day-num {
+      font-size: 1.25rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: #1a1a1a;
+    }
+
+    .workout-day-name {
+      font-size: 0.625rem;
+      color: #888;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .workout-type-badge {
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .workout-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .workout-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .workout-meta-line {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .workout-primary-metric {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #374151;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .tss-pill {
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .tss-grey  { background: #f3f4f6; color: #6b7280; }
+    .tss-amber { background: #fef3c7; color: #92400e; }
+    .tss-red   { background: #fee2e2; color: #991b1b; }
+
+    .source-pill {
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .source-strava { background: #fff3e0; color: #c2500a; }
+    .source-manual { background: #f3f4f6; color: #6b7280; }
+
+    .workout-chevron { color: #ccc; font-size: 1.1rem; flex-shrink: 0; }
+
+    /* ── Rest day row ── */
+    .rest-day-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      background: #fafafa;
+    }
+
+    .rest-badge {
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+      white-space: nowrap;
+      background: #f0fdf4;
+      color: #15803d;
+    }
+
+    .rest-metrics {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0.75rem;
+      align-items: baseline;
+    }
+
+    .rest-metric-item {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      white-space: nowrap;
+    }
+
+    .rest-metric-label {
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .rest-notes {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      font-style: italic;
+      width: 100%;
+    }
+
+    /* ── State messages ── */
+    .loading-msg, .empty-msg {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #9ca3af;
+      font-size: 0.9375rem;
+    }
+
+    /* ── Responsive ≥380px ── */
+    @media (max-width: 599px) {
+      header { padding: 0.75rem 1rem; }
+
+      .week-strip-container { padding: 0.75rem 1rem; }
+
+      .week-pills { justify-content: flex-start; }
+
+      .filter-bar {
+        padding: 0.75rem 1rem;
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .filter-type-chips { flex-wrap: wrap; }
+
+      #workout-list { padding: 1rem; }
+
+      .workout-primary-metric { display: none; }
+
+      .source-pill { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Training log</h1>
+      <p class="log-sync-text" id="log-sync-sub"></p>
+    </div>
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <button id="log-export-btn" class="btn-secondary">Export</button>
+      <button id="log-workout-btn" class="btn-primary">+ Log workout</button>
+      <span id="env-label" class="env-label"></span>
+    </div>
+  </header>
+
+  <nav class="main-nav">
+    <a href="home.html">Home</a>
+    <a href="calendar.html">Calendar</a>
+    <a href="weight.html">Weight</a>
+    <a href="habits.html">Habits</a>
+    <a href="training.html">Training</a>
+    <a href="log.html" class="active">Log</a>
+    <a href="trends.html">Trends</a>
+  </nav>
+
+  <!-- Week strip -->
+  <div class="week-strip-container">
+    <div class="week-strip-header">
+      <button class="week-nav-btn" id="week-prev" aria-label="Previous week">&#8249;</button>
+      <span class="week-label" id="week-label">This week</span>
+      <button class="week-nav-btn" id="week-next" aria-label="Next week">&#8250;</button>
+    </div>
+    <div class="week-pills" id="week-pills"></div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input type="search" id="search-input" class="filter-search" placeholder="Search workouts…" autocomplete="off">
+    <div class="filter-type-chips">
+      <button class="type-filter-chip active" data-type="all">All</button>
+      <button class="type-filter-chip" data-type="run">Run</button>
+      <button class="type-filter-chip" data-type="lift">Lift</button>
+      <button class="type-filter-chip" data-type="wod">WOD</button>
+      <button class="type-filter-chip" data-type="bike">Bike</button>
+    </div>
+    <select id="date-range" class="filter-range-select" aria-label="Date range">
+      <option value="7d">Last 7 days</option>
+      <option value="30d" selected>Last 30 days</option>
+      <option value="90d">Last 90 days</option>
+      <option value="all">All time</option>
+    </select>
+  </div>
+
+  <!-- Workout list -->
+  <div id="workout-list">
+    <p class="loading-msg">Loading…</p>
+    <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one or sync Strava</p>
+  </div>
+
+  <script src="js/mock-data.js"></script>
+  <script src="js/training-log.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>

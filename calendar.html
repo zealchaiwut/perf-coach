@@ -481,6 +481,66 @@
       margin: 0 0 0.4rem;
     }
 
+    /* ── Recovery dots (sleep, energy, readiness) ── */
+
+    .cal-recovery-dots {
+      display: flex;
+      justify-content: flex-end;
+      gap: 3px;
+      margin-top: 0.25rem;
+      position: relative;
+    }
+
+    .cal-recovery-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      position: relative;
+      cursor: default;
+    }
+
+    /* Touch target expansion for mobile (min 24×24 px) */
+    .cal-recovery-dot::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Color scale 1–5 (energy and sleep quality) */
+    .cal-recovery-dot.scale-1 { background: #ef4444; }
+    .cal-recovery-dot.scale-2 { background: #f97316; }
+    .cal-recovery-dot.scale-3 { background: #eab308; }
+    .cal-recovery-dot.scale-4 { background: #86efac; }
+    .cal-recovery-dot.scale-5 { background: #16a34a; }
+
+    /* Readiness band colors (thresholds: red < 50, amber 50–70, green > 70) */
+    .cal-recovery-dot.readiness-green { background: #16a34a; }
+    .cal-recovery-dot.readiness-amber { background: #eab308; }
+    .cal-recovery-dot.readiness-red   { background: #ef4444; }
+    .cal-recovery-dot.readiness-gray  { background: #9ca3af; }
+
+    /* CSS tooltip on hover — shown on the dots container to surface all three values */
+    .cal-recovery-dots[data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      background: rgba(17,24,39,0.9);
+      color: #fff;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 100;
+    }
+
     /* < 900px: shrink cells to 60px min-height */
     @media (max-width: 899px) {
       .cal-cell {
@@ -493,6 +553,10 @@
       .cal-habit-dot    { width: 5px; height: 5px; }
       .cal-training-icon { font-size: 0.625rem; }
       .cal-training-dur { font-size: 0.5rem; }
+
+      /* Shrink recovery dots on narrow viewports — stack vertically if needed */
+      .cal-recovery-dot { width: 6px; height: 6px; }
+      .cal-recovery-dots { gap: 2px; flex-wrap: wrap; }
     }
 
     /* < 700px: allow horizontal scroll so grid never crashes */
@@ -535,6 +599,9 @@
         <label class="cal-filter-label">
           <input type="checkbox" id="filter-training" checked> Show Training
         </label>
+        <label class="cal-filter-label">
+          <input type="checkbox" id="filter-recovery" checked> Show Recovery
+        </label>
       </div>
     </div>
 
@@ -561,6 +628,22 @@
       <span class="cal-legend-item"><i class="ti ti-run legend-icon" aria-hidden="true"></i> Cardio</span>
       <span class="cal-legend-item"><i class="ti ti-barbell legend-icon" aria-hidden="true"></i> Strength</span>
       <span class="cal-legend-item"><i class="ti ti-yoga legend-icon" aria-hidden="true"></i> Yoga / Flex</span>
+      <span class="cal-legend-sep" aria-hidden="true"></span>
+      <span class="cal-legend-item" style="gap:0.2rem">
+        <span class="cal-recovery-dot scale-1" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-2" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-3" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-4" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-5" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        Energy / Sleep (1–5)
+      </span>
+      <span class="cal-legend-item" style="gap:0.2rem">
+        <span class="cal-recovery-dot readiness-red"   style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-amber" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-green" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-gray"  style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        Readiness (Low / Mod / High / No data)
+      </span>
       <span class="cal-legend-sep" aria-hidden="true"></span>
       <span class="cal-legend-item"><span class="legend-today">Today</span></span>
     </div>
