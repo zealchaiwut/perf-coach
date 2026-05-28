@@ -2,7 +2,8 @@
   'use strict';
 
   // ── State ─────────────────────────────────────────────────────────────────
-  var filters = { type: 'all', search: '', from: '', to: '' };
+  var filters   = { type: 'all', search: '', from: '', to: '' };
+  var lastWeeks = [];
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -24,6 +25,14 @@
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function csvField(val) {
+    var s = val == null ? '' : String(val);
+    if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
   }
 
   function fmtDuration(secs) {
@@ -226,7 +235,8 @@
         return res.json();
       })
       .then(function (data) {
-        renderList(listEl, data.weeks || []);
+        lastWeeks = data.weeks || [];
+        renderList(listEl, lastWeeks);
       })
       .catch(function () {
         if (listEl) listEl.innerHTML = '<p class="log-empty">Failed to load workouts.</p>';
@@ -371,6 +381,42 @@
     return row;
   }
 
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  function exportCSV() {
+    var today    = todayISO();
+    var fromDate = filters.from || today;
+    var toDate   = filters.to   || today;
+    var filename = 'training-log-' + fromDate + '-to-' + toDate + '.csv';
+
+    var rows = ['date,type,title,distance_km,duration_minutes,avg_hr,tss,source'];
+    lastWeeks.forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type === 'rest') return;
+        rows.push([
+          csvField(entry.date),
+          csvField(entry.type),
+          csvField(entry.title),
+          csvField(entry.distance_km    != null ? entry.distance_km    : ''),
+          csvField(entry.duration_minutes != null ? entry.duration_minutes : ''),
+          csvField(entry.avg_hr         != null ? entry.avg_hr         : ''),
+          csvField(entry.tss            != null ? entry.tss            : ''),
+          csvField(entry.source)
+        ].join(','));
+      });
+    });
+
+    var csv  = rows.join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -382,9 +428,7 @@
     });
 
     var exportBtn = document.getElementById('log-export-btn');
-    if (exportBtn) exportBtn.addEventListener('click', function () {
-      alert('Export coming soon.');
-    });
+    if (exportBtn) exportBtn.addEventListener('click', exportCSV);
 
     var newBtn = document.getElementById('log-new-btn');
     if (newBtn) newBtn.addEventListener('click', function () {
