@@ -2,63 +2,64 @@
 
 Personal performance dashboard. Tracks weight, habits, readiness, training log, and performance trends.
 
-## PRD vs UAT environments
+## Canonical working directory
 
-perf-coach runs against two isolated [Neon](https://neon.tech) Postgres branches:
+**Use a single clone of this repository.** Environment selection is branch-based:
 
-| Environment | Port | Neon branch | Purpose |
-|---|---|---|---|
-| PRD | 9000 | `main` (prd) | Production data |
-| UAT | 9001 | `uat` | Testing / staging |
+| Branch | Environment | Port | Neon branch | Purpose |
+|--------|-------------|------|-------------|---------|
+| `develop` | UAT | 9001 | `uat` | Testing / staging |
+| `main` | PRD | 9000 | `main` (prd) | Production data |
 
-Both environments run independently and can be started in parallel — they use different ports and different Neon connection strings, so there are no resource conflicts.
+> **Warning:** Do not maintain parallel checkouts (e.g. `perf-coach/uat/` and
+> `perf-coach/main/` as separate directories). Changes in one directory are
+> invisible to the other, causing config drift, missed fixes, and migration
+> conflicts. Use `git checkout develop` / `git checkout main` in a single clone
+> to switch environments.
 
-### Setup
+## Setup
 
 1. Create a project on [neon.tech](https://neon.tech) named `perf-coach`.
 2. Create two branches: one called `main` (or whatever you name the default) for PRD and one called `uat`.
 3. Copy the connection strings for each branch from Neon → Connection Details.
-4. Populate `.env.prd` and `.env.uat` at the project root:
+4. Populate a single `.env` at the project root with **both** connection strings:
 
-**.env.prd:**
+**.env:**
 
-    ENVIRONMENT=PRD
-    PORT=9000
     DATABASE_URL_PRD=<your prd branch connection string>
     DATABASE_URL_UAT=<your uat branch connection string>
-
-**.env.uat:**
-
-    ENVIRONMENT=UAT
-    PORT=9001
-    DATABASE_URL_UAT=<your uat branch connection string>
-    DATABASE_URL_PRD=<your prd branch connection string>
 
 5. Install Python dependencies:
 
        pip install -r requirements.txt
 
-### Starting each environment
+## Starting each environment
 
-**PRD** (terminal 1):
+Check out the branch for the environment you want, then run the matching script:
 
-    ./start_prd.sh
+**UAT** (`develop` branch):
 
-Visits: http://localhost:9000
-
-**UAT** (terminal 2, can run at the same time):
-
+    git checkout develop
     ./start_uat.sh
 
 Visits: http://localhost:9001
 
+**PRD** (`main` branch):
+
+    git checkout main
+    ./start_prd.sh
+
+Visits: http://localhost:9000
+
 Each script:
-- Validates required env vars and exits with a clear error if any are missing
+- Sources `.env` for database credentials (`DATABASE_URL_UAT` / `DATABASE_URL_PRD`)
+- Sets `ENVIRONMENT` and `PORT` explicitly (overrides anything in `.env`)
+- Logs the target DB **host** (not password) before running migrations
 - Verifies the Neon DB is reachable (exits with "DB unreachable" if not)
 - Runs `alembic upgrade head` against the correct Neon branch
 - Starts uvicorn on the configured port
 
-### What each environment is for
+## What each environment is for
 
 - **PRD** — real data, the source of truth. Treat it carefully.
 - **UAT** — for testing new features before promoting to PRD. Data here can be wiped freely. Because Neon branches are completely isolated, data written to UAT never appears in PRD.
@@ -82,6 +83,11 @@ The frontend reads `/api/environment` on every page load to display the environm
 
 Migrations live in `alembic/versions/`. The connection string is chosen from `DATABASE_URL_PRD` or `DATABASE_URL_UAT` based on the `ENVIRONMENT` env var.
 
+All migrations are idempotent — each `op.create_table`, `op.create_index`,
+`op.add_column`, and corresponding drop is guarded by an existence check, so
+running `alembic upgrade head` on a database that is already at head (or
+partially ahead) exits 0 without error.
+
 **Apply migrations manually:**
 
     ENVIRONMENT=UAT alembic upgrade head   # against uat branch
@@ -97,58 +103,6 @@ The startup scripts run `alembic upgrade head` automatically, so you normally do
 
     alembic downgrade -1
 
-## Static-only (no backend)
+**Test migration idempotency** (requires a throwaway Postgres DB):
 
-### With the FastAPI backend (recommended)
-
-1. Copy `.env.example` to `.env` and fill in your Neon connection strings:
-
-       cp .env.example .env
-
-2. Install Python dependencies:
-
-       pip install -r requirements.txt
-
-3. Start the server:
-
-       ./run.sh
-
-4. Visit http://localhost:8000
-
-The server serves the static HTML pages and exposes `/api/health` to verify the DB connection.
-
-## Database migrations (Alembic)
-
-Migrations live in `alembic/versions/`. The connection string is read from the `DATABASE_URL_PRD` or `DATABASE_URL_UAT` env var based on `ENVIRONMENT`.
-
-**Apply migrations (run automatically by `./run.sh`):**
-
-    alembic upgrade head
-
-**Generate a new migration after editing `backend/models.py`:**
-
-    make migrate MSG="your description here"
-
-**Roll back the last migration:**
-
-    alembic downgrade -1
-
-**Apply to both UAT and PRD Neon branches:**
-
-1. Apply to UAT first and verify in the Neon dashboard:
-
-       ENVIRONMENT=UAT alembic upgrade head
-
-2. Once verified, apply to PRD:
-
-       ENVIRONMENT=PRD alembic upgrade head
-
-### Static-only (no backend)
-
-Open `index.html` in a browser, or serve the directory:
-
-    python3 -m http.server 8080
-
-Then visit http://localhost:8080
-
-Note: the environment badge will fall back to "DEV" when running without the backend.
+    TEST_DATABASE_URL=postgresql://... bash scripts/test_migrations.sh

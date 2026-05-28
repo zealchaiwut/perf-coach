@@ -20,6 +20,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision: str = "a9b0c1d2e3f4"
@@ -29,6 +30,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if inspector.has_table("daily_readiness"):
+        return
+
     op.create_table(
         "daily_readiness",
         sa.Column(
@@ -80,11 +87,14 @@ def upgrade() -> None:
     )
 
     op.execute(
-        "CREATE INDEX ix_daily_readiness_user_date "
+        "CREATE INDEX IF NOT EXISTS ix_daily_readiness_user_date "
         "ON daily_readiness (user_id, date DESC)"
     )
 
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_daily_readiness_user_date")
-    op.drop_table("daily_readiness")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("daily_readiness"):
+        op.drop_table("daily_readiness")
