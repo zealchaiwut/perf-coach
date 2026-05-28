@@ -448,27 +448,35 @@
 
   // ── Export CSV ────────────────────────────────────────────────────────────
 
+  function csvField(val) {
+    var s = val == null ? '' : String(val);
+    if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
   function exportCSV() {
-    if (visibleWorkouts.length === 0) return;
-    var rows = [['date', 'type', 'title', 'distance', 'duration', 'tss', 'avg_hr', 'source'].join(',')];
+    var range = getFromTo();
+    var rows = [['date', 'type', 'title', 'distance_km', 'duration_minutes', 'tss', 'avg_hr', 'source'].join(',')];
     visibleWorkouts.forEach(function (w) {
       rows.push([
-        w.date,
-        w.type,
-        '"' + (w.title || '').replace(/"/g, '""') + '"',
-        w.distance_km != null ? w.distance_km : '',
-        w.duration_minutes,
-        w.tss != null ? w.tss : '',
-        w.avg_hr != null ? w.avg_hr : '',
-        w.source,
+        csvField(w.date),
+        csvField(w.type),
+        csvField(w.title),
+        csvField(w.distance_km != null ? w.distance_km : ''),
+        csvField(w.duration_minutes != null ? w.duration_minutes : ''),
+        csvField(w.tss != null ? w.tss : ''),
+        csvField(w.avg_hr != null ? w.avg_hr : ''),
+        csvField(w.source),
       ].join(','));
     });
 
-    var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    var blob = new Blob([rows.join('\r\n')], { type: 'text/csv' });
     var url  = URL.createObjectURL(blob);
     var a    = document.createElement('a');
     a.href     = url;
-    a.download = 'training-log.csv';
+    a.download = 'training-log-' + range.from + '-to-' + range.to + '.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
