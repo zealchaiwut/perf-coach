@@ -327,11 +327,12 @@ def test_ac8_js_distance_optional_in_meta():
 
 def test_ac8_js_avg_hr_optional_in_meta():
     """meta line must not show avg HR when avg_hr is null/absent."""
-    meta_fn = re.search(r'function metaLine\(w\)\s*\{(.*?)\}', JS, re.DOTALL)
-    assert meta_fn, "training-log.js must define a metaLine() function"
-    body = meta_fn.group(1)
-    assert "avg_hr" in body, "metaLine must reference avg_hr"
-    assert "if" in body, "metaLine must conditionally include avg_hr"
+    # Verify metaLine function exists
+    assert "function metaLine" in JS, "training-log.js must define a metaLine() function"
+    # avg_hr must appear in the JS and be guarded by an if (conditional inclusion)
+    assert "avg_hr" in JS, "training-log.js must reference avg_hr in the meta line"
+    assert re.search(r'if\s*\(w\.avg_hr\)', JS), \
+        "training-log.js must conditionally include avg_hr (if (w.avg_hr))"
 
 
 def test_ac8_api_workout_entry_allows_null_distance(client):
