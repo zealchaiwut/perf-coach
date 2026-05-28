@@ -6,6 +6,7 @@
   var TYPE_BADGE_BG    = { run: '#dbeafe', lift: '#ede9fe', wod: '#ffedd5', bike: '#ccfbf1' };
   var TYPE_BADGE_COLOR = { run: '#1d4ed8', lift: '#6d28d9', wod: '#c2410c', bike: '#0f766e' };
   var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   var state = { search: '', type: 'all', range: '30d', weekOffset: 0 };
   var visibleWorkouts = [];
@@ -36,6 +37,24 @@
 
   function isoToDate(iso) {
     return new Date(iso + 'T00:00:00');
+  }
+
+  function isoWeekNum(date) {
+    var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    var dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+
+  function weekDateRange(weekStart, weekEnd) {
+    var s = isoToDate(weekStart);
+    var e = isoToDate(weekEnd);
+    var startStr = MONTH_NAMES[s.getMonth()] + ' ' + s.getDate();
+    if (s.getMonth() !== e.getMonth()) {
+      return startStr + ' – ' + MONTH_NAMES[e.getMonth()] + ' ' + e.getDate();
+    }
+    return startStr + ' – ' + e.getDate();
   }
 
   // ── State ↔ URL ───────────────────────────────────────────────────────────
@@ -342,11 +361,13 @@
       '</div>' +
       '<div class="workout-primary-metric">' + primaryMetric(w) + '</div>' +
       '<span class="tss-pill ' + tssPillClass(w.tss) + '">' + (w.tss ? 'TSS ' + w.tss : '—') + '</span>' +
-      '<span class="source-pill source-' + w.source + '">' + (w.source === 'strava' ? 'Strava' : 'Manual') + '</span>' +
+      '<span class="source-pill source-' + (w.source || 'manual').toLowerCase() + '">' + ((w.source || '').toLowerCase() === 'strava' ? 'Strava' : 'Manual') + '</span>' +
       '<span class="workout-chevron">›</span>';
 
     // Row click — detail panel ships in a follow-up ticket
-    div.addEventListener('click', function () { /* stub */ });
+    div.addEventListener('click', function () {
+      console.log('workout:select', w.id, w.title);
+    });
     return div;
   }
 
@@ -354,8 +375,12 @@
     var s = week.summary;
     var summaryItems = [s.workout_count + ' workout' + (s.workout_count !== 1 ? 's' : '')];
     if (s.total_distance_km > 0) summaryItems.push(s.total_distance_km.toFixed(1) + ' km');
-    summaryItems.push('TSS ' + s.total_tss);
-    summaryItems.push(fmtDuration(s.total_time_minutes));
+    summaryItems.push('TSS ' + Math.round(s.total_tss));
+    summaryItems.push(fmtDuration(Math.round(s.total_time_minutes)));
+
+    var weekStartDate = isoToDate(week.week_start);
+    var weekHeading   = 'Week ' + isoWeekNum(weekStartDate);
+    var dateRange     = weekDateRange(week.week_start, week.week_end);
 
     var section = document.createElement('section');
     section.className = 'week-section';
@@ -366,7 +391,10 @@
     var header = document.createElement('div');
     header.className = 'week-section-header';
     header.innerHTML =
-      '<span class="week-section-label">' + week.label + '</span>' +
+      '<div class="week-section-label-group">' +
+        '<span class="week-section-label">' + weekHeading + '</span>' +
+        '<span class="week-section-daterange">' + dateRange + '</span>' +
+      '</div>' +
       '<div class="week-section-summary">' +
         summaryItems.map(function (t) { return '<span>' + t + '</span>'; }).join('') +
       '</div>';
@@ -410,16 +438,19 @@
       if (child.id !== 'log-empty-msg') child.remove();
     });
     if (emptyMsg) emptyMsg.style.display = 'none';
-    var loadingEl = document.createElement('p');
-    loadingEl.className = 'loading-msg';
-    loadingEl.textContent = 'Loading…';
+    var loadingEl = document.createElement('div');
+    loadingEl.className = 'skeleton-list';
+    loadingEl.innerHTML =
+      '<div class="skeleton-row"></div>' +
+      '<div class="skeleton-row"></div>' +
+      '<div class="skeleton-row"></div>';
     list.insertBefore(loadingEl, emptyMsg || null);
 
     var range = getFromTo();
     var data;
 
     try {
-      var url = '/training_log?from=' + range.from + '&to=' + range.to +
+      var url = '/api/training-log?from=' + range.from + '&to=' + range.to +
         (state.type !== 'all' ? '&types=' + encodeURIComponent(state.type) : '') +
         (state.search ? '&search=' + encodeURIComponent(state.search) : '');
       var res = await fetch(url);
