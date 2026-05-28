@@ -24,6 +24,7 @@
       padding: 0.75rem 2rem;
     }
 
+    /* ── Filter bar ────────────────────────────────────── */
     #filter-bar {
       display: flex;
       align-items: center;
@@ -34,17 +35,237 @@
       border-bottom: 1px solid #e5e5e5;
     }
 
+    .fb-search-wrap {
+      flex: 1 1 180px;
+      min-width: 140px;
+    }
+
+    #log-search {
+      width: 100%;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      background: #fafafa;
+    }
+
+    #log-search:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+      background: #fff;
+    }
+
+    .fb-chips-row {
+      display: flex;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .type-chip {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 999px;
+      background: #fff;
+      color: #555;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .type-chip:hover:not(.active) { background: #f5f5f5; color: #1a1a1a; }
+
+    .type-chip.active {
+      background: #1a1a1a;
+      color: #fff;
+      border-color: #1a1a1a;
+    }
+
+    /* ── Date-range chip ────────────────────────────────── */
+    .fb-daterange-wrap { position: relative; }
+
+    .dr-chip {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
+      color: #555;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .dr-chip:hover { background: #f5f5f5; color: #1a1a1a; }
+
+    .dr-panel {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 100;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 200px;
+    }
+
+    .dr-panel label {
+      font-size: 0.75rem;
+      color: #666;
+      font-weight: 600;
+    }
+
+    .dr-panel input[type="date"] {
+      width: 100%;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+    }
+
+    .dr-panel input[type="date"]:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    /* ── Loading indicator ──────────────────────────────── */
+    .log-loading-indicator {
+      font-size: 0.8125rem;
+      color: #888;
+      margin-left: auto;
+    }
+
+    /* ── Log list ───────────────────────────────────────── */
     #log-list {
       max-width: 800px;
       margin: 0 auto;
       padding: 1.5rem 2rem;
     }
 
+    .log-empty {
+      color: #888;
+      font-size: 0.9375rem;
+      padding: 2rem 0;
+      text-align: center;
+    }
+
+    .log-error {
+      color: #c0392b;
+      font-size: 0.875rem;
+      padding: 1rem 0;
+      text-align: center;
+    }
+
+    .week-group { margin-bottom: 2rem; }
+
+    .week-group-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #1a1a1a;
+      margin-bottom: 0.75rem;
+    }
+
+    .week-group-title {
+      font-weight: 700;
+      font-size: 0.9375rem;
+    }
+
+    .week-group-summary {
+      font-size: 0.8125rem;
+      color: #888;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .summary-sep { color: #ccc; }
+
+    .day-section { margin-bottom: 0.75rem; }
+
+    .day-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.35rem;
+    }
+
+    .entry-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      margin-bottom: 0.4rem;
+    }
+
+    .entry-badge {
+      flex-shrink: 0;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: #e5e5e5;
+      color: #555;
+    }
+
+    .entry-badge--run  { background: #dbeafe; color: #1d4ed8; }
+    .entry-badge--lift { background: #ede9fe; color: #6d28d9; }
+    .entry-badge--wod  { background: #fef3c7; color: #b45309; }
+    .entry-badge--bike { background: #ccfbf1; color: #0f766e; }
+    .entry-badge--rest { background: #f0fdf4; color: #15803d; }
+
+    .entry-body { flex: 1; min-width: 0; }
+
+    .entry-title {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .entry-meta {
+      font-size: 0.8125rem;
+      color: #888;
+      margin-top: 0.1rem;
+    }
+
+    .tss-pill {
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+    }
+
+    .tss-low  { background: #f5f5f5; color: #555; }
+    .tss-mid  { background: #fef3c7; color: #92400e; }
+    .tss-high { background: #fee2e2; color: #991b1b; }
+
+    /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 599px) {
       header { padding: 0.75rem 1rem; }
       .main-nav { overflow-x: auto; padding: 0.75rem 1rem; }
       #week-strip { padding: 0.75rem 1rem; }
       #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
+      .fb-search-wrap { flex: none; }
+      .dr-panel { left: 0; right: 0; }
       #log-list { padding: 1rem; }
     }
   </style>
