@@ -8,7 +8,12 @@
   const customInputs = document.getElementById('custom-range-inputs');
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
+  const confirmBtn = document.getElementById('range-confirm');
+  const cancelBtn = document.getElementById('range-cancel');
   const emptyBanner = document.getElementById('trends-empty-banner');
+
+  // Track the last non-custom state so Cancel can revert to it
+  let _lastPresetState = { type: 'preset', preset: DEFAULT_PRESET };
 
   // ── URL helpers ──────────────────────────────────────────────────────────────
 
@@ -35,7 +40,7 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
-  function applyRangeState(state) {
+  function applyRangeState(state, { openPicker = false } = {}) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
         ? btn.dataset.range === state.preset
@@ -43,10 +48,21 @@
       btn.classList.toggle('active', isActive);
     });
     const isCustom = state.type === 'custom';
+    // When opening the picker via the Custom chip, show inputs but don't
+    // load data yet — wait for the user to confirm.
+    if (openPicker) {
+      customInputs.hidden = false;
+      if (state.from) fromInput.value = state.from;
+      if (state.to) toInput.value = state.to;
+      return; // don't write URL or load data until confirmed
+    }
     customInputs.hidden = !isCustom;
     if (isCustom) {
       if (state.from) fromInput.value = state.from;
       if (state.to) toInput.value = state.to;
+    }
+    if (state.type === 'preset') {
+      _lastPresetState = state;
     }
     writeRangeToURL(state);
     loadChartData(state);
@@ -862,21 +878,43 @@
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+        // Open the date picker — don't apply/load until the user confirms
+        const currentParams = new URLSearchParams(location.search);
+        const existingFrom = currentParams.get('from') || '';
+        const existingTo = currentParams.get('to') || '';
+        fromInput.value = existingFrom;
+        toInput.value = existingTo;
+        btn.classList.add('active');
+        customInputs.hidden = false;
+        fromInput.focus();
       } else {
+        customInputs.hidden = true;
         applyRangeState({ type: 'preset', preset: range });
       }
     });
   });
 
-  function onCustomDateChange() {
-    if (fromInput.value || toInput.value) {
-      applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
-    }
-  }
+  // Confirm: apply the custom range and update URL
+  confirmBtn.addEventListener('click', () => {
+    const from = fromInput.value;
+    const to = toInput.value;
+    if (!from && !to) return; // nothing entered yet
+    applyRangeState({ type: 'custom', from, to });
+  });
 
-  fromInput.addEventListener('change', onCustomDateChange);
-  toInput.addEventListener('change', onCustomDateChange);
+  // Cancel: revert to the previous preset without changing data
+  cancelBtn.addEventListener('click', () => {
+    customInputs.hidden = true;
+    applyRangeState(_lastPresetState);
+  });
+
+  // Allow Enter key on date inputs to trigger confirm
+  [fromInput, toInput].forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirmBtn.click();
+      if (e.key === 'Escape') cancelBtn.click();
+    });
+  });
 
   // ── SEM toggle handlers ───────────────────────────────────────────────────────
 
@@ -898,6 +936,10 @@
   // ── Boot ─────────────────────────────────────────────────────────────────────
 
   const _initialState = readRangeFromURL();
+  // Seed _lastPresetState from the URL so Cancel works correctly on page load
+  if (_initialState.type === 'preset') {
+    _lastPresetState = _initialState;
+  }
 
   window.addEventListener('userReady', e => {
     _userId = e.detail.userId;
