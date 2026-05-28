@@ -269,92 +269,150 @@
     renderReadinessChart(bodyEl, dates, scores, dates.length >= 7);
   }
 
-  // ── HRV / RHR chart ───────────────────────────────────────────────────────────
+  // ── HRV / RHR stacked sub-charts ─────────────────────────────────────────────
 
-  let hrvRhrChart = null;
+  let hrvSubChart = null;
+  let rhrSubChart = null;
 
-  function renderHrvRhrChart(bodyEl, summary) {
-    const hrvData = summary.hrv.series.map(s => s.value);
-    const rhrData = summary.rhr.series.map(s => s.value);
-    const labels = summary.hrv.series.map(s => formatLabel(s.date));
-    const hasData = hrvData.some(v => v !== null) || rhrData.some(v => v !== null);
-    if (!hasData) { showEmpty(bodyEl); return; }
-    if (!bodyEl.querySelector('canvas')) {
-      bodyEl.innerHTML = '<canvas id="chart-hrv-rhr" style="display:block;width:100%;"></canvas>';
-    }
-    const datasets = [
-      {
-        label: 'HRV (ms)',
-        data: hrvData,
-        yAxisID: 'yHrv',
-        borderColor: '#0070f3',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#0070f3',
-        spanGaps: false,
-        tension: 0.3,
+  const baselineBandPlugin = {
+    id: 'baselineBand',
+    beforeDraw(chart) {
+      const cfg = chart.options.plugins.baselineBand;
+      if (!cfg || cfg.mean == null || cfg.sd == null) return;
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      const y = scales.y;
+      const baseline_mean = cfg.mean;
+      const baseline_sd = cfg.sd;
+      const top = y.getPixelForValue(baseline_mean + baseline_sd);
+      const bottom = y.getPixelForValue(baseline_mean - baseline_sd);
+      ctx.save();
+      ctx.fillStyle = cfg.color || 'rgba(0,112,243,0.12)';
+      ctx.fillRect(chartArea.left, top, chartArea.width, bottom - top);
+      ctx.restore();
+    },
+  };
+
+  function computeStats(values) {
+    const valid = values.filter(v => v !== null && v !== undefined);
+    if (valid.length === 0) return { mean: null, sd: null };
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+    const variance = valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length;
+    return {
+      mean: Math.round(mean * 10) / 10,
+      sd: Math.round(Math.sqrt(variance) * 10) / 10,
+    };
+  }
+
+  function buildSubChartTooltipCallbacks(series, label, unit, mean, sd) {
+    return {
+      title(items) { return series[items[0].dataIndex]?.date || items[0].label; },
+      label(item) {
+        const v = item.raw;
+        return v === null ? `${label}: —` : `${label}: ${v} ${unit}`;
       },
-      {
-        label: 'RHR (bpm)',
-        data: rhrData,
-        yAxisID: 'yRhr',
-        borderColor: '#ef4444',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#ef4444',
-        spanGaps: false,
-        tension: 0.3,
+      afterBody(items) {
+        const v = items[0].raw;
+        if (v === null || mean == null) return [];
+        const lines = [`Baseline: ${mean} ${unit}`];
+        if (sd != null) {
+          const raw = (v - mean) / sd;
+          const sign = raw >= 0 ? '+' : '';
+          lines.push(`Deviation: ${sign}${raw.toFixed(1)} SD`);
+        }
+        return lines;
       },
-    ];
-    if (hrvRhrChart) {
-      hrvRhrChart.data.labels = labels;
-      hrvRhrChart.data.datasets = datasets;
-      hrvRhrChart.update();
-      return;
-    }
-    const ctx = bodyEl.querySelector('canvas').getContext('2d');
-    hrvRhrChart = new Chart(ctx, {
+    };
+  }
+
+  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+    const dates = series.map(s => s.date);
+    const values = series.map(s => s.value);
+    const labels = dates.map(formatLabel);
+    const todayIdx = dates.indexOf(today);
+
+    const pointBgColors = values.map((v, i) => {
+      if (v === null) return 'transparent';
+      if (mean != null && sd != null && Math.abs(v - mean) > sd) return '#ef4444';
+      return color;
+    });
+    const pointRadii = values.map((v, i) => (v === null ? 0 : i === todayIdx ? 7 : 3));
+    const pointHoverRadii = values.map((v, i) => (v === null ? 0 : i === todayIdx ? 9 : 5));
+    const pointBorderColors = values.map((v, i) =>
+      (v !== null && i === todayIdx ? '#1a1a1a' : pointBgColors[i])
+    );
+    const pointBorderWidths = values.map((_, i) => (i === todayIdx ? 2 : 0));
+
+    return new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets },
+      plugins: [baselineBandPlugin],
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data: values,
+          borderColor: color,
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: pointRadii,
+          pointHoverRadius: pointHoverRadii,
+          pointBackgroundColor: pointBgColors,
+          pointBorderColor: pointBorderColors,
+          pointBorderWidth: pointBorderWidths,
+          spanGaps: false,
+          tension: 0.3,
+        }],
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-          tooltip: {
-            callbacks: {
-              title(items) { return summary.hrv.series[items[0].dataIndex].date; },
-              label(item) {
-                const v = item.raw;
-                const unit = item.datasetIndex === 0 ? 'ms' : 'bpm';
-                return v === null ? `${item.dataset.label}: —` : `${item.dataset.label}: ${v} ${unit}`;
-              },
-            },
+          legend: { display: false },
+          tooltip: { callbacks: buildSubChartTooltipCallbacks(series, label, unit, mean, sd) },
+          baselineBand: {
+            mean,
+            sd,
+            color: color === '#0070f3' ? 'rgba(0,112,243,0.12)' : 'rgba(239,68,68,0.12)',
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
-          yHrv: {
-            type: 'linear', position: 'left',
-            title: { display: true, text: 'HRV (ms)', font: { size: 10 }, color: '#0070f3' },
-            ticks: { font: { size: 10 } },
-            grid: { color: 'rgba(0,0,0,0.05)' },
-          },
-          yRhr: {
-            type: 'linear', position: 'right',
-            title: { display: true, text: 'RHR (bpm)', font: { size: 10 }, color: '#ef4444' },
-            ticks: { font: { size: 10 } },
-            grid: { drawOnChartArea: false },
-          },
+          x: { ticks: { maxTicksLimit: 7, maxRotation: 0, font: { size: 9 } }, grid: { display: false } },
+          y: { ticks: { font: { size: 9 }, maxTicksLimit: 5 }, grid: { color: 'rgba(0,0,0,0.05)' } },
         },
         animation: { duration: 200 },
       },
     });
+  }
+
+  function renderHrvChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
+    }
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('hrv-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'HRV (ms) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    hrvSubChart = buildSubChart(ctx, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
+  }
+
+  function renderRhrChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
+    }
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('rhr-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'Resting HR (bpm) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    rhrSubChart = buildSubChart(ctx, info.series, 'Resting HR', 'bpm', '#ef4444', baseline_mean, baseline_sd, today);
   }
 
   // ── Sleep / Energy / Mood chart ───────────────────────────────────────────────
@@ -519,7 +577,7 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: {
             callbacks: {
               title(items) { return dates[items[0].dataIndex]; },
@@ -530,21 +588,24 @@
                 const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
                 return `Next-day readiness: ${v}  (${band})`;
               },
+              afterBody() {
+                return ['Readiness shown is for the day after this TSS value'];
+              },
             },
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 12 } }, grid: { display: false } },
           yTSS: {
             type: 'linear', position: 'left', min: 0,
-            title: { display: true, text: 'TSS', font: { size: 10 }, color: 'rgba(99,102,241,0.9)' },
-            ticks: { font: { size: 10 } },
+            title: { display: true, text: 'TSS', font: { size: 12 }, color: 'rgba(99,102,241,0.9)' },
+            ticks: { font: { size: 12 } },
             grid: { color: 'rgba(0,0,0,0.05)' },
           },
           yReadiness: {
             type: 'linear', position: 'right', min: 0, max: 100,
-            title: { display: true, text: 'Readiness', font: { size: 10 }, color: '#f59e0b' },
-            ticks: { stepSize: 20, font: { size: 10 } },
+            title: { display: true, text: 'Readiness', font: { size: 12 }, color: '#f59e0b' },
+            ticks: { stepSize: 20, font: { size: 12 } },
             grid: { drawOnChartArea: false },
           },
         },
@@ -597,7 +658,28 @@
       emptyBanner.hidden = false;
     }
 
-    showEmpty(document.getElementById('slot-hrv-rhr-body'));
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
+    const allHrvRhr = typeof MOCK_HRV_RHR !== 'undefined' ? MOCK_HRV_RHR : [];
+    const filteredHrvRhr = allHrvRhr.filter(r => r.date >= win.from && r.date <= win.to);
+    const today = toLocalDateStr(new Date());
+    if (filteredHrvRhr.length > 0) {
+      const { mean: hrvMean, sd: hrvSd } = computeStats(allHrvRhr.map(r => r.hrv));
+      const { mean: rhrMean, sd: rhrSd } = computeStats(allHrvRhr.map(r => r.rhr));
+      const isApprox = allHrvRhr.length < 30;
+      renderHrvChart(hrvBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
+          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox },
+        today);
+      renderRhrChart(rhrBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
+          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox },
+        today);
+    } else {
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
+    }
+
     showEmpty(document.getElementById('slot-sleep-energy-body'));
 
     const tssBodyEl = document.getElementById('slot-tss-body');
@@ -618,20 +700,25 @@
     const hasValidWindow = win.from && win.to && win.from <= win.to;
 
     const readinessBodyEl = document.getElementById('slot-readiness-body');
-    const hrvRhrBodyEl = document.getElementById('slot-hrv-rhr-body');
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
     const sleepEnergyBodyEl = document.getElementById('slot-sleep-energy-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
     showLoading(readinessBodyEl);
-    showLoading(hrvRhrBodyEl);
+    showLoading(hrvBodyEl);
+    showLoading(rhrBodyEl);
     showLoading(sleepEnergyBodyEl);
     showLoading(tssBodyEl);
     if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+    if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+    if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
       showEmpty(readinessBodyEl);
-      showEmpty(hrvRhrBodyEl);
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
       showEmpty(sleepEnergyBodyEl);
       showTSSEmpty(tssBodyEl);
       emptyBanner.hidden = false;
@@ -640,8 +727,10 @@
 
     fetchSummary(state, _userId)
       .then(summary => {
+        const today = toLocalDateStr(new Date());
         renderReadinessFromSummary(readinessBodyEl, summary);
-        renderHrvRhrChart(hrvRhrBodyEl, summary);
+        renderHrvChart(hrvBodyEl, summary.hrv, today);
+        renderRhrChart(rhrBodyEl, summary.rhr, today);
         renderSleepEnergyChart(sleepEnergyBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })

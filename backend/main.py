@@ -662,6 +662,16 @@ def get_calendar_month(
     return JSONResponse(days)
 
 
+@app.get("/log.html")
+def log_page():
+    return FileResponse(str(_static_root / "log.html"))
+
+
+@app.get("/log")
+def log_redirect():
+    return FileResponse(str(_static_root / "log.html"))
+
+
 @app.get("/trends.html")
 def trends_page():
     return FileResponse(str(_static_root / "trends.html"))
@@ -1787,3 +1797,259 @@ def compute_readiness_score(
             detail="No daily_metrics row found for this user on this date",
         )
     return JSONResponse(row)
+
+
+# ── Readiness GET endpoints ───────────────────────────────────────────────────
+
+@app.get("/api/readiness/today")
+def get_readiness_today(user_id: str = Query(...)):
+    """
+    Return today's readiness record for a user.
+
+    Response shape:
+      { date, score, missing_data: { hrv, rhr, sleep, energy },
+        hrv_contribution, rhr_contribution, sleep_contribution, energy_contribution }
+
+    Returns 404 when no readiness row exists for today (card falls back to mock data).
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        row = session.execute(
+            _text(
+                "SELECT dr.date, dr.score, dr.components, "
+                "       dm.hrv, dm.resting_hr, dm.sleep_quality, dm.energy "
+                "FROM daily_readiness dr "
+                "LEFT JOIN daily_metrics dm ON dm.id = dr.daily_metric_id "
+                "WHERE dr.user_id = :uid AND dr.date = :d"
+            ),
+            {"uid": str(uid), "d": str(today)},
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No readiness record for today")
+
+    comp = row.components or {}
+    return JSONResponse({
+        "date": str(row.date),
+        "score": float(row.score),
+        "hrv_contribution": comp.get("hrv_contribution"),
+        "rhr_contribution": comp.get("rhr_contribution"),
+        "sleep_contribution": comp.get("sleep_contribution"),
+        "energy_contribution": comp.get("energy_contribution"),
+        "missing_data": {
+            "hrv": row.hrv is None,
+            "rhr": row.resting_hr is None,
+            "sleep": row.sleep_quality is None,
+            "energy": row.energy is None,
+        },
+    })
+
+
+@app.get("/api/readiness")
+def get_readiness_range(
+    user_id: str = Query(...),
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+):
+    """
+    Return daily readiness scores for a date range (one entry per day, null if missing).
+
+    Response: list of { date, score } or null per day in [from, to].
+    """
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        d_from = _date.fromisoformat(from_date)
+        d_to = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+
+    if d_from > d_to:
+        raise HTTPException(status_code=400, detail="from must be <= to")
+
+    from sqlalchemy import text as _text
+    with Session(engine) as session:
+        rows = session.execute(
+            _text(
+                "SELECT date, score FROM daily_readiness "
+                "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
+                "ORDER BY date"
+            ),
+            {"uid": str(uid), "from_d": str(d_from), "to_d": str(d_to)},
+        ).fetchall()
+
+    by_date = {str(r.date): float(r.score) for r in rows}
+
+    result = []
+    d = d_from
+    from datetime import timedelta
+    while d <= d_to:
+        ds = str(d)
+        if ds in by_date:
+            result.append({"date": ds, "score": by_date[ds]})
+        else:
+            result.append(None)
+        d += timedelta(days=1)
+
+    return JSONResponse(result)
+
+
+# ── Training Log endpoint ─────────────────────────────────────────────────────
+
+def _week_key_and_bounds(date_obj):
+    from datetime import timedelta
+    dow = date_obj.weekday()  # 0=Mon
+    mon = date_obj - timedelta(days=dow)
+    sun = mon + timedelta(days=6)
+    return str(mon), str(sun)
+
+
+def _week_label(mon_key: str) -> str:
+    from datetime import date as _d2, timedelta
+    today = _d2.today()
+    this_mon = today - timedelta(days=today.weekday())
+    mon = _d2.fromisoformat(mon_key)
+    if mon == this_mon:
+        return "This week"
+    sun = mon + timedelta(days=6)
+    return mon.strftime("%b %-d") + " – " + str(sun.day)
+
+
+def _metric_has_data(m: DailyMetric) -> bool:
+    return any(
+        v is not None
+        for v in (m.energy, m.mood, m.resting_hr, m.hrv, m.sleep_hours, m.sleep_quality, m.notes)
+    )
+
+
+@app.get("/training_log")
+def get_training_log(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+    to_date: str = Query(alias="to"),
+    types: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    include_rest: bool = Query(default=True),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        from_d = _date.fromisoformat(from_date)
+        to_d = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        from sqlalchemy import or_
+        q = session.query(Workout).filter(
+            Workout.user_id == uid,
+            Workout.workout_date >= from_d,
+            Workout.workout_date <= to_d,
+        )
+        if types and types != "all":
+            q = q.filter(Workout.workout_type == types)
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
+        workouts = q.order_by(Workout.workout_date.desc(), Workout.created_at.desc()).all()
+
+        workout_dates = {str(w.workout_date) for w in workouts}
+
+        rest_entries: list = []
+        if include_rest and (not types or types == "all") and not search:
+            metrics = (
+                session.query(DailyMetric)
+                .filter(
+                    DailyMetric.user_id == uid,
+                    DailyMetric.metric_date >= from_d,
+                    DailyMetric.metric_date <= to_d,
+                )
+                .all()
+            )
+            for m in metrics:
+                if str(m.metric_date) not in workout_dates and _metric_has_data(m):
+                    rest_entries.append({
+                        "date": str(m.metric_date),
+                        "type": "rest",
+                        "metrics": {
+                            "energy": m.energy,
+                            "mood": m.mood,
+                            "sleep_quality": m.sleep_quality,
+                            "sleep_hours": float(m.sleep_hours) if m.sleep_hours is not None else None,
+                            "resting_hr": m.resting_hr,
+                            "hrv": m.hrv,
+                            "notes": m.notes,
+                        },
+                    })
+
+    workout_entries = [
+        {
+            "date": str(w.workout_date),
+            "type": w.workout_type,
+            "id": str(w.id),
+            "title": w.name,
+            "duration_minutes": None,
+            "distance_km": None,
+            "weight_context": w.remarks,
+            "avg_hr": None,
+            "tss": float(w.tss) if w.tss is not None else None,
+            "source": w.tss_source or "manual",
+            "notes": w.remarks or "",
+        }
+        for w in workouts
+    ]
+
+    all_entries = workout_entries + rest_entries
+    all_entries.sort(key=lambda e: e["date"], reverse=True)
+
+    weeks_map: dict = {}
+    week_order: list = []
+
+    for entry in all_entries:
+        d_obj = _date.fromisoformat(entry["date"])
+        mon_key, sun_key = _week_key_and_bounds(d_obj)
+        if mon_key not in weeks_map:
+            weeks_map[mon_key] = {
+                "week_start": mon_key,
+                "week_end": sun_key,
+                "label": _week_label(mon_key),
+                "entries": [],
+                "workouts": [],
+            }
+            week_order.append(mon_key)
+        weeks_map[mon_key]["entries"].append(entry)
+        if entry["type"] != "rest":
+            weeks_map[mon_key]["workouts"].append(entry)
+
+    week_order.sort(reverse=True)
+
+    weeks = []
+    for key in week_order:
+        wk = weeks_map[key]
+        ws = wk["workouts"]
+        weeks.append({
+            "week_start": wk["week_start"],
+            "week_end": wk["week_end"],
+            "label": wk["label"],
+            "entries": wk["entries"],
+            "workouts": ws,
+            "summary": {
+                "workout_count": len(ws),
+                "total_distance_km": sum((w.get("distance_km") or 0) for w in ws),
+                "total_tss": sum((w.get("tss") or 0) for w in ws),
+                "total_time_minutes": sum((w.get("duration_minutes") or 0) for w in ws),
+            },
+        })
+
+    return JSONResponse({"weeks": weeks})

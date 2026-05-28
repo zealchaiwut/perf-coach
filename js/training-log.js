@@ -140,11 +140,13 @@
   }
 
   // ── Mock API ──────────────────────────────────────────────────────────────
-  // Simulates GET /training_log?from=&to=&types=&search=
+  // Simulates GET /training_log?from=&to=&types=&search=&include_rest=
   // Returns { weeks: [...] } matching the documented JSON shape.
 
   function mockFetch(params) {
     var allWorkouts = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
+    var allRestDays = typeof MOCK_REST_DAYS !== 'undefined' ? MOCK_REST_DAYS : [];
+
     var filtered = allWorkouts.filter(function (w) {
       if (w.date < params.from || w.date > params.to) return false;
       if (params.types && params.types !== 'all' && w.type !== params.types) return false;
@@ -157,12 +159,27 @@
       return true;
     });
 
+    var workoutDates = {};
+    allWorkouts.forEach(function (w) {
+      if (w.date >= params.from && w.date <= params.to) workoutDates[w.date] = true;
+    });
+
+    var filteredRest = [];
+    if (!params.types || params.types === 'all') {
+      filteredRest = allRestDays.filter(function (r) {
+        if (r.date < params.from || r.date > params.to) return false;
+        return !workoutDates[r.date];
+      });
+    }
+
     filtered.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+    filteredRest.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
 
     var weeksMap = {};
     var weekOrder = [];
-    filtered.forEach(function (w) {
-      var d = isoToDate(w.date);
+
+    function getOrCreateWeek(dateStr) {
+      var d = isoToDate(dateStr);
       var dow = d.getDay();
       var daysToMon = dow === 0 ? -6 : 1 - dow;
       var mon = new Date(d);
@@ -176,23 +193,43 @@
           week_end: ymd(sun),
           label: weekLabel(mon),
           workouts: [],
+          restDays: [],
         };
         weekOrder.push(key);
       }
+      return key;
+    }
+
+    filtered.forEach(function (w) {
+      var key = getOrCreateWeek(w.date);
       weeksMap[key].workouts.push(w);
     });
+
+    filteredRest.forEach(function (r) {
+      var key = getOrCreateWeek(r.date);
+      weeksMap[key].restDays.push(r);
+    });
+
+    weekOrder.sort(function (a, b) { return b < a ? -1 : b > a ? 1 : 0; });
 
     var weeks = weekOrder.map(function (key) {
       var week = weeksMap[key];
       var ws = week.workouts;
-      return Object.assign({}, week, {
+      var entries = ws.concat(week.restDays);
+      entries.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+      return {
+        week_start: week.week_start,
+        week_end: week.week_end,
+        label: week.label,
+        entries: entries,
+        workouts: ws,
         summary: {
           workout_count:      ws.length,
           total_distance_km:  ws.reduce(function (s, w) { return s + (w.distance_km || 0); }, 0),
           total_tss:          ws.reduce(function (s, w) { return s + (w.tss || 0); }, 0),
           total_time_minutes: ws.reduce(function (s, w) { return s + (w.duration_minutes || 0); }, 0),
         },
-      });
+      };
     });
 
     return { weeks: weeks };
@@ -240,6 +277,41 @@
   }
 
   // ── Renderers ─────────────────────────────────────────────────────────────
+
+  function renderRestDayRow(entry) {
+    var d = isoToDate(entry.date);
+    var m = entry.metrics || {};
+
+    var metricParts = [];
+    if (m.energy != null)        metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Energy</span> ' + m.energy + '/5</span>');
+    if (m.sleep_quality != null) metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Sleep</span> ' + m.sleep_quality + '/5</span>');
+    if (m.sleep_hours != null)   metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">Sleep hrs</span> ' + m.sleep_hours + 'h</span>');
+    if (m.resting_hr != null)    metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">RHR</span> ' + m.resting_hr + ' bpm</span>');
+    if (m.hrv != null)           metricParts.push('<span class="rest-metric-item"><span class="rest-metric-label">HRV</span> ' + m.hrv + ' ms</span>');
+
+    var notesPart = '';
+    if (m.notes) {
+      var truncated = m.notes.length > 80 ? m.notes.slice(0, 80) + '…' : m.notes;
+      notesPart = '<span class="rest-notes">' + escHtml(truncated) + '</span>';
+    }
+
+    var div = document.createElement('div');
+    div.className = 'rest-day-row';
+    div.dataset.date = entry.date;
+
+    div.innerHTML =
+      '<div class="workout-date-col">' +
+        '<span class="workout-day-num">'  + d.getDate() + '</span>' +
+        '<span class="workout-day-name">' + DAY_NAMES[d.getDay()] + '</span>' +
+      '</div>' +
+      '<span class="rest-badge">Rest</span>' +
+      '<div class="rest-metrics">' +
+        (metricParts.length ? metricParts.join('') : '<span class="rest-metric-item">Rest day</span>') +
+        notesPart +
+      '</div>';
+
+    return div;
+  }
 
   function renderWorkoutRow(w) {
     var d = isoToDate(w.date);
@@ -295,7 +367,9 @@
 
     var rows = document.createElement('div');
     rows.className = 'workout-rows';
-    week.workouts.forEach(function (w) { rows.appendChild(renderWorkoutRow(w)); });
+    (week.entries || week.workouts).forEach(function (e) {
+      rows.appendChild(e.type === 'rest' ? renderRestDayRow(e) : renderWorkoutRow(e));
+    });
     section.appendChild(rows);
 
     return section;

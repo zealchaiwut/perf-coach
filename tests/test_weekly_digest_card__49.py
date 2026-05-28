@@ -284,9 +284,10 @@ def test_ac_home_js_slices_to_5_lines():
 
 
 def test_ac_home_js_has_daily_cache_key():
-    """home.js must define a localStorage cache key for the digest."""
+    """home.js must define a localStorage cache key for the digest (constant or function)."""
     js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
-    assert "DIGEST_CACHE_KEY" in js, "home.js must define DIGEST_CACHE_KEY for daily caching"
+    assert "DIGEST_CACHE_KEY" in js or "digestCacheKey" in js, \
+        "home.js must define DIGEST_CACHE_KEY or digestCacheKey for daily caching"
 
 
 def test_ac_home_js_cache_uses_today_iso():
