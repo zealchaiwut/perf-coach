@@ -186,6 +186,8 @@
 
     /* ── Workout list ── */
     #workout-list {
+      flex: 1;
+      min-width: 0;
       max-width: 800px;
       margin: 0 auto;
       padding: 1.5rem 2rem;
@@ -434,6 +436,166 @@
 
       .source-pill { display: none; }
     }
+
+    /* ── Log body: list + side panel ── */
+    .log-body {
+      display: flex;
+      align-items: flex-start;
+    }
+
+    /* On desktop, remove the centering constraint when the panel is open */
+    @media (min-width: 768px) {
+      .log-body.panel-open #workout-list {
+        max-width: none;
+        margin: 0;
+      }
+    }
+
+    /* ── Detail panel — desktop: sticky right side ── */
+    .detail-panel {
+      display: none;
+      flex-direction: column;
+      width: 380px;
+      flex-shrink: 0;
+      border-left: 1px solid #e5e5e5;
+      background: #fff;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .detail-panel.is-open { display: flex; }
+
+    /* Mobile (<768px): full-screen sheet */
+    @media (max-width: 767px) {
+      .detail-panel.is-open {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 200;
+        border-left: none;
+      }
+
+      .detail-panel-back-btn { display: block; }
+    }
+
+    .detail-panel-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #e5e5e5;
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 1;
+      flex-shrink: 0;
+    }
+
+    .detail-panel-hdr-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .detail-panel-back-btn {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.75rem;
+      cursor: pointer;
+      color: #555;
+      padding: 0;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .detail-panel-back-btn:hover { color: #1a1a1a; }
+
+    .detail-panel-title-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .detail-panel-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin: 0 0 0.25rem;
+      color: #1a1a1a;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .detail-panel-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .detail-panel-date {
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+
+    .detail-source-pill {
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .detail-source-pill.is-hidden { display: none; }
+
+    .detail-panel-close-btn {
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      cursor: pointer;
+      color: #999;
+      padding: 0.1rem 0.25rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .detail-panel-close-btn:hover { color: #333; }
+
+    .detail-panel-body {
+      padding: 1.25rem;
+      flex: 1;
+    }
+
+    /* ── Stat grid: 2 columns × 3 rows ── */
+    .detail-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .stat-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 0.875rem 1rem;
+    }
+
+    .stat-cell-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-cell-value {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
   </style>
 </head>
 <body>
@@ -487,9 +649,31 @@
     </select>
   </div>
 
-  <!-- Workout list -->
-  <div id="workout-list">
-    <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one.</p>
+  <!-- Log body: list + detail panel -->
+  <div class="log-body" id="log-body">
+    <div id="workout-list">
+      <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one.</p>
+    </div>
+
+    <!-- Workout detail panel -->
+    <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-label="Workout detail">
+      <div class="detail-panel-header">
+        <div class="detail-panel-hdr-inner">
+          <button class="detail-panel-back-btn" id="detail-panel-back" aria-label="Back">&#8249;</button>
+          <div class="detail-panel-title-wrap">
+            <h2 class="detail-panel-title" id="detail-panel-title"></h2>
+            <div class="detail-panel-meta-row">
+              <span id="detail-panel-date" class="detail-panel-date"></span>
+              <span id="detail-panel-source" class="detail-source-pill is-hidden"></span>
+            </div>
+          </div>
+          <button class="detail-panel-close-btn" id="detail-panel-close" aria-label="Close">&times;</button>
+        </div>
+      </div>
+      <div class="detail-panel-body">
+        <div class="detail-stat-grid" id="detail-stat-grid"></div>
+      </div>
+    </aside>
   </div>
 
   <script src="js/mock-data.js"></script>
