@@ -496,6 +496,10 @@
     document.getElementById('detail-panel-date').textContent  = '';
     document.getElementById('detail-stat-grid').innerHTML     = '';
     document.getElementById('detail-panel-source').classList.add('is-hidden');
+    document.getElementById('detail-exercise-section').style.display = 'none';
+    document.getElementById('detail-exercise-tbody').innerHTML        = '';
+    document.getElementById('detail-notes-section').style.display    = 'none';
+    document.getElementById('detail-notes-text').textContent          = '';
 
     panel.classList.add('is-open');
     logBody.classList.add('panel-open');
@@ -587,6 +591,37 @@
         '<span class="stat-cell-value">' + escHtml(s.value) + '</span>';
       grid.appendChild(cell);
     });
+
+    var exerciseSection = document.getElementById('detail-exercise-section');
+    var exerciseTbody   = document.getElementById('detail-exercise-tbody');
+    var exercises = workout.exercises;
+    if (workout.workout_type === 'lift' && exercises && exercises.length > 0) {
+      var sorted = exercises.slice().sort(function (a, b) { return a.display_order - b.display_order; });
+      sorted.forEach(function (ex) {
+        var setsReps = (ex.sets != null ? ex.sets : '—') + ' × ' + (ex.reps != null ? ex.reps : '—');
+        var weight   = ex.weight_kg != null ? ex.weight_kg + ' kg' : '—';
+        var rpe      = ex.rpe != null ? String(ex.rpe) : '—';
+        var row = document.createElement('tr');
+        row.innerHTML =
+          '<td>' + escHtml(ex.name || '') + '</td>' +
+          '<td>' + escHtml(setsReps)       + '</td>' +
+          '<td>' + escHtml(weight)          + '</td>' +
+          '<td>' + escHtml(rpe)             + '</td>';
+        exerciseTbody.appendChild(row);
+      });
+      exerciseSection.style.display = '';
+    } else {
+      exerciseSection.style.display = 'none';
+    }
+
+    var notesSection = document.getElementById('detail-notes-section');
+    var notesText    = document.getElementById('detail-notes-text');
+    if (workout.remarks) {
+      notesText.textContent = workout.remarks;
+      notesSection.style.display = '';
+    } else {
+      notesSection.style.display = 'none';
+    }
   }
 
   // ── Export CSV ────────────────────────────────────────────────────────────

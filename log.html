@@ -603,6 +603,59 @@
       font-weight: 700;
       color: #1a1a1a;
     }
+
+    /* ── Detail panel sections (exercise breakdown & notes) ── */
+    .detail-section {
+      margin-top: 1.25rem;
+    }
+
+    .detail-section-title {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .exercise-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .exercise-table th {
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .exercise-table td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      font-size: 0.8125rem;
+      color: #1a1a1a;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .exercise-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .detail-notes-text {
+      font-size: 0.875rem;
+      color: #374151;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -679,6 +732,24 @@
       </div>
       <div class="detail-panel-body">
         <div class="detail-stat-grid" id="detail-stat-grid"></div>
+        <div id="detail-exercise-section" class="detail-section" style="display:none">
+          <div class="detail-section-title">Exercise Breakdown</div>
+          <table class="exercise-table">
+            <thead>
+              <tr>
+                <th>Exercise</th>
+                <th>Sets &times; Reps</th>
+                <th>Weight</th>
+                <th>RPE</th>
+              </tr>
+            </thead>
+            <tbody id="detail-exercise-tbody"></tbody>
+          </table>
+        </div>
+        <div id="detail-notes-section" class="detail-section" style="display:none">
+          <div class="detail-section-title">Notes</div>
+          <p id="detail-notes-text" class="detail-notes-text"></p>
+        </div>
       </div>
     </aside>
   </div>
