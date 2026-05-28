@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training log – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .log-subtitle {
+      margin: 0;
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    #week-strip {
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 0.75rem 2rem;
+    }
+
+    #filter-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0.75rem 2rem;
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    #log-list {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem;
+    }
+
+    @media (max-width: 599px) {
+      header { padding: 0.75rem 1rem; }
+      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; }
+      #week-strip { padding: 0.75rem 1rem; }
+      #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
+      #log-list { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Training log</h1>
+      <p class="log-subtitle">Manual entry &middot; last updated just now</p>
+    </div>
+    <div class="log-header-actions">
+      <button id="log-export-btn" class="btn-secondary">Export</button>
+      <button id="log-new-btn" class="btn-primary">Log workout</button>
+      <span id="env-label" class="env-label"></span>
+    </div>
+  </header>
+
+  <nav class="main-nav">
+    <a href="home.html">Home</a>
+    <a href="calendar.html">Calendar</a>
+    <a href="weight.html">Weight</a>
+    <a href="habits.html">Habits</a>
+    <a href="training.html">Training</a>
+    <a href="log" class="active">Log</a>
+    <a href="trends.html">Trends</a>
+  </nav>
+
+  <div id="week-strip"></div>
+
+  <div id="filter-bar"></div>
+
+  <div id="log-list"></div>
+
+  <script src="js/training-log.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>

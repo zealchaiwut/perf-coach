@@ -664,12 +664,12 @@ def get_calendar_month(
 
 @app.get("/log.html")
 def log_page():
-    return FileResponse(str(_static_root / "log.html"))
+    return FileResponse(str(_static_root / "training-log.html"))
 
 
 @app.get("/log")
 def log_redirect():
-    return FileResponse(str(_static_root / "log.html"))
+    return FileResponse(str(_static_root / "training-log.html"))
 
 
 @app.get("/trends.html")
