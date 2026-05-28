@@ -233,6 +233,7 @@ function mockGetTrendsSummary(params) {
   const rhrSeries  = series('rhr');
   const rhrVals    = rhrSeries.map(s => s.value);
   const rhrLatest  = [...rhrVals].reverse().find(v => v !== null) ?? null;
+  const allRhr     = Object.values(_MOCK_DAILY_RAW).map(r => r.rhr).filter(v => v !== null);
 
   // tss
   const tssSeries  = _buildSeries(dates, d => _MOCK_TSS_BY_DATE[d] ?? null);
@@ -252,6 +253,7 @@ function mockGetTrendsSummary(params) {
     },
     rhr: {
       avg: _safeAvg(rhrVals), min: _safeMin(rhrVals), max: _safeMax(rhrVals), latest: rhrLatest,
+      baseline_mean: _safeAvg(allRhr), baseline_sd: _safeStddev(allRhr),
       series: rhrSeries, delta: delta('rhr'),
     },
     sleep: {
