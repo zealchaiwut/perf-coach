@@ -535,7 +535,12 @@
     var secPerKm = durSeconds / distKm;
     var pMin = Math.floor(secPerKm / 60);
     var pSec = String(Math.round(secPerKm % 60)).padStart(2, '0');
-    return pMin + ':' + pSec + '/km';
+    return pMin + ':' + pSec + ' /km';
+  }
+
+  function fmtSpeedKmh(distKm, durSeconds) {
+    if (!distKm || !durSeconds) return '—';
+    return (distKm / (durSeconds / 3600)).toFixed(1) + ' km/h';
   }
 
   function panelDateStr(iso) {
@@ -555,28 +560,34 @@
       sourcePill.classList.add('is-hidden');
     }
 
-    var isRun = workout.workout_type === 'run';
+    var wtype    = workout.workout_type;
+    var isRun    = wtype === 'run';
+    var isBike   = wtype === 'bike';
+    var hasDist  = workout.distance_km != null;
+    var hasDur   = workout.duration_seconds != null;
+    var showPaceSpeed = (isRun || isBike) && hasDist && hasDur;
 
-    var distVal = workout.distance_km != null ? workout.distance_km + ' km' : '—';
+    var distVal = hasDist ? workout.distance_km + ' km' : '—';
     var durVal  = fmtDurationSec(workout.duration_seconds);
-
-    var thirdLabel, thirdVal;
-    if (isRun) {
-      thirdLabel = 'Avg Pace';
-      thirdVal   = fmtPaceFromSec(workout.distance_km, workout.duration_seconds);
-    } else {
-      thirdLabel = 'Exercises';
-      thirdVal   = workout.exercises ? String(workout.exercises.length) : '—';
-    }
 
     var stats = [
       { label: 'Distance',  value: distVal },
       { label: 'Duration',  value: durVal },
-      { label: thirdLabel,  value: thirdVal },
-      { label: 'Avg HR',    value: workout.avg_hr     != null ? workout.avg_hr + ' bpm' : '—' },
-      { label: 'Elevation', value: workout.elevation_m != null ? workout.elevation_m + ' m' : '—' },
-      { label: 'TSS',       value: workout.tss        != null ? String(workout.tss)  : '—' },
     ];
+
+    if (showPaceSpeed) {
+      if (isRun) {
+        stats.push({ label: 'Avg Pace',  value: fmtPaceFromSec(workout.distance_km, workout.duration_seconds) });
+      } else {
+        stats.push({ label: 'Avg Speed', value: fmtSpeedKmh(workout.distance_km, workout.duration_seconds) });
+      }
+    } else if (!isRun && !isBike) {
+      stats.push({ label: 'Exercises', value: workout.exercises ? String(workout.exercises.length) : '—' });
+    }
+
+    stats.push({ label: 'Avg HR',    value: workout.avg_hr     != null ? workout.avg_hr + ' bpm' : '—' });
+    stats.push({ label: 'Elevation', value: workout.elevation_m != null ? workout.elevation_m + ' m' : '—' });
+    stats.push({ label: 'TSS',       value: workout.tss        != null ? String(workout.tss)       : '—' });
 
     var grid = document.getElementById('detail-stat-grid');
     grid.innerHTML = '';
@@ -588,6 +599,33 @@
         '<span class="stat-cell-value">' + escHtml(s.value) + '</span>';
       grid.appendChild(cell);
     });
+
+    var existingEx = document.getElementById('detail-exercises-section');
+    if (existingEx) existingEx.remove();
+    if (workout.exercises && workout.exercises.length > 0) {
+      var exSection = document.createElement('div');
+      exSection.id = 'detail-exercises-section';
+      exSection.className = 'exercises-section';
+      var exHeading = document.createElement('h3');
+      exHeading.className = 'exercises-section-heading';
+      exHeading.textContent = 'Exercises';
+      exSection.appendChild(exHeading);
+      workout.exercises.forEach(function (ex) {
+        var parts = [];
+        if (ex.sets != null && ex.reps != null) parts.push(ex.sets + ' × ' + ex.reps);
+        else if (ex.sets != null)               parts.push(ex.sets + ' sets');
+        if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
+        if (ex.duration)          parts.push(ex.duration);
+        if (ex.rpe != null)       parts.push('RPE ' + ex.rpe);
+        var item = document.createElement('div');
+        item.className = 'exercise-item';
+        item.innerHTML =
+          '<span class="exercise-name">'    + escHtml(ex.name) + '</span>' +
+          (parts.length ? '<span class="exercise-metrics">' + escHtml(parts.join(' · ')) + '</span>' : '');
+        exSection.appendChild(item);
+      });
+      grid.parentElement.appendChild(exSection);
+    }
 
     document.getElementById('detail-edit-btn').onclick = function () {
       location.href = 'training.html?edit=' + encodeURIComponent(workout.id);
