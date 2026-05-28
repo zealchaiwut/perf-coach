@@ -411,10 +411,10 @@
   <header>
     <div>
       <h1>Training log</h1>
-      <p class="log-sync-text" id="sync-text"></p>
+      <p class="log-sync-text" id="log-sync-sub"></p>
     </div>
     <div style="display:flex;align-items:center;gap:0.5rem">
-      <button id="export-btn" class="btn-secondary">Export</button>
+      <button id="log-export-btn" class="btn-secondary">Export</button>
       <button id="log-workout-btn" class="btn-primary">+ Log workout</button>
       <span id="env-label" class="env-label"></span>
     </div>
@@ -461,6 +461,7 @@
   <!-- Workout list -->
   <div id="workout-list">
     <p class="loading-msg">Loading…</p>
+    <p class="empty-msg" id="log-empty-msg" style="display:none">No workouts in this range — log one or sync Strava</p>
   </div>
 
   <script src="js/mock-data.js"></script>

@@ -109,7 +109,8 @@ const _MOCK_DAILY_RAW = (() => {
       readiness: gap ? null : Math.max(30, Math.min(95, Math.round(62 + 18 * Math.sin(i * 0.14) + (i % 7) * 1.2))),
       hrv:       gap ? null : Math.max(25, Math.min(70, Math.round(44 + 9  * Math.sin(i * 0.11) + (i % 5)))),
       rhr:       gap ? null : Math.max(44, Math.min(74, Math.round(59 - 7  * Math.sin(i * 0.11) - (i % 4)))),
-      sleep:     gap ? null : Math.round(Math.max(4.5, Math.min(9.5, 6.9 + 1.1 * Math.sin(i * 0.19))) * 10) / 10,
+      sleep:         gap ? null : Math.round(Math.max(4.5, Math.min(9.5, 6.9 + 1.1 * Math.sin(i * 0.19))) * 10) / 10,
+      sleep_quality: gap ? null : Math.max(1, Math.min(5, Math.round(3 + 1.5 * Math.sin(i * 0.19)))),
       energy:    gap ? null : Math.max(1, Math.min(5, Math.round(3 + 1.5 * Math.sin(i * 0.16)))),
       mood:      gap ? null : Math.max(1, Math.min(5, Math.round(3.2 + 1.3 * Math.sin(i * 0.21)))),
     };
@@ -258,7 +259,8 @@ function mockGetTrendsSummary(params) {
     },
     sleep: {
       avg: _safeAvg(vals(dates, 'sleep')),
-      series: series('sleep'), delta: delta('sleep'),
+      series: dates.map(d => ({ date: d, value: raw(d, 'sleep'), quality: raw(d, 'sleep_quality') })),
+      delta: delta('sleep'),
     },
     energy: {
       avg: _safeAvg(vals(dates, 'energy')),
@@ -297,7 +299,8 @@ const MOCK_TRENDS_SUMMARY = {
       { date: '2026-05-25', value: 38 }, { date: '2026-05-26', value: 37 },
       { date: '2026-05-27', value: 36 },
     ],
-    avg: 44.1, min: 36, max: 51,
+    avg: 44.0, min: 42, max: 46,
+    baseline_mean: 46.2, baseline_sd: 5.4, is_approximate: true,
   },
   rhr: {
     series: [
@@ -307,6 +310,7 @@ const MOCK_TRENDS_SUMMARY = {
       { date: '2026-05-27', value: 57 },
     ],
     avg: 57.0, min: 56, max: 58,
+    baseline_mean: 57.4, baseline_sd: 2.2, is_approximate: true,
   },
   sleep: {
     series: [
@@ -439,6 +443,41 @@ const MOCK_SEM = [
   { date: '2026-05-25', sleep_quality: 5, energy: 4, mood: 5 },
   { date: '2026-05-26', sleep_quality: 3, energy: 3, mood: 3 },
   { date: '2026-05-27', sleep_quality: 4, energy: 4, mood: 4 },
+];
+
+// MOCK — 30-day HRV and RHR values ending 2026-05-27; used to compute baseline in the mock fallback
+// baseline_mean(hrv)≈46.2 ms  SD≈5.4 ms   baseline_mean(rhr)≈57.4 bpm  SD≈2.2 bpm
+const MOCK_HRV_RHR = [
+  { date: '2026-04-28', hrv: 52, rhr: 55 },
+  { date: '2026-04-29', hrv: 50, rhr: 56 },
+  { date: '2026-04-30', hrv: 47, rhr: 58 },
+  { date: '2026-05-01', hrv: 53, rhr: 55 },
+  { date: '2026-05-02', hrv: 55, rhr: 54 },
+  { date: '2026-05-03', hrv: 48, rhr: 57 },
+  { date: '2026-05-04', hrv: 44, rhr: 59 },
+  { date: '2026-05-05', hrv: 46, rhr: 58 },
+  { date: '2026-05-06', hrv: 43, rhr: 60 },
+  { date: '2026-05-07', hrv: 40, rhr: 61 },
+  { date: '2026-05-08', hrv: 38, rhr: 62 },
+  { date: '2026-05-09', hrv: 36, rhr: 63 },
+  { date: '2026-05-10', hrv: 41, rhr: 60 },
+  { date: '2026-05-11', hrv: 45, rhr: 58 },
+  { date: '2026-05-12', hrv: 47, rhr: 57 },
+  { date: '2026-05-13', hrv: 50, rhr: 56 },
+  { date: '2026-05-14', hrv: 52, rhr: 55 },
+  { date: '2026-05-15', hrv: 54, rhr: 54 },
+  { date: '2026-05-16', hrv: 51, rhr: 55 },
+  { date: '2026-05-17', hrv: 48, rhr: 57 },
+  { date: '2026-05-18', hrv: 46, rhr: 58 },
+  { date: '2026-05-19', hrv: 44, rhr: 59 },
+  { date: '2026-05-20', hrv: 47, rhr: 57 },
+  { date: '2026-05-21', hrv: 42, rhr: 57 },
+  { date: '2026-05-22', hrv: 45, rhr: 56 },
+  { date: '2026-05-23', hrv: 43, rhr: 58 },
+  { date: '2026-05-24', hrv: 46, rhr: 57 },
+  { date: '2026-05-25', hrv: 44, rhr: 56 },
+  { date: '2026-05-26', hrv: 43, rhr: 57 },
+  { date: '2026-05-27', hrv: 44, rhr: 57 },
 ];
 
 // MOCK — sample weight entries used when the selected user has no server data

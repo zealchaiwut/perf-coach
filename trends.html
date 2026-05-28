@@ -109,6 +109,44 @@
       box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
     }
 
+    .range-confirm-btn,
+    .range-cancel-btn {
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .range-confirm-btn {
+      background: #1a1a1a;
+      color: #fff;
+      border: 1px solid #1a1a1a;
+    }
+
+    .range-confirm-btn:hover {
+      background: #333;
+      border-color: #333;
+    }
+
+    .range-confirm-btn:focus-visible,
+    .range-cancel-btn:focus-visible {
+      outline: 2px solid #0070f3;
+      outline-offset: 2px;
+    }
+
+    .range-cancel-btn {
+      background: #fff;
+      color: #555;
+      border: 1px solid #d1d5db;
+    }
+
+    .range-cancel-btn:hover {
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
     /* ── Chart grid ── */
     .chart-grid {
       display: grid;
@@ -335,7 +373,6 @@
     .sem-toggle-btn.energy.active    { background: #f59e0b; }
     .sem-toggle-btn.mood.active      { background: #10b981; }
     .sem-toggle-btn.weekly-avg.active { background: #6366f1; }
-
     /* ── Page-level empty state ── */
     .trends-empty-banner {
       background: #fff;
@@ -372,11 +409,11 @@
         <button class="range-btn" data-range="90d">90d</button>
         <button class="range-btn" data-range="custom">Custom</button>
       </div>
-      <div class="custom-range" id="custom-range-inputs" hidden>
+      <div class="custom-range" id="custom-range-inputs" role="group" aria-label="Custom date range" hidden>
         <label for="range-from">From</label>
-        <input type="date" id="range-from" name="from">
+        <input type="date" id="range-from" name="from" aria-label="Start date">
         <label for="range-to">To</label>
-        <input type="date" id="range-to" name="to">
+        <input type="date" id="range-to" name="to" aria-label="End date">
         <button class="range-btn range-btn--apply" id="custom-apply">Apply</button>
         <button class="range-btn range-btn--cancel" id="custom-cancel">Cancel</button>
         <span class="custom-range-error" id="custom-range-error" hidden></span>
@@ -391,9 +428,10 @@
     <!-- Chart placeholder slots -->
     <div class="chart-grid" id="chart-grid">
 
-      <div class="chart-slot" id="slot-readiness">
+      <div class="chart-slot chart-slot--full" id="slot-readiness">
         <div class="chart-slot-header">
           <h2 class="chart-slot-title">Readiness Score</h2>
+          <p class="chart-slot-subtitle">Daily score &nbsp;·&nbsp; 7-day rolling average overlay (starts after 7 days of data)</p>
         </div>
         <div class="chart-slot-body" id="slot-readiness-body">
           <div class="slot-loading">
