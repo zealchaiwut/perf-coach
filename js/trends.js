@@ -639,6 +639,22 @@
       </div>`;
   }
 
+  function _buildTSSTooltipCallbacks(datesRef) {
+    return {
+      title(items) { return datesRef[items[0].dataIndex]; },
+      label(item) {
+        const v = item.raw;
+        if (item.datasetIndex === 0) return v === null ? 'TSS: —' : `TSS: ${v}`;
+        if (v === null) return 'Next-day readiness: —';
+        const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
+        return `Next-day readiness: ${v}  (${band})`;
+      },
+      afterBody() {
+        return ['Readiness shown is for the day after this TSS value'];
+      },
+    };
+  }
+
   function renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate) {
     const tssValues = dates.map(d => tssByDate[d] ?? null);
     const nextDayReadiness = dates.map(d => readinessByDate[addOneDay(d)] ?? null);
@@ -672,8 +688,9 @@
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 3,
-        pointHoverRadius: 5,
+        pointHoverRadius: 6,
         pointBackgroundColor: '#f59e0b',
+        hitRadius: 22,
         fill: false,
         spanGaps: false,
         tension: 0.3,
@@ -683,6 +700,8 @@
     if (tssOverlayChart) {
       tssOverlayChart.data.labels = labels;
       tssOverlayChart.data.datasets = datasets;
+      // Refresh tooltip callbacks so the title() closure references the new dates array
+      tssOverlayChart.options.plugins.tooltip.callbacks = _buildTSSTooltipCallbacks(dates);
       tssOverlayChart.update();
       return;
     }
@@ -697,19 +716,7 @@
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: {
-            callbacks: {
-              title(items) { return dates[items[0].dataIndex]; },
-              label(item) {
-                const v = item.raw;
-                if (item.datasetIndex === 0) return v === null ? 'TSS: —' : `TSS: ${v}`;
-                if (v === null) return 'Next-day readiness: —';
-                const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
-                return `Next-day readiness: ${v}  (${band})`;
-              },
-              afterBody() {
-                return ['Readiness shown is for the day after this TSS value'];
-              },
-            },
+            callbacks: _buildTSSTooltipCallbacks(dates),
           },
         },
         scales: {
