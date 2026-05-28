@@ -2,8 +2,9 @@
   'use strict';
 
   // ── State ─────────────────────────────────────────────────────────────────
-  var filters   = { type: 'all', search: '', from: '', to: '' };
-  var lastWeeks = [];
+  var filters              = { type: 'all', search: '', from: '', to: '' };
+  var lastWeeks            = [];
+  var activeDetailWorkoutId = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -81,7 +82,6 @@
     var bar = document.getElementById('filter-bar');
     if (!bar) return;
 
-    // Search input
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fb-search-wrap';
     var searchInput = document.createElement('input');
@@ -92,7 +92,6 @@
     searchWrap.appendChild(searchInput);
     bar.appendChild(searchWrap);
 
-    // Type chips
     var chipsRow = document.createElement('div');
     chipsRow.className = 'fb-chips-row';
     var TYPE_OPTS   = ['all','run','lift','wod','bike'];
@@ -115,7 +114,6 @@
     });
     bar.appendChild(chipsRow);
 
-    // Date-range chip + panel
     var drWrap  = document.createElement('div');
     drWrap.className = 'fb-daterange-wrap';
 
@@ -161,7 +159,6 @@
     drWrap.appendChild(drPanel);
     bar.appendChild(drWrap);
 
-    // Loading indicator
     var loadingEl = document.createElement('span');
     loadingEl.id        = 'log-loading-indicator';
     loadingEl.className = 'log-loading-indicator';
@@ -170,8 +167,6 @@
     loadingEl.setAttribute('aria-live', 'polite');
     loadingEl.textContent = 'Loading…';
     bar.appendChild(loadingEl);
-
-    // ── Events ────────────────────────────────────────────────────────────
 
     // Search — 300 ms debounce
     var searchTimer;
@@ -184,7 +179,6 @@
       }, 300);
     });
 
-    // DR chip toggle
     drChip.addEventListener('click', function (e) {
       e.stopPropagation();
       var nowOpen = drPanel.hidden;
@@ -192,7 +186,6 @@
       drChip.setAttribute('aria-expanded', String(nowOpen));
     });
 
-    // Apply date range
     applyBtn.addEventListener('click', function () {
       filters.from = fromInput.value;
       filters.to   = toInput.value;
@@ -203,7 +196,6 @@
       fetchAndRender();
     });
 
-    // Close DR panel on outside click
     document.addEventListener('click', function (e) {
       if (!drPanel.hidden && !drPanel.contains(e.target) && e.target !== drChip) {
         drPanel.hidden = true;
@@ -212,11 +204,38 @@
     });
   }
 
+  // ── List state helpers ────────────────────────────────────────────────────
+  function hideListMessages() {
+    var errEl   = document.getElementById('log-error-msg');
+    var emptyEl = document.getElementById('log-empty-msg');
+    if (errEl)   errEl.style.display   = 'none';
+    if (emptyEl) emptyEl.style.display = 'none';
+  }
+
+  function showListSkeleton() {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    var html = '';
+    for (var i = 0; i < 5; i++) {
+      html += '<div class="skeleton-row"></div>';
+    }
+    listEl.innerHTML = html;
+  }
+
+  function renderListError() {
+    var listEl = document.getElementById('log-list');
+    var errEl  = document.getElementById('log-error-msg');
+    if (listEl) listEl.innerHTML = '';
+    if (errEl)  errEl.style.display = '';
+  }
+
   // ── Fetch & render ────────────────────────────────────────────────────────
   function fetchAndRender() {
     var loadingEl = document.getElementById('log-loading-indicator');
-    var listEl    = document.getElementById('log-list');
     if (loadingEl) loadingEl.hidden = false;
+
+    hideListMessages();
+    showListSkeleton();
 
     var today = todayISO();
     var params = new URLSearchParams();
@@ -236,10 +255,11 @@
       })
       .then(function (data) {
         lastWeeks = data.weeks || [];
+        var listEl = document.getElementById('log-list');
         renderList(listEl, lastWeeks);
       })
-      .catch(function () {
-        if (listEl) listEl.innerHTML = '<p class="log-empty">Failed to load workouts.</p>';
+      .catch(function (_) {
+        renderListError();
       })
       .finally(function () {
         if (loadingEl) loadingEl.hidden = true;
@@ -252,13 +272,23 @@
   function renderList(container, weeks) {
     if (!container) return;
     container.innerHTML = '';
+
+    var hasFilters = filters.type !== 'all' || !!filters.search || !!filters.from || !!filters.to;
+
     if (!weeks.length) {
-      var msg = document.createElement('p');
-      msg.className   = 'log-empty';
-      msg.textContent = 'No workouts in this range.';
-      container.appendChild(msg);
+      if (!hasFilters) {
+        var emptyEl = document.getElementById('log-empty-msg');
+        if (emptyEl) emptyEl.style.display = '';
+      } else {
+        var msg = document.createElement('p');
+        msg.className   = 'log-empty';
+        msg.textContent = 'No workouts in this range.';
+        container.appendChild(msg);
+      }
       return;
     }
+
+    hideListMessages();
     weeks.forEach(function (week) { container.appendChild(buildWeekGroup(week)); });
   }
 
@@ -309,9 +339,9 @@
     var s  = week.summary || {};
     var ws = week.workouts || [];
     var parts = [ws.length + ' workout' + (ws.length !== 1 ? 's' : '')];
-    if (s.total_distance_km > 0) parts.push((+s.total_distance_km).toFixed(1) + ' km');
+    if (s.total_distance_km > 0) parts.push((+s.total_distance_km).toFixed(1) + ' km');
     if (s.total_time_minutes > 0) parts.push(fmtDuration(s.total_time_minutes * 60));
-    if (s.total_tss > 0) parts.push('TSS ' + (+s.total_tss).toFixed(0));
+    if (s.total_tss > 0) parts.push('TSS ' + (+s.total_tss).toFixed(0));
 
     var groupEl = document.createElement('div');
     groupEl.className = 'week-group';
@@ -339,7 +369,7 @@
       var dl = document.createElement('div');
       dl.className = 'day-label';
       var d = new Date(dateStr + 'T00:00:00');
-      dl.textContent = DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+      dl.textContent = DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
       sec.appendChild(dl);
 
       dayMap[dateStr].forEach(function (entry) {
@@ -355,18 +385,24 @@
     var row = document.createElement('div');
     row.className = 'entry-row entry-row--' + esc(w.type || 'other');
 
+    if (w.id) {
+      row.addEventListener('click', function () {
+        openDetailPanel(w.id);
+      });
+    }
+
     var meta = [];
     if (w.duration_seconds) meta.push(fmtDuration(w.duration_seconds));
     if ((w.type === 'run' || w.type === 'bike') && w.distance_km)
-      meta.push((+w.distance_km).toFixed(1) + ' km');
+      meta.push((+w.distance_km).toFixed(1) + ' km');
     if ((w.type === 'run' || w.type === 'bike') && w.average_pace_seconds_per_km)
       meta.push(fmtPace(w.average_pace_seconds_per_km));
-    if (w.avg_hr) meta.push('HR ' + w.avg_hr);
+    if (w.avg_hr) meta.push('HR ' + w.avg_hr);
 
     var tssHtml = '';
     if (w.tss != null) {
       var tc = w.tss > 80 ? 'tss-high' : w.tss > 50 ? 'tss-mid' : 'tss-low';
-      tssHtml = '<span class="tss-pill ' + tc + '">TSS ' + (+w.tss).toFixed(0) + '</span>';
+      tssHtml = '<span class="tss-pill ' + tc + '">TSS ' + (+w.tss).toFixed(0) + '</span>';
     }
 
     var typeLabel = ENTRY_LABELS[w.type] || esc(w.type || '');
@@ -417,6 +453,119 @@
     URL.revokeObjectURL(url);
   }
 
+  // ── Detail panel ──────────────────────────────────────────────────────────
+  function openDetailPanel(workoutId) {
+    activeDetailWorkoutId = workoutId;
+    var overlay = document.getElementById('detail-overlay');
+    var panel   = document.getElementById('detail-panel');
+    if (overlay) { overlay.classList.add('is-open'); overlay.removeAttribute('aria-hidden'); }
+    if (panel)   panel.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    fetchAndRenderDetail(workoutId);
+  }
+
+  function closeDetailPanel() {
+    activeDetailWorkoutId = null;
+    var overlay = document.getElementById('detail-overlay');
+    var panel   = document.getElementById('detail-panel');
+    if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+    if (panel)   panel.classList.remove('is-open');
+    document.body.style.overflow = '';
+  }
+
+  function fetchAndRenderDetail(workoutId) {
+    var loadingEl = document.getElementById('detail-panel-loading');
+    var errorEl   = document.getElementById('detail-panel-error');
+    var contentEl = document.getElementById('detail-panel-content');
+    var titleEl   = document.getElementById('detail-panel-title-text');
+    var editBtn   = document.getElementById('detail-edit-btn');
+    var stravaBtn = document.getElementById('detail-strava-btn');
+
+    if (loadingEl) loadingEl.style.display = '';
+    if (errorEl)   errorEl.style.display   = 'none';
+    if (contentEl) contentEl.innerHTML     = '';
+    if (stravaBtn) stravaBtn.style.display = 'none';
+    if (titleEl)   titleEl.textContent     = 'Workout';
+
+    fetch('/api/workouts/' + workoutId)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (workout) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        renderDetailContent(workout);
+        if (titleEl && workout.name) titleEl.textContent = workout.name;
+        if (editBtn)  editBtn.href = '/workout-edit/' + workout.id;
+        if (stravaBtn && workout.strava_activity_url) {
+          stravaBtn.href         = workout.strava_activity_url;
+          stravaBtn.style.display = '';
+        }
+      })
+      .catch(function (_) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl)   errorEl.style.display   = '';
+        var retryBtn = document.getElementById('detail-retry-btn');
+        if (retryBtn) {
+          retryBtn.onclick = function () {
+            fetchAndRenderDetail(workoutId);
+          };
+        }
+      });
+  }
+
+  function renderDetailContent(workout) {
+    var contentEl = document.getElementById('detail-panel-content');
+    if (!contentEl) return;
+
+    var meta = [];
+    if (workout.workout_date) meta.push(workout.workout_date);
+    if (workout.workout_type) {
+      meta.push(workout.workout_type.charAt(0).toUpperCase() + workout.workout_type.slice(1));
+    }
+
+    var stats = [];
+    if (workout.duration_seconds) stats.push(['Duration', fmtDuration(workout.duration_seconds)]);
+    if (workout.distance_km)      stats.push(['Distance', (+workout.distance_km).toFixed(1) + ' km']);
+    if (workout.avg_hr)           stats.push(['Avg HR', workout.avg_hr + ' bpm']);
+    if (workout.max_hr)           stats.push(['Max HR', workout.max_hr + ' bpm']);
+    if (workout.elevation_m)      stats.push(['Elevation', workout.elevation_m + ' m']);
+    if (workout.tss != null)      stats.push(['TSS', (+workout.tss).toFixed(0)]);
+
+    var html = '';
+
+    if (meta.length) {
+      html += '<p class="detail-meta">' + esc(meta.join(' · ')) + '</p>';
+    }
+
+    if (stats.length) {
+      html += '<div class="detail-stats">';
+      stats.forEach(function (s) {
+        html +=
+          '<div class="detail-stat">' +
+            '<span class="detail-stat-label">' + esc(s[0]) + '</span>' +
+            '<span class="detail-stat-value">' + esc(String(s[1])) + '</span>' +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
+    if (workout.remarks) {
+      html +=
+        '<p class="detail-section-title">Notes</p>' +
+        '<p class="detail-notes-body">' + esc(workout.remarks) + '</p>';
+    }
+
+    if (workout.exercises && workout.exercises.length) {
+      html += '<p class="detail-section-title">Exercises (' + workout.exercises.length + ')</p>';
+      workout.exercises.forEach(function (ex) {
+        html += '<div class="detail-exercise-item">' + esc(ex.name || '') + '</div>';
+      });
+    }
+
+    contentEl.innerHTML = html;
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -433,6 +582,30 @@
     var newBtn = document.getElementById('log-new-btn');
     if (newBtn) newBtn.addEventListener('click', function () {
       window.location.href = 'training.html';
+    });
+
+    // Detail panel close
+    var closeBtn = document.getElementById('detail-close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);
+
+    var overlay = document.getElementById('detail-overlay');
+    if (overlay) overlay.addEventListener('click', closeDetailPanel);
+
+    // List retry
+    var listRetryBtn = document.getElementById('log-retry-btn');
+    if (listRetryBtn) listRetryBtn.addEventListener('click', function () {
+      fetchAndRender();
+    });
+
+    // Empty state CTA
+    var emptyCta = document.getElementById('log-empty-cta');
+    if (emptyCta) emptyCta.addEventListener('click', function () {
+      window.location.href = 'training.html';
+    });
+
+    // Escape key closes detail panel
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDetailPanel();
     });
   });
 
