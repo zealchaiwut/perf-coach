@@ -1885,7 +1885,7 @@ def _metric_has_data(m: DailyMetric) -> bool:
     )
 
 
-@app.get("/training_log")
+@app.get("/api/training-log")
 def get_training_log(
     user_id: Optional[str] = Query(default=None),
     from_date: Optional[str] = Query(default=None, alias="from"),
@@ -1966,10 +1966,10 @@ def get_training_log(
             "type": w.workout_type,
             "id": str(w.id),
             "title": w.name,
-            "duration_minutes": None,
-            "distance_km": None,
+            "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
+            "distance_km": float(w.distance_km) if w.distance_km is not None else None,
             "weight_context": w.remarks,
-            "avg_hr": None,
+            "avg_hr": w.avg_hr,
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.tss_source or "manual",
             "notes": w.remarks or "",
