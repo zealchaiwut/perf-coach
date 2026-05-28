@@ -29,6 +29,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if sa.inspect(bind).has_table("daily_readiness"):
+        return
     op.create_table(
         "daily_readiness",
         sa.Column(
