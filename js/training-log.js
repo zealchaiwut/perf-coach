@@ -429,7 +429,16 @@
     if (errorMsg) errorMsg.style.display = 'none';
 
     if (!weeks || weeks.length === 0) {
-      if (emptyMsg) emptyMsg.style.display = '';
+      if (emptyMsg) {
+        var titleEl = emptyMsg.querySelector('.empty-state-title');
+        var descEl  = emptyMsg.querySelector('.empty-state-desc');
+        var ctaEl   = document.getElementById('log-empty-cta');
+        var hasFilters = state.search || state.type !== 'all' || state.range !== '30d';
+        if (titleEl) titleEl.textContent = hasFilters ? 'No workouts in this range' : 'No workouts here yet';
+        if (descEl)  descEl.textContent  = hasFilters ? 'Try adjusting your filters or date range.' : 'Log your first workout to start tracking your training.';
+        if (ctaEl)   ctaEl.style.display = hasFilters ? 'none' : '';
+        emptyMsg.style.display = '';
+      }
       return;
     }
 
