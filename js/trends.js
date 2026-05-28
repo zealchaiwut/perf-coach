@@ -540,13 +540,13 @@
           x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 12 } }, grid: { display: false } },
           yTSS: {
             type: 'linear', position: 'left', min: 0,
-            title: { display: true, text: 'TSS', font: { size: 11 }, color: 'rgba(99,102,241,0.9)' },
+            title: { display: true, text: 'TSS', font: { size: 12 }, color: 'rgba(99,102,241,0.9)' },
             ticks: { font: { size: 12 } },
             grid: { color: 'rgba(0,0,0,0.05)' },
           },
           yReadiness: {
             type: 'linear', position: 'right', min: 0, max: 100,
-            title: { display: true, text: 'Readiness', font: { size: 11 }, color: '#f59e0b' },
+            title: { display: true, text: 'Readiness', font: { size: 12 }, color: '#f59e0b' },
             ticks: { stepSize: 20, font: { size: 12 } },
             grid: { drawOnChartArea: false },
           },
