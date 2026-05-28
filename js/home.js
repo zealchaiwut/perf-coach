@@ -1153,6 +1153,288 @@
     applyReadinessCard(readiness, metrics, trends);
   }
 
+  // ── Stat summary cards (Weight · Sleep · Weekly TSS · HRV) ───────────────
+
+  function _svgNormY(val, minV, maxV, H, pad) {
+    if (maxV === minV) return H - pad;
+    return H - pad - ((val - minV) / (maxV - minV)) * (H - 2 * pad);
+  }
+
+  function _svgLineSpark(vals, color, baselineVal) {
+    var W = 240, H = 44, PAD = 5;
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
+    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
+
+    var minV = Math.min.apply(null, nonNull);
+    var maxV = Math.max.apply(null, nonNull);
+    if (baselineVal !== null && baselineVal !== undefined) {
+      minV = Math.min(minV, baselineVal);
+      maxV = Math.max(maxV, baselineVal);
+    }
+    // Avoid flat line when all values identical
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    var d = '', lastPt = null;
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      if (v === null || v === undefined) continue;
+      var x = vals.length > 1 ? (i / (vals.length - 1)) * W : W / 2;
+      var y = _svgNormY(v, minV, maxV, H, PAD);
+      d += (d === '' ? 'M' : ' L') + x.toFixed(1) + ',' + y.toFixed(1);
+      lastPt = { x: x, y: y };
+    }
+
+    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    if (d) {
+      out += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+    if (baselineVal !== null && baselineVal !== undefined) {
+      var by = _svgNormY(baselineVal, minV, maxV, H, PAD);
+      out += '<line x1="0" y1="' + by.toFixed(1) + '" x2="' + W + '" y2="' + by.toFixed(1) + '" stroke="' + color + '" stroke-width="1.5" stroke-dasharray="3 5" opacity="0.45"/>';
+    }
+    if (lastPt) {
+      out += '<circle cx="' + lastPt.x.toFixed(1) + '" cy="' + lastPt.y.toFixed(1) + '" r="3" fill="' + color + '"/>';
+    }
+    out += '</svg>';
+    return out;
+  }
+
+  function _svgBarSpark(vals, peakIdx, lightColor, darkColor) {
+    var W = 240, H = 44, BAR_W = 22, START_X = 6, STEP = 30;
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined && v > 0; });
+    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
+    var maxV = Math.max.apply(null, nonNull);
+
+    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      var x = START_X + i * STEP;
+      if (!v) {
+        out += '<rect x="' + x + '" y="' + (H - 2) + '" width="' + BAR_W + '" height="2" rx="1" fill="' + lightColor + '" opacity="0.25"/>';
+        continue;
+      }
+      var barH = Math.max(3, (v / maxV) * (H - 4));
+      var y = (H - barH).toFixed(1);
+      var fill = i === peakIdx ? darkColor : lightColor;
+      out += '<rect x="' + x + '" y="' + y + '" width="' + BAR_W + '" height="' + barH.toFixed(1) + '" rx="3" fill="' + fill + '"/>';
+    }
+    out += '</svg>';
+    return out;
+  }
+
+  function _deltaPill(text, direction) {
+    return '<span class="stat-delta-pill stat-delta-pill--' + direction + '">' + (text || '—') + '</span>';
+  }
+
+  function _statCardHTML(iconClass, iconEmoji, label, bigVal, unitStr, pillHTML, sparkSVG, footLeft, footRight) {
+    return '<div class="stat-card-head">' +
+        '<div class="stat-card-icon-wrap ' + iconClass + '">' + iconEmoji + '</div>' +
+        '<span class="stat-card-label">' + label + '</span>' +
+        '<button class="stat-card-menu" type="button" title="More options" onclick="console.log(\'⋯ ' + label + ' card\')" aria-label="More options">⋯</button>' +
+      '</div>' +
+      '<div class="stat-card-value">' +
+        '<span class="stat-card-big">' + bigVal + '</span>' +
+        '<span class="stat-card-unit">' + unitStr + '</span>' +
+        pillHTML +
+      '</div>' +
+      sparkSVG +
+      '<div class="stat-card-footer">' +
+        '<span>' + footLeft + '</span>' +
+        '<span>' + footRight + '</span>' +
+      '</div>';
+  }
+
+  function _emptyStatCard(label) {
+    return '<div class="stat-card-head"><span class="stat-card-label">' + label + '</span></div>' +
+      '<div class="stat-card-value"><span class="stat-card-big">—</span></div>' +
+      '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>' +
+      '<div class="stat-card-footer"><span>No data</span></div>';
+  }
+
+  function _relDateShort(dateStr) {
+    var today = todayISO();
+    if (dateStr === today) return 'today';
+    var yday = new Date();
+    yday.setDate(yday.getDate() - 1);
+    if (dateStr === yday.toISOString().slice(0, 10)) return 'yesterday';
+    var d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function renderWeightStatCard(weightEntries) {
+    var el = document.getElementById('stat-card-weight');
+    if (!el) return;
+    if (!weightEntries || !weightEntries.length) { el.innerHTML = _emptyStatCard('Weight'); return; }
+
+    var sorted = weightEntries.slice().sort(function (a, b) { return a.recorded_date.localeCompare(b.recorded_date); });
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 29);
+    var cutoffStr = cutoff.toISOString().slice(0, 10);
+    var recent = sorted.filter(function (e) { return e.recorded_date >= cutoffStr; });
+
+    var latest = recent.length ? recent[recent.length - 1] : null;
+    if (!latest) { el.innerHTML = _emptyStatCard('Weight'); return; }
+
+    var sparkVals = recent.map(function (e) { return e.weight_kg; });
+
+    var pillHTML;
+    if (recent.length >= 2) {
+      var delta = latest.weight_kg - recent[0].weight_kg;
+      var absD = Math.abs(delta);
+      var direction = absD < 0.1 ? 'flat' : (delta < 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absD.toFixed(1) + ' / 30d', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--weight', '⚖️', 'Weight',
+      latest.weight_kg.toFixed(1), 'kg',
+      pillHTML, _svgLineSpark(sparkVals, '#2b4ca8', null),
+      '30d trend', 'Last log: ' + _relDateShort(latest.recorded_date)
+    );
+  }
+
+  function renderSleepStatCard(summary) {
+    var el = document.getElementById('stat-card-sleep');
+    if (!el) return;
+    var series = summary && summary.sleep && summary.sleep.series;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Sleep'); return; }
+
+    var last7 = series.slice(-7);
+    var vals = last7.map(function (s) { return s.hours; });
+    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
+
+    var lastNight = null;
+    for (var i = last7.length - 1; i >= 0; i--) {
+      if (last7[i].hours !== null && last7[i].hours !== undefined) { lastNight = last7[i].hours; break; }
+    }
+    if (lastNight === null) { el.innerHTML = _emptyStatCard('Sleep'); return; }
+
+    var avg7 = nonNull.length ? nonNull.reduce(function (s, v) { return s + v; }, 0) / nonNull.length : null;
+    var pillHTML;
+    if (avg7 !== null) {
+      var delta = lastNight - avg7;
+      var absD = Math.abs(delta);
+      var direction = absD < 0.15 ? 'flat' : (delta > 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absD.toFixed(1) + 'h / 7d avg', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--sleep', '🌙', 'Sleep',
+      lastNight.toFixed(1), 'h',
+      pillHTML, _svgLineSpark(vals, '#4f3c8c', null),
+      'Last 7 nights', 'Target: 8 h'
+    );
+  }
+
+  function renderTSSStatCard(summary) {
+    var el = document.getElementById('stat-card-tss');
+    if (!el) return;
+    var series = summary && summary.tss && summary.tss.series;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Weekly load (TSS)'); return; }
+
+    var last7 = series.slice(-7);
+    var prev7 = series.slice(-14, -7);
+    var thisWeekTotal = last7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+    var lastWeekTotal = prev7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+
+    var last8 = series.slice(-8);
+    var sparkVals = last8.map(function (d) { return d.value; });
+    var peakIdx = -1, peakVal = -Infinity;
+    sparkVals.forEach(function (v, i) {
+      if (v !== null && v !== undefined && v > peakVal) { peakVal = v; peakIdx = i; }
+    });
+
+    var bigDay = null;
+    if (peakIdx >= 0 && last8[peakIdx]) {
+      bigDay = new Date(last8[peakIdx].date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    }
+
+    var pillHTML;
+    if (lastWeekTotal > 0) {
+      var wowPct = ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100;
+      var absP = Math.abs(wowPct);
+      var direction = absP < 5 ? 'flat' : (wowPct > 0 ? 'up' : 'down');
+      var sign = wowPct > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + absP.toFixed(0) + '% WoW', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--tss', '🔥', 'Weekly load (TSS)',
+      Math.round(thisWeekTotal), 'TSS',
+      pillHTML, _svgBarSpark(sparkVals, peakIdx, '#f4b89a', '#8a3d12'),
+      'Last 8 days', bigDay ? 'Big day: ' + bigDay : '—'
+    );
+  }
+
+  function renderHRVStatCard(summary) {
+    var el = document.getElementById('stat-card-hrv');
+    if (!el) return;
+    var series = summary && summary.hrv && summary.hrv.series;
+    var baseline = summary && summary.hrv && summary.hrv.baseline_mean;
+    if (!series || !series.length) { el.innerHTML = _emptyStatCard('HRV'); return; }
+
+    var sparkVals = series.map(function (d) { return d.value; });
+    var latestHrv = null;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value !== null && series[i].value !== undefined) { latestHrv = series[i].value; break; }
+    }
+    if (latestHrv === null) { el.innerHTML = _emptyStatCard('HRV'); return; }
+
+    var pillHTML;
+    if (baseline !== null && baseline !== undefined) {
+      var delta = latestHrv - baseline;
+      var absD = Math.abs(delta);
+      var direction = absD < 2 ? 'flat' : (delta > 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _deltaPill(sign + Math.round(absD) + ' vs baseline', direction);
+    } else {
+      pillHTML = _deltaPill('—', 'flat');
+    }
+
+    var footLeft = baseline !== null && baseline !== undefined
+      ? '30d baseline ' + Math.round(baseline) + ' ms'
+      : '30d trend';
+
+    el.innerHTML = _statCardHTML(
+      'stat-card-icon-wrap--hrv', '💓', 'HRV',
+      Math.round(latestHrv), 'ms',
+      pillHTML, _svgLineSpark(sparkVals, '#1e6438', baseline),
+      footLeft, ''
+    );
+  }
+
+  async function loadStatCards(userId) {
+    var summary = null;
+    try {
+      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=30d');
+      if (res.ok) summary = await res.json();
+    } catch (_) {}
+
+    renderSleepStatCard(summary);
+    renderTSSStatCard(summary);
+    renderHRVStatCard(summary);
+
+    // Weight is not in trends/summary — issue a separate query
+    if (summary && summary.weight) {
+      renderWeightStatCard(summary.weight);
+    } else {
+      var weightEntries = null;
+      try {
+        var wRes = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
+        if (wRes.ok) weightEntries = await wRes.json();
+      } catch (_) {}
+      renderWeightStatCard(weightEntries);
+    }
+  }
+
   // ── Wiring ─────────────────────────────────────────────────────────────────
 
   function refreshSections(userId) {
@@ -1175,19 +1457,21 @@
     _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
+    loadStatCards(e.detail.userId);
   });
 
   window.addEventListener('userChanged', function (e) {
     _checkinUserId = e.detail.userId;
     refreshCards(e.detail.userId);
     refreshSections(e.detail.userId);
+    loadStatCards(e.detail.userId);
   });
 
   // Refresh when returning to tab (handles cross-tab entry submissions)
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-      if (uid) { refreshCards(uid); refreshSections(uid); }
+      if (uid) { refreshCards(uid); refreshSections(uid); loadStatCards(uid); }
     }
   });
 }());

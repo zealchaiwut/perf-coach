@@ -682,16 +682,6 @@ def trends_redirect():
     return FileResponse(str(_static_root / "trends.html"))
 
 
-@app.get("/log.html")
-def log_page():
-    return FileResponse(str(_static_root / "log.html"))
-
-
-@app.get("/log")
-def log_route():
-    return FileResponse(str(_static_root / "log.html"))
-
-
 # ── Workout endpoints ─────────────────────────────────────────────────────────
 
 class ExerciseIn(BaseModel):
@@ -1572,6 +1562,32 @@ def get_trends_summary(
             d = str(w.workout_date)
             prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
 
+        baseline_from_d = to_d - timedelta(days=29)
+        baseline_metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+
+    baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
+    baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
+
+    def _baseline_stats(vals):
+        if not vals:
+            return None, None
+        mean = sum(vals) / len(vals)
+        sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+        return round(mean, 1), round(sd, 1)
+
+    hrv_baseline_mean, hrv_baseline_sd = _baseline_stats(baseline_hrv_vals)
+    rhr_baseline_mean, rhr_baseline_sd = _baseline_stats(baseline_rhr_vals)
+    hrv_is_approx = len(baseline_hrv_vals) < 30
+    rhr_is_approx = len(baseline_rhr_vals) < 30
+
     def _date_range(start, end):
         dates = []
         cur = start
@@ -1634,8 +1650,10 @@ def get_trends_summary(
     return JSONResponse({
         "range": {"from": str(from_d), "to": str(to_d), "days": days_count},
         "readiness": {"series": readiness_series, "avg": r_avg, "min": r_min, "max": r_max},
-        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max},
-        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max},
+        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max,
+                "baseline_mean": hrv_baseline_mean, "baseline_sd": hrv_baseline_sd, "is_approximate": hrv_is_approx},
+        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max,
+                "baseline_mean": rhr_baseline_mean, "baseline_sd": rhr_baseline_sd, "is_approximate": rhr_is_approx},
         "sleep": {"series": sleep_series, "avg_hours": sleep_avg, "min_hours": sleep_min, "max_hours": sleep_max},
         "energy": {"series": energy_series, "avg": energy_avg, "min": energy_min, "max": energy_max},
         "mood": {"series": mood_series, "avg": mood_avg, "min": mood_min, "max": mood_max},
@@ -1650,121 +1668,6 @@ def get_trends_summary(
             "tss": _delta_pct(tss_avg, prev_tss_avg),
         },
     })
-
-
-# ── Training log endpoint ─────────────────────────────────────────────────────
-
-@app.get("/training_log")
-def get_training_log(
-    from_date: Optional[str] = Query(default=None, alias="from"),
-    to_date: Optional[str] = Query(default=None, alias="to"),
-    types: Optional[str] = Query(default=None),
-    search: Optional[str] = Query(default=None),
-    user_id: Optional[str] = Query(default=None),
-):
-    from datetime import timedelta
-
-    today = _date.today()
-
-    if from_date is None:
-        from_d = today - timedelta(days=29)
-    else:
-        try:
-            from_d = _date.fromisoformat(from_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid from date; use YYYY-MM-DD")
-
-    if to_date is None:
-        to_d = today
-    else:
-        try:
-            to_d = _date.fromisoformat(to_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
-
-    with Session(engine) as session:
-        q = session.query(Workout).filter(
-            Workout.workout_date >= from_d,
-            Workout.workout_date <= to_d,
-        )
-
-        if user_id:
-            try:
-                uid = _uuid.UUID(user_id)
-                q = q.filter(Workout.user_id == uid)
-            except ValueError:
-                pass
-
-        if types and types.lower() != "all":
-            q = q.filter(Workout.workout_type.ilike(types))
-
-        if search:
-            like = f"%{search}%"
-            q = q.filter(
-                Workout.name.ilike(like) | Workout.remarks.ilike(like)
-            )
-
-        workouts = q.order_by(Workout.workout_date.desc(), Workout.created_at.desc()).all()
-
-    def _week_monday(d):
-        return d - timedelta(days=d.weekday())
-
-    def _week_label(mon):
-        this_mon = _week_monday(today)
-        if mon == this_mon:
-            return "This week"
-        sun = mon + timedelta(days=6)
-        return f"{mon.strftime('%b')} {mon.day} – {sun.day}"
-
-    weeks_map: dict = {}
-    week_order: list = []
-
-    for w in workouts:
-        mon = _week_monday(w.workout_date)
-        key = str(mon)
-        if key not in weeks_map:
-            sun = mon + timedelta(days=6)
-            weeks_map[key] = {
-                "week_start": str(mon),
-                "week_end": str(sun),
-                "label": _week_label(mon),
-                "workouts": [],
-            }
-            week_order.append(key)
-
-        weeks_map[key]["workouts"].append({
-            "id": str(w.id),
-            "date": str(w.workout_date),
-            "type": w.workout_type,
-            "title": w.name,
-            "duration_minutes": None,
-            "distance_km": None,
-            "weight_context": None,
-            "avg_hr": None,
-            "tss": w.tss,
-            "source": w.tss_source or "manual",
-            "notes": w.remarks or "",
-        })
-
-    weeks = []
-    for key in week_order:
-        week = weeks_map[key]
-        ws = week["workouts"]
-        total_tss = sum(wr["tss"] for wr in ws if wr["tss"] is not None)
-        weeks.append({
-            "week_start": week["week_start"],
-            "week_end": week["week_end"],
-            "label": week["label"],
-            "summary": {
-                "workout_count": len(ws),
-                "total_distance_km": 0.0,
-                "total_tss": round(total_tss, 1),
-                "total_time_minutes": 0,
-            },
-            "workouts": ws,
-        })
-
-    return JSONResponse({"weeks": weeks})
 
 
 # ── Readiness compute endpoint ────────────────────────────────────────────────
@@ -1933,32 +1836,47 @@ def _metric_has_data(m: DailyMetric) -> bool:
 
 @app.get("/training_log")
 def get_training_log(
-    user_id: str,
-    from_date: str = Query(alias="from"),
-    to_date: str = Query(alias="to"),
+    user_id: Optional[str] = Query(default=None),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
     types: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=True),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-    try:
-        from_d = _date.fromisoformat(from_date)
-        to_d = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    from datetime import timedelta
+    today = _date.today()
+
+    uid = None
+    if user_id:
+        try:
+            uid = _uuid.UUID(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d = today - timedelta(days=29) if from_date is None else None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid from date; use YYYY-MM-DD")
+
+    to_d = today if to_date is None else None
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
 
     with Session(engine) as session:
         from sqlalchemy import or_
         q = session.query(Workout).filter(
-            Workout.user_id == uid,
             Workout.workout_date >= from_d,
             Workout.workout_date <= to_d,
         )
+        if uid is not None:
+            q = q.filter(Workout.user_id == uid)
         if types and types != "all":
-            q = q.filter(Workout.workout_type == types)
+            q = q.filter(Workout.workout_type.ilike(types))
         if search:
             like = f"%{search}%"
             q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
@@ -1968,15 +1886,13 @@ def get_training_log(
 
         rest_entries: list = []
         if include_rest and (not types or types == "all") and not search:
-            metrics = (
-                session.query(DailyMetric)
-                .filter(
-                    DailyMetric.user_id == uid,
-                    DailyMetric.metric_date >= from_d,
-                    DailyMetric.metric_date <= to_d,
-                )
-                .all()
+            mq = session.query(DailyMetric).filter(
+                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date <= to_d,
             )
+            if uid is not None:
+                mq = mq.filter(DailyMetric.user_id == uid)
+            metrics = mq.all()
             for m in metrics:
                 if str(m.metric_date) not in workout_dates and _metric_has_data(m):
                     rest_entries.append({
