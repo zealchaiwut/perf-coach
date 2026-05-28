@@ -1562,6 +1562,32 @@ def get_trends_summary(
             d = str(w.workout_date)
             prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
 
+        baseline_from_d = to_d - timedelta(days=29)
+        baseline_metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_from_d,
+                DailyMetric.metric_date <= to_d,
+            )
+            .all()
+        )
+
+    baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
+    baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
+
+    def _baseline_stats(vals):
+        if not vals:
+            return None, None
+        mean = sum(vals) / len(vals)
+        sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+        return round(mean, 1), round(sd, 1)
+
+    hrv_baseline_mean, hrv_baseline_sd = _baseline_stats(baseline_hrv_vals)
+    rhr_baseline_mean, rhr_baseline_sd = _baseline_stats(baseline_rhr_vals)
+    hrv_is_approx = len(baseline_hrv_vals) < 30
+    rhr_is_approx = len(baseline_rhr_vals) < 30
+
     def _date_range(start, end):
         dates = []
         cur = start
@@ -1624,8 +1650,10 @@ def get_trends_summary(
     return JSONResponse({
         "range": {"from": str(from_d), "to": str(to_d), "days": days_count},
         "readiness": {"series": readiness_series, "avg": r_avg, "min": r_min, "max": r_max},
-        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max},
-        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max},
+        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max,
+                "baseline_mean": hrv_baseline_mean, "baseline_sd": hrv_baseline_sd, "is_approximate": hrv_is_approx},
+        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max,
+                "baseline_mean": rhr_baseline_mean, "baseline_sd": rhr_baseline_sd, "is_approximate": rhr_is_approx},
         "sleep": {"series": sleep_series, "avg_hours": sleep_avg, "min_hours": sleep_min, "max_hours": sleep_max},
         "energy": {"series": energy_series, "avg": energy_avg, "min": energy_min, "max": energy_max},
         "mood": {"series": mood_series, "avg": mood_avg, "min": mood_min, "max": mood_max},
@@ -1848,7 +1876,7 @@ def get_training_log(
         if uid is not None:
             q = q.filter(Workout.user_id == uid)
         if types and types != "all":
-            q = q.filter(Workout.workout_type == types)
+            q = q.filter(Workout.workout_type.ilike(types))
         if search:
             like = f"%{search}%"
             q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))

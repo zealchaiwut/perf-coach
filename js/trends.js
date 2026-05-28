@@ -8,7 +8,12 @@
   const customInputs = document.getElementById('custom-range-inputs');
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
+  const confirmBtn = document.getElementById('range-confirm');
+  const cancelBtn = document.getElementById('range-cancel');
   const emptyBanner = document.getElementById('trends-empty-banner');
+
+  // Track the last non-custom state so Cancel can revert to it
+  let _lastPresetState = { type: 'preset', preset: DEFAULT_PRESET };
 
   // ── URL helpers ──────────────────────────────────────────────────────────────
 
@@ -35,7 +40,7 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
-  function applyRangeState(state) {
+  function applyRangeState(state, { openPicker = false } = {}) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
         ? btn.dataset.range === state.preset
@@ -43,10 +48,21 @@
       btn.classList.toggle('active', isActive);
     });
     const isCustom = state.type === 'custom';
+    // When opening the picker via the Custom chip, show inputs but don't
+    // load data yet — wait for the user to confirm.
+    if (openPicker) {
+      customInputs.hidden = false;
+      if (state.from) fromInput.value = state.from;
+      if (state.to) toInput.value = state.to;
+      return; // don't write URL or load data until confirmed
+    }
     customInputs.hidden = !isCustom;
     if (isCustom) {
       if (state.from) fromInput.value = state.from;
       if (state.to) toInput.value = state.to;
+    }
+    if (state.type === 'preset') {
+      _lastPresetState = state;
     }
     writeRangeToURL(state);
     loadChartData(state);
@@ -120,7 +136,8 @@
 
   function compute7DayRollingAvg(scores) {
     return scores.map((_, i) => {
-      const window = scores.slice(Math.max(0, i - 6), i + 1).filter(v => v !== null);
+      if (i < 6) return null;
+      const window = scores.slice(i - 6, i + 1).filter(v => v !== null);
       if (window.length === 0) return null;
       return Math.round(window.reduce((a, b) => a + b, 0) / window.length * 10) / 10;
     });
@@ -224,7 +241,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        interaction: { mode: 'index', axis: 'x', intersect: false },
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
           tooltip: { callbacks: buildTooltipCallbacks(dates, scores, avgForTooltip) },
@@ -240,15 +257,24 @@
 
   function buildTooltipCallbacks(dates, scores, avgScores) {
     return {
-      title(items) { return dates[items[0].dataIndex] || items[0].label; },
+      title(items) {
+        const idx = items[0].dataIndex;
+        return dates[idx] || items[0].label;
+      },
       afterBody(items) {
-        if (!avgScores) return [];
-        const avg = avgScores[items[0].dataIndex];
-        return avg === null ? [] : [`7-day avg: ${avg}`];
+        const idx = items[0].dataIndex;
+        const lines = [];
+        if (avgScores) {
+          const avg = avgScores[idx];
+          if (avg !== null) lines.push(`7-day avg: ${avg}`);
+        }
+        if (scores[idx] === null) lines.push('Missing data');
+        return lines;
       },
       label(item) {
         if (item.datasetIndex === 1) return null;
-        const v = item.raw;
+        const idx = item.dataIndex;
+        const v = scores[idx];
         if (v === null) return 'Readiness: —';
         const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
         return `Readiness: ${v}  (${band})`;
@@ -623,6 +649,22 @@
       </div>`;
   }
 
+  function _buildTSSTooltipCallbacks(datesRef) {
+    return {
+      title(items) { return datesRef[items[0].dataIndex]; },
+      label(item) {
+        const v = item.raw;
+        if (item.datasetIndex === 0) return v === null ? 'TSS: —' : `TSS: ${v}`;
+        if (v === null) return 'Next-day readiness: —';
+        const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
+        return `Next-day readiness: ${v}  (${band})`;
+      },
+      afterBody() {
+        return ['Readiness shown is for the day after this TSS value'];
+      },
+    };
+  }
+
   function renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate) {
     const tssValues = dates.map(d => tssByDate[d] ?? null);
     const nextDayReadiness = dates.map(d => readinessByDate[addOneDay(d)] ?? null);
@@ -656,8 +698,9 @@
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 3,
-        pointHoverRadius: 5,
+        pointHoverRadius: 6,
         pointBackgroundColor: '#f59e0b',
+        hitRadius: 22,
         fill: false,
         spanGaps: false,
         tension: 0.3,
@@ -667,6 +710,8 @@
     if (tssOverlayChart) {
       tssOverlayChart.data.labels = labels;
       tssOverlayChart.data.datasets = datasets;
+      // Refresh tooltip callbacks so the title() closure references the new dates array
+      tssOverlayChart.options.plugins.tooltip.callbacks = _buildTSSTooltipCallbacks(dates);
       tssOverlayChart.update();
       return;
     }
@@ -681,19 +726,7 @@
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
           tooltip: {
-            callbacks: {
-              title(items) { return dates[items[0].dataIndex]; },
-              label(item) {
-                const v = item.raw;
-                if (item.datasetIndex === 0) return v === null ? 'TSS: —' : `TSS: ${v}`;
-                if (v === null) return 'Next-day readiness: —';
-                const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
-                return `Next-day readiness: ${v}  (${band})`;
-              },
-              afterBody() {
-                return ['Readiness shown is for the day after this TSS value'];
-              },
-            },
+            callbacks: _buildTSSTooltipCallbacks(dates),
           },
         },
         scales: {
@@ -862,21 +895,43 @@
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
+        // Open the date picker — don't apply/load until the user confirms
+        const currentParams = new URLSearchParams(location.search);
+        const existingFrom = currentParams.get('from') || '';
+        const existingTo = currentParams.get('to') || '';
+        fromInput.value = existingFrom;
+        toInput.value = existingTo;
+        btn.classList.add('active');
+        customInputs.hidden = false;
+        fromInput.focus();
       } else {
+        customInputs.hidden = true;
         applyRangeState({ type: 'preset', preset: range });
       }
     });
   });
 
-  function onCustomDateChange() {
-    if (fromInput.value || toInput.value) {
-      applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
-    }
-  }
+  // Confirm: apply the custom range and update URL
+  confirmBtn.addEventListener('click', () => {
+    const from = fromInput.value;
+    const to = toInput.value;
+    if (!from && !to) return; // nothing entered yet
+    applyRangeState({ type: 'custom', from, to });
+  });
 
-  fromInput.addEventListener('change', onCustomDateChange);
-  toInput.addEventListener('change', onCustomDateChange);
+  // Cancel: revert to the previous preset without changing data
+  cancelBtn.addEventListener('click', () => {
+    customInputs.hidden = true;
+    applyRangeState(_lastPresetState);
+  });
+
+  // Allow Enter key on date inputs to trigger confirm
+  [fromInput, toInput].forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirmBtn.click();
+      if (e.key === 'Escape') cancelBtn.click();
+    });
+  });
 
   // ── SEM toggle handlers ───────────────────────────────────────────────────────
 
@@ -898,6 +953,10 @@
   // ── Boot ─────────────────────────────────────────────────────────────────────
 
   const _initialState = readRangeFromURL();
+  // Seed _lastPresetState from the URL so Cancel works correctly on page load
+  if (_initialState.type === 'preset') {
+    _lastPresetState = _initialState;
+  }
 
   window.addEventListener('userReady', e => {
     _userId = e.detail.userId;
