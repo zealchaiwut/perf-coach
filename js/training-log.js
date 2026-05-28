@@ -13,6 +13,7 @@
   // allWorkoutsByDate: { 'YYYY-MM-DD': ['run', 'lift', ...], ... }
   // Populated from the API response; used by the week strip for dots.
   var allWorkoutsByDate = null;
+  var panelOriginRow = null;
 
   // ── Date helpers ──────────────────────────────────────────────────────────
 
@@ -369,9 +370,11 @@
       '<span class="source-pill source-' + (w.source || 'manual').toLowerCase() + '">' + ((w.source || '').toLowerCase() === 'strava' ? 'Strava' : 'Manual') + '</span>' +
       '<span class="workout-chevron">›</span>';
 
-    // Row click — detail panel ships in a follow-up ticket
-    div.addEventListener('click', function () {
-      console.log('workout:select', w.id, w.title);
+    div.setAttribute('tabindex', '0');
+    div.setAttribute('role', 'button');
+    div.addEventListener('click', function () { openPanel(w.id, div); });
+    div.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(w.id, div); }
     });
     return div;
   }
@@ -482,6 +485,110 @@
     renderWeekStrip();
   }
 
+  // ── Detail panel ─────────────────────────────────────────────────────────
+
+  function openPanel(workoutId, originRow) {
+    panelOriginRow = originRow || null;
+    var panel   = document.getElementById('detail-panel');
+    var logBody = document.getElementById('log-body');
+
+    document.getElementById('detail-panel-title').textContent = 'Loading…';
+    document.getElementById('detail-panel-date').textContent  = '';
+    document.getElementById('detail-stat-grid').innerHTML     = '';
+    document.getElementById('detail-panel-source').classList.add('is-hidden');
+
+    panel.classList.add('is-open');
+    logBody.classList.add('panel-open');
+
+    fetch('/api/workouts/' + encodeURIComponent(workoutId))
+      .then(function (res) {
+        if (!res.ok) throw new Error('not found');
+        return res.json();
+      })
+      .then(renderPanelContent)
+      .catch(function () {
+        document.getElementById('detail-panel-title').textContent = 'Could not load workout';
+      });
+  }
+
+  function closePanel() {
+    var panel   = document.getElementById('detail-panel');
+    var logBody = document.getElementById('log-body');
+    panel.classList.remove('is-open');
+    logBody.classList.remove('panel-open');
+    if (panelOriginRow) { panelOriginRow.focus(); panelOriginRow = null; }
+  }
+
+  function fmtDurationSec(seconds) {
+    if (seconds == null) return '—';
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = seconds % 60;
+    if (h > 0) return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+    if (m > 0) return m + 'm' + (s > 0 ? ' ' + s + 's' : '');
+    return s + 's';
+  }
+
+  function fmtPaceFromSec(distKm, durSeconds) {
+    if (!distKm || !durSeconds) return '—';
+    var secPerKm = durSeconds / distKm;
+    var pMin = Math.floor(secPerKm / 60);
+    var pSec = String(Math.round(secPerKm % 60)).padStart(2, '0');
+    return pMin + ':' + pSec + '/km';
+  }
+
+  function panelDateStr(iso) {
+    var d = isoToDate(iso);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function renderPanelContent(workout) {
+    document.getElementById('detail-panel-title').textContent = workout.name || '—';
+    document.getElementById('detail-panel-date').textContent  = workout.workout_date ? panelDateStr(workout.workout_date) : '';
+
+    var sourcePill = document.getElementById('detail-panel-source');
+    if (workout.tss_source) {
+      sourcePill.textContent = workout.tss_source === 'manual' ? 'Manual' : 'Calculated';
+      sourcePill.classList.remove('is-hidden');
+    } else {
+      sourcePill.classList.add('is-hidden');
+    }
+
+    var isRun = workout.workout_type === 'run';
+
+    var distVal = workout.distance_km != null ? workout.distance_km + ' km' : '—';
+    var durVal  = fmtDurationSec(workout.duration_seconds);
+
+    var thirdLabel, thirdVal;
+    if (isRun) {
+      thirdLabel = 'Avg Pace';
+      thirdVal   = fmtPaceFromSec(workout.distance_km, workout.duration_seconds);
+    } else {
+      thirdLabel = 'Exercises';
+      thirdVal   = workout.exercises ? String(workout.exercises.length) : '—';
+    }
+
+    var stats = [
+      { label: 'Distance',  value: distVal },
+      { label: 'Duration',  value: durVal },
+      { label: thirdLabel,  value: thirdVal },
+      { label: 'Avg HR',    value: workout.avg_hr     != null ? workout.avg_hr + ' bpm' : '—' },
+      { label: 'Elevation', value: workout.elevation_m != null ? workout.elevation_m + ' m' : '—' },
+      { label: 'TSS',       value: workout.tss        != null ? String(workout.tss)  : '—' },
+    ];
+
+    var grid = document.getElementById('detail-stat-grid');
+    grid.innerHTML = '';
+    stats.forEach(function (s) {
+      var cell = document.createElement('div');
+      cell.className = 'stat-cell';
+      cell.innerHTML =
+        '<span class="stat-cell-label">' + escHtml(s.label) + '</span>' +
+        '<span class="stat-cell-value">' + escHtml(s.value) + '</span>';
+      grid.appendChild(cell);
+    });
+  }
+
   // ── Export CSV ────────────────────────────────────────────────────────────
 
   function csvField(val) {
@@ -570,6 +677,16 @@
 
     document.getElementById('log-workout-btn').addEventListener('click', function () {
       location.href = 'training.html';
+    });
+
+    document.getElementById('detail-panel-close').addEventListener('click', closePanel);
+    document.getElementById('detail-panel-back').addEventListener('click', closePanel);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        var panel = document.getElementById('detail-panel');
+        if (panel.classList.contains('is-open')) closePanel();
+      }
     });
   }
 
