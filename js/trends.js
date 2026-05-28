@@ -3,17 +3,12 @@
   const DEFAULT_PRESET = '30d';
 
   let _userId = null;
-  let _pickerOpen = false;
-  let _lastAppliedPreset = null;
 
   const presetBtns = document.querySelectorAll('.range-btn[data-range]');
   const customInputs = document.getElementById('custom-range-inputs');
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
   const emptyBanner = document.getElementById('trends-empty-banner');
-  const confirmBtn = document.getElementById('custom-confirm-btn');
-  const cancelBtn = document.getElementById('custom-cancel-btn');
-  const rangeError = document.getElementById('custom-range-error');
 
   // ── URL helpers ──────────────────────────────────────────────────────────────
 
@@ -40,19 +35,6 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
-  function openPicker() {
-    _pickerOpen = true;
-    customInputs.hidden = false;
-    rangeError.hidden = true;
-    fromInput.focus();
-  }
-
-  function closePicker() {
-    _pickerOpen = false;
-    customInputs.hidden = true;
-    rangeError.hidden = true;
-  }
-
   function applyRangeState(state) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
@@ -60,8 +42,11 @@
         : btn.dataset.range === 'custom';
       btn.classList.toggle('active', isActive);
     });
-    if (state.type === 'preset') {
-      _lastAppliedPreset = state.preset;
+    const isCustom = state.type === 'custom';
+    customInputs.hidden = !isCustom;
+    if (isCustom) {
+      if (state.from) fromInput.value = state.from;
+      if (state.to) toInput.value = state.to;
     }
     writeRangeToURL(state);
     loadChartData(state);
@@ -135,22 +120,25 @@
 
   function compute7DayRollingAvg(scores) {
     return scores.map((_, i) => {
-      if (i < 6) return null;
-      const window = scores.slice(i - 6, i + 1).filter(v => v !== null);
+      const window = scores.slice(Math.max(0, i - 6), i + 1).filter(v => v !== null);
       if (window.length === 0) return null;
       return Math.round(window.reduce((a, b) => a + b, 0) / window.length * 10) / 10;
     });
   }
 
   // ── Summary API ───────────────────────────────────────────────────────────────
-  // Calls mockGetTrendsSummary (from mock-data.js) which implements the full
-  // GET /trends/summary aggregation spec client-side until a backend is available.
 
-  async function fetchSummary(state) {
-    const params = state.type === 'custom'
-      ? { from: state.from || undefined, to: state.to || undefined }
-      : { range: state.preset };
-    return mockGetTrendsSummary(params);
+  async function fetchSummary(state, userId) {
+    let url = '/trends/summary?user_id=' + encodeURIComponent(userId);
+    if (state.type === 'custom') {
+      if (state.from) url += '&from=' + state.from;
+      if (state.to) url += '&to=' + state.to;
+    } else {
+      url += '&range=' + state.preset;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('server error');
+    return res.json();
   }
 
   // ── Chart.js color-band plugin ────────────────────────────────────────────────
@@ -236,7 +224,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: 'index', axis: 'x', intersect: false },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
           tooltip: { callbacks: buildTooltipCallbacks(dates, scores, avgForTooltip) },
@@ -253,22 +241,17 @@
   function buildTooltipCallbacks(dates, scores, avgScores) {
     return {
       title(items) { return dates[items[0].dataIndex] || items[0].label; },
+      afterBody(items) {
+        if (!avgScores) return [];
+        const avg = avgScores[items[0].dataIndex];
+        return avg === null ? [] : [`7-day avg: ${avg}`];
+      },
       label(item) {
         if (item.datasetIndex === 1) return null;
         const v = item.raw;
-        if (v === null) return 'Readiness: — (no data logged)';
+        if (v === null) return 'Readiness: —';
         const band = v >= 70 ? 'Good' : v >= 40 ? 'Moderate' : 'Low';
         return `Readiness: ${v}  (${band})`;
-      },
-      afterBody(items) {
-        const idx = items[0].dataIndex;
-        const lines = [];
-        if (avgScores) {
-          const avg = avgScores[idx];
-          lines.push(avg === null ? '7-day avg: —' : `7-day avg: ${avg}`);
-        }
-        if (scores[idx] === null) lines.push('⚠ Missing data');
-        return lines;
       },
     };
   }
@@ -276,7 +259,7 @@
   function renderReadinessFromSummary(bodyEl, summary) {
     const series = summary.readiness.series;
     const dates = series.map(s => s.date);
-    const scores = series.map(s => s.value);
+    const scores = series.map(s => s.score);
     if (dates.length === 0 || scores.every(v => v === null)) {
       showEmpty(bodyEl);
       emptyBanner.hidden = false;
@@ -286,92 +269,150 @@
     renderReadinessChart(bodyEl, dates, scores, dates.length >= 7);
   }
 
-  // ── HRV / RHR chart ───────────────────────────────────────────────────────────
+  // ── HRV / RHR stacked sub-charts ─────────────────────────────────────────────
 
-  let hrvRhrChart = null;
+  let hrvSubChart = null;
+  let rhrSubChart = null;
 
-  function renderHrvRhrChart(bodyEl, summary) {
-    const hrvData = summary.hrv.series.map(s => s.value);
-    const rhrData = summary.rhr.series.map(s => s.value);
-    const labels = summary.hrv.series.map(s => formatLabel(s.date));
-    const hasData = hrvData.some(v => v !== null) || rhrData.some(v => v !== null);
-    if (!hasData) { showEmpty(bodyEl); return; }
-    if (!bodyEl.querySelector('canvas')) {
-      bodyEl.innerHTML = '<canvas id="chart-hrv-rhr" style="display:block;width:100%;"></canvas>';
-    }
-    const datasets = [
-      {
-        label: 'HRV (ms)',
-        data: hrvData,
-        yAxisID: 'yHrv',
-        borderColor: '#0070f3',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#0070f3',
-        spanGaps: false,
-        tension: 0.3,
+  const baselineBandPlugin = {
+    id: 'baselineBand',
+    beforeDraw(chart) {
+      const cfg = chart.options.plugins.baselineBand;
+      if (!cfg || cfg.mean == null || cfg.sd == null) return;
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      const y = scales.y;
+      const baseline_mean = cfg.mean;
+      const baseline_sd = cfg.sd;
+      const top = y.getPixelForValue(baseline_mean + baseline_sd);
+      const bottom = y.getPixelForValue(baseline_mean - baseline_sd);
+      ctx.save();
+      ctx.fillStyle = cfg.color || 'rgba(0,112,243,0.12)';
+      ctx.fillRect(chartArea.left, top, chartArea.width, bottom - top);
+      ctx.restore();
+    },
+  };
+
+  function computeStats(values) {
+    const valid = values.filter(v => v !== null && v !== undefined);
+    if (valid.length === 0) return { mean: null, sd: null };
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+    const variance = valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length;
+    return {
+      mean: Math.round(mean * 10) / 10,
+      sd: Math.round(Math.sqrt(variance) * 10) / 10,
+    };
+  }
+
+  function buildSubChartTooltipCallbacks(series, label, unit, mean, sd) {
+    return {
+      title(items) { return series[items[0].dataIndex]?.date || items[0].label; },
+      label(item) {
+        const v = item.raw;
+        return v === null ? `${label}: —` : `${label}: ${v} ${unit}`;
       },
-      {
-        label: 'RHR (bpm)',
-        data: rhrData,
-        yAxisID: 'yRhr',
-        borderColor: '#ef4444',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#ef4444',
-        spanGaps: false,
-        tension: 0.3,
+      afterBody(items) {
+        const v = items[0].raw;
+        if (v === null || mean == null) return [];
+        const lines = [`Baseline: ${mean} ${unit}`];
+        if (sd != null) {
+          const raw = (v - mean) / sd;
+          const sign = raw >= 0 ? '+' : '';
+          lines.push(`Deviation: ${sign}${raw.toFixed(1)} SD`);
+        }
+        return lines;
       },
-    ];
-    if (hrvRhrChart) {
-      hrvRhrChart.data.labels = labels;
-      hrvRhrChart.data.datasets = datasets;
-      hrvRhrChart.update();
-      return;
-    }
-    const ctx = bodyEl.querySelector('canvas').getContext('2d');
-    hrvRhrChart = new Chart(ctx, {
+    };
+  }
+
+  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+    const dates = series.map(s => s.date);
+    const values = series.map(s => s.value);
+    const labels = dates.map(formatLabel);
+    const todayIdx = dates.indexOf(today);
+
+    const pointBgColors = values.map((v, i) => {
+      if (v === null) return 'transparent';
+      if (mean != null && sd != null && Math.abs(v - mean) > sd) return '#ef4444';
+      return color;
+    });
+    const pointRadii = values.map((v, i) => (v === null ? 0 : i === todayIdx ? 7 : 3));
+    const pointHoverRadii = values.map((v, i) => (v === null ? 0 : i === todayIdx ? 9 : 5));
+    const pointBorderColors = values.map((v, i) =>
+      (v !== null && i === todayIdx ? '#1a1a1a' : pointBgColors[i])
+    );
+    const pointBorderWidths = values.map((_, i) => (i === todayIdx ? 2 : 0));
+
+    return new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets },
+      plugins: [baselineBandPlugin],
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data: values,
+          borderColor: color,
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: pointRadii,
+          pointHoverRadius: pointHoverRadii,
+          pointBackgroundColor: pointBgColors,
+          pointBorderColor: pointBorderColors,
+          pointBorderWidth: pointBorderWidths,
+          spanGaps: false,
+          tension: 0.3,
+        }],
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-          tooltip: {
-            callbacks: {
-              title(items) { return summary.hrv.series[items[0].dataIndex].date; },
-              label(item) {
-                const v = item.raw;
-                const unit = item.datasetIndex === 0 ? 'ms' : 'bpm';
-                return v === null ? `${item.dataset.label}: —` : `${item.dataset.label}: ${v} ${unit}`;
-              },
-            },
+          legend: { display: false },
+          tooltip: { callbacks: buildSubChartTooltipCallbacks(series, label, unit, mean, sd) },
+          baselineBand: {
+            mean,
+            sd,
+            color: color === '#0070f3' ? 'rgba(0,112,243,0.12)' : 'rgba(239,68,68,0.12)',
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
-          yHrv: {
-            type: 'linear', position: 'left',
-            title: { display: true, text: 'HRV (ms)', font: { size: 10 }, color: '#0070f3' },
-            ticks: { font: { size: 10 } },
-            grid: { color: 'rgba(0,0,0,0.05)' },
-          },
-          yRhr: {
-            type: 'linear', position: 'right',
-            title: { display: true, text: 'RHR (bpm)', font: { size: 10 }, color: '#ef4444' },
-            ticks: { font: { size: 10 } },
-            grid: { drawOnChartArea: false },
-          },
+          x: { ticks: { maxTicksLimit: 7, maxRotation: 0, font: { size: 9 } }, grid: { display: false } },
+          y: { ticks: { font: { size: 9 }, maxTicksLimit: 5 }, grid: { color: 'rgba(0,0,0,0.05)' } },
         },
         animation: { duration: 200 },
       },
     });
+  }
+
+  function renderHrvChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
+    }
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('hrv-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'HRV (ms) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    hrvSubChart = buildSubChart(ctx, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
+  }
+
+  function renderRhrChart(bodyEl, info, today) {
+    if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      showEmpty(bodyEl); return;
+    }
+    const baseline_mean = info.baseline_mean ?? null;
+    const baseline_sd = info.baseline_sd ?? null;
+    const labelEl = document.getElementById('rhr-sub-label');
+    if (labelEl && info.is_approximate) {
+      labelEl.innerHTML = 'Resting HR (bpm) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    bodyEl.innerHTML = '<canvas></canvas>';
+    const ctx = bodyEl.querySelector('canvas').getContext('2d');
+    rhrSubChart = buildSubChart(ctx, info.series, 'Resting HR', 'bpm', '#ef4444', baseline_mean, baseline_sd, today);
   }
 
   // ── Sleep / Energy / Mood chart ───────────────────────────────────────────────
@@ -379,7 +420,7 @@
   let sleepEnergyChart = null;
 
   function renderSleepEnergyChart(bodyEl, summary) {
-    const sleepData = summary.sleep.series.map(s => s.value);
+    const sleepData = summary.sleep.series.map(s => s.hours);
     const energyData = summary.energy.series.map(s => s.value);
     const moodData = summary.mood.series.map(s => s.value);
     const labels = summary.sleep.series.map(s => formatLabel(s.date));
@@ -577,7 +618,7 @@
     const tssByDate = {};
     summary.tss.series.forEach(s => { if (s.value !== null) tssByDate[s.date] = s.value; });
     const readinessByDate = {};
-    summary.readiness.series.forEach(s => { if (s.value !== null) readinessByDate[s.date] = s.value; });
+    summary.readiness.series.forEach(s => { if (s.score !== null) readinessByDate[s.date] = s.score; });
     const dates = summary.tss.series.map(s => s.date);
     renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
   }
@@ -617,7 +658,28 @@
       emptyBanner.hidden = false;
     }
 
-    showEmpty(document.getElementById('slot-hrv-rhr-body'));
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
+    const allHrvRhr = typeof MOCK_HRV_RHR !== 'undefined' ? MOCK_HRV_RHR : [];
+    const filteredHrvRhr = allHrvRhr.filter(r => r.date >= win.from && r.date <= win.to);
+    const today = toLocalDateStr(new Date());
+    if (filteredHrvRhr.length > 0) {
+      const { mean: hrvMean, sd: hrvSd } = computeStats(allHrvRhr.map(r => r.hrv));
+      const { mean: rhrMean, sd: rhrSd } = computeStats(allHrvRhr.map(r => r.rhr));
+      const isApprox = allHrvRhr.length < 30;
+      renderHrvChart(hrvBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
+          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox },
+        today);
+      renderRhrChart(rhrBodyEl,
+        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
+          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox },
+        today);
+    } else {
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
+    }
+
     showEmpty(document.getElementById('slot-sleep-energy-body'));
 
     const tssBodyEl = document.getElementById('slot-tss-body');
@@ -638,30 +700,37 @@
     const hasValidWindow = win.from && win.to && win.from <= win.to;
 
     const readinessBodyEl = document.getElementById('slot-readiness-body');
-    const hrvRhrBodyEl = document.getElementById('slot-hrv-rhr-body');
+    const hrvBodyEl = document.getElementById('slot-hrv-body');
+    const rhrBodyEl = document.getElementById('slot-rhr-body');
     const sleepEnergyBodyEl = document.getElementById('slot-sleep-energy-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
     showLoading(readinessBodyEl);
-    showLoading(hrvRhrBodyEl);
+    showLoading(hrvBodyEl);
+    showLoading(rhrBodyEl);
     showLoading(sleepEnergyBodyEl);
     showLoading(tssBodyEl);
     if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+    if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+    if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
       showEmpty(readinessBodyEl);
-      showEmpty(hrvRhrBodyEl);
+      showEmpty(hrvBodyEl);
+      showEmpty(rhrBodyEl);
       showEmpty(sleepEnergyBodyEl);
       showTSSEmpty(tssBodyEl);
       emptyBanner.hidden = false;
       return;
     }
 
-    fetchSummary(state)
+    fetchSummary(state, _userId)
       .then(summary => {
+        const today = toLocalDateStr(new Date());
         renderReadinessFromSummary(readinessBodyEl, summary);
-        renderHrvRhrChart(hrvRhrBodyEl, summary);
+        renderHrvChart(hrvBodyEl, summary.hrv, today);
+        renderRhrChart(rhrBodyEl, summary.rhr, today);
         renderSleepEnergyChart(sleepEnergyBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })
@@ -674,47 +743,25 @@
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        presetBtns.forEach(b => b.classList.toggle('active', b.dataset.range === 'custom'));
-        openPicker();
+        applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
       } else {
-        closePicker();
         applyRangeState({ type: 'preset', preset: range });
       }
     });
   });
 
-  confirmBtn.addEventListener('click', () => {
-    const from = fromInput.value;
-    const to = toInput.value;
-    if (!from || !to) {
-      rangeError.textContent = 'Both From and To dates are required';
-      rangeError.hidden = false;
-      return;
+  function onCustomDateChange() {
+    if (fromInput.value || toInput.value) {
+      applyRangeState({ type: 'custom', from: fromInput.value, to: toInput.value });
     }
-    if (from > to) {
-      rangeError.textContent = 'From must be before To';
-      rangeError.hidden = false;
-      return;
-    }
-    closePicker();
-    applyRangeState({ type: 'custom', from, to });
-  });
+  }
 
-  cancelBtn.addEventListener('click', () => {
-    closePicker();
-    applyRangeState({ type: 'preset', preset: _lastAppliedPreset || DEFAULT_PRESET });
-  });
+  fromInput.addEventListener('change', onCustomDateChange);
+  toInput.addEventListener('change', onCustomDateChange);
 
   // ── Boot ─────────────────────────────────────────────────────────────────────
 
   const _initialState = readRangeFromURL();
-
-  if (_initialState.type === 'custom') {
-    if (_initialState.from) fromInput.value = _initialState.from;
-    if (_initialState.to) toInput.value = _initialState.to;
-  } else {
-    _lastAppliedPreset = _initialState.preset;
-  }
 
   window.addEventListener('userReady', e => {
     _userId = e.detail.userId;
@@ -723,13 +770,6 @@
 
   window.addEventListener('userChanged', e => {
     _userId = e.detail.userId;
-    const state = readRangeFromURL();
-    if (state.type === 'custom') {
-      if (state.from) fromInput.value = state.from;
-      if (state.to) toInput.value = state.to;
-    } else {
-      _lastAppliedPreset = state.preset;
-    }
-    applyRangeState(state);
+    applyRangeState(readRangeFromURL());
   });
 })();

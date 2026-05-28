@@ -75,24 +75,6 @@
       box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
     }
 
-    .range-btn--apply {
-      background: #1a1a1a;
-      color: #fff;
-      border-color: #1a1a1a;
-    }
-
-    .range-btn--apply:hover {
-      background: #333;
-      border-color: #333;
-      color: #fff;
-    }
-
-    .custom-range-error {
-      font-size: 0.8125rem;
-      color: #dc2626;
-      white-space: nowrap;
-    }
-
     /* ── Chart grid ── */
     .chart-grid {
       display: grid;
@@ -229,6 +211,62 @@
       font-weight: 400;
     }
 
+    /* ── HRV / RHR stacked sub-charts ── */
+    .hrv-rhr-stack {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hrv-rhr-sub {
+      padding: 0.625rem 0.875rem 0.75rem;
+    }
+
+    .hrv-rhr-sub--sep {
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .hrv-rhr-sub-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 0.4rem;
+    }
+
+    .hrv-rhr-approx {
+      font-size: 0.6875rem;
+      color: #b45309;
+      font-weight: 500;
+      background: #fef3c7;
+      padding: 0.1rem 0.375rem;
+      border-radius: 3px;
+      border: 1px solid #fde68a;
+    }
+
+    .hrv-rhr-canvas-wrap {
+      position: relative;
+      height: 150px;
+    }
+
+    .hrv-rhr-canvas-wrap canvas {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .hrv-rhr-sub-empty {
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8125rem;
+      color: #aaa;
+    }
+
     /* ── Page-level empty state ── */
     .trends-empty-banner {
       background: #fff;
@@ -270,9 +308,6 @@
         <input type="date" id="range-from" name="from">
         <label for="range-to">To</label>
         <input type="date" id="range-to" name="to">
-        <button class="range-btn range-btn--apply" id="custom-confirm-btn" type="button">Apply</button>
-        <button class="range-btn" id="custom-cancel-btn" type="button">Cancel</button>
-        <span class="custom-range-error" id="custom-range-error" hidden>From must be before To</span>
       </div>
     </div>
 
@@ -284,10 +319,9 @@
     <!-- Chart placeholder slots -->
     <div class="chart-grid" id="chart-grid">
 
-      <div class="chart-slot chart-slot--full" id="slot-readiness">
+      <div class="chart-slot" id="slot-readiness">
         <div class="chart-slot-header">
-          <h2 class="chart-slot-title">Readiness Over Time</h2>
-          <p class="chart-slot-subtitle">Daily score &nbsp;·&nbsp; 7-day rolling average (starts after day 7)</p>
+          <h2 class="chart-slot-title">Readiness Score</h2>
         </div>
         <div class="chart-slot-body" id="slot-readiness-body">
           <div class="slot-loading">
@@ -304,16 +338,36 @@
 
       <div class="chart-slot" id="slot-hrv-rhr">
         <div class="chart-slot-header">
-          <h2 class="chart-slot-title">HRV / Resting HR</h2>
+          <h2 class="chart-slot-title">HRV &amp; Resting HR</h2>
+          <p class="chart-slot-subtitle">Shaded band = baseline ±1 SD &nbsp;·&nbsp; larger dot = today</p>
         </div>
-        <div class="chart-slot-body" id="slot-hrv-rhr-body">
-          <div class="slot-loading">
-            <div class="skeleton-spinner"></div>
-            <div class="skeleton-bar-wrap">
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
-              <div class="skeleton-bar"></div>
+        <div class="hrv-rhr-stack">
+          <div class="hrv-rhr-sub">
+            <div class="hrv-rhr-sub-label" id="hrv-sub-label">HRV (ms)</div>
+            <div id="slot-hrv-body" class="hrv-rhr-canvas-wrap">
+              <div class="slot-loading">
+                <div class="skeleton-spinner"></div>
+                <div class="skeleton-bar-wrap">
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="hrv-rhr-sub hrv-rhr-sub--sep">
+            <div class="hrv-rhr-sub-label" id="rhr-sub-label">Resting HR (bpm)</div>
+            <div id="slot-rhr-body" class="hrv-rhr-canvas-wrap">
+              <div class="slot-loading">
+                <div class="skeleton-spinner"></div>
+                <div class="skeleton-bar-wrap">
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                  <div class="skeleton-bar"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
