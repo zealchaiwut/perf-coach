@@ -60,11 +60,20 @@ class Workout(Base):
     remarks = Column(Text, nullable=True)
     tss = Column(Float, nullable=True)
     tss_source = Column(String(20), nullable=True)
+    distance_km = Column(Numeric(7, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+    elevation_m = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
         CheckConstraint("tss_source IS NULL OR tss_source IN ('manual', 'calculated')", name="ck_workouts_tss_source_values"),
+        CheckConstraint("distance_km IS NULL OR distance_km >= 0", name="ck_workouts_distance_non_negative"),
+        CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workouts_duration_non_negative"),
+        CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
+        CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
     )
 
     exercises = relationship(

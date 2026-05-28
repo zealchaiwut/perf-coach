@@ -700,6 +700,11 @@ class WorkoutIn(BaseModel):
     workout_type: str
     remarks: Optional[str] = None
     tss: Optional[float] = None
+    distance_km: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    avg_hr: Optional[int] = None
+    max_hr: Optional[int] = None
+    elevation_m: Optional[int] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -709,6 +714,11 @@ class WorkoutPatch(BaseModel):
     workout_type: Optional[str] = None
     remarks: Optional[str] = None
     tss: Optional[float] = None
+    distance_km: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    avg_hr: Optional[int] = None
+    max_hr: Optional[int] = None
+    elevation_m: Optional[int] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -758,6 +768,11 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
+        "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+        "duration_seconds": w.duration_seconds,
+        "avg_hr": w.avg_hr,
+        "max_hr": w.max_hr,
+        "elevation_m": w.elevation_m,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
     }
@@ -772,6 +787,11 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
+        "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+        "duration_seconds": w.duration_seconds,
+        "avg_hr": w.avg_hr,
+        "max_hr": w.max_hr,
+        "elevation_m": w.elevation_m,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
     }
@@ -852,6 +872,14 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
     if body.tss is not None and body.tss < 0:
         raise HTTPException(status_code=422, detail="tss must be >= 0")
+    if body.distance_km is not None and body.distance_km < 0:
+        raise HTTPException(status_code=422, detail="distance_km must be >= 0")
+    if body.duration_seconds is not None and body.duration_seconds < 0:
+        raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
+    if body.avg_hr is not None and not (20 <= body.avg_hr <= 250):
+        raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+    if body.max_hr is not None and not (20 <= body.max_hr <= 250):
+        raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -866,6 +894,11 @@ def post_workout(body: WorkoutIn):
             remarks=body.remarks.strip() if body.remarks else None,
             tss=body.tss,
             tss_source='manual' if body.tss is not None else None,
+            distance_km=body.distance_km,
+            duration_seconds=body.duration_seconds,
+            avg_hr=body.avg_hr,
+            max_hr=body.max_hr,
+            elevation_m=body.elevation_m,
         )
         session.add(workout)
         session.flush()
@@ -929,6 +962,24 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
                     raise HTTPException(status_code=422, detail="tss must be >= 0")
                 workout.tss = body.tss
                 workout.tss_source = 'manual'
+        if 'distance_km' in body.model_fields_set:
+            if body.distance_km is not None and body.distance_km < 0:
+                raise HTTPException(status_code=422, detail="distance_km must be >= 0")
+            workout.distance_km = body.distance_km
+        if 'duration_seconds' in body.model_fields_set:
+            if body.duration_seconds is not None and body.duration_seconds < 0:
+                raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
+            workout.duration_seconds = body.duration_seconds
+        if 'avg_hr' in body.model_fields_set:
+            if body.avg_hr is not None and not (20 <= body.avg_hr <= 250):
+                raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+            workout.avg_hr = body.avg_hr
+        if 'max_hr' in body.model_fields_set:
+            if body.max_hr is not None and not (20 <= body.max_hr <= 250):
+                raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+            workout.max_hr = body.max_hr
+        if 'elevation_m' in body.model_fields_set:
+            workout.elevation_m = body.elevation_m
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
