@@ -46,6 +46,40 @@
       border-color: #1a1a1a;
     }
 
+    .range-btn--apply {
+      background: #0070f3;
+      color: #fff;
+      border-color: #0070f3;
+    }
+
+    .range-btn--apply:hover:not(:disabled) {
+      background: #005dd1;
+      border-color: #005dd1;
+      color: #fff;
+    }
+
+    .range-btn--apply:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .range-btn--cancel {
+      background: #fff;
+      color: #555;
+      border-color: #d1d5db;
+    }
+
+    .range-btn--cancel:hover {
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    .custom-range-error {
+      font-size: 0.75rem;
+      color: #dc2626;
+      align-self: center;
+    }
+
     /* ── Custom date inputs ── */
     .custom-range {
       display: flex;
@@ -380,8 +414,9 @@
         <input type="date" id="range-from" name="from" aria-label="Start date">
         <label for="range-to">To</label>
         <input type="date" id="range-to" name="to" aria-label="End date">
-        <button class="range-confirm-btn" id="range-confirm" type="button" aria-label="Apply custom date range">Apply</button>
-        <button class="range-cancel-btn" id="range-cancel" type="button" aria-label="Cancel custom date range">Cancel</button>
+        <button class="range-btn range-btn--apply" id="custom-apply">Apply</button>
+        <button class="range-btn range-btn--cancel" id="custom-cancel">Cancel</button>
+        <span class="custom-range-error" id="custom-range-error" hidden></span>
       </div>
     </div>
 

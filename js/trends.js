@@ -40,26 +40,51 @@
 
   // ── UI state ─────────────────────────────────────────────────────────────────
 
-  function applyRangeState(state, { openPicker = false } = {}) {
+  let _confirmedState = null;
+
+  function setActiveChip(state) {
     presetBtns.forEach(btn => {
       const isActive = state.type === 'preset'
         ? btn.dataset.range === state.preset
         : btn.dataset.range === 'custom';
       btn.classList.toggle('active', isActive);
     });
-    const isCustom = state.type === 'custom';
-    // When opening the picker via the Custom chip, show inputs but don't
-    // load data yet — wait for the user to confirm.
-    if (openPicker) {
-      customInputs.hidden = false;
-      if (state.from) fromInput.value = state.from;
-      if (state.to) toInput.value = state.to;
-      return; // don't write URL or load data until confirmed
+  }
+
+  function openCustomPicker() {
+    if (_confirmedState?.type === 'custom') {
+      if (_confirmedState.from) fromInput.value = _confirmedState.from;
+      if (_confirmedState.to) toInput.value = _confirmedState.to;
     }
-    customInputs.hidden = !isCustom;
+    presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.range === 'custom'));
+    customInputs.hidden = false;
+    fromInput.focus();
+  }
+
+  function closeCustomPicker() {
+    customInputs.hidden = true;
+    const errEl = document.getElementById('custom-range-error');
+    if (errEl) { errEl.textContent = ''; errEl.hidden = true; }
+  }
+
+  function commitState(state) {
+    _confirmedState = state;
+    setActiveChip(state);
+    closeCustomPicker();
+    writeRangeToURL(state);
+    loadChartData(state);
+  }
+
+  function applyRangeState(state) {
+    _confirmedState = state;
+    setActiveChip(state);
+    const isCustom = state.type === 'custom';
     if (isCustom) {
       if (state.from) fromInput.value = state.from;
       if (state.to) toInput.value = state.to;
+      customInputs.hidden = false;
+    } else {
+      customInputs.hidden = true;
     }
     if (state.type === 'preset') {
       _lastPresetState = state;
@@ -891,46 +916,42 @@
 
   // ── Event handlers ────────────────────────────────────────────────────────────
 
+  const applyBtn  = document.getElementById('custom-apply');
+  const cancelBtn = document.getElementById('custom-cancel');
+  const rangeErr  = document.getElementById('custom-range-error');
+
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
       if (range === 'custom') {
-        // Open the date picker — don't apply/load until the user confirms
-        const currentParams = new URLSearchParams(location.search);
-        const existingFrom = currentParams.get('from') || '';
-        const existingTo = currentParams.get('to') || '';
-        fromInput.value = existingFrom;
-        toInput.value = existingTo;
-        btn.classList.add('active');
-        customInputs.hidden = false;
-        fromInput.focus();
+        openCustomPicker();
       } else {
-        customInputs.hidden = true;
-        applyRangeState({ type: 'preset', preset: range });
+        commitState({ type: 'preset', preset: range });
       }
     });
   });
 
-  // Confirm: apply the custom range and update URL
-  confirmBtn.addEventListener('click', () => {
+  applyBtn?.addEventListener('click', () => {
     const from = fromInput.value;
-    const to = toInput.value;
-    if (!from && !to) return; // nothing entered yet
-    applyRangeState({ type: 'custom', from, to });
+    const to   = toInput.value;
+    if (!from || !to) {
+      rangeErr.textContent = 'Please select both a From and To date.';
+      rangeErr.hidden = false;
+      return;
+    }
+    if (from > to) {
+      rangeErr.textContent = '"From" must not be after "To".';
+      rangeErr.hidden = false;
+      return;
+    }
+    rangeErr.textContent = '';
+    rangeErr.hidden = true;
+    commitState({ type: 'custom', from, to });
   });
 
-  // Cancel: revert to the previous preset without changing data
-  cancelBtn.addEventListener('click', () => {
-    customInputs.hidden = true;
-    applyRangeState(_lastPresetState);
-  });
-
-  // Allow Enter key on date inputs to trigger confirm
-  [fromInput, toInput].forEach(input => {
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') confirmBtn.click();
-      if (e.key === 'Escape') cancelBtn.click();
-    });
+  cancelBtn?.addEventListener('click', () => {
+    closeCustomPicker();
+    if (_confirmedState) setActiveChip(_confirmedState);
   });
 
   // ── SEM toggle handlers ───────────────────────────────────────────────────────
