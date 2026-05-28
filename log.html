@@ -603,6 +603,52 @@
       font-weight: 700;
       color: #1a1a1a;
     }
+
+    /* ── Detail panel action footer ── */
+    .detail-panel-footer {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid #e5e5e5;
+      display: flex;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .detail-action-btn {
+      flex: 1;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+
+    .detail-action-btn:focus-visible {
+      outline: 2px solid #0070f3;
+      outline-offset: 2px;
+    }
+
+    .detail-btn-edit {
+      background: #fff;
+      border: 1px solid #d1d5db;
+      color: #1a1a1a;
+    }
+
+    .detail-btn-edit:hover { background: #f5f5f5; border-color: #9ca3af; }
+
+    .detail-btn-strava {
+      background: #fc4c02;
+      border: 1px solid #fc4c02;
+      color: #fff;
+    }
+
+    .detail-btn-strava:hover { background: #e03e00; border-color: #e03e00; }
   </style>
 </head>
 <body>
@@ -679,6 +725,10 @@
       </div>
       <div class="detail-panel-body">
         <div class="detail-stat-grid" id="detail-stat-grid"></div>
+      </div>
+      <div class="detail-panel-footer">
+        <button id="detail-edit-btn" class="detail-action-btn detail-btn-edit" aria-label="Edit workout">Edit</button>
+        <a id="detail-strava-btn" class="detail-action-btn detail-btn-strava" target="_blank" rel="noopener noreferrer" aria-label="Open in Strava" style="display:none">Open in Strava</a>
       </div>
     </aside>
   </div>

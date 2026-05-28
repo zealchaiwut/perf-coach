@@ -768,6 +768,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
+        "source": w.source,
+        "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
         "avg_hr": w.avg_hr,
@@ -787,6 +789,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
+        "source": w.source,
+        "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
         "avg_hr": w.avg_hr,
@@ -1975,7 +1979,7 @@ def get_training_log(
             "weight_context": w.remarks,
             "avg_hr": w.avg_hr,
             "tss": float(w.tss) if w.tss is not None else None,
-            "source": w.tss_source or "manual",
+            "source": w.source or w.tss_source or "manual",
             "notes": w.remarks or "",
         }
         for w in workouts
