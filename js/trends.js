@@ -417,65 +417,138 @@
 
   // ── Sleep / Energy / Mood chart ───────────────────────────────────────────────
 
-  let sleepEnergyChart = null;
+  let semChart = null;
+  let _semEnergyVisible = true;
+  let _semMoodVisible = true;
+  let _semWeeklyAvgVisible = false;
 
-  function renderSleepEnergyChart(bodyEl, summary) {
-    const sleepData = summary.sleep.series.map(s => s.hours);
-    const energyData = summary.energy.series.map(s => s.value);
-    const moodData = summary.mood.series.map(s => s.value);
-    const labels = summary.sleep.series.map(s => formatLabel(s.date));
-    const hasData = sleepData.some(v => v !== null) || energyData.some(v => v !== null) || moodData.some(v => v !== null);
-    if (!hasData) { showEmpty(bodyEl); return; }
-    if (!bodyEl.querySelector('canvas')) {
-      bodyEl.innerHTML = '<canvas id="chart-sleep-energy" style="display:block;width:100%;"></canvas>';
-    }
-    const datasets = [
-      {
-        label: 'Sleep (h)',
+  // Custom plugin: draws a weekly-average sleep-quality label above each week's bars
+  const weeklyAvgPlugin = {
+    id: 'weeklyAvgAnnotations',
+    afterDatasetsDraw(chart) {
+      const cfg = chart.options.plugins.weeklyAvgAnnotations;
+      if (!cfg?.enabled) return;
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      const { dates, sleepData } = cfg;
+
+      const weekMap = new Map();
+      dates.forEach((date, i) => {
+        const d = new Date(date + 'T00:00:00');
+        const dow = d.getDay();
+        const monday = new Date(d);
+        monday.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+        const key = toLocalDateStr(monday);
+        if (!weekMap.has(key)) weekMap.set(key, { indices: [], values: [] });
+        const wk = weekMap.get(key);
+        wk.indices.push(i);
+        if (sleepData[i] !== null) wk.values.push(sleepData[i]);
+      });
+
+      ctx.save();
+      ctx.font = 'bold 9px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(99,102,241,0.85)';
+      weekMap.forEach(wk => {
+        if (wk.values.length === 0) return;
+        const avg = wk.values.reduce((a, b) => a + b, 0) / wk.values.length;
+        const midIdx = wk.indices[Math.floor(wk.indices.length / 2)];
+        ctx.fillText(`avg ${avg.toFixed(1)}`, scales.x.getPixelForValue(midIdx), chartArea.top + 10);
+      });
+      ctx.restore();
+    },
+  };
+
+  function renderSEMChart(bodyEl, sleepSeries, energySeries, moodSeries) {
+    const dateSet = new Set([
+      ...sleepSeries.map(s => s.date),
+      ...energySeries.map(s => s.date),
+      ...moodSeries.map(s => s.date),
+    ]);
+    const dates = [...dateSet].sort();
+
+    const sleepByDate  = Object.fromEntries(sleepSeries.map(s => [s.date, s.quality ?? null]));
+    const energyByDate = Object.fromEntries(energySeries.map(s => [s.date, s.value  ?? null]));
+    const moodByDate   = Object.fromEntries(moodSeries.map(s => [s.date, s.value    ?? null]));
+
+    const sleepData  = dates.map(d => sleepByDate[d]  ?? null);
+    const energyData = dates.map(d => energyByDate[d] ?? null);
+    const moodData   = dates.map(d => moodByDate[d]   ?? null);
+
+    const hasAnySleep  = sleepData.some(v => v !== null);
+    const hasAnyEnergy = energyData.some(v => v !== null);
+    const hasAnyMood   = moodData.some(v => v !== null);
+
+    if (!hasAnySleep && !hasAnyEnergy && !hasAnyMood) { showEmpty(bodyEl); return; }
+
+    const energyBtn  = document.getElementById('btn-toggle-energy');
+    const moodBtn    = document.getElementById('btn-toggle-mood');
+    const semToggles = document.getElementById('sem-toggles');
+    if (energyBtn)  energyBtn.hidden  = !hasAnyEnergy;
+    if (moodBtn)    moodBtn.hidden    = !hasAnyMood;
+    if (semToggles) semToggles.hidden = !hasAnyEnergy && !hasAnyMood;
+
+    const labels = dates.map(formatLabel);
+    const datasets = [];
+
+    if (hasAnySleep) {
+      datasets.push({
+        label: 'Sleep quality',
         data: sleepData,
-        yAxisID: 'ySleep',
-        borderColor: '#6366f1',
-        backgroundColor: 'rgba(99,102,241,0.08)',
-        borderWidth: 2,
-        pointRadius: 3,
-        spanGaps: false,
-        fill: false,
-        tension: 0.3,
-      },
-      {
+        type: 'bar',
+        yAxisID: 'yScore',
+        backgroundColor: 'rgba(99,102,241,0.55)',
+        borderColor: 'rgba(99,102,241,0.8)',
+        borderWidth: 1,
+        order: 3,
+      });
+    }
+
+    if (hasAnyEnergy) {
+      datasets.push({
         label: 'Energy',
         data: energyData,
+        type: 'line',
         yAxisID: 'yScore',
         borderColor: '#f59e0b',
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#f59e0b',
         spanGaps: false,
         fill: false,
         tension: 0.3,
-      },
-      {
+        order: 1,
+        hidden: !_semEnergyVisible,
+      });
+    }
+
+    if (hasAnyMood) {
+      datasets.push({
         label: 'Mood',
         data: moodData,
+        type: 'line',
         yAxisID: 'yScore',
         borderColor: '#10b981',
         backgroundColor: 'transparent',
         borderWidth: 2,
         pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#10b981',
         spanGaps: false,
         fill: false,
         tension: 0.3,
-      },
-    ];
-    if (sleepEnergyChart) {
-      sleepEnergyChart.data.labels = labels;
-      sleepEnergyChart.data.datasets = datasets;
-      sleepEnergyChart.update();
-      return;
+        order: 2,
+        hidden: !_semMoodVisible,
+      });
     }
+
+    bodyEl.innerHTML = '<canvas id="chart-sem"></canvas>';
     const ctx = bodyEl.querySelector('canvas').getContext('2d');
-    sleepEnergyChart = new Chart(ctx, {
-      type: 'line',
+    semChart = new Chart(ctx, {
+      type: 'bar',
+      plugins: [weeklyAvgPlugin],
       data: { labels, datasets },
       options: {
         responsive: true,
@@ -484,29 +557,58 @@
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
           tooltip: {
+            filter: item => item.raw !== null && item.raw !== undefined,
             callbacks: {
-              title(items) { return summary.sleep.series[items[0].dataIndex].date; },
+              title(items) { return dates[items[0].dataIndex]; },
+              label(item) {
+                const v = item.raw;
+                if (v === null || v === undefined) return null;
+                return `${item.dataset.label}: ${v}/5`;
+              },
             },
           },
+          weeklyAvgAnnotations: { enabled: _semWeeklyAvgVisible, dates, sleepData },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
-          ySleep: {
-            type: 'linear', position: 'left', min: 0, max: 12,
-            title: { display: true, text: 'Sleep (h)', font: { size: 10 } },
-            ticks: { font: { size: 10 }, stepSize: 3 },
-            grid: { color: 'rgba(0,0,0,0.05)' },
-          },
+          x: { ticks: { maxTicksLimit: 10, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
           yScore: {
-            type: 'linear', position: 'right', min: 0, max: 5,
+            type: 'linear', position: 'left', min: 0, max: 5,
             title: { display: true, text: '1–5', font: { size: 10 } },
             ticks: { font: { size: 10 }, stepSize: 1 },
-            grid: { display: false },
+            grid: { color: 'rgba(0,0,0,0.05)' },
           },
         },
         animation: { duration: 200 },
       },
     });
+  }
+
+  function renderSEMFromSummary(bodyEl, summary) {
+    renderSEMChart(
+      bodyEl,
+      summary.sleep?.series  || [],
+      summary.energy?.series || [],
+      summary.mood?.series   || [],
+    );
+  }
+
+  function updateSEMVisibility() {
+    const energyBtn = document.getElementById('btn-toggle-energy');
+    const moodBtn   = document.getElementById('btn-toggle-mood');
+    const weeklyBtn = document.getElementById('btn-toggle-weekly-avg');
+    if (energyBtn) energyBtn.classList.toggle('active', _semEnergyVisible);
+    if (moodBtn)   moodBtn.classList.toggle('active', _semMoodVisible);
+    if (weeklyBtn) weeklyBtn.classList.toggle('active', _semWeeklyAvgVisible);
+
+    if (!semChart) return;
+    semChart.data.datasets.forEach(ds => {
+      if (ds.label === 'Energy') ds.hidden = !_semEnergyVisible;
+      if (ds.label === 'Mood')   ds.hidden = !_semMoodVisible;
+    });
+    if (semChart.options.plugins.weeklyAvgAnnotations) {
+      semChart.options.plugins.weeklyAvgAnnotations.enabled = _semWeeklyAvgVisible;
+    }
+    semChart.update();
   }
 
   // ── TSS overlay chart ─────────────────────────────────────────────────────────
@@ -680,7 +782,23 @@
       showEmpty(rhrBodyEl);
     }
 
-    showEmpty(document.getElementById('slot-sleep-energy-body'));
+    const semBodyEl = document.getElementById('slot-sem-body');
+    const mockFallbackSummary = typeof mockGetTrendsSummary === 'function'
+      ? mockGetTrendsSummary({ range: state.type === 'preset' ? state.preset : '30d' })
+      : null;
+    if (mockFallbackSummary) {
+      const filteredSleep  = (mockFallbackSummary.sleep?.series  || []).filter(s => s.date >= win.from && s.date <= win.to);
+      const filteredEnergy = (mockFallbackSummary.energy?.series || []).filter(s => s.date >= win.from && s.date <= win.to);
+      const filteredMood   = (mockFallbackSummary.mood?.series   || []).filter(s => s.date >= win.from && s.date <= win.to);
+      if (filteredSleep.length > 0 || filteredEnergy.length > 0 || filteredMood.length > 0) {
+        if (semChart) { semChart.destroy(); semChart = null; }
+        renderSEMChart(semBodyEl, filteredSleep, filteredEnergy, filteredMood);
+      } else {
+        showEmpty(semBodyEl);
+      }
+    } else {
+      showEmpty(semBodyEl);
+    }
 
     const tssBodyEl = document.getElementById('slot-tss-body');
     const mockWorkouts = filterMockTSS(win.from, win.to);
@@ -702,15 +820,16 @@
     const readinessBodyEl = document.getElementById('slot-readiness-body');
     const hrvBodyEl = document.getElementById('slot-hrv-body');
     const rhrBodyEl = document.getElementById('slot-rhr-body');
-    const sleepEnergyBodyEl = document.getElementById('slot-sleep-energy-body');
+    const semBodyEl = document.getElementById('slot-sem-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
     showLoading(readinessBodyEl);
     showLoading(hrvBodyEl);
     showLoading(rhrBodyEl);
-    showLoading(sleepEnergyBodyEl);
+    showLoading(semBodyEl);
     showLoading(tssBodyEl);
     if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+    if (semChart) { semChart.destroy(); semChart = null; }
     if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
     if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
     emptyBanner.hidden = true;
@@ -719,7 +838,7 @@
       showEmpty(readinessBodyEl);
       showEmpty(hrvBodyEl);
       showEmpty(rhrBodyEl);
-      showEmpty(sleepEnergyBodyEl);
+      showEmpty(semBodyEl);
       showTSSEmpty(tssBodyEl);
       emptyBanner.hidden = false;
       return;
@@ -731,7 +850,7 @@
         renderReadinessFromSummary(readinessBodyEl, summary);
         renderHrvChart(hrvBodyEl, summary.hrv, today);
         renderRhrChart(rhrBodyEl, summary.rhr, today);
-        renderSleepEnergyChart(sleepEnergyBodyEl, summary);
+        renderSEMFromSummary(semBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })
       .catch(() => renderMockFallback(state));
@@ -758,6 +877,23 @@
 
   fromInput.addEventListener('change', onCustomDateChange);
   toInput.addEventListener('change', onCustomDateChange);
+
+  // ── SEM toggle handlers ───────────────────────────────────────────────────────
+
+  document.getElementById('btn-toggle-energy')?.addEventListener('click', () => {
+    _semEnergyVisible = !_semEnergyVisible;
+    updateSEMVisibility();
+  });
+
+  document.getElementById('btn-toggle-mood')?.addEventListener('click', () => {
+    _semMoodVisible = !_semMoodVisible;
+    updateSEMVisibility();
+  });
+
+  document.getElementById('btn-toggle-weekly-avg')?.addEventListener('click', () => {
+    _semWeeklyAvgVisible = !_semWeeklyAvgVisible;
+    updateSEMVisibility();
+  });
 
   // ── Boot ─────────────────────────────────────────────────────────────────────
 
