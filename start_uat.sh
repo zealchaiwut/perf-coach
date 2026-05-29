@@ -13,7 +13,7 @@ set +a
 
 # Environment and port are always determined by the script, not .env
 export ENVIRONMENT=UAT
-export PORT=9001
+CONFIGURED_PORT=9001
 
 if [ -z "${DATABASE_URL_UAT:-}" ]; then
   echo "ERROR: DATABASE_URL_UAT is not set in .env." >&2
@@ -44,10 +44,46 @@ except Exception as e:
     sys.exit(1)
 EOF
 
+# Select an available port, falling back to a random free port if configured port is occupied
+PORT=$(python3 - "$CONFIGURED_PORT" <<'EOF'
+import socket
+import random
+import sys
+
+RESERVED_PORTS = {21, 22, 23, 25, 80, 443, 1433, 1521, 3000, 3306, 5432, 6379, 8080, 8443, 27017}
+MAX_RETRIES = 100
+
+def is_port_free(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            return False
+
+configured_port = int(sys.argv[1])
+
+if is_port_free(configured_port):
+    print(configured_port)
+    sys.exit(0)
+
+for _ in range(MAX_RETRIES):
+    port = random.randint(1024, 65535)
+    if port not in RESERVED_PORTS and is_port_free(port):
+        print(port)
+        sys.exit(0)
+
+print("ERROR: Unable to find a free port after 100 attempts", file=sys.stderr)
+sys.exit(1)
+EOF
+)
+
+export PORT
+echo "Server listening on port $PORT"
+
 source .venv/bin/activate
 
 echo "Applying database migrations (UAT)..."
 uv run alembic upgrade head
 
-echo "Starting perf-coach backend (UAT) on http://localhost:$PORT"
 exec uv run uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
