@@ -778,6 +778,188 @@
     card.innerHTML = header + '<div class="list">' + listHTML + '</div>';
   }
 
+  /* ---- Habits Day-Grid card ---- */
+
+  function isoWeekMonday(d) {
+    var day = d.getDay();
+    var diff = (day === 0) ? -6 : 1 - day;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+  }
+
+  function addDays(d, n) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  }
+
+  function buildHabitRow(habit, weekDates, todayStr, logsByHabit, userId, streakNum) {
+    var logsForHabit = logsByHabit[habit.id] || {};
+    var cellsHTML = '';
+    weekDates.forEach(function (dateStr) {
+      var isFuture = dateStr > todayStr;
+      var log = logsForHabit[dateStr];
+      var isDone = !!log;
+      var isToday = dateStr === todayStr;
+      var cls = 'day-cell' + (isDone ? ' done' : '') + (isToday ? ' today' : '') + (isFuture ? ' future' : '');
+      var inner = isDone ? '<i class="ti ti-check"></i>' : '';
+      cellsHTML +=
+        '<div class="' + cls + '"' +
+        ' data-habit-id="' + habit.id + '"' +
+        ' data-date="' + dateStr + '"' +
+        ' data-log-id="' + (log ? log.id : '') + '">' +
+        inner + '</div>';
+    });
+    return '<div class="week-row" data-habit-row="' + habit.id + '">' +
+      '<div class="habit-name" title="' + habit.name + '">' + habit.name + '</div>' +
+      cellsHTML +
+      '<div class="streak-col"><span class="num">' + streakNum + '</span>d</div>' +
+    '</div>';
+  }
+
+  async function refreshHabitRow(card, habit, weekDates, todayStr, userId) {
+    var logs = [];
+    try {
+      var lr = await fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]);
+      if (lr.ok) logs = await lr.json();
+    } catch (_) {}
+
+    var logsForHabit = {};
+    logs.forEach(function (l) {
+      if (l.habit_id === habit.id) logsForHabit[l.logged_date] = l;
+    });
+
+    var streakNum = 0;
+    try {
+      var sr = await fetch('/api/habits/stats?user_id=' + userId + '&habit_id=' + habit.id + '&days=30');
+      if (sr.ok) { var sd = await sr.json(); streakNum = sd.streak || 0; }
+    } catch (_) {}
+
+    var tmp = document.createElement('div');
+    tmp.innerHTML = buildHabitRow(habit, weekDates, todayStr, { [habit.id]: logsForHabit }, userId, streakNum);
+    var newRow = tmp.firstChild;
+    var existingRow = card.querySelector('[data-habit-row="' + habit.id + '"]');
+    if (existingRow) existingRow.parentNode.replaceChild(newRow, existingRow);
+
+    var footerBadge = card.querySelector('[data-streak-badge="' + habit.id + '"]');
+    if (footerBadge) footerBadge.textContent = habit.name.split(' ')[0] + ' ' + streakNum + 'd';
+
+    attachHabitCellListeners(card, [habit], weekDates, todayStr, userId);
+  }
+
+  function attachHabitCellListeners(card, habits, weekDates, todayStr, userId) {
+    var habitMap = {};
+    habits.forEach(function (h) { habitMap[h.id] = h; });
+    card.querySelectorAll('.day-cell:not(.future)').forEach(function (cell) {
+      if (cell._hasListener) return;
+      cell._hasListener = true;
+      cell.addEventListener('click', async function () {
+        var hid = cell.getAttribute('data-habit-id');
+        var dateStr = cell.getAttribute('data-date');
+        var logId = cell.getAttribute('data-log-id');
+        var habit = habitMap[hid];
+        if (!habit) return;
+        try {
+          if (logId) {
+            await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
+          } else {
+            await fetch('/api/habits/logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ habit_id: hid, user_id: userId, logged_date: dateStr })
+            });
+          }
+        } catch (_) { return; }
+        await refreshHabitRow(card, habit, weekDates, todayStr, userId);
+      });
+    });
+  }
+
+  async function loadHabitsCard(userId) {
+    var row4 = document.getElementById('row-4');
+    if (!row4) return;
+
+    var card = document.getElementById('habits-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'habits-card';
+      card.className = 'card habits';
+      row4.insertBefore(card, row4.firstChild);
+    }
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-checkbox"></i>Habits · this week</div>' +
+        '<a href="/habits.html">All</a>' +
+      '</div>';
+
+    card.innerHTML = header + '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 4px;">Loading…</div>';
+
+    var habits = [];
+    try {
+      var hr = await fetch('/api/habits?user_id=' + userId);
+      if (hr.ok) habits = await hr.json();
+    } catch (_) {}
+
+    if (!habits.length) {
+      card.innerHTML = header +
+        '<div class="habits-empty">Add a habit to start tracking your week — <a href="/habits.html">go to Habits</a></div>';
+      return;
+    }
+
+    var today = new Date();
+    var todayStr = isoDate(today);
+    var monday = isoWeekMonday(today);
+    var weekDates = [];
+    for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
+
+    var allLogs = [];
+    try {
+      var lr2 = await fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]);
+      if (lr2.ok) allLogs = await lr2.json();
+    } catch (_) {}
+
+    var logsByHabit = {};
+    allLogs.forEach(function (l) {
+      if (!logsByHabit[l.habit_id]) logsByHabit[l.habit_id] = {};
+      logsByHabit[l.habit_id][l.logged_date] = l;
+    });
+
+    var streaks = {};
+    await Promise.all(habits.map(async function (h) {
+      try {
+        var sr = await fetch('/api/habits/stats?user_id=' + userId + '&habit_id=' + h.id + '&days=30');
+        if (sr.ok) { var sd = await sr.json(); streaks[h.id] = sd.streak || 0; }
+        else streaks[h.id] = 0;
+      } catch (_) { streaks[h.id] = 0; }
+    }));
+
+    var headerRowHTML =
+      '<div class="week-row">' +
+        '<div class="week-header first">Habit</div>' +
+        '<div class="week-header">M</div><div class="week-header">T</div><div class="week-header">W</div>' +
+        '<div class="week-header">T</div><div class="week-header">F</div><div class="week-header">S</div>' +
+        '<div class="week-header">S</div>' +
+        '<div class="week-header streak-hdr">Streak</div>' +
+      '</div>';
+
+    var rowsHTML = '';
+    habits.forEach(function (h) {
+      rowsHTML += buildHabitRow(h, weekDates, todayStr, logsByHabit, userId, streaks[h.id] || 0);
+    });
+
+    var footerBadges = habits
+      .filter(function (h) { return (streaks[h.id] || 0) > 0; })
+      .map(function (h) {
+        return '<span class="badge" data-streak-badge="' + h.id + '">' +
+          h.name.split(' ')[0] + ' ' + (streaks[h.id] || 0) + 'd</span>';
+      })
+      .join('');
+
+    card.innerHTML = header +
+      '<div class="week-grid">' + headerRowHTML + rowsHTML + '</div>' +
+      '<div class="habits-streak-footer">Streaks: ' + footerBadges + '</div>';
+
+    attachHabitCellListeners(card, habits, weekDates, todayStr, userId);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -804,6 +986,7 @@
       loadSleepCard(userId);
       loadPerformanceCard(userId);
       loadRecentWorkoutsCard(userId);
+      loadHabitsCard(userId);
     }
   }
 
