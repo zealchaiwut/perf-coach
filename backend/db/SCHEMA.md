@@ -59,6 +59,11 @@ Unique constraint: `(habit_id, logged_date)` — one log per habit per day.
 | remarks | TEXT | nullable |
 | tss | FLOAT | nullable, CHECK `tss >= 0` if present |
 | tss_source | VARCHAR(20) | nullable, CHECK `tss_source IN ('manual', 'calculated')` if present |
+| distance_km | NUMERIC(7,3) | nullable, CHECK `distance_km >= 0` if present |
+| duration_seconds | INT | nullable, CHECK `duration_seconds >= 0` if present |
+| avg_hr | INT | nullable, CHECK `avg_hr BETWEEN 20 AND 250` if present |
+| max_hr | INT | nullable, CHECK `max_hr BETWEEN 20 AND 250` if present |
+| elevation_m | INT | nullable |
 | created_at | TIMESTAMPTZ | default `now()` |
 
 Index: `(user_id, workout_date DESC)`
@@ -147,6 +152,12 @@ Each field is the signal's additive share of `score`; the four values sum to `sc
 | GET | `/api/readiness/today` | Readiness record for today (server timezone). 404 if none exists. |
 | GET | `/api/readiness?from=YYYY-MM-DD&to=YYYY-MM-DD` | Readiness records for a date range, one entry per day (null for days with no data), ordered ascending. |
 
+### Training Log
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/training-log` | Returns workout and optional rest-day entries for a date range. Query params: `user_id`, `from` (default: 30 days ago), `to` (default: today), `types` (workout_type filter), `search` (name/remarks text search), `include_rest` (default: true). Each workout entry includes `duration_seconds`, `duration_minutes`, `distance_km`, `avg_hr`, `elevation_m`, `average_pace_seconds_per_km` (run/bike only), `tss`, `source`, and `notes`. |
+
 Both endpoints require `user_id` as a query parameter and return:
 
 ```json
@@ -187,6 +198,7 @@ Both endpoints require `user_id` as a query parameter and return:
 | f6a7b8c9d0e1 | Add tss and tss_source columns to workouts |
 | 38a0b1c2d3e4 | Create daily_metrics table |
 | 59a1b2c3d4e5 | Create daily_readiness table |
+| a1b2c3d4e5f7 | Add distance_km, duration_seconds, avg_hr, max_hr, elevation_m to workouts |
 
 Run `alembic upgrade head` to apply all migrations.
 Run `alembic downgrade -1` to roll back one step.

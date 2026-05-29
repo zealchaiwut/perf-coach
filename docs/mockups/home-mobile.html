@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>perf-coach — home (mobile)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --bg-1: #5a8dee;
+    --bg-2: #1f3b8a;
+    --shell-1: #eaf0fb;
+    --shell-2: #d8e3f5;
+    --card: #ffffff;
+    --card-border: rgba(13, 30, 67, 0.06);
+    --card-divider: rgba(13, 30, 67, 0.05);
+    --text-primary: #0b1530;
+    --text-secondary: #5c6886;
+    --text-tertiary: #8b95ad;
+    --accent: #e4ff52;
+    --accent-text: #1a2400;
+    --hero-1: #b6c5ff;
+    --hero-2: #8aa1ff;
+    --sleep-1: #2a1d54;
+    --sleep-2: #4d3a8c;
+    --green: #2d5e10;
+    --green-soft: #dff5d6;
+    --red: #7a1a1a;
+    --red-soft: #ffd9d9;
+    --amber: #6b4408;
+    --amber-soft: #fff0c4;
+    --gold: #b8893c;
+    --blue-text: #1e3a8a;
+    --blue-soft: #dde6f8;
+    --purple-text: #4f3c8c;
+    --purple-soft: #ebe5f9;
+    --orange-text: #8a3d12;
+    --orange-soft: #ffe1d4;
+    --teal-text: #1e6438;
+    --teal-soft: #d4f0e2;
+    --chip-bg: #f1f4fa;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    color: var(--text-primary);
+    background: radial-gradient(ellipse at top, var(--bg-1) 0%, var(--bg-2) 80%);
+    min-height: 100vh;
+    letter-spacing: -0.01em;
+    padding-bottom: 76px;
+  }
+
+  .topbar {
+    background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%);
+    border-bottom: 1px solid var(--card-border);
+    padding: 0 16px; height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .topbar .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
+  .topbar .brand .mark { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #6e90f0, #2b4ca8); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .topbar .right-actions { display: flex; align-items: center; gap: 6px; }
+  .topbar .icon-btn { width: 40px; height: 40px; border: 0; background: transparent; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 19px; color: var(--text-primary); cursor: pointer; }
+  .topbar .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #ffb88a, #d97a3a); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+
+  .bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff; border-top: 1px solid var(--card-border);
+    height: 60px; padding-bottom: env(safe-area-inset-bottom, 0);
+    display: flex; z-index: 50; box-shadow: 0 -2px 12px rgba(0,0,0,0.04);
+  }
+  .bottombar .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--text-tertiary); text-decoration: none; font-size: 10.5px; font-weight: 500; }
+  .bottombar .tab i { font-size: 21px; }
+  .bottombar .tab.active, .bottombar .tab.active i { color: #0b1530; }
+
+  .page { padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 12px; }
+  .greeting { margin-bottom: 4px; }
+  .greeting h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.18); }
+  .greeting p { margin: 4px 0 0; color: rgba(255,255,255,0.78); font-size: 12.5px; }
+
+  .card { background: var(--card); border-radius: 18px; border: 1px solid var(--card-border); padding: 18px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .card-head .ttl { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+  .card-head .ttl i { font-size: 16px; color: var(--text-tertiary); }
+  .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; }
+  .card-head .meta { font-size: 11.5px; color: var(--text-tertiary); }
+
+  /* READINESS */
+  .readiness { background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%); color: #0b1530; border: 0; padding: 22px; text-align: center; }
+  .readiness .lbl { font-size: 10px; color: rgba(11, 21, 48, 0.6); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+  .readiness .score { font-size: 88px; font-weight: 700; line-height: 1; letter-spacing: -0.045em; margin: 6px 0 4px; }
+  .readiness .score small { font-size: 20px; font-weight: 500; opacity: 0.5; margin-left: 2px; }
+  .readiness .score-sub { font-size: 12px; color: rgba(11, 21, 48, 0.6); margin-bottom: 12px; }
+  .readiness h2 { margin: 0 0 6px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.25; }
+  .readiness .sub { font-size: 13px; color: rgba(11, 21, 48, 0.7); line-height: 1.45; margin: 0 0 16px; padding: 0 8px; }
+  .readiness .status-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: var(--accent-text); padding: 8px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 500; margin-bottom: 18px; }
+  .readiness .components { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; text-align: left; }
+  .component { background: rgba(255, 255, 255, 0.55); backdrop-filter: blur(10px); border-radius: 12px; padding: 10px 12px; }
+  .component .l { font-size: 10px; color: rgba(11, 21, 48, 0.6); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; }
+  .component .v { font-size: 16px; font-weight: 600; margin-top: 2px; letter-spacing: -0.01em; }
+  .component .delta { font-size: 10.5px; margin-left: 4px; font-weight: 500; }
+  .delta.up { color: var(--green); }
+  .delta.down { color: var(--red); }
+  .delta.flat { color: var(--text-tertiary); }
+
+  /* SLEEP */
+  .sleep { background: linear-gradient(160deg, var(--sleep-1) 0%, var(--sleep-2) 100%); color: #fff; border: 0; padding: 20px; }
+  .sleep .head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; margin-bottom: 12px; color: rgba(255,255,255,0.78); }
+  .sleep .top-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .sleep .score { font-size: 52px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+  .sleep .score small { font-size: 17px; opacity: 0.5; font-weight: 500; }
+  .sleep .quality { text-align: right; font-size: 12px; color: rgba(255,255,255,0.7); }
+  .sleep .quality strong { display: block; font-size: 14px; color: rgba(255,255,255,0.95); font-weight: 600; }
+  .sleep .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.12); }
+  .sleep .meta-grid .m-l { font-size: 10px; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
+  .sleep .meta-grid .m-v { font-size: 16px; font-weight: 600; margin-top: 3px; }
+  .sleep .stages-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.55); font-weight: 500; margin-bottom: 7px; }
+  .sleep .stages-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 9px; }
+  .seg.deep { background: #1f6feb; }
+  .seg.rem { background: #a86eff; }
+  .seg.light { background: rgba(255,255,255,0.4); }
+  .sleep .stages-legend { display: flex; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,0.7); }
+  .sleep .legend-item { display: flex; align-items: center; gap: 4px; }
+  .sleep .legend-item .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+  .sleep .legend-item .lbl-stage { color: rgba(255,255,255,0.85); }
+  .sleep .legend-item .pct { color: rgba(255,255,255,0.55); margin-left: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+
+  /* PERFORMANCE */
+  .performance { padding: 18px; }
+  .perf-track-block { padding: 14px 0; border-bottom: 1px solid var(--card-divider); }
+  .perf-track-block:first-of-type { padding-top: 4px; }
+  .perf-track-block:last-of-type { padding-bottom: 0; border-bottom: 0; }
+  .perf-track-head { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+  .perf-track-head .icon-wrap { width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+  .perf-track-head .name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .perf-track-head .sub { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
+  .perf-cells { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .perf-cell { background: #f7f9fd; border-radius: 10px; padding: 10px 11px; }
+  .perf-cell .label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+  .perf-cell .label i { font-size: 11px; }
+  .perf-cell .value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1; }
+  .perf-cell .value .unit { font-size: 10px; color: var(--text-tertiary); font-weight: 500; margin-left: 2px; font-family: 'Inter Tight'; }
+  .perf-cell .meta { font-size: 10px; color: var(--text-tertiary); margin-top: 4px; }
+  .perf-cell .delta { font-size: 10px; margin-top: 3px; font-weight: 500; }
+  .perf-cell .delta.behind { color: var(--amber); }
+  .perf-cell .delta.close { color: var(--green); }
+  .perf-cell .delta.ahead { color: var(--green); font-weight: 600; }
+  .perf-cell.pr { background: rgba(184, 137, 60, 0.08); }
+  .perf-cell.pr .label { color: var(--gold); }
+  .perf-cell.predicted { background: rgba(43, 76, 168, 0.06); }
+  .perf-cell.predicted .label { color: #2b4ca8; }
+  .perf-cell.predicted .value { color: #2b4ca8; }
+
+  .icon-wrap.run { background: var(--blue-soft); color: var(--blue-text); }
+  .icon-wrap.lift { background: var(--purple-soft); color: var(--purple-text); }
+  .icon-wrap.wod { background: var(--orange-soft); color: var(--orange-text); }
+  .icon-wrap.bike { background: var(--teal-soft); color: var(--teal-text); }
+
+  /* RECENT WORKOUTS */
+  .workouts .list { display: flex; flex-direction: column; gap: 0; }
+  .workout { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--card-divider); min-height: 56px; }
+  .workout:last-child { border: 0; padding-bottom: 0; }
+  .workout .icon-wrap { width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .workout .info { flex: 1; min-width: 0; }
+  .workout .ttl { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .workout .meta { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .workout .sources { display: flex; gap: 4px; flex-shrink: 0; }
+  .src-badge { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: var(--chip-bg); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+  .src-badge.strava { background: #fc4c02; color: #fff; }
+  .src-badge.stryd { background: #ff6b1a; color: #fff; }
+  .src-badge.manual { background: var(--chip-bg); color: var(--text-secondary); }
+
+  /* TREND CARDS */
+  .trend-card .stat-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .trend-card .big { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .trend-card .unit { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+  .trend-card .delta { margin-left: auto; font-size: 11px; padding: 3px 8px; border-radius: 999px; }
+  .trend-card .spark { height: 70px; width: 100%; margin-top: 4px; }
+  .trend-card .ftr { font-size: 11px; color: var(--text-tertiary); display: flex; justify-content: space-between; margin-top: 4px; }
+  .delta-pill.up { background: var(--green-soft); color: var(--green); }
+  .delta-pill.down { background: var(--red-soft); color: var(--red); }
+  .delta-pill.flat { background: var(--chip-bg); color: var(--text-secondary); }
+
+  /* WEIGHT */
+  .weight-card .quick-input { display: flex; gap: 8px; padding-top: 12px; margin-top: 4px; border-top: 1px solid var(--card-divider); }
+  .weight-card .quick-input input { flex: 1; height: 44px; border-radius: 10px; border: 1px solid var(--card-border); background: #f7f9fd; padding: 0 14px; font-family: inherit; font-size: 14px; }
+  .weight-card .quick-input button { height: 44px; min-width: 80px; background: #0b1530; color: #fff; border: 0; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500; font-family: inherit; }
+
+  /* HABITS GRID */
+  .habits .week-grid { display: flex; flex-direction: column; gap: 10px; }
+  .habits .week-row { display: grid; grid-template-columns: 1fr repeat(7, 36px); gap: 4px; align-items: center; }
+  .habits .week-header { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; text-align: center; }
+  .habits .week-header.first { text-align: left; }
+  .habits .habit-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
+  .habits .day-cell { width: 36px; height: 36px; border-radius: 50%; background: var(--chip-bg); display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid transparent; }
+  .habits .day-cell.done { background: #0b1530; color: #fff; }
+  .habits .day-cell.done i { font-size: 15px; }
+  .habits .day-cell.today { border-color: #2b4ca8; }
+  .habits .day-cell.future { opacity: 0.35; cursor: default; }
+  .habits .streak-row { display: flex; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--card-divider); font-size: 11.5px; color: var(--text-secondary); gap: 6px; }
+  .habits .streak-row .badge { font-family: 'JetBrains Mono', monospace; background: var(--chip-bg); color: var(--text-primary); font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 11px; }
+
+  /* HABITS STATS GRAPH (mobile) */
+  .habits-graph .hg-body { display: flex; flex-direction: column; gap: 18px; }
+  .hg-chart-mobile {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    align-items: end;
+    min-height: 110px;
+  }
+  .hg-day { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+  .hg-day .bar-val { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-tertiary); margin-bottom: 3px; font-weight: 500; }
+  .hg-day .bar-wrap { width: 100%; flex: 1; display: flex; align-items: flex-end; border-bottom: 1px solid var(--card-divider); }
+  .hg-day .bar { width: 100%; background: #2b4ca8; border-radius: 4px 4px 0 0; min-height: 4px; }
+  .hg-day.today .bar { background: #0b1530; }
+  .hg-day.future .bar { background: var(--chip-bg); }
+  .hg-day .dow { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  .hg-day.today .dow { color: #0b1530; font-weight: 600; }
+  .hg-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .hg-stat { display: flex; flex-direction: column; gap: 3px; }
+  .hg-stat .l { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
+  .hg-stat .v { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .hg-stat .v .sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><div class="mark"><i class="ti ti-activity-heartbeat"></i></div>perf-coach</div>
+  <div class="right-actions">
+    <button class="icon-btn" aria-label="Search"><i class="ti ti-search"></i></button>
+    <div class="avatar">Z</div>
+  </div>
+</header>
+
+<main class="page">
+
+  <div class="greeting">
+    <h1>Good morning, Zeal</h1>
+    <p>Wed, 28 May · how you're tracking</p>
+  </div>
+
+  <!-- READINESS -->
+  <div class="card readiness">
+    <div class="lbl">Readiness · today</div>
+    <div class="score">78<small>/100</small></div>
+    <div class="score-sub">7d avg 72 · trending up</div>
+    <h2>You're ready to push today</h2>
+    <p class="sub">HRV is up, sleep is solid. Good window for intervals or a tempo run.</p>
+    <span class="status-pill"><i class="ti ti-check"></i>Green · go</span>
+    <div class="components">
+      <div class="component"><div class="l">HRV</div><div class="v">62 <span class="delta up">+4</span></div></div>
+      <div class="component"><div class="l">RHR</div><div class="v">51 <span class="delta up">-1</span></div></div>
+      <div class="component"><div class="l">Sleep</div><div class="v">7.4h <span class="delta flat">—</span></div></div>
+      <div class="component"><div class="l">Energy</div><div class="v">4<span style="font-size:11px;opacity:0.5;">/5</span></div></div>
+    </div>
+  </div>
+
+  <!-- SLEEP -->
+  <div class="card sleep">
+    <div class="head"><i class="ti ti-moon"></i> Sleep · last night</div>
+    <div class="top-row">
+      <span class="score">82<small>/100</small></span>
+      <div class="quality"><strong>Quality 4/5</strong>7h 24m asleep</div>
+    </div>
+    <div class="meta-grid">
+      <div><div class="m-l">Time asleep</div><div class="m-v">7h 24m</div></div>
+      <div><div class="m-l">HRV (during)</div><div class="m-v">62 ms</div></div>
+    </div>
+    <div class="stages-label">Stages</div>
+    <div class="stages-bar">
+      <div class="seg deep" style="width: 22%;"></div>
+      <div class="seg rem" style="width: 28%;"></div>
+      <div class="seg light" style="width: 50%;"></div>
+    </div>
+    <div class="stages-legend">
+      <div class="legend-item"><span class="dot" style="background:#1f6feb;"></span><span class="lbl-stage">Deep</span><span class="pct">1h 38m</span></div>
+      <div class="legend-item"><span class="dot" style="background:#a86eff;"></span><span class="lbl-stage">REM</span><span class="pct">2h 04m</span></div>
+      <div class="legend-item"><span class="dot" style="background:rgba(255,255,255,0.5);"></span><span class="lbl-stage">Light</span><span class="pct">3h 42m</span></div>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE -->
+  <div class="card performance">
+    <div class="card-head">
+      <div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i> Performance</div>
+      <a href="#">All</a>
+    </div>
+    <div class="perf-track-block">
+      <div class="perf-track-head">
+        <div class="icon-wrap run"><i class="ti ti-run"></i></div>
+        <div><div class="name">Half marathon</div><div class="sub">21.1 km</div></div>
+      </div>
+      <div class="perf-cells">
+        <div class="perf-cell pr"><div class="label"><i class="ti ti-trophy-filled"></i>PR</div><div class="value">1:54:31</div><div class="meta">Jan 28</div></div>
+        <div class="perf-cell"><div class="label">Current</div><div class="value">1:58:12</div><div class="delta behind">+3:41</div></div>
+        <div class="perf-cell predicted"><div class="label">Predicted</div><div class="value">1:55:40</div><div class="delta close">+1:09</div></div>
+      </div>
+    </div>
+    <div class="perf-track-block">
+      <div class="perf-track-head">
+        <div class="icon-wrap run"><i class="ti ti-run"></i></div>
+        <div><div class="name">10K</div><div class="sub">10.0 km</div></div>
+      </div>
+      <div class="perf-cells">
+        <div class="perf-cell pr"><div class="label"><i class="ti ti-trophy-filled"></i>PR</div><div class="value">52:08</div><div class="meta">Feb 18</div></div>
+        <div class="perf-cell"><div class="label">Current</div><div class="value">51:34</div><div class="delta ahead">New PR!</div></div>
+        <div class="perf-cell predicted"><div class="label">Predicted</div><div class="value">50:50</div><div class="delta ahead">−44s</div></div>
+      </div>
+    </div>
+    <div class="perf-track-block">
+      <div class="perf-track-head">
+        <div class="icon-wrap lift"><i class="ti ti-barbell"></i></div>
+        <div><div class="name">Squat</div><div class="sub">1-rep max</div></div>
+      </div>
+      <div class="perf-cells">
+        <div class="perf-cell pr"><div class="label"><i class="ti ti-trophy-filled"></i>PR</div><div class="value">140<span class="unit">kg</span></div><div class="meta">Mar 4</div></div>
+        <div class="perf-cell"><div class="label">Current</div><div class="value">132<span class="unit">kg</span></div><div class="delta behind">−8 kg</div></div>
+        <div class="perf-cell predicted"><div class="label">Predicted</div><div class="value">138<span class="unit">kg</span></div><div class="delta close">−2 kg</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENT WORKOUTS -->
+  <div class="card workouts">
+    <div class="card-head"><div class="ttl"><i class="ti ti-run"></i> Recent workouts</div><a href="/log">View all</a></div>
+    <div class="list">
+      <div class="workout">
+        <div class="icon-wrap run"><i class="ti ti-run"></i></div>
+        <div class="info"><div class="ttl">Tempo run · 8.0 km</div><div class="meta">Tue · 38:42 · TSS 71</div></div>
+        <div class="sources"><div class="src-badge stryd" title="Stryd">S</div><div class="src-badge strava" title="Strava">St</div></div>
+      </div>
+      <div class="workout">
+        <div class="icon-wrap lift"><i class="ti ti-barbell"></i></div>
+        <div class="info"><div class="ttl">Lower body</div><div class="meta">Mon · 55 min · TSS 42</div></div>
+        <div class="sources"><div class="src-badge manual"><i class="ti ti-pencil" style="font-size:12px;"></i></div></div>
+      </div>
+      <div class="workout">
+        <div class="icon-wrap run"><i class="ti ti-run"></i></div>
+        <div class="info"><div class="ttl">Easy run · 6.2 km</div><div class="meta">Sun · 34:10 · TSS 38</div></div>
+        <div class="sources"><div class="src-badge strava" title="Strava">St</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WEEKLY TSS -->
+  <div class="card trend-card">
+    <div class="card-head"><div class="ttl"><i class="ti ti-flame" style="color:var(--orange-text);"></i> Weekly TSS</div><span class="meta">Last 8d</span></div>
+    <div class="stat-row"><span class="big">312</span><span class="unit">TSS</span><span class="delta delta-pill up">+15%</span></div>
+    <svg class="spark" viewBox="0 0 260 70" preserveAspectRatio="none">
+      <rect x="6"   y="42" width="26" height="22" rx="3" fill="#f4b89a"/>
+      <rect x="38"  y="34" width="26" height="30" rx="3" fill="#f4b89a"/>
+      <rect x="70"  y="24" width="26" height="40" rx="3" fill="#f4b89a"/>
+      <rect x="102" y="38" width="26" height="26" rx="3" fill="#f4b89a"/>
+      <rect x="134" y="30" width="26" height="34" rx="3" fill="#f4b89a"/>
+      <rect x="166" y="14" width="26" height="50" rx="3" fill="#8a3d12"/>
+      <rect x="198" y="40" width="26" height="24" rx="3" fill="#f4b89a"/>
+      <rect x="230" y="52" width="26" height="12" rx="3" fill="#f4b89a"/>
+    </svg>
+    <div class="ftr"><span>Big day: Wed</span><span>Avg 39/day</span></div>
+  </div>
+
+  <!-- WEIGHT -->
+  <div class="card trend-card weight-card">
+    <div class="card-head"><div class="ttl"><i class="ti ti-scale" style="color:#2b4ca8;"></i> Weight</div><span class="meta">30d</span></div>
+    <div class="stat-row"><span class="big">72.4</span><span class="unit">kg</span><span class="delta delta-pill down">−0.6 kg</span></div>
+    <svg class="spark" viewBox="0 0 240 60" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="weightFill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="M0,22 L24,20 L48,28 L72,18 L96,24 L120,14 L144,20 L168,12 L192,16 L216,8 L240,12 L240,60 L0,60 Z" fill="url(#weightFill)"/>
+      <path d="M0,22 L24,20 L48,28 L72,18 L96,24 L120,14 L144,20 L168,12 L192,16 L216,8 L240,12" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="240" cy="12" r="4" fill="#2b4ca8"/>
+    </svg>
+    <div class="quick-input">
+      <input type="number" inputmode="decimal" placeholder="Log today (kg)" step="0.1" />
+      <button>Save</button>
+    </div>
+  </div>
+
+  <!-- HABITS GRID -->
+  <div class="card habits">
+    <div class="card-head"><div class="ttl"><i class="ti ti-checkbox"></i> Habits · this week</div><a href="/habits.html">All</a></div>
+    <div class="week-grid">
+      <div class="week-row">
+        <div class="week-header first">&nbsp;</div>
+        <div class="week-header">M</div><div class="week-header">T</div><div class="week-header">W</div>
+        <div class="week-header">T</div><div class="week-header">F</div><div class="week-header">S</div><div class="week-header">S</div>
+      </div>
+      <div class="week-row">
+        <div class="habit-name">Stretch 10 min</div>
+        <div class="day-cell done"><i class="ti ti-check"></i></div>
+        <div class="day-cell done"><i class="ti ti-check"></i></div>
+        <div class="day-cell done today"><i class="ti ti-check"></i></div>
+        <div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div>
+      </div>
+      <div class="week-row">
+        <div class="habit-name">8 glasses water</div>
+        <div class="day-cell done"><i class="ti ti-check"></i></div>
+        <div class="day-cell"></div>
+        <div class="day-cell today"></div>
+        <div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div>
+      </div>
+      <div class="week-row">
+        <div class="habit-name">No caffeine after 2pm</div>
+        <div class="day-cell done"><i class="ti ti-check"></i></div>
+        <div class="day-cell done"><i class="ti ti-check"></i></div>
+        <div class="day-cell done today"><i class="ti ti-check"></i></div>
+        <div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div><div class="day-cell future"></div>
+      </div>
+    </div>
+    <div class="streak-row">
+      Streaks:
+      <span class="badge">Stretch 12d</span>
+      <span class="badge">Caffeine 5d</span>
+    </div>
+  </div>
+
+  <!-- HABITS STATS GRAPH -->
+  <div class="card habits-graph">
+    <div class="card-head"><div class="ttl"><i class="ti ti-chart-bar"></i> Habits · stats</div><span class="meta">This week</span></div>
+    <div class="hg-body">
+      <div class="hg-chart-mobile">
+        <div class="hg-day"><div class="bar-val">3</div><div class="bar-wrap"><div class="bar" style="height:100%;"></div></div><div class="dow">M</div></div>
+        <div class="hg-day"><div class="bar-val">2</div><div class="bar-wrap"><div class="bar" style="height:67%;"></div></div><div class="dow">T</div></div>
+        <div class="hg-day today"><div class="bar-val">3</div><div class="bar-wrap"><div class="bar" style="height:100%;"></div></div><div class="dow">W</div></div>
+        <div class="hg-day future"><div class="bar-val">—</div><div class="bar-wrap"><div class="bar" style="height:8%;"></div></div><div class="dow">T</div></div>
+        <div class="hg-day future"><div class="bar-val">—</div><div class="bar-wrap"><div class="bar" style="height:8%;"></div></div><div class="dow">F</div></div>
+        <div class="hg-day future"><div class="bar-val">—</div><div class="bar-wrap"><div class="bar" style="height:8%;"></div></div><div class="dow">S</div></div>
+        <div class="hg-day future"><div class="bar-val">—</div><div class="bar-wrap"><div class="bar" style="height:8%;"></div></div><div class="dow">S</div></div>
+      </div>
+      <div class="hg-stats">
+        <div class="hg-stat"><div class="l">This week</div><div class="v">8 / 21<span class="sub">38%</span></div></div>
+        <div class="hg-stat"><div class="l">Best day</div><div class="v">Mon &amp; Wed</div></div>
+        <div class="hg-stat"><div class="l">Completion</div><div class="v">38%<span class="sub">last 7d</span></div></div>
+        <div class="hg-stat"><div class="l">Longest</div><div class="v">12 d<span class="sub">Stretch</span></div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<nav class="bottombar">
+  <a href="/home.html" class="tab active"><i class="ti ti-home"></i><span>Home</span></a>
+  <a href="/log" class="tab"><i class="ti ti-list-details"></i><span>Log</span></a>
+  <a href="/trends" class="tab"><i class="ti ti-chart-line"></i><span>Trends</span></a>
+  <a href="/calendar.html" class="tab"><i class="ti ti-calendar"></i><span>Calendar</span></a>
+  <a href="#" class="tab"><i class="ti ti-menu-2"></i><span>More</span></a>
+</nav>
+
+</body>
+</html>

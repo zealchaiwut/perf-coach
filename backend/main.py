@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise
 
 __version__ = "0.1.0"
 
@@ -385,21 +385,84 @@ def post_habit_log(body: HabitLogIn):
         )
 
 
+def _compute_habit_streak(session, hid, uid, window_dates, today):
+    """Walk backwards from today (or yesterday if today is pending) to count the streak."""
+    from datetime import timedelta
+    check = today
+    if check not in window_dates:
+        yesterday = today - timedelta(days=1)
+        if yesterday not in window_dates:
+            return 0
+        check = yesterday
+    all_logs = (
+        session.query(HabitLog.logged_date)
+        .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
+        .all()
+    )
+    all_dates = {row.logged_date for row in all_logs}
+    streak = 0
+    while check in all_dates:
+        streak += 1
+        check = check - timedelta(days=1)
+    return streak
+
+
 @app.get("/api/habits/stats")
 def get_habit_stats(
     user_id: str,
-    habit_id: str,
+    habit_id: Optional[str] = None,
     days: int = Query(default=30, ge=1, le=365),
 ):
     try:
         uid = _uuid.UUID(user_id)
-        hid = _uuid.UUID(habit_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id or habit_id")
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from datetime import timedelta
     today = _date.today()
     window_start = today - timedelta(days=days - 1)
+
+    # List mode: return stats for all active habits when habit_id is omitted
+    if habit_id is None:
+        with Session(engine) as session:
+            habits = (
+                session.query(Habit)
+                .filter(Habit.user_id == uid, Habit.archived_at.is_(None))
+                .order_by(Habit.display_order, Habit.created_at)
+                .all()
+            )
+            result = []
+            for habit in habits:
+                hid = habit.id
+                window_logs = (
+                    session.query(HabitLog.logged_date)
+                    .filter(
+                        HabitLog.habit_id == hid,
+                        HabitLog.user_id == uid,
+                        HabitLog.logged_date >= window_start,
+                        HabitLog.logged_date <= today,
+                    )
+                    .all()
+                )
+                window_dates = {row.logged_date for row in window_logs}
+                days_completed = len(window_dates)
+                completion_rate = round(days_completed / days, 4)
+                streak = _compute_habit_streak(session, hid, uid, window_dates, today)
+                result.append({
+                    "habit_id": str(hid),
+                    "habit_name": habit.name,
+                    "streak": streak,
+                    "completion_rate": completion_rate,
+                    "days_completed": days_completed,
+                    "days_total": days,
+                })
+            return JSONResponse(result)
+
+    # Single-habit mode (existing behaviour)
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
 
     with Session(engine) as session:
         window_logs = (
@@ -416,32 +479,7 @@ def get_habit_stats(
         days_completed = len(window_dates)
         completion_rate = round(days_completed / days, 4)
 
-        # STRICT streak: walk backwards from today.
-        # If today not logged but yesterday is, today is "pending" (streak still active).
-        check = today
-        if check not in window_dates:
-            yesterday = today - timedelta(days=1)
-            if yesterday not in window_dates:
-                return JSONResponse({
-                    "streak": 0,
-                    "completion_rate": completion_rate,
-                    "days_completed": days_completed,
-                    "days_total": days,
-                })
-            check = yesterday
-
-        # Fetch all logs for this habit to count the full streak (may go beyond the window)
-        all_logs = (
-            session.query(HabitLog.logged_date)
-            .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
-            .all()
-        )
-        all_dates = {row.logged_date for row in all_logs}
-
-        streak = 0
-        while check in all_dates:
-            streak += 1
-            check = check - timedelta(days=1)
+        streak = _compute_habit_streak(session, hid, uid, window_dates, today)
 
         return JSONResponse({
             "streak": streak,
@@ -664,12 +702,12 @@ def get_calendar_month(
 
 @app.get("/log.html")
 def log_page():
-    return FileResponse(str(_static_root / "log.html"))
+    return FileResponse(str(_static_root / "training-log.html"))
 
 
 @app.get("/log")
 def log_redirect():
-    return FileResponse(str(_static_root / "log.html"))
+    return FileResponse(str(_static_root / "training-log.html"))
 
 
 @app.get("/trends.html")
@@ -693,6 +731,9 @@ class ExerciseIn(BaseModel):
     rpe: Optional[int] = None
 
 
+_VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
+
+
 class WorkoutIn(BaseModel):
     user_id: str
     name: str
@@ -705,6 +746,8 @@ class WorkoutIn(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -719,6 +762,8 @@ class WorkoutPatch(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -884,6 +929,8 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
     if body.max_hr is not None and not (20 <= body.max_hr <= 250):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+    if body.source is not None and body.source not in _VALID_SOURCES:
+        raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -903,6 +950,8 @@ def post_workout(body: WorkoutIn):
             avg_hr=body.avg_hr,
             max_hr=body.max_hr,
             elevation_m=body.elevation_m,
+            source=body.source,
+            strava_activity_url=body.strava_activity_url,
         )
         session.add(workout)
         session.flush()
@@ -984,6 +1033,12 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.max_hr = body.max_hr
         if 'elevation_m' in body.model_fields_set:
             workout.elevation_m = body.elevation_m
+        if 'source' in body.model_fields_set:
+            if body.source is not None and body.source not in _VALID_SOURCES:
+                raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
+            workout.source = body.source
+        if 'strava_activity_url' in body.model_fields_set:
+            workout.strava_activity_url = body.strava_activity_url
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -1879,7 +1934,7 @@ def _week_label(mon_key: str) -> str:
     if mon == this_mon:
         return "This week"
     sun = mon + timedelta(days=6)
-    return mon.strftime("%b %-d") + " – " + str(sun.day)
+    return mon.strftime("%b %-d") + "–" + str(sun.day)
 
 
 def _metric_has_data(m: DailyMetric) -> bool:
@@ -1983,14 +2038,16 @@ def get_training_log(
             "type": w.workout_type,
             "id": str(w.id),
             "title": w.name,
+            "duration_seconds": w.duration_seconds,
             "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
             "distance_km": float(w.distance_km) if w.distance_km is not None else None,
-            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
-            "weight_context": w.remarks,
             "avg_hr": w.avg_hr,
+            "elevation_m": w.elevation_m,
+            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
             "notes": w.remarks or "",
+            "weight_context": w.remarks,
         }
         for w in workouts
     ]
@@ -2038,3 +2095,147 @@ def get_training_log(
         })
 
     return JSONResponse({"weeks": weeks})
+
+
+# ── Personal records endpoints ────────────────────────────────────────────────
+
+VALID_TRACK_TYPES = {"time", "weight"}
+
+
+class PersonalRecordIn(BaseModel):
+    user_id: str
+    track_key: str
+    track_name: str
+    track_type: str
+    value_numeric: float
+    achieved_on: str  # YYYY-MM-DD
+    source: Optional[str] = None
+
+
+class PersonalRecordPatch(BaseModel):
+    track_key: Optional[str] = None
+    track_name: Optional[str] = None
+    track_type: Optional[str] = None
+    value_numeric: Optional[float] = None
+    achieved_on: Optional[str] = None
+    source: Optional[str] = None
+
+
+def _pr_dict(pr: PersonalRecord) -> dict:
+    return {
+        "id": str(pr.id),
+        "user_id": str(pr.user_id),
+        "track_key": pr.track_key,
+        "track_name": pr.track_name,
+        "track_type": pr.track_type,
+        "value_numeric": float(pr.value_numeric),
+        "achieved_on": str(pr.achieved_on),
+        "source": pr.source,
+        "created_at": pr.created_at.isoformat() if pr.created_at else None,
+        "updated_at": pr.updated_at.isoformat() if pr.updated_at else None,
+    }
+
+
+@app.get("/api/personal-records")
+def list_personal_records(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        rows = (
+            session.query(PersonalRecord)
+            .filter(PersonalRecord.user_id == uid)
+            .order_by(PersonalRecord.achieved_on.desc())
+            .all()
+        )
+        return JSONResponse([_pr_dict(r) for r in rows])
+
+
+@app.post("/api/personal-records", status_code=201)
+def create_personal_record(body: PersonalRecordIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if body.track_type not in VALID_TRACK_TYPES:
+        raise HTTPException(status_code=422, detail="track_type must be 'time' or 'weight'")
+    if body.value_numeric <= 0:
+        raise HTTPException(status_code=422, detail="value_numeric must be > 0")
+    try:
+        achieved = _date.fromisoformat(body.achieved_on)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
+    if achieved > _date.today():
+        raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        pr = PersonalRecord(
+            user_id=uid,
+            track_key=body.track_key.strip(),
+            track_name=body.track_name.strip(),
+            track_type=body.track_type,
+            value_numeric=body.value_numeric,
+            achieved_on=achieved,
+            source=body.source,
+        )
+        session.add(pr)
+        session.commit()
+        session.refresh(pr)
+        return JSONResponse(status_code=201, content=_pr_dict(pr))
+
+
+@app.patch("/api/personal-records/{record_id}")
+def patch_personal_record(record_id: str, body: PersonalRecordPatch):
+    try:
+        rid = _uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid record_id")
+    with Session(engine) as session:
+        pr = session.get(PersonalRecord, rid)
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Personal record not found")
+        if body.track_type is not None:
+            if body.track_type not in VALID_TRACK_TYPES:
+                raise HTTPException(status_code=422, detail="track_type must be 'time' or 'weight'")
+            pr.track_type = body.track_type
+        if body.value_numeric is not None:
+            if body.value_numeric <= 0:
+                raise HTTPException(status_code=422, detail="value_numeric must be > 0")
+            pr.value_numeric = body.value_numeric
+        if body.achieved_on is not None:
+            try:
+                achieved = _date.fromisoformat(body.achieved_on)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
+            if achieved > _date.today():
+                raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
+            pr.achieved_on = achieved
+        if body.track_key is not None:
+            pr.track_key = body.track_key.strip()
+        if body.track_name is not None:
+            pr.track_name = body.track_name.strip()
+        if "source" in body.model_fields_set:
+            pr.source = body.source
+        from sqlalchemy import text as _sql_text
+        session.execute(_sql_text("UPDATE personal_records SET updated_at = now() WHERE id = :id"), {"id": str(rid)})
+        session.commit()
+        session.refresh(pr)
+        return JSONResponse(_pr_dict(pr))
+
+
+@app.delete("/api/personal-records/{record_id}", status_code=204)
+def delete_personal_record(record_id: str):
+    try:
+        rid = _uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid record_id")
+    with Session(engine) as session:
+        pr = session.get(PersonalRecord, rid)
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Personal record not found")
+        session.delete(pr)
+        session.commit()
+    return Response(status_code=204)
