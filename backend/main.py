@@ -32,7 +32,7 @@ def health():
     return JSONResponse({
         "status": "ok",
         "environment": environment,
-        "version": os.getenv("GIT_SHA", "unknown"),
+        "version": os.getenv("GIT_SHA", "unknown"),  # replaces __version__ = "0.1.0"; version is now injected at deploy time via GIT_SHA env var
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
