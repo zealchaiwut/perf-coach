@@ -670,9 +670,7 @@
       grid.parentElement.appendChild(exSection);
     }
 
-    document.getElementById('detail-edit-btn').onclick = function () {
-      location.href = 'training.html?edit=' + encodeURIComponent(workout.id);
-    };
+    // detail-edit-btn is disabled (coming soon)
 
     var stravaBtn = document.getElementById('detail-strava-btn');
     var isStrava  = (workout.source || '').toLowerCase() === 'strava';
@@ -779,13 +777,7 @@
 
     document.getElementById('log-export-btn').addEventListener('click', exportCSV);
 
-    document.getElementById('log-workout-btn').addEventListener('click', function () {
-      location.href = 'training.html';
-    });
-
-    document.getElementById('log-empty-cta').addEventListener('click', function () {
-      location.href = 'training.html';
-    });
+    // log-workout-btn and log-empty-cta are disabled (coming soon)
 
     document.getElementById('detail-panel-close').addEventListener('click', closePanel);
     document.getElementById('detail-panel-back').addEventListener('click', closePanel);

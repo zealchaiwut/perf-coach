@@ -537,10 +537,6 @@
     // Export
     document.getElementById('log-export-btn').addEventListener('click', handleExport);
 
-    // Log workout → navigate to training page (detail panel ships in issue #2)
-    document.getElementById('log-add-btn').addEventListener('click', function () {
-      window.location.href = 'training.html';
-    });
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
