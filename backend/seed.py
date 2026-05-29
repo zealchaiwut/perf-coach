@@ -208,3 +208,55 @@ with Session(engine) as session:
             print(f"Alice already has {dm_count} daily_metrics row(s) — skipping daily metrics seed")
     else:
         print("Alice not found — skipping daily metrics seed")
+
+with Session(engine) as session:
+    alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+    if alice:
+        pr_count = session.execute(
+            text("SELECT COUNT(*) FROM personal_records WHERE user_id = :uid"),
+            {"uid": str(alice.id)},
+        ).scalar()
+        if pr_count == 0:
+            seed_prs = [
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "half_marathon",
+                    "track_name": "Half Marathon",
+                    "track_type": "time",
+                    "value_numeric": "6871",
+                    "achieved_on": "2026-01-28",
+                    "source": None,
+                },
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "10k",
+                    "track_name": "10K",
+                    "track_type": "time",
+                    "value_numeric": "3128",
+                    "achieved_on": "2026-02-18",
+                    "source": None,
+                },
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "squat_1rm",
+                    "track_name": "Squat 1RM",
+                    "track_type": "weight",
+                    "value_numeric": "140",
+                    "achieved_on": "2026-03-04",
+                    "source": None,
+                },
+            ]
+            session.execute(
+                text(
+                    "INSERT INTO personal_records"
+                    " (user_id, track_key, track_name, track_type, value_numeric, achieved_on, source)"
+                    " VALUES (:user_id, :track_key, :track_name, :track_type, :value_numeric, :achieved_on, :source)"
+                ),
+                seed_prs,
+            )
+            session.commit()
+            print(f"Seeded {len(seed_prs)} personal_records for Alice")
+        else:
+            print(f"Alice already has {pr_count} personal_records row(s) — skipping personal records seed")
+    else:
+        print("Alice not found — skipping personal records seed")
