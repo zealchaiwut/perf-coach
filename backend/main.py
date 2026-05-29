@@ -385,21 +385,84 @@ def post_habit_log(body: HabitLogIn):
         )
 
 
+def _compute_habit_streak(session, hid, uid, window_dates, today):
+    """Walk backwards from today (or yesterday if today is pending) to count the streak."""
+    from datetime import timedelta
+    check = today
+    if check not in window_dates:
+        yesterday = today - timedelta(days=1)
+        if yesterday not in window_dates:
+            return 0
+        check = yesterday
+    all_logs = (
+        session.query(HabitLog.logged_date)
+        .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
+        .all()
+    )
+    all_dates = {row.logged_date for row in all_logs}
+    streak = 0
+    while check in all_dates:
+        streak += 1
+        check = check - timedelta(days=1)
+    return streak
+
+
 @app.get("/api/habits/stats")
 def get_habit_stats(
     user_id: str,
-    habit_id: str,
+    habit_id: Optional[str] = None,
     days: int = Query(default=30, ge=1, le=365),
 ):
     try:
         uid = _uuid.UUID(user_id)
-        hid = _uuid.UUID(habit_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id or habit_id")
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from datetime import timedelta
     today = _date.today()
     window_start = today - timedelta(days=days - 1)
+
+    # List mode: return stats for all active habits when habit_id is omitted
+    if habit_id is None:
+        with Session(engine) as session:
+            habits = (
+                session.query(Habit)
+                .filter(Habit.user_id == uid, Habit.archived_at.is_(None))
+                .order_by(Habit.display_order, Habit.created_at)
+                .all()
+            )
+            result = []
+            for habit in habits:
+                hid = habit.id
+                window_logs = (
+                    session.query(HabitLog.logged_date)
+                    .filter(
+                        HabitLog.habit_id == hid,
+                        HabitLog.user_id == uid,
+                        HabitLog.logged_date >= window_start,
+                        HabitLog.logged_date <= today,
+                    )
+                    .all()
+                )
+                window_dates = {row.logged_date for row in window_logs}
+                days_completed = len(window_dates)
+                completion_rate = round(days_completed / days, 4)
+                streak = _compute_habit_streak(session, hid, uid, window_dates, today)
+                result.append({
+                    "habit_id": str(hid),
+                    "habit_name": habit.name,
+                    "streak": streak,
+                    "completion_rate": completion_rate,
+                    "days_completed": days_completed,
+                    "days_total": days,
+                })
+            return JSONResponse(result)
+
+    # Single-habit mode (existing behaviour)
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
 
     with Session(engine) as session:
         window_logs = (
@@ -416,32 +479,7 @@ def get_habit_stats(
         days_completed = len(window_dates)
         completion_rate = round(days_completed / days, 4)
 
-        # STRICT streak: walk backwards from today.
-        # If today not logged but yesterday is, today is "pending" (streak still active).
-        check = today
-        if check not in window_dates:
-            yesterday = today - timedelta(days=1)
-            if yesterday not in window_dates:
-                return JSONResponse({
-                    "streak": 0,
-                    "completion_rate": completion_rate,
-                    "days_completed": days_completed,
-                    "days_total": days,
-                })
-            check = yesterday
-
-        # Fetch all logs for this habit to count the full streak (may go beyond the window)
-        all_logs = (
-            session.query(HabitLog.logged_date)
-            .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
-            .all()
-        )
-        all_dates = {row.logged_date for row in all_logs}
-
-        streak = 0
-        while check in all_dates:
-            streak += 1
-            check = check - timedelta(days=1)
+        streak = _compute_habit_streak(session, hid, uid, window_dates, today)
 
         return JSONResponse({
             "streak": streak,
