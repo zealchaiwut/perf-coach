@@ -5,6 +5,8 @@ from datetime import date as _date
 from pathlib import Path
 from typing import Optional
 
+_start_time = time.monotonic()
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles

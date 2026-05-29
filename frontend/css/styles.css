@@ -52,6 +52,10 @@ nav a {
 [data-env="uat"] .env-label    { background: #cfe2ff; color: #084298; }
 [data-env="local"] .env-label  { background: #e5e5e5; color: #666; }
 
+[data-env="prd"] .env-label { background: #dc3545; color: #fff; }
+[data-env="uat"] .env-label { background: #0d6efd; color: #fff; }
+[data-env="local"] .env-label { background: #6c757d; color: #fff; }
+
 /* ── Main nav ── */
 .main-nav {
   display: flex;
