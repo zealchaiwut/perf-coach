@@ -17,14 +17,14 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
-__version__ = "0.1.0"
+_start_time = time.monotonic()
 
 app = FastAPI()
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
 _static_root = Path(__file__).parent.parent
-app.mount("/css", StaticFiles(directory=str(_static_root / "css")), name="css")
-app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
+app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
+app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
 
 
 @app.get("/api/health")
@@ -34,7 +34,7 @@ def health():
         "environment": environment,
         "version": os.getenv("GIT_SHA", "unknown"),
         "db": check_db(),
-        "uptime_seconds": round(time.monotonic() - _start_time, 1),
+        "uptime_seconds": int(time.monotonic() - _start_time),
     })
 
 
@@ -45,7 +45,7 @@ def get_env():
 
 @app.get("/api/environment")
 def get_environment():
-    return JSONResponse({"environment": environment, "version": __version__})
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/users")
@@ -577,32 +577,32 @@ def get_active_streak(user_id: str):
 
 @app.get("/")
 def index():
-    return FileResponse(str(_static_root / "index.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "index.html"))
 
 
 @app.get("/home.html")
 def home():
-    return FileResponse(str(_static_root / "home.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "home.html"))
 
 
 @app.get("/weight.html")
 def weight():
-    return FileResponse(str(_static_root / "weight.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "weight.html"))
 
 
 @app.get("/habits.html")
 def habits():
-    return FileResponse(str(_static_root / "habits.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "habits.html"))
 
 
 @app.get("/users.html")
 def users_page():
-    return FileResponse(str(_static_root / "users.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "users.html"))
 
 
 @app.get("/calendar.html")
 def calendar_page():
-    return FileResponse(str(_static_root / "calendar.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "calendar.html"))
 
 
 @app.get("/api/calendar/month")
@@ -716,22 +716,22 @@ def get_calendar_month(
 
 @app.get("/log.html")
 def log_page():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/log")
 def log_redirect():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/trends.html")
 def trends_page():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 @app.get("/trends")
 def trends_redirect():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────
@@ -2108,12 +2108,14 @@ def get_training_log(
     from datetime import timedelta
     today = _date.today()
 
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
     uid = None
-    if user_id:
-        try:
-            uid = _uuid.UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:

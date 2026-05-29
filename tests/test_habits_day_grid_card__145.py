@@ -50,34 +50,34 @@ def habit_id(client, user_id):
 # ── Static HTML: structure ────────────────────────────────────────────────────
 
 def test_home_html_has_row4():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="row-4"' in html, "home.html must have id='row-4'"
 
 
 def test_home_html_row4_desktop_grid():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "#row-4" in html and "2fr" in html, \
         "#row-4 must use a 2fr grid for the ~2/3 width desktop layout"
 
 
 def test_home_html_has_habits_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits" in html, "home.html must contain .habits CSS"
 
 
 def test_home_html_habits_day_cell_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits .day-cell" in html, "home.html must style .habits .day-cell"
 
 
 def test_home_html_habits_day_cell_done_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits .day-cell.done" in html, \
         "home.html must style .habits .day-cell.done (completed state)"
 
 
 def test_home_html_habits_today_ring_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits .day-cell.today" in html, \
         "home.html must style .habits .day-cell.today with a visible ring"
     assert "#2b4ca8" in html or "border-color" in html, \
@@ -85,7 +85,7 @@ def test_home_html_habits_today_ring_css():
 
 
 def test_home_html_habits_future_cell_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits .day-cell.future" in html, \
         "home.html must style .habits .day-cell.future"
     assert "opacity" in html, "future cells must use opacity for visual de-emphasis"
@@ -93,66 +93,66 @@ def test_home_html_habits_future_cell_css():
 
 
 def test_home_html_habits_streak_hdr_desktop_hidden_mobile():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "streak-hdr" in html, "home.html must define .week-header.streak-hdr"
     assert "display: none" in html or "display:none" in html, \
         "streak header must be hidden on mobile via display:none"
 
 
 def test_home_html_habits_streak_col_hidden_mobile():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits .streak-col" in html, "home.html must define .streak-col"
 
 
 def test_home_html_habits_streak_footer_mobile():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "habits-streak-footer" in html, \
         "home.html must define .habits-streak-footer for mobile streak badges"
 
 
 def test_home_html_habits_empty_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "habits-empty" in html, "home.html must define .habits-empty"
 
 
 # ── Static JS: logic ──────────────────────────────────────────────────────────
 
 def test_home_js_loads_habits_card():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadHabitsCard" in js, "home.js must define/call loadHabitsCard"
 
 
 def test_home_js_fetches_habits_endpoint():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits?" in js or "'/api/habits'" in js or '"/api/habits"' in js, \
         "home.js must fetch GET /api/habits"
 
 
 def test_home_js_fetches_habit_logs_endpoint():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits/logs" in js, "home.js must fetch GET /api/habits/logs"
 
 
 def test_home_js_fetches_habit_stats_endpoint():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits/stats" in js, "home.js must fetch GET /api/habits/stats"
     assert "streak" in js, "home.js must read the streak field from stats response"
 
 
 def test_home_js_post_habit_log():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "POST" in js, "home.js must use POST for creating habit logs"
     assert "/api/habits/logs" in js
 
 
 def test_home_js_delete_habit_log():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "DELETE" in js, "home.js must use DELETE for removing habit logs"
     assert "/api/habits/logs/" in js, "DELETE must target /api/habits/logs/{log_id}"
 
 
 def test_home_js_week_header_days():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     for day in ["'M'", '"M"', ">M<", "'T'", '"T"', ">T<", "'W'", '"W"', ">W<",
                 "'F'", '"F"', ">F<", "'S'", '"S"', ">S<"]:
         pass
@@ -163,48 +163,48 @@ def test_home_js_week_header_days():
 
 
 def test_home_js_empty_state_message():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "Add a habit to start tracking your week" in js, \
         "home.js must render the zero-habits empty state message"
 
 
 def test_home_js_empty_state_link_to_habits():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/habits.html" in js, \
         "Empty state must link to /habits.html"
 
 
 def test_home_js_future_class_applied():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "future" in js, \
         "home.js must assign the 'future' class to cells beyond today"
 
 
 def test_home_js_today_class_applied():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "today" in js, \
         "home.js must assign the 'today' class to today's cell"
 
 
 def test_home_js_done_class_applied():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "done" in js, \
         "home.js must assign the 'done' class to completed cells"
 
 
 def test_home_js_partial_rerender_per_habit():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "refreshHabitRow" in js or "data-habit-row" in js, \
         "home.js must support per-habit row re-render (refreshHabitRow or data-habit-row)"
 
 
 def test_home_js_streak_days_param():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "days=30" in js, "Streak must be fetched with days=30"
 
 
 def test_home_js_iso_week_monday():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "isoWeekMonday" in js or "monday" in js.lower(), \
         "home.js must compute ISO week Monday as the week start"
 

@@ -591,6 +591,159 @@
       padding: 16px 4px; line-height: 1.5;
     }
 
+    /* ---- ROW 3: TREND CARDS (HRV · Weekly TSS · RHR · Weight) ---- */
+    #row-3 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .trend-card {
+      background: #fff;
+      border-radius: 20px;
+      border: 1px solid var(--card-border);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .trend-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .trend-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      flex: 1;
+    }
+
+    .trend-card-period {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      background: var(--chip-bg);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+
+    .trend-card-stat {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .trend-card-big {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1;
+    }
+
+    .trend-card-unit {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+    }
+
+    .trend-delta-pill {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .trend-delta-pill--up   { background: var(--green-soft); color: var(--green); }
+    .trend-delta-pill--down { background: var(--red-soft);   color: var(--red); }
+    .trend-delta-pill--flat { background: var(--chip-bg);    color: var(--text-tertiary); }
+
+    .trend-sparkline {
+      width: 100%;
+      height: 48px;
+      display: block;
+      overflow: visible;
+      flex-shrink: 0;
+    }
+
+    .trend-card-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: auto;
+    }
+
+    .trend-card-error {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: var(--text-tertiary);
+      text-align: center;
+      padding: 10px 0;
+      min-height: 60px;
+    }
+
+    .trend-quick-input {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .trend-quick-input input[type="number"] {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #f7f9fd;
+      color: var(--text-primary);
+    }
+
+    .trend-quick-input input[type="number"]:focus {
+      outline: none;
+      border-color: #2b4ca8;
+      background: #fff;
+    }
+
+    .trend-quick-save-btn {
+      padding: 6px 14px;
+      background: #0b1530;
+      color: #fff;
+      border: 0;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .trend-quick-save-btn:disabled { opacity: 0.6; cursor: default; }
+
+    .trend-skeleton-line {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: trend-shimmer 1.3s infinite;
+      border-radius: 4px;
+    }
+
+    @keyframes trend-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
     /* ---- ROW 4 LAYOUT ---- */
     #row-4 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
 
@@ -817,6 +970,11 @@
         font-size: 12px;
         margin: 0 0 6px;
       }
+
+      /* Row 3: HRV and RHR hidden on mobile; TSS + Weight stack full-width */
+      #row-3 { grid-template-columns: 1fr; }
+      #trend-card-hrv,
+      #trend-card-rhr { display: none; }
 
       /* Habits grid: mobile — single column, bigger cells, streak footer */
       #row-4 { grid-template-columns: 1fr; }

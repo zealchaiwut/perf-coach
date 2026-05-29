@@ -246,7 +246,7 @@ def test_notes_section__read_only(client, user_id):
     """AC: Notes section is read-only; no edit field is present in the HTML."""
     # This test validates that the HTML (log.html) for the notes section is read-only
     import pathlib
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
 
     # Check that detail-notes-section exists and contains a p.detail-notes-text
     assert 'id="detail-notes-section"' in html, "Missing detail-notes-section in log.html"
@@ -266,7 +266,7 @@ def test_notes_section__read_only(client, user_id):
 def test_not_implemented__hr_zones_section_not_in_html():
     """AC (out of scope): HR-zones section is not implemented."""
     import pathlib
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
 
     # These should NOT be in the HTML
     assert "HR-zones" not in html and "hr-zones" not in html, \
@@ -276,7 +276,7 @@ def test_not_implemented__hr_zones_section_not_in_html():
 def test_not_implemented__splits_section_not_in_html():
     """AC (out of scope): Splits section is not implemented."""
     import pathlib
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
 
     # These should NOT be in the HTML
     assert "Splits" not in html and "splits" not in html, \

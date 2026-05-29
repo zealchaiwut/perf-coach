@@ -48,8 +48,9 @@ nav a {
   color: #666;
 }
 
-.env-label.uat { background: #fff3cd; color: #856404; }
-.env-label.prd { background: #d1ecf1; color: #0c5460; }
+[data-env="prd"] .env-label    { background: #f8d7da; color: #842029; }
+[data-env="uat"] .env-label    { background: #cfe2ff; color: #084298; }
+[data-env="local"] .env-label  { background: #e5e5e5; color: #666; }
 
 [data-env="prd"] .env-label { background: #dc3545; color: #fff; }
 [data-env="uat"] .env-label { background: #0d6efd; color: #fff; }
