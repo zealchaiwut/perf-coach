@@ -860,19 +860,19 @@
     </div>
     <div style="display:flex;align-items:center;gap:0.5rem">
       <button id="log-export-btn" class="btn-secondary">Export</button>
-      <button id="log-workout-btn" class="btn-primary">+ Log workout</button>
+      <button id="log-workout-btn" class="btn-primary" disabled title="Coming soon">+ Log workout</button>
       <span id="env-label" class="env-label"></span>
     </div>
   </header>
 
   <nav class="main-nav">
-    <a href="home.html">Home</a>
-    <a href="calendar.html">Calendar</a>
-    <a href="weight.html">Weight</a>
-    <a href="habits.html">Habits</a>
-    <a href="training.html">Training</a>
-    <a href="log.html" class="active">Log</a>
-    <a href="trends.html">Trends</a>
+    <a href="/home.html">Home</a>
+    <a href="/calendar.html">Calendar</a>
+    <a href="/weight.html">Weight</a>
+    <a href="/habits.html">Habits</a>
+    <a href="/log" class="active">Training Log</a>
+    <a href="/trends">Trends</a>
+    <a href="/users.html">Users</a>
   </nav>
 
   <!-- Week strip -->
@@ -917,7 +917,7 @@
         </svg>
         <p class="empty-state-title">No workouts here yet</p>
         <p class="empty-state-desc">Log your first workout to start tracking your training.</p>
-        <button class="btn-primary" id="log-empty-cta">Log a workout</button>
+        <button class="btn-primary" id="log-empty-cta" disabled title="Coming soon">Log a workout</button>
       </div>
       <div class="list-error-state" id="log-error-msg" style="display:none">
         <svg class="list-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -986,7 +986,7 @@
         </div>
       </div>
       <div class="detail-panel-footer">
-        <button id="detail-edit-btn" class="detail-action-btn detail-btn-edit" aria-label="Edit workout">Edit</button>
+        <button id="detail-edit-btn" class="detail-action-btn detail-btn-edit" aria-label="Edit workout" disabled title="Coming soon">Edit</button>
         <a id="detail-strava-btn" class="detail-action-btn detail-btn-strava" target="_blank" rel="noopener noreferrer" aria-label="Open in Strava" style="display:none">Open in Strava</a>
       </div>
     </aside>
