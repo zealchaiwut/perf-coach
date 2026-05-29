@@ -62,7 +62,7 @@ class Workout(Base):
     tss_source = Column(String(20), nullable=True)
     source = Column(String(20), nullable=True)
     strava_activity_url = Column(Text, nullable=True)
-    distance_km = Column(Numeric(7, 3), nullable=True)
+    distance_km = Column(Numeric(8, 3), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
