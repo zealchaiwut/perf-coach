@@ -1,4 +1,5 @@
 import os
+import time
 import uuid as _uuid
 from datetime import date as _date
 from pathlib import Path
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
-__version__ = "0.1.0"
+_start_time = time.monotonic()
 
 app = FastAPI()
 
@@ -26,12 +27,23 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
 
 @app.get("/api/health")
 def health():
-    return JSONResponse({"status": "ok", "database": check_db(), "environment": environment})
+    return JSONResponse({
+        "status": "ok",
+        "environment": environment,
+        "version": os.getenv("GIT_SHA", "unknown"),
+        "db": check_db(),
+        "uptime_seconds": int(time.monotonic() - _start_time),
+    })
+
+
+@app.get("/api/env")
+def get_env():
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/environment")
 def get_environment():
-    return JSONResponse({"environment": environment, "version": __version__})
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/users")
