@@ -164,12 +164,14 @@
       text-align: center;
     }
 
+    /* ── Week group ─────────────────────────────────────── */
     .week-group { margin-bottom: 2rem; }
 
     .week-group-header {
       display: flex;
       align-items: baseline;
-      gap: 0.75rem;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.75rem;
       padding-bottom: 0.4rem;
       border-bottom: 2px solid #1a1a1a;
       margin-bottom: 0.75rem;
@@ -180,12 +182,18 @@
       font-size: 0.9375rem;
     }
 
+    .week-group-daterange {
+      font-size: 0.8125rem;
+      color: #555;
+    }
+
     .week-group-summary {
       font-size: 0.8125rem;
       color: #888;
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
+      margin-left: auto;
     }
 
     .summary-sep { color: #ccc; }
@@ -201,6 +209,7 @@
       margin-bottom: 0.35rem;
     }
 
+    /* ── Entry row ──────────────────────────────────────── */
     .entry-row {
       display: flex;
       align-items: center;
@@ -214,6 +223,26 @@
     }
 
     .entry-row:hover { background: #fafafa; border-color: #d5d5d5; }
+
+    .entry-date {
+      flex-shrink: 0;
+      text-align: center;
+      width: 2rem;
+    }
+
+    .entry-day-num {
+      font-size: 1.125rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: #1a1a1a;
+    }
+
+    .entry-day-name {
+      font-size: 0.6875rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
 
     .entry-badge {
       flex-shrink: 0;
@@ -247,6 +276,17 @@
       font-size: 0.8125rem;
       color: #888;
       margin-top: 0.1rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .entry-metric {
+      flex-shrink: 0;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      white-space: nowrap;
     }
 
     .tss-pill {
@@ -664,6 +704,18 @@
       .source-pill { display: none; }
 
       .day-pill { min-width: 40px; padding: 0.35rem 0.35rem; font-size: 0.6875rem; }
+    }
+
+    @media (max-width: 380px) {
+      .entry-row {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .entry-date   { order: 1; }
+      .entry-badge  { order: 2; }
+      .entry-body   { order: 3; flex-basis: 100%; }
+      .entry-metric { order: 4; flex-basis: 100%; }
+      .tss-pill, .source-pill { order: 5; }
     }
   </style>
 </head>

@@ -37,6 +37,24 @@
     return s;
   }
 
+  // Format duration for workout row meta: m:ss under 1h, h:mm:ss otherwise
+  function fmtDurationRow(secs) {
+    if (!secs || secs <= 0) return '';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = Math.round(secs % 60);
+    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+    return m + ':' + pad(s);
+  }
+
+  // Format total time for week summary: h:mm
+  function fmtTotalTime(totalMinutes) {
+    if (!totalMinutes || totalMinutes <= 0) return '';
+    var h = Math.floor(totalMinutes / 60);
+    var m = Math.round(totalMinutes % 60);
+    return h + ':' + pad(m);
+  }
+
   function fmtDuration(secs) {
     if (!secs) return '';
     var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
@@ -48,7 +66,13 @@
   function fmtPace(secsPerKm) {
     if (!secsPerKm) return '';
     var m = Math.floor(secsPerKm / 60), s = Math.round(secsPerKm % 60);
-    return m + ':' + pad(s) + '/km';
+    return m + ':' + pad(s) + ' /km';
+  }
+
+  // Format a date "26 May" or "1 Jun"
+  function fmtShortDate(isoStr) {
+    var d = new Date(isoStr + 'T00:00:00');
+    return d.getDate() + ' ' + MONTHS[d.getMonth()];
   }
 
   // Detail panel duration: h:mm:ss or m:ss; null → em-dash
@@ -301,8 +325,6 @@
   }
 
   // ── Log list rendering ────────────────────────────────────────────────────
-  var ENTRY_LABELS = { run:'Run', lift:'Lift', wod:'WOD', bike:'Bike', rest:'Rest' };
-
   function renderList(container, weeks) {
     if (!container) return;
     container.innerHTML = '';
@@ -372,21 +394,54 @@
   function buildWeekGroup(week) {
     var s  = week.summary || {};
     var ws = week.workouts || [];
-    var parts = [ws.length + ' workout' + (ws.length !== 1 ? 's' : '')];
-    if (s.total_distance_km > 0) parts.push((+s.total_distance_km).toFixed(1) + ' km');
-    if (s.total_time_minutes > 0) parts.push(fmtDuration(s.total_time_minutes * 60));
-    if (s.total_tss > 0) parts.push('TSS ' + (+s.total_tss).toFixed(0));
+
+    // Date range for header (e.g. "26 May – 1 Jun")
+    var dateRange = '';
+    if (week.week_start && week.week_end) {
+      dateRange = fmtShortDate(week.week_start) + ' – ' + fmtShortDate(week.week_end);
+    }
+
+    var count = s.workout_count || ws.length;
+    var countStr = count + ' workout' + (count !== 1 ? 's' : '');
+    var totalTime = fmtTotalTime(s.total_time_minutes);
+
+    var summaryParts = [countStr];
+    var dist = s.total_distance_km;
+    if (dist && dist > 0) summaryParts.push((+dist).toFixed(1) + ' km');
+    if (s.total_tss > 0) summaryParts.push('TSS ' + (+s.total_tss).toFixed(0));
+    if (totalTime) summaryParts.push(totalTime);
 
     var groupEl = document.createElement('div');
     groupEl.className = 'week-group';
 
     var header = document.createElement('div');
     header.className = 'week-group-header';
-    header.innerHTML =
-      '<div class="week-group-title">' + esc(week.label) + '</div>' +
-      '<div class="week-group-summary">' +
-        parts.map(esc).join('<span class="summary-sep">·</span>') +
-      '</div>';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'week-group-title';
+    titleEl.textContent = week.label || '';
+
+    var rangeEl = document.createElement('div');
+    rangeEl.className = 'week-group-daterange';
+    rangeEl.textContent = dateRange;
+
+    var summaryEl = document.createElement('div');
+    summaryEl.className = 'week-group-summary';
+    summaryParts.forEach(function (part, i) {
+      if (i > 0) {
+        var sep = document.createElement('span');
+        sep.className = 'summary-sep';
+        sep.textContent = '·';
+        summaryEl.appendChild(sep);
+      }
+      var span = document.createElement('span');
+      span.textContent = part;
+      summaryEl.appendChild(span);
+    });
+
+    header.appendChild(titleEl);
+    header.appendChild(rangeEl);
+    header.appendChild(summaryEl);
     groupEl.appendChild(header);
 
     var dayMap = {};
@@ -417,7 +472,7 @@
 
   function buildEntryRow(w) {
     var row = document.createElement('div');
-    row.className = 'entry-row entry-row--' + esc(w.type || 'other');
+    row.className = 'entry-row';
 
     if (w.id) {
       row.setAttribute('tabindex', '0');
@@ -433,28 +488,81 @@
       });
     }
 
-    var meta = [];
-    if (w.duration_seconds) meta.push(fmtDuration(w.duration_seconds));
-    if ((w.type === 'run' || w.type === 'bike') && w.distance_km)
-      meta.push((+w.distance_km).toFixed(1) + ' km');
-    if ((w.type === 'run' || w.type === 'bike') && w.average_pace_seconds_per_km)
-      meta.push(fmtPace(w.average_pace_seconds_per_km));
-    if (w.avg_hr) meta.push('HR ' + w.avg_hr);
+    // Date column
+    var dateCol = document.createElement('div');
+    dateCol.className = 'entry-date';
+    var d = new Date((w.date || '') + 'T00:00:00');
+    var dayNumEl = document.createElement('div');
+    dayNumEl.className = 'entry-day-num';
+    dayNumEl.textContent = isNaN(d.getDate()) ? '' : d.getDate();
+    var dayNameEl = document.createElement('div');
+    dayNameEl.className = 'entry-day-name';
+    dayNameEl.textContent = isNaN(d.getDay()) ? '' : DAY_ABBR[d.getDay()];
+    dateCol.appendChild(dayNumEl);
+    dateCol.appendChild(dayNameEl);
 
-    var tssHtml = '';
-    if (w.tss != null) {
-      var tc = w.tss > 80 ? 'tss-high' : w.tss > 50 ? 'tss-mid' : 'tss-low';
-      tssHtml = '<span class="tss-pill ' + tc + '">TSS ' + (+w.tss).toFixed(0) + '</span>';
+    // Type badge
+    var typeKey = (w.type || '').toLowerCase();
+    var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
+    var badge = document.createElement('span');
+    badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
+    badge.textContent = TYPE_LABELS[typeKey] || (w.type || '');
+
+    // Body (title + meta)
+    var body = document.createElement('div');
+    body.className = 'entry-body';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'entry-title';
+    titleEl.textContent = w.title || 'Workout';
+    body.appendChild(titleEl);
+
+    var metaParts = [];
+    if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
+    if (typeKey === 'run' && w.average_pace_seconds_per_km) {
+      metaParts.push(fmtPace(w.average_pace_seconds_per_km));
+    }
+    if (w.avg_hr != null) metaParts.push('HR ' + w.avg_hr);
+    metaParts = metaParts.filter(Boolean);
+
+    if (metaParts.length) {
+      var metaEl = document.createElement('div');
+      metaEl.className = 'entry-meta';
+      metaEl.textContent = metaParts.join(' · ');
+      body.appendChild(metaEl);
     }
 
-    var typeLabel = ENTRY_LABELS[w.type] || esc(w.type || '');
-    row.innerHTML =
-      '<span class="entry-badge entry-badge--' + esc(w.type || 'other') + '">' + esc(typeLabel) + '</span>' +
-      '<div class="entry-body">' +
-        '<div class="entry-title">' + esc(w.title || 'Workout') + '</div>' +
-        (meta.length ? '<div class="entry-meta">' + esc(meta.join(' · ')) + '</div>' : '') +
-      '</div>' +
-      tssHtml;
+    // Primary metric
+    var metricEl = document.createElement('div');
+    metricEl.className = 'entry-metric';
+    if (typeKey === 'run' && w.distance_km != null) {
+      metricEl.textContent = (+w.distance_km).toFixed(1) + ' km';
+    } else if (w.duration_seconds) {
+      var mins = Math.round(w.duration_seconds / 60);
+      metricEl.textContent = mins + ' min';
+    }
+
+    // TSS pill
+    var tssEl = null;
+    if (w.tss != null) {
+      tssEl = document.createElement('span');
+      var tc = w.tss > 80 ? 'tss-high' : w.tss > 50 ? 'tss-mid' : 'tss-low';
+      tssEl.className = 'tss-pill ' + tc;
+      tssEl.textContent = 'TSS ' + Math.round(w.tss);
+    }
+
+    // Source pill
+    var sourceEl = document.createElement('span');
+    sourceEl.className = 'source-pill';
+    var src = (w.source || w.tss_source || '').toLowerCase();
+    sourceEl.textContent = src === 'strava' ? 'Strava' : 'Manual';
+
+    row.appendChild(dateCol);
+    row.appendChild(badge);
+    row.appendChild(body);
+    row.appendChild(metricEl);
+    if (tssEl) row.appendChild(tssEl);
+    row.appendChild(sourceEl);
 
     return row;
   }
