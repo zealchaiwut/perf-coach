@@ -1183,7 +1183,8 @@
   }
 
   function _trendDeltaPill(text, direction) {
-    return '<span class="trend-delta-pill trend-delta-pill--' + direction + '">' + (text || '—') + '</span>';
+    var dirClass = { up: 'trend-delta-pill--up', down: 'trend-delta-pill--down', flat: 'trend-delta-pill--flat' };
+    return '<span class="trend-delta-pill ' + (dirClass[direction] || dirClass.flat) + '">' + (text || '—') + '</span>';
   }
 
   function _trendCardInnerHTML(iconHTML, title, period, bigVal, unit, pillHTML, sparkSVG, footLeft, footRight, extraHTML) {
@@ -1211,7 +1212,7 @@
         '<span class="trend-card-title">' + title + '</span>' +
         '<span class="trend-card-period">' + period + '</span>' +
       '</div>' +
-      '<div class="trend-card-error">Couldn\'t load data</div>';
+      "<div class=\"trend-card-error\">Couldn't load data</div>";
   }
 
   function renderHRVTrendCard(el, summary) {
