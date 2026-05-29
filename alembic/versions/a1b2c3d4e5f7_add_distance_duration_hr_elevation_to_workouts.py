@@ -23,7 +23,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     if not column_exists("workouts", "distance_km"):
-        op.add_column("workouts", sa.Column("distance_km", sa.Numeric(7, 3), nullable=True))
+        op.add_column("workouts", sa.Column("distance_km", sa.Numeric(8, 3), nullable=True))
 
     if not column_exists("workouts", "duration_seconds"):
         op.add_column("workouts", sa.Column("duration_seconds", sa.Integer(), nullable=True))
