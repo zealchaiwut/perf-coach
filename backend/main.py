@@ -29,10 +29,26 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 @app.get("/api/health")
 def health():
+    """Return service health status.
+
+    Response schema (current — introduced in #155/#156):
+        {
+            "status":          "ok" | "degraded",
+            "environment":     "uat" | "prd" | "local",
+            "version":         "<GIT_SHA>" | "unknown",
+            "db":              "ok" | "error: <msg>",
+            "uptime_seconds":  <int>
+        }
+
+    Breaking changes from the previous schema:
+        - "database" key renamed to "db"
+        - "version" field added (git SHA injected at deploy time via GIT_SHA env var)
+        - "uptime_seconds" field added
+    """
     return JSONResponse({
         "status": "ok",
         "environment": environment,
-        "version": os.getenv("GIT_SHA", "unknown"),  # replaces __version__ = "0.1.0"; version is now injected at deploy time via GIT_SHA env var
+        "version": os.getenv("GIT_SHA", "unknown"),
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
