@@ -437,27 +437,30 @@
     /* ── Week group ── */
     .week-group { margin-bottom: 2rem; }
 
-    .week-group-header {
+    .week-header {
       display: flex;
       align-items: baseline;
       flex-wrap: wrap;
-      gap: 0.4rem 0.75rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 2px solid #1a1a1a;
-      margin-bottom: 0.75rem;
+      gap: 0.3rem 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.04);
+      margin-bottom: 0.5rem;
     }
 
-    .week-group-title {
+    .week-header-title {
       font-weight: 700;
-      font-size: 0.9375rem;
-    }
-
-    .week-group-daterange {
       font-size: 0.8125rem;
-      color: #555;
+      letter-spacing: 0.04em;
+      color: #1a1a1a;
     }
 
-    .week-group-summary {
+    .week-header-range {
+      font-size: 0.8125rem;
+      color: #666;
+    }
+
+    .week-header-summary {
       font-size: 0.8125rem;
       color: #888;
       display: flex;
@@ -466,17 +469,32 @@
       margin-left: auto;
     }
 
-    .summary-sep { color: #ccc; }
+    .summary-sep { color: #bbb; }
 
-    .day-section { margin-bottom: 0.75rem; }
+    /* ── Week card (wraps all rows in the week) ── */
+    .week-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+    }
 
-    .day-label {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: #888;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 0.35rem;
+    .week-card > .entry-row {
+      border: none;
+      border-bottom: 1px solid #f0f0f0;
+      border-radius: 0;
+      margin-bottom: 0;
+    }
+
+    .week-card > .entry-row:last-child,
+    .week-card > .rest-day-row:last-child {
+      border-bottom: none;
+    }
+
+    .week-card > .rest-day-row {
+      border-bottom: 1px solid #f0f0f0;
+      border-radius: 0;
+      margin-bottom: 0;
     }
 
     /* ── Entry row ── */
@@ -490,10 +508,16 @@
       border-radius: 6px;
       margin-bottom: 0.4rem;
       cursor: pointer;
-      transition: background 0.1s, border-color 0.1s;
+      transition: background 0.1s;
+      border-left: 3px solid transparent;
     }
 
-    .entry-row:hover { background: #fafafa; border-color: #d5d5d5; }
+    .entry-row:hover { background: #fafafa; }
+
+    .entry-row.is-active {
+      background: #eff6ff;
+      border-left-color: #3b82f6;
+    }
 
     .entry-date {
       flex-shrink: 0;
@@ -553,10 +577,22 @@
 
     .entry-metric {
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      white-space: nowrap;
+    }
+
+    .entry-metric-primary {
       font-size: 0.875rem;
       font-weight: 600;
       color: #1a1a1a;
-      white-space: nowrap;
+    }
+
+    .entry-metric-secondary {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 0.05rem;
     }
 
     .tss-pill {
@@ -571,69 +607,61 @@
     .tss-mid  { background: #fef3c7; color: #92400e; }
     .tss-high { background: #fee2e2; color: #991b1b; }
 
-    .source-pill {
+    /* ── Source badges ── */
+    .source-badges-wrap {
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-size: 0.6875rem;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       padding: 0.15rem 0.4rem;
       border-radius: 4px;
-      background: #e5e5e5;
-      color: #555;
+      line-height: 1;
     }
+
+    .source-badge--strava { background: #fc4c02; color: #fff; }
+    .source-badge--stryd  { background: #f97316; color: #fff; }
+    .source-badge--manual { background: #e5e5e5; color: #555; }
 
     /* ── Rest day row ── */
     .rest-day-row {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 0.75rem;
       padding: 0.65rem 0.75rem;
-      background: #fafafa;
+      background: #f8fafc;
       border: 1px solid #e5e5e5;
       border-radius: 6px;
       margin-bottom: 0.4rem;
       cursor: default;
     }
 
-    .rest-badge {
+    .rest-moon-icon {
       flex-shrink: 0;
-      font-size: 0.6875rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      background: #f0fdf4;
-      color: #15803d;
+      font-size: 1rem;
+      line-height: 1;
     }
 
     .rest-metrics {
       flex: 1;
       min-width: 0;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.25rem 0.75rem;
-      align-items: baseline;
     }
 
     .rest-day-label {
       font-size: 0.875rem;
       color: #9ca3af;
       font-style: italic;
-    }
-
-    .rest-metric-item {
-      font-size: 0.8125rem;
-      color: #6b7280;
       white-space: nowrap;
-    }
-
-    .rest-notes {
-      font-size: 0.8125rem;
-      color: #9ca3af;
-      font-style: italic;
-      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* ── Skeleton loading ── */
@@ -945,7 +973,7 @@
       #log-list { padding: 1rem; }
 
       .entry-metric { display: none; }
-      .source-pill { display: none; }
+      .source-badges-wrap { display: none; }
 
       .day-pill { min-width: 40px; padding: 0.35rem; }
     }
@@ -956,7 +984,7 @@
       .entry-badge { order: 2; }
       .entry-body  { order: 3; flex-basis: 100%; }
       .entry-metric { order: 4; flex-basis: 100%; }
-      .tss-pill, .source-pill { order: 5; }
+      .tss-pill, .source-badges-wrap { order: 5; }
     }
   </style>
 </head>

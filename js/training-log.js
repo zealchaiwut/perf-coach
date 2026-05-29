@@ -6,6 +6,7 @@
   var lastWeeks             = [];
   var activeDetailWorkoutId = null;
   var activeTriggerEl       = null;
+  var activeRowEl           = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -367,7 +368,7 @@
       } else {
         var msg = document.createElement('p');
         msg.className   = 'log-empty';
-        msg.textContent = 'No workouts in this range.';
+        msg.textContent = 'No workouts in this range — try widening your date filter.';
         container.appendChild(msg);
       }
       return;
@@ -380,44 +381,60 @@
   function renderRestDayRow(entry) {
     var row = document.createElement('div');
     row.className = 'rest-day-row';
+    row.setAttribute('aria-label', 'Rest day');
 
-    var badge = document.createElement('span');
-    badge.className = 'rest-badge';
-    badge.textContent = 'Rest';
-    row.appendChild(badge);
+    var dateCol = document.createElement('div');
+    dateCol.className = 'entry-date';
+    var d = new Date((entry.date || '') + 'T00:00:00');
+    var dayNumEl = document.createElement('div');
+    dayNumEl.className = 'entry-day-num';
+    dayNumEl.textContent = isNaN(d.getDate()) ? '' : d.getDate();
+    var dayNameEl = document.createElement('div');
+    dayNameEl.className = 'entry-day-name';
+    dayNameEl.textContent = isNaN(d.getDay()) ? '' : DAY_ABBR[d.getDay()];
+    dateCol.appendChild(dayNumEl);
+    dateCol.appendChild(dayNameEl);
+    row.appendChild(dateCol);
+
+    var iconEl = document.createElement('span');
+    iconEl.className = 'rest-moon-icon';
+    iconEl.setAttribute('aria-hidden', 'true');
+    iconEl.textContent = '🌙';
+    row.appendChild(iconEl);
 
     var info = document.createElement('div');
     info.className = 'rest-metrics';
 
     var labelParts = [];
     if (entry.sleep_hours != null) labelParts.push('sleep ' + entry.sleep_hours + 'h');
-    if (entry.energy != null) labelParts.push('energy ' + entry.energy);
-    if (entry.mood != null) labelParts.push('mood ' + entry.mood);
-    if (entry.resting_hr != null) labelParts.push('RHR ' + entry.resting_hr);
+    if (entry.energy   != null)    labelParts.push('energy ' + entry.energy + '/5');
+    if (entry.mood     != null)    labelParts.push('mood ' + entry.mood + '/5');
+    if (entry.resting_hr != null)  labelParts.push('RHR ' + entry.resting_hr);
 
     var label = document.createElement('span');
     label.className = 'rest-day-label';
-    label.textContent = 'Rest day' + (labelParts.length ? ' - ' + labelParts.join(', ') : '');
+    label.textContent = 'Rest day' + (labelParts.length ? ' \xb7 ' + labelParts.join(', ') : '');
     info.appendChild(label);
-
-    var m = entry.metrics || {};
-    if (m.hrv != null) {
-      var hrvEl = document.createElement('span');
-      hrvEl.className = 'rest-metric-item';
-      hrvEl.textContent = 'HRV ' + m.hrv;
-      info.appendChild(hrvEl);
-    }
-
-    if (m.notes) {
-      var noteText = String(m.notes);
-      var notesEl = document.createElement('span');
-      notesEl.className = 'rest-notes';
-      notesEl.textContent = noteText.length > 80 ? noteText.slice(0, 80) + '…' : noteText;
-      info.appendChild(notesEl);
-    }
 
     row.appendChild(info);
     return row;
+  }
+
+  function weekDisplayLabel(week) {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var dow = today.getDay();
+    var diff = dow === 0 ? -6 : 1 - dow;
+    var thisMon = new Date(today);
+    thisMon.setDate(thisMon.getDate() + diff);
+    thisMon.setHours(0, 0, 0, 0);
+    var lastMon = new Date(thisMon);
+    lastMon.setDate(lastMon.getDate() - 7);
+    var weekStart = new Date(week.week_start + 'T00:00:00');
+    weekStart.setHours(0, 0, 0, 0);
+    if (weekStart.getTime() === thisMon.getTime()) return 'THIS WEEK';
+    if (weekStart.getTime() === lastMon.getTime()) return 'LAST WEEK';
+    return week.label || '';
   }
 
   function buildWeekGroup(week) {
@@ -443,23 +460,23 @@
     groupEl.className = 'week-group';
 
     var header = document.createElement('div');
-    header.className = 'week-group-header';
+    header.className = 'week-header';
 
     var titleEl = document.createElement('div');
-    titleEl.className = 'week-group-title';
-    titleEl.textContent = week.label || '';
+    titleEl.className = 'week-header-title';
+    titleEl.textContent = weekDisplayLabel(week);
 
     var rangeEl = document.createElement('div');
-    rangeEl.className = 'week-group-daterange';
+    rangeEl.className = 'week-header-range';
     rangeEl.textContent = dateRange;
 
     var summaryEl = document.createElement('div');
-    summaryEl.className = 'week-group-summary';
+    summaryEl.className = 'week-header-summary';
     summaryParts.forEach(function (part, i) {
       if (i > 0) {
         var sep = document.createElement('span');
         sep.className = 'summary-sep';
-        sep.textContent = '·';
+        sep.textContent = '\xb7';
         summaryEl.appendChild(sep);
       }
       var span = document.createElement('span');
@@ -472,29 +489,17 @@
     header.appendChild(summaryEl);
     groupEl.appendChild(header);
 
-    var dayMap = {};
-    (week.entries || []).forEach(function (e) {
-      if (!dayMap[e.date]) dayMap[e.date] = [];
-      dayMap[e.date].push(e);
+    var card = document.createElement('div');
+    card.className = 'week-card';
+
+    var entries = (week.entries || []).slice().sort(function (a, b) {
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    });
+    entries.forEach(function (entry) {
+      card.appendChild(entry.type === 'rest' ? renderRestDayRow(entry) : buildEntryRow(entry));
     });
 
-    Object.keys(dayMap).sort().reverse().forEach(function (dateStr) {
-      var sec = document.createElement('div');
-      sec.className = 'day-section';
-      sec.id        = 'day-' + dateStr;
-
-      var dl = document.createElement('div');
-      dl.className = 'day-label';
-      var d = new Date(dateStr + 'T00:00:00');
-      dl.textContent = DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
-      sec.appendChild(dl);
-
-      dayMap[dateStr].forEach(function (entry) {
-        sec.appendChild(entry.type === 'rest' ? renderRestDayRow(entry) : buildEntryRow(entry));
-      });
-      groupEl.appendChild(sec);
-    });
-
+    groupEl.appendChild(card);
     return groupEl;
   }
 
@@ -559,12 +564,19 @@
 
     var metricEl = document.createElement('div');
     metricEl.className = 'entry-metric';
+    var metricPrimary = document.createElement('div');
+    metricPrimary.className = 'entry-metric-primary';
+    var metricSecondary = document.createElement('div');
+    metricSecondary.className = 'entry-metric-secondary';
     if (typeKey === 'run' && w.distance_km != null) {
-      metricEl.textContent = (+w.distance_km).toFixed(1) + ' km';
+      metricPrimary.textContent = (+w.distance_km).toFixed(1) + ' km';
+      if (w.duration_seconds) metricSecondary.textContent = fmtDurationRow(w.duration_seconds);
     } else if (w.duration_seconds) {
       var mins = Math.round(w.duration_seconds / 60);
-      metricEl.textContent = mins + ' min';
+      metricPrimary.textContent = mins + ' min';
     }
+    metricEl.appendChild(metricPrimary);
+    if (metricSecondary.textContent) metricEl.appendChild(metricSecondary);
 
     var tssEl = null;
     if (w.tss != null) {
@@ -574,17 +586,33 @@
       tssEl.textContent = 'TSS ' + Math.round(w.tss);
     }
 
-    var sourceEl = document.createElement('span');
-    sourceEl.className = 'source-pill';
-    var src = (w.source || w.tss_source || '').toLowerCase();
-    sourceEl.textContent = src === 'strava' ? 'Strava' : 'Manual';
+    // Source badges — supports comma-separated multi-source strings
+    var sourcesWrap = document.createElement('div');
+    sourcesWrap.className = 'source-badges-wrap';
+    var srcStr = (w.source || 'manual');
+    srcStr.split(',').forEach(function (s) {
+      s = s.trim().toLowerCase();
+      var sbadge = document.createElement('span');
+      if (s === 'strava') {
+        sbadge.className = 'source-badge source-badge--strava';
+        sbadge.textContent = 'St';
+      } else if (s === 'stryd') {
+        sbadge.className = 'source-badge source-badge--stryd';
+        sbadge.textContent = 'S';
+      } else {
+        sbadge.className = 'source-badge source-badge--manual';
+        sbadge.setAttribute('aria-label', 'Manual');
+        sbadge.innerHTML = '&#9998;';
+      }
+      sourcesWrap.appendChild(sbadge);
+    });
 
     row.appendChild(dateCol);
     row.appendChild(badge);
     row.appendChild(body);
     row.appendChild(metricEl);
     if (tssEl) row.appendChild(tssEl);
-    row.appendChild(sourceEl);
+    row.appendChild(sourcesWrap);
 
     return row;
   }
@@ -627,6 +655,10 @@
 
   // ── Detail panel ──────────────────────────────────────────────────────────
   function openDetailPanel(workoutId, triggerEl) {
+    if (activeRowEl) activeRowEl.classList.remove('is-active');
+    activeRowEl = triggerEl || null;
+    if (activeRowEl) activeRowEl.classList.add('is-active');
+
     activeDetailWorkoutId = workoutId;
     activeTriggerEl = triggerEl || null;
     var overlay = document.getElementById('detail-overlay');
@@ -638,6 +670,8 @@
   }
 
   function closeDetailPanel() {
+    if (activeRowEl) { activeRowEl.classList.remove('is-active'); activeRowEl = null; }
+
     var trigger = activeTriggerEl;
     activeDetailWorkoutId = null;
     activeTriggerEl = null;
