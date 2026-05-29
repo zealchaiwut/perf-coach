@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>perf-coach — training log (mobile)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --bg-1: #5a8dee;
+    --bg-2: #1f3b8a;
+    --shell-1: #eaf0fb;
+    --shell-2: #d8e3f5;
+    --card: #ffffff;
+    --card-border: rgba(13, 30, 67, 0.06);
+    --card-divider: rgba(13, 30, 67, 0.05);
+    --text-primary: #0b1530;
+    --text-secondary: #5c6886;
+    --text-tertiary: #8b95ad;
+    --green: #2d5e10;
+    --green-soft: #dff5d6;
+    --red: #7a1a1a;
+    --red-soft: #ffd9d9;
+    --amber: #6b4408;
+    --amber-soft: #fff0c4;
+    --gold: #b8893c;
+    --blue-text: #1e3a8a;
+    --blue-soft: #dde6f8;
+    --purple-text: #4f3c8c;
+    --purple-soft: #ebe5f9;
+    --orange-text: #8a3d12;
+    --orange-soft: #ffe1d4;
+    --teal-text: #1e6438;
+    --teal-soft: #d4f0e2;
+    --chip-bg: #f1f4fa;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    color: var(--text-primary);
+    background: radial-gradient(ellipse at top, var(--bg-1) 0%, var(--bg-2) 80%);
+    min-height: 100vh;
+    letter-spacing: -0.01em;
+    padding: 24px 12px 60px;
+  }
+
+  .mock-wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 820px) {
+    .mock-wrap { grid-template-columns: 1fr; }
+  }
+
+  .phone-stage {
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+  .stage-label {
+    color: rgba(255,255,255,0.85);
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    margin-bottom: 12px;
+  }
+  .phone {
+    width: 390px;
+    max-width: 100%;
+    height: 780px;
+    background: var(--shell-1);
+    border-radius: 36px;
+    border: 8px solid #0b1530;
+    overflow: hidden;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.25);
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+
+  /* ---------- TOP BAR ---------- */
+  .topbar {
+    background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%);
+    border-bottom: 1px solid var(--card-border);
+    padding: 0 14px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .topbar .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
+  .topbar .brand .mark { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #6e90f0, #2b4ca8); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .topbar .right-actions { display: flex; align-items: center; gap: 4px; }
+  .topbar .icon-btn { width: 36px; height: 36px; border: 0; background: transparent; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--text-primary); cursor: pointer; }
+  .topbar .avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #ffb88a, #d97a3a); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; }
+
+  /* ---------- DETAIL TOP BAR (different look) ---------- */
+  .detail-topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--card-divider);
+    padding: 0 12px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .detail-topbar .back-btn {
+    width: 36px; height: 36px;
+    border: 0; background: transparent;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: var(--text-primary);
+    cursor: pointer;
+  }
+  .detail-topbar .position {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--chip-bg);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .detail-topbar .actions { display: flex; gap: 2px; }
+  .detail-topbar .icon-btn { width: 36px; height: 36px; border: 0; background: transparent; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 19px; color: var(--text-primary); cursor: pointer; }
+
+  /* ---------- BOTTOM TAB BAR ---------- */
+  .bottombar {
+    height: 60px;
+    background: #fff;
+    border-top: 1px solid var(--card-border);
+    display: flex;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.04);
+    flex-shrink: 0;
+  }
+  .bottombar .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--text-tertiary); text-decoration: none; font-size: 10.5px; font-weight: 500; }
+  .bottombar .tab i { font-size: 20px; }
+  .bottombar .tab.active, .bottombar .tab.active i { color: #0b1530; }
+
+  /* ---------- LIST SCROLL AREA ---------- */
+  .scroll {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--shell-1);
+  }
+  .scroll::-webkit-scrollbar { width: 0; }
+
+  /* ---------- LIST HEADER (greeting + actions) ---------- */
+  .list-header {
+    padding: 14px 14px 6px;
+  }
+  .list-header h1 {
+    margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em;
+    color: #0b1530;
+  }
+  .list-header .sum {
+    margin: 4px 0 12px; color: var(--text-secondary); font-size: 12.5px;
+  }
+  .list-header .sum strong { color: var(--text-primary); font-weight: 600; }
+  .list-header .actions {
+    display: flex; gap: 8px; margin-bottom: 6px;
+  }
+  .list-header .actions .btn {
+    flex: 1;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--card-border);
+    background: #fff;
+    color: var(--text-primary);
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer;
+  }
+  .list-header .actions .btn.primary { background: #0b1530; color: #fff; border-color: #0b1530; }
+  .list-header .actions .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .list-header .actions .btn i { font-size: 15px; }
+
+  /* ---------- WEEK STRIP (horizontal scrollable) ---------- */
+  .ws-mobile {
+    padding: 6px 14px 4px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ws-mobile::-webkit-scrollbar { display: none; }
+  .ws-mobile .ws-day {
+    flex: 0 0 48px;
+    background: #fff;
+    border-radius: 10px;
+    border: 1.5px solid transparent;
+    padding: 7px 4px;
+    text-align: center;
+  }
+  .ws-mobile .ws-day.today {
+    border-color: #2b4ca8;
+    background: #f0f5ff;
+  }
+  .ws-mobile .ws-day .dow { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  .ws-mobile .ws-day .dom { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; margin-top: 1px; }
+  .ws-mobile .ws-day .dots { display: flex; gap: 2px; justify-content: center; margin-top: 4px; min-height: 5px; }
+  .ws-mobile .ws-day .dot { width: 4px; height: 4px; border-radius: 50%; }
+  .ws-mobile .ws-day .dot.run { background: var(--blue-text); }
+  .ws-mobile .ws-day .dot.lift { background: var(--purple-text); }
+  .ws-mobile .ws-day .dot.wod { background: var(--orange-text); }
+  .ws-mobile .ws-day .dot.bike { background: var(--teal-text); }
+
+  /* ---------- FILTERS ---------- */
+  .filters-mobile {
+    padding: 8px 14px 4px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filters-mobile::-webkit-scrollbar { display: none; }
+  .filters-mobile .chip {
+    flex-shrink: 0;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--text-secondary);
+    font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--card-border);
+  }
+  .filters-mobile .chip.active { background: #0b1530; color: #fff; border-color: #0b1530; }
+  .filters-mobile .chip i { font-size: 13px; }
+
+  /* ---------- WEEK SUMMARY ---------- */
+  .week-summary-mobile {
+    padding: 14px 14px 6px;
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .week-summary-mobile .label {
+    font-size: 10.5px; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 500;
+  }
+  .week-summary-mobile .label strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 2px;
+    text-transform: none;
+    letter-spacing: -0.01em;
+  }
+  .week-summary-mobile .stats {
+    display: flex; gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .week-summary-mobile .stats strong { color: var(--text-primary); }
+
+  /* ---------- WORKOUT LIST (mobile) ---------- */
+  .workout-list-m {
+    background: #fff;
+    margin: 0 14px 12px;
+    border-radius: 14px;
+    border: 1px solid var(--card-border);
+    overflow: hidden;
+  }
+  .workout-row-m {
+    display: grid;
+    grid-template-columns: 44px 36px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--card-divider);
+    cursor: pointer;
+  }
+  .workout-row-m:last-child { border-bottom: 0; }
+  .workout-row-m:active { background: #fafbfd; }
+
+  .wr-date-m { text-align: center; }
+  .wr-date-m .dom { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .wr-date-m .dow { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; margin-top: 2px; }
+
+  .wr-icon-m {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px;
+  }
+  .wr-icon-m.run { background: var(--blue-soft); color: var(--blue-text); }
+  .wr-icon-m.lift { background: var(--purple-soft); color: var(--purple-text); }
+  .wr-icon-m.wod { background: var(--orange-soft); color: var(--orange-text); }
+  .wr-icon-m.bike { background: var(--teal-soft); color: var(--teal-text); }
+
+  .wr-body-m { min-width: 0; }
+  .wr-title-m { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wr-meta-m { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wr-meta-m .metric { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); font-weight: 600; }
+
+  .wr-right-m {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    flex-shrink: 0;
+  }
+  .wr-tss-m {
+    height: 22px; padding: 0 8px;
+    border-radius: 6px;
+    background: var(--chip-bg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 600;
+    display: inline-flex; align-items: center;
+    color: var(--text-primary);
+  }
+  .wr-tss-m.low { background: var(--green-soft); color: var(--green); }
+  .wr-tss-m.mod { background: var(--amber-soft); color: var(--amber); }
+  .wr-tss-m.high { background: var(--red-soft); color: var(--red); }
+  .wr-sources-m { display: flex; gap: 3px; }
+  .src-badge {
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    background: var(--chip-bg); color: var(--text-secondary);
+  }
+  .src-badge.strava { background: #fc4c02; color: #fff; }
+  .src-badge.stryd { background: #ff6b1a; color: #fff; }
+  .src-badge.manual { background: var(--chip-bg); color: var(--text-secondary); }
+  .src-badge i { font-size: 10px; }
+
+  /* ---------- REST ROW (mobile) ---------- */
+  .rest-row-m {
+    display: grid;
+    grid-template-columns: 44px 36px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--card-divider);
+    background: #fafbfd;
+  }
+  .rest-row-m:last-child { border-bottom: 0; }
+  .rest-row-m .wr-date-m .dom { color: var(--text-tertiary); font-weight: 500; }
+  .rest-row-m .wr-icon-m { background: var(--chip-bg); color: var(--text-tertiary); width: 36px; height: 36px; }
+  .rest-row-m .info { font-size: 12.5px; color: var(--text-secondary); }
+  .rest-row-m .info strong { color: var(--text-primary); font-weight: 600; }
+
+  /* ==================================================================== */
+  /* ============= DETAIL VIEW (full-screen, second phone) ============== */
+  /* ==================================================================== */
+
+  /* swipe indicators (left/right peek) */
+  .swipe-indicator-row {
+    position: absolute;
+    top: 70px;
+    left: 0; right: 0;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .swipe-peek {
+    background: rgba(13, 30, 67, 0.78);
+    color: #fff;
+    border-radius: 9px;
+    padding: 6px 9px;
+    font-size: 10.5px;
+    display: flex; align-items: center; gap: 5px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    max-width: 140px;
+  }
+  .swipe-peek i { font-size: 13px; }
+  .swipe-peek .lbl {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .detail-scroll {
+    flex: 1;
+    overflow-y: auto;
+    background: #fff;
+    padding: 18px 16px 24px;
+  }
+  .detail-scroll::-webkit-scrollbar { width: 0; }
+
+  /* hero — title + source + date */
+  .detail-hero {
+    margin-bottom: 18px;
+  }
+  .detail-hero .typebadge-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .detail-hero .icon-pill {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    background: var(--blue-soft);
+    color: var(--blue-text);
+  }
+  .detail-hero .icon-pill.wod { background: var(--orange-soft); color: var(--orange-text); }
+  .detail-hero .type-pill {
+    background: var(--chip-bg);
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .detail-hero h1 {
+    margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.025em;
+    line-height: 1.2;
+  }
+  .detail-hero .meta {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .detail-hero .meta .sources {
+    display: flex; gap: 3px; margin-left: 4px;
+  }
+  .detail-hero .meta .dot-sep { color: var(--text-tertiary); }
+
+  /* detail sections (reused) */
+  .ds {
+    margin-bottom: 22px;
+  }
+  .ds:last-child { margin-bottom: 0; }
+  .ds-label {
+    font-size: 10px; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
+    margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ds-label .schema-warn {
+    color: var(--gold);
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 10px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .ds-label .schema-warn i { font-size: 11px; }
+
+  /* stat grid (mobile) */
+  .ds-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .ds-stat {
+    background: #f7f9fd;
+    border-radius: 10px;
+    padding: 11px 11px;
+  }
+  .ds-stat .l {
+    font-size: 9.5px; color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500;
+  }
+  .ds-stat .v {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    margin-top: 4px;
+    line-height: 1.1;
+  }
+  .ds-stat .v .unit {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: 'Inter Tight';
+    font-weight: 500;
+    margin-left: 2px;
+  }
+  .ds-stat.highlight {
+    background: linear-gradient(135deg, #dde6f8 0%, #c2d2f3 100%);
+  }
+
+  /* intervals (mobile) */
+  .ds-intervals {
+    background: #fff;
+    border: 1px solid var(--card-divider);
+    border-radius: 11px;
+    overflow: hidden;
+  }
+  .ds-interval-row {
+    display: grid;
+    grid-template-columns: 24px 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--card-divider);
+  }
+  .ds-interval-row:last-of-type { border-bottom: 0; }
+  .ds-interval-row .rep-num {
+    width: 24px; height: 22px;
+    border-radius: 6px;
+    background: var(--blue-soft);
+    color: var(--blue-text);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ds-interval-row .lbl { font-size: 12.5px; font-weight: 500; }
+  .ds-interval-row .lbl-sub { font-size: 10.5px; color: var(--text-tertiary); margin-top: 1px; }
+  .ds-interval-row .pace {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px; font-weight: 600;
+    color: var(--text-primary);
+    text-align: right;
+  }
+  .ds-interval-row .hr {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    color: var(--text-secondary);
+    min-width: 36px;
+    text-align: right;
+  }
+  .interval-summary-m {
+    padding: 10px 12px;
+    background: #f7f9fd;
+    border-top: 1px solid var(--card-divider);
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .interval-summary-m strong {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* notes (mobile) */
+  .ds-notes {
+    background: #f7f9fd;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* sticky bottom actions */
+  .detail-actions {
+    background: #fff;
+    border-top: 1px solid var(--card-divider);
+    padding: 10px 12px;
+    display: flex; gap: 8px;
+    flex-shrink: 0;
+  }
+  .detail-actions button {
+    flex: 1;
+    height: 42px;
+    border-radius: 11px;
+    border: 1px solid var(--card-border);
+    background: #fff;
+    cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    color: var(--text-primary);
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .detail-actions button i { font-size: 15px; }
+  .detail-actions button.strava {
+    background: #fc4c02; color: #fff; border-color: #fc4c02;
+  }
+
+  /* swipe hint footer */
+  .swipe-hint {
+    text-align: center;
+    padding: 4px 0 10px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    background: #fff;
+  }
+  .swipe-hint .pager {
+    display: inline-flex;
+    gap: 4px;
+    margin: 0 6px;
+    vertical-align: -1px;
+  }
+  .swipe-hint .pager .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--card-border);
+  }
+  .swipe-hint .pager .dot.active {
+    background: var(--text-secondary);
+    width: 16px;
+    border-radius: 3px;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="mock-wrap">
+
+  <!-- ============================================== -->
+  <!-- SCREEN 1: LIST VIEW                           -->
+  <!-- ============================================== -->
+  <div class="phone-stage">
+    <div class="stage-label">Screen 1 · List view</div>
+    <div class="phone">
+
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark"><i class="ti ti-activity-heartbeat"></i></div>
+          perf-coach
+        </div>
+        <div class="right-actions">
+          <button class="icon-btn"><i class="ti ti-search"></i></button>
+          <div class="avatar">Z</div>
+        </div>
+      </header>
+
+      <div class="scroll">
+
+        <div class="list-header">
+          <h1>Training log</h1>
+          <div class="sum"><strong>23 workouts</strong> · last 30 days</div>
+          <div class="actions">
+            <button class="btn"><i class="ti ti-download"></i>Export CSV</button>
+            <button class="btn primary" disabled title="Coming soon"><i class="ti ti-plus"></i>Log workout</button>
+          </div>
+        </div>
+
+        <div class="ws-mobile">
+          <div class="ws-day">
+            <div class="dow">Mon</div>
+            <div class="dom">26</div>
+            <div class="dots"><span class="dot lift"></span></div>
+          </div>
+          <div class="ws-day">
+            <div class="dow">Tue</div>
+            <div class="dom">27</div>
+            <div class="dots"><span class="dot run"></span></div>
+          </div>
+          <div class="ws-day today">
+            <div class="dow">Wed</div>
+            <div class="dom">28</div>
+            <div class="dots"></div>
+          </div>
+          <div class="ws-day">
+            <div class="dow">Thu</div>
+            <div class="dom">29</div>
+            <div class="dots"></div>
+          </div>
+          <div class="ws-day">
+            <div class="dow">Fri</div>
+            <div class="dom">30</div>
+            <div class="dots"></div>
+          </div>
+          <div class="ws-day">
+            <div class="dow">Sat</div>
+            <div class="dom">31</div>
+            <div class="dots"></div>
+          </div>
+          <div class="ws-day">
+            <div class="dow">Sun</div>
+            <div class="dom">01</div>
+            <div class="dots"></div>
+          </div>
+        </div>
+
+        <div class="filters-mobile">
+          <span class="chip active">All</span>
+          <span class="chip"><i class="ti ti-run"></i>Run</span>
+          <span class="chip"><i class="ti ti-barbell"></i>Lift</span>
+          <span class="chip"><i class="ti ti-flame"></i>WOD</span>
+          <span class="chip"><i class="ti ti-bike"></i>Bike</span>
+          <span class="chip"><i class="ti ti-calendar"></i>30d</span>
+        </div>
+
+        <!-- This week -->
+        <div class="week-summary-mobile">
+          <div class="label">This week<strong>May 26 – today</strong></div>
+          <div class="stats"><strong>2</strong>wo · <strong>8.0</strong>km · <strong>113</strong>TSS</div>
+        </div>
+
+        <div class="workout-list-m">
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">27</div><div class="dow">Tue</div></div>
+            <div class="wr-icon-m run"><i class="ti ti-run"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">Tempo run — Lumpini</div>
+              <div class="wr-meta-m"><span class="metric">8.0km</span> · 38:42 · 4:48/km</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m mod">TSS 71</div>
+              <div class="wr-sources-m">
+                <div class="src-badge stryd" title="Stryd">S</div>
+                <div class="src-badge strava" title="Strava">St</div>
+              </div>
+            </div>
+          </div>
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">26</div><div class="dow">Mon</div></div>
+            <div class="wr-icon-m lift"><i class="ti ti-barbell"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">Lower body</div>
+              <div class="wr-meta-m">55 min · 5 exercises · RPE 8</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m">TSS 42</div>
+              <div class="wr-sources-m">
+                <div class="src-badge manual"><i class="ti ti-pencil"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Last week -->
+        <div class="week-summary-mobile">
+          <div class="label">Last week<strong>May 19 – 25</strong></div>
+          <div class="stats"><strong>5</strong>wo · <strong>32.4</strong>km · <strong>312</strong>TSS</div>
+        </div>
+
+        <div class="workout-list-m">
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">25</div><div class="dow">Sun</div></div>
+            <div class="wr-icon-m run"><i class="ti ti-run"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">Easy run — recovery</div>
+              <div class="wr-meta-m"><span class="metric">6.2km</span> · 34:10 · HR 138</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m low">TSS 38</div>
+              <div class="wr-sources-m">
+                <div class="src-badge strava">St</div>
+              </div>
+            </div>
+          </div>
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">24</div><div class="dow">Sat</div></div>
+            <div class="wr-icon-m wod"><i class="ti ti-flame"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">WOD — "Murph"</div>
+              <div class="wr-meta-m">42:18 · RPE 9</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m high">TSS 95</div>
+              <div class="wr-sources-m">
+                <div class="src-badge manual"><i class="ti ti-pencil"></i></div>
+              </div>
+            </div>
+          </div>
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">22</div><div class="dow">Wed</div></div>
+            <div class="wr-icon-m run"><i class="ti ti-run"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">Intervals — 6×800m</div>
+              <div class="wr-meta-m"><span class="metric">10.5km</span> · 52:14 · 3:48 rep</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m high">TSS 92</div>
+              <div class="wr-sources-m">
+                <div class="src-badge stryd">S</div>
+                <div class="src-badge strava">St</div>
+              </div>
+            </div>
+          </div>
+          <div class="rest-row-m">
+            <div class="wr-date-m"><div class="dom">21</div><div class="dow">Tue</div></div>
+            <div class="wr-icon-m"><i class="ti ti-zzz"></i></div>
+            <div class="info"><strong>Rest day</strong> · sleep 6.8h, energy 3</div>
+          </div>
+          <div class="workout-row-m">
+            <div class="wr-date-m"><div class="dom">20</div><div class="dow">Mon</div></div>
+            <div class="wr-icon-m lift"><i class="ti ti-barbell"></i></div>
+            <div class="wr-body-m">
+              <div class="wr-title-m">Upper body</div>
+              <div class="wr-meta-m">48 min · 4 exercises</div>
+            </div>
+            <div class="wr-right-m">
+              <div class="wr-tss-m">TSS 38</div>
+              <div class="wr-sources-m">
+                <div class="src-badge manual"><i class="ti ti-pencil"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <nav class="bottombar">
+        <a href="#" class="tab"><i class="ti ti-home"></i>Home</a>
+        <a href="#" class="tab active"><i class="ti ti-list-details"></i>Log</a>
+        <a href="#" class="tab"><i class="ti ti-chart-line"></i>Trends</a>
+        <a href="#" class="tab"><i class="ti ti-calendar"></i>Calendar</a>
+        <a href="#" class="tab"><i class="ti ti-menu-2"></i>More</a>
+      </nav>
+
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- SCREEN 2: DETAIL VIEW (full screen, interval)  -->
+  <!-- ============================================== -->
+  <div class="phone-stage">
+    <div class="stage-label">Screen 2 · Detail view · swipe ← → to navigate</div>
+    <div class="phone">
+
+      <header class="detail-topbar">
+        <button class="back-btn" aria-label="Back"><i class="ti ti-chevron-left"></i></button>
+        <div class="position">3 of 23</div>
+        <div class="actions">
+          <button class="icon-btn"><i class="ti ti-pencil"></i></button>
+          <button class="icon-btn"><i class="ti ti-dots-vertical"></i></button>
+        </div>
+      </header>
+
+      <!-- swipe peek indicators -->
+      <div class="swipe-indicator-row">
+        <div class="swipe-peek">
+          <i class="ti ti-chevron-left"></i>
+          <div class="lbl">WOD — Murph</div>
+        </div>
+        <div class="swipe-peek">
+          <div class="lbl">Tempo run</div>
+          <i class="ti ti-chevron-right"></i>
+        </div>
+      </div>
+
+      <div class="detail-scroll">
+
+        <div class="detail-hero">
+          <div class="typebadge-row">
+            <div class="icon-pill"><i class="ti ti-run"></i></div>
+            <span class="type-pill"><i class="ti ti-run"></i>Run</span>
+          </div>
+          <h1>Interval session — 6×800m</h1>
+          <div class="meta">
+            Wed, May 22 · 6:30 AM
+            <span class="sources">
+              <div class="src-badge stryd">S</div>
+              <div class="src-badge strava">St</div>
+            </span>
+          </div>
+        </div>
+
+        <!-- Stats grid -->
+        <div class="ds">
+          <div class="ds-label">Stats</div>
+          <div class="ds-stats">
+            <div class="ds-stat highlight">
+              <div class="l">Distance</div>
+              <div class="v">10.5<span class="unit">km</span></div>
+            </div>
+            <div class="ds-stat">
+              <div class="l">Duration</div>
+              <div class="v">52:14</div>
+            </div>
+            <div class="ds-stat">
+              <div class="l">Avg pace</div>
+              <div class="v">4:58<span class="unit">/km</span></div>
+            </div>
+            <div class="ds-stat">
+              <div class="l">Avg HR</div>
+              <div class="v">168<span class="unit">bpm</span></div>
+            </div>
+            <div class="ds-stat">
+              <div class="l">Elev</div>
+              <div class="v">42<span class="unit">m</span></div>
+            </div>
+            <div class="ds-stat">
+              <div class="l">TSS</div>
+              <div class="v">92</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Intervals -->
+        <div class="ds">
+          <div class="ds-label">Intervals · 6×800m</div>
+          <div class="ds-intervals">
+            <div class="ds-interval-row">
+              <div class="rep-num">1</div>
+              <div>
+                <div class="lbl">Rep 1</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:48</div>
+              <div class="hr">172</div>
+            </div>
+            <div class="ds-interval-row">
+              <div class="rep-num">2</div>
+              <div>
+                <div class="lbl">Rep 2</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:46</div>
+              <div class="hr">175</div>
+            </div>
+            <div class="ds-interval-row">
+              <div class="rep-num">3</div>
+              <div>
+                <div class="lbl">Rep 3</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:49</div>
+              <div class="hr">178</div>
+            </div>
+            <div class="ds-interval-row">
+              <div class="rep-num">4</div>
+              <div>
+                <div class="lbl">Rep 4</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:51</div>
+              <div class="hr">180</div>
+            </div>
+            <div class="ds-interval-row">
+              <div class="rep-num">5</div>
+              <div>
+                <div class="lbl">Rep 5</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:50</div>
+              <div class="hr">181</div>
+            </div>
+            <div class="ds-interval-row">
+              <div class="rep-num">6</div>
+              <div>
+                <div class="lbl">Rep 6</div>
+                <div class="lbl-sub">800m</div>
+              </div>
+              <div class="pace">3:44</div>
+              <div class="hr">183</div>
+            </div>
+            <div class="interval-summary-m">
+              <span>Avg rep pace</span>
+              <span><strong>3:48</strong> /km · HR <strong>178</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="ds">
+          <div class="ds-label">Notes</div>
+          <div class="ds-notes">
+            Faded slightly through reps 3–5. Last rep felt strongest — could have done one more. Recovery jog between reps was ~200m at 6:30/km.
+          </div>
+        </div>
+
+      </div>
+
+      <div class="detail-actions">
+        <button><i class="ti ti-pencil"></i>Edit</button>
+        <button class="strava"><i class="ti ti-external-link"></i>Strava</button>
+      </div>
+
+      <div class="swipe-hint">
+        Swipe to navigate
+        <span class="pager">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot active"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </span>
+        3 of 23
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
