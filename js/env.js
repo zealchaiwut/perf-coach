@@ -1,16 +1,13 @@
 (function () {
-  var label = document.getElementById('env-label');
-  if (!label) return;
-
-  fetch('/api/environment')
+  fetch('/api/env')
     .then(function (res) { return res.json(); })
     .then(function (data) {
-      var env = (data.environment || '').toUpperCase();
-      label.textContent = env;
-      if (env === 'UAT') label.classList.add('uat');
-      if (env === 'PRD') label.classList.add('prd');
+      var env = (data.environment || 'local').toLowerCase();
+      document.body.dataset.env = env;
+      var label = document.getElementById('env-label');
+      if (label) label.textContent = env.toUpperCase();
     })
     .catch(function () {
-      label.textContent = 'DEV';
+      document.body.dataset.env = 'local';
     });
 }());

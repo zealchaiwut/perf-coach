@@ -1,8 +1,11 @@
 import os
+import time
 import uuid as _uuid
 from datetime import date as _date
 from pathlib import Path
 from typing import Optional
+
+_start_time = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -26,7 +29,18 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
 
 @app.get("/api/health")
 def health():
-    return JSONResponse({"status": "ok", "database": check_db(), "environment": environment})
+    return JSONResponse({
+        "status": "ok",
+        "environment": environment,
+        "version": os.getenv("GIT_SHA", "unknown"),
+        "db": check_db(),
+        "uptime_seconds": round(time.monotonic() - _start_time, 1),
+    })
+
+
+@app.get("/api/env")
+def get_env():
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/environment")
