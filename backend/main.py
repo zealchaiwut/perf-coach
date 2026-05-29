@@ -29,6 +29,22 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 @app.get("/api/health")
 def health():
+    """Return service health status.
+
+    Response schema (current — introduced in #155/#156):
+        {
+            "status":          "ok" | "degraded",
+            "environment":     "uat" | "prd" | "local",
+            "version":         "<GIT_SHA>" | "unknown",
+            "db":              "ok" | "error: <msg>",
+            "uptime_seconds":  <int>
+        }
+
+    Breaking changes from the previous schema:
+        - "database" key renamed to "db"
+        - "version" field added (git SHA injected at deploy time via GIT_SHA env var)
+        - "uptime_seconds" field added
+    """
     return JSONResponse({
         "status": "ok",
         "environment": environment,
@@ -748,6 +764,7 @@ class ExerciseIn(BaseModel):
     avg_hr: Optional[int] = None
 
 
+# Compound sources (e.g. 'strava,stryd') are supported so a single workout can carry data from multiple integrations.
 _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
 
 
@@ -2365,8 +2382,8 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch):
             pr.track_name = body.track_name.strip()
         if "source" in body.model_fields_set:
             pr.source = body.source
-        from sqlalchemy import text as _sql_text
-        session.execute(_sql_text("UPDATE personal_records SET updated_at = now() WHERE id = :id"), {"id": str(rid)})
+        from sqlalchemy.sql import func as _func
+        pr.updated_at = _func.now()
         session.commit()
         session.refresh(pr)
         return JSONResponse(_pr_dict(pr))
