@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, User, WeightEntry, Workout, WorkoutExercise
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise
 
 __version__ = "0.1.0"
 
@@ -2039,3 +2039,147 @@ def get_training_log(
         })
 
     return JSONResponse({"weeks": weeks})
+
+
+# ── Personal records endpoints ────────────────────────────────────────────────
+
+VALID_TRACK_TYPES = {"time", "weight"}
+
+
+class PersonalRecordIn(BaseModel):
+    user_id: str
+    track_key: str
+    track_name: str
+    track_type: str
+    value_numeric: float
+    achieved_on: str  # YYYY-MM-DD
+    source: Optional[str] = None
+
+
+class PersonalRecordPatch(BaseModel):
+    track_key: Optional[str] = None
+    track_name: Optional[str] = None
+    track_type: Optional[str] = None
+    value_numeric: Optional[float] = None
+    achieved_on: Optional[str] = None
+    source: Optional[str] = None
+
+
+def _pr_dict(pr: PersonalRecord) -> dict:
+    return {
+        "id": str(pr.id),
+        "user_id": str(pr.user_id),
+        "track_key": pr.track_key,
+        "track_name": pr.track_name,
+        "track_type": pr.track_type,
+        "value_numeric": float(pr.value_numeric),
+        "achieved_on": str(pr.achieved_on),
+        "source": pr.source,
+        "created_at": pr.created_at.isoformat() if pr.created_at else None,
+        "updated_at": pr.updated_at.isoformat() if pr.updated_at else None,
+    }
+
+
+@app.get("/api/personal-records")
+def list_personal_records(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        rows = (
+            session.query(PersonalRecord)
+            .filter(PersonalRecord.user_id == uid)
+            .order_by(PersonalRecord.achieved_on.desc())
+            .all()
+        )
+        return JSONResponse([_pr_dict(r) for r in rows])
+
+
+@app.post("/api/personal-records", status_code=201)
+def create_personal_record(body: PersonalRecordIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if body.track_type not in VALID_TRACK_TYPES:
+        raise HTTPException(status_code=422, detail="track_type must be 'time' or 'weight'")
+    if body.value_numeric <= 0:
+        raise HTTPException(status_code=422, detail="value_numeric must be > 0")
+    try:
+        achieved = _date.fromisoformat(body.achieved_on)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
+    if achieved > _date.today():
+        raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        pr = PersonalRecord(
+            user_id=uid,
+            track_key=body.track_key.strip(),
+            track_name=body.track_name.strip(),
+            track_type=body.track_type,
+            value_numeric=body.value_numeric,
+            achieved_on=achieved,
+            source=body.source,
+        )
+        session.add(pr)
+        session.commit()
+        session.refresh(pr)
+        return JSONResponse(status_code=201, content=_pr_dict(pr))
+
+
+@app.patch("/api/personal-records/{record_id}")
+def patch_personal_record(record_id: str, body: PersonalRecordPatch):
+    try:
+        rid = _uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid record_id")
+    with Session(engine) as session:
+        pr = session.get(PersonalRecord, rid)
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Personal record not found")
+        if body.track_type is not None:
+            if body.track_type not in VALID_TRACK_TYPES:
+                raise HTTPException(status_code=422, detail="track_type must be 'time' or 'weight'")
+            pr.track_type = body.track_type
+        if body.value_numeric is not None:
+            if body.value_numeric <= 0:
+                raise HTTPException(status_code=422, detail="value_numeric must be > 0")
+            pr.value_numeric = body.value_numeric
+        if body.achieved_on is not None:
+            try:
+                achieved = _date.fromisoformat(body.achieved_on)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
+            if achieved > _date.today():
+                raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
+            pr.achieved_on = achieved
+        if body.track_key is not None:
+            pr.track_key = body.track_key.strip()
+        if body.track_name is not None:
+            pr.track_name = body.track_name.strip()
+        if "source" in body.model_fields_set:
+            pr.source = body.source
+        from sqlalchemy import text as _sql_text
+        session.execute(_sql_text("UPDATE personal_records SET updated_at = now() WHERE id = :id"), {"id": str(rid)})
+        session.commit()
+        session.refresh(pr)
+        return JSONResponse(_pr_dict(pr))
+
+
+@app.delete("/api/personal-records/{record_id}", status_code=204)
+def delete_personal_record(record_id: str):
+    try:
+        rid = _uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid record_id")
+    with Session(engine) as session:
+        pr = session.get(PersonalRecord, rid)
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Personal record not found")
+        session.delete(pr)
+        session.commit()
+    return Response(status_code=204)
