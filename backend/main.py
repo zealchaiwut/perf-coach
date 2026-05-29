@@ -1901,12 +1901,14 @@ def get_training_log(
     from datetime import timedelta
     today = _date.today()
 
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
     uid = None
-    if user_id:
-        try:
-            uid = _uuid.UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:
