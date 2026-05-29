@@ -17,8 +17,6 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
-_start_time = time.monotonic()
-
 app = FastAPI()
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
@@ -29,6 +27,21 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 @app.get("/api/health")
 def health():
+    """Return service liveness and environment metadata.
+
+    Response schema:
+        {
+            "status":          "ok",
+            "environment":     str  (ENVIRONMENT env var, defaults to "local"),
+            "version":         str  (GIT_SHA env var, defaults to "unknown"),
+            "db":              "ok" | "error",
+            "uptime_seconds":  int
+        }
+
+    Always returns HTTP 200. "db" is "error" when SELECT 1 fails or times out
+    (hard cap: 2 s). "status" is always "ok" regardless of db state.
+    No authentication or user_id required.
+    """
     return JSONResponse({
         "status": "ok",
         "environment": environment,
