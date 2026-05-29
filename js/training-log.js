@@ -671,8 +671,8 @@
           csvField(entry.date),
           csvField(entry.type),
           csvField(entry.title),
-          csvField(entry.distance_km     != null ? entry.distance_km     : ''),
-          csvField(entry.duration_minutes != null ? entry.duration_minutes : ''),
+          csvField(entry.distance_km      != null ? entry.distance_km      : ''),
+          csvField(entry.duration_seconds != null ? Math.round(entry.duration_seconds / 60 * 10) / 10 : ''),
           csvField(entry.avg_hr          != null ? entry.avg_hr          : ''),
           csvField(entry.tss             != null ? entry.tss             : ''),
           csvField(entry.source)
