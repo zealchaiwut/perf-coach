@@ -1889,6 +1889,15 @@ def _metric_has_data(m: DailyMetric) -> bool:
     )
 
 
+def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
+    """Return seconds-per-km pace for run/bike workouts; None otherwise."""
+    if workout_type not in ("run", "bike"):
+        return None
+    if duration_seconds is None or distance_km is None or float(distance_km) == 0:
+        return None
+    return round(duration_seconds / float(distance_km), 2)
+
+
 @app.get("/api/training-log")
 def get_training_log(
     user_id: Optional[str] = Query(default=None),
@@ -1976,6 +1985,7 @@ def get_training_log(
             "title": w.name,
             "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
             "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "weight_context": w.remarks,
             "avg_hr": w.avg_hr,
             "tss": float(w.tss) if w.tss is not None else None,
