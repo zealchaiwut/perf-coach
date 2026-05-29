@@ -746,6 +746,7 @@ class ExerciseIn(BaseModel):
     avg_hr: Optional[int] = None
 
 
+# Compound sources (e.g. 'strava,stryd') are supported so a single workout can carry data from multiple integrations.
 _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
 
 
