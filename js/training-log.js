@@ -1,831 +1,983 @@
 (function () {
   'use strict';
 
-  var TYPE_COLOR = { run: '#3b82f6', lift: '#8b5cf6', wod: '#f97316', bike: '#14b8a6' };
-  var TYPE_LABEL = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
-  var TYPE_BADGE_BG    = { run: '#dbeafe', lift: '#ede9fe', wod: '#ffedd5', bike: '#ccfbf1' };
-  var TYPE_BADGE_COLOR = { run: '#1d4ed8', lift: '#6d28d9', wod: '#c2410c', bike: '#0f766e' };
-  var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // ── State ─────────────────────────────────────────────────────────────────
+  var filters               = { type: 'all', search: '', from: '', to: '' };
+  var lastWeeks             = [];
+  var activeDetailWorkoutId = null;
+  var activeTriggerEl       = null;
 
-  var state = { search: '', type: 'all', range: '30d', weekOffset: 0 };
-  var visibleWorkouts = [];
-  // allWorkoutsByDate: { 'YYYY-MM-DD': ['run', 'lift', ...], ... }
-  // Populated from the API response; used by the week strip for dots.
-  var allWorkoutsByDate = null;
-  var panelOriginRow = null;
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function pad(n) { return String(n).padStart(2, '0'); }
 
-  // ── Date helpers ──────────────────────────────────────────────────────────
-
-  function ymd(date) {
-    return date.toISOString().slice(0, 10);
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
-  function todayYMD() {
-    return ymd(new Date());
+  function addDays(iso, n) {
+    var d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
-  // Returns the Monday of the week that is `offset` weeks from the current week.
-  function getWeekMonday(offset) {
-    var today = new Date();
-    var dow = today.getDay(); // 0=Sun
-    var daysToMon = dow === 0 ? -6 : 1 - dow;
-    var mon = new Date(today);
-    mon.setDate(today.getDate() + daysToMon + offset * 7);
-    mon.setHours(0, 0, 0, 0);
-    return mon;
+  var MONTHS   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-
-  function isoToDate(iso) {
-    return new Date(iso + 'T00:00:00');
-  }
-
-  function isoWeekNum(date) {
-    var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    var dayNum = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-    var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-  }
-
-  function weekDateRange(weekStart, weekEnd) {
-    var s = isoToDate(weekStart);
-    var e = isoToDate(weekEnd);
-    var startStr = MONTH_NAMES[s.getMonth()] + ' ' + s.getDate();
-    if (s.getMonth() !== e.getMonth()) {
-      return startStr + ' – ' + MONTH_NAMES[e.getMonth()] + ' ' + e.getDate();
-    }
-    return startStr + ' – ' + e.getDate();
-  }
-
-  // ── State ↔ URL ───────────────────────────────────────────────────────────
-
-  function loadFromURL() {
-    var p = new URLSearchParams(location.search);
-    if (p.get('search')) state.search = p.get('search');
-    if (p.get('types'))  state.type   = p.get('types');
-    if (p.get('range'))  state.range  = p.get('range');
-
-    document.getElementById('search-input').value = state.search;
-    document.querySelectorAll('.type-filter-chip').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.type === state.type);
-    });
-    document.getElementById('date-range').value = state.range;
-  }
-
-  function syncToURL() {
-    var p = new URLSearchParams();
-    if (state.search)           p.set('search', state.search);
-    if (state.type !== 'all')   p.set('types',  state.type);
-    if (state.range !== '30d')  p.set('range',  state.range);
-    var qs = p.toString();
-    history.replaceState(null, '', qs ? ('?' + qs) : location.pathname);
-  }
-
-  // ── Week strip ────────────────────────────────────────────────────────────
-
-  function weekLabel(mon) {
-    var thisMonKey = ymd(getWeekMonday(0));
-    if (ymd(mon) === thisMonKey) return 'This week';
-    var sun = new Date(mon);
-    sun.setDate(mon.getDate() + 6);
-    var startStr = mon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return startStr + ' – ' + sun.getDate();
-  }
-
-  function renderWeekStrip() {
-    var mon = getWeekMonday(state.weekOffset);
-    document.getElementById('week-label').textContent = weekLabel(mon);
-
-    var today = todayYMD();
-    var dotsByDate = {};
-    if (allWorkoutsByDate !== null) {
-      dotsByDate = allWorkoutsByDate;
-    } else {
-      // Fallback to mock data until the first API response arrives
-      var mockWks = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
-      mockWks.forEach(function (w) {
-        if (!dotsByDate[w.date]) dotsByDate[w.date] = [];
-        if (dotsByDate[w.date].indexOf(w.type) === -1) dotsByDate[w.date].push(w.type);
-      });
-    }
-
-    var container = document.getElementById('week-pills');
-    container.innerHTML = '';
-    for (var i = 0; i < 7; i++) {
-      var d = new Date(mon);
-      d.setDate(mon.getDate() + i);
-      var dateStr = ymd(d);
-      var isToday = dateStr === today;
-
-      var btn = document.createElement('button');
-      btn.className = 'day-pill' + (isToday ? ' today' : '');
-      btn.dataset.date = dateStr;
-
-      var types = dotsByDate[dateStr] || [];
-      var dotsHTML = types.map(function (t) {
-        return '<span class="dot" style="background:' + (TYPE_COLOR[t] || '#ccc') + '"></span>';
-      }).join('');
-
-      btn.innerHTML =
-        '<span class="day-name">' + DAY_NAMES[d.getDay()] + '</span>' +
-        '<span class="day-num">'  + d.getDate() + '</span>' +
-        '<div class="day-dots">'  + dotsHTML + '</div>';
-
-      btn.addEventListener('click', scrollToDate.bind(null, dateStr));
-      container.appendChild(btn);
-    }
-  }
-
-  function scrollToDate(dateStr) {
-    var row = document.querySelector('.workout-row[data-date="' + dateStr + '"], .rest-day-row[data-date="' + dateStr + '"]');
-    if (row) {
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    // Fall back: scroll to the week section containing this date
-    var sections = document.querySelectorAll('.week-section');
-    for (var i = 0; i < sections.length; i++) {
-      var s = sections[i];
-      if (dateStr >= s.dataset.weekStart && dateStr <= s.dataset.weekEnd) {
-        s.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-    }
-  }
-
-  // ── Date range resolution ─────────────────────────────────────────────────
-
-  function getFromTo() {
-    var today = todayYMD();
-    if (state.range === 'all') return { from: '2000-01-01', to: today };
-    var days = parseInt(state.range, 10);
-    var from = new Date();
-    from.setDate(from.getDate() - days + 1);
-    from.setHours(0, 0, 0, 0);
-    return { from: ymd(from), to: today };
-  }
-
-  // ── Mock API ──────────────────────────────────────────────────────────────
-  // Simulates GET /api/training-log?from=&to=&types=&search=&include_rest=
-  // Returns { weeks: [...] } matching the documented JSON shape.
-
-  function mockFetch(params) {
-    var allWorkouts = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
-    var allRestDays = typeof MOCK_REST_DAYS !== 'undefined' ? MOCK_REST_DAYS : [];
-
-    var filtered = allWorkouts.filter(function (w) {
-      if (w.date < params.from || w.date > params.to) return false;
-      if (params.types && params.types !== 'all' && w.type !== params.types) return false;
-      if (params.search) {
-        var q = params.search.toLowerCase();
-        var inTitle = w.title.toLowerCase().indexOf(q) !== -1;
-        var inNotes = (w.notes || '').toLowerCase().indexOf(q) !== -1;
-        if (!inTitle && !inNotes) return false;
-      }
-      return true;
-    });
-
-    var workoutDates = {};
-    allWorkouts.forEach(function (w) {
-      if (w.date >= params.from && w.date <= params.to) workoutDates[w.date] = true;
-    });
-
-    var filteredRest = [];
-    if (!params.types || params.types === 'all') {
-      filteredRest = allRestDays.filter(function (r) {
-        if (r.date < params.from || r.date > params.to) return false;
-        return !workoutDates[r.date];
-      });
-    }
-
-    filtered.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
-    filteredRest.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
-
-    var weeksMap = {};
-    var weekOrder = [];
-
-    function getOrCreateWeek(dateStr) {
-      var d = isoToDate(dateStr);
-      var dow = d.getDay();
-      var daysToMon = dow === 0 ? -6 : 1 - dow;
-      var mon = new Date(d);
-      mon.setDate(d.getDate() + daysToMon);
-      var key = ymd(mon);
-      if (!weeksMap[key]) {
-        var sun = new Date(mon);
-        sun.setDate(mon.getDate() + 6);
-        weeksMap[key] = {
-          week_start: key,
-          week_end: ymd(sun),
-          label: weekLabel(mon),
-          workouts: [],
-          restDays: [],
-        };
-        weekOrder.push(key);
-      }
-      return key;
-    }
-
-    filtered.forEach(function (w) {
-      var key = getOrCreateWeek(w.date);
-      weeksMap[key].workouts.push(w);
-    });
-
-    filteredRest.forEach(function (r) {
-      var key = getOrCreateWeek(r.date);
-      weeksMap[key].restDays.push(r);
-    });
-
-    weekOrder.sort(function (a, b) { return b < a ? -1 : b > a ? 1 : 0; });
-
-    var weeks = weekOrder.map(function (key) {
-      var week = weeksMap[key];
-      var ws = week.workouts;
-      var entries = ws.concat(week.restDays);
-      entries.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
-      return {
-        week_start: week.week_start,
-        week_end: week.week_end,
-        label: week.label,
-        entries: entries,
-        workouts: ws,
-        summary: {
-          workout_count:      ws.length,
-          total_distance_km:  ws.reduce(function (s, w) { return s + (w.distance_km || 0); }, 0),
-          total_tss:          ws.reduce(function (s, w) { return s + (w.tss || 0); }, 0),
-          total_time_minutes: ws.reduce(function (s, w) { return s + (w.duration_minutes || 0); }, 0),
-        },
-      };
-    });
-
-    return { weeks: weeks };
-  }
-
-  // ── Formatters ────────────────────────────────────────────────────────────
-
-  function fmtDuration(minutes) {
-    var h = Math.floor(minutes / 60);
-    var m = minutes % 60;
-    if (h === 0) return m + 'm';
-    return m === 0 ? h + 'h' : h + 'h ' + m + 'm';
-  }
-
-  function fmtPace(distKm, durMin) {
-    if (!distKm) return '';
-    var secPerKm = (durMin * 60) / distKm;
-    var pMin = Math.floor(secPerKm / 60);
-    var pSec = String(Math.round(secPerKm % 60)).padStart(2, '0');
-    return pMin + ':' + pSec + '/km';
-  }
-
-  function metaLine(w) {
-    var parts = [fmtDuration(w.duration_minutes)];
-    if (w.distance_km) parts.push(w.distance_km + ' km');
-    if (w.type === 'run'  && w.distance_km) parts.push(fmtPace(w.distance_km, w.duration_minutes));
-    if (w.type === 'bike' && w.distance_km) {
-      parts.push(((w.distance_km / w.duration_minutes) * 60).toFixed(1) + ' km/h');
-    }
-    if (w.weight_context) parts.push(w.weight_context);
-    if (w.avg_hr) parts.push(w.avg_hr + ' bpm avg');
-    return parts.join(' · ');
-  }
-
-  function primaryMetric(w) {
-    if (w.distance_km) return w.distance_km + ' km';
-    if (w.weight_context) return w.weight_context;
-    return fmtDuration(w.duration_minutes);
-  }
-
-  function tssPillClass(tss) {
-    if (!tss || tss <= 50) return 'tss-grey';
-    if (tss <= 80) return 'tss-amber';
-    return 'tss-red';
-  }
-
-  // ── Renderers ─────────────────────────────────────────────────────────────
-
-  function renderRestDayRow(entry) {
-    var d = isoToDate(entry.date);
-    var m = entry.metrics || {};
-    var sleep_hours = entry.sleep_hours != null ? entry.sleep_hours : m.sleep_hours;
-    var energy      = entry.energy     != null ? entry.energy     : m.energy;
-    var mood        = entry.mood       != null ? entry.mood       : m.mood;
-    var resting_hr  = entry.resting_hr != null ? entry.resting_hr : m.resting_hr;
-    var hrv         = m.hrv;
-    var notes       = m.notes;
-
-    var parts = [];
-    if (sleep_hours != null) parts.push('sleep ' + sleep_hours + 'h');
-    if (energy != null)      parts.push('energy ' + energy);
-    if (mood != null)        parts.push('mood ' + mood);
-    var label = 'Rest day' + (parts.length ? ' - ' + parts.join(', ') : '');
-
-    var notesPart = '';
-    if (notes) {
-      var truncated = notes.length > 80 ? notes.slice(0, 80) + '…' : notes;
-      notesPart = '<span class="rest-notes">' + escHtml(truncated) + '</span>';
-    }
-
-    var div = document.createElement('div');
-    div.className = 'rest-day-row';
-    div.dataset.date = entry.date;
-
-    div.innerHTML =
-      '<div class="workout-date-col">' +
-        '<span class="workout-day-num">'  + d.getDate() + '</span>' +
-        '<span class="workout-day-name">' + DAY_NAMES[d.getDay()] + '</span>' +
-      '</div>' +
-      '<span class="rest-badge">Rest</span>' +
-      '<div class="rest-metrics">' +
-        '<span class="rest-day-label">' + escHtml(label) + '</span>' +
-        notesPart +
-      '</div>';
-
-    return div;
-  }
-
-  function renderWorkoutRow(w) {
-    var d = isoToDate(w.date);
-    var badgeBg    = TYPE_BADGE_BG[w.type]    || '#f0f0f0';
-    var badgeColor = TYPE_BADGE_COLOR[w.type] || '#555';
-    var typeLabel  = TYPE_LABEL[w.type]       || w.type;
-
-    var div = document.createElement('div');
-    div.className = 'workout-row';
-    div.dataset.date = w.date;
-
-    div.innerHTML =
-      '<div class="workout-date-col">' +
-        '<span class="workout-day-num">'  + d.getDate() + '</span>' +
-        '<span class="workout-day-name">' + DAY_NAMES[d.getDay()] + '</span>' +
-      '</div>' +
-      '<span class="workout-type-badge" style="background:' + badgeBg + ';color:' + badgeColor + '">' + typeLabel + '</span>' +
-      '<div class="workout-info">' +
-        '<div class="workout-title">'     + escHtml(w.title)       + '</div>' +
-        '<div class="workout-meta-line">' + metaLine(w)             + '</div>' +
-      '</div>' +
-      '<div class="workout-primary-metric">' + primaryMetric(w) + '</div>' +
-      '<span class="tss-pill ' + tssPillClass(w.tss) + '">' + (w.tss ? 'TSS ' + w.tss : '—') + '</span>' +
-      '<span class="source-pill source-' + (w.source || 'manual').toLowerCase() + '">' + ((w.source || '').toLowerCase() === 'strava' ? 'Strava' : 'Manual') + '</span>' +
-      '<span class="workout-chevron">›</span>';
-
-    div.setAttribute('tabindex', '0');
-    div.setAttribute('role', 'button');
-    div.addEventListener('click', function () { openPanel(w.id, div); });
-    div.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(w.id, div); }
-    });
-    return div;
-  }
-
-  function renderWeekSection(week) {
-    var s = week.summary;
-    var summaryItems = [s.workout_count + ' workout' + (s.workout_count !== 1 ? 's' : '')];
-    if (s.total_distance_km > 0) summaryItems.push(s.total_distance_km.toFixed(1) + ' km');
-    summaryItems.push('TSS ' + Math.round(s.total_tss));
-    summaryItems.push(fmtDuration(Math.round(s.total_time_minutes)));
-
-    var weekStartDate = isoToDate(week.week_start);
-    var weekHeading   = 'Week ' + isoWeekNum(weekStartDate);
-    var dateRange     = weekDateRange(week.week_start, week.week_end);
-
-    var section = document.createElement('section');
-    section.className = 'week-section';
-    section.dataset.weekStart = week.week_start;
-    section.dataset.weekEnd   = week.week_end;
-    section.id = 'week-' + week.week_start;
-
-    var header = document.createElement('div');
-    header.className = 'week-section-header';
-    header.innerHTML =
-      '<div class="week-section-label-group">' +
-        '<span class="week-section-label">' + weekHeading + '</span>' +
-        '<span class="week-section-daterange">' + dateRange + '</span>' +
-      '</div>' +
-      '<div class="week-section-summary">' +
-        summaryItems.map(function (t) { return '<span>' + t + '</span>'; }).join('') +
-      '</div>';
-    section.appendChild(header);
-
-    var rows = document.createElement('div');
-    rows.className = 'workout-rows';
-    (week.entries || week.workouts).forEach(function (e) {
-      rows.appendChild(e.type === 'rest' ? renderRestDayRow(e) : renderWorkoutRow(e));
-    });
-    section.appendChild(rows);
-
-    return section;
-  }
-
-  function renderList(weeks) {
-    var list = document.getElementById('workout-list');
-    var emptyMsg = document.getElementById('log-empty-msg');
-    var errorMsg = document.getElementById('log-error-msg');
-    // Remove skeleton and week sections; preserve the static state elements
-    Array.from(list.children).forEach(function (child) {
-      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
-    });
-    if (errorMsg) errorMsg.style.display = 'none';
-
-    if (!weeks || weeks.length === 0) {
-      if (emptyMsg) {
-        var titleEl = emptyMsg.querySelector('.empty-state-title');
-        var descEl  = emptyMsg.querySelector('.empty-state-desc');
-        var ctaEl   = document.getElementById('log-empty-cta');
-        var hasFilters = state.search || state.type !== 'all' || state.range !== '30d';
-        if (titleEl) titleEl.textContent = hasFilters ? 'No workouts in this range' : 'No workouts here yet';
-        if (descEl)  descEl.textContent  = hasFilters ? 'Try adjusting your filters or date range.' : 'Log your first workout to start tracking your training.';
-        if (ctaEl)   ctaEl.style.display = hasFilters ? 'none' : '';
-        emptyMsg.style.display = '';
-      }
-      return;
-    }
-
-    if (emptyMsg) emptyMsg.style.display = 'none';
-    weeks.forEach(function (week) { list.appendChild(renderWeekSection(week)); });
-  }
-
-  function renderListError() {
-    var list = document.getElementById('workout-list');
-    var emptyMsg = document.getElementById('log-empty-msg');
-    var errorMsg = document.getElementById('log-error-msg');
-    Array.from(list.children).forEach(function (child) {
-      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
-    });
-    if (emptyMsg) emptyMsg.style.display = 'none';
-    if (errorMsg) errorMsg.style.display = '';
-  }
-
-  // ── Apply filters ─────────────────────────────────────────────────────────
-
-  async function applyFilters() {
-    syncToURL();
-    var list = document.getElementById('workout-list');
-    var emptyMsg  = document.getElementById('log-empty-msg');
-    var errorMsg  = document.getElementById('log-error-msg');
-    // Show skeleton, hide state elements, clear previous week sections
-    Array.from(list.children).forEach(function (child) {
-      if (child.id !== 'log-empty-msg' && child.id !== 'log-error-msg') child.remove();
-    });
-    if (emptyMsg) emptyMsg.style.display = 'none';
-    if (errorMsg) errorMsg.style.display = 'none';
-    var loadingEl = document.createElement('div');
-    loadingEl.className = 'skeleton-list';
-    loadingEl.innerHTML =
-      '<div class="skeleton-row"></div>' +
-      '<div class="skeleton-row"></div>' +
-      '<div class="skeleton-row"></div>';
-    list.insertBefore(loadingEl, emptyMsg || null);
-
-    var range = getFromTo();
-    var data;
-
-    try {
-      var url = '/api/training-log?from=' + range.from + '&to=' + range.to +
-        (state.type !== 'all' ? '&types=' + encodeURIComponent(state.type) : '') +
-        (state.search ? '&search=' + encodeURIComponent(state.search) : '');
-      var res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      data = await res.json();
-    } catch (_) {
-      loadingEl.remove();
-      renderListError();
-      return;
-    }
-
-    visibleWorkouts = (data.weeks || []).reduce(function (acc, w) { return acc.concat(w.workouts); }, []);
-
-    // Rebuild dot index from the loaded workouts (all non-rest entries in the response)
-    var newDotsByDate = {};
-    (data.weeks || []).forEach(function (week) {
-      (week.workouts || []).forEach(function (w) {
-        if (!newDotsByDate[w.date]) newDotsByDate[w.date] = [];
-        if (newDotsByDate[w.date].indexOf(w.type) === -1) newDotsByDate[w.date].push(w.type);
-      });
-    });
-    allWorkoutsByDate = newDotsByDate;
-
-    setSyncText(visibleWorkouts);
-    renderList(data.weeks || []);
-    renderWeekStrip();
-  }
-
-  // ── Detail panel ─────────────────────────────────────────────────────────
-
-  function openPanel(workoutId, originRow) {
-    panelOriginRow = originRow || null;
-    var panel   = document.getElementById('detail-panel');
-    var logBody = document.getElementById('log-body');
-
-    // Reset header
-    document.getElementById('detail-panel-title').textContent = '';
-    document.getElementById('detail-panel-date').textContent  = '';
-    document.getElementById('detail-panel-source').classList.add('is-hidden');
-    document.getElementById('detail-strava-btn').style.display = 'none';
-
-    // Reset body
-    document.getElementById('detail-stat-grid').innerHTML = '';
-    document.getElementById('detail-exercise-section').style.display = 'none';
-    document.getElementById('detail-exercise-tbody').innerHTML        = '';
-    document.getElementById('detail-notes-section').style.display    = 'none';
-    document.getElementById('detail-notes-text').textContent          = '';
-    var existingEx = document.getElementById('detail-exercises-section');
-    if (existingEx) existingEx.remove();
-
-    // Show loading skeleton, hide error state
-    document.getElementById('detail-panel-loading').style.display = '';
-    document.getElementById('detail-panel-error').style.display   = 'none';
-
-    panel.classList.add('is-open');
-    logBody.classList.add('panel-open');
-
-    fetch('/api/workouts/' + encodeURIComponent(workoutId))
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        document.getElementById('detail-panel-loading').style.display = 'none';
-        renderPanelContent(data);
-      })
-      .catch(function () {
-        document.getElementById('detail-panel-loading').style.display = 'none';
-        document.getElementById('detail-panel-error').style.display   = '';
-      });
-  }
-
-  function closePanel() {
-    var panel   = document.getElementById('detail-panel');
-    var logBody = document.getElementById('log-body');
-    panel.classList.remove('is-open');
-    logBody.classList.remove('panel-open');
-    if (panelOriginRow) { panelOriginRow.focus(); panelOriginRow = null; }
-  }
-
-  function fmtDurationSec(seconds) {
-    if (seconds == null) return '—';
-    var h = Math.floor(seconds / 3600);
-    var m = Math.floor((seconds % 3600) / 60);
-    var s = seconds % 60;
-    if (h > 0) return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
-    if (m > 0) return m + 'm' + (s > 0 ? ' ' + s + 's' : '');
-    return s + 's';
-  }
-
-  function fmtPaceFromSec(distKm, durSeconds) {
-    if (!distKm || !durSeconds) return '—';
-    var secPerKm = durSeconds / distKm;
-    var pMin = Math.floor(secPerKm / 60);
-    var pSec = String(Math.round(secPerKm % 60)).padStart(2, '0');
-    return pMin + ':' + pSec + ' /km';
-  }
-
-  function fmtSpeedKmh(distKm, durSeconds) {
-    if (!distKm || !durSeconds) return '—';
-    return (distKm / (durSeconds / 3600)).toFixed(1) + ' km/h';
-  }
-
-  function panelDateStr(iso) {
-    var d = isoToDate(iso);
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
-  function renderPanelContent(workout) {
-    document.getElementById('detail-panel-title').textContent = workout.name || '—';
-    document.getElementById('detail-panel-date').textContent  = workout.workout_date ? panelDateStr(workout.workout_date) : '';
-
-    var sourcePill = document.getElementById('detail-panel-source');
-    if (workout.tss_source) {
-      sourcePill.textContent = workout.tss_source === 'manual' ? 'Manual' : 'Calculated';
-      sourcePill.classList.remove('is-hidden');
-    } else {
-      sourcePill.classList.add('is-hidden');
-    }
-
-    var wtype    = workout.workout_type;
-    var isRun    = wtype === 'run';
-    var isBike   = wtype === 'bike';
-    var hasDist  = workout.distance_km != null;
-    var hasDur   = workout.duration_seconds != null;
-    var showPaceSpeed = (isRun || isBike) && hasDist && hasDur;
-
-    var distVal = hasDist ? workout.distance_km + ' km' : '—';
-    var durVal  = fmtDurationSec(workout.duration_seconds);
-
-    var stats = [
-      { label: 'Distance',  value: distVal },
-      { label: 'Duration',  value: durVal },
-    ];
-
-    if (showPaceSpeed) {
-      if (isRun) {
-        stats.push({ label: 'Avg Pace',  value: fmtPaceFromSec(workout.distance_km, workout.duration_seconds) });
-      } else {
-        stats.push({ label: 'Avg Speed', value: fmtSpeedKmh(workout.distance_km, workout.duration_seconds) });
-      }
-    } else if (!isRun && !isBike) {
-      stats.push({ label: 'Exercises', value: workout.exercises ? String(workout.exercises.length) : '—' });
-    }
-
-    stats.push({ label: 'Avg HR',    value: workout.avg_hr     != null ? workout.avg_hr + ' bpm' : '—' });
-    stats.push({ label: 'Elevation', value: workout.elevation_m != null ? workout.elevation_m + ' m' : '—' });
-    stats.push({ label: 'TSS',       value: workout.tss        != null ? String(workout.tss)       : '—' });
-
-    var grid = document.getElementById('detail-stat-grid');
-    grid.innerHTML = '';
-    stats.forEach(function (s) {
-      var cell = document.createElement('div');
-      cell.className = 'stat-cell';
-      cell.innerHTML =
-        '<span class="stat-cell-label">' + escHtml(s.label) + '</span>' +
-        '<span class="stat-cell-value">' + escHtml(s.value) + '</span>';
-      grid.appendChild(cell);
-    });
-
-    var existingEx = document.getElementById('detail-exercises-section');
-    if (existingEx) existingEx.remove();
-    if (workout.exercises && workout.exercises.length > 0) {
-      var exSection = document.createElement('div');
-      exSection.id = 'detail-exercises-section';
-      exSection.className = 'exercises-section';
-      var exHeading = document.createElement('h3');
-      exHeading.className = 'exercises-section-heading';
-      exHeading.textContent = 'Exercises';
-      exSection.appendChild(exHeading);
-      workout.exercises.forEach(function (ex) {
-        var parts = [];
-        if (ex.sets != null && ex.reps != null) parts.push(ex.sets + ' × ' + ex.reps);
-        else if (ex.sets != null)               parts.push(ex.sets + ' sets');
-        if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
-        if (ex.duration)          parts.push(ex.duration);
-        if (ex.rpe != null)       parts.push('RPE ' + ex.rpe);
-        var item = document.createElement('div');
-        item.className = 'exercise-item';
-        item.innerHTML =
-          '<span class="exercise-name">'    + escHtml(ex.name) + '</span>' +
-          (parts.length ? '<span class="exercise-metrics">' + escHtml(parts.join(' · ')) + '</span>' : '');
-        exSection.appendChild(item);
-      });
-      grid.parentElement.appendChild(exSection);
-    }
-
-    document.getElementById('detail-edit-btn').onclick = function () {
-      location.href = 'training.html?edit=' + encodeURIComponent(workout.id);
-    };
-
-    var stravaBtn = document.getElementById('detail-strava-btn');
-    var isStrava  = (workout.source || '').toLowerCase() === 'strava';
-    if (isStrava && workout.strava_activity_url) {
-      stravaBtn.href = workout.strava_activity_url;
-      stravaBtn.style.display = '';
-    } else {
-      stravaBtn.style.display = 'none';
-    }
-
-    var notesSection = document.getElementById('detail-notes-section');
-    var notesText    = document.getElementById('detail-notes-text');
-    if (workout.remarks) {
-      notesText.textContent = workout.remarks;
-      notesSection.style.display = '';
-    } else {
-      notesSection.style.display = 'none';
-    }
-  }
-
-  // ── Export CSV ────────────────────────────────────────────────────────────
 
   function csvField(val) {
     var s = val == null ? '' : String(val);
-    if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+    if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
       return '"' + s.replace(/"/g, '""') + '"';
     }
     return s;
   }
 
-  function exportCSV() {
-    var range = getFromTo();
-    var rows = [['date', 'type', 'title', 'distance_km', 'duration_minutes', 'tss', 'avg_hr', 'source'].join(',')];
-    visibleWorkouts.forEach(function (w) {
-      rows.push([
-        csvField(w.date),
-        csvField(w.type),
-        csvField(w.title),
-        csvField(w.distance_km != null ? w.distance_km : ''),
-        csvField(w.duration_minutes != null ? w.duration_minutes : ''),
-        csvField(w.tss != null ? w.tss : ''),
-        csvField(w.avg_hr != null ? w.avg_hr : ''),
-        csvField(w.source),
-      ].join(','));
+  // Format duration for workout row meta: m:ss under 1h, h:mm:ss otherwise
+  function fmtDurationRow(secs) {
+    if (!secs || secs <= 0) return '';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = Math.round(secs % 60);
+    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+    return m + ':' + pad(s);
+  }
+
+  // Format total time for week summary: h:mm
+  function fmtTotalTime(totalMinutes) {
+    if (!totalMinutes || totalMinutes <= 0) return '';
+    var h = Math.floor(totalMinutes / 60);
+    var m = Math.round(totalMinutes % 60);
+    return h + ':' + pad(m);
+  }
+
+  function fmtDuration(secs) {
+    if (!secs) return '';
+    var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+    if (h > 0 && m > 0) return h + 'h ' + m + 'min';
+    if (h > 0) return h + 'h';
+    return m + 'min';
+  }
+
+  function fmtPace(secsPerKm) {
+    if (!secsPerKm) return '';
+    var m = Math.floor(secsPerKm / 60), s = Math.round(secsPerKm % 60);
+    return m + ':' + pad(s) + ' /km';
+  }
+
+  // Format a date "26 May" or "1 Jun"
+  function fmtShortDate(isoStr) {
+    var d = new Date(isoStr + 'T00:00:00');
+    return d.getDate() + ' ' + MONTHS[d.getMonth()];
+  }
+
+  // Detail panel duration: h:mm:ss or m:ss; null → em-dash
+  function fmtDurationDetail(secs) {
+    if (secs == null) return '—';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+    return m + ':' + pad(s);
+  }
+
+  // Run pace: returns "M:SS /km"; null/zero inputs → em-dash
+  function fmtPaceFromSec(durSeconds, distKm) {
+    if (!durSeconds || !distKm || distKm === 0) return '—';
+    var secsPerKm = durSeconds / distKm;
+    var pm = Math.floor(secsPerKm / 60);
+    var ps = Math.round(secsPerKm % 60);
+    return pm + ':' + pad(ps) + ' /km';
+  }
+
+  // Bike speed: returns "X.X km/h"; null/zero inputs → em-dash
+  function fmtSpeedKmh(durSeconds, distKm) {
+    if (!durSeconds || !distKm || distKm === 0) return '—';
+    var speed = distKm / (durSeconds / 3600);
+    return speed.toFixed(1) + ' km/h';
+  }
+
+  // Format ISO date string as "Tue, May 28"
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    return DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  // ── URL sync ──────────────────────────────────────────────────────────────
+  function readURLParams() {
+    var p = new URLSearchParams(window.location.search);
+    filters.type   = p.get('type')   || 'all';
+    filters.search = p.get('search') || '';
+    filters.from   = p.get('from')   || '';
+    filters.to     = p.get('to')     || '';
+  }
+
+  function writeURLParams() {
+    var p = new URLSearchParams();
+    if (filters.type && filters.type !== 'all') p.set('type',   filters.type);
+    if (filters.search)                          p.set('search', filters.search);
+    if (filters.from)                            p.set('from',   filters.from);
+    if (filters.to)                              p.set('to',     filters.to);
+    var qs = p.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }
+
+  // ── Date-range chip label ─────────────────────────────────────────────────
+  function drLabel() {
+    if (filters.from && filters.to)  return filters.from + ' – ' + filters.to;
+    if (filters.from)                return 'From ' + filters.from;
+    if (filters.to)                  return 'To ' + filters.to;
+    return 'Last 30 days';
+  }
+
+  // ── Build filter bar ──────────────────────────────────────────────────────
+  function buildFilterBar() {
+    var bar = document.getElementById('filter-bar');
+    if (!bar) return;
+
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'fb-search-wrap';
+    var searchInput = document.createElement('input');
+    searchInput.type        = 'text';
+    searchInput.id          = 'log-search';
+    searchInput.placeholder = 'Search workouts';
+    searchInput.value       = filters.search;
+    searchInput.spellcheck  = false;
+    searchInput.autocomplete = 'off';
+    searchWrap.appendChild(searchInput);
+    bar.appendChild(searchWrap);
+
+    var chipsRow = document.createElement('div');
+    chipsRow.className = 'fb-chips-row';
+    var TYPE_OPTS   = ['all','run','lift','wod','bike'];
+    var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
+    TYPE_OPTS.forEach(function (t) {
+      var chip = document.createElement('button');
+      chip.type        = 'button';
+      chip.className   = 'type-chip' + (t === filters.type ? ' active' : '');
+      chip.dataset.type = t;
+      chip.textContent = TYPE_LABELS[t];
+      chip.addEventListener('click', function () {
+        filters.type = t;
+        document.querySelectorAll('.type-chip').forEach(function (c) {
+          c.classList.toggle('active', c.dataset.type === t);
+        });
+        writeURLParams();
+        fetchAndRender();
+      });
+      chipsRow.appendChild(chip);
+    });
+    bar.appendChild(chipsRow);
+
+    var drWrap  = document.createElement('div');
+    drWrap.className = 'fb-daterange-wrap';
+
+    var drChip  = document.createElement('button');
+    drChip.type = 'button';
+    drChip.id   = 'dr-chip';
+    drChip.className = 'dr-chip';
+    drChip.setAttribute('aria-expanded', 'false');
+    drChip.textContent = drLabel() + ' ▾';
+
+    var drPanel = document.createElement('div');
+    drPanel.id     = 'dr-panel';
+    drPanel.className = 'dr-panel';
+    drPanel.hidden = true;
+
+    var fromLabel = document.createElement('label');
+    fromLabel.textContent = 'From';
+    fromLabel.htmlFor = 'dr-from';
+    var fromInput = document.createElement('input');
+    fromInput.type  = 'date';
+    fromInput.id    = 'dr-from';
+    fromInput.value = filters.from;
+
+    var toLabel = document.createElement('label');
+    toLabel.textContent = 'To';
+    toLabel.htmlFor = 'dr-to';
+    var toInput = document.createElement('input');
+    toInput.type  = 'date';
+    toInput.id    = 'dr-to';
+    toInput.value = filters.to;
+
+    var applyBtn = document.createElement('button');
+    applyBtn.type      = 'button';
+    applyBtn.className = 'btn-sm';
+    applyBtn.textContent = 'Apply';
+
+    drPanel.appendChild(fromLabel);
+    drPanel.appendChild(fromInput);
+    drPanel.appendChild(toLabel);
+    drPanel.appendChild(toInput);
+    drPanel.appendChild(applyBtn);
+    drWrap.appendChild(drChip);
+    drWrap.appendChild(drPanel);
+    bar.appendChild(drWrap);
+
+    var loadingEl = document.createElement('span');
+    loadingEl.id        = 'log-loading-indicator';
+    loadingEl.className = 'log-loading-indicator';
+    loadingEl.hidden    = true;
+    loadingEl.setAttribute('role', 'status');
+    loadingEl.setAttribute('aria-live', 'polite');
+    loadingEl.textContent = 'Loading…';
+    bar.appendChild(loadingEl);
+
+    // Search — 300 ms debounce
+    var searchTimer;
+    searchInput.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        filters.search = searchInput.value;
+        writeURLParams();
+        fetchAndRender();
+      }, 300);
     });
 
-    var blob = new Blob([rows.join('\r\n')], { type: 'text/csv' });
+    drChip.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var nowOpen = drPanel.hidden;
+      drPanel.hidden = !nowOpen;
+      drChip.setAttribute('aria-expanded', String(nowOpen));
+    });
+
+    applyBtn.addEventListener('click', function () {
+      filters.from = fromInput.value;
+      filters.to   = toInput.value;
+      drPanel.hidden = true;
+      drChip.setAttribute('aria-expanded', 'false');
+      drChip.textContent = drLabel() + ' ▾';
+      writeURLParams();
+      fetchAndRender();
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!drPanel.hidden && !drPanel.contains(e.target) && e.target !== drChip) {
+        drPanel.hidden = true;
+        drChip.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // ── List state helpers ────────────────────────────────────────────────────
+  function hideListMessages() {
+    var errEl   = document.getElementById('log-error-msg');
+    var emptyEl = document.getElementById('log-empty-msg');
+    if (errEl)   errEl.style.display   = 'none';
+    if (emptyEl) emptyEl.style.display = 'none';
+  }
+
+  function showListSkeleton() {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    var html = '';
+    for (var i = 0; i < 5; i++) {
+      html += '<div class="skeleton-row"></div>';
+    }
+    listEl.innerHTML = html;
+  }
+
+  function renderListError() {
+    var listEl = document.getElementById('log-list');
+    var errEl  = document.getElementById('log-error-msg');
+    if (listEl) listEl.innerHTML = '';
+    if (errEl)  errEl.style.display = '';
+  }
+
+  // ── Fetch & render ────────────────────────────────────────────────────────
+  function fetchAndRender() {
+    var loadingEl = document.getElementById('log-loading-indicator');
+    if (loadingEl) loadingEl.hidden = false;
+
+    hideListMessages();
+    showListSkeleton();
+
+    var today = todayISO();
+    var params = new URLSearchParams();
+
+    var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (userId) params.set('user_id', userId);
+
+    if (filters.type && filters.type !== 'all') params.set('types', filters.type);
+    if (filters.search) params.set('search', filters.search);
+    params.set('from', filters.from || addDays(today, -29));
+    params.set('to',   filters.to   || today);
+
+    fetch('/api/training-log?' + params.toString())
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        lastWeeks = data.weeks || [];
+        var listEl = document.getElementById('log-list');
+        renderList(listEl, lastWeeks);
+      })
+      .catch(function (_) {
+        renderListError();
+      })
+      .finally(function () {
+        if (loadingEl) loadingEl.hidden = true;
+      });
+  }
+
+  // ── Log list rendering ────────────────────────────────────────────────────
+  function renderList(container, weeks) {
+    if (!container) return;
+    container.innerHTML = '';
+
+    var hasFilters = filters.type !== 'all' || !!filters.search || !!filters.from || !!filters.to;
+
+    if (!weeks.length) {
+      if (!hasFilters) {
+        var emptyEl = document.getElementById('log-empty-msg');
+        if (emptyEl) emptyEl.style.display = '';
+      } else {
+        var msg = document.createElement('p');
+        msg.className   = 'log-empty';
+        msg.textContent = 'No workouts in this range.';
+        container.appendChild(msg);
+      }
+      return;
+    }
+
+    hideListMessages();
+    weeks.forEach(function (week) { container.appendChild(buildWeekGroup(week)); });
+  }
+
+  function renderRestDayRow(entry) {
+    var row = document.createElement('div');
+    row.className = 'rest-day-row';
+
+    var badge = document.createElement('span');
+    badge.className = 'rest-badge';
+    badge.textContent = 'Rest';
+    row.appendChild(badge);
+
+    var info = document.createElement('div');
+    info.className = 'rest-metrics';
+
+    var labelParts = [];
+    if (entry.sleep_hours != null) labelParts.push('sleep ' + entry.sleep_hours + 'h');
+    if (entry.energy != null) labelParts.push('energy ' + entry.energy);
+    if (entry.mood != null) labelParts.push('mood ' + entry.mood);
+    if (entry.resting_hr != null) labelParts.push('RHR ' + entry.resting_hr);
+
+    var label = document.createElement('span');
+    label.className = 'rest-day-label';
+    label.textContent = 'Rest day' + (labelParts.length ? ' - ' + labelParts.join(', ') : '');
+    info.appendChild(label);
+
+    var m = entry.metrics || {};
+    if (m.hrv != null) {
+      var hrvEl = document.createElement('span');
+      hrvEl.className = 'rest-metric-item';
+      hrvEl.textContent = 'HRV ' + m.hrv;
+      info.appendChild(hrvEl);
+    }
+
+    if (m.notes) {
+      var noteText = String(m.notes);
+      var notesEl = document.createElement('span');
+      notesEl.className = 'rest-notes';
+      notesEl.textContent = noteText.length > 80 ? noteText.slice(0, 80) + '…' : noteText;
+      info.appendChild(notesEl);
+    }
+
+    row.appendChild(info);
+    return row;
+  }
+
+  function buildWeekGroup(week) {
+    var s  = week.summary || {};
+    var ws = week.workouts || [];
+
+    // Date range for header (e.g. "26 May – 1 Jun")
+    var dateRange = '';
+    if (week.week_start && week.week_end) {
+      dateRange = fmtShortDate(week.week_start) + ' – ' + fmtShortDate(week.week_end);
+    }
+
+    var count = s.workout_count || ws.length;
+    var countStr = count + ' workout' + (count !== 1 ? 's' : '');
+    var totalTime = fmtTotalTime(s.total_time_minutes);
+
+    var summaryParts = [countStr];
+    var dist = s.total_distance_km;
+    if (dist && dist > 0) summaryParts.push((+dist).toFixed(1) + ' km');
+    if (s.total_tss > 0) summaryParts.push('TSS ' + (+s.total_tss).toFixed(0));
+    if (totalTime) summaryParts.push(totalTime);
+
+    var groupEl = document.createElement('div');
+    groupEl.className = 'week-group';
+
+    var header = document.createElement('div');
+    header.className = 'week-group-header';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'week-group-title';
+    titleEl.textContent = week.label || '';
+
+    var rangeEl = document.createElement('div');
+    rangeEl.className = 'week-group-daterange';
+    rangeEl.textContent = dateRange;
+
+    var summaryEl = document.createElement('div');
+    summaryEl.className = 'week-group-summary';
+    summaryParts.forEach(function (part, i) {
+      if (i > 0) {
+        var sep = document.createElement('span');
+        sep.className = 'summary-sep';
+        sep.textContent = '·';
+        summaryEl.appendChild(sep);
+      }
+      var span = document.createElement('span');
+      span.textContent = part;
+      summaryEl.appendChild(span);
+    });
+
+    header.appendChild(titleEl);
+    header.appendChild(rangeEl);
+    header.appendChild(summaryEl);
+    groupEl.appendChild(header);
+
+    var dayMap = {};
+    (week.entries || []).forEach(function (e) {
+      if (!dayMap[e.date]) dayMap[e.date] = [];
+      dayMap[e.date].push(e);
+    });
+
+    Object.keys(dayMap).sort().reverse().forEach(function (dateStr) {
+      var sec = document.createElement('div');
+      sec.className = 'day-section';
+      sec.id        = 'day-' + dateStr;
+
+      var dl = document.createElement('div');
+      dl.className = 'day-label';
+      var d = new Date(dateStr + 'T00:00:00');
+      dl.textContent = DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+      sec.appendChild(dl);
+
+      dayMap[dateStr].forEach(function (entry) {
+        sec.appendChild(entry.type === 'rest' ? renderRestDayRow(entry) : buildEntryRow(entry));
+      });
+      groupEl.appendChild(sec);
+    });
+
+    return groupEl;
+  }
+
+  function buildEntryRow(w) {
+    var row = document.createElement('div');
+    row.className = 'entry-row';
+
+    if (w.id) {
+      row.setAttribute('tabindex', '0');
+      var rowRef = row;
+      row.addEventListener('click', function () {
+        openDetailPanel(w.id, rowRef);
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openDetailPanel(w.id, rowRef);
+        }
+      });
+    }
+
+    // Date column
+    var dateCol = document.createElement('div');
+    dateCol.className = 'entry-date';
+    var d = new Date((w.date || '') + 'T00:00:00');
+    var dayNumEl = document.createElement('div');
+    dayNumEl.className = 'entry-day-num';
+    dayNumEl.textContent = isNaN(d.getDate()) ? '' : d.getDate();
+    var dayNameEl = document.createElement('div');
+    dayNameEl.className = 'entry-day-name';
+    dayNameEl.textContent = isNaN(d.getDay()) ? '' : DAY_ABBR[d.getDay()];
+    dateCol.appendChild(dayNumEl);
+    dateCol.appendChild(dayNameEl);
+
+    // Type badge
+    var typeKey = (w.type || '').toLowerCase();
+    var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
+    var badge = document.createElement('span');
+    badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
+    badge.textContent = TYPE_LABELS[typeKey] || (w.type || '');
+
+    // Body (title + meta)
+    var body = document.createElement('div');
+    body.className = 'entry-body';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'entry-title';
+    titleEl.textContent = w.title || 'Workout';
+    body.appendChild(titleEl);
+
+    var metaParts = [];
+    if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
+    if (typeKey === 'run' && w.average_pace_seconds_per_km) {
+      metaParts.push(fmtPace(w.average_pace_seconds_per_km));
+    }
+    if (w.avg_hr != null) metaParts.push('HR ' + w.avg_hr);
+    metaParts = metaParts.filter(Boolean);
+
+    if (metaParts.length) {
+      var metaEl = document.createElement('div');
+      metaEl.className = 'entry-meta';
+      metaEl.textContent = metaParts.join(' · ');
+      body.appendChild(metaEl);
+    }
+
+    // Primary metric
+    var metricEl = document.createElement('div');
+    metricEl.className = 'entry-metric';
+    if (typeKey === 'run' && w.distance_km != null) {
+      metricEl.textContent = (+w.distance_km).toFixed(1) + ' km';
+    } else if (w.duration_seconds) {
+      var mins = Math.round(w.duration_seconds / 60);
+      metricEl.textContent = mins + ' min';
+    }
+
+    // TSS pill
+    var tssEl = null;
+    if (w.tss != null) {
+      tssEl = document.createElement('span');
+      var tc = w.tss > 80 ? 'tss-high' : w.tss > 50 ? 'tss-mid' : 'tss-low';
+      tssEl.className = 'tss-pill ' + tc;
+      tssEl.textContent = 'TSS ' + Math.round(w.tss);
+    }
+
+    // Source pill
+    var sourceEl = document.createElement('span');
+    sourceEl.className = 'source-pill';
+    var src = (w.source || w.tss_source || '').toLowerCase();
+    sourceEl.textContent = src === 'strava' ? 'Strava' : 'Manual';
+
+    row.appendChild(dateCol);
+    row.appendChild(badge);
+    row.appendChild(body);
+    row.appendChild(metricEl);
+    if (tssEl) row.appendChild(tssEl);
+    row.appendChild(sourceEl);
+
+    return row;
+  }
+
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  function exportCSV() {
+    var today    = todayISO();
+    var fromDate = filters.from || today;
+    var toDate   = filters.to   || today;
+    var filename = 'training-log-' + fromDate + '-to-' + toDate + '.csv';
+
+    var rows = ['date,type,title,distance_km,duration_minutes,avg_hr,tss,source'];
+    lastWeeks.forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type === 'rest') return;
+        rows.push([
+          csvField(entry.date),
+          csvField(entry.type),
+          csvField(entry.title),
+          csvField(entry.distance_km    != null ? entry.distance_km    : ''),
+          csvField(entry.duration_minutes != null ? entry.duration_minutes : ''),
+          csvField(entry.avg_hr         != null ? entry.avg_hr         : ''),
+          csvField(entry.tss            != null ? entry.tss            : ''),
+          csvField(entry.source)
+        ].join(','));
+      });
+    });
+
+    var csv  = rows.join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv' });
     var url  = URL.createObjectURL(blob);
     var a    = document.createElement('a');
     a.href     = url;
-    a.download = 'training-log-' + range.from + '-to-' + range.to + '.csv';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  // ── Utility ───────────────────────────────────────────────────────────────
-
-  function escHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  // ── Detail panel ──────────────────────────────────────────────────────────
+  function openDetailPanel(workoutId, triggerEl) {
+    activeDetailWorkoutId = workoutId;
+    activeTriggerEl = triggerEl || null;
+    var overlay = document.getElementById('detail-overlay');
+    var panel   = document.getElementById('detail-panel');
+    if (overlay) { overlay.classList.add('is-open'); overlay.removeAttribute('aria-hidden'); }
+    if (panel)   panel.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    fetchAndRenderDetail(workoutId);
   }
 
-  // ── Event listeners ───────────────────────────────────────────────────────
+  function closeDetailPanel() {
+    var trigger = activeTriggerEl;
+    activeDetailWorkoutId = null;
+    activeTriggerEl = null;
+    var overlay = document.getElementById('detail-overlay');
+    var panel   = document.getElementById('detail-panel');
+    if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
+    if (panel)   panel.classList.remove('is-open');
+    document.body.style.overflow = '';
+    if (trigger) trigger.focus();
+  }
 
-  function setupListeners() {
-    document.getElementById('week-prev').addEventListener('click', function () {
-      state.weekOffset--;
-      renderWeekStrip();
-    });
+  function fetchAndRenderDetail(workoutId) {
+    var loadingEl    = document.getElementById('detail-panel-loading');
+    var errorEl      = document.getElementById('detail-panel-error');
+    var contentEl    = document.getElementById('detail-panel-content');
+    var titleEl      = document.getElementById('detail-panel-title-text');
+    var dateEl       = document.getElementById('detail-panel-date');
+    var sourcePillEl = document.getElementById('detail-panel-source-pill');
+    var editBtn      = document.getElementById('detail-edit-btn');
+    var stravaBtn    = document.getElementById('detail-strava-btn');
 
-    document.getElementById('week-next').addEventListener('click', function () {
-      state.weekOffset++;
-      renderWeekStrip();
-    });
+    if (loadingEl)    loadingEl.style.display = '';
+    if (errorEl)      errorEl.style.display   = 'none';
+    if (contentEl)    contentEl.innerHTML      = '';
+    if (stravaBtn)    stravaBtn.style.display  = 'none';
+    if (titleEl)      titleEl.textContent      = 'Workout';
+    if (dateEl)       dateEl.textContent        = '';
+    if (sourcePillEl) sourcePillEl.hidden       = true;
 
-    var searchTimeout;
-    document.getElementById('search-input').addEventListener('input', function (e) {
-      clearTimeout(searchTimeout);
-      var val = e.target.value;
-      searchTimeout = setTimeout(function () {
-        state.search = val.trim();
-        applyFilters();
-      }, 300);
-    });
+    fetch('/api/workouts/' + workoutId)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (workout) {
+        if (loadingEl) loadingEl.style.display = 'none';
 
-    document.querySelectorAll('.type-filter-chip').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('.type-filter-chip').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        state.type = btn.dataset.type;
-        applyFilters();
+        if (titleEl && workout.name) titleEl.textContent = workout.name;
+
+        if (dateEl && workout.workout_date) {
+          dateEl.textContent = fmtDate(workout.workout_date);
+        }
+
+        if (sourcePillEl) {
+          var srcLabel = workout.source === 'strava' ? 'Strava' : 'Manual';
+          sourcePillEl.textContent = srcLabel;
+          sourcePillEl.className = 'detail-source-pill detail-source-pill--' +
+            (workout.source === 'strava' ? 'strava' : 'manual');
+          sourcePillEl.hidden = false;
+        }
+
+        renderDetailContent(workout);
+
+        if (editBtn)  editBtn.href = '/workout-edit/' + workout.id;
+        if (stravaBtn && workout.strava_activity_url) {
+          stravaBtn.href          = workout.strava_activity_url;
+          stravaBtn.style.display = '';
+        }
+      })
+      .catch(function (_) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl)   errorEl.style.display   = '';
+        var retryBtn = document.getElementById('detail-retry-btn');
+        if (retryBtn) {
+          retryBtn.onclick = function () {
+            fetchAndRenderDetail(workoutId);
+          };
+        }
       });
-    });
-
-    document.getElementById('date-range').addEventListener('change', function (e) {
-      state.range = e.target.value;
-      applyFilters();
-    });
-
-    document.getElementById('log-export-btn').addEventListener('click', exportCSV);
-
-    document.getElementById('log-workout-btn').addEventListener('click', function () {
-      location.href = 'training.html';
-    });
-
-    document.getElementById('log-empty-cta').addEventListener('click', function () {
-      location.href = 'training.html';
-    });
-
-    document.getElementById('detail-panel-close').addEventListener('click', closePanel);
-    document.getElementById('detail-panel-back').addEventListener('click', closePanel);
-
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') {
-        var panel = document.getElementById('detail-panel');
-        if (panel.classList.contains('is-open')) closePanel();
-      }
-    });
   }
 
-  // ── Sync subtitle ─────────────────────────────────────────────────────────
+  function renderDetailContent(workout) {
+    var contentEl = document.getElementById('detail-panel-content');
+    if (!contentEl) return;
 
-  function setSyncText(workoutsForSync) {
-    var el = document.getElementById('log-sync-sub');
-    if (!el) return;
-    var source = workoutsForSync;
-    if (!source || source.length === 0) {
-      source = typeof MOCK_WORKOUTS !== 'undefined' ? MOCK_WORKOUTS : [];
+    var em = '—';
+
+    // Pace/speed guard variables
+    var hasDist = workout.distance_km != null;
+    var hasDur  = workout.duration_seconds != null;
+    var isRun   = workout.workout_type === 'run';
+    var isBike  = workout.workout_type === 'bike';
+    var showPaceSpeed = (isRun || isBike) && hasDist && hasDur;
+
+    // Fixed 2×3 stat grid (2 cols, 3 rows)
+    var distStr = hasDist ? (+workout.distance_km).toFixed(2) + ' km' : em;
+    var durStr  = fmtDurationDetail(workout.duration_seconds);
+    var paceStr = showPaceSpeed
+      ? (isBike
+          ? fmtSpeedKmh(workout.duration_seconds, workout.distance_km)
+          : fmtPaceFromSec(workout.duration_seconds, workout.distance_km))
+      : em;
+    var hrStr   = workout.avg_hr != null ? workout.avg_hr + ' bpm' : em;
+    var elevStr = workout.elevation_m != null ? workout.elevation_m + ' m' : em;
+    var tssStr  = workout.tss != null ? (+workout.tss).toFixed(0) : em;
+
+    var stats = [
+      ['Distance', distStr],
+      ['Duration', durStr],
+      ['Avg Pace', paceStr],
+      ['Avg HR',   hrStr],
+      ['Elevation', elevStr],
+      ['TSS',      tssStr],
+    ];
+
+    var html = '<div class="detail-stats">';
+    stats.forEach(function (s) {
+      html +=
+        '<div class="detail-stat">' +
+          '<span class="detail-stat-label">' + esc(s[0]) + '</span>' +
+          '<span class="detail-stat-value">' + esc(String(s[1])) + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    // Exercises section — only when non-empty
+    var exercises = workout.exercises || [];
+    if (exercises.length) {
+      html += '<p class="detail-section-title">Exercises</p>';
+      html += '<div class="exercises-section">';
+      exercises.forEach(function (ex) {
+        var parts = [];
+        if (ex.sets != null && ex.reps != null) parts.push(ex.sets + ' \xd7 ' + ex.reps);
+        else if (ex.sets != null)               parts.push(ex.sets + ' sets');
+        if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
+        if (ex.rpe != null)       parts.push('RPE ' + ex.rpe);
+        html +=
+          '<div class="exercise-item">' +
+            '<span class="exercise-name">' + esc(ex.name || '') + '</span>' +
+            (parts.length
+              ? '<span class="exercise-meta">' + esc(parts.join(' · ')) + '</span>'
+              : '') +
+          '</div>';
+      });
+      html += '</div>';
     }
-    if (source.length === 0) return;
-    var latest = source.slice().sort(function (a, b) { return b.date < a.date ? -1 : 1; })[0];
-    var d = isoToDate(latest.date);
-    el.textContent = 'Last synced: ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    // Notes section — only when non-empty
+    if (workout.remarks) {
+      html +=
+        '<p class="detail-section-title">Notes</p>' +
+        '<p class="detail-notes-body">' + esc(workout.remarks) + '</p>';
+    }
+
+    contentEl.innerHTML = html;
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function () {
+    readURLParams();
+    buildFilterBar();
+    fetchAndRender();
 
-  function init() {
-    setSyncText(null); // initial render with mock data; will be updated after API call
-    loadFromURL();
-    setupListeners();
-    renderWeekStrip();
-    applyFilters();
+    window.addEventListener('userChanged', function () {
+      fetchAndRender();
+    });
+
+    var exportBtn = document.getElementById('log-export-btn');
+    if (exportBtn) exportBtn.addEventListener('click', exportCSV);
+
+    var newBtn = document.getElementById('log-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () {
+      window.location.href = 'training.html';
+    });
+
+    // Detail panel close
+    var closeBtn = document.getElementById('detail-close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);
+
+    var overlay = document.getElementById('detail-overlay');
+    if (overlay) overlay.addEventListener('click', closeDetailPanel);
+
+    // List retry
+    var listRetryBtn = document.getElementById('log-retry-btn');
+    if (listRetryBtn) listRetryBtn.addEventListener('click', function () {
+      fetchAndRender();
+    });
+
+    // Empty state CTA
+    var emptyCta = document.getElementById('log-empty-cta');
+    if (emptyCta) emptyCta.addEventListener('click', function () {
+      window.location.href = 'training.html';
+    });
+
+    // Escape key closes detail panel
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDetailPanel();
+    });
+  });
+
+  // ── Week strip navigation (feature #124) ─────────────────────────────────
+  var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  var TYPE_COLORS = {
+    run: '#3b82f6',
+    lift: '#8b5cf6',
+    wod: '#f97316',
+    bike: '#14b8a6',
+  };
+
+  var TYPE_ORDER = ['run', 'lift', 'wod', 'bike'];
+
+  var USER_KEY = 'perf-coach.current-user-id';
+
+  function toISODate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  function getMondayOf(d) {
+    var date = new Date(d);
+    date.setHours(0, 0, 0, 0);
+    var dow = date.getDay();
+    var diff = dow === 0 ? -6 : 1 - dow;
+    date.setDate(date.getDate() + diff);
+    return date;
   }
+
+  function parseWeekParam() {
+    var params = new URLSearchParams(window.location.search);
+    var w = params.get('week');
+    if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) {
+      var d = new Date(w + 'T00:00:00');
+      if (!isNaN(d.getTime())) return getMondayOf(d);
+    }
+    return getMondayOf(new Date());
+  }
+
+  function pushWeekParam(monday) {
+    var params = new URLSearchParams(window.location.search);
+    params.set('week', toISODate(monday));
+    history.pushState({}, '', window.location.pathname + '?' + params);
+  }
+
+  function weekContainsToday(monday) {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+    return today >= monday && today <= sunday;
+  }
+
+  function buildWeekLabel(monday) {
+    if (weekContainsToday(monday)) return 'This week';
+    var sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+    var month = monday.toLocaleDateString('en-US', { month: 'short' });
+    return month + ' ' + monday.getDate() + ' – ' + sunday.getDate();
+  }
+
+  function getCurrentUserId() {
+    return localStorage.getItem(USER_KEY) || null;
+  }
+
+  var currentMonday = parseWeekParam();
+  var currentUserId = null;
+
+  async function loadAndRender(monday, userId) {
+    var sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+
+    var fromStr = toISODate(monday);
+    var toStr = toISODate(sunday);
+
+    var url = '/api/training-log?from=' + fromStr + '&to=' + toStr + '&include_rest=false';
+    if (userId) url += '&user_id=' + encodeURIComponent(userId);
+
+    var dotsByDate = {};
+    try {
+      var res = await fetch(url);
+      if (res.ok) {
+        var data = await res.json();
+        (data.weeks || []).forEach(function (week) {
+          (week.entries || []).forEach(function (entry) {
+            var t = (entry.type || '').toLowerCase();
+            if (TYPE_COLORS[t]) {
+              if (!dotsByDate[entry.date]) dotsByDate[entry.date] = [];
+              if (dotsByDate[entry.date].indexOf(t) === -1) dotsByDate[entry.date].push(t);
+            }
+          });
+        });
+      }
+    } catch (_) {
+      // network error — render with empty dots
+    }
+
+    render(monday, dotsByDate);
+  }
+
+  function render(monday, dotsByDate) {
+    var strip = document.getElementById('week-strip');
+    if (!strip) return;
+
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var todayStr = toISODate(today);
+
+    var pillsHtml = '';
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(monday);
+      d.setDate(d.getDate() + i);
+      var dateStr = toISODate(d);
+      var isToday = dateStr === todayStr;
+
+      var typesForDay = dotsByDate[dateStr] || [];
+      var dotsHtml = TYPE_ORDER
+        .filter(function (t) { return typesForDay.indexOf(t) !== -1; })
+        .map(function (t) {
+          return '<span class="wd-dot" style="background:' + TYPE_COLORS[t] + '"></span>';
+        })
+        .join('');
+
+      pillsHtml +=
+        '<div class="day-pill' + (isToday ? ' today' : '') + '">' +
+          '<span class="day-name">' + DAY_NAMES[i] + '</span>' +
+          '<span class="day-num">' + d.getDate() + '</span>' +
+          '<div class="wd-dots">' + dotsHtml + '</div>' +
+        '</div>';
+    }
+
+    strip.innerHTML =
+      '<div class="ws-nav">' +
+        '<button id="week-prev" class="ws-chevron" aria-label="Previous week">&#8249;</button>' +
+        '<span id="week-label" class="ws-label">' + buildWeekLabel(monday) + '</span>' +
+        '<button id="week-next" class="ws-chevron" aria-label="Next week">&#8250;</button>' +
+      '</div>' +
+      '<div class="ws-pills">' + pillsHtml + '</div>';
+
+    document.getElementById('week-prev').addEventListener('click', function () {
+      currentMonday = new Date(currentMonday);
+      currentMonday.setDate(currentMonday.getDate() - 7);
+      pushWeekParam(currentMonday);
+      loadAndRender(currentMonday, currentUserId);
+    });
+
+    document.getElementById('week-next').addEventListener('click', function () {
+      currentMonday = new Date(currentMonday);
+      currentMonday.setDate(currentMonday.getDate() + 7);
+      pushWeekParam(currentMonday);
+      loadAndRender(currentMonday, currentUserId);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    currentUserId = getCurrentUserId();
+    loadAndRender(currentMonday, currentUserId);
+  });
+
+  window.addEventListener('userReady', function (e) {
+    var newId = (e.detail && e.detail.userId) ? e.detail.userId : null;
+    if (newId !== currentUserId) {
+      currentUserId = newId;
+      loadAndRender(currentMonday, currentUserId);
+    }
+  });
+
+  window.addEventListener('userChanged', function (e) {
+    currentUserId = (e.detail && e.detail.userId) ? e.detail.userId : getCurrentUserId();
+    loadAndRender(currentMonday, currentUserId);
+  });
 }());
