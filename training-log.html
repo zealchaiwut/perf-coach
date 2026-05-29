@@ -24,7 +24,7 @@
       padding: 0.75rem 2rem;
     }
 
-    /* ── Filter bar ────────────────────────────────────── */
+    /* ── Filter bar ────────────────────────────────────────────────────────── */
     #filter-bar {
       display: flex;
       align-items: center;
@@ -83,7 +83,7 @@
       border-color: #1a1a1a;
     }
 
-    /* ── Date-range chip ────────────────────────────────── */
+    /* ── Date-range chip ───────────────────────────────────────────────────── */
     .fb-daterange-wrap { position: relative; }
 
     .dr-chip {
@@ -136,14 +136,14 @@
       box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
     }
 
-    /* ── Loading indicator ──────────────────────────────── */
+    /* ── Loading indicator ─────────────────────────────────────────────────── */
     .log-loading-indicator {
       font-size: 0.8125rem;
       color: #888;
       margin-left: auto;
     }
 
-    /* ── Log list ───────────────────────────────────────── */
+    /* ── Log list ──────────────────────────────────────────────────────────── */
     #log-list {
       max-width: 800px;
       margin: 0 auto;
@@ -198,6 +198,17 @@
 
     .summary-sep { color: #ccc; }
 
+    .day-section { margin-bottom: 0.75rem; }
+
+    .day-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.35rem;
+    }
+
     /* ── Entry row ──────────────────────────────────────── */
     .entry-row {
       display: flex;
@@ -211,7 +222,7 @@
       cursor: pointer;
     }
 
-    .entry-row:hover { border-color: #ccc; background: #fafafa; }
+    .entry-row:hover { background: #fafafa; border-color: #d5d5d5; }
 
     .entry-date {
       flex-shrink: 0;
@@ -290,25 +301,409 @@
     .tss-mid  { background: #fef3c7; color: #92400e; }
     .tss-high { background: #fee2e2; color: #991b1b; }
 
+    /* ── Source pill ───────────────────────────────────────────────────────── */
     .source-pill {
       flex-shrink: 0;
       font-size: 0.6875rem;
-      font-weight: 600;
-      padding: 0.2rem 0.45rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.15rem 0.4rem;
       border-radius: 4px;
-      background: #f0f0f0;
-      color: #666;
+      background: #e5e5e5;
+      color: #555;
     }
 
-    /* ── Responsive ─────────────────────────────────────── */
+    /* ── Workout primary metric ────────────────────────────────────────────── */
+    .workout-primary-metric {
+      font-size: 0.8125rem;
+      color: #888;
+      white-space: nowrap;
+    }
+
+    /* ── Rest day row ──────────────────────────────────────────────────────── */
+    .rest-day-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      background: #fafafa;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      margin-bottom: 0.4rem;
+      cursor: default;
+    }
+
+    .rest-badge {
+      flex-shrink: 0;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: #f0fdf4;
+      color: #15803d;
+    }
+
+    .rest-metrics {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0.75rem;
+      align-items: baseline;
+    }
+
+    .rest-day-label {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .rest-metric-item {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      white-space: nowrap;
+    }
+
+    .rest-notes {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      font-style: italic;
+      width: 100%;
+    }
+
+    /* ── Week pills ────────────────────────────────────────────────────────── */
+    .week-pills {
+      display: flex;
+      gap: 0.35rem;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
+    }
+
+    .week-pills::-webkit-scrollbar { height: 3px; }
+    .week-pills::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+    .day-pill {
+      flex-shrink: 0;
+      min-width: 46px;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      background: #fff;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #555;
+    }
+
+    .day-pill:hover { background: #f5f5f5; }
+    .day-pill.is-active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+    /* ── Skeleton loading ──────────────────────────────────────────────────── */
+    @keyframes skeleton-shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+
+    .skeleton-row {
+      height: 64px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 400px 100%;
+      animation: skeleton-shimmer 1.4s ease infinite;
+      margin-bottom: 0.4rem;
+    }
+
+    .skeleton-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      padding: 0 1.25rem;
+    }
+
+    .skeleton-stat-bar {
+      height: 48px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 400px 100%;
+      animation: skeleton-shimmer 1.4s ease infinite;
+    }
+
+    /* ── Error states ──────────────────────────────────────────────────────── */
+    .list-error-state {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: #555;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .list-error-state p {
+      margin: 0 0 0.75rem;
+      font-size: 0.9375rem;
+    }
+
+    .detail-error-state {
+      text-align: center;
+      padding: 2rem 1.25rem;
+      color: #555;
+    }
+
+    .detail-error-state p {
+      margin: 0 0 0.75rem;
+      font-size: 0.9375rem;
+    }
+
+    /* ── Empty state ───────────────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      opacity: 0.4;
+    }
+
+    .empty-state p {
+      color: #888;
+      font-size: 0.9375rem;
+      margin: 0 0 1.25rem;
+    }
+
+    /* ── Detail panel overlay ──────────────────────────────────────────────── */
+    .detail-panel-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    .detail-panel-overlay.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* ── Detail panel ──────────────────────────────────────────────────────── */
+    .detail-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 380px;
+      max-width: 100vw;
+      background: #fff;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+      z-index: 201;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s ease;
+    }
+
+    .detail-panel.is-open { transform: translateX(0); }
+
+    .detail-panel-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #e5e5e5;
+      flex-shrink: 0;
+    }
+
+    .detail-header-top {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .detail-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .detail-close-btn {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 1.25rem;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      padding: 0;
+    }
+
+    .detail-close-btn:hover { background: #f5f5f5; }
+
+    .detail-panel-title {
+      margin: 0;
+      font-size: 1.0625rem;
+      font-weight: 600;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-panel-date {
+      font-size: 0.8125rem;
+      color: #888;
+    }
+
+    .detail-source-pill {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: #e5e5e5;
+      color: #555;
+    }
+
+    .detail-source-pill--strava {
+      background: #fc4c02;
+      color: #fff;
+    }
+
+    .detail-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.25rem;
+    }
+
+    .detail-panel-footer {
+      display: flex;
+      gap: 0.5rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid #e5e5e5;
+      flex-shrink: 0;
+    }
+
+    /* ── Detail content ────────────────────────────────────────────────────── */
+    .detail-meta {
+      font-size: 0.875rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+
+    .detail-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .detail-stat {
+      padding: 0.6rem 0.75rem;
+      background: #fafafa;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+    }
+
+    .detail-stat-label {
+      display: block;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      margin-bottom: 0.2rem;
+    }
+
+    .detail-stat-value {
+      display: block;
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .detail-section-title {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 1rem 0 0.35rem;
+    }
+
+    .detail-notes-body {
+      font-size: 0.9375rem;
+      margin: 0;
+      line-height: 1.5;
+      color: #333;
+    }
+
+    .exercises-section { margin-bottom: 0.25rem; }
+
+    .exercise-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .exercise-item:last-child { border-bottom: none; }
+
+    .exercise-name {
+      font-size: 0.9375rem;
+      color: #1a1a1a;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .exercise-meta {
+      font-size: 0.8125rem;
+      color: #888;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Responsive ────────────────────────────────────────────────────────── */
+    @media (max-width: 767px) {
+      .detail-panel { width: 100%; }
+
+      .detail-close-btn {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+      }
+    }
+
     @media (max-width: 599px) {
       header { padding: 0.75rem 1rem; }
-      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; }
+      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; white-space: nowrap; }
       #week-strip { padding: 0.75rem 1rem; }
       #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
       .fb-search-wrap { flex: none; }
       .dr-panel { left: 0; right: 0; }
       #log-list { padding: 1rem; }
+
+      .workout-primary-metric { display: none; }
+      .source-pill { display: none; }
+
+      .day-pill { min-width: 40px; padding: 0.35rem 0.35rem; font-size: 0.6875rem; }
     }
 
     @media (max-width: 380px) {
@@ -347,11 +742,65 @@
     <a href="trends.html">Trends</a>
   </nav>
 
-  <div id="week-strip"></div>
+  <div id="week-strip">
+    <div class="week-pills" id="week-pills-nav"></div>
+  </div>
 
   <div id="filter-bar"></div>
 
   <div id="log-list"></div>
+
+  <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
+    <p>Couldn't load workouts.</p>
+    <button id="log-retry-btn" class="btn-sm">Retry</button>
+  </div>
+
+  <div id="log-empty-msg" style="display:none" class="empty-state">
+    <div class="empty-state-icon">🏃</div>
+    <p>No workouts logged yet. Start tracking your training!</p>
+    <button id="log-empty-cta" class="btn-primary">Log your first workout</button>
+  </div>
+
+  <!-- Detail panel backdrop -->
+  <div id="detail-overlay" class="detail-panel-overlay" aria-hidden="true"></div>
+
+  <!-- Detail panel -->
+  <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-panel-title-text">
+    <div class="detail-panel-header">
+      <div class="detail-header-top">
+        <h2 class="detail-panel-title" id="detail-panel-title-text">Workout</h2>
+        <button id="detail-close-btn" class="detail-close-btn" aria-label="Close workout details">&#x2715;</button>
+      </div>
+      <div class="detail-header-meta">
+        <span id="detail-panel-date" class="detail-panel-date"></span>
+        <span id="detail-panel-source-pill" class="detail-source-pill" hidden></span>
+      </div>
+    </div>
+
+    <div id="detail-panel-loading" style="display:none" aria-busy="true">
+      <div style="padding:1.25rem">
+        <div class="skeleton-row" style="width:65%;height:24px;margin-bottom:0.75rem"></div>
+        <div class="skeleton-stat-grid" style="padding:0">
+          <div class="skeleton-stat-bar"></div>
+          <div class="skeleton-stat-bar"></div>
+          <div class="skeleton-stat-bar"></div>
+          <div class="skeleton-stat-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="detail-panel-error" style="display:none" class="detail-error-state" role="alert">
+      <p>Couldn't load workout.</p>
+      <button id="detail-retry-btn" class="btn-sm">Retry</button>
+    </div>
+
+    <div id="detail-panel-content" class="detail-panel-body"></div>
+
+    <div class="detail-panel-footer">
+      <a id="detail-edit-btn" class="btn-secondary" href="#">Edit</a>
+      <a id="detail-strava-btn" style="display:none" class="btn-secondary" href="#" target="_blank" rel="noopener">View on Strava</a>
+    </div>
+  </aside>
 
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>
