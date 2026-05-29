@@ -1,4 +1,6 @@
+---
 # render.yaml — Render Blueprint for perf-coach
+# yamllint: autoDeploy uses yes/no (not true/false) — required by Render's API.
 #
 # DATABASE_URL is intentionally absent from this file and must be set manually
 # in the Render dashboard for each service after the blueprint is applied:
@@ -25,7 +27,7 @@ services:
       - key: ENVIRONMENT
         value: uat
       - key: GIT_SHA
-        sync: false  # auto-populated from Render deploy metadata
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL
         sync: false  # set via Render dashboard — see top of file
 
@@ -45,6 +47,6 @@ services:
       - key: ENVIRONMENT
         value: prd
       - key: GIT_SHA
-        sync: false  # auto-populated from Render deploy metadata
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL
         sync: false  # set via Render dashboard — see top of file
