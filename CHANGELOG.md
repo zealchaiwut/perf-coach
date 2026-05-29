@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 19
+
+- #151: Build training log page shell, week strip, and filter bar
+- #152: Render grouped workout list with week summaries and rest days
+- #153: Build Training Log detail panel with prev/next nav
+- #154: Add CSV export and commit training log mockups
+
 ## Sprint 16
 
 - #121: Add distance, duration, heart rate, and elevation to workouts
