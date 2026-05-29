@@ -2364,8 +2364,8 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch):
             pr.track_name = body.track_name.strip()
         if "source" in body.model_fields_set:
             pr.source = body.source
-        from sqlalchemy import text as _sql_text
-        session.execute(_sql_text("UPDATE personal_records SET updated_at = now() WHERE id = :id"), {"id": str(rid)})
+        from sqlalchemy.sql import func as _func
+        pr.updated_at = _func.now()
         session.commit()
         session.refresh(pr)
         return JSONResponse(_pr_dict(pr))
