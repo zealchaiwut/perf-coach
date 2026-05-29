@@ -84,25 +84,25 @@ def _clean_workouts_range(client, user_id, from_str, to_str):
 
 def test_ac1_weight_section_exists_in_html():
     """home.html must have a section element with id='section-weight'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-weight"' in html, "Missing id='section-weight' section in home.html"
 
 
 def test_ac1_habits_section_exists_in_html():
     """home.html must have a section element with id='section-habits'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-habits"' in html, "Missing id='section-habits' section in home.html"
 
 
 def test_ac1_training_section_exists_in_html():
     """home.html must have a section element with id='section-training'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-training"' in html, "Missing id='section-training' section in home.html"
 
 
 def test_ac1_sections_in_order_weight_habits_training():
     """Sections must appear in order: Weight, then Habits, then Training."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     w_pos = html.find('id="section-weight"')
     h_pos = html.find('id="section-habits"')
     t_pos = html.find('id="section-training"')
@@ -112,7 +112,7 @@ def test_ac1_sections_in_order_weight_habits_training():
 
 def test_ac1_sections_appear_after_stat_cards():
     """The summary sections must appear after the .dash-cards grid in the HTML."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     cards_pos = html.find('id="dash-cards"')
     section_pos = html.find('id="section-weight"')
     assert cards_pos != -1 and section_pos != -1
@@ -123,37 +123,37 @@ def test_ac1_sections_appear_after_stat_cards():
 
 def test_ac2_weight_section_has_open_tab_link():
     """Weight section header must contain a link to weight.html."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'href="weight.html"' in html, "Missing href='weight.html' link in home.html"
 
 
 def test_ac2_weight_section_link_text():
     """Weight section link must read 'Open Weight tab →'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "Open Weight tab →" in html, "Missing 'Open Weight tab →' link text in home.html"
 
 
 def test_ac2_habits_section_has_open_tab_link():
     """Habits section header must contain a link to habits.html."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'href="habits.html"' in html, "Missing href='habits.html' link in home.html"
 
 
 def test_ac2_habits_section_link_text():
     """Habits section link must read 'Open Habits tab →'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "Open Habits tab →" in html, "Missing 'Open Habits tab →' link text in home.html"
 
 
 def test_ac2_training_section_link_text():
     """Training section link must read 'Open Training tab →'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "Open Training tab →" in html, "Missing 'Open Training tab →' link text in home.html"
 
 
 def test_ac2_section_link_class_in_html():
     """Section links must use the 'dash-section-link' CSS class."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "dash-section-link" in html, "Missing 'dash-section-link' CSS class in home.html"
 
 
@@ -161,40 +161,40 @@ def test_ac2_section_link_class_in_html():
 
 def test_ac3_mini_weight_chart_canvas_in_html():
     """home.html must have a canvas element with id='mini-weight-chart'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="mini-weight-chart"' in html, "Missing id='mini-weight-chart' canvas in home.html"
 
 
 def test_ac3_mini_chart_wrap_height_80px():
     """home.html CSS must define .mini-chart-wrap with height: 80px."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "mini-chart-wrap" in html, "Missing .mini-chart-wrap class definition in home.html"
     assert "80px" in html, "Missing 80px height for mini chart wrap in home.html"
 
 
 def test_ac3_chart_js_cdn_loaded():
     """home.html must load Chart.js via CDN (no build step)."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "chart.js" in html.lower() or "chartjs" in html.lower(), \
         "home.html must include Chart.js CDN script tag"
 
 
 def test_ac3_load_weight_section_function_in_js():
     """home.js must have a loadWeightSection function."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadWeightSection" in js, "Missing loadWeightSection function in home.js"
 
 
 def test_ac3_last14days_function_in_js():
     """home.js must have a last14Days (or equivalent) function to compute the 14-day cutoff."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "last14Days" in js or "14" in js, \
         "home.js must reference 14-day cutoff logic for the weight mini chart"
 
 
 def test_ac3_weight_section_filters_to_14_days():
     """home.js must filter weight entries to last 14 days (cutoff = today minus 13 days)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     # Check that the code uses 13 (today - 13 = 14 days inclusive) or 14 as range
     assert "13" in js or "14" in js, \
         "home.js must filter weight entries to a 14-day window"
@@ -202,7 +202,7 @@ def test_ac3_weight_section_filters_to_14_days():
 
 def test_ac3_weight_section_no_filter_control_in_html():
     """Home page must not have a date filter control for the weight mini chart."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     # The weight page has a range filter; home must not
     assert "weight-range" not in html, \
         "home.html must NOT have a date range filter control for the mini chart (Home is fixed 14 days)"
@@ -228,13 +228,13 @@ def test_ac3_weight_section_api_returns_last_14_days(client, alice_id):
 
 def test_ac3_weight_section_empty_state_in_js():
     """home.js must show 'No weight entries yet' when there is no weight data."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No weight entries yet" in js, "Missing 'No weight entries yet' empty state in home.js"
 
 
 def test_ac3_weight_section_body_element_in_html():
     """home.html must have section-weight-body element to hold chart or empty state."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-weight-body"' in html, "Missing id='section-weight-body' in home.html"
 
 
@@ -242,19 +242,19 @@ def test_ac3_weight_section_body_element_in_html():
 
 def test_ac4_home_habit_list_in_html():
     """home.html must have an element with id='home-habit-list'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="home-habit-list"' in html, "Missing id='home-habit-list' in home.html"
 
 
 def test_ac4_load_habits_section_function_in_js():
     """home.js must have a loadHabitsSection function."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadHabitsSection" in js, "Missing loadHabitsSection function in home.js"
 
 
 def test_ac4_habits_section_fetches_habits_and_logs():
     """home.js loadHabitsSection must fetch both /api/habits and /api/habits/logs."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     # Check inside loadHabitsSection (it already fetches these for the card too, but section func must also)
     section_start = js.find("loadHabitsSection")
     assert section_start != -1, "Missing loadHabitsSection in home.js"
@@ -265,7 +265,7 @@ def test_ac4_habits_section_fetches_habits_and_logs():
 
 def test_ac4_habits_section_fetches_stats_per_habit():
     """home.js must call /api/habits/stats for each habit to get streak and 30-day rate."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits/stats" in js, "home.js must call /api/habits/stats for streak/rate"
 
 
@@ -286,7 +286,7 @@ def test_ac4_habit_stats_endpoint_returns_streak_and_rate(client, alice_id):
 
 def test_ac4_habit_checkbox_read_only_no_click_handler():
     """Habit checkboxes on Home are non-interactive — home.js must not attach click handlers."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     section_start = js.find("loadHabitsSection")
     section_body = js[section_start:section_start + 1500]
     # Should not have addEventListener('click') on the checkbox in the habits section
@@ -296,19 +296,19 @@ def test_ac4_habit_checkbox_read_only_no_click_handler():
 
 def test_ac4_habits_section_empty_state_in_js():
     """home.js must show 'No habits yet' when user has no active habits."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No habits yet" in js, "Missing 'No habits yet' empty state in home.js"
 
 
 def test_ac4_habit_row_has_streak_element():
     """home.js must create a streak span (.home-habit-streak) per habit row."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "home-habit-streak" in js, "Missing home-habit-streak element in home.js"
 
 
 def test_ac4_habit_row_has_rate_element():
     """home.js must create a completion rate span (.home-habit-rate) per habit row."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "home-habit-rate" in js, "Missing home-habit-rate element in home.js"
 
 
@@ -330,19 +330,19 @@ def test_ac4_habit_checked_state_based_on_todays_log(client, alice_id):
 
 def test_ac5_home_training_list_in_html():
     """home.html must have an element with id='home-training-list'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="home-training-list"' in html, "Missing id='home-training-list' in home.html"
 
 
 def test_ac5_load_training_section_function_in_js():
     """home.js must have a loadTrainingSection function."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadTrainingSection" in js, "Missing loadTrainingSection function in home.js"
 
 
 def test_ac5_training_section_limits_to_7_sessions():
     """home.js loadTrainingSection must slice workouts to a maximum of 7."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     section_start = js.find("loadTrainingSection")
     section_body = js[section_start:section_start + 1500]
     assert "slice(0, 7)" in section_body or "slice(0,7)" in section_body, \
@@ -369,26 +369,26 @@ def test_ac5_training_section_sorted_newest_first(client, alice_id):
 
 def test_ac5_run_icon_for_cardio_type():
     """home.js trainingIcon must return 🏃 (run icon) for cardio-type workouts."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "trainingIcon" in js, "Missing trainingIcon function in home.js"
     assert "🏃" in js, "Missing 🏃 run icon for cardio types in home.js"
 
 
 def test_ac5_barbell_icon_for_strength_type():
     """home.js trainingIcon must return 🏋️ (barbell icon) for strength-type workouts."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "🏋️" in js, "Missing 🏋️ barbell icon for strength types in home.js"
 
 
 def test_ac5_cardio_keyword_triggers_run_icon():
     """home.js must treat 'cardio' (and similar) as a cardio type for the run icon."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "cardio" in js.lower(), "home.js trainingIcon must handle 'cardio' type keyword"
 
 
 def test_ac5_relative_date_function_in_js():
     """home.js must have a relativeDate function returning 'Today', 'Yesterday', or formatted date."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "relativeDate" in js, "Missing relativeDate function in home.js"
     assert "Today" in js, "relativeDate must return 'Today' for current date"
     assert "Yesterday" in js, "relativeDate must return 'Yesterday' for previous date"
@@ -396,13 +396,13 @@ def test_ac5_relative_date_function_in_js():
 
 def test_ac5_training_section_shows_rpe_if_set():
     """home.js must include RPE in the training row meta when set."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "RPE" in js or "rpe" in js, "home.js must handle RPE in training section rows"
 
 
 def test_ac5_training_section_fetches_workout_details():
     """home.js loadTrainingSection must fetch /api/workouts/{id} for each session (duration + RPE)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     section_start = js.find("loadTrainingSection")
     section_body = js[section_start:section_start + 1500]
     assert "/api/workouts/" in section_body, \
@@ -411,7 +411,7 @@ def test_ac5_training_section_fetches_workout_details():
 
 def test_ac5_training_section_empty_state_in_js():
     """home.js must show 'No training yet' when user has no training sessions."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No training yet" in js, "Missing 'No training yet' empty state in home.js"
 
 
@@ -435,13 +435,13 @@ def test_ac5_api_returns_workout_with_rpe(client, alice_id):
 
 def test_ac6_refresh_sections_function_in_js():
     """home.js must have a refreshSections function that calls all three section loaders."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "refreshSections" in js, "Missing refreshSections function in home.js"
 
 
 def test_ac6_refresh_sections_calls_all_three():
     """refreshSections must call loadWeightSection, loadHabitsSection, and loadTrainingSection."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     refresh_start = js.find("refreshSections")
     refresh_body = js[refresh_start:refresh_start + 200]
     assert "loadWeightSection" in refresh_body, "refreshSections must call loadWeightSection"
@@ -451,7 +451,7 @@ def test_ac6_refresh_sections_calls_all_three():
 
 def test_ac6_user_ready_triggers_sections():
     """home.js must call refreshSections (or individual loaders) in the userReady handler."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     user_ready_idx = js.find("userReady")
     assert user_ready_idx != -1, "Missing userReady event listener in home.js"
     after_ready = js[user_ready_idx:user_ready_idx + 300]
@@ -464,7 +464,7 @@ def test_ac6_user_ready_triggers_sections():
 
 def test_ac6_user_changed_triggers_sections():
     """home.js must call refreshSections (or individual loaders) in the userChanged handler."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     user_changed_idx = js.find("userChanged")
     assert user_changed_idx != -1, "Missing userChanged event listener in home.js"
     after_changed = js[user_changed_idx:user_changed_idx + 300]
@@ -499,19 +499,19 @@ def test_ac6_different_users_return_different_weight_data(client, alice_id, bob_
 
 def test_ac7_no_weight_entries_yet_text_in_js():
     """home.js must contain 'No weight entries yet' as the weight section empty state."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No weight entries yet" in js, "Missing 'No weight entries yet' in home.js"
 
 
 def test_ac7_no_habits_yet_text_in_js():
     """home.js must contain 'No habits yet' as the habits section empty state."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No habits yet" in js, "Missing 'No habits yet' in home.js"
 
 
 def test_ac7_no_training_yet_text_in_js():
     """home.js must contain 'No training yet' as the training section empty state."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No training yet" in js, "Missing 'No training yet' in home.js"
 
 
@@ -565,12 +565,12 @@ def test_home_html_served_by_backend(client):
 
 def test_home_html_loads_chartjs():
     """home.html must load Chart.js via a CDN script tag (required for mini weight chart)."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "chart.js" in html.lower() or "chartjs" in html.lower(), \
         "home.html must include a Chart.js CDN <script> tag"
 
 
 def test_home_html_loads_home_js():
     """home.html must load js/home.js."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "js/home.js" in html, "home.html must include <script src='js/home.js'>"

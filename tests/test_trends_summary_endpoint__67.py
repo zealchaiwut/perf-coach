@@ -19,9 +19,9 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 ROOT = pathlib.Path(__file__).parent.parent
-MOCK_DATA_JS = (ROOT / "js" / "mock-data.js").read_text()
-TRENDS_JS = (ROOT / "js" / "trends.js").read_text()
-TRENDS_HTML = (ROOT / "trends.html").read_text()
+MOCK_DATA_JS = (ROOT / "frontend" / "js" / "mock-data.js").read_text()
+TRENDS_JS = (ROOT / "frontend" / "js" / "trends.js").read_text()
+TRENDS_HTML = (ROOT / "frontend" / "pages" / "trends.html").read_text()
 
 # ---------------------------------------------------------------------------
 # Node.js helper – calls mockGetTrendsSummary from the real mock-data.js file

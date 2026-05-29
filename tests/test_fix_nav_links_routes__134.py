@@ -8,7 +8,7 @@ from html.parser import HTMLParser
 
 UAT_BASE_URL = os.environ.get("UAT_BASE_URL", "http://localhost:9001")
 
-STATIC_ROOT = pathlib.Path(__file__).parent.parent
+STATIC_ROOT = pathlib.Path(__file__).parent.parent / "frontend" / "pages"
 
 # Pages listed in acceptance criteria
 NAV_PAGES = [

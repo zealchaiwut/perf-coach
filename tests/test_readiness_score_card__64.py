@@ -28,8 +28,8 @@ from backend.db import engine
 
 BASE = "http://127.0.0.1:9001"
 
-HOME_HTML = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
-HOME_JS   = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+HOME_HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
+HOME_JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

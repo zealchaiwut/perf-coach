@@ -15,8 +15,8 @@ BASE     = "http://localhost:9001"
 TODAY    = datetime.date.today()
 TODAY_STR = TODAY.isoformat()
 
-JS_PATH  = pathlib.Path(__file__).parent.parent / "js" / "training-log.js"
-HTML_PATH = pathlib.Path(__file__).parent.parent / "training-log.html"
+JS_PATH  = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js"
+HTML_PATH = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html"
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────

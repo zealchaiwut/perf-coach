@@ -10,8 +10,8 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 
-HTML = (pathlib.Path(__file__).parent.parent / "trends.html").read_text()
-JS   = (pathlib.Path(__file__).parent.parent / "js" / "trends.js").read_text()
+HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
+JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

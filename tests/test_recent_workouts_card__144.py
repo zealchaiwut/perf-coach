@@ -78,17 +78,17 @@ def workout_ids(client, user_id):
 # ── Static HTML checks ────────────────────────────────────────────────────────
 
 def test_home_html_loads_home_js():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'src="js/home.js"' in html, "home.html must load js/home.js"
 
 
 def test_home_html_has_row2():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="row-2"' in html, "home.html must have id='row-2'"
 
 
 def test_home_html_has_workout_card_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".workouts" in html, "home.html must contain .workouts CSS class"
     assert ".src-badge" in html, "home.html must contain .src-badge CSS class"
     assert "src-badge.strava" in html, "home.html must contain .src-badge.strava CSS"
@@ -96,13 +96,13 @@ def test_home_html_has_workout_card_css():
 
 
 def test_home_html_has_icon_wrap_wod_bike():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "icon-wrap.wod" in html, "home.html must have CSS for .icon-wrap.wod"
     assert "icon-wrap.bike" in html, "home.html must have CSS for .icon-wrap.bike"
 
 
 def test_home_html_has_orange_teal_variables():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "--orange-text" in html
     assert "--orange-soft" in html
     assert "--teal-text" in html
@@ -110,27 +110,27 @@ def test_home_html_has_orange_teal_variables():
 
 
 def test_home_js_calls_load_recent_workouts_card():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadRecentWorkoutsCard" in js, "home.js must define/call loadRecentWorkoutsCard"
 
 
 def test_home_js_view_all_link_points_to_log():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert '"/log"' in js or "'/log'" in js, "loadRecentWorkoutsCard must link to /log"
 
 
 def test_home_js_empty_state_message():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "No workouts in the last 14 days" in js
 
 
 def test_home_js_has_desktop_only_class():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "workout-desktop-only" in js, "4th item must carry a desktop-only class"
 
 
 def test_home_html_hides_desktop_only_on_mobile():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "workout-desktop-only" in html, "CSS must hide .workout-desktop-only on mobile"
 
 
@@ -218,20 +218,20 @@ def test_api_workout_patch_source(client, user_id):
 # ── Duration formatting (JS logic validated via regression) ───────────────────
 
 def test_home_js_duration_format_under_1h():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "fmtWorkoutDuration" in js or "fmtDuration" in js or "duration" in js.lower()
     assert "3600" in js, "Duration logic must branch at 3600 seconds (1 hour)"
 
 
 def test_home_js_duration_format_uses_padStart():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "padStart(2" in js, "Seconds/minutes must be zero-padded to 2 digits"
 
 
 # ── Source badge ordering: Stryd LEFT of Strava ───────────────────────────────
 
 def test_home_js_stryd_badge_before_strava_in_html():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     stryd_pos  = js.find("src-badge stryd")
     strava_pos = js.find("src-badge strava")
     assert stryd_pos != -1,  "home.js must contain src-badge stryd badge HTML"

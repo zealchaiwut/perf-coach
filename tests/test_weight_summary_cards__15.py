@@ -65,14 +65,14 @@ def _post(client, user_id, date_str, weight_kg):
 
 def test_ac1_three_summary_card_divs_present():
     """weight.html must contain exactly 3 .summary-card elements."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     cards = re.findall(r'class="summary-card"', html)
     assert len(cards) == 3, f"Expected 3 .summary-card elements, found {len(cards)}"
 
 
 def test_ac1_summary_cards_appear_before_chart():
     """#summary-cards div must appear before #weight-chart in the DOM."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     cards_pos = html.find("summary-cards")
     chart_pos = html.find("weight-chart")
     assert cards_pos != -1 and chart_pos != -1
@@ -81,7 +81,7 @@ def test_ac1_summary_cards_appear_before_chart():
 
 def test_ac1_summary_cards_appear_before_range_filter():
     """#summary-cards must appear before the range filter (chart wrapper)."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     cards_pos = html.find("summary-cards")
     chart_wrapper_pos = html.find("chart-wrapper")
     assert cards_pos < chart_wrapper_pos, "summary-cards must appear before chart-wrapper"
@@ -91,19 +91,19 @@ def test_ac1_summary_cards_appear_before_range_filter():
 
 def test_ac2_three_column_grid_defined():
     """CSS must define a 3-column grid for .summary-cards."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "repeat(3, 1fr)" in html, "Missing 3-column grid definition for .summary-cards"
 
 
 def test_ac2_max_width_700px_breakpoint():
     """CSS must include a media query at 699px or 700px to stack cards on narrow viewports."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "699px" in html or "700px" in html, "No 700px breakpoint found for card stacking"
 
 
 def test_ac2_narrow_viewport_uses_single_column():
     """Inside the ≤700px media query, .summary-cards must switch to single-column (grid-template-columns: 1fr)."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     # The media query block should override to 1-column
     media_block = re.search(r'@media[^{]+699px[^{]*\{(.+?)\}', html, re.DOTALL)
     if not media_block:
@@ -117,7 +117,7 @@ def test_ac2_narrow_viewport_uses_single_column():
 
 def test_ac3_card1_label_and_ids_in_html():
     """weight.html must have 'This week avg' label and the required element IDs."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "This week avg" in html
     assert "card-week-avg-value" in html
     assert "card-week-avg-meta" in html
@@ -182,7 +182,7 @@ def test_ac3_card1_prev_week_comparison_available(client, alice_id):
 
 def test_ac4_card2_label_and_ids_in_html():
     """weight.html must have '30-day trend' label and required element IDs."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "30-day trend" in html
     assert "card-trend-value" in html
     assert "card-trend-meta" in html
@@ -239,7 +239,7 @@ def test_ac4_card2_gain_scenario(client, bob_id):
 
 def test_ac4_card2_date_range_sublabel_in_js():
     """weight.js must compute and display start→end date range for Card 2."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "trendSub" in js, "No trendSub update found in weight.js"
     assert "fmtShortDate" in js, "No date formatting function for Card 2 sublabel"
 
@@ -248,7 +248,7 @@ def test_ac4_card2_date_range_sublabel_in_js():
 
 def test_ac5_card3_label_and_ids_in_html():
     """weight.html must have 'Days logged' label and required element IDs."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "Days logged" in html
     assert "card-days-value" in html
     assert "card-days-dots" in html
@@ -290,13 +290,13 @@ def test_ac5_card3_today_pending_state(client, bob_id):
 
 def test_ac5_card3_today_not_logged_sublabel_in_js():
     """weight.js must emit 'today not logged' in Card 3 sublabel when today is missing."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "today not logged" in js, "Missing 'today not logged' sublabel logic"
 
 
 def test_ac5_card3_7_dots_rendered_in_js():
     """weight.js must render exactly 7 day-dot spans for Mon-Sun."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "for (let i = 0; i < 7; i++)" in js or "i < 7" in js, \
         "weight.js must iterate over 7 days for dot row"
 
@@ -305,26 +305,26 @@ def test_ac5_card3_7_dots_rendered_in_js():
 
 def test_ac6_all_cards_have_label_class():
     """Each .summary-card must contain a .card-label (uppercase small label at top)."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert html.count('class="card-label"') == 3, \
         f"Expected 3 .card-label elements, found {html.count('class=\"card-label\"')}"
 
 
 def test_ac6_min_height_applied_to_cards():
     """CSS must set min-height on .summary-card for consistent card heights."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "min-height" in html
 
 
 def test_ac6_uppercase_text_transform_for_labels():
     """CSS must use text-transform: uppercase for card labels."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "uppercase" in html
 
 
 def test_ac6_success_and_danger_colors_used():
     """weight.html must use --color-text-success for loss and --color-text-danger for gain."""
-    html = (pathlib.Path(__file__).parent.parent / "weight.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html").read_text()
     assert "--color-text-success" in html
     assert "--color-text-danger" in html
 
@@ -358,7 +358,7 @@ def test_ac7_different_users_return_different_entries(client, alice_id, bob_id):
 
 def test_ac7_js_reloads_on_user_change():
     """weight.js must call loadAndRender (or equivalent) on user selector change."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "loadAndRender" in js
     assert "change" in js, "weight.js must listen for 'change' event on user selector"
 
@@ -376,7 +376,7 @@ def test_ac8_post_then_get_reflects_new_entry(client, alice_id):
 
 def test_ac8_js_rerenders_after_form_submit():
     """weight.js must call loadAndRender after a successful form submission."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "loadAndRender" in js
     # loadAndRender calls renderSummaryCards — verify the chain exists
     assert "renderSummaryCards" in js
@@ -386,20 +386,20 @@ def test_ac8_js_rerenders_after_form_submit():
 
 def test_ac9_render_summary_cards_function_exists():
     """weight.js must contain a renderSummaryCards(entries) function."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "function renderSummaryCards" in js, \
         "Missing renderSummaryCards function in weight.js"
 
 
 def test_ac9_summary_cards_called_with_api_entries():
     """renderSummaryCards must be called with entries from /api/weight, not a separate fetch."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "renderSummaryCards(entries)" in js
 
 
 def test_ac9_no_new_api_endpoints_for_summary():
     """weight.js must not introduce new API endpoints (/api/summary, /api/cards, etc.)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "weight.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     for ep in ["/api/summary", "/api/cards", "/api/weekly", "/api/trend", "/api/stats"]:
         assert ep not in js, f"Unexpected new endpoint '{ep}' in weight.js"
 
