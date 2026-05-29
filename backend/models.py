@@ -154,6 +154,26 @@ class DailyMetric(Base):
     )
 
 
+class PersonalRecord(Base):
+    __tablename__ = "personal_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    track_key = Column(String(100), nullable=False)
+    track_name = Column(String(200), nullable=False)
+    track_type = Column(String(10), nullable=False)
+    value_numeric = Column(Numeric(12, 4), nullable=False)
+    achieved_on = Column(Date, nullable=False)
+    source = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("track_type IN ('time', 'weight')", name="ck_personal_records_track_type"),
+        CheckConstraint("value_numeric > 0", name="ck_personal_records_value_positive"),
+    )
+
+
 class DailyReadiness(Base):
     __tablename__ = "daily_readiness"
 
