@@ -693,6 +693,9 @@ class ExerciseIn(BaseModel):
     rpe: Optional[int] = None
 
 
+_VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
+
+
 class WorkoutIn(BaseModel):
     user_id: str
     name: str
@@ -705,6 +708,8 @@ class WorkoutIn(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -719,6 +724,8 @@ class WorkoutPatch(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -884,6 +891,8 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
     if body.max_hr is not None and not (20 <= body.max_hr <= 250):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+    if body.source is not None and body.source not in _VALID_SOURCES:
+        raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -903,6 +912,8 @@ def post_workout(body: WorkoutIn):
             avg_hr=body.avg_hr,
             max_hr=body.max_hr,
             elevation_m=body.elevation_m,
+            source=body.source,
+            strava_activity_url=body.strava_activity_url,
         )
         session.add(workout)
         session.flush()
@@ -984,6 +995,12 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.max_hr = body.max_hr
         if 'elevation_m' in body.model_fields_set:
             workout.elevation_m = body.elevation_m
+        if 'source' in body.model_fields_set:
+            if body.source is not None and body.source not in _VALID_SOURCES:
+                raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
+            workout.source = body.source
+        if 'strava_activity_url' in body.model_fields_set:
+            workout.strava_activity_url = body.strava_activity_url
         session.commit()
         exercises = (
             session.query(WorkoutExercise)

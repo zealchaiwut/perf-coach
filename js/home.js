@@ -658,6 +658,126 @@
     card.appendChild(contentEl.firstChild);
   }
 
+  /* ---- Recent Workouts card helpers ---- */
+
+  var WORKOUT_TYPE_ICON = {
+    run:      { cls: 'run',  icon: 'ti-run' },
+    ride:     { cls: 'bike', icon: 'ti-bike' },
+    bike:     { cls: 'bike', icon: 'ti-bike' },
+    cycle:    { cls: 'bike', icon: 'ti-bike' },
+    lift:     { cls: 'lift', icon: 'ti-barbell' },
+    strength: { cls: 'lift', icon: 'ti-barbell' },
+    wod:      { cls: 'wod',  icon: 'ti-flame' },
+    crossfit: { cls: 'wod',  icon: 'ti-flame' },
+  };
+
+  function workoutTypeIcon(type) {
+    return WORKOUT_TYPE_ICON[(type || '').toLowerCase()] || { cls: 'run', icon: 'ti-run' };
+  }
+
+  function fmtWorkoutDuration(seconds) {
+    if (seconds == null) return null;
+    var s = Math.round(seconds);
+    if (s < 3600) {
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+    return Math.floor(s / 3600) + ':' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  }
+
+  function workoutDayOfWeek(isoStr) {
+    var p = isoStr.split('-');
+    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  }
+
+  function buildWorkoutRow(w, extraCls) {
+    var ic = workoutTypeIcon(w.workout_type);
+
+    var titleText = w.name;
+    if (w.distance_km != null) {
+      titleText += ' · ' + Number(w.distance_km).toFixed(1) + ' km';
+    }
+
+    var metaParts = [workoutDayOfWeek(w.workout_date)];
+    var dur = fmtWorkoutDuration(w.duration_seconds);
+    if (dur) metaParts.push(dur);
+    if (w.tss != null) metaParts.push('TSS ' + Math.round(w.tss));
+
+    var src = w.source || '';
+    var hasStrava = src.indexOf('strava') !== -1 || !!w.strava_activity_url;
+    var hasStryd  = src.indexOf('stryd')  !== -1;
+    var isManual  = !hasStrava && !hasStryd;
+
+    var badgesHTML = '';
+    if (isManual) {
+      badgesHTML = '<div class="src-badge manual" title="Manual"><i class="ti ti-pencil" style="font-size:12px;"></i></div>';
+    } else {
+      if (hasStryd)  badgesHTML += '<div class="src-badge stryd"  title="Stryd">S</div>';
+      if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
+    }
+
+    return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
+      '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
+      '<div class="info">' +
+        '<div class="ttl">' + titleText + '</div>' +
+        '<div class="meta">' + metaParts.join(' · ') + '</div>' +
+      '</div>' +
+      '<div class="sources">' + badgesHTML + '</div>' +
+    '</div>';
+  }
+
+  async function loadRecentWorkoutsCard(userId) {
+    var row2 = document.getElementById('row-2');
+    if (!row2) return;
+
+    var card = document.getElementById('workouts-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'workouts-card';
+      card.className = 'card workouts';
+      row2.appendChild(card);
+    }
+
+    var today = new Date();
+    var from14 = new Date(today);
+    from14.setDate(from14.getDate() - 14);
+
+    var workouts = [];
+    try {
+      var res = await fetch(
+        '/api/workouts?user_id=' + userId +
+        '&from=' + isoDate(from14) + '&to=' + isoDate(today)
+      );
+      if (res.ok) workouts = await res.json();
+    } catch (_) { workouts = []; }
+
+    workouts.sort(function (a, b) {
+      if (b.workout_date > a.workout_date) return 1;
+      if (b.workout_date < a.workout_date) return -1;
+      return 0;
+    });
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
+        '<a href="/log">View all</a>' +
+      '</div>';
+
+    if (!workouts.length) {
+      card.innerHTML = header +
+        '<div class="workouts-empty">No workouts in the last 14 days — log one.</div>';
+      return;
+    }
+
+    var top4 = workouts.slice(0, 4);
+    var listHTML = '';
+    top4.forEach(function (w, i) {
+      listHTML += buildWorkoutRow(w, i === 3 ? 'workout-desktop-only' : '');
+    });
+
+    card.innerHTML = header + '<div class="list">' + listHTML + '</div>';
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -683,6 +803,7 @@
       loadReadinessCard(userId);
       loadSleepCard(userId);
       loadPerformanceCard(userId);
+      loadRecentWorkoutsCard(userId);
     }
   }
 
