@@ -147,6 +147,8 @@
     searchInput.id          = 'log-search';
     searchInput.placeholder = 'Search workouts';
     searchInput.value       = filters.search;
+    searchInput.spellcheck  = false;
+    searchInput.autocomplete = 'off';
     searchWrap.appendChild(searchInput);
     bar.appendChild(searchWrap);
 
