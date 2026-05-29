@@ -57,6 +57,7 @@ with Session(engine) as session:
         text(
             "SELECT COUNT(*) FROM workouts w"
             " WHERE w.workout_type ILIKE 'strength'"
+            "   AND w.name NOT IN ('Squat 1RM Test')"
             "   AND (SELECT COUNT(*) FROM workout_exercises we WHERE we.workout_id = w.id) < 4"
         )
     ).scalar()
@@ -260,3 +261,66 @@ with Session(engine) as session:
             print(f"Alice already has {pr_count} personal_records row(s) — skipping personal records seed")
     else:
         print("Alice not found — skipping personal records seed")
+
+# Seed performance-widget demo workouts (idempotent: guarded by workout name)
+with Session(engine) as session:
+    alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+    if alice:
+        today = date.today()
+
+        # Half-marathon run: 1:58:12 (7092 s) at 21.1 km — gives amber delta vs 1:54:31 PR
+        hm_exists = session.execute(
+            text("SELECT COUNT(*) FROM workouts WHERE user_id = :uid AND name = 'Half Marathon Race'"),
+            {"uid": str(alice.id)},
+        ).scalar()
+        if not hm_exists:
+            result = session.execute(
+                text(
+                    "INSERT INTO workouts (user_id, name, workout_date, workout_type,"
+                    " distance_km, duration_seconds)"
+                    " VALUES (:user_id, :name, :workout_date, :workout_type,"
+                    " :distance_km, :duration_seconds)"
+                    " RETURNING id"
+                ),
+                {
+                    "user_id": str(alice.id),
+                    "name": "Half Marathon Race",
+                    "workout_date": str(today - timedelta(days=17)),
+                    "workout_type": "run",
+                    "distance_km": 21.1,
+                    "duration_seconds": 7092,
+                },
+            )
+            session.commit()
+            print("Seeded Half Marathon Race workout for Alice")
+
+        # Squat 1RM test: 132 kg — gives amber delta vs 140 kg PR
+        squat_exists = session.execute(
+            text("SELECT COUNT(*) FROM workouts WHERE user_id = :uid AND name = 'Squat 1RM Test'"),
+            {"uid": str(alice.id)},
+        ).scalar()
+        if not squat_exists:
+            result = session.execute(
+                text(
+                    "INSERT INTO workouts (user_id, name, workout_date, workout_type)"
+                    " VALUES (:user_id, :name, :workout_date, :workout_type)"
+                    " RETURNING id"
+                ),
+                {
+                    "user_id": str(alice.id),
+                    "name": "Squat 1RM Test",
+                    "workout_date": str(today - timedelta(days=7)),
+                    "workout_type": "strength",
+                },
+            )
+            workout_id = result.fetchone().id
+            session.execute(
+                text(
+                    "INSERT INTO workout_exercises"
+                    " (workout_id, display_order, name, sets, reps, weight_kg, rpe)"
+                    " VALUES (:workout_id, 0, 'Squat', 1, 1, 132.0, 9)"
+                ),
+                {"workout_id": str(workout_id)},
+            )
+            session.commit()
+            print("Seeded Squat 1RM Test workout for Alice")

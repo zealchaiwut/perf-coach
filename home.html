@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Home – perf-coach</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <style>
     :root {
@@ -20,6 +20,8 @@
       --accent-text: #1a2400;
       --hero-1: #b6c5ff;
       --hero-2: #8aa1ff;
+      --sleep-1: #2a1d54;
+      --sleep-2: #4d3a8c;
       --green: #2d5e10;
       --green-soft: #dff5d6;
       --red: #7a1a1a;
@@ -27,6 +29,12 @@
       --amber: #6b4408;
       --amber-soft: #fff0c4;
       --chip-bg: #f1f4fa;
+      --card-divider: rgba(13, 30, 67, 0.05);
+      --gold: #b8893c;
+      --blue-text: #1e3a8a;
+      --blue-soft: #dde6f8;
+      --purple-text: #4f3c8c;
+      --purple-soft: #ebe5f9;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -190,6 +198,7 @@
     /* ---- ROWS ---- */
     #row-1, #row-2, #row-3, #row-4 { margin-bottom: 16px; }
     #row-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+    #row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
 
     /* ---- CARD ---- */
     .card {
@@ -347,6 +356,198 @@
     .readiness-cta-btn:disabled { opacity: 0.6; cursor: default; }
     .readiness-cta-btn i { font-size: 16px; }
 
+    /* ---- SLEEP HERO CARD ---- */
+    .sleep-card {
+      background: linear-gradient(160deg, var(--sleep-1) 0%, var(--sleep-2) 100%);
+      color: #fff;
+      border: 0;
+      min-height: 280px;
+      padding: 22px;
+    }
+    .sleep-card .slp-lbl {
+      font-size: 11px;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 12px;
+    }
+    .sleep-card .slp-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .sleep-card .slp-score {
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+    .sleep-card .slp-score small {
+      font-size: 19px;
+      opacity: 0.5;
+      font-weight: 500;
+    }
+    .sleep-card .slp-quality {
+      font-size: 13px;
+      color: rgba(255,255,255,0.7);
+      margin: 4px 0 16px;
+    }
+    .sleep-card .slp-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .sleep-card .slp-m-l {
+      font-size: 10px;
+      color: rgba(255,255,255,0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 500;
+    }
+    .sleep-card .slp-m-v {
+      font-size: 19px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .sleep-card .slp-stages {
+      margin-top: auto;
+    }
+    .sleep-card .slp-stages-lbl {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: rgba(255,255,255,0.55);
+      font-weight: 500;
+      margin-bottom: 7px;
+    }
+    .sleep-card .slp-stages-bar {
+      display: flex;
+      height: 9px;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .slp-seg-deep  { background: #1f6feb; }
+    .slp-seg-rem   { background: #a86eff; }
+    .slp-seg-light { background: rgba(255,255,255,0.4); }
+    .sleep-card .slp-legend {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 6px;
+    }
+    .sleep-card .slp-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .slp-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sleep-card .slp-pct {
+      color: rgba(255,255,255,0.55);
+      font-size: 11px;
+    }
+    .sleep-card .slp-demo-note {
+      font-size: 10.5px;
+      color: rgba(255,255,255,0.4);
+      font-style: italic;
+      margin-top: 2px;
+    }
+    .sleep-card .slp-empty {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    /* ---- CARD HEADER (shared) ---- */
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+    .card-head .ttl i { font-size: 17px; color: var(--text-tertiary); }
+    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; }
+    .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
+
+    /* ---- PERFORMANCE CARD ---- */
+    .icon-wrap.run  { background: var(--blue-soft);   color: var(--blue-text); }
+    .icon-wrap.lift { background: var(--purple-soft); color: var(--purple-text); }
+
+    .perf-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    }
+    .perf-hdr { display: contents; }
+    .perf-row { display: contents; }
+    .perf-hdr > div {
+      font-size: 10px; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
+      padding: 4px 14px 10px;
+      border-bottom: 1px solid var(--card-divider);
+    }
+    .perf-row > div {
+      padding: 14px;
+      border-bottom: 1px solid var(--card-divider);
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .perf-hdr > div:first-child,
+    .perf-row > div:first-child { padding-left: 4px; }
+    .perf-row-last > div { border-bottom: 0; }
+
+    .perf-track { display: flex; align-items: center; gap: 11px; }
+    .perf-track .icon-wrap {
+      width: 38px; height: 38px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .perf-track .trk-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+    .perf-track .trk-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+
+    .pc-value {
+      font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600;
+      letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1;
+    }
+    .pc-unit { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 3px; font-family: 'Inter Tight', sans-serif; }
+    .pc-date { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
+    .pc-delta { font-size: 11px; margin-top: 4px; font-weight: 500; }
+    .pc-delta.behind { color: var(--amber); }
+    .pc-delta.ahead  { color: var(--green); font-weight: 600; }
+    .pc-trophy { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--gold); margin-top: 4px; }
+    .pc-trophy i { font-size: 12px; }
+    .pc-dash { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--text-tertiary); }
+
+    .perf-mobile { display: none; }
+    .perf-track-block {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--card-divider);
+    }
+    .perf-track-block:first-of-type { padding-top: 4px; }
+    .perf-track-block:last-of-type  { padding-bottom: 0; border-bottom: 0; }
+
+    .perf-empty {
+      padding: 28px 4px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .perf-empty a { color: #2b4ca8; text-decoration: none; }
+
     /* ---- BOTTOM TAB BAR (mobile only) ---- */
     .bottombar {
       display: none;
@@ -407,6 +608,28 @@
       .greeting p { font-size: 12.5px; }
 
       #row-1 { grid-template-columns: 1fr; }
+      #row-2 { grid-template-columns: 1fr; }
+
+      /* Performance: hide desktop grid, show mobile blocks */
+      .perf-grid   { display: none; }
+      .perf-mobile { display: block; }
+      .perf-track-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
+      .perf-track-head .icon-wrap { width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+      .perf-cells { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+      .perf-cell-m { background: #f7f9fd; border-radius: 10px; padding: 10px 11px; }
+      .perf-cell-m .mc-label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; margin-bottom: 5px; display: flex; align-items: center; gap: 3px; }
+      .perf-cell-m .mc-label i { font-size: 11px; }
+      .perf-cell-m .mc-value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1; }
+      .perf-cell-m .mc-unit { font-size: 10px; color: var(--text-tertiary); font-weight: 500; margin-left: 2px; font-family: 'Inter Tight', sans-serif; }
+      .perf-cell-m .mc-meta { font-size: 10px; color: var(--text-tertiary); margin-top: 3px; }
+      .perf-cell-m .mc-delta { font-size: 10px; margin-top: 3px; font-weight: 500; }
+      .perf-cell-m .mc-delta.behind { color: var(--amber); }
+      .perf-cell-m .mc-delta.ahead  { color: var(--green); font-weight: 600; }
+      .perf-cell-m.pr-cell-m  { background: rgba(184, 137, 60, 0.08); }
+      .perf-cell-m.pr-cell-m .mc-label { color: var(--gold); }
+      .perf-cell-m.pred-cell-m { background: rgba(43, 76, 168, 0.06); }
+      .perf-cell-m.pred-cell-m .mc-label { color: #2b4ca8; }
+      .perf-cell-m.pred-cell-m .mc-value { color: #2b4ca8; }
 
       /* Readiness card: mobile — centre-aligned, score on top */
       .readiness { text-align: center; padding: 22px; }
@@ -433,6 +656,22 @@
       .readiness-empty-body {
         align-items: center;
         text-align: center;
+      }
+
+      /* Sleep card: mobile — score and quality on the same top row */
+      .sleep-card .slp-top {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .sleep-card .slp-score { font-size: 52px; }
+      .sleep-card .slp-score small { font-size: 17px; }
+      .sleep-card .slp-quality {
+        text-align: right;
+        font-size: 12px;
+        margin: 0 0 6px;
       }
     }
   </style>

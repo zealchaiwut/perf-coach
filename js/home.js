@@ -281,6 +281,383 @@
     renderScored(card, todayData, rangeData, metricsData);
   }
 
+  /* ---- Sleep card helpers ---- */
+
+  /*
+   * Sleep score formula:
+   * clip(((sleep_hours - 4) / 5) * 60 + ((sleep_quality - 1) / 4) * 40, 0, 100)
+   * Example: sleep_hours = 7.4, sleep_quality = 4 → score = 82
+   */
+  function computeSleepScore(hours, quality) {
+    var raw = ((hours - 4) / 5) * 60 + ((quality - 1) / 4) * 40;
+    return Math.round(Math.min(100, Math.max(0, raw)));
+  }
+
+  function fmtHoursAsleep(hours) {
+    var h = Math.floor(hours);
+    var m = Math.round((hours - h) * 60);
+    return h + 'h ' + m + 'm';
+  }
+
+  async function loadSleepCard(userId) {
+    var row1 = document.getElementById('row-1');
+    if (!row1) return;
+
+    var card = document.getElementById('sleep-hero-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'sleep-hero-card';
+      card.className = 'card sleep-card';
+      row1.appendChild(card);
+    }
+
+    var today = isoDate(new Date());
+    var data = null;
+    try {
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
+      if (res.ok) data = await res.json();
+    } catch (_) { /* fall through to empty state */ }
+
+    var lbl = '<div class="slp-lbl"><i class="ti ti-moon"></i>Sleep · last night</div>';
+
+    if (!data || data.sleep_hours == null) {
+      card.innerHTML = lbl +
+        '<div class="slp-empty">No sleep logged for last night</div>';
+      return;
+    }
+
+    var score   = computeSleepScore(data.sleep_hours, data.sleep_quality != null ? data.sleep_quality : 0);
+    var timeStr = fmtHoursAsleep(data.sleep_hours);
+    var hrvStr  = data.hrv != null ? data.hrv + ' ms' : '—';
+    var qualStr = data.sleep_quality != null ? 'Quality ' + data.sleep_quality + '/5' : '—';
+
+    card.innerHTML = lbl +
+      '<div class="slp-body">' +
+        '<div class="slp-top">' +
+          '<div class="slp-score">' + score + '<small>/100</small></div>' +
+          '<div class="slp-quality">' + qualStr + '</div>' +
+        '</div>' +
+        '<div class="slp-meta">' +
+          '<div><div class="slp-m-l">Time asleep</div><div class="slp-m-v">' + timeStr + '</div></div>' +
+          '<div><div class="slp-m-l">HRV during</div><div class="slp-m-v">' + hrvStr + '</div></div>' +
+        '</div>' +
+        '<div class="slp-stages">' +
+          '<div class="slp-stages-lbl">Stages</div>' +
+          '<div class="slp-stages-bar">' +
+            '<div class="slp-seg-deep" style="width:22%"></div>' +
+            '<div class="slp-seg-rem" style="width:28%"></div>' +
+            '<div class="slp-seg-light" style="width:50%"></div>' +
+          '</div>' +
+          '<div class="slp-legend">' +
+            '<div class="slp-legend-item"><span class="slp-dot" style="background:#1f6feb"></span>Deep<span class="slp-pct">22%</span></div>' +
+            '<div class="slp-legend-item"><span class="slp-dot" style="background:#a86eff"></span>REM<span class="slp-pct">28%</span></div>' +
+            '<div class="slp-legend-item"><span class="slp-dot" style="background:rgba(255,255,255,0.5)"></span>Light<span class="slp-pct">50%</span></div>' +
+          '</div>' +
+          '<div class="slp-demo-note">demo data</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---- Performance card helpers ---- */
+
+  var TRACK_CONFIGS = {
+    'half_marathon': {
+      workout_type_re: /run/i,
+      dist_min: 20, dist_max: 22,
+      value_source: 'duration',
+      icon_cls: 'run', icon: 'ti-run', sub: '21.1 km'
+    },
+    '10k': {
+      workout_type_re: /run/i,
+      dist_min: 9, dist_max: 11,
+      value_source: 'duration',
+      icon_cls: 'run', icon: 'ti-run', sub: '10.0 km'
+    },
+    'squat_1rm': {
+      workout_type_re: /strength/i,
+      dist_min: null, dist_max: null,
+      value_source: 'exercise_weight',
+      exercise_re: /squat/i,
+      icon_cls: 'lift', icon: 'ti-barbell', sub: '1-rep max'
+    }
+  };
+
+  function fmtSeconds(sec) {
+    var s = Math.round(sec);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var ss = s % 60;
+    if (h > 0) {
+      return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+    }
+    return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+  }
+
+  function fmtTimeDelta(diffSec) {
+    var abs = Math.abs(Math.round(diffSec));
+    var h = Math.floor(abs / 3600);
+    var m = Math.floor((abs % 3600) / 60);
+    var s = abs % 60;
+    var sign = diffSec >= 0 ? '+' : '−';
+    if (h > 0) {
+      return sign + h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ' from PR';
+    }
+    if (m > 0) {
+      return sign + m + ':' + String(s).padStart(2, '0') + ' from PR';
+    }
+    return sign + s + 's from PR';
+  }
+
+  function fmtWeightDelta(diff) {
+    var sign = diff >= 0 ? '+' : '−';
+    return sign + Math.abs(diff).toFixed(diff % 1 === 0 ? 0 : 1) + ' kg from PR';
+  }
+
+  function fmtDate(isoStr) {
+    if (!isoStr) return '';
+    var parts = isoStr.split('-');
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+  }
+
+  function fmtDateShort(isoStr) {
+    if (!isoStr) return '';
+    var parts = isoStr.split('-');
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
+  }
+
+  function matchesTrack(workout, cfg) {
+    if (!cfg.workout_type_re.test(workout.workout_type || '')) return false;
+    if (cfg.dist_min !== null) {
+      var d = workout.distance_km;
+      if (d == null || d < cfg.dist_min || d > cfg.dist_max) return false;
+    }
+    return true;
+  }
+
+  /* Returns {value, date} or null for a given track + sorted workouts list.
+     For exercise_weight tracks, fetches the workout detail. */
+  async function resolveRecentValue(cfg, sortedWorkouts) {
+    var match = null;
+    for (var i = 0; i < sortedWorkouts.length; i++) {
+      if (matchesTrack(sortedWorkouts[i], cfg)) { match = sortedWorkouts[i]; break; }
+    }
+    if (!match) return null;
+
+    if (cfg.value_source === 'duration') {
+      if (match.duration_seconds == null) return null;
+      return { value: match.duration_seconds, date: match.workout_date };
+    }
+
+    if (cfg.value_source === 'exercise_weight') {
+      var detail = null;
+      try {
+        var r = await fetch('/api/workouts/' + match.id);
+        if (r.ok) detail = await r.json();
+      } catch (_) { return null; }
+      if (!detail || !Array.isArray(detail.exercises)) return null;
+      var maxW = null;
+      detail.exercises.forEach(function (ex) {
+        if (cfg.exercise_re.test(ex.name || '') && ex.weight_kg != null) {
+          if (maxW === null || ex.weight_kg > maxW) maxW = ex.weight_kg;
+        }
+      });
+      if (maxW === null) return null;
+      return { value: maxW, date: match.workout_date };
+    }
+
+    return null;
+  }
+
+  function buildPrValueHTML(pr) {
+    if (pr.track_type === 'time') {
+      return '<span class="pc-value">' + fmtSeconds(pr.value_numeric) + '</span>';
+    }
+    return '<span class="pc-value">' + pr.value_numeric + '<span class="pc-unit">kg</span></span>';
+  }
+
+  function buildRecentValueHTML(pr, recent) {
+    if (!recent) {
+      return '<span class="pc-dash">—</span>';
+    }
+    var valHTML, delta, deltaClass;
+    if (pr.track_type === 'time') {
+      valHTML = '<span class="pc-value">' + fmtSeconds(recent.value) + '</span>';
+      delta   = recent.value - pr.value_numeric;
+      deltaClass = delta > 0 ? 'behind' : 'ahead';
+    } else {
+      valHTML = '<span class="pc-value">' + recent.value + '<span class="pc-unit">kg</span></span>';
+      delta   = recent.value - pr.value_numeric;
+      deltaClass = delta < 0 ? 'behind' : 'ahead';
+    }
+    var deltaText = pr.track_type === 'time' ? fmtTimeDelta(delta) : fmtWeightDelta(delta);
+    return valHTML +
+      '<div class="pc-date">' + fmtDateShort(recent.date) + '</div>' +
+      '<div class="pc-delta ' + deltaClass + '">' + deltaText + '</div>';
+  }
+
+  function buildRecentValueMobileHTML(pr, recent) {
+    if (!recent) return '<div class="mc-value">—</div>';
+    var valHTML, delta, deltaClass, deltaText;
+    if (pr.track_type === 'time') {
+      valHTML    = '<div class="mc-value">' + fmtSeconds(recent.value) + '</div>';
+      delta      = recent.value - pr.value_numeric;
+      deltaClass = delta > 0 ? 'behind' : 'ahead';
+      deltaText  = fmtTimeDelta(delta);
+    } else {
+      valHTML    = '<div class="mc-value">' + recent.value + '<span class="mc-unit">kg</span></div>';
+      delta      = recent.value - pr.value_numeric;
+      deltaClass = delta < 0 ? 'behind' : 'ahead';
+      deltaText  = fmtWeightDelta(delta);
+    }
+    return valHTML +
+      '<div class="mc-meta">' + fmtDateShort(recent.date) + '</div>' +
+      '<div class="mc-delta ' + deltaClass + '">' + deltaText + '</div>';
+  }
+
+  function buildDesktopRow(pr, cfg, recent, isLast) {
+    var rowCls = 'perf-row' + (isLast ? ' perf-row-last' : '');
+    var predicted =
+      '<span class="pc-dash" title="Prediction model not yet built">—</span>';
+    return '<div class="' + rowCls + '">' +
+      '<div class="perf-track">' +
+        '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
+        '<div><div class="trk-name">' + pr.track_name + '</div>' +
+             '<div class="trk-sub">' + cfg.sub + '</div></div>' +
+      '</div>' +
+      '<div>' +
+        buildPrValueHTML(pr) +
+        '<div class="pc-trophy"><i class="ti ti-trophy-filled"></i>' + fmtDate(pr.achieved_on) + '</div>' +
+      '</div>' +
+      '<div>' + buildRecentValueHTML(pr, recent) + '</div>' +
+      '<div>' + predicted + '</div>' +
+    '</div>';
+  }
+
+  function buildMobileBlock(pr, cfg, recent) {
+    var blockCls = 'perf-track-block';
+    var prVal    = pr.track_type === 'time'
+      ? fmtSeconds(pr.value_numeric)
+      : pr.value_numeric + '<span class="mc-unit">kg</span>';
+
+    return '<div class="' + blockCls + '">' +
+      '<div class="perf-track-head">' +
+        '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
+        '<div><div class="trk-name">' + pr.track_name + '</div>' +
+             '<div class="trk-sub">' + cfg.sub + '</div></div>' +
+      '</div>' +
+      '<div class="perf-cells">' +
+        '<div class="perf-cell-m pr-cell-m">' +
+          '<div class="mc-label"><i class="ti ti-trophy-filled"></i>PR</div>' +
+          '<div class="mc-value">' + prVal + '</div>' +
+          '<div class="mc-meta">' + fmtDateShort(pr.achieved_on) + '</div>' +
+        '</div>' +
+        '<div class="perf-cell-m">' +
+          '<div class="mc-label">Current</div>' +
+          buildRecentValueMobileHTML(pr, recent) +
+        '</div>' +
+        '<div class="perf-cell-m pred-cell-m">' +
+          '<div class="mc-label">Predicted</div>' +
+          '<div class="mc-value" title="Prediction model not yet built">—</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  async function loadPerformanceCard(userId) {
+    var row2 = document.getElementById('row-2');
+    if (!row2) return;
+
+    var card = document.getElementById('perf-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'perf-card';
+      card.className = 'card';
+      row2.insertBefore(card, row2.firstChild);
+    }
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
+        '<a href="#">All tracks</a>' +
+      '</div>' +
+      '<div class="perf-loading" style="font-size:13px;color:var(--text-tertiary);padding:16px 4px;">Loading…</div>';
+
+    var prs = [];
+    try {
+      var r = await fetch('/api/personal-records?user_id=' + userId);
+      if (r.ok) prs = await r.json();
+    } catch (_) { prs = []; }
+
+    var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
+
+    if (configuredPrs.length === 0) {
+      var emptyLoading = card.querySelector('.perf-loading');
+      if (emptyLoading) emptyLoading.remove();
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'perf-empty';
+      emptyEl.innerHTML =
+        'No tracked performances yet — add one from the <a href="#">Performance page</a>';
+      card.appendChild(emptyEl);
+      return;
+    }
+
+    /* Fetch 6 months of workouts once */
+    var today = new Date();
+    var from6m = new Date(today);
+    from6m.setMonth(from6m.getMonth() - 6);
+    var allWorkouts = [];
+    try {
+      var wr = await fetch(
+        '/api/workouts?user_id=' + userId +
+        '&from=' + isoDate(from6m) + '&to=' + isoDate(today)
+      );
+      if (wr.ok) allWorkouts = await wr.json();
+    } catch (_) { allWorkouts = []; }
+
+    allWorkouts.sort(function (a, b) {
+      return a.workout_date < b.workout_date ? 1 : -1;
+    });
+
+    /* Resolve most-recent values (may involve detail fetches for weight tracks) */
+    var recentValues = [];
+    for (var i = 0; i < configuredPrs.length; i++) {
+      var cfg = TRACK_CONFIGS[configuredPrs[i].track_key];
+      var rv = await resolveRecentValue(cfg, allWorkouts);
+      recentValues.push(rv);
+    }
+
+    /* Build HTML */
+    var desktopRows = '';
+    var mobileBlocks = '';
+    for (var j = 0; j < configuredPrs.length; j++) {
+      var pr  = configuredPrs[j];
+      var cfgJ = TRACK_CONFIGS[pr.track_key];
+      var rv2  = recentValues[j];
+      var last = j === configuredPrs.length - 1;
+      desktopRows  += buildDesktopRow(pr, cfgJ, rv2, last);
+      mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
+    }
+
+    var loadingEl = card.querySelector('.perf-loading');
+    if (loadingEl) loadingEl.remove();
+
+    var contentEl = document.createElement('div');
+    contentEl.innerHTML =
+      '<div class="perf-grid">' +
+        '<div class="perf-hdr">' +
+          '<div>Track</div><div>Personal best</div>' +
+          '<div>Most recent</div><div>Predicted next</div>' +
+        '</div>' +
+        desktopRows +
+      '</div>' +
+      '<div class="perf-mobile">' + mobileBlocks + '</div>';
+
+    card.appendChild(contentEl.firstChild);
+    card.appendChild(contentEl.firstChild);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -304,6 +681,8 @@
 
     if (userId) {
       loadReadinessCard(userId);
+      loadSleepCard(userId);
+      loadPerformanceCard(userId);
     }
   }
 
