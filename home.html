@@ -16,6 +16,17 @@
       --text-primary: #0b1530;
       --text-secondary: #5c6886;
       --text-tertiary: #8b95ad;
+      --accent: #e4ff52;
+      --accent-text: #1a2400;
+      --hero-1: #b6c5ff;
+      --hero-2: #8aa1ff;
+      --green: #2d5e10;
+      --green-soft: #dff5d6;
+      --red: #7a1a1a;
+      --red-soft: #ffd9d9;
+      --amber: #6b4408;
+      --amber-soft: #fff0c4;
+      --chip-bg: #f1f4fa;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -176,11 +187,165 @@
       font-size: 14px;
     }
 
-    /* ---- PLACEHOLDER ROWS ---- */
-    #row-1, #row-2, #row-3, #row-4 {
-      min-height: 16px;
-      margin-bottom: 16px;
+    /* ---- ROWS ---- */
+    #row-1, #row-2, #row-3, #row-4 { margin-bottom: 16px; }
+    #row-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+
+    /* ---- CARD ---- */
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      border: 1px solid var(--card-border);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
     }
+
+    /* ---- READINESS HERO CARD ---- */
+    .readiness {
+      background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%);
+      color: #0b1530;
+      border: 0;
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+      min-height: 280px;
+    }
+    .readiness .lbl {
+      font-size: 11px;
+      color: rgba(11, 21, 48, 0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .readiness h2 {
+      margin: 8px 0 8px;
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      max-width: 65%;
+      line-height: 1.2;
+    }
+    .readiness .sub {
+      font-size: 14px;
+      color: rgba(11, 21, 48, 0.7);
+      max-width: 65%;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .readiness .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-top: 16px;
+    }
+    .readiness .status-pill.pill-green { background: var(--accent); color: var(--accent-text); }
+    .readiness .status-pill.pill-amber { background: var(--amber-soft); color: var(--amber); }
+    .readiness .status-pill.pill-red   { background: var(--red-soft);   color: var(--red); }
+    .readiness .score-block {
+      position: absolute;
+      right: 28px;
+      top: 28px;
+      text-align: right;
+    }
+    .readiness .score-label {
+      font-size: 10px;
+      color: rgba(11, 21, 48, 0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .readiness .score {
+      font-size: 96px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.045em;
+      margin-top: 4px;
+    }
+    .readiness .score small {
+      font-size: 22px;
+      font-weight: 500;
+      opacity: 0.5;
+      margin-left: 2px;
+    }
+    .readiness .score-avg {
+      font-size: 12px;
+      color: rgba(11, 21, 48, 0.6);
+      margin-top: 4px;
+    }
+    .readiness .components {
+      display: flex;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 20px;
+    }
+    .component {
+      background: rgba(255, 255, 255, 0.55);
+      backdrop-filter: blur(10px);
+      border-radius: 13px;
+      padding: 11px 14px;
+      flex: 1;
+    }
+    .component .l {
+      font-size: 10px;
+      color: rgba(11, 21, 48, 0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+    .component .v {
+      font-size: 17px;
+      font-weight: 600;
+      margin-top: 3px;
+      letter-spacing: -0.01em;
+    }
+    .delta {
+      font-size: 10.5px;
+      margin-left: 4px;
+      font-weight: 500;
+    }
+    .delta.up   { color: var(--green); }
+    .delta.down { color: var(--red); }
+    .delta.flat { color: var(--text-tertiary); }
+
+    /* CTA / empty states */
+    .readiness-cta-body,
+    .readiness-empty-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 14px;
+    }
+    .readiness-cta-msg,
+    .readiness-empty-msg {
+      margin: 0;
+      font-size: 15px;
+      color: rgba(11, 21, 48, 0.7);
+      line-height: 1.5;
+    }
+    .readiness-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0b1530;
+      color: #fff;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 20px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 500;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+    }
+    .readiness-cta-btn:disabled { opacity: 0.6; cursor: default; }
+    .readiness-cta-btn i { font-size: 16px; }
 
     /* ---- BOTTOM TAB BAR (mobile only) ---- */
     .bottombar {
@@ -240,6 +405,35 @@
       .page { padding: 16px 14px 8px; }
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
+
+      #row-1 { grid-template-columns: 1fr; }
+
+      /* Readiness card: mobile — centre-aligned, score on top */
+      .readiness { text-align: center; padding: 22px; }
+      .readiness .lbl  { order: 0; }
+      .readiness .score-block {
+        position: static;
+        order: 1;
+        text-align: center;
+        margin: 8px 0;
+      }
+      .readiness h2    { order: 2; max-width: 100%; font-size: 20px; }
+      .readiness .sub  { order: 3; max-width: 100%; font-size: 13px; }
+      .readiness .status-pill { order: 4; margin-top: 12px; }
+      .readiness .components  {
+        order: 5;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding-top: 0;
+        margin-top: 16px;
+        text-align: left;
+      }
+      .readiness .score { font-size: 88px; }
+      .readiness-cta-body,
+      .readiness-empty-body {
+        align-items: center;
+        text-align: center;
+      }
     }
   </style>
 </head>
