@@ -14,10 +14,10 @@ BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
 TODAY_STR = TODAY.isoformat()
 
-HABITS_JS   = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
-WEIGHT_JS   = pathlib.Path(__file__).parent.parent / "js" / "weight.js"
-HABITS_HTML = pathlib.Path(__file__).parent.parent / "habits.html"
-WEIGHT_HTML = pathlib.Path(__file__).parent.parent / "weight.html"
+HABITS_JS   = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
+WEIGHT_JS   = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
+HABITS_HTML = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "habits.html"
+WEIGHT_HTML = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html"
 DOCS_TZ     = pathlib.Path(__file__).parent.parent / "docs" / "timezones.md"
 
 

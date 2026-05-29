@@ -24,8 +24,8 @@ BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
 TODAY_STR = TODAY.isoformat()
 
-JS_PATH   = pathlib.Path(__file__).parent.parent / "js" / "home.js"
-HTML_PATH = pathlib.Path(__file__).parent.parent / "home.html"
+JS_PATH   = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js"
+HTML_PATH = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ def test_ac_no_llm_endpoint_in_home_js():
 
 def test_ac_mock_data_hrv_last_3_days_below_avg():
     """MOCK_TRENDS_SUMMARY must have last 3 HRV values below the reported avg."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "js" / "mock-data.js").read_text()
+    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
     # Extract HRV block specifically
     hrv_match = re.search(r"hrv:\s*\{.*?avg:\s*([\d.]+)", mock_js, re.DOTALL)
     hrv_series_match = re.search(r"hrv:\s*\{[^}]*series:\s*\[(.*?)\]", mock_js, re.DOTALL)
