@@ -103,6 +103,7 @@ def test_api_entry_has_duration_seconds(client, alice_id, sample_workout):
 
 def test_duration_rounding_3723_seconds(client, alice_id, sample_workout):
     """3723 seconds / 60 = 62.05 must round to 62.1 (1 dp)."""
+    import math
     from_date = (TODAY - datetime.timedelta(days=7)).isoformat()
     res = client.get(f"/api/training-log?user_id={alice_id}&from={from_date}&to={TODAY_STR}")
     assert res.status_code == 200
@@ -112,7 +113,9 @@ def test_duration_rounding_3723_seconds(client, alice_id, sample_workout):
         None,
     )
     assert match is not None, "Could not find the 3723-second workout in the training log"
-    computed = round(match["duration_seconds"] / 60, 1)
+    # Use round-half-up (matching JS Math.round) to avoid Python banker's rounding
+    # giving 62.0 for 62.05 due to floating-point representation of 3723/60.
+    computed = math.floor(match["duration_seconds"] / 60 * 10 + 0.5) / 10
     assert computed == 62.1, f"Expected 62.1 but got {computed}"
 
 
