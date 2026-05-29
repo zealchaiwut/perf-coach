@@ -2025,7 +2025,7 @@ def get_training_log(
     to_date: Optional[str] = Query(default=None, alias="to"),
     types: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
-    include_rest: bool = Query(default=True),
+    include_rest: bool = Query(default=False),
 ):
     from datetime import timedelta
     today = _date.today()
@@ -2052,7 +2052,7 @@ def get_training_log(
             raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
 
     with Session(engine) as session:
-        from sqlalchemy import or_
+        from sqlalchemy import or_, func as _func
         q = session.query(Workout).filter(
             Workout.workout_date >= from_d,
             Workout.workout_date <= to_d,
@@ -2060,7 +2060,8 @@ def get_training_log(
         if uid is not None:
             q = q.filter(Workout.user_id == uid)
         if types and types != "all":
-            q = q.filter(Workout.workout_type.ilike(types))
+            type_list = [t.strip().lower() for t in types.split(",") if t.strip()]
+            q = q.filter(_func.lower(Workout.workout_type).in_(type_list))
         if search:
             like = f"%{search}%"
             q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
