@@ -24,6 +24,90 @@
       padding: 0.75rem 2rem;
     }
 
+    /* ── Week strip nav ───────────────────────────────────────────────────── */
+    .ws-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .ws-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .ws-chevron {
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0.15rem 0.45rem;
+      font-size: 1.125rem;
+      line-height: 1;
+      cursor: pointer;
+      color: #555;
+    }
+
+    .ws-chevron:hover {
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    .ws-pills {
+      display: flex;
+      gap: 4px;
+    }
+
+    .day-pill {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0.375rem 0.125rem;
+      border-radius: 6px;
+      background: #f5f5f5;
+      border: 2px solid transparent;
+    }
+
+    .day-pill.today {
+      background: #eff6ff;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+    }
+
+    .day-name {
+      font-size: 0.625rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .day-num {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin: 0.1rem 0 0.2rem;
+      line-height: 1;
+    }
+
+    .wd-dots {
+      display: flex;
+      gap: 2px;
+      min-height: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .wd-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
     /* ── Filter bar ────────────────────────────────────────────────────────── */
     #filter-bar {
       display: flex;
@@ -374,35 +458,6 @@
       width: 100%;
     }
 
-    /* ── Week pills ────────────────────────────────────────────────────────── */
-    .week-pills {
-      display: flex;
-      gap: 0.35rem;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: 2px;
-    }
-
-    .week-pills::-webkit-scrollbar { height: 3px; }
-    .week-pills::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
-
-    .day-pill {
-      flex-shrink: 0;
-      min-width: 46px;
-      padding: 0.4rem 0.5rem;
-      border: 1px solid #e5e5e5;
-      border-radius: 6px;
-      background: #fff;
-      text-align: center;
-      cursor: pointer;
-      font-size: 0.75rem;
-      font-weight: 500;
-      color: #555;
-    }
-
-    .day-pill:hover { background: #f5f5f5; }
-    .day-pill.is-active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
-
     /* ── Skeleton loading ──────────────────────────────────────────────────── */
     @keyframes skeleton-shimmer {
       0%   { background-position: -400px 0; }
@@ -742,9 +797,7 @@
     <a href="trends.html">Trends</a>
   </nav>
 
-  <div id="week-strip">
-    <div class="week-pills" id="week-pills-nav"></div>
-  </div>
+  <div id="week-strip"></div>
 
   <div id="filter-bar"></div>
 
