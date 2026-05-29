@@ -661,7 +661,7 @@
 
     const logBtn = document.createElement('a');
     logBtn.className = 'day-modal-add-btn';
-    logBtn.href = `training.html?date=${dateStr}`;
+    logBtn.href = '/log';
     logBtn.textContent = '+ Log training';
     section.appendChild(logBtn);
 
