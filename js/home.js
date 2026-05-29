@@ -960,6 +960,142 @@
     attachHabitCellListeners(card, habits, weekDates, todayStr, userId);
   }
 
+  /* ---- Habits Stats Graph card ---- */
+
+  async function loadHabitsStatsCard(userId) {
+    var row4 = document.getElementById('row-4');
+    if (!row4) return;
+
+    var today = new Date();
+    var todayStr = isoDate(today);
+    var monday = isoWeekMonday(today);
+    var weekDates = [];
+    for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
+
+    var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    var DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+    var habits = [], logs = [], allStats = [];
+    try {
+      var results = await Promise.all([
+        fetch('/api/habits?user_id=' + userId),
+        fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]),
+        fetch('/api/habits/stats?user_id=' + userId + '&days=30')
+      ]);
+      if (results[0].ok) habits = await results[0].json();
+      if (results[1].ok) logs = await results[1].json();
+      if (results[2].ok) allStats = await results[2].json();
+    } catch (_) {}
+
+    var activeCount = habits.length;
+
+    // Zero-habits: hide the card entirely
+    if (activeCount === 0) return;
+
+    var card = document.getElementById('habits-stats-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'habits-stats-card';
+      card.className = 'card habits-graph';
+      row4.appendChild(card);
+    }
+
+    // Compute habitsCompletedByDay — count distinct (habit_id, day) log entries per day
+    var habitsCompletedByDay = {};
+    DAY_NAMES.forEach(function (d) { habitsCompletedByDay[d] = 0; });
+    var seen = {};
+    logs.forEach(function (l) {
+      var key = l.habit_id + '|' + l.logged_date;
+      if (seen[key]) return;
+      seen[key] = true;
+      var parts = l.logged_date.split('-');
+      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      var idx = d.getDay() === 0 ? 6 : d.getDay() - 1; // Mon=0 … Sun=6
+      habitsCompletedByDay[DAY_NAMES[idx]]++;
+    });
+
+    var totalCompleted = DAY_NAMES.reduce(function (s, d) { return s + habitsCompletedByDay[d]; }, 0);
+    var totalPossible = activeCount * 7;
+    var completionRate = totalPossible > 0 ? Math.round(totalCompleted / totalPossible * 100) : 0;
+
+    // bestDay: day name(s) with the highest N; supports ties
+    var maxN = Math.max.apply(null, DAY_NAMES.map(function (d) { return habitsCompletedByDay[d]; }));
+    var bestDayNames;
+    if (maxN === 0) {
+      bestDayNames = '—';
+    } else {
+      bestDayNames = DAY_NAMES.filter(function (d) { return habitsCompletedByDay[d] === maxN; }).join(' & ');
+    }
+
+    // longestStreak: max streak across all habits from /api/habits/stats list response
+    var longestStreakNum = 0;
+    var longestStreakHabit = '—';
+    if (Array.isArray(allStats)) {
+      allStats.forEach(function (s) {
+        if (s.streak > longestStreakNum) {
+          longestStreakNum = s.streak;
+          longestStreakHabit = s.habit_name;
+        }
+      });
+    }
+    var streakText = longestStreakNum > 0
+      ? longestStreakNum + ' days · ' + longestStreakHabit
+      : '—';
+
+    // Build 7-bar chart
+    var barsHTML = '';
+    weekDates.forEach(function (dateStr, i) {
+      var dayName = DAY_NAMES[i];
+      var n = habitsCompletedByDay[dayName];
+      var isFuture = dateStr > todayStr;
+      var isToday = dateStr === todayStr;
+      var cls = 'hg-day' + (isToday ? ' today' : '') + (isFuture ? ' future' : '');
+      var pct = isFuture ? 8 : (activeCount > 0 ? Math.round(n / activeCount * 100) : 0);
+      var label = isFuture ? '—' : String(n);
+      barsHTML +=
+        '<div class="' + cls + '">' +
+          '<div class="bar-val">' + label + '</div>' +
+          '<div class="bar-wrap"><div class="bar" style="height:' + Math.max(8, pct) + '%;"></div></div>' +
+          '<div class="dow">' + DOW_LABELS[i] + '</div>' +
+        '</div>';
+    });
+
+    var fillPct = totalPossible > 0 ? Math.round(totalCompleted / totalPossible * 100) : 0;
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-chart-bar"></i>Habits · stats</div>' +
+        '<span class="meta">This week</span>' +
+      '</div>' +
+      '<div class="hg-body">' +
+        '<div class="hg-bars">' +
+          '<div class="hg-label">Completed per day</div>' +
+          '<div class="hg-chart">' + barsHTML + '</div>' +
+        '</div>' +
+        '<div class="hg-stats">' +
+          '<div class="hg-stat">' +
+            '<div class="l">This week</div>' +
+            '<div class="v bar-stat">' + totalCompleted +
+              '<span class="sub">/ ' + totalPossible + ' possible</span>' +
+              '<span class="pct-bar"><span class="fill" style="width:' + fillPct + '%;"></span></span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="hg-stat">' +
+            '<div class="l">Best day</div>' +
+            '<div class="v">' + bestDayNames + '</div>' +
+          '</div>' +
+          '<div class="hg-stat">' +
+            '<div class="l">Completion rate</div>' +
+            '<div class="v">' + completionRate + '%</div>' +
+          '</div>' +
+          '<div class="hg-stat">' +
+            '<div class="l">Longest streak</div>' +
+            '<div class="v">' + streakText + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -987,6 +1123,7 @@
       loadPerformanceCard(userId);
       loadRecentWorkoutsCard(userId);
       loadHabitsCard(userId);
+      loadHabitsStatsCard(userId);
     }
   }
 

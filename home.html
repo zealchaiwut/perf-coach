@@ -635,6 +635,61 @@
     }
     .habits-empty a { color: #2b4ca8; text-decoration: none; }
 
+    /* ---- HABITS STATS GRAPH CARD ---- */
+    .habits-graph { padding: 22px; }
+    .hg-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+    .hg-bars { display: flex; flex-direction: column; gap: 8px; }
+    .hg-label {
+      font-size: 10px; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
+    }
+    .hg-chart {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+      align-items: end;
+      flex: 1;
+      min-height: 120px;
+    }
+    .hg-day { display: flex; flex-direction: column; align-items: center; height: 100%; gap: 4px; }
+    .hg-day .bar-wrap {
+      width: 100%; flex: 1;
+      display: flex; align-items: flex-end;
+      border-bottom: 1px solid var(--card-divider);
+    }
+    .hg-day .bar {
+      width: 100%; background: #2b4ca8;
+      border-radius: 4px 4px 0 0; min-height: 4px;
+    }
+    .hg-day.today .bar { background: #0b1530; }
+    .hg-day.future .bar { background: var(--chip-bg); }
+    .hg-day .bar-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text-tertiary);
+      margin-bottom: 3px; font-weight: 500;
+    }
+    .hg-day .dow { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+    .hg-day.today .dow { color: #0b1530; font-weight: 600; }
+    .hg-stats { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+    .hg-stat { display: flex; flex-direction: column; gap: 2px; }
+    .hg-stat .l { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
+    .hg-stat .v { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+    .hg-stat .v .sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; }
+    .hg-stat .v.bar-stat .pct-bar {
+      display: inline-block; width: 60px; height: 5px;
+      border-radius: 3px; background: var(--chip-bg);
+      position: relative; margin-left: 8px; vertical-align: 2px;
+    }
+    .hg-stat .v.bar-stat .pct-bar .fill {
+      position: absolute; left: 0; top: 0; bottom: 0;
+      background: #2b4ca8; border-radius: 3px;
+    }
+
     /* ---- BOTTOM TAB BAR (mobile only) ---- */
     .bottombar {
       display: none;
@@ -765,6 +820,11 @@
 
       /* Habits grid: mobile — single column, bigger cells, streak footer */
       #row-4 { grid-template-columns: 1fr; }
+
+      /* Habits stats graph: mobile — bars on top, stats 2×2 below */
+      .habits-graph .hg-body { display: flex; flex-direction: column; gap: 18px; }
+      .hg-chart { min-height: 110px; }
+      .hg-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .habits .week-row {
         grid-template-columns: 1fr repeat(7, 36px);
         gap: 4px;
