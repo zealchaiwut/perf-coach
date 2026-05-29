@@ -5,12 +5,12 @@
 | Field | Value |
 |---|---|
 | Sprint number | 21 |
-| Start | 2026-05-29T17:48:36+07:00 |
-| End | 2026-05-29T19:35:08+07:00 |
-| Duration | 1h 43m 44s |
+| Start | 2026-05-29T19:41:01+07:00 |
+| End | 2026-05-29T21:13:11+07:00 |
+| Duration | 1h 31m 28s |
 | End reason | stopped |
-| Attempted | 4 |
-| Completed | 0 |
+| Attempted | 5 |
+| Completed | 1 |
 | Skipped | 4 |
 | Failed | 4 |
 
@@ -18,32 +18,32 @@
 
 | Issue # | Title | Time taken | Outcome | Size |
 |---|---|---|---|---|
-| -- | No issues merged this sprint | -- | -- | -- |
+| #155 | Reorganize frontend assets into frontend/ directory | -- | merged — awaiting UAT review | -- |
 
 ## What Didn't Ship
 
 | Issue # | Title | Failure category | Reason |
 |---|---|---|---|
-| #147 | Build trend row with HRV/TSS/RHR/Weight cards | TESTER_REJECTED | Issue #147: tester exited 0 but not UAT -- no merge |
-| #155 | Reorganize frontend assets into frontend/ directory | CRASH | Issue #155: tester exited 1, skipping gates |
-| #156 | Add health check and environment metadata endpoints | TESTER_REJECTED | Issue #156: tester exited 0 but not UAT -- no merge |
+| #169 | Sprint 21 Executive Summary | TESTER_REJECTED | Issue #169: tester exited 0 but not UAT -- no merge |
 | #157 | Add render.yaml blueprint for UAT and PRD deployments | TESTER_REJECTED | Issue #157: tester exited 0 but not UAT -- no merge |
+| #156 | Add health check and environment metadata endpoints | TESTER_REJECTED | Issue #156: tester exited 0 but not UAT -- no merge |
+| #147 | Build trend row with HRV/TSS/RHR/Weight cards | TESTER_REJECTED | Issue #147: tester exited 0 but not UAT -- no merge |
 
 ## Suggested Follow-up Actions
 
-- **#147 Build trend row with HRV/TSS/RHR/Weight cards** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
-- **#155 Reorganize frontend assets into frontend/ directory** (CRASH): Examine the coder/tester log for the exception. Fix the underlying issue and retry.
-- **#156 Add health check and environment metadata endpoints** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
+- **#169 Sprint 21 Executive Summary** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
 - **#157 Add render.yaml blueprint for UAT and PRD deployments** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
+- **#156 Add health check and environment metadata endpoints** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
+- **#147 Build trend row with HRV/TSS/RHR/Weight cards** (TESTER_REJECTED): The tester did not advance the issue to UAT. Review the tester log and re-run tester.
 
 ## Stats
 
 | Metric | Value |
 |---|---|
 | Total Tokens | 0 |
-| Avg ticket time | -- |
-| Quality-gate pass rate | 0.0% |
-| Tester rejections | 3 |
+| Avg ticket time | 1h 31m 28s |
+| Quality-gate pass rate | 20.0% |
+| Tester rejections | 4 |
 | Merge conflicts | 0 |
 | Cost estimate | $0.00 (all agents subscription-funded via Claude Code) |
 
@@ -53,11 +53,11 @@ No issues carried over.
 
 ## Key Learnings
 
-Sprint 21 ended with a 0% quality-gate pass rate across all 4 attempted issues. Three issues were TESTER_REJECTED and one (issue #155) caused a full crash in the tester pipeline.
+Sprint 21 ran twice. The second run achieved a 20% quality-gate pass rate (1 of 5 attempted), with issue #155 (frontend asset reorganisation) merging successfully after a crash on the first run.
 
 **What didn't go well:**
-- The tester consistently rejected issues that passed their own exit checks (#147, #156, #157). This indicates a gap between what the coder considers "done" and what the tester's UAT gate requires — likely missing API tests, integration assertions, or acceptance criteria verification.
-- Issue #155 (frontend asset reorganisation) crashed the tester entirely (exit code 1). A structural refactor that moves files across directories is high-risk: any static route, import path, or test fixture that hard-codes the old path will break. This type of change needs careful path auditing before submission.
+- The tester consistently rejected issues that passed their own exit checks (#147, #156, #157, #169). This indicates a gap between what the coder considers "done" and what the tester's UAT gate requires — likely missing API tests, integration assertions, or acceptance criteria verification.
+- Issue #169 (this summary) was itself TESTER_REJECTED on the first pass, requiring a second sprint run to resolve.
 
 **What to do differently:**
 - Before submitting, verify that the test suite passes locally (`pytest tests/`) and that any new endpoints have at minimum a happy-path test covering status code and response shape.
@@ -66,10 +66,11 @@ Sprint 21 ended with a 0% quality-gate pass rate across all 4 attempted issues. 
 
 ## Links
 
-- [Sprint 21 issues on GitHub](https://github.com/zealchaiwut/perf-coach/issues?q=label%3Asprint-21)
-- [Issue #147 — Build trend row with HRV/TSS/RHR/Weight cards](https://github.com/zealchaiwut/perf-coach/issues/147)
-- [Issue #155 — Reorganize frontend assets into frontend/ directory](https://github.com/zealchaiwut/perf-coach/issues/155)
-- [Issue #156 — Add health check and environment metadata endpoints](https://github.com/zealchaiwut/perf-coach/issues/156)
+- [Sprint 21 issues on GitHub](https://github.com/zealchaiwut/perf-coach/issues?q=label%3Asprint-21.1)
+- [Issue #169 — Sprint 21 Executive Summary](https://github.com/zealchaiwut/perf-coach/issues/169)
 - [Issue #157 — Add render.yaml blueprint for UAT and PRD deployments](https://github.com/zealchaiwut/perf-coach/issues/157)
+- [Issue #156 — Add health check and environment metadata endpoints](https://github.com/zealchaiwut/perf-coach/issues/156)
+- [Issue #155 — Reorganize frontend assets into frontend/ directory](https://github.com/zealchaiwut/perf-coach/issues/155)
+- [Issue #147 — Build trend row with HRV/TSS/RHR/Weight cards](https://github.com/zealchaiwut/perf-coach/issues/147)
 
-_Generated by sprint-manager v1.0 on 2026-05-29T19:35:08+07:00_
+_Generated by sprint-manager v1.0 on 2026-05-29T21:13:11+07:00_
