@@ -309,7 +309,7 @@ def test_rest_entry_has_no_workout_keys(client, test_user):
 
 @pytest.fixture(scope="module")
 def log_html():
-    path = pathlib.Path(__file__).parent.parent / "log.html"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html"
     assert path.exists(), "log.html not found at repo root"
     return path.read_text(encoding="utf-8")
 
@@ -342,7 +342,7 @@ def test_log_html_has_empty_state_message(training_log_js):
 
 @pytest.fixture(scope="module")
 def training_log_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "training-log.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js"
     assert path.exists(), "js/training-log.js not found"
     return path.read_text(encoding="utf-8")
 
@@ -392,7 +392,7 @@ def test_training_log_js_week_summary_uses_workouts_not_entries(training_log_js)
 
 @pytest.fixture(scope="module")
 def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "mock-data.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
     assert path.exists(), "js/mock-data.js not found"
     return path.read_text(encoding="utf-8")
 

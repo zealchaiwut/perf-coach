@@ -10,8 +10,8 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 
-HTML = (pathlib.Path(__file__).parent.parent / "trends.html").read_text()
-JS   = (pathlib.Path(__file__).parent.parent / "js" / "trends.js").read_text()
+HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
+JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -277,7 +277,7 @@ def test_ac9_mock_fallback_on_api_error():
 
 def test_ac9_mock_readiness_defined_in_mock_data_js():
     """js/mock-data.js must define MOCK_READINESS with at least 7 entries."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "js" / "mock-data.js").read_text()
+    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
     assert "MOCK_READINESS" in mock_js, \
         "js/mock-data.js must define the MOCK_READINESS constant"
     entries = re.findall(r"readiness_score", mock_js)

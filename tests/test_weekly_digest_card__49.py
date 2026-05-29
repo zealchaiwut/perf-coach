@@ -82,13 +82,13 @@ def _cleanup_dates(client, user_id, dates):
 
 def test_ac_digest_section_exists_in_html():
     """home.html must have an element with id='section-digest'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-digest"' in html, "Missing id='section-digest' in home.html"
 
 
 def test_ac_digest_links_to_trends_7d():
     """The digest card must href to trends.html?range=7d (or /trends?range=7d)."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert re.search(r'href=["\']trends\.html\?range=7d["\']', html) or \
            re.search(r'href=["\'][^"\']*trends[^"\']*range=7d["\']', html), \
         "digest card must link to trends page with range=7d"
@@ -96,13 +96,13 @@ def test_ac_digest_links_to_trends_7d():
 
 def test_ac_digest_section_body_exists_in_html():
     """home.html must have id='section-digest-body' for dynamic content."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="section-digest-body"' in html, "Missing id='section-digest-body' in home.html"
 
 
 def test_ac_digest_positioned_in_main():
     """The digest section must be inside <main> on the home page."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     main_start = html.find("<main")
     main_end = html.find("</main>")
     assert main_start != -1 and main_end != -1, "<main> block not found in home.html"
@@ -259,14 +259,14 @@ def test_ac_tss_delta_format(client, alice_id):
 
 def test_ac_mock_data_shape_matches_api():
     """MOCK_TRENDS_SUMMARY in mock-data.js must have keys matching the real API shape."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "js" / "mock-data.js").read_text()
+    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
     for key in ("range", "readiness", "sleep", "hrv", "rhr", "tss", "deltas"):
         assert key in mock_js, f"MOCK_TRENDS_SUMMARY must include key '{key}'"
 
 
 def test_ac_mock_data_deltas_are_strings():
     """MOCK_TRENDS_SUMMARY deltas must be quoted strings (not raw numbers)."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "js" / "mock-data.js").read_text()
+    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
     # Keys may be unquoted or quoted in JS object literals
     for key in ("readiness", "hrv", "rhr", "sleep", "tss"):
         # Match: `key: '+4'` or `'key': '+4'` or `"key": "+4"` etc.
@@ -279,32 +279,32 @@ def test_ac_mock_data_deltas_are_strings():
 
 def test_ac_home_js_slices_to_5_lines():
     """home.js must limit digest lines to at most 5 (slice(0, 5) or equivalent)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "slice(0, 5)" in js, "home.js must call .slice(0, 5) to cap digest lines at 5"
 
 
 def test_ac_home_js_has_daily_cache_key():
     """home.js must define a localStorage cache key for the digest (constant or function)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "DIGEST_CACHE_KEY" in js or "digestCacheKey" in js, \
         "home.js must define DIGEST_CACHE_KEY or digestCacheKey for daily caching"
 
 
 def test_ac_home_js_cache_uses_today_iso():
     """The digest cache must gate on todayISO() to expire daily."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "todayISO()" in js, "Digest cache must call todayISO() to validate daily expiry"
 
 
 def test_ac_home_js_not_enough_data_message():
     """home.js must render 'Not enough data yet' when days_with_data < 3."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "Not enough data yet" in js, "home.js must include 'Not enough data yet' message"
 
 
 def test_ac_home_js_correct_endpoint_url():
     """home.js must fetch from /trends/summary, not /api/trends/summary."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/trends/summary" in js, "home.js must fetch from /trends/summary"
     assert "'/api/trends/summary" not in js and '"/api/trends/summary' not in js, \
         "home.js must NOT use /api/trends/summary (no /api prefix)"

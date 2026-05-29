@@ -10,8 +10,8 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 
-HTML = (pathlib.Path(__file__).parent.parent / "calendar.html").read_text()
-JS   = (pathlib.Path(__file__).parent.parent / "js" / "calendar.js").read_text()
+HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "calendar.html").read_text()
+JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "calendar.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ def client():
 
 def test_ac1_calendar_html_file_exists():
     """calendar.html must exist in the project root."""
-    path = pathlib.Path(__file__).parent.parent / "calendar.html"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "calendar.html"
     assert path.exists(), "calendar.html not found in project root"
 
 
@@ -39,14 +39,14 @@ def test_ac1_calendar_html_served_by_backend(client):
 
 def test_ac1_calendar_link_in_home_nav():
     """home.html must link to calendar.html in its nav."""
-    home_html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    home_html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'href="calendar.html"' in home_html, \
         "home.html must have a nav link to calendar.html"
 
 
 def test_ac1_calendar_link_in_index_nav():
     """index.html or another main-nav page must link to calendar.html."""
-    index_html = (pathlib.Path(__file__).parent.parent / "index.html").read_text()
+    index_html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "index.html").read_text()
     assert 'href="calendar.html"' in index_html, \
         "index.html must have a nav link to calendar.html"
 
@@ -380,7 +380,7 @@ def test_structural_calendar_html_loads_calendar_js():
 
 def test_structural_calendar_js_exists():
     """js/calendar.js must exist in the project."""
-    path = pathlib.Path(__file__).parent.parent / "js" / "calendar.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "calendar.js"
     assert path.exists(), "js/calendar.js not found"
 
 

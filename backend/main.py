@@ -1,4 +1,5 @@
 import os
+import time
 import uuid as _uuid
 from datetime import date as _date
 from pathlib import Path
@@ -14,24 +15,35 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
-__version__ = "0.1.0"
+_start_time = time.monotonic()
 
 app = FastAPI()
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
 _static_root = Path(__file__).parent.parent
-app.mount("/css", StaticFiles(directory=str(_static_root / "css")), name="css")
-app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
+app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
+app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
 
 
 @app.get("/api/health")
 def health():
-    return JSONResponse({"status": "ok", "database": check_db(), "environment": environment})
+    return JSONResponse({
+        "status": "ok",
+        "environment": environment,
+        "version": os.getenv("GIT_SHA", "unknown"),
+        "db": check_db(),
+        "uptime_seconds": int(time.monotonic() - _start_time),
+    })
+
+
+@app.get("/api/env")
+def get_env():
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/environment")
 def get_environment():
-    return JSONResponse({"environment": environment, "version": __version__})
+    return JSONResponse({"environment": environment})
 
 
 @app.get("/api/users")
@@ -385,21 +397,84 @@ def post_habit_log(body: HabitLogIn):
         )
 
 
+def _compute_habit_streak(session, hid, uid, window_dates, today):
+    """Walk backwards from today (or yesterday if today is pending) to count the streak."""
+    from datetime import timedelta
+    check = today
+    if check not in window_dates:
+        yesterday = today - timedelta(days=1)
+        if yesterday not in window_dates:
+            return 0
+        check = yesterday
+    all_logs = (
+        session.query(HabitLog.logged_date)
+        .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
+        .all()
+    )
+    all_dates = {row.logged_date for row in all_logs}
+    streak = 0
+    while check in all_dates:
+        streak += 1
+        check = check - timedelta(days=1)
+    return streak
+
+
 @app.get("/api/habits/stats")
 def get_habit_stats(
     user_id: str,
-    habit_id: str,
+    habit_id: Optional[str] = None,
     days: int = Query(default=30, ge=1, le=365),
 ):
     try:
         uid = _uuid.UUID(user_id)
-        hid = _uuid.UUID(habit_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id or habit_id")
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from datetime import timedelta
     today = _date.today()
     window_start = today - timedelta(days=days - 1)
+
+    # List mode: return stats for all active habits when habit_id is omitted
+    if habit_id is None:
+        with Session(engine) as session:
+            habits = (
+                session.query(Habit)
+                .filter(Habit.user_id == uid, Habit.archived_at.is_(None))
+                .order_by(Habit.display_order, Habit.created_at)
+                .all()
+            )
+            result = []
+            for habit in habits:
+                hid = habit.id
+                window_logs = (
+                    session.query(HabitLog.logged_date)
+                    .filter(
+                        HabitLog.habit_id == hid,
+                        HabitLog.user_id == uid,
+                        HabitLog.logged_date >= window_start,
+                        HabitLog.logged_date <= today,
+                    )
+                    .all()
+                )
+                window_dates = {row.logged_date for row in window_logs}
+                days_completed = len(window_dates)
+                completion_rate = round(days_completed / days, 4)
+                streak = _compute_habit_streak(session, hid, uid, window_dates, today)
+                result.append({
+                    "habit_id": str(hid),
+                    "habit_name": habit.name,
+                    "streak": streak,
+                    "completion_rate": completion_rate,
+                    "days_completed": days_completed,
+                    "days_total": days,
+                })
+            return JSONResponse(result)
+
+    # Single-habit mode (existing behaviour)
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
 
     with Session(engine) as session:
         window_logs = (
@@ -416,32 +491,7 @@ def get_habit_stats(
         days_completed = len(window_dates)
         completion_rate = round(days_completed / days, 4)
 
-        # STRICT streak: walk backwards from today.
-        # If today not logged but yesterday is, today is "pending" (streak still active).
-        check = today
-        if check not in window_dates:
-            yesterday = today - timedelta(days=1)
-            if yesterday not in window_dates:
-                return JSONResponse({
-                    "streak": 0,
-                    "completion_rate": completion_rate,
-                    "days_completed": days_completed,
-                    "days_total": days,
-                })
-            check = yesterday
-
-        # Fetch all logs for this habit to count the full streak (may go beyond the window)
-        all_logs = (
-            session.query(HabitLog.logged_date)
-            .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
-            .all()
-        )
-        all_dates = {row.logged_date for row in all_logs}
-
-        streak = 0
-        while check in all_dates:
-            streak += 1
-            check = check - timedelta(days=1)
+        streak = _compute_habit_streak(session, hid, uid, window_dates, today)
 
         return JSONResponse({
             "streak": streak,
@@ -525,32 +575,32 @@ def get_active_streak(user_id: str):
 
 @app.get("/")
 def index():
-    return FileResponse(str(_static_root / "index.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "index.html"))
 
 
 @app.get("/home.html")
 def home():
-    return FileResponse(str(_static_root / "home.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "home.html"))
 
 
 @app.get("/weight.html")
 def weight():
-    return FileResponse(str(_static_root / "weight.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "weight.html"))
 
 
 @app.get("/habits.html")
 def habits():
-    return FileResponse(str(_static_root / "habits.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "habits.html"))
 
 
 @app.get("/users.html")
 def users_page():
-    return FileResponse(str(_static_root / "users.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "users.html"))
 
 
 @app.get("/calendar.html")
 def calendar_page():
-    return FileResponse(str(_static_root / "calendar.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "calendar.html"))
 
 
 @app.get("/api/calendar/month")
@@ -664,22 +714,22 @@ def get_calendar_month(
 
 @app.get("/log.html")
 def log_page():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/log")
 def log_redirect():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/trends.html")
 def trends_page():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 @app.get("/trends")
 def trends_redirect():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────
@@ -696,6 +746,9 @@ class ExerciseIn(BaseModel):
     avg_hr: Optional[int] = None
 
 
+_VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
+
+
 class WorkoutIn(BaseModel):
     user_id: str
     name: str
@@ -708,6 +761,8 @@ class WorkoutIn(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
 
 
@@ -722,6 +777,8 @@ class WorkoutPatch(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    source: Optional[str] = None
+    strava_activity_url: Optional[str] = None
 
 
 class ExercisePatchIn(BaseModel):
@@ -899,6 +956,8 @@ def post_workout(body: WorkoutIn):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
     if body.max_hr is not None and not (20 <= body.max_hr <= 250):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+    if body.source is not None and body.source not in _VALID_SOURCES:
+        raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -918,6 +977,8 @@ def post_workout(body: WorkoutIn):
             avg_hr=body.avg_hr,
             max_hr=body.max_hr,
             elevation_m=body.elevation_m,
+            source=body.source,
+            strava_activity_url=body.strava_activity_url,
         )
         session.add(workout)
         session.flush()
@@ -1002,6 +1063,12 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             workout.max_hr = body.max_hr
         if 'elevation_m' in body.model_fields_set:
             workout.elevation_m = body.elevation_m
+        if 'source' in body.model_fields_set:
+            if body.source is not None and body.source not in _VALID_SOURCES:
+                raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
+            workout.source = body.source
+        if 'strava_activity_url' in body.model_fields_set:
+            workout.strava_activity_url = body.strava_activity_url
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -2018,6 +2085,15 @@ def _metric_has_data(m: DailyMetric) -> bool:
     )
 
 
+def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
+    """Return seconds-per-km pace for run/bike workouts; None otherwise."""
+    if workout_type not in ("run", "bike"):
+        return None
+    if duration_seconds is None or distance_km is None or float(distance_km) == 0:
+        return None
+    return round(duration_seconds / float(distance_km), 2)
+
+
 @app.get("/api/training-log")
 def get_training_log(
     user_id: Optional[str] = Query(default=None),
@@ -2030,12 +2106,14 @@ def get_training_log(
     from datetime import timedelta
     today = _date.today()
 
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
     uid = None
-    if user_id:
-        try:
-            uid = _uuid.UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid user_id")
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:
@@ -2098,14 +2176,6 @@ def get_training_log(
                         },
                     })
 
-    def _pace(w) -> "float | None":
-        t = w.workout_type.lower() if w.workout_type else ""
-        if t not in ("run", "bike"):
-            return None
-        if w.duration_seconds is None or w.distance_km is None or float(w.distance_km) == 0:
-            return None
-        return round(w.duration_seconds / float(w.distance_km), 2)
-
     workout_entries = [
         {
             "date": str(w.workout_date),
@@ -2117,7 +2187,7 @@ def get_training_log(
             "distance_km": float(w.distance_km) if w.distance_km is not None else None,
             "avg_hr": w.avg_hr,
             "elevation_m": w.elevation_m,
-            "average_pace_seconds_per_km": _pace(w),
+            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
             "notes": w.remarks or "",

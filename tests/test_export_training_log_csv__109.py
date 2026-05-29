@@ -120,13 +120,13 @@ def sample_workouts(client, alice_id):
 
 def test_export_button_exists_in_html():
     """log.html must have a button element with id='log-export-btn'."""
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
     assert 'id="log-export-btn"' in html, "Missing id='log-export-btn' in log.html"
 
 
 def test_export_button_has_click_handler_in_js():
     """training-log.js must attach a click handler to the Export button."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     assert "log-export-btn" in js, "Missing log-export-btn reference in training-log.js"
     assert "addEventListener('click'" in js or 'addEventListener("click"' in js, \
         "training-log.js must attach event listeners"
@@ -134,7 +134,7 @@ def test_export_button_has_click_handler_in_js():
 
 def test_export_csv_function_exists_in_js():
     """training-log.js must define an exportCSV function."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     assert "function exportCSV" in js, "Missing exportCSV function in training-log.js"
 
 
@@ -142,7 +142,7 @@ def test_export_csv_function_exists_in_js():
 
 def test_csv_filename_format_in_code():
     """training-log.js must format filename as 'training-log-{from}-to-{to}.csv'."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     assert "training-log-" in js, "Missing 'training-log-' prefix in exportCSV"
     assert ".csv" in js, "Missing .csv extension in exportCSV"
     assert "a.download" in js or ".download" in js, "Must set download attribute on anchor element"
@@ -150,7 +150,7 @@ def test_csv_filename_format_in_code():
 
 def test_filename_uses_range_values():
     """exportCSV must derive 'from' and 'to' values from date-range filters."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1, "exportCSV function not found"
     export_body = js[export_start:export_start + 800]
@@ -162,7 +162,7 @@ def test_filename_uses_range_values():
 
 def test_csv_header_columns_in_js():
     """training-log.js must output header row with columns: date, type, title, distance_km, duration_minutes, tss, avg_hr, source."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     # Check for the exact column names in order
     assert "date" in js and "type" in js and "title" in js, \
         "CSV header must include date, type, title columns"
@@ -175,7 +175,7 @@ def test_csv_header_columns_in_js():
 
 def test_csv_header_join_by_comma():
     """training-log.js must join column headers with commas."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     # Look for header line with comma-separated columns
     assert ".join(',')" in js, "Column headers must be joined by comma"
 
@@ -184,13 +184,13 @@ def test_csv_header_join_by_comma():
 
 def test_visible_workouts_variable_exists():
     """training-log.js must maintain a visibleWorkouts array of filtered workouts."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     assert "visibleWorkouts" in js, "Missing visibleWorkouts variable in training-log.js"
 
 
 def test_export_iterates_visible_workouts():
     """exportCSV must iterate over visibleWorkouts, not all workouts."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1
     export_body = js[export_start:export_start + 800]
@@ -202,7 +202,7 @@ def test_export_iterates_visible_workouts():
 
 def test_csv_date_format_in_js():
     """training-log.js must format dates as YYYY-MM-DD (ISO 8601 sortable)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     # Check for ISO date format (YYYY-MM-DD)
     assert "isoString().slice(0, 10)" in js or "YYYY-MM-DD" in js or \
            "toISOString" in js, \
@@ -213,7 +213,7 @@ def test_csv_date_format_in_js():
 
 def test_numeric_fields_exported_as_strings():
     """exportCSV must export distance_km, duration_minutes, tss, avg_hr as plain numbers."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1
     export_body = js[export_start:export_start + 1000]
@@ -228,7 +228,7 @@ def test_numeric_fields_exported_as_strings():
 
 def test_empty_export_creates_header_only():
     """When no workouts match filters, exportCSV must create CSV with header row only."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1
     export_body = js[export_start:export_start + 1000]
@@ -255,7 +255,7 @@ def test_no_new_api_endpoints_in_feature_branch(client):
 
 def test_export_function_in_training_log_js_not_backend():
     """exportCSV function must be entirely in training-log.js, not delegating to backend."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1
     export_body = js[export_start:export_start + 1500]
@@ -269,14 +269,14 @@ def test_export_function_in_training_log_js_not_backend():
 
 def test_csv_field_function_handles_commas():
     """training-log.js must have csvField function that escapes commas."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     assert "function csvField" in js, "Missing csvField function in training-log.js"
     assert "indexOf(',')" in js, "csvField must check for commas in field values"
 
 
 def test_csv_field_function_handles_quotes():
     """csvField must escape double quotes by doubling them (RFC 4180)."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     csv_func_start = js.find("function csvField")
     assert csv_func_start != -1
     csv_func_body = js[csv_func_start:csv_func_start + 500]
@@ -287,7 +287,7 @@ def test_csv_field_function_handles_quotes():
 
 def test_csv_field_function_quotes_fields_with_special_chars():
     """csvField must wrap fields containing commas, quotes, or newlines in quotes."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     csv_func_start = js.find("function csvField")
     assert csv_func_start != -1
     csv_func_body = js[csv_func_start:csv_func_start + 500]
@@ -297,7 +297,7 @@ def test_csv_field_function_quotes_fields_with_special_chars():
 
 def test_export_csv_uses_csv_field_for_all_fields():
     """exportCSV must call csvField for each field to ensure proper escaping."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "training-log.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js").read_text()
     export_start = js.find("function exportCSV")
     assert export_start != -1
     export_body = js[export_start:export_start + 1500]
@@ -318,14 +318,14 @@ def test_log_html_serves_from_uat_server(client):
 
 def test_log_html_includes_training_log_js():
     """log.html must include a script tag loading js/training-log.js."""
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
     assert "training-log.js" in html or "js/training-log.js" in html, \
         "log.html must load js/training-log.js"
 
 
 def test_log_html_has_export_button_and_input_elements(client):
     """log.html must have export button, search input, and date range select."""
-    html = (pathlib.Path(__file__).parent.parent / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
     assert 'id="log-export-btn"' in html, "Missing export button"
     assert 'id="search-input"' in html, "Missing search input"
     assert 'id="date-range"' in html, "Missing date range select"

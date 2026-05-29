@@ -171,7 +171,7 @@ def test_week_summary_tss_excludes_rest_entries(client, test_user):
 
 @pytest.fixture(scope="module")
 def log_html():
-    path = pathlib.Path(__file__).parent.parent / "log.html"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html"
     assert path.exists(), "log.html not found at repo root"
     return path.read_text(encoding="utf-8")
 
@@ -190,7 +190,7 @@ def test_log_html_rest_day_row_has_cursor_default(log_html):
 
 @pytest.fixture(scope="module")
 def training_log_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "training-log.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js"
     assert path.exists(), "js/training-log.js not found"
     return path.read_text(encoding="utf-8")
 
@@ -262,7 +262,7 @@ def test_training_log_js_rest_row_has_no_click_listener(training_log_js):
 
 @pytest.fixture(scope="module")
 def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "mock-data.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
     assert path.exists(), "js/mock-data.js not found"
     return path.read_text(encoding="utf-8")
 
