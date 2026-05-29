@@ -1096,6 +1096,375 @@
       '</div>';
   }
 
+  /* ---- Row 3: Trend cards (HRV · Weekly TSS · RHR · Weight) ---- */
+
+  function _trendAreaSpark(vals, strokeColor, fillColor, baselineVal) {
+    var W = 200, H = 48, PAD = 4;
+    var nonNull = vals.filter(function (v) { return v != null; });
+    if (!nonNull.length) {
+      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
+    }
+    var minV = Math.min.apply(null, nonNull);
+    var maxV = Math.max.apply(null, nonNull);
+    if (baselineVal != null) {
+      minV = Math.min(minV, baselineVal);
+      maxV = Math.max(maxV, baselineVal);
+    }
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    function normY(v) {
+      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
+    }
+
+    var pts = [];
+    for (var i = 0; i < vals.length; i++) {
+      if (vals[i] == null) continue;
+      var x = vals.length > 1 ? (i / (vals.length - 1)) * W : W / 2;
+      pts.push({ x: x, y: normY(vals[i]) });
+    }
+    if (!pts.length) {
+      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
+    }
+
+    var linePath = pts.map(function (p, idx) {
+      return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+
+    var lastPt = pts[pts.length - 1];
+    var areaPath = linePath +
+      ' L' + lastPt.x.toFixed(1) + ',' + H +
+      ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
+
+    var uid = 'tg' + Math.random().toString(36).slice(2, 7);
+    var gradDef = '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + fillColor + '" stop-opacity="0.45"/>' +
+      '<stop offset="100%" stop-color="' + fillColor + '" stop-opacity="0"/>' +
+      '</linearGradient></defs>';
+
+    var out = '<svg class="trend-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + gradDef;
+    out += '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>';
+    out += '<path d="' + linePath + '" fill="none" stroke="' + strokeColor + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+    if (baselineVal != null) {
+      var by = normY(baselineVal);
+      out += '<line x1="0" y1="' + by.toFixed(1) + '" x2="' + W + '" y2="' + by.toFixed(1) + '" stroke="' + strokeColor + '" stroke-width="1" stroke-dasharray="3 4" opacity="0.4"/>';
+    }
+    out += '<circle cx="' + lastPt.x.toFixed(1) + '" cy="' + lastPt.y.toFixed(1) + '" r="3" fill="' + strokeColor + '"/>';
+    out += '</svg>';
+    return out;
+  }
+
+  function _trendBarSpark(vals, peakIdx) {
+    var W = 200, H = 48, GAP = 3;
+    var nonNull = vals.filter(function (v) { return v != null && v > 0; });
+    if (!nonNull.length) {
+      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
+    }
+    var maxV = Math.max.apply(null, nonNull);
+    var n = vals.length;
+    var barW = Math.max(4, Math.floor((W - GAP * (n - 1)) / n));
+    var step = barW + GAP;
+    var startX = (W - (barW * n + GAP * (n - 1))) / 2;
+
+    var out = '<svg class="trend-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      var x = startX + i * step;
+      if (!v) {
+        out += '<rect x="' + x.toFixed(1) + '" y="' + (H - 2) + '" width="' + barW + '" height="2" rx="1" fill="#e5e7eb"/>';
+        continue;
+      }
+      var barH = Math.max(4, (v / maxV) * (H - 4));
+      var y = (H - barH).toFixed(1);
+      var fill = i === peakIdx ? '#f97316' : '#fdba74';
+      out += '<rect x="' + x.toFixed(1) + '" y="' + y + '" width="' + barW + '" height="' + barH.toFixed(1) + '" rx="2" fill="' + fill + '"/>';
+    }
+    out += '</svg>';
+    return out;
+  }
+
+  function _trendDeltaPill(text, direction) {
+    var dirClass = { up: 'trend-delta-pill--up', down: 'trend-delta-pill--down', flat: 'trend-delta-pill--flat' };
+    return '<span class="trend-delta-pill ' + (dirClass[direction] || dirClass.flat) + '">' + (text || '—') + '</span>';
+  }
+
+  function _trendCardInnerHTML(iconHTML, title, period, bigVal, unit, pillHTML, sparkSVG, footLeft, footRight, extraHTML) {
+    return '<div class="trend-card-header">' +
+        iconHTML +
+        '<span class="trend-card-title">' + title + '</span>' +
+        '<span class="trend-card-period">' + period + '</span>' +
+      '</div>' +
+      '<div class="trend-card-stat">' +
+        '<span class="trend-card-big">' + bigVal + '</span>' +
+        '<span class="trend-card-unit">' + unit + '</span>' +
+        pillHTML +
+      '</div>' +
+      sparkSVG +
+      '<div class="trend-card-footer">' +
+        '<span>' + footLeft + '</span>' +
+        '<span>' + footRight + '</span>' +
+      '</div>' +
+      (extraHTML || '');
+  }
+
+  function _trendCardErrorHTML(iconHTML, title, period) {
+    return '<div class="trend-card-header">' +
+        iconHTML +
+        '<span class="trend-card-title">' + title + '</span>' +
+        '<span class="trend-card-period">' + period + '</span>' +
+      '</div>' +
+      "<div class=\"trend-card-error\">Couldn't load data</div>";
+  }
+
+  function renderHRVTrendCard(el, summary) {
+    var iconHTML = '<i class="ti ti-heart-rate-monitor" style="font-size:16px;color:var(--teal-text);"></i>';
+    if (!summary) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'HRV', '30d');
+      return;
+    }
+    var series = (summary.hrv && summary.hrv.series) || [];
+    var baseline = summary.hrv ? summary.hrv.baseline_mean : null;
+    var sparkVals = series.map(function (d) { return d.value; });
+    var latest = null;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value != null) { latest = series[i].value; break; }
+    }
+    if (latest === null) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'HRV', '30d');
+      return;
+    }
+    var pillHTML;
+    if (baseline != null) {
+      var delta = latest - baseline;
+      var absD = Math.abs(delta);
+      var dir = absD < 2 ? 'flat' : (delta > 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _trendDeltaPill(sign + Math.round(absD) + ' ms', dir);
+    } else {
+      pillHTML = _trendDeltaPill('—', 'flat');
+    }
+    el.innerHTML = _trendCardInnerHTML(iconHTML, 'HRV', '30d',
+      Math.round(latest), 'ms', pillHTML,
+      _trendAreaSpark(sparkVals, '#1e6438', '#1e6438', baseline),
+      baseline != null ? 'Baseline ' + Math.round(baseline) + ' ms' : '30d avg',
+      'Today ' + Math.round(latest) + ' ms', '');
+  }
+
+  function renderRHRTrendCard(el, summary) {
+    var iconHTML = '<i class="ti ti-heart" style="font-size:16px;color:#dc2626;"></i>';
+    if (!summary) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'RHR', '30d');
+      return;
+    }
+    var series = (summary.rhr && summary.rhr.series) || [];
+    var baseline = summary.rhr ? summary.rhr.baseline_mean : null;
+    var sparkVals = series.map(function (d) { return d.value; });
+    var latest = null;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].value != null) { latest = series[i].value; break; }
+    }
+    if (latest === null) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'RHR', '30d');
+      return;
+    }
+    var pillHTML;
+    if (baseline != null) {
+      var delta = latest - baseline;
+      var absD = Math.abs(delta);
+      var dir = absD < 1 ? 'flat' : (delta < 0 ? 'up' : 'down');
+      var sign = delta > 0 ? '+' : '−';
+      pillHTML = _trendDeltaPill(sign + Math.round(absD) + ' bpm', dir);
+    } else {
+      pillHTML = _trendDeltaPill('—', 'flat');
+    }
+    el.innerHTML = _trendCardInnerHTML(iconHTML, 'RHR', '30d',
+      Math.round(latest), 'bpm', pillHTML,
+      _trendAreaSpark(sparkVals, '#dc2626', '#dc2626', baseline),
+      baseline != null ? 'Baseline ' + Math.round(baseline) + ' bpm' : '30d avg',
+      'Today ' + Math.round(latest) + ' bpm', '');
+  }
+
+  function renderWeeklyTSSTrendCard(el, summary) {
+    var iconHTML = '<i class="ti ti-flame" style="font-size:16px;color:var(--orange-text);"></i>';
+    if (!summary) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weekly TSS', '8d');
+      return;
+    }
+    var series = (summary.tss && summary.tss.series) || [];
+    var last8 = series.slice(-8);
+    if (!last8.length) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weekly TSS', '8d');
+      return;
+    }
+    var sparkVals = last8.map(function (d) { return d.value; });
+    var weekTotal = last8.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+    var peakIdx = -1, peakVal = -Infinity;
+    sparkVals.forEach(function (v, i) {
+      if (v != null && v > peakVal) { peakVal = v; peakIdx = i; }
+    });
+    var bigDay = null;
+    if (peakIdx >= 0 && last8[peakIdx]) {
+      var p = last8[peakIdx].date.split('-');
+      var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+      bigDay = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+    }
+    var pillHTML;
+    var prev8 = series.slice(-16, -8);
+    if (prev8.length) {
+      var prevTotal = prev8.reduce(function (s, d) { return s + (d.value || 0); }, 0);
+      if (prevTotal > 0) {
+        var pct = ((weekTotal - prevTotal) / prevTotal) * 100;
+        var absP = Math.abs(pct);
+        var dir = absP < 5 ? 'flat' : (pct > 0 ? 'up' : 'down');
+        var sign = pct > 0 ? '+' : '−';
+        pillHTML = _trendDeltaPill(sign + absP.toFixed(0) + '%', dir);
+      } else {
+        pillHTML = _trendDeltaPill('—', 'flat');
+      }
+    } else {
+      pillHTML = _trendDeltaPill('—', 'flat');
+    }
+    el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weekly TSS', '8d',
+      Math.round(weekTotal), 'TSS', pillHTML,
+      _trendBarSpark(sparkVals, peakIdx),
+      'Last 8 days',
+      bigDay ? 'Peak: ' + bigDay : '—', '');
+  }
+
+  function _buildWeightQuickInput() {
+    return '<div class="trend-quick-input">' +
+      '<input type="number" class="trend-weight-input" step="0.1" min="20" max="300"' +
+        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg">' +
+      '<button type="button" class="trend-quick-save-btn" data-save="weight">Save</button>' +
+    '</div>';
+  }
+
+  function _wireWeightSave(cardEl, userId) {
+    var btn = cardEl.querySelector('[data-save="weight"]');
+    var inp = cardEl.querySelector('.trend-weight-input');
+    if (!btn || !inp) return;
+    btn.addEventListener('click', async function () {
+      var val = parseFloat(inp.value);
+      if (!val || val < 20 || val > 300) { inp.focus(); return; }
+      btn.disabled = true;
+      try {
+        var todayStr = isoDate(new Date());
+        var res = await fetch('/api/weight?user_id=' + encodeURIComponent(userId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: val, recorded_date: todayStr })
+        });
+        if (res.ok || res.status === 409) {
+          inp.value = '';
+          var wRes = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
+          if (wRes.ok) {
+            var entries = await wRes.json();
+            renderWeightTrendCard(cardEl, entries, userId);
+          }
+        }
+      } catch (_) { /* silent */ }
+      btn.disabled = false;
+    });
+  }
+
+  function renderWeightTrendCard(el, weightEntries, userId) {
+    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
+    var quickInput = _buildWeightQuickInput();
+
+    if (!weightEntries || !weightEntries.length) {
+      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weight', '30d') + quickInput;
+      _wireWeightSave(el, userId);
+      return;
+    }
+
+    var sorted = weightEntries.slice().sort(function (a, b) {
+      return a.recorded_date.localeCompare(b.recorded_date);
+    });
+    var cutoffD = new Date();
+    cutoffD.setDate(cutoffD.getDate() - 29);
+    var cutoffStr = isoDate(cutoffD);
+    var recent = sorted.filter(function (e) { return e.recorded_date >= cutoffStr; });
+    if (!recent.length) recent = sorted.slice(-1);
+
+    var latest = recent[recent.length - 1];
+    var sparkVals = recent.map(function (e) { return e.weight_kg; });
+
+    var pillHTML;
+    if (recent.length >= 2) {
+      var delta = latest.weight_kg - recent[0].weight_kg;
+      var absD = Math.abs(delta);
+      if (absD < 0.1) {
+        pillHTML = _trendDeltaPill('—', 'flat');
+      } else {
+        var sign = delta > 0 ? '+' : '−';
+        pillHTML = _trendDeltaPill(sign + absD.toFixed(1) + ' kg', 'flat');
+      }
+    } else {
+      pillHTML = _trendDeltaPill('—', 'flat');
+    }
+
+    el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weight', '30d',
+      latest.weight_kg.toFixed(1), 'kg', pillHTML,
+      _trendAreaSpark(sparkVals, '#2b4ca8', '#2b4ca8', null),
+      '30d trend',
+      'Latest: ' + latest.weight_kg.toFixed(1) + ' kg',
+      quickInput);
+    _wireWeightSave(el, userId);
+  }
+
+  async function loadRow3(userId) {
+    var row3 = document.getElementById('row-3');
+    if (!row3) return;
+
+    var cardDefs = [
+      { id: 'trend-card-hrv' },
+      { id: 'trend-card-tss' },
+      { id: 'trend-card-rhr' },
+      { id: 'trend-card-weight' },
+    ];
+
+    row3.innerHTML = '';
+    cardDefs.forEach(function (c) {
+      var el = document.createElement('div');
+      el.id = c.id;
+      el.className = 'trend-card';
+      el.innerHTML =
+        '<div style="display:flex;flex-direction:column;gap:10px;">' +
+        '<div class="trend-skeleton-line" style="height:16px;width:50%"></div>' +
+        '<div class="trend-skeleton-line" style="height:28px;width:65%"></div>' +
+        '<div class="trend-skeleton-line" style="height:48px"></div>' +
+        '<div class="trend-skeleton-line" style="height:12px;width:80%"></div>' +
+        '</div>';
+      row3.appendChild(el);
+    });
+
+    var summary = null;
+    var summaryFailed = false;
+    var weightEntries = null;
+
+    var results = await Promise.allSettled([
+      fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=30d'),
+      fetch('/api/weight?user_id=' + encodeURIComponent(userId))
+    ]);
+
+    var tResult = results[0];
+    if (tResult.status === 'fulfilled' && tResult.value.ok) {
+      try { summary = await tResult.value.json(); } catch (_) { summaryFailed = true; }
+    } else {
+      summaryFailed = true;
+    }
+
+    var wResult = results[1];
+    if (wResult.status === 'fulfilled' && wResult.value.ok) {
+      try { weightEntries = await wResult.value.json(); } catch (_) {}
+    }
+
+    var passedSummary = summaryFailed ? null : summary;
+    renderHRVTrendCard(document.getElementById('trend-card-hrv'), passedSummary);
+    renderWeeklyTSSTrendCard(document.getElementById('trend-card-tss'), passedSummary);
+    renderRHRTrendCard(document.getElementById('trend-card-rhr'), passedSummary);
+    renderWeightTrendCard(document.getElementById('trend-card-weight'), weightEntries, userId);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -1122,6 +1491,7 @@
       loadSleepCard(userId);
       loadPerformanceCard(userId);
       loadRecentWorkoutsCard(userId);
+      loadRow3(userId);
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);
     }
