@@ -37,7 +37,6 @@
     return s;
   }
 
-  // Format duration for workout row meta: m:ss under 1h, h:mm:ss otherwise
   function fmtDurationRow(secs) {
     if (!secs || secs <= 0) return '';
     var h = Math.floor(secs / 3600);
@@ -47,7 +46,6 @@
     return m + ':' + pad(s);
   }
 
-  // Format total time for week summary: h:mm
   function fmtTotalTime(totalMinutes) {
     if (!totalMinutes || totalMinutes <= 0) return '';
     var h = Math.floor(totalMinutes / 60);
@@ -69,13 +67,11 @@
     return m + ':' + pad(s) + ' /km';
   }
 
-  // Format a date "26 May" or "1 Jun"
   function fmtShortDate(isoStr) {
     var d = new Date(isoStr + 'T00:00:00');
     return d.getDate() + ' ' + MONTHS[d.getMonth()];
   }
 
-  // Detail panel duration: h:mm:ss or m:ss; null → em-dash
   function fmtDurationDetail(secs) {
     if (secs == null) return '—';
     var h = Math.floor(secs / 3600);
@@ -85,7 +81,6 @@
     return m + ':' + pad(s);
   }
 
-  // Run pace: returns "M:SS /km"; null/zero inputs → em-dash
   function fmtPaceFromSec(durSeconds, distKm) {
     if (!durSeconds || !distKm || distKm === 0) return '—';
     var secsPerKm = durSeconds / distKm;
@@ -94,14 +89,12 @@
     return pm + ':' + pad(ps) + ' /km';
   }
 
-  // Bike speed: returns "X.X km/h"; null/zero inputs → em-dash
   function fmtSpeedKmh(durSeconds, distKm) {
     if (!durSeconds || !distKm || distKm === 0) return '—';
     var speed = distKm / (durSeconds / 3600);
     return speed.toFixed(1) + ' km/h';
   }
 
-  // Format ISO date string as "Tue, May 28"
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso + 'T00:00:00');
@@ -117,12 +110,17 @@
     filters.to     = p.get('to')     || '';
   }
 
+  // Preserves the ?week param when updating filter params.
   function writeURLParams() {
-    var p = new URLSearchParams();
-    if (filters.type && filters.type !== 'all') p.set('type',   filters.type);
-    if (filters.search)                          p.set('search', filters.search);
-    if (filters.from)                            p.set('from',   filters.from);
-    if (filters.to)                              p.set('to',     filters.to);
+    var p = new URLSearchParams(window.location.search);
+    if (filters.type && filters.type !== 'all') p.set('type', filters.type);
+    else p.delete('type');
+    if (filters.search) p.set('search', filters.search);
+    else p.delete('search');
+    if (filters.from) p.set('from', filters.from);
+    else p.delete('from');
+    if (filters.to) p.set('to', filters.to);
+    else p.delete('to');
     var qs = p.toString();
     history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
   }
@@ -135,6 +133,28 @@
     return 'Last 30 days';
   }
 
+  // ── Header stats subtitle ─────────────────────────────────────────────────
+  function updateHeaderStats(data) {
+    var subtitleEl = document.getElementById('log-subtitle');
+    if (!subtitleEl) return;
+    var weeks = data.weeks || [];
+    var totalCount = 0, totalTSS = 0, totalMinutes = 0;
+    weeks.forEach(function (week) {
+      var s = week.summary || {};
+      totalCount   += (s.workout_count      || 0);
+      totalTSS     += (s.total_tss          || 0);
+      totalMinutes += (s.total_time_minutes || 0);
+    });
+    var parts = [totalCount + ' workout' + (totalCount !== 1 ? 's' : '')];
+    if (totalTSS > 0) parts.push('TSS ' + Math.round(totalTSS));
+    if (totalMinutes > 0) {
+      var h = Math.floor(totalMinutes / 60);
+      var m = Math.round(totalMinutes % 60);
+      parts.push(h > 0 ? h + 'h ' + m + 'm' : m + 'm');
+    }
+    subtitleEl.textContent = parts.join(' · ');
+  }
+
   // ── Build filter bar ──────────────────────────────────────────────────────
   function buildFilterBar() {
     var bar = document.getElementById('filter-bar');
@@ -143,11 +163,11 @@
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fb-search-wrap';
     var searchInput = document.createElement('input');
-    searchInput.type        = 'text';
-    searchInput.id          = 'log-search';
-    searchInput.placeholder = 'Search workouts';
-    searchInput.value       = filters.search;
-    searchInput.spellcheck  = false;
+    searchInput.type         = 'text';
+    searchInput.id           = 'log-search';
+    searchInput.placeholder  = 'Search workouts';
+    searchInput.value        = filters.search;
+    searchInput.spellcheck   = false;
     searchInput.autocomplete = 'off';
     searchWrap.appendChild(searchInput);
     bar.appendChild(searchWrap);
@@ -158,10 +178,10 @@
     var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement('button');
-      chip.type        = 'button';
-      chip.className   = 'type-chip' + (t === filters.type ? ' active' : '');
+      chip.type         = 'button';
+      chip.className    = 'type-chip' + (t === filters.type ? ' active' : '');
       chip.dataset.type = t;
-      chip.textContent = TYPE_LABELS[t];
+      chip.textContent  = TYPE_LABELS[t];
       chip.addEventListener('click', function () {
         filters.type = t;
         document.querySelectorAll('.type-chip').forEach(function (c) {
@@ -174,20 +194,26 @@
     });
     bar.appendChild(chipsRow);
 
-    var drWrap  = document.createElement('div');
+    // Visual divider between type chips and date-range chip
+    var divider = document.createElement('div');
+    divider.className = 'fb-divider';
+    divider.setAttribute('aria-hidden', 'true');
+    bar.appendChild(divider);
+
+    var drWrap = document.createElement('div');
     drWrap.className = 'fb-daterange-wrap';
 
-    var drChip  = document.createElement('button');
-    drChip.type = 'button';
-    drChip.id   = 'dr-chip';
+    var drChip = document.createElement('button');
+    drChip.type      = 'button';
+    drChip.id        = 'dr-chip';
     drChip.className = 'dr-chip';
     drChip.setAttribute('aria-expanded', 'false');
     drChip.textContent = drLabel() + ' ▾';
 
     var drPanel = document.createElement('div');
-    drPanel.id     = 'dr-panel';
+    drPanel.id      = 'dr-panel';
     drPanel.className = 'dr-panel';
-    drPanel.hidden = true;
+    drPanel.hidden  = true;
 
     var fromLabel = document.createElement('label');
     fromLabel.textContent = 'From';
@@ -317,6 +343,7 @@
         lastWeeks = data.weeks || [];
         var listEl = document.getElementById('log-list');
         renderList(listEl, lastWeeks);
+        updateHeaderStats(data);
       })
       .catch(function (_) {
         renderListError();
@@ -397,7 +424,6 @@
     var s  = week.summary || {};
     var ws = week.workouts || [];
 
-    // Date range for header (e.g. "26 May – 1 Jun")
     var dateRange = '';
     if (week.week_start && week.week_end) {
       dateRange = fmtShortDate(week.week_start) + ' – ' + fmtShortDate(week.week_end);
@@ -490,7 +516,6 @@
       });
     }
 
-    // Date column
     var dateCol = document.createElement('div');
     dateCol.className = 'entry-date';
     var d = new Date((w.date || '') + 'T00:00:00');
@@ -503,14 +528,12 @@
     dateCol.appendChild(dayNumEl);
     dateCol.appendChild(dayNameEl);
 
-    // Type badge
     var typeKey = (w.type || '').toLowerCase();
     var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
     var badge = document.createElement('span');
     badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
     badge.textContent = TYPE_LABELS[typeKey] || (w.type || '');
 
-    // Body (title + meta)
     var body = document.createElement('div');
     body.className = 'entry-body';
 
@@ -534,7 +557,6 @@
       body.appendChild(metaEl);
     }
 
-    // Primary metric
     var metricEl = document.createElement('div');
     metricEl.className = 'entry-metric';
     if (typeKey === 'run' && w.distance_km != null) {
@@ -544,7 +566,6 @@
       metricEl.textContent = mins + ' min';
     }
 
-    // TSS pill
     var tssEl = null;
     if (w.tss != null) {
       tssEl = document.createElement('span');
@@ -553,7 +574,6 @@
       tssEl.textContent = 'TSS ' + Math.round(w.tss);
     }
 
-    // Source pill
     var sourceEl = document.createElement('span');
     sourceEl.className = 'source-pill';
     var src = (w.source || w.tss_source || '').toLowerCase();
@@ -584,10 +604,10 @@
           csvField(entry.date),
           csvField(entry.type),
           csvField(entry.title),
-          csvField(entry.distance_km    != null ? entry.distance_km    : ''),
+          csvField(entry.distance_km     != null ? entry.distance_km     : ''),
           csvField(entry.duration_minutes != null ? entry.duration_minutes : ''),
-          csvField(entry.avg_hr         != null ? entry.avg_hr         : ''),
-          csvField(entry.tss            != null ? entry.tss            : ''),
+          csvField(entry.avg_hr          != null ? entry.avg_hr          : ''),
+          csvField(entry.tss             != null ? entry.tss             : ''),
           csvField(entry.source)
         ].join(','));
       });
@@ -695,14 +715,12 @@
 
     var em = '—';
 
-    // Pace/speed guard variables
     var hasDist = workout.distance_km != null;
     var hasDur  = workout.duration_seconds != null;
     var isRun   = workout.workout_type === 'run';
     var isBike  = workout.workout_type === 'bike';
     var showPaceSpeed = (isRun || isBike) && hasDist && hasDur;
 
-    // Fixed 2×3 stat grid (2 cols, 3 rows)
     var distStr = hasDist ? (+workout.distance_km).toFixed(2) + ' km' : em;
     var durStr  = fmtDurationDetail(workout.duration_seconds);
     var paceStr = showPaceSpeed
@@ -715,12 +733,12 @@
     var tssStr  = workout.tss != null ? (+workout.tss).toFixed(0) : em;
 
     var stats = [
-      ['Distance', distStr],
-      ['Duration', durStr],
-      ['Avg Pace', paceStr],
-      ['Avg HR',   hrStr],
+      ['Distance',  distStr],
+      ['Duration',  durStr],
+      ['Avg Pace',  paceStr],
+      ['Avg HR',    hrStr],
       ['Elevation', elevStr],
-      ['TSS',      tssStr],
+      ['TSS',       tssStr],
     ];
 
     var html = '<div class="detail-stats">';
@@ -733,7 +751,6 @@
     });
     html += '</div>';
 
-    // Exercises section — only when non-empty
     var exercises = workout.exercises || [];
     if (exercises.length) {
       html += '<p class="detail-section-title">Exercises</p>';
@@ -755,7 +772,6 @@
       html += '</div>';
     }
 
-    // Notes section — only when non-empty
     if (workout.remarks) {
       html +=
         '<p class="detail-section-title">Notes</p>' +
@@ -765,56 +781,91 @@
     contentEl.innerHTML = html;
   }
 
+  // ── More dropdown toggle ──────────────────────────────────────────────────
+  function initMoreDropdown() {
+    var moreBtn      = document.getElementById('top-nav-more-btn');
+    var moreDropdown = document.getElementById('top-nav-dropdown');
+    if (!moreBtn || !moreDropdown) return;
+
+    moreBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var isOpen = !moreDropdown.hidden;
+      moreDropdown.hidden = isOpen;
+      moreBtn.setAttribute('aria-expanded', String(!isOpen));
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!moreDropdown.hidden && !moreDropdown.contains(e.target) && e.target !== moreBtn) {
+        moreDropdown.hidden = true;
+        moreBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !moreDropdown.hidden) {
+        moreDropdown.hidden = true;
+        moreBtn.setAttribute('aria-expanded', 'false');
+        moreBtn.focus();
+      }
+    });
+  }
+
+  // ── Avatar initial ────────────────────────────────────────────────────────
+  function updateAvatarInitial() {
+    var avatarEl  = document.getElementById('header-avatar');
+    if (!avatarEl) return;
+    var selectEl  = document.getElementById('user-selector-select');
+    if (!selectEl || selectEl.selectedIndex < 0) return;
+    var opt = selectEl.options[selectEl.selectedIndex];
+    if (!opt || opt.value === '__add__') return;
+    avatarEl.textContent = opt.textContent.trim().charAt(0).toUpperCase() || 'U';
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
     buildFilterBar();
     fetchAndRender();
+    initMoreDropdown();
 
     window.addEventListener('userChanged', function () {
       fetchAndRender();
+      updateAvatarInitial();
     });
 
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);
 
-    var newBtn = document.getElementById('log-new-btn');
-    if (newBtn) newBtn.addEventListener('click', function () {
-      window.location.href = 'training.html';
-    });
+    // log-new-btn is disabled — no click handler needed
 
-    // Detail panel close
     var closeBtn = document.getElementById('detail-close-btn');
     if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);
 
     var overlay = document.getElementById('detail-overlay');
     if (overlay) overlay.addEventListener('click', closeDetailPanel);
 
-    // List retry
     var listRetryBtn = document.getElementById('log-retry-btn');
     if (listRetryBtn) listRetryBtn.addEventListener('click', function () {
       fetchAndRender();
     });
 
-    // Empty state CTA
     var emptyCta = document.getElementById('log-empty-cta');
     if (emptyCta) emptyCta.addEventListener('click', function () {
       window.location.href = 'training.html';
     });
 
-    // Escape key closes detail panel
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') closeDetailPanel();
     });
   });
 
-  // ── Week strip navigation (feature #124) ─────────────────────────────────
+  // ── Week strip ────────────────────────────────────────────────────────────
   var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   var TYPE_COLORS = {
-    run: '#3b82f6',
+    run:  '#3b82f6',
     lift: '#8b5cf6',
-    wod: '#f97316',
+    wod:  '#f97316',
     bike: '#14b8a6',
   };
 
@@ -848,6 +899,7 @@
     return getMondayOf(new Date());
   }
 
+  // Preserves all current URL params when updating ?week.
   function pushWeekParam(monday) {
     var params = new URLSearchParams(window.location.search);
     params.set('week', toISODate(monday));
@@ -882,7 +934,7 @@
     sunday.setDate(sunday.getDate() + 6);
 
     var fromStr = toISODate(monday);
-    var toStr = toISODate(sunday);
+    var toStr   = toISODate(sunday);
 
     var url = '/api/training-log?from=' + fromStr + '&to=' + toStr + '&include_rest=false';
     if (userId) url += '&user_id=' + encodeURIComponent(userId);
@@ -974,6 +1026,7 @@
       currentUserId = newId;
       loadAndRender(currentMonday, currentUserId);
     }
+    updateAvatarInitial();
   });
 
   window.addEventListener('userChanged', function (e) {

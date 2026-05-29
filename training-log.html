@@ -6,25 +6,196 @@
   <title>Training log – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
   <style>
+    /* ── App header (top nav) ─────────────────────────────────────────────── */
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0 2rem;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .app-brand {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      text-decoration: none;
+      margin-right: 1rem;
+      white-space: nowrap;
+      letter-spacing: -0.02em;
+    }
+
+    .app-brand:hover { opacity: 0.75; }
+
+    .top-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.125rem;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .top-nav-link {
+      display: inline-block;
+      padding: 0.375rem 0.75rem;
+      border-radius: 4px;
+      text-decoration: none;
+      color: #555;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .top-nav-link:hover { background: #f5f5f5; color: #1a1a1a; }
+
+    .top-nav-link.active {
+      background: #1a1a1a;
+      color: #fff;
+    }
+
+    .top-nav-more {
+      position: relative;
+    }
+
+    .top-nav-more-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.375rem 0.75rem;
+      background: none;
+      border: none;
+      border-radius: 4px;
+      color: #555;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: inherit;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .top-nav-more-btn:hover { background: #f5f5f5; color: #1a1a1a; }
+
+    .top-nav-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 148px;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      z-index: 300;
+      overflow: hidden;
+    }
+
+    .top-nav-dropdown a {
+      display: block;
+      padding: 0.5rem 1rem;
+      color: #333;
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: background 0.1s;
+    }
+
+    .top-nav-dropdown a:hover { background: #f5f5f5; }
+
+    .app-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .header-search-btn {
+      width: 34px;
+      height: 34px;
+      border: none;
+      background: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #555;
+      padding: 0;
+      transition: background 0.1s;
+    }
+
+    .header-search-btn:hover { background: #f5f5f5; }
+
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #e5e5e5;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8125rem;
+      font-weight: 700;
+      user-select: none;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    /* ── Page header ─────────────────────────────────────────────────────── */
+    .log-page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.875rem 2rem;
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .log-page-header-info { min-width: 0; }
+
+    .log-page-title {
+      margin: 0 0 0.2rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
     .log-subtitle {
       margin: 0;
-      font-size: 0.75rem;
+      font-size: 0.8125rem;
       color: #888;
     }
 
-    .log-header-actions {
+    .log-page-header-actions {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      flex-shrink: 0;
     }
 
+    .btn-primary:disabled {
+      background: #ccc;
+      color: #888;
+      cursor: not-allowed;
+    }
+
+    .btn-primary:disabled:hover { background: #ccc; }
+
+    /* ── Week strip ── */
     #week-strip {
       background: #fff;
       border-bottom: 1px solid #e5e5e5;
       padding: 0.75rem 2rem;
     }
 
-    /* ── Week strip nav ───────────────────────────────────────────────────── */
     .ws-nav {
       display: flex;
       align-items: center;
@@ -47,28 +218,33 @@
       line-height: 1;
       cursor: pointer;
       color: #555;
+      transition: background 0.1s;
     }
 
-    .ws-chevron:hover {
-      background: #f5f5f5;
-      color: #1a1a1a;
-    }
+    .ws-chevron:hover { background: #f5f5f5; color: #1a1a1a; }
 
     .ws-pills {
       display: flex;
       gap: 4px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
     }
+
+    .ws-pills::-webkit-scrollbar { height: 3px; }
+    .ws-pills::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
 
     .day-pill {
       flex: 1;
-      min-width: 0;
+      min-width: 42px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 0.375rem 0.125rem;
+      padding: 0.375rem 0.25rem;
       border-radius: 6px;
       background: #f5f5f5;
       border: 2px solid transparent;
+      flex-shrink: 0;
     }
 
     .day-pill.today {
@@ -108,7 +284,7 @@
       flex-shrink: 0;
     }
 
-    /* ── Filter bar ────────────────────────────────────────────────────────── */
+    /* ── Filter bar ── */
     #filter-bar {
       display: flex;
       align-items: center;
@@ -131,6 +307,7 @@
       border-radius: 4px;
       font-size: 0.875rem;
       background: #fafafa;
+      font-family: inherit;
     }
 
     #log-search:focus {
@@ -143,7 +320,6 @@
     .fb-chips-row {
       display: flex;
       gap: 0.25rem;
-      flex-wrap: wrap;
     }
 
     .type-chip {
@@ -156,6 +332,7 @@
       font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
+      font-family: inherit;
       transition: background 0.1s, color 0.1s, border-color 0.1s;
     }
 
@@ -167,19 +344,28 @@
       border-color: #1a1a1a;
     }
 
-    /* ── Date-range chip ───────────────────────────────────────────────────── */
+    .fb-divider {
+      width: 1px;
+      height: 22px;
+      background: #e0e0e0;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
     .fb-daterange-wrap { position: relative; }
 
     .dr-chip {
       padding: 0.3rem 0.75rem;
       border: 1px solid #ccc;
-      border-radius: 4px;
+      border-radius: 999px;
       background: #fff;
       color: #555;
       font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
+      font-family: inherit;
+      transition: background 0.1s, color 0.1s;
     }
 
     .dr-chip:hover { background: #f5f5f5; color: #1a1a1a; }
@@ -212,6 +398,7 @@
       border: 1px solid #ccc;
       border-radius: 4px;
       font-size: 0.8125rem;
+      font-family: inherit;
     }
 
     .dr-panel input[type="date"]:focus {
@@ -220,14 +407,13 @@
       box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
     }
 
-    /* ── Loading indicator ─────────────────────────────────────────────────── */
     .log-loading-indicator {
       font-size: 0.8125rem;
       color: #888;
       margin-left: auto;
     }
 
-    /* ── Log list ──────────────────────────────────────────────────────────── */
+    /* ── Log list ── */
     #log-list {
       max-width: 800px;
       margin: 0 auto;
@@ -248,7 +434,7 @@
       text-align: center;
     }
 
-    /* ── Week group ─────────────────────────────────────── */
+    /* ── Week group ── */
     .week-group { margin-bottom: 2rem; }
 
     .week-group-header {
@@ -293,7 +479,7 @@
       margin-bottom: 0.35rem;
     }
 
-    /* ── Entry row ──────────────────────────────────────── */
+    /* ── Entry row ── */
     .entry-row {
       display: flex;
       align-items: center;
@@ -304,6 +490,7 @@
       border-radius: 6px;
       margin-bottom: 0.4rem;
       cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
     }
 
     .entry-row:hover { background: #fafafa; border-color: #d5d5d5; }
@@ -344,7 +531,6 @@
     .entry-badge--lift { background: #ede9fe; color: #6d28d9; }
     .entry-badge--wod  { background: #fef3c7; color: #b45309; }
     .entry-badge--bike { background: #ccfbf1; color: #0f766e; }
-    .entry-badge--rest { background: #f0fdf4; color: #15803d; }
 
     .entry-body { flex: 1; min-width: 0; }
 
@@ -385,7 +571,6 @@
     .tss-mid  { background: #fef3c7; color: #92400e; }
     .tss-high { background: #fee2e2; color: #991b1b; }
 
-    /* ── Source pill ───────────────────────────────────────────────────────── */
     .source-pill {
       flex-shrink: 0;
       font-size: 0.6875rem;
@@ -398,14 +583,7 @@
       color: #555;
     }
 
-    /* ── Workout primary metric ────────────────────────────────────────────── */
-    .workout-primary-metric {
-      font-size: 0.8125rem;
-      color: #888;
-      white-space: nowrap;
-    }
-
-    /* ── Rest day row ──────────────────────────────────────────────────────── */
+    /* ── Rest day row ── */
     .rest-day-row {
       display: flex;
       align-items: flex-start;
@@ -458,10 +636,10 @@
       width: 100%;
     }
 
-    /* ── Skeleton loading ──────────────────────────────────────────────────── */
+    /* ── Skeleton loading ── */
     @keyframes skeleton-shimmer {
       0%   { background-position: -400px 0; }
-      100% { background-position: 400px 0; }
+      100% { background-position:  400px 0; }
     }
 
     .skeleton-row {
@@ -489,7 +667,7 @@
       animation: skeleton-shimmer 1.4s ease infinite;
     }
 
-    /* ── Error states ──────────────────────────────────────────────────────── */
+    /* ── Error / empty states ── */
     .list-error-state {
       text-align: center;
       padding: 2.5rem 1rem;
@@ -514,7 +692,6 @@
       font-size: 0.9375rem;
     }
 
-    /* ── Empty state ───────────────────────────────────────────────────────── */
     .empty-state {
       text-align: center;
       padding: 3rem 1rem;
@@ -534,7 +711,7 @@
       margin: 0 0 1.25rem;
     }
 
-    /* ── Detail panel overlay ──────────────────────────────────────────────── */
+    /* ── Detail panel overlay ── */
     .detail-panel-overlay {
       position: fixed;
       inset: 0;
@@ -550,7 +727,7 @@
       pointer-events: auto;
     }
 
-    /* ── Detail panel ──────────────────────────────────────────────────────── */
+    /* ── Detail panel ── */
     .detail-panel {
       position: fixed;
       top: 0;
@@ -603,6 +780,7 @@
       justify-content: center;
       border-radius: 4px;
       padding: 0;
+      transition: background 0.1s;
     }
 
     .detail-close-btn:hover { background: #f5f5f5; }
@@ -653,13 +831,7 @@
       flex-shrink: 0;
     }
 
-    /* ── Detail content ────────────────────────────────────────────────────── */
-    .detail-meta {
-      font-size: 0.875rem;
-      color: #888;
-      margin-bottom: 1rem;
-    }
-
+    /* ── Detail content ── */
     .detail-stats {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -734,7 +906,24 @@
       flex-shrink: 0;
     }
 
-    /* ── Responsive ────────────────────────────────────────────────────────── */
+    /* ── Responsive ≤ 880px ── */
+    @media (max-width: 880px) {
+      .log-page-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .fb-chips-row {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
+      }
+
+      .fb-chips-row::-webkit-scrollbar { height: 3px; }
+      .fb-chips-row::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+    }
+
     @media (max-width: 767px) {
       .detail-panel { width: 100%; }
 
@@ -747,60 +936,90 @@
     }
 
     @media (max-width: 599px) {
-      header { padding: 0.75rem 1rem; }
-      .main-nav { overflow-x: auto; padding: 0.75rem 1rem; white-space: nowrap; }
+      .app-header { padding: 0 1rem; }
+      .log-page-header { padding: 0.75rem 1rem; }
       #week-strip { padding: 0.75rem 1rem; }
       #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
       .fb-search-wrap { flex: none; }
       .dr-panel { left: 0; right: 0; }
       #log-list { padding: 1rem; }
 
-      .workout-primary-metric { display: none; }
+      .entry-metric { display: none; }
       .source-pill { display: none; }
 
-      .day-pill { min-width: 40px; padding: 0.35rem 0.35rem; font-size: 0.6875rem; }
+      .day-pill { min-width: 40px; padding: 0.35rem; }
     }
 
     @media (max-width: 380px) {
-      .entry-row {
-        flex-wrap: wrap;
-        gap: 0.5rem;
-      }
-      .entry-date   { order: 1; }
-      .entry-badge  { order: 2; }
-      .entry-body   { order: 3; flex-basis: 100%; }
+      .entry-row { flex-wrap: wrap; gap: 0.5rem; }
+      .entry-date  { order: 1; }
+      .entry-badge { order: 2; }
+      .entry-body  { order: 3; flex-basis: 100%; }
       .entry-metric { order: 4; flex-basis: 100%; }
       .tss-pill, .source-pill { order: 5; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Training log</h1>
-      <p class="log-subtitle">Manual entry &middot; last updated just now</p>
+
+  <!-- Top navigation -->
+  <header class="app-header">
+    <a href="home.html" class="app-brand">perf-coach</a>
+
+    <nav class="top-nav" aria-label="Main navigation">
+      <a href="home.html" class="top-nav-link">Home</a>
+      <a href="log" class="top-nav-link active">Log</a>
+      <a href="habits.html" class="top-nav-link">Habits</a>
+      <a href="trends.html" class="top-nav-link">Trends</a>
+
+      <div class="top-nav-more">
+        <button class="top-nav-more-btn" id="top-nav-more-btn"
+                aria-haspopup="true" aria-expanded="false" type="button">
+          More ▾
+        </button>
+        <div class="top-nav-dropdown" id="top-nav-dropdown" hidden>
+          <a href="weight.html">Weight</a>
+          <a href="calendar.html">Calendar</a>
+          <a href="training.html">Training</a>
+          <a href="users.html">Users</a>
+        </div>
+      </div>
+    </nav>
+
+    <div class="app-header-right">
+      <button class="header-search-btn" aria-label="Search" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </button>
+      <div class="header-avatar" id="header-avatar" aria-label="User avatar">U</div>
     </div>
-    <div class="log-header-actions">
-      <button id="log-export-btn" class="btn-secondary">Export</button>
-      <button id="log-new-btn" class="btn-primary">Log workout</button>
-      <span id="env-label" class="env-label"></span>
-    </div>
+    <span id="env-label" class="env-label"></span>
   </header>
 
-  <nav class="main-nav">
-    <a href="home.html">Home</a>
-    <a href="calendar.html">Calendar</a>
-    <a href="weight.html">Weight</a>
-    <a href="habits.html">Habits</a>
-    <a href="training.html">Training</a>
-    <a href="log" class="active">Log</a>
-    <a href="trends.html">Trends</a>
-  </nav>
+  <!-- Page header: title, stats subtitle, action buttons -->
+  <div class="log-page-header">
+    <div class="log-page-header-info">
+      <h1 class="log-page-title">Training log</h1>
+      <p class="log-subtitle" id="log-subtitle">Loading…</p>
+    </div>
+    <div class="log-page-header-actions">
+      <button id="log-export-btn" class="btn-secondary">Export CSV</button>
+      <button id="log-new-btn" class="btn-primary" disabled
+              title="Coming soon — modal not built yet">Log workout</button>
+    </div>
+  </div>
 
+  <!-- Week strip (JS renders into this) -->
   <div id="week-strip"></div>
 
+  <!-- Filter bar (JS renders into this) -->
   <div id="filter-bar"></div>
 
+  <!-- Workout list -->
   <div id="log-list"></div>
 
   <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
@@ -817,12 +1036,14 @@
   <!-- Detail panel backdrop -->
   <div id="detail-overlay" class="detail-panel-overlay" aria-hidden="true"></div>
 
-  <!-- Detail panel -->
-  <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-panel-title-text">
+  <!-- Workout detail panel -->
+  <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true"
+         aria-labelledby="detail-panel-title-text">
     <div class="detail-panel-header">
       <div class="detail-header-top">
         <h2 class="detail-panel-title" id="detail-panel-title-text">Workout</h2>
-        <button id="detail-close-btn" class="detail-close-btn" aria-label="Close workout details">&#x2715;</button>
+        <button id="detail-close-btn" class="detail-close-btn"
+                aria-label="Close workout details">&#x2715;</button>
       </div>
       <div class="detail-header-meta">
         <span id="detail-panel-date" class="detail-panel-date"></span>
@@ -851,7 +1072,8 @@
 
     <div class="detail-panel-footer">
       <a id="detail-edit-btn" class="btn-secondary" href="#">Edit</a>
-      <a id="detail-strava-btn" style="display:none" class="btn-secondary" href="#" target="_blank" rel="noopener">View on Strava</a>
+      <a id="detail-strava-btn" style="display:none" class="btn-secondary"
+         href="#" target="_blank" rel="noopener">View on Strava</a>
     </div>
   </aside>
 
