@@ -4,923 +4,293 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Home – perf-coach</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <style>
-    .today-heading {
-      font-size: 0.9375rem;
-      font-weight: 600;
-      color: #444;
-      margin: 0 0 1rem;
+    :root {
+      --bg-1: #5a8dee;
+      --bg-2: #1f3b8a;
+      --shell-1: #eaf0fb;
+      --shell-2: #d8e3f5;
+      --card-border: rgba(13, 30, 67, 0.06);
+      --text-primary: #0b1530;
+      --text-secondary: #5c6886;
+      --text-tertiary: #8b95ad;
     }
 
-    .dash-cards {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1rem;
-      margin-bottom: 2rem;
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      color: var(--text-primary);
+      background: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
+      min-height: 100vh;
+      letter-spacing: -0.01em;
     }
 
-    @media (max-width: 699px) {
-      .dash-cards {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    .dash-card {
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      min-height: 110px;
+    /* ---- TOP NAV ---- */
+    .topnav {
+      background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%);
+      border-bottom: 1px solid var(--card-border);
+      padding: 0 28px;
+      height: 64px;
       display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
+      align-items: center;
+      gap: 28px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
     }
-
-    .dash-card-label {
-      font-size: 0.6875rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #888;
-      margin-bottom: 0.2rem;
-    }
-
-    .dash-card-value {
-      font-size: 1.6rem;
+    .topnav .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-weight: 700;
-      line-height: 1.1;
-    }
-
-    .dash-card-sub {
-      font-size: 0.8125rem;
-      color: #555;
-      margin-top: auto;
-    }
-
-    .dash-card-sub.pending {
-      color: #d97706;
-    }
-
-    .dash-card-sub.done {
-      color: #16a34a;
-    }
-
-    .dash-card-sub.muted {
-      color: #aaa;
-    }
-
-    /* ── Summary sections ── */
-    .dash-section {
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 8px;
-      margin-bottom: 1.25rem;
-      overflow: hidden;
-    }
-
-    .dash-section-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1.25rem;
-      border-bottom: 1px solid #f0f0f0;
-    }
-
-    .dash-section-icon {
-      font-size: 1rem;
-      line-height: 1;
-    }
-
-    .dash-section-title {
-      margin: 0;
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #1a1a1a;
-      flex: 1;
-    }
-
-    .dash-section-link {
-      font-size: 0.8125rem;
-      color: #0070f3;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
       text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .dash-section-link:hover { text-decoration: underline; }
-
-    .dash-section-body {
-      padding: 0.75rem 1.25rem;
-    }
-
-    /* Weight mini chart */
-    .mini-chart-wrap {
-      position: relative;
-      height: 80px;
-    }
-
-    /* Sleep / energy / mood trend chart */
-    .trend-chart-wrap {
-      position: relative;
-      height: 180px;
-    }
-
-    /* Habits list */
-    .home-habit-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    .home-habit-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.35rem 0;
-      border-bottom: 1px solid #f5f5f5;
-      font-size: 0.875rem;
-    }
-
-    .home-habit-row:last-child { border-bottom: none; }
-
-    .home-habit-cb {
-      width: 14px;
-      height: 14px;
-      border: 1.5px solid #ccc;
-      border-radius: 3px;
       flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #16a34a;
     }
-
-    .home-habit-cb.checked {
-      background: #dcfce7;
-      border-color: #16a34a;
-    }
-
-    .home-habit-name { flex: 1; color: #1a1a1a; }
-
-    .home-habit-streak { font-size: 0.75rem; color: #555; white-space: nowrap; }
-
-    .home-habit-rate { font-size: 0.75rem; color: #888; white-space: nowrap; }
-
-    /* Training list */
-    .home-training-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    .home-training-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.35rem 0;
-      border-bottom: 1px solid #f5f5f5;
-      font-size: 0.875rem;
-    }
-
-    .home-training-row:last-child { border-bottom: none; }
-
-    .home-training-icon { font-size: 1rem; flex-shrink: 0; }
-
-    .home-training-name { flex: 1; color: #1a1a1a; font-weight: 500; }
-
-    .home-training-date { font-size: 0.75rem; color: #888; white-space: nowrap; }
-
-    .home-training-meta { font-size: 0.75rem; color: #555; white-space: nowrap; }
-
-    /* Empty state */
-    .dash-section-empty {
-      font-size: 0.875rem;
-      color: #aaa;
-      padding: 0.25rem 0;
-    }
-
-    /* Weekly digest trend chart */
-    .trend-chart-wrap {
-      position: relative;
-      height: 160px;
-    }
-
-    /* ── Stat summary cards (Row 2: Weight · Sleep · TSS · HRV) ── */
-    .stat-cards-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1rem;
-      margin-bottom: 1.25rem;
-    }
-
-    @media (max-width: 879px) {
-      .stat-cards-row {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    .stat-card {
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 12px;
-      padding: 1rem 1.25rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      min-height: 160px;
-    }
-
-    .stat-card-head {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .stat-card-icon-wrap {
+    .topnav .brand .mark {
       width: 30px;
       height: 30px;
-      border-radius: 8px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #6e90f0, #2b4ca8);
+      color: #fff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.9375rem;
+      font-size: 16px;
       flex-shrink: 0;
     }
-
-    .stat-card-icon-wrap--weight { background: #dde6f8; }
-    .stat-card-icon-wrap--sleep  { background: #ebe5f9; }
-    .stat-card-icon-wrap--tss    { background: #ffe1d4; }
-    .stat-card-icon-wrap--hrv    { background: #d4f0e2; }
-
-    .stat-card-label {
-      font-size: 0.8125rem;
-      font-weight: 500;
-      color: #333;
+    .topnav .nav-links {
+      display: flex;
+      gap: 4px;
       flex: 1;
     }
-
-    .stat-card-menu {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: #bbb;
-      font-size: 1rem;
-      line-height: 1;
-      padding: 0.15rem 0.3rem;
-      border-radius: 4px;
-      transition: color 0.1s, background 0.1s;
-    }
-
-    .stat-card-menu:hover { color: #555; background: rgba(0,0,0,0.04); }
-
-    .stat-card-value {
-      display: flex;
-      align-items: baseline;
-      gap: 0.35rem;
-      flex-wrap: wrap;
-    }
-
-    .stat-card-big {
-      font-size: 2rem;
-      font-weight: 700;
-      line-height: 1;
-      letter-spacing: -0.02em;
-    }
-
-    .stat-card-unit {
-      font-size: 0.875rem;
-      color: #666;
-      font-weight: 500;
-    }
-
-    .stat-delta-pill {
-      margin-left: auto;
-      font-size: 0.6875rem;
-      font-weight: 600;
-      padding: 0.2rem 0.55rem;
+    .topnav .nav-link {
+      padding: 8px 14px;
       border-radius: 999px;
-      white-space: nowrap;
-    }
-
-    .stat-delta-pill--up   { background: #dff5d6; color: #2d5e10; }
-    .stat-delta-pill--down { background: #ffd9d9; color: #7a1a1a; }
-    .stat-delta-pill--flat { background: #f1f4fa; color: #666; }
-
-    .stat-sparkline {
-      width: 100%;
-      height: 44px;
-      display: block;
-      overflow: visible;
-    }
-
-    .stat-card-footer {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.6875rem;
-      color: #999;
-      margin-top: auto;
-    }
-
-    /* skeleton shimmer */
-    .stat-skeleton {
-      display: flex;
-      flex-direction: column;
-      gap: 0.6rem;
-      height: 100%;
-    }
-
-    .stat-skeleton-line {
-      background: linear-gradient(90deg, #f0f0f0 25%, #e4e4e4 50%, #f0f0f0 75%);
-      background-size: 200% 100%;
-      animation: stat-shimmer 1.3s infinite;
-      border-radius: 4px;
-    }
-
-    @keyframes stat-shimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    /* ── Readiness card ── */
-    .readiness-card {
-      border-radius: 10px;
-      border-width: 1px;
-      border-style: solid;
-      margin-bottom: 1.25rem;
-      overflow: hidden;
-      cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
-      user-select: none;
-    }
-
-    .readiness-card--green { border-color: #86efac; background: #f0fdf4; }
-    .readiness-card--amber { border-color: #fcd34d; background: #fffbeb; }
-    .readiness-card--red   { border-color: #fca5a5; background: #fef2f2; }
-
-    .readiness-summary {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 1rem 1.25rem;
-    }
-
-    .readiness-score-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      flex-shrink: 0;
-      min-width: 60px;
-    }
-
-    .readiness-score {
-      font-size: 2.5rem;
-      font-weight: 800;
-      line-height: 1;
-    }
-
-    .readiness-score--green { color: #16a34a; }
-    .readiness-score--amber { color: #d97706; }
-    .readiness-score--red   { color: #dc2626; }
-
-    .readiness-score-label {
-      font-size: 0.6875rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #888;
-      margin-top: 0.15rem;
-    }
-
-    .readiness-main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      min-width: 0;
-    }
-
-    .readiness-pill {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
-      padding: 0.2rem 0.6rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      width: fit-content;
+      gap: 7px;
+      white-space: nowrap;
     }
-
-    .readiness-pill--green { background: #dcfce7; color: #15803d; }
-    .readiness-pill--amber { background: #fef9c3; color: #b45309; }
-    .readiness-pill--red   { background: #fee2e2; color: #b91c1c; }
-
-    .readiness-interp {
-      font-size: 0.8125rem;
-      color: #555;
+    .topnav .nav-link:hover {
+      background: rgba(13, 30, 67, 0.05);
+      color: var(--text-primary);
     }
-
-    .readiness-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      padding: 0 1.25rem 0.85rem;
-    }
-
-    .readiness-chip {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0.2rem 0.55rem;
-      border-radius: 6px;
-      background: rgba(0,0,0,0.04);
-      font-size: 0.75rem;
-      font-weight: 600;
-    }
-
-    .readiness-chip-label { color: #555; }
-
-    .readiness-chip-delta { }
-    .readiness-chip-delta--pos { color: #16a34a; }
-    .readiness-chip-delta--neg { color: #dc2626; }
-    .readiness-chip-delta--neu { color: #888; }
-
-    .readiness-expand-icon {
-      flex-shrink: 0;
-      font-size: 0.9rem;
-      color: #aaa;
-      transition: transform 0.15s ease;
-      align-self: center;
-    }
-
-    .readiness-expand-icon.open { transform: rotate(180deg); }
-
-    /* expanded breakdown */
-    .readiness-breakdown {
-      border-top: 1px solid rgba(0,0,0,0.07);
-      padding: 0.75rem 1.25rem 1rem;
-    }
-
-    .readiness-breakdown-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid rgba(0,0,0,0.06);
-    }
-
-    .readiness-breakdown-row:last-child { border-bottom: none; }
-
-    .readiness-breakdown-header {
-      display: flex;
-      align-items: baseline;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
-    .readiness-breakdown-name {
-      font-size: 0.8125rem;
-      font-weight: 700;
-      color: #1a1a1a;
-      min-width: 52px;
-    }
-
-    .readiness-breakdown-value {
-      font-size: 0.8125rem;
-      color: #1a1a1a;
-    }
-
-    .readiness-breakdown-baseline {
-      font-size: 0.75rem;
-      color: #888;
-    }
-
-    .readiness-breakdown-delta {
-      font-size: 0.75rem;
-      font-weight: 700;
-      margin-left: auto;
-    }
-
-    .readiness-breakdown-expl {
-      font-size: 0.75rem;
-      color: #777;
-    }
-
-    /* ── Today's check-in card ── */
-    .checkin-toggle {
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 1rem;
-      color: #888;
-      padding: 0.1rem 0.25rem;
-      line-height: 1;
-      transition: transform 0.15s ease;
-    }
-
-    .checkin-toggle.collapsed { transform: rotate(-90deg); }
-
-    .checkin-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.75rem 1rem;
-      margin-bottom: 0.9rem;
-    }
-
-    @media (max-width: 699px) {
-      .checkin-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    .checkin-field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .checkin-label {
-      font-size: 0.6875rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      color: #888;
-    }
-
-    .checkin-field input[type="number"] {
-      padding: 0.4rem 0.6rem;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      font-size: 0.9375rem;
-      width: 100%;
-      background: #fafafa;
-    }
-
-    .checkin-field input[type="number"]:focus {
-      outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
-      background: #fff;
-    }
-
-    .checkin-pill-row {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      margin-bottom: 0.7rem;
-      flex-wrap: wrap;
-    }
-
-    .checkin-pill-row .checkin-label {
-      min-width: 80px;
-    }
-
-    .checkin-pills {
-      display: flex;
-      gap: 0.35rem;
-      flex: 1;
-    }
-
-    @media (max-width: 699px) {
-      .checkin-pill-row { flex-direction: column; align-items: flex-start; }
-      .checkin-pills { width: 100%; }
-      .checkin-pills .pill { flex: 1; }
-    }
-
-    .pill {
-      padding: 0.3rem 0.7rem;
-      border: 1.5px solid #ddd;
-      border-radius: 999px;
-      background: #fff;
-      font-size: 0.8125rem;
-      font-weight: 600;
-      cursor: pointer;
-      color: #555;
-      transition: background 0.1s, border-color 0.1s, color 0.1s;
-      min-width: 36px;
-      text-align: center;
-    }
-
-    .pill:hover { border-color: #aaa; color: #1a1a1a; }
-
-    .pill.active {
-      background: #1a1a1a;
-      border-color: #1a1a1a;
+    .topnav .nav-link.active {
+      background: #0b1530;
       color: #fff;
     }
-
-    .checkin-notes-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      margin-bottom: 0.85rem;
-    }
-
-    .checkin-notes-row textarea {
-      padding: 0.4rem 0.6rem;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      font-size: 0.875rem;
+    .topnav .nav-link i { font-size: 15px; }
+    .topnav .more-btn {
+      background: none;
+      border: 0;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: var(--text-secondary);
       font-family: inherit;
-      resize: vertical;
-      background: #fafafa;
-      min-height: 54px;
+      font-size: 13.5px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
     }
-
-    .checkin-notes-row textarea:focus {
-      outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
-      background: #fff;
+    .topnav .more-btn:hover {
+      background: rgba(13, 30, 67, 0.05);
+      color: var(--text-primary);
     }
-
-    .checkin-actions {
+    .topnav .more-btn i { font-size: 13px; }
+    .topnav .right-actions {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      gap: 10px;
+      flex-shrink: 0;
     }
-
-    .checkin-saved {
-      font-size: 0.8125rem;
-      color: #16a34a;
-      font-weight: 500;
+    .topnav .search {
+      background: #fff;
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      padding: 7px 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text-tertiary);
+      font-size: 13px;
+      width: 240px;
     }
-
-    .checkin-error {
-      font-size: 0.8125rem;
-      color: #c0392b;
-    }
-
-    /* ── Weekly digest card ── */
-    .dash-section--link {
-      display: block;
-      text-decoration: none;
-      color: inherit;
+    .topnav .search-icon-btn {
+      display: none;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      background: transparent;
+      border-radius: 10px;
+      align-items: center;
+      justify-content: center;
+      font-size: 19px;
+      color: var(--text-primary);
       cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
+    }
+    .topnav .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ffb88a, #d97a3a);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 13px;
+      flex-shrink: 0;
     }
 
-    .dash-section--link:hover {
-      border-color: #c8c8c8;
-      background: #fafafa;
+    /* ---- PAGE ---- */
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 28px;
     }
-
-    .digest-lines {
-      list-style: none;
+    .greeting { margin-bottom: 22px; }
+    .greeting h1 {
       margin: 0;
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+    .greeting p {
+      margin: 6px 0 0;
+      color: rgba(255,255,255,0.78);
+      font-size: 14px;
+    }
+
+    /* ---- PLACEHOLDER ROWS ---- */
+    #row-1, #row-2, #row-3, #row-4 {
+      min-height: 16px;
+      margin-bottom: 16px;
+    }
+
+    /* ---- BOTTOM TAB BAR (mobile only) ---- */
+    .bottombar {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border-top: 1px solid var(--card-border);
+      height: 60px;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+      z-index: 50;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.04);
+    }
+    .bottombar-inner {
+      display: flex;
+      height: 100%;
+    }
+    .bottombar .tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: var(--text-tertiary);
+      text-decoration: none;
+      font-size: 10.5px;
+      font-weight: 500;
+      font-family: inherit;
+      background: none;
+      border: 0;
+      cursor: pointer;
       padding: 0;
     }
+    .bottombar .tab i { font-size: 21px; }
+    .bottombar .tab.active,
+    .bottombar .tab.active i { color: #0b1530; }
 
-    .digest-line {
-      font-size: 0.875rem;
-      color: #333;
-      padding: 0.3rem 0;
-      border-bottom: 1px solid #f5f5f5;
-    }
+    /* ---- RESPONSIVE: <= 880px ---- */
+    @media (max-width: 880px) {
+      body { padding-bottom: 76px; }
 
-    .digest-line:last-child { border-bottom: none; }
+      .topnav {
+        padding: 0 16px;
+        height: 56px;
+        gap: 0;
+        justify-content: space-between;
+      }
+      .topnav .nav-links { display: none; }
+      .topnav .search { display: none; }
+      .topnav .search-icon-btn { display: flex; }
 
-    .digest-empty {
-      font-size: 0.875rem;
-      color: #aaa;
-      margin: 0;
+      .bottombar { display: block; }
+
+      .page { padding: 16px 14px 8px; }
+      .greeting h1 { font-size: 22px; }
+      .greeting p { font-size: 12.5px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Home</h1>
-    <span id="env-label" class="env-label"></span>
-  </header>
-  <main>
-    <p class="today-heading" id="today-label"></p>
 
-    <div class="dash-cards" id="dash-cards">
-      <div class="dash-card" id="card-weight">
-        <div class="dash-card-label">Weight</div>
-        <div class="dash-card-value" id="card-weight-value">—</div>
-        <div class="dash-card-sub muted" id="card-weight-sub">Loading…</div>
-      </div>
-
-      <div class="dash-card" id="card-habits">
-        <div class="dash-card-label">Habits</div>
-        <div class="dash-card-value" id="card-habits-value">—</div>
-        <div class="dash-card-sub" id="card-habits-sub">Loading…</div>
-      </div>
-
-      <div class="dash-card" id="card-training">
-        <div class="dash-card-label">Training</div>
-        <div class="dash-card-value" id="card-training-value">—</div>
-        <div class="dash-card-sub muted" id="card-training-sub"></div>
-      </div>
-
-      <div class="dash-card" id="card-streak">
-        <div class="dash-card-label">Active days</div>
-        <div class="dash-card-value" id="card-streak-value">—</div>
-        <div class="dash-card-sub muted" id="card-streak-sub">consecutive days</div>
-      </div>
+<!-- TOP NAV -->
+<nav class="topnav" aria-label="Primary navigation">
+  <a href="/home.html" class="brand">
+    <div class="mark"><i class="ti ti-activity-heartbeat"></i></div>
+    perf-coach
+  </a>
+  <div class="nav-links">
+    <a href="/home.html" class="nav-link active" aria-current="page"><i class="ti ti-home"></i>Home</a>
+    <a href="/log" class="nav-link"><i class="ti ti-list-details"></i>Training Log</a>
+    <a href="/trends" class="nav-link"><i class="ti ti-chart-line"></i>Trends</a>
+    <a href="/calendar.html" class="nav-link"><i class="ti ti-calendar"></i>Calendar</a>
+    <button class="more-btn" type="button" aria-label="More options">More <i class="ti ti-chevron-down"></i></button>
+  </div>
+  <div class="right-actions">
+    <button class="search-icon-btn" type="button" aria-label="Search"><i class="ti ti-search"></i></button>
+    <div class="search" role="search" aria-label="Search placeholder">
+      <i class="ti ti-search"></i><span>Search</span>
     </div>
+    <div class="avatar" id="nav-avatar" aria-label="User avatar">Z</div>
+  </div>
+</nav>
 
-    <!-- Stat summary cards: Weight · Sleep · Weekly TSS · HRV -->
-    <div class="stat-cards-row" id="stat-cards-row">
-      <div class="stat-card" id="stat-card-weight">
-        <div class="stat-skeleton">
-          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
-          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
-          <div class="stat-skeleton-line" style="height:44px"></div>
-          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
-        </div>
-      </div>
-      <div class="stat-card" id="stat-card-sleep">
-        <div class="stat-skeleton">
-          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
-          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
-          <div class="stat-skeleton-line" style="height:44px"></div>
-          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
-        </div>
-      </div>
-      <div class="stat-card" id="stat-card-tss">
-        <div class="stat-skeleton">
-          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
-          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
-          <div class="stat-skeleton-line" style="height:44px"></div>
-          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
-        </div>
-      </div>
-      <div class="stat-card" id="stat-card-hrv">
-        <div class="stat-skeleton">
-          <div class="stat-skeleton-line" style="height:20px;width:55%"></div>
-          <div class="stat-skeleton-line" style="height:34px;width:70%"></div>
-          <div class="stat-skeleton-line" style="height:44px"></div>
-          <div class="stat-skeleton-line" style="height:14px;width:80%"></div>
-        </div>
-      </div>
-    </div>
+<!-- MAIN PAGE -->
+<main class="page">
+  <div class="greeting">
+    <h1 id="greeting-text">Good morning</h1>
+    <p id="greeting-date"></p>
+  </div>
 
-    <!-- Readiness card -->
-    <div class="readiness-card" id="readiness-card" role="button" aria-expanded="false" aria-label="Readiness score — tap to expand">
-      <div class="readiness-summary">
-        <div class="readiness-score-wrap">
-          <div class="readiness-score" id="readiness-score">—</div>
-          <div class="readiness-score-label">Readiness</div>
-        </div>
-        <div class="readiness-main">
-          <span class="readiness-pill" id="readiness-pill">Loading…</span>
-          <span class="readiness-interp" id="readiness-interp"></span>
-        </div>
-        <span class="readiness-expand-icon" id="readiness-expand-icon">▾</span>
-      </div>
-      <div class="readiness-chips" id="readiness-chips"></div>
-      <div class="readiness-breakdown" id="readiness-breakdown" hidden></div>
-    </div>
+  <div id="row-1"></div>
+  <div id="row-2"></div>
+  <div id="row-3"></div>
+  <div id="row-4"></div>
+</main>
 
-    <!-- Weekly digest card -->
-    <a href="trends.html?range=7d" class="dash-section dash-section--link" id="section-digest" aria-label="Weekly digest — view 7-day trends">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">📊</span>
-        <h2 class="dash-section-title">This week</h2>
-        <span class="dash-section-link">7d Trends →</span>
-      </div>
-      <div class="dash-section-body" id="section-digest-body">
-        <p class="digest-empty">Loading…</p>
-      </div>
-    </a>
+<!-- BOTTOM TAB BAR (mobile) -->
+<nav class="bottombar" aria-label="Mobile navigation">
+  <div class="bottombar-inner">
+    <a href="/home.html" class="tab active" aria-current="page"><i class="ti ti-home"></i><span>Home</span></a>
+    <a href="/log" class="tab"><i class="ti ti-list-details"></i><span>Log</span></a>
+    <a href="/trends" class="tab"><i class="ti ti-chart-line"></i><span>Trends</span></a>
+    <a href="/calendar.html" class="tab"><i class="ti ti-calendar"></i><span>Calendar</span></a>
+    <button class="tab" type="button" aria-label="More options"><i class="ti ti-menu-2"></i><span>More</span></button>
+  </div>
+</nav>
 
-    <!-- Today's check-in card -->
-    <section class="dash-section" id="section-checkin">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">📋</span>
-        <h2 class="dash-section-title">Today's check-in</h2>
-        <button class="checkin-toggle" id="checkin-toggle" aria-label="Toggle check-in form" type="button">▾</button>
-      </div>
-      <div id="checkin-body">
-        <div class="dash-section-body">
-          <div class="checkin-grid">
-            <div class="checkin-field">
-              <label class="checkin-label" for="checkin-rhr">Resting HR</label>
-              <input type="number" id="checkin-rhr" inputmode="numeric" min="20" max="200" placeholder="bpm">
-            </div>
-            <div class="checkin-field">
-              <label class="checkin-label" for="checkin-hrv">HRV</label>
-              <input type="number" id="checkin-hrv" inputmode="numeric" min="0" max="300" placeholder="ms">
-            </div>
-            <div class="checkin-field">
-              <label class="checkin-label" for="checkin-sleep">Sleep hours</label>
-              <input type="number" id="checkin-sleep" inputmode="numeric" min="0" max="24" step="0.5" placeholder="hrs">
-            </div>
-          </div>
-
-          <div class="checkin-pill-row">
-            <span class="checkin-label">Sleep quality</span>
-            <div class="checkin-pills" id="pills-sleep-quality">
-              <button type="button" class="pill" data-val="1">1</button>
-              <button type="button" class="pill" data-val="2">2</button>
-              <button type="button" class="pill" data-val="3">3</button>
-              <button type="button" class="pill" data-val="4">4</button>
-              <button type="button" class="pill" data-val="5">5</button>
-            </div>
-          </div>
-
-          <div class="checkin-pill-row">
-            <span class="checkin-label">Energy</span>
-            <div class="checkin-pills" id="pills-energy">
-              <button type="button" class="pill" data-val="1">1</button>
-              <button type="button" class="pill" data-val="2">2</button>
-              <button type="button" class="pill" data-val="3">3</button>
-              <button type="button" class="pill" data-val="4">4</button>
-              <button type="button" class="pill" data-val="5">5</button>
-            </div>
-          </div>
-
-          <div class="checkin-pill-row">
-            <span class="checkin-label">Mood</span>
-            <div class="checkin-pills" id="pills-mood">
-              <button type="button" class="pill" data-val="1">1</button>
-              <button type="button" class="pill" data-val="2">2</button>
-              <button type="button" class="pill" data-val="3">3</button>
-              <button type="button" class="pill" data-val="4">4</button>
-              <button type="button" class="pill" data-val="5">5</button>
-            </div>
-          </div>
-
-          <div class="checkin-notes-row">
-            <label class="checkin-label" for="checkin-notes">Notes</label>
-            <textarea id="checkin-notes" rows="2" placeholder="How's today going?"></textarea>
-          </div>
-
-          <div class="checkin-actions">
-            <button type="button" id="checkin-save" class="btn-primary">Save</button>
-            <span class="checkin-saved" id="checkin-saved"></span>
-            <span class="checkin-error" id="checkin-error"></span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Sleep / Energy / Mood 7-day trend chart -->
-    <section class="dash-section" id="section-trend">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">📈</span>
-        <h2 class="dash-section-title">7-day trend</h2>
-        <span class="dash-section-link" style="color:#888;font-size:0.75rem">Sleep · Energy · Mood</span>
-      </div>
-      <div class="dash-section-body" id="section-trend-body">
-        <div class="trend-chart-wrap">
-          <canvas id="trend-chart"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <!-- Weight summary section -->
-    <section class="dash-section" id="section-weight">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">⚖️</span>
-        <h2 class="dash-section-title">Weight</h2>
-        <a href="weight.html" class="dash-section-link">Open Weight tab →</a>
-      </div>
-      <div class="dash-section-body" id="section-weight-body">
-        <div class="mini-chart-wrap">
-          <canvas id="mini-weight-chart"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <!-- Habits summary section -->
-    <section class="dash-section" id="section-habits">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">✅</span>
-        <h2 class="dash-section-title">Habits today</h2>
-        <a href="habits.html" class="dash-section-link">Open Habits tab →</a>
-      </div>
-      <div class="dash-section-body" id="section-habits-body">
-        <ul class="home-habit-list" id="home-habit-list"></ul>
-      </div>
-    </section>
-
-    <!-- Training summary section -->
-    <section class="dash-section" id="section-training">
-      <div class="dash-section-header">
-        <span class="dash-section-icon">🏋️</span>
-        <h2 class="dash-section-title">Recent training</h2>
-        <a href="#" class="dash-section-link">Open Training tab →</a>
-      </div>
-      <div class="dash-section-body" id="section-training-body">
-        <ul class="home-training-list" id="home-training-list"></ul>
-      </div>
-    </section>
-
-    <nav>
-      <a href="weight.html">Weight</a>
-      <a href="habits.html">Habits</a>
-      <a href="calendar.html">Calendar</a>
-      <a href="users.html">Users</a>
-    </nav>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="js/mock-data.js"></script>
-  <script src="js/home.js"></script>
-  <script src="js/user.js"></script>
-  <script src="js/env.js"></script>
+<script src="js/home.js"></script>
 </body>
 </html>
