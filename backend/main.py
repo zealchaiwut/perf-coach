@@ -12,7 +12,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
 __version__ = "0.1.0"
 
@@ -691,6 +691,9 @@ class ExerciseIn(BaseModel):
     weight_kg: Optional[float] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
+    distance_km: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    avg_hr: Optional[int] = None
 
 
 class WorkoutIn(BaseModel):
@@ -728,6 +731,9 @@ class ExercisePatchIn(BaseModel):
     weight_kg: Optional[float] = None
     duration: Optional[str] = None
     rpe: Optional[int] = None
+    distance_km: Optional[float] = None
+    duration_seconds: Optional[int] = None
+    avg_hr: Optional[int] = None
 
 
 class ExerciseReorderIn(BaseModel):
@@ -742,6 +748,12 @@ def _validate_exercise(ex: ExerciseIn) -> None:
         raise HTTPException(status_code=422, detail="sets must be > 0")
     if ex.rpe is not None and not (1 <= ex.rpe <= 10):
         raise HTTPException(status_code=422, detail="rpe must be between 1 and 10")
+    if ex.distance_km is not None and ex.distance_km < 0:
+        raise HTTPException(status_code=422, detail="distance_km must be >= 0")
+    if ex.duration_seconds is not None and ex.duration_seconds < 0:
+        raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
+    if ex.avg_hr is not None and not (20 <= ex.avg_hr <= 250):
+        raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
 
 
 def _exercise_dict(e: WorkoutExercise) -> dict:
@@ -754,6 +766,9 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
         "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
         "duration": e.duration,
         "rpe": e.rpe,
+        "distance_km": str(e.distance_km) if e.distance_km is not None else None,
+        "duration_seconds": e.duration_seconds,
+        "avg_hr": e.avg_hr,
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
 
@@ -917,6 +932,9 @@ def post_workout(body: WorkoutIn):
                 weight_kg=ex.weight_kg,
                 duration=ex.duration,
                 rpe=ex.rpe,
+                distance_km=ex.distance_km,
+                duration_seconds=ex.duration_seconds,
+                avg_hr=ex.avg_hr,
             )
             session.add(e)
             exercises.append(e)
@@ -1067,6 +1085,9 @@ def append_exercise(workout_id: str, body: ExerciseIn):
             weight_kg=body.weight_kg,
             duration=body.duration,
             rpe=body.rpe,
+            distance_km=body.distance_km,
+            duration_seconds=body.duration_seconds,
+            avg_hr=body.avg_hr,
         )
         session.add(ex)
         session.commit()
@@ -1107,6 +1128,18 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
             if not (1 <= body.rpe <= 10):
                 raise HTTPException(status_code=422, detail="rpe must be between 1 and 10")
             ex.rpe = body.rpe
+        if body.distance_km is not None:
+            if body.distance_km < 0:
+                raise HTTPException(status_code=422, detail="distance_km must be >= 0")
+            ex.distance_km = body.distance_km
+        if body.duration_seconds is not None:
+            if body.duration_seconds < 0:
+                raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
+            ex.duration_seconds = body.duration_seconds
+        if body.avg_hr is not None:
+            if not (20 <= body.avg_hr <= 250):
+                raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+            ex.avg_hr = body.avg_hr
         session.commit()
         session.refresh(ex)
         return JSONResponse(_exercise_dict(ex))
@@ -1127,6 +1160,102 @@ def delete_exercise(workout_id: str, exercise_id: str):
         if ex is None or ex.workout_id != wid:
             raise HTTPException(status_code=404, detail="Exercise not found in this workout")
         session.delete(ex)
+        session.commit()
+    return Response(status_code=204)
+
+
+# ── Workout splits endpoints ──────────────────────────────────────────────────
+
+class SplitIn(BaseModel):
+    split_index: int
+    distance_km: float
+    duration_seconds: int
+    avg_hr: Optional[int] = None
+
+
+class SplitsIn(BaseModel):
+    splits: list[SplitIn]
+
+
+def _split_dict(s: WorkoutSplit) -> dict:
+    return {
+        "id": str(s.id),
+        "workout_id": str(s.workout_id),
+        "split_index": s.split_index,
+        "distance_km": str(s.distance_km),
+        "duration_seconds": s.duration_seconds,
+        "avg_hr": s.avg_hr,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+    }
+
+
+@app.get("/api/workouts/{workout_id}/splits")
+def get_splits(workout_id: str):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        splits = (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id == wid)
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        )
+        return JSONResponse([_split_dict(s) for s in splits])
+
+
+@app.post("/api/workouts/{workout_id}/splits", status_code=201)
+def replace_splits(workout_id: str, body: SplitsIn):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    for s in body.splits:
+        if s.distance_km < 0:
+            raise HTTPException(status_code=422, detail="distance_km must be >= 0")
+        if s.duration_seconds < 0:
+            raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
+        if s.avg_hr is not None and not (20 <= s.avg_hr <= 250):
+            raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == wid).delete()
+        new_splits = []
+        for s in body.splits:
+            split = WorkoutSplit(
+                workout_id=wid,
+                split_index=s.split_index,
+                distance_km=s.distance_km,
+                duration_seconds=s.duration_seconds,
+                avg_hr=s.avg_hr,
+            )
+            session.add(split)
+            new_splits.append(split)
+        session.commit()
+        for split in new_splits:
+            session.refresh(split)
+        new_splits.sort(key=lambda x: x.split_index)
+        return JSONResponse(status_code=201, content=[_split_dict(s) for s in new_splits])
+
+
+@app.delete("/api/workouts/{workout_id}/splits", status_code=204)
+def delete_splits(workout_id: str):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == wid).delete()
         session.commit()
     return Response(status_code=204)
 

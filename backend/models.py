@@ -86,6 +86,13 @@ class Workout(Base):
         order_by="WorkoutExercise.display_order",
     )
 
+    splits = relationship(
+        "WorkoutSplit",
+        back_populates="workout",
+        cascade="all, delete-orphan",
+        order_by="WorkoutSplit.split_index",
+    )
+
 
 class WorkoutExercise(Base):
     __tablename__ = "workout_exercises"
@@ -99,14 +106,39 @@ class WorkoutExercise(Base):
     weight_kg = Column(Numeric(6, 2), nullable=True)
     duration = Column(String(50), nullable=True)
     rpe = Column(Integer, nullable=True)
+    distance_km = Column(Numeric(8, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         CheckConstraint("sets IS NULL OR sets > 0", name="ck_workout_exercises_sets_positive"),
         CheckConstraint("rpe IS NULL OR (rpe >= 1 AND rpe <= 10)", name="ck_workout_exercises_rpe_range"),
+        CheckConstraint("distance_km IS NULL OR distance_km >= 0", name="ck_workout_exercises_distance_non_negative"),
+        CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workout_exercises_duration_non_negative"),
+        CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workout_exercises_avg_hr_range"),
     )
 
     workout = relationship("Workout", back_populates="exercises")
+
+
+class WorkoutSplit(Base):
+    __tablename__ = "workout_splits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
+    split_index = Column(Integer, nullable=False)
+    distance_km = Column(Numeric(6, 3), nullable=False)
+    duration_seconds = Column(Integer, nullable=False)
+    avg_hr = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("workout_id", "split_index", name="uq_workout_splits_workout_split_index"),
+    )
+
+    workout = relationship("Workout", back_populates="splits")
 
 
 class DailyMetric(Base):
