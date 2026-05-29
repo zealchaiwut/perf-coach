@@ -3,11 +3,11 @@
     .then(function (res) { return res.json(); })
     .then(function (data) {
       var env = (data.environment || 'local').toLowerCase();
-      document.body.dataset.env = env;
+      document.body.setAttribute('data-env', env);
       var label = document.getElementById('env-label');
       if (label) label.textContent = env.toUpperCase();
     })
     .catch(function () {
-      document.body.dataset.env = 'local';
+      document.body.setAttribute('data-env', 'local');
     });
 }());

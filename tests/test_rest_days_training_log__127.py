@@ -209,7 +209,7 @@ def test_summary_distance_excludes_rest(client, test_user):
 
 @pytest.fixture(scope="module")
 def training_log_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "training-log.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js"
     assert path.exists(), "js/training-log.js not found"
     return path.read_text(encoding="utf-8")
 

@@ -1,8 +1,7 @@
-import concurrent.futures
 import os
-
-from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -16,19 +15,15 @@ else:
 engine = create_engine(database_url, pool_pre_ping=True)
 
 
-def _execute_select_1() -> str:
-    try:
+def check_db() -> str:
+    def _ping():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return "ok"
-    except Exception:
-        return "error"
 
-
-def check_db() -> str:
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_execute_select_1)
-            return future.result(timeout=2)
-    except Exception:
-        return "error"
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(_ping)
+        try:
+            return fut.result(timeout=2)
+        except Exception:
+            return "error"

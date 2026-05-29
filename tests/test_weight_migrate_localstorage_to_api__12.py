@@ -218,7 +218,7 @@ def test_ac9_delete_then_get_reflects_removal(client, alice_id):
 def test_ac10_weight_js_no_localstorage():
     """AC-10: weight.js must not reference localStorage, STORAGE_KEY, loadEntries, or saveEntries."""
     import pathlib
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "weight.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
     content = js_path.read_text()
     forbidden = ["localStorage", "STORAGE_KEY", "loadEntries", "saveEntries"]
     for token in forbidden:
@@ -230,7 +230,7 @@ def test_ac10_weight_js_no_localstorage():
 def test_ac11_mock_data_uses_api_field_names():
     """AC-11: MOCK_WEIGHT_ENTRIES in mock-data.js uses recorded_date and weight_kg (not date/weight)."""
     import pathlib
-    mock_path = pathlib.Path(__file__).parent.parent / "js" / "mock-data.js"
+    mock_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
     content = mock_path.read_text()
     assert "recorded_date" in content, "mock-data.js must use 'recorded_date' field"
     assert "weight_kg" in content, "mock-data.js must use 'weight_kg' field"

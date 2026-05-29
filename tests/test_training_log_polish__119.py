@@ -34,14 +34,12 @@ def test_training_log_bad_date_range_returns_4xx(client):
     )
 
 
-def test_training_log_missing_user_id_returns_valid_response(client):
-    """GET /api/training-log without user_id returns a well-formed weeks response (user_id is Optional by design)."""
+def test_training_log_missing_user_id_returns_4xx(client):
+    """GET /api/training-log without user_id must return 4xx — user_id is required for data scoping."""
     res = client.get("/api/training-log", params={"from": "2024-01-01", "to": "2024-12-31"})
-    assert res.status_code == 200, (
-        f"Missing user_id should return 200 with empty weeks list, got {res.status_code}"
+    assert res.status_code in range(400, 500), (
+        f"Missing user_id must return 4xx, got {res.status_code}"
     )
-    body = res.json()
-    assert "weeks" in body, "Response must contain a 'weeks' key even when user_id is absent"
 
 
 # ── AC: /api/workouts/{id} returns 404 for unknown workout ────────────────────
