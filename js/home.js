@@ -1,1477 +1,315 @@
 (function () {
-  function todayISO() {
-    return new Date().toISOString().slice(0, 10);
+  /* ---- Greeting ---- */
+
+  function getGreetingPrefix() {
+    var h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
   }
 
-  function setTodayLabel() {
-    var el = document.getElementById('today-label');
-    if (!el) return;
+  function formatDateSubtitle() {
     var d = new Date();
-    el.textContent = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()];
   }
 
-  // Parse a duration string like "45 min", "10m", "1h 30m" → minutes (number)
-  function parseDurationMin(str) {
-    if (!str) return 0;
-    var total = 0;
-    var h = str.match(/(\d+)\s*h/i);
-    var m = str.match(/(\d+)\s*m(?:in)?(?!\w)/i);
-    if (h) total += parseInt(h[1], 10) * 60;
-    if (m) total += parseInt(m[1], 10);
-    return total;
+  function setGreetingText(name) {
+    var el = document.getElementById('greeting-text');
+    if (!el) return;
+    el.textContent = getGreetingPrefix() + (name ? ', ' + name : '');
   }
 
-  function setText(id, text) {
-    var el = document.getElementById(id);
-    if (el) el.textContent = text;
+  function setGreetingDate() {
+    var el = document.getElementById('greeting-date');
+    if (el) el.textContent = formatDateSubtitle();
   }
 
-  function setClass(id, cls) {
-    var el = document.getElementById(id);
-    if (el) { el.className = 'dash-card-sub ' + (cls || ''); }
+  function setNavAvatar(name) {
+    var el = document.getElementById('nav-avatar');
+    if (el && name) el.textContent = name.charAt(0).toUpperCase();
   }
 
-  async function loadWeightCard(userId) {
-    var today = todayISO();
-    var sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    var lastWeekStart = sevenDaysAgo.toISOString().slice(0, 10);
+  /* ---- Readiness card helpers ---- */
 
-    try {
-      var res = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
-      if (!res.ok) throw new Error('server error');
-      var entries = await res.json();
+  function isoDate(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
 
-      var todayEntry = null;
-      for (var i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].recorded_date === today) { todayEntry = entries[i]; break; }
-      }
+  function avgOf(arr) {
+    var vals = arr.filter(function (v) { return v != null && !isNaN(v); });
+    if (!vals.length) return null;
+    return vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+  }
 
-      if (!todayEntry) {
-        setText('card-weight-value', '—');
-        setText('card-weight-sub', 'Not logged today');
-        setClass('card-weight-sub', 'muted');
-        return;
-      }
+  function deltaClass(delta, higherIsBetter) {
+    if (delta == null || Math.abs(delta) < 0.05) return 'flat';
+    if (higherIsBetter) return delta > 0 ? 'up' : 'down';
+    return delta < 0 ? 'up' : 'down';
+  }
 
-      setText('card-weight-value', todayEntry.weight_kg + ' kg');
+  function fmtDelta(delta, useDecimal) {
+    if (delta == null || Math.abs(delta) < 0.05) return '—';
+    var n = useDecimal ? delta.toFixed(1) : String(Math.round(delta));
+    return (delta > 0 ? '+' : '') + n;
+  }
 
-      // Last week's average (7 days ago up to yesterday)
-      var yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      var yesterdayStr = yesterday.toISOString().slice(0, 10);
-      var lastWeekEntries = entries.filter(function (e) {
-        return e.recorded_date >= lastWeekStart && e.recorded_date <= yesterdayStr;
-      });
+  function readinessHeadline(score) {
+    if (score >= 75) return "You’re ready to push today";
+    if (score >= 60) return 'Take it steady today';
+    return 'Rest up — your body needs recovery';
+  }
 
-      if (lastWeekEntries.length === 0) {
-        setText('card-weight-sub', 'No prior data');
-        setClass('card-weight-sub', 'muted');
-        return;
-      }
+  function readinessSub(score, todayM, avgs) {
+    var dHrv = (todayM.hrv != null && avgs.hrv != null) ? todayM.hrv - avgs.hrv : null;
+    var dRhr = (todayM.resting_hr != null && avgs.rhr != null) ? todayM.resting_hr - avgs.rhr : null;
+    var dSlp = (todayM.sleep_hours != null && avgs.sleep != null) ? todayM.sleep_hours - avgs.sleep : null;
+    var dEng = (todayM.energy != null && avgs.energy != null) ? todayM.energy - avgs.energy : null;
 
-      var avg = lastWeekEntries.reduce(function (s, e) { return s + e.weight_kg; }, 0) / lastWeekEntries.length;
-      var diff = todayEntry.weight_kg - avg;
-      var sign = diff > 0 ? '▲' : '▼';
-      var cls = diff > 0 ? 'pending' : 'done';
-      if (Math.abs(diff) < 0.05) { sign = '—'; cls = 'muted'; }
-      setText('card-weight-sub', sign + ' ' + Math.abs(diff).toFixed(1) + ' kg vs last week avg');
-      setClass('card-weight-sub', cls);
-    } catch (e) {
-      setText('card-weight-value', '—');
-      setText('card-weight-sub', 'Unable to load');
-      setClass('card-weight-sub', 'muted');
+    var signals = [];
+    if (dHrv != null) signals.push({ name: 'HRV',        delta: dHrv, good: dHrv > 0, pct: avgs.hrv   ? Math.abs(dHrv / avgs.hrv)   : 0 });
+    if (dRhr != null) signals.push({ name: 'Resting HR', delta: dRhr, good: dRhr < 0, pct: avgs.rhr   ? Math.abs(dRhr / avgs.rhr)   : 0 });
+    if (dSlp != null) signals.push({ name: 'Sleep',      delta: dSlp, good: dSlp > 0, pct: avgs.sleep ? Math.abs(dSlp / avgs.sleep) : 0 });
+    if (dEng != null) signals.push({ name: 'Energy',     delta: dEng, good: dEng > 0, pct: avgs.energy ? Math.abs(dEng / avgs.energy) : 0 });
+
+    if (!signals.length) {
+      if (score >= 75) return 'All metrics are dialled in — a solid window for quality work.';
+      if (score >= 60) return 'Mixed signals today — go by feel and adjust on the fly.';
+      return 'Rest and recovery is the priority today.';
     }
-  }
 
-  async function loadHabitsCard(userId) {
-    var today = todayISO();
-    try {
-      var [habitsRes, logsRes] = await Promise.all([
-        fetch('/api/habits?user_id=' + encodeURIComponent(userId)),
-        fetch('/api/habits/logs?user_id=' + encodeURIComponent(userId) + '&from=' + today + '&to=' + today),
-      ]);
-      if (!habitsRes.ok || !logsRes.ok) throw new Error('server error');
-      var habits = await habitsRes.json();
-      var logs = await logsRes.json();
+    signals.sort(function (a, b) { return b.pct - a.pct; });
+    var top = signals[0];
 
-      var total = habits.length;
-      var done = logs.length;
-      var pending = total - done;
-
-      setText('card-habits-value', done + ' / ' + total);
-
-      if (total === 0) {
-        setText('card-habits-sub', 'No habits yet');
-        setClass('card-habits-sub', 'muted');
-      } else if (pending === 0) {
-        setText('card-habits-sub', 'All done today');
-        setClass('card-habits-sub', 'done');
-      } else {
-        setText('card-habits-sub', pending + ' pending today');
-        setClass('card-habits-sub', 'pending');
-      }
-    } catch (e) {
-      setText('card-habits-value', '—');
-      setText('card-habits-sub', 'Unable to load');
-      setClass('card-habits-sub', 'muted');
-    }
-  }
-
-  async function loadTrainingCard(userId) {
-    var today = todayISO();
-    try {
-      var res = await fetch(
-        '/api/workouts?user_id=' + encodeURIComponent(userId) + '&from=' + today + '&to=' + today
-      );
-      if (!res.ok) throw new Error('server error');
-      var workouts = await res.json();
-
-      if (workouts.length === 0) {
-        setText('card-training-value', 'Rest day');
-        setText('card-training-sub', '');
-        setClass('card-training-sub', 'muted');
-        return;
-      }
-
-      var w = workouts[0];
-      // Fetch full workout to compute duration from exercises
-      var detailRes = await fetch('/api/workouts/' + encodeURIComponent(w.id));
-      var detail = detailRes.ok ? await detailRes.json() : null;
-
-      var totalMin = 0;
-      if (detail && detail.exercises) {
-        detail.exercises.forEach(function (ex) {
-          totalMin += parseDurationMin(ex.duration);
-        });
-      }
-
-      var label = w.name || w.workout_type;
-      setText('card-training-value', label);
-      if (totalMin > 0) {
-        setText('card-training-sub', totalMin + ' min');
-        setClass('card-training-sub', '');
-      } else {
-        setText('card-training-sub', w.workout_type);
-        setClass('card-training-sub', 'muted');
-      }
-    } catch (e) {
-      setText('card-training-value', '—');
-      setText('card-training-sub', 'Unable to load');
-      setClass('card-training-sub', 'muted');
-    }
-  }
-
-  async function loadStreakCard(userId) {
-    try {
-      var res = await fetch('/api/stats/active-streak?user_id=' + encodeURIComponent(userId));
-      if (!res.ok) throw new Error('server error');
-      var data = await res.json();
-      setText('card-streak-value', '🔥 ' + data.current_streak);
-      if (data.current_streak >= 7) {
-        setText('card-streak-sub', 'Best ever: ' + data.longest_streak);
-        setClass('card-streak-sub', '');
-      } else {
-        setText('card-streak-sub', 'consecutive days');
-        setClass('card-streak-sub', 'muted');
-      }
-    } catch (e) {
-      setText('card-streak-value', '🔥 0');
-      setText('card-streak-sub', 'Unable to load');
-      setClass('card-streak-sub', 'muted');
-    }
-  }
-
-  function refreshCards(userId) {
-    loadWeightCard(userId);
-    loadHabitsCard(userId);
-    loadTrainingCard(userId);
-    loadStreakCard(userId);
-  }
-
-  // ── Mini weight chart ──────────────────────────────────────────────────────
-
-  var miniWeightChart = null;
-
-  function last14Days() {
-    var cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 13);
-    return cutoff.toISOString().slice(0, 10);
-  }
-
-  async function loadWeightSection(userId) {
-    var body = document.getElementById('section-weight-body');
-    if (!body) return;
-    try {
-      var res = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
-      if (!res.ok) throw new Error('server error');
-      var entries = await res.json();
-
-      var cutoff = last14Days();
-      var visible = entries
-        .filter(function (e) { return e.recorded_date >= cutoff; })
-        .sort(function (a, b) { return a.recorded_date.localeCompare(b.recorded_date); });
-
-      if (visible.length === 0) {
-        body.innerHTML = '<p class="dash-section-empty">No weight entries yet</p>';
-        if (miniWeightChart) { miniWeightChart.destroy(); miniWeightChart = null; }
-        return;
-      }
-
-      // Restore canvas if it was replaced by an empty-state message
-      if (!body.querySelector('#mini-weight-chart')) {
-        body.innerHTML = '<div class="mini-chart-wrap"><canvas id="mini-weight-chart"></canvas></div>';
-      }
-
-      var labels = visible.map(function (e) { return e.recorded_date; });
-      var weights = visible.map(function (e) { return e.weight_kg; });
-      var allVals = weights;
-      var padding = 0.3;
-      var minY = Math.min.apply(null, allVals) - padding;
-      var maxY = Math.max.apply(null, allVals) + padding;
-
-      if (miniWeightChart) {
-        miniWeightChart.data.labels = labels;
-        miniWeightChart.data.datasets[0].data = weights;
-        miniWeightChart.options.scales.y.min = minY;
-        miniWeightChart.options.scales.y.max = maxY;
-        miniWeightChart.update();
-        return;
-      }
-
-      var ctx = document.getElementById('mini-weight-chart').getContext('2d');
-      miniWeightChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            data: weights,
-            showLine: false,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            pointBackgroundColor: '#9ca3af',
-            pointBorderColor: '#9ca3af',
-          }],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { enabled: false } },
-          scales: {
-            x: { display: false },
-            y: { display: false, min: minY, max: maxY },
-          },
-          animation: false,
-        },
-      });
-    } catch (e) {
-      body.innerHTML = '<p class="dash-section-empty">Unable to load weight data</p>';
-    }
-  }
-
-  // ── Habits today section ───────────────────────────────────────────────────
-
-  async function loadHabitsSection(userId) {
-    var list = document.getElementById('home-habit-list');
-    if (!list) return;
-    var today = todayISO();
-    try {
-      var results = await Promise.all([
-        fetch('/api/habits?user_id=' + encodeURIComponent(userId)),
-        fetch('/api/habits/logs?user_id=' + encodeURIComponent(userId) + '&from=' + today + '&to=' + today),
-      ]);
-      if (!results[0].ok || !results[1].ok) throw new Error('server error');
-      var habits = await results[0].json();
-      var logs = await results[1].json();
-
-      list.innerHTML = '';
-      if (habits.length === 0) {
-        list.innerHTML = '<li class="dash-section-empty">No habits yet</li>';
-        return;
-      }
-
-      habits.forEach(function (habit) {
-        var done = logs.some(function (l) { return l.habit_id === habit.id; });
-        var li = document.createElement('li');
-        li.className = 'home-habit-row';
-        li.id = 'home-habit-row-' + habit.id;
-
-        var cb = document.createElement('span');
-        cb.className = 'home-habit-cb' + (done ? ' checked' : '');
-        cb.setAttribute('aria-label', done ? 'Completed' : 'Not completed');
-        if (done) {
-          cb.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-        }
-
-        var name = document.createElement('span');
-        name.className = 'home-habit-name';
-        name.textContent = habit.name;
-
-        var streak = document.createElement('span');
-        streak.className = 'home-habit-streak';
-        streak.textContent = '…';
-
-        var rate = document.createElement('span');
-        rate.className = 'home-habit-rate';
-        rate.textContent = '';
-
-        li.appendChild(cb);
-        li.appendChild(name);
-        li.appendChild(streak);
-        li.appendChild(rate);
-        list.appendChild(li);
-
-        // Load stats async
-        fetch('/api/habits/stats?user_id=' + encodeURIComponent(userId) + '&habit_id=' + encodeURIComponent(habit.id) + '&days=30')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (data) {
-            var row = document.getElementById('home-habit-row-' + habit.id);
-            if (!row) return;
-            var sEl = row.querySelector('.home-habit-streak');
-            var rEl = row.querySelector('.home-habit-rate');
-            if (data && data.streak > 0) {
-              sEl.textContent = '🔥 ' + data.streak + ' day' + (data.streak === 1 ? '' : 's');
-            } else {
-              sEl.textContent = '—';
-            }
-            if (data && data.days_completed > 0) {
-              rEl.textContent = Math.round(data.completion_rate * 100) + '%';
-            } else {
-              rEl.textContent = '';
-            }
-          })
-          .catch(function () {
-            var row = document.getElementById('home-habit-row-' + habit.id);
-            if (row) row.querySelector('.home-habit-streak').textContent = '';
-          });
-      });
-    } catch (e) {
-      list.innerHTML = '<li class="dash-section-empty">Unable to load habits</li>';
-    }
-  }
-
-  // ── Recent training section ────────────────────────────────────────────────
-
-  function relativeDate(dateStr) {
-    var today = todayISO();
-    if (dateStr === today) return 'Today';
-    var yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (dateStr === yesterday.toISOString().slice(0, 10)) return 'Yesterday';
-    var d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-
-  function trainingIcon(workoutType) {
-    var cardioTypes = ['run', 'cardio', 'cycling', 'swimming', 'walking', 'hike', 'hiking', 'bike'];
-    var t = (workoutType || '').toLowerCase();
-    for (var i = 0; i < cardioTypes.length; i++) {
-      if (t.indexOf(cardioTypes[i]) !== -1) return '🏃';
-    }
-    return '🏋️';
-  }
-
-  async function loadTrainingSection(userId) {
-    var list = document.getElementById('home-training-list');
-    if (!list) return;
-
-    var oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    var fromStr = oneYearAgo.toISOString().slice(0, 10);
-    var toStr = todayISO();
-
-    try {
-      var res = await fetch(
-        '/api/workouts?user_id=' + encodeURIComponent(userId) +
-        '&from=' + fromStr + '&to=' + toStr
-      );
-      if (!res.ok) throw new Error('server error');
-      var workouts = await res.json();
-
-      list.innerHTML = '';
-      if (workouts.length === 0) {
-        list.innerHTML = '<li class="dash-section-empty">No training yet</li>';
-        return;
-      }
-
-      var recent = workouts.slice(0, 7);
-
-      // Fetch details for all 7 in parallel to get duration + rpe
-      var details = await Promise.all(recent.map(function (w) {
-        return fetch('/api/workouts/' + encodeURIComponent(w.id))
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .catch(function () { return null; });
-      }));
-
-      recent.forEach(function (w, i) {
-        var detail = details[i];
-        var totalMin = 0;
-        var maxRpe = null;
-        if (detail && detail.exercises) {
-          detail.exercises.forEach(function (ex) {
-            totalMin += parseDurationMin(ex.duration);
-            if (ex.rpe !== null && ex.rpe !== undefined) {
-              maxRpe = maxRpe === null ? ex.rpe : Math.max(maxRpe, ex.rpe);
-            }
-          });
-        }
-
-        var li = document.createElement('li');
-        li.className = 'home-training-row';
-
-        var icon = document.createElement('span');
-        icon.className = 'home-training-icon';
-        icon.textContent = trainingIcon(w.workout_type);
-
-        var name = document.createElement('span');
-        name.className = 'home-training-name';
-        name.textContent = w.name || w.workout_type;
-
-        var dateEl = document.createElement('span');
-        dateEl.className = 'home-training-date';
-        dateEl.textContent = relativeDate(w.workout_date);
-
-        var meta = document.createElement('span');
-        meta.className = 'home-training-meta';
-        var metaParts = [];
-        if (totalMin > 0) metaParts.push(totalMin + ' min');
-        if (maxRpe !== null) metaParts.push('RPE ' + maxRpe);
-        meta.textContent = metaParts.join(' · ');
-
-        li.appendChild(icon);
-        li.appendChild(name);
-        li.appendChild(dateEl);
-        if (metaParts.length > 0) li.appendChild(meta);
-        list.appendChild(li);
-      });
-    } catch (e) {
-      list.innerHTML = '<li class="dash-section-empty">Unable to load training data</li>';
-    }
-  }
-
-  // ── Sleep / Energy / Mood 7-day digest chart ──────────────────────────────
-
-  var trendChart = null;
-
-  async function loadTrendChart(userId) {
-    var body = document.getElementById('section-trend-body');
-    if (!body) return;
-    try {
-      var res = await fetch(
-        '/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'
-      );
-      if (!res.ok) throw new Error('server error');
-      var summary = await res.json();
-
-      var labels = summary.sleep.series.map(function (d) {
-        var dt = new Date(d.date + 'T00:00:00');
-        return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-      });
-      var sleepData = summary.sleep.series.map(function (d) { return d.hours; });
-      var energyData = summary.energy.series.map(function (d) { return d.value; });
-      var moodData = summary.mood.series.map(function (d) { return d.value; });
-
-      if (!body.querySelector('#trend-chart')) {
-        body.innerHTML = '<div class="trend-chart-wrap"><canvas id="trend-chart"></canvas></div>';
-      }
-
-      if (trendChart) {
-        trendChart.data.labels = labels;
-        trendChart.data.datasets[0].data = sleepData;
-        trendChart.data.datasets[1].data = energyData;
-        trendChart.data.datasets[2].data = moodData;
-        trendChart.update();
-        return;
-      }
-
-      var ctx = document.getElementById('trend-chart').getContext('2d');
-      trendChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: 'Sleep (h)',
-              data: sleepData,
-              yAxisID: 'ySleep',
-              borderColor: '#6366f1',
-              backgroundColor: 'rgba(99,102,241,0.08)',
-              borderWidth: 2,
-              pointRadius: 3,
-              spanGaps: false,
-              fill: false,
-              tension: 0.3,
-            },
-            {
-              label: 'Energy',
-              data: energyData,
-              yAxisID: 'yScore',
-              borderColor: '#f59e0b',
-              backgroundColor: 'rgba(245,158,11,0.08)',
-              borderWidth: 2,
-              pointRadius: 3,
-              spanGaps: false,
-              fill: false,
-              tension: 0.3,
-            },
-            {
-              label: 'Mood',
-              data: moodData,
-              yAxisID: 'yScore',
-              borderColor: '#10b981',
-              backgroundColor: 'rgba(16,185,129,0.08)',
-              borderWidth: 2,
-              pointRadius: 3,
-              spanGaps: false,
-              fill: false,
-              tension: 0.3,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              display: true,
-              position: 'top',
-              labels: { font: { size: 11 }, boxWidth: 12, padding: 8 },
-            },
-          },
-          scales: {
-            x: {
-              ticks: { font: { size: 10 }, maxRotation: 0 },
-              grid: { display: false },
-            },
-            ySleep: {
-              type: 'linear',
-              position: 'left',
-              min: 0,
-              max: 12,
-              title: { display: true, text: 'Sleep (h)', font: { size: 10 } },
-              ticks: { font: { size: 10 }, stepSize: 3 },
-              grid: { color: 'rgba(0,0,0,0.06)' },
-            },
-            yScore: {
-              type: 'linear',
-              position: 'right',
-              min: 0,
-              max: 5,
-              title: { display: true, text: '1–5', font: { size: 10 } },
-              ticks: { font: { size: 10 }, stepSize: 1 },
-              grid: { display: false },
-            },
-          },
-          animation: false,
-        },
-      });
-    } catch (e) {
-      body.innerHTML = '<p class="dash-section-empty">Unable to load trend data</p>';
-    }
-  }
-
-  // ── Today's check-in card ──────────────────────────────────────────────────
-
-  var CHECKIN_COLLAPSE_KEY = 'perf-coach.checkin-collapsed';
-
-  function pillGroupValue(groupId) {
-    var active = document.querySelector('#' + groupId + ' .pill.active');
-    return active ? parseInt(active.getAttribute('data-val'), 10) : null;
-  }
-
-  function setPillGroupValue(groupId, val) {
-    var pills = document.querySelectorAll('#' + groupId + ' .pill');
-    pills.forEach(function (p) {
-      if (parseInt(p.getAttribute('data-val'), 10) === val) {
-        p.classList.add('active');
-      } else {
-        p.classList.remove('active');
-      }
-    });
-  }
-
-  function wireUpPillGroups() {
-    ['pills-sleep-quality', 'pills-energy', 'pills-mood'].forEach(function (gid) {
-      var group = document.getElementById(gid);
-      if (!group) return;
-      group.querySelectorAll('.pill').forEach(function (p) {
-        p.addEventListener('click', function () {
-          var wasActive = p.classList.contains('active');
-          group.querySelectorAll('.pill').forEach(function (q) { q.classList.remove('active'); });
-          if (!wasActive) p.classList.add('active');
-        });
-      });
-    });
-  }
-
-  function getCheckinInputs() {
-    var rhr = document.getElementById('checkin-rhr');
-    var hrv = document.getElementById('checkin-hrv');
-    var sleep = document.getElementById('checkin-sleep');
-    var notes = document.getElementById('checkin-notes');
-    return {
-      resting_hr: rhr && rhr.value !== '' ? parseInt(rhr.value, 10) : null,
-      hrv: hrv && hrv.value !== '' ? parseInt(hrv.value, 10) : null,
-      sleep_hours: sleep && sleep.value !== '' ? parseFloat(sleep.value) : null,
-      sleep_quality: pillGroupValue('pills-sleep-quality'),
-      energy: pillGroupValue('pills-energy'),
-      mood: pillGroupValue('pills-mood'),
-      notes: notes && notes.value.trim() !== '' ? notes.value.trim() : null,
+    var copy = {
+      HRV:          { pos: 'HRV is up — a good sign for aerobic output today.',          neg: 'HRV is suppressed — consider backing off intensity.' },
+      'Resting HR': { pos: 'Resting HR is low — your body is well-recovered.',            neg: 'Elevated resting HR suggests your body is still recovering.' },
+      Sleep:        { pos: 'Good sleep last night is driving today’s readiness.',         neg: 'Short sleep is the main drag on today’s score.' },
+      Energy:       { pos: 'High self-reported energy — take advantage of it.',           neg: 'Low energy reported — take it easier than planned.' }
     };
+
+    var set = copy[top.name];
+    if (!set) return 'Your metrics are shaping today’s readiness score.';
+    return top.good ? set.pos : set.neg;
   }
 
-  function fillCheckinForm(data) {
-    var rhr = document.getElementById('checkin-rhr');
-    var hrv = document.getElementById('checkin-hrv');
-    var sleep = document.getElementById('checkin-sleep');
-    var notes = document.getElementById('checkin-notes');
-    if (rhr) rhr.value = data.resting_hr !== null && data.resting_hr !== undefined ? data.resting_hr : '';
-    if (hrv) hrv.value = data.hrv !== null && data.hrv !== undefined ? data.hrv : '';
-    if (sleep) sleep.value = data.sleep_hours !== null && data.sleep_hours !== undefined ? data.sleep_hours : '';
-    if (notes) notes.value = data.notes || '';
-    setPillGroupValue('pills-sleep-quality', data.sleep_quality);
-    setPillGroupValue('pills-energy', data.energy);
-    setPillGroupValue('pills-mood', data.mood);
+  function pillInfo(score) {
+    if (score >= 75) return { icon: 'ti-check',          label: 'Green · go',       cls: 'pill-green' };
+    if (score >= 60) return { icon: 'ti-alert-triangle', label: 'Amber · caution', cls: 'pill-amber' };
+    return              { icon: 'ti-x',               label: 'Red · rest',      cls: 'pill-red'   };
   }
 
-  function setCheckinStatus(savedText, errorText) {
-    var savedEl = document.getElementById('checkin-saved');
-    var errorEl = document.getElementById('checkin-error');
-    if (savedEl) savedEl.textContent = savedText || '';
-    if (errorEl) errorEl.textContent = errorText || '';
-  }
+  /* ---- Readiness card state renderers ---- */
 
-  function applyCheckinCollapse() {
-    var body = document.getElementById('checkin-body');
-    var toggle = document.getElementById('checkin-toggle');
-    var collapsed = localStorage.getItem(CHECKIN_COLLAPSE_KEY) === '1';
-    if (!body || !toggle) return;
-    if (collapsed) {
-      body.hidden = true;
-      toggle.classList.add('collapsed');
-    } else {
-      body.hidden = false;
-      toggle.classList.remove('collapsed');
+  function renderScored(card, todayData, rangeData, metrics) {
+    var score = Math.round(todayData.score);
+
+    var scores = rangeData.filter(function (r) { return r != null; }).map(function (r) { return r.score; });
+    var avgScore = avgOf(scores);
+    var avgRounded = avgScore != null ? Math.round(avgScore) : null;
+
+    var trending = 'flat';
+    if (avgScore != null) {
+      if (score > avgScore + 2) trending = 'up';
+      else if (score < avgScore - 2) trending = 'down';
     }
-  }
+    var trendLabel = { up: 'trending up', down: 'trending down', flat: 'flat' }[trending];
 
-  function initCheckinToggle() {
-    var toggle = document.getElementById('checkin-toggle');
-    if (!toggle) return;
-    applyCheckinCollapse();
-    toggle.addEventListener('click', function () {
-      var body = document.getElementById('checkin-body');
-      var isCollapsed = body && body.hidden;
-      if (isCollapsed) {
-        body.hidden = false;
-        toggle.classList.remove('collapsed');
-        localStorage.setItem(CHECKIN_COLLAPSE_KEY, '0');
-      } else {
-        body.hidden = true;
-        toggle.classList.add('collapsed');
-        localStorage.setItem(CHECKIN_COLLAPSE_KEY, '1');
-      }
+    /* most-recent metric entry = today's chip values */
+    var sorted = metrics.slice().sort(function (a, b) {
+      return b.metric_date < a.metric_date ? -1 : 1;
     });
-  }
+    var tm = sorted[0] || {};
 
-  async function loadCheckinSection(userId) {
-    var today = todayISO();
-    try {
-      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
-      if (res.ok) {
-        var data = await res.json();
-        fillCheckinForm(data);
-      }
-      // 404 is expected if no row yet — leave form empty
-    } catch (e) {
-      // Network failure — leave form empty, don't block UI
-    }
-  }
+    var avgs = {
+      hrv:    avgOf(metrics.map(function (m) { return m.hrv; })),
+      rhr:    avgOf(metrics.map(function (m) { return m.resting_hr; })),
+      sleep:  avgOf(metrics.map(function (m) { return m.sleep_hours; })),
+      energy: avgOf(metrics.map(function (m) { return m.energy; }))
+    };
 
-  var _checkinUserId = null;
+    var dHrv = (tm.hrv != null && avgs.hrv != null) ? tm.hrv - avgs.hrv : null;
+    var dRhr = (tm.resting_hr != null && avgs.rhr != null) ? tm.resting_hr - avgs.rhr : null;
+    var dSlp = (tm.sleep_hours != null && avgs.sleep != null) ? tm.sleep_hours - avgs.sleep : null;
+    var dEng = (tm.energy != null && avgs.energy != null) ? tm.energy - avgs.energy : null;
 
-  function initCheckinSave() {
-    var btn = document.getElementById('checkin-save');
-    if (!btn) return;
-    btn.addEventListener('click', async function () {
-      if (!_checkinUserId) return;
-      var today = todayISO();
-      var payload = getCheckinInputs();
-      btn.disabled = true;
-      setCheckinStatus('', '');
-      try {
-        var res = await fetch(
-          '/api/daily-metrics/' + encodeURIComponent(_checkinUserId) + '/' + today,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          }
-        );
-        if (res.ok) {
-          var saved = new Date();
-          var hh = String(saved.getHours()).padStart(2, '0');
-          var mm = String(saved.getMinutes()).padStart(2, '0');
-          setCheckinStatus('Saved at ' + hh + ':' + mm, '');
-          setTimeout(function () { setCheckinStatus('', ''); }, 3000);
-          loadTrendChart(_checkinUserId);
-        } else {
-          var errBody;
-          try { errBody = await res.json(); } catch (_) { errBody = {}; }
-          var msg = (errBody && errBody.detail)
-            ? (typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail))
-            : ('Save failed (' + res.status + ')');
-          setCheckinStatus('', msg);
-        }
-      } catch (e) {
-        setCheckinStatus('', 'Network error — please try again');
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  }
+    var pill     = pillInfo(score);
+    var headline = readinessHeadline(score);
+    var sub      = readinessSub(score, tm, avgs);
 
-  // ── Weekly digest card ─────────────────────────────────────────────────────
+    var avgLine = avgRounded != null
+      ? '<div class="score-avg">7d avg ' + avgRounded + ' · ' + trendLabel + '</div>'
+      : '';
 
-  function digestCacheKey(userId) {
-    return 'perf-coach.weekly-digest.' + (userId || 'anon');
-  }
-
-  function getDigestCache(userId) {
-    try {
-      var cached = JSON.parse(localStorage.getItem(digestCacheKey(userId)));
-      if (cached && cached.date === todayISO()) return cached.data;
-    } catch (_) {}
-    return null;
-  }
-
-  function setDigestCache(userId, data) {
-    try {
-      localStorage.setItem(digestCacheKey(userId), JSON.stringify({ date: todayISO(), data: data }));
-    } catch (_) {}
-  }
-
-  function _daysWithData(payload) {
-    if (!payload || !payload.readiness || !payload.readiness.series) return 0;
-    var count = 0;
-    payload.readiness.series.forEach(function (s) { if (s.score != null) count++; });
-    return count;
-  }
-
-  function _parseDeltaInt(str) {
-    if (str == null) return null;
-    var n = parseInt(str, 10);
-    return isNaN(n) ? null : n;
-  }
-
-  function _parseDeltaFloat(str) {
-    if (str == null) return null;
-    var n = parseFloat(String(str).replace(/[^0-9.\-+]/g, ''));
-    return isNaN(n) ? null : n;
-  }
-
-  function _parseDeltaPct(str) {
-    if (str == null) return null;
-    var n = parseFloat(String(str).replace('%', ''));
-    return isNaN(n) ? null : n;
-  }
-
-  function _peakTssDay(series) {
-    if (!series || !series.length) return null;
-    var maxVal = -Infinity;
-    var maxDate = null;
-    series.forEach(function (s) {
-      if (s.value != null && s.value > maxVal) { maxVal = s.value; maxDate = s.date; }
-    });
-    if (!maxDate) return null;
-    return new Date(maxDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
-  }
-
-  function _hrvTrailingBelowCount(series, avg) {
-    if (!series || !series.length || avg == null) return 0;
-    var count = 0;
-    for (var i = series.length - 1; i >= 0; i--) {
-      if (series[i].value != null && series[i].value < avg) { count++; } else { break; }
-    }
-    return count;
-  }
-
-  // Minimum absolute delta required before a line is shown
-  var DIGEST_MIN_DELTA = { readiness: 2, sleep: 0.3, hrv: 3, tss_pct: 15 };
-
-  function buildDigestLines(payload) {
-    var lines = [];
-    var deltas = payload.deltas || {};
-    var d;
-
-    // Avg readiness with week-over-week delta
-    if (payload.readiness && payload.readiness.avg != null) {
-      d = _parseDeltaInt(deltas.readiness);
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.readiness) {
-        lines.push('Avg readiness ' + Math.round(payload.readiness.avg) + ' (' + (d > 0 ? '+' : '') + d + ' vs last week)');
-      }
+    function chip(label, val, delta, higherIsBetter, useDecimal) {
+      var valStr = val != null ? (useDecimal ? Number(val).toFixed(1) + 'h' : String(Math.round(val))) : '—';
+      var dc  = deltaClass(delta, higherIsBetter);
+      var df  = fmtDelta(delta, useDecimal);
+      var dEl = delta != null ? ' <span class="delta ' + dc + '">' + df + '</span>' : '';
+      return '<div class="component"><div class="l">' + label + '</div><div class="v">' + valStr + dEl + '</div></div>';
     }
 
-    // Sleep change in hours ("Sleep up 0.4h" / "Sleep down 0.4h")
-    if (payload.sleep && payload.sleep.avg_hours != null) {
-      d = _parseDeltaFloat(deltas.sleep);
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.sleep) {
-        var sleepDir = d > 0 ? 'up' : 'down';
-        lines.push('Sleep ' + sleepDir + ' ' + Math.abs(d).toFixed(1) + 'h');
-      }
-    }
+    var engVal = tm.energy != null
+      ? String(tm.energy) + '<span style="font-size:11px;opacity:0.5;">/5</span>'
+      : '—';
+    var engDelta = dEng != null
+      ? ' <span class="delta ' + deltaClass(dEng, true) + '">' + fmtDelta(dEng, false) + '</span>'
+      : '';
 
-    // TSS % change with peak day called out
-    if (payload.tss && payload.tss.series) {
-      d = _parseDeltaPct(deltas.tss);
-      if (d != null && Math.abs(d) >= DIGEST_MIN_DELTA.tss_pct) {
-        var tssDir = d > 0 ? 'up' : 'down';
-        var tssPeak = _peakTssDay(payload.tss.series);
-        var tssLine = 'TSS ' + tssDir + ' ' + Math.abs(Math.round(d)) + '%';
-        if (tssPeak) tssLine += ' — biggest day ' + tssPeak;
-        lines.push(tssLine);
-      }
-    }
-
-    // HRV trending below baseline last N days
-    if (payload.hrv && payload.hrv.avg != null && payload.hrv.series) {
-      d = _parseDeltaInt(deltas.hrv);
-      if (d != null && d <= -DIGEST_MIN_DELTA.hrv) {
-        var belowCount = _hrvTrailingBelowCount(payload.hrv.series, payload.hrv.avg);
-        if (belowCount >= 2) {
-          lines.push('HRV trending below baseline last ' + belowCount + ' day' + (belowCount === 1 ? '' : 's'));
-        }
-      }
-    }
-
-    return lines.slice(0, 5);
-  }
-
-  function renderDigestSection(payload) {
-    var body = document.getElementById('section-digest-body');
-    if (!body) return;
-
-    if (!payload || _daysWithData(payload) < 7) {
-      body.innerHTML = '<p class="digest-empty">Not enough data yet — keep logging.</p>';
-      return;
-    }
-
-    var lines = buildDigestLines(payload);
-
-    if (lines.length === 0) {
-      body.innerHTML = '<p class="digest-empty">No notable changes this week</p>';
-      return;
-    }
-
-    var ul = document.createElement('ul');
-    ul.className = 'digest-lines';
-    lines.forEach(function (text) {
-      var li = document.createElement('li');
-      li.className = 'digest-line';
-      li.textContent = text;
-      ul.appendChild(li);
-    });
-    body.innerHTML = '';
-    body.appendChild(ul);
-  }
-
-  async function loadWeeklyDigestSection(userId) {
-    var cached = getDigestCache(userId);
-    if (cached) {
-      renderDigestSection(cached);
-      return;
-    }
-
-    var data = null;
-    try {
-      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d');
-      if (!res.ok) throw new Error('server error');
-      data = await res.json();
-    } catch (_) {
-      data = (typeof MOCK_TRENDS_SUMMARY !== 'undefined') ? MOCK_TRENDS_SUMMARY : null;
-    }
-
-    setDigestCache(userId, data);
-    renderDigestSection(data);
-  }
-
-  // ── Readiness card ────────────────────────────────────────────────────────
-
-  var READINESS_THRESHOLDS = { red: 50, amber: 70 };
-
-  var READINESS_LABELS = {
-    green: 'Green - go',
-    amber: 'Amber - moderate',
-    red:   'Red - back off',
-  };
-
-  var READINESS_INTERP = {
-    green: "You're well-recovered and ready to perform.",
-    amber: 'Keep it moderate — listen to your body.',
-    red:   'Your body needs extra recovery today.',
-  };
-
-  var READINESS_COMP_EXPL = {
-    HRV:    'Heart rate variability reflects autonomic recovery.',
-    RHR:    'Elevated resting HR signals residual fatigue.',
-    Sleep:  'Sleep quality and duration drive physical restoration.',
-    Energy: 'Subjective energy level shapes workout quality.',
-  };
-
-  function readinessBand(score) {
-    if (score == null) return 'neutral';
-    if (score < READINESS_THRESHOLDS.red)    return 'red';
-    if (score <= READINESS_THRESHOLDS.amber) return 'amber';
-    return 'green';
-  }
-
-  function fmtAbsDelta(val, unit) {
-    if (val == null) return null;
-    var rounded = Math.round(val * 10) / 10;
-    var sign = rounded >= 0 ? '+' : '';
-    var num = Number.isInteger(rounded) ? rounded : rounded.toFixed(1);
-    return sign + num + (unit ? ' ' + unit : '');
-  }
-
-  function deltaClass(dispDelta) {
-    if (dispDelta == null) return 'neu';
-    if (Math.abs(dispDelta) < 0.5) return 'neu';
-    return dispDelta > 0 ? 'pos' : 'neg';
-  }
-
-  function buildInterpretation(band, components) {
-    var hrv   = components.find(function (c) { return c.key === 'hrv'; });
-    var rhr   = components.find(function (c) { return c.key === 'rhr'; });
-    var sleep = components.find(function (c) { return c.key === 'sleep'; });
-    var en    = components.find(function (c) { return c.key === 'energy'; });
-
-    var hrvD   = hrv   && !hrv.missing   ? hrv.dispDelta   : null;
-    var rhrD   = rhr   && !rhr.missing   ? rhr.dispDelta   : null;
-    var sleepD = sleep && !sleep.missing ? sleep.dispDelta : null;
-    var enD    = en    && !en.missing    ? en.dispDelta    : null;
-
-    if (band === 'green') {
-      if (hrvD   != null && hrvD   >= 5)    return 'HRV is up — autonomic recovery looks strong.';
-      if (sleepD != null && sleepD >= 0.5)  return 'Good sleep last night — body is primed to go.';
-      if (enD    != null && enD    >= 1)    return 'Energy is high — a great time for a quality session.';
-      return "You're well-recovered and ready to perform.";
-    }
-    if (band === 'amber') {
-      if (sleepD != null && sleepD < -0.5)  return 'Sleep was below your average — moderate intensity is wise.';
-      if (rhrD   != null && rhrD   < -1)    return 'Resting HR is slightly elevated — ease into today.';
-      if (hrvD   != null && hrvD   < -3)    return 'HRV is a touch low — a moderate session makes sense.';
-      return 'Keep it moderate — listen to your body today.';
-    }
-    if (band === 'red') {
-      if (hrvD   != null && hrvD   < -8)    return 'HRV is significantly suppressed — prioritise rest today.';
-      if (sleepD != null && sleepD < -1)    return 'Sleep deficit detected — a full rest day is recommended.';
-      if (rhrD   != null && rhrD   < -2)    return 'Resting HR is elevated — your body is still recovering.';
-      return 'Your body needs extra recovery today.';
-    }
-    return '';
-  }
-
-  function applyReadinessCard(readiness, metrics, trends) {
-    var card     = document.getElementById('readiness-card');
-    var scoreEl  = document.getElementById('readiness-score');
-    var pillEl   = document.getElementById('readiness-pill');
-    var interpEl = document.getElementById('readiness-interp');
-    var chipsEl  = document.getElementById('readiness-chips');
-    var bdEl     = document.getElementById('readiness-breakdown');
-    if (!card) return;
-
-    var score = readiness ? Math.round(readiness.score) : null;
-    var band  = readinessBand(score);
-
-    card.classList.remove('readiness-card--green', 'readiness-card--amber', 'readiness-card--red');
-    if (band !== 'neutral') card.classList.add('readiness-card--' + band);
-
-    scoreEl.textContent = score != null ? score : '—';
-    scoreEl.className = 'readiness-score' + (band !== 'neutral' ? ' readiness-score--' + band : '');
-
-    pillEl.textContent = band !== 'neutral' ? READINESS_LABELS[band] : '—';
-    pillEl.className = 'readiness-pill' + (band !== 'neutral' ? ' readiness-pill--' + band : '');
-
-    var missing = (readiness && readiness.missing_data) || {};
-    var todayHrv    = metrics ? metrics.hrv        : null;
-    var todayRhr    = metrics ? metrics.resting_hr : null;
-    var todaySleep  = metrics ? metrics.sleep_hours : null;
-    var todayEnergy = metrics ? metrics.energy      : null;
-    var baseHrv     = trends && trends.hrv    ? trends.hrv.avg         : null;
-    var baseRhr     = trends && trends.rhr    ? trends.rhr.avg         : null;
-    var baseSleep   = trends && trends.sleep  ? trends.sleep.avg_hours : null;
-    var baseEnergy  = trends && trends.energy ? trends.energy.avg      : null;
-
-    function absDelta(a, b) {
-      return (a == null || b == null) ? null : a - b;
-    }
-
-    var components = [
-      {
-        key: 'hrv',    label: 'HRV',    missing: missing.hrv,
-        value: todayHrv,    unit: 'ms',  baseline: baseHrv,    baseUnit: 'ms',
-        deltaUnit: 'ms',
-        rawDelta:  absDelta(todayHrv, baseHrv),
-        dispDelta: absDelta(todayHrv, baseHrv),
-      },
-      {
-        key: 'rhr',    label: 'RHR',    missing: missing.rhr,
-        value: todayRhr,    unit: 'bpm', baseline: baseRhr,    baseUnit: 'bpm',
-        deltaUnit: 'bpm',
-        rawDelta:  absDelta(todayRhr, baseRhr),
-        // lower RHR is better — invert sign for colour class only
-        dispDelta: absDelta(baseRhr, todayRhr),
-      },
-      {
-        key: 'sleep',  label: 'Sleep',  missing: missing.sleep,
-        value: todaySleep,  unit: 'h',   baseline: baseSleep,  baseUnit: 'h',
-        deltaUnit: 'h',
-        rawDelta:  absDelta(todaySleep, baseSleep),
-        dispDelta: absDelta(todaySleep, baseSleep),
-      },
-      {
-        key: 'energy', label: 'Energy', missing: missing.energy,
-        value: todayEnergy, unit: '/5',  baseline: baseEnergy, baseUnit: '/5',
-        deltaUnit: '',
-        rawDelta:  absDelta(todayEnergy, baseEnergy),
-        dispDelta: absDelta(todayEnergy, baseEnergy),
-      },
-    ];
-
-    interpEl.textContent = band !== 'neutral' ? buildInterpretation(band, components) : '';
-
-    // Chips
-    chipsEl.innerHTML = '';
-    components.forEach(function (c) {
-      var chip = document.createElement('span');
-      chip.className = 'readiness-chip';
-      var lbl = document.createElement('span');
-      lbl.className = 'readiness-chip-label';
-      lbl.textContent = c.label;
-      var dlt = document.createElement('span');
-      dlt.className = 'readiness-chip-delta';
-      if (c.missing || c.value == null) {
-        dlt.textContent = '—';
-        dlt.classList.add('readiness-chip-delta--neu');
-      } else {
-        var dStr = c.rawDelta != null ? fmtAbsDelta(c.rawDelta, c.deltaUnit) : '—';
-        dlt.textContent = dStr;
-        dlt.classList.add('readiness-chip-delta--' + deltaClass(c.dispDelta));
-      }
-      chip.appendChild(lbl);
-      chip.appendChild(dlt);
-      chipsEl.appendChild(chip);
-    });
-
-    // Breakdown
-    bdEl.innerHTML = '';
-    components.forEach(function (c) {
-      var row = document.createElement('div');
-      row.className = 'readiness-breakdown-row';
-
-      var hdr = document.createElement('div');
-      hdr.className = 'readiness-breakdown-header';
-
-      var name = document.createElement('span');
-      name.className = 'readiness-breakdown-name';
-      name.textContent = c.label;
-
-      var valEl = document.createElement('span');
-      valEl.className = 'readiness-breakdown-value';
-      valEl.textContent = (c.missing || c.value == null)
-        ? '—'
-        : (Number.isInteger(c.value) ? c.value : Number(c.value).toFixed(1)) + ' ' + c.unit;
-
-      var blEl = document.createElement('span');
-      blEl.className = 'readiness-breakdown-baseline';
-      blEl.textContent = c.baseline != null
-        ? 'baseline ' + (Number.isInteger(c.baseline) ? Math.round(c.baseline) : Number(c.baseline).toFixed(1)) + ' ' + c.baseUnit
-        : '';
-
-      var dltEl = document.createElement('span');
-      dltEl.className = 'readiness-breakdown-delta';
-      if (c.missing || c.value == null || c.rawDelta == null) {
-        dltEl.textContent = '—';
-        dltEl.style.color = '#aaa';
-      } else {
-        var dStr = fmtAbsDelta(c.rawDelta, c.deltaUnit);
-        dltEl.textContent = dStr;
-        var dc = deltaClass(c.dispDelta);
-        dltEl.style.color = dc === 'pos' ? '#16a34a' : dc === 'neg' ? '#dc2626' : '#888';
-      }
-
-      hdr.appendChild(name);
-      hdr.appendChild(valEl);
-      hdr.appendChild(blEl);
-      hdr.appendChild(dltEl);
-
-      var expl = document.createElement('div');
-      expl.className = 'readiness-breakdown-expl';
-      expl.textContent = READINESS_COMP_EXPL[c.label] || '';
-
-      row.appendChild(hdr);
-      row.appendChild(expl);
-      bdEl.appendChild(row);
-    });
-  }
-
-  function initReadinessToggle() {
-    var card = document.getElementById('readiness-card');
-    if (!card) return;
-    card.addEventListener('click', function () {
-      var bd   = document.getElementById('readiness-breakdown');
-      var icon = document.getElementById('readiness-expand-icon');
-      if (!bd) return;
-      var isOpen = !bd.hidden;
-      bd.hidden = isOpen;
-      if (icon) icon.classList.toggle('open', !isOpen);
-      card.setAttribute('aria-expanded', String(!isOpen));
-    });
-  }
-
-  async function loadReadinessCard(userId) {
-    var today = todayISO();
-    var readiness = null, metrics = null, trends = null;
-
-    try {
-      var [rRes, mRes, tRes] = await Promise.all([
-        fetch('/api/readiness/today?user_id=' + encodeURIComponent(userId)),
-        fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today),
-        fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=7d'),
-      ]);
-      if (rRes.ok)  readiness = await rRes.json();
-      if (mRes.ok)  metrics   = await mRes.json();
-      if (tRes.ok)  trends    = await tRes.json();
-    } catch (_) {}
-
-    // Fall back to mock data when API is unavailable
-    if (!readiness && typeof MOCK_READINESS_TODAY !== 'undefined') readiness = MOCK_READINESS_TODAY;
-    if (!metrics   && typeof MOCK_DAILY_METRICS_TODAY !== 'undefined') metrics = MOCK_DAILY_METRICS_TODAY;
-    if (!trends    && typeof MOCK_TRENDS_SUMMARY !== 'undefined')      trends  = MOCK_TRENDS_SUMMARY;
-
-    applyReadinessCard(readiness, metrics, trends);
-  }
-
-  // ── Stat summary cards (Weight · Sleep · Weekly TSS · HRV) ───────────────
-
-  function _svgNormY(val, minV, maxV, H, pad) {
-    if (maxV === minV) return H - pad;
-    return H - pad - ((val - minV) / (maxV - minV)) * (H - 2 * pad);
-  }
-
-  function _svgLineSpark(vals, color, baselineVal) {
-    var W = 240, H = 44, PAD = 5;
-    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
-    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
-
-    var minV = Math.min.apply(null, nonNull);
-    var maxV = Math.max.apply(null, nonNull);
-    if (baselineVal !== null && baselineVal !== undefined) {
-      minV = Math.min(minV, baselineVal);
-      maxV = Math.max(maxV, baselineVal);
-    }
-    // Avoid flat line when all values identical
-    if (minV === maxV) { minV -= 1; maxV += 1; }
-
-    var d = '', lastPt = null;
-    for (var i = 0; i < vals.length; i++) {
-      var v = vals[i];
-      if (v === null || v === undefined) continue;
-      var x = vals.length > 1 ? (i / (vals.length - 1)) * W : W / 2;
-      var y = _svgNormY(v, minV, maxV, H, PAD);
-      d += (d === '' ? 'M' : ' L') + x.toFixed(1) + ',' + y.toFixed(1);
-      lastPt = { x: x, y: y };
-    }
-
-    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
-    if (d) {
-      out += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-    }
-    if (baselineVal !== null && baselineVal !== undefined) {
-      var by = _svgNormY(baselineVal, minV, maxV, H, PAD);
-      out += '<line x1="0" y1="' + by.toFixed(1) + '" x2="' + W + '" y2="' + by.toFixed(1) + '" stroke="' + color + '" stroke-width="1.5" stroke-dasharray="3 5" opacity="0.45"/>';
-    }
-    if (lastPt) {
-      out += '<circle cx="' + lastPt.x.toFixed(1) + '" cy="' + lastPt.y.toFixed(1) + '" r="3" fill="' + color + '"/>';
-    }
-    out += '</svg>';
-    return out;
-  }
-
-  function _svgBarSpark(vals, peakIdx, lightColor, darkColor) {
-    var W = 240, H = 44, BAR_W = 22, START_X = 6, STEP = 30;
-    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined && v > 0; });
-    if (!nonNull.length) return '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>';
-    var maxV = Math.max.apply(null, nonNull);
-
-    var out = '<svg class="stat-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
-    for (var i = 0; i < vals.length; i++) {
-      var v = vals[i];
-      var x = START_X + i * STEP;
-      if (!v) {
-        out += '<rect x="' + x + '" y="' + (H - 2) + '" width="' + BAR_W + '" height="2" rx="1" fill="' + lightColor + '" opacity="0.25"/>';
-        continue;
-      }
-      var barH = Math.max(3, (v / maxV) * (H - 4));
-      var y = (H - barH).toFixed(1);
-      var fill = i === peakIdx ? darkColor : lightColor;
-      out += '<rect x="' + x + '" y="' + y + '" width="' + BAR_W + '" height="' + barH.toFixed(1) + '" rx="3" fill="' + fill + '"/>';
-    }
-    out += '</svg>';
-    return out;
-  }
-
-  function _deltaPill(text, direction) {
-    return '<span class="stat-delta-pill stat-delta-pill--' + direction + '">' + (text || '—') + '</span>';
-  }
-
-  function _statCardHTML(iconClass, iconEmoji, label, bigVal, unitStr, pillHTML, sparkSVG, footLeft, footRight) {
-    return '<div class="stat-card-head">' +
-        '<div class="stat-card-icon-wrap ' + iconClass + '">' + iconEmoji + '</div>' +
-        '<span class="stat-card-label">' + label + '</span>' +
-        '<button class="stat-card-menu" type="button" title="More options" onclick="console.log(\'⋯ ' + label + ' card\')" aria-label="More options">⋯</button>' +
+    card.innerHTML =
+      '<div class="lbl">Readiness · today</div>' +
+      '<h2>' + headline + '</h2>' +
+      '<p class="sub">' + sub + '</p>' +
+      '<span class="status-pill ' + pill.cls + '"><i class="ti ' + pill.icon + '"></i>' + pill.label + '</span>' +
+      '<div class="score-block">' +
+        '<div class="score-label">SCORE</div>' +
+        '<div class="score">' + score + '<small>/100</small></div>' +
+        avgLine +
       '</div>' +
-      '<div class="stat-card-value">' +
-        '<span class="stat-card-big">' + bigVal + '</span>' +
-        '<span class="stat-card-unit">' + unitStr + '</span>' +
-        pillHTML +
-      '</div>' +
-      sparkSVG +
-      '<div class="stat-card-footer">' +
-        '<span>' + footLeft + '</span>' +
-        '<span>' + footRight + '</span>' +
+      '<div class="components">' +
+        chip('HRV',   tm.hrv,         dHrv, true,  false) +
+        chip('RHR',   tm.resting_hr,  dRhr, false, false) +
+        chip('Sleep', tm.sleep_hours, dSlp, true,  true)  +
+        '<div class="component"><div class="l">Energy</div><div class="v">' + engVal + engDelta + '</div></div>' +
       '</div>';
   }
 
-  function _emptyStatCard(label) {
-    return '<div class="stat-card-head"><span class="stat-card-label">' + label + '</span></div>' +
-      '<div class="stat-card-value"><span class="stat-card-big">—</span></div>' +
-      '<svg class="stat-sparkline" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>' +
-      '<div class="stat-card-footer"><span>No data</span></div>';
-  }
+  function renderCTA(card, userId, onSuccess) {
+    card.innerHTML =
+      '<div class="lbl">Readiness · today</div>' +
+      '<div class="readiness-cta-body">' +
+        '<p class="readiness-cta-msg">No readiness score has been computed for today yet.</p>' +
+        '<button class="readiness-cta-btn" id="readiness-compute-btn" type="button">' +
+          '<i class="ti ti-calculator"></i>Compute today’s readiness' +
+        '</button>' +
+      '</div>';
 
-  function _relDateShort(dateStr) {
-    var today = todayISO();
-    if (dateStr === today) return 'today';
-    var yday = new Date();
-    yday.setDate(yday.getDate() - 1);
-    if (dateStr === yday.toISOString().slice(0, 10)) return 'yesterday';
-    var d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-
-  function renderWeightStatCard(weightEntries) {
-    var el = document.getElementById('stat-card-weight');
-    if (!el) return;
-    if (!weightEntries || !weightEntries.length) { el.innerHTML = _emptyStatCard('Weight'); return; }
-
-    var sorted = weightEntries.slice().sort(function (a, b) { return a.recorded_date.localeCompare(b.recorded_date); });
-    var cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 29);
-    var cutoffStr = cutoff.toISOString().slice(0, 10);
-    var recent = sorted.filter(function (e) { return e.recorded_date >= cutoffStr; });
-
-    var latest = recent.length ? recent[recent.length - 1] : null;
-    if (!latest) { el.innerHTML = _emptyStatCard('Weight'); return; }
-
-    var sparkVals = recent.map(function (e) { return e.weight_kg; });
-
-    var pillHTML;
-    if (recent.length >= 2) {
-      var delta = latest.weight_kg - recent[0].weight_kg;
-      var absD = Math.abs(delta);
-      var direction = absD < 0.1 ? 'flat' : (delta < 0 ? 'up' : 'down');
-      var sign = delta > 0 ? '+' : '−';
-      pillHTML = _deltaPill(sign + absD.toFixed(1) + ' / 30d', direction);
-    } else {
-      pillHTML = _deltaPill('—', 'flat');
-    }
-
-    el.innerHTML = _statCardHTML(
-      'stat-card-icon-wrap--weight', '⚖️', 'Weight',
-      latest.weight_kg.toFixed(1), 'kg',
-      pillHTML, _svgLineSpark(sparkVals, '#2b4ca8', null),
-      '30d trend', 'Last log: ' + _relDateShort(latest.recorded_date)
-    );
-  }
-
-  function renderSleepStatCard(summary) {
-    var el = document.getElementById('stat-card-sleep');
-    if (!el) return;
-    var series = summary && summary.sleep && summary.sleep.series;
-    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Sleep'); return; }
-
-    var last7 = series.slice(-7);
-    var vals = last7.map(function (s) { return s.hours; });
-    var nonNull = vals.filter(function (v) { return v !== null && v !== undefined; });
-
-    var lastNight = null;
-    for (var i = last7.length - 1; i >= 0; i--) {
-      if (last7[i].hours !== null && last7[i].hours !== undefined) { lastNight = last7[i].hours; break; }
-    }
-    if (lastNight === null) { el.innerHTML = _emptyStatCard('Sleep'); return; }
-
-    var avg7 = nonNull.length ? nonNull.reduce(function (s, v) { return s + v; }, 0) / nonNull.length : null;
-    var pillHTML;
-    if (avg7 !== null) {
-      var delta = lastNight - avg7;
-      var absD = Math.abs(delta);
-      var direction = absD < 0.15 ? 'flat' : (delta > 0 ? 'up' : 'down');
-      var sign = delta > 0 ? '+' : '−';
-      pillHTML = _deltaPill(sign + absD.toFixed(1) + 'h / 7d avg', direction);
-    } else {
-      pillHTML = _deltaPill('—', 'flat');
-    }
-
-    el.innerHTML = _statCardHTML(
-      'stat-card-icon-wrap--sleep', '🌙', 'Sleep',
-      lastNight.toFixed(1), 'h',
-      pillHTML, _svgLineSpark(vals, '#4f3c8c', null),
-      'Last 7 nights', 'Target: 8 h'
-    );
-  }
-
-  function renderTSSStatCard(summary) {
-    var el = document.getElementById('stat-card-tss');
-    if (!el) return;
-    var series = summary && summary.tss && summary.tss.series;
-    if (!series || !series.length) { el.innerHTML = _emptyStatCard('Weekly load (TSS)'); return; }
-
-    var last7 = series.slice(-7);
-    var prev7 = series.slice(-14, -7);
-    var thisWeekTotal = last7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
-    var lastWeekTotal = prev7.reduce(function (s, d) { return s + (d.value || 0); }, 0);
-
-    var last8 = series.slice(-8);
-    var sparkVals = last8.map(function (d) { return d.value; });
-    var peakIdx = -1, peakVal = -Infinity;
-    sparkVals.forEach(function (v, i) {
-      if (v !== null && v !== undefined && v > peakVal) { peakVal = v; peakIdx = i; }
-    });
-
-    var bigDay = null;
-    if (peakIdx >= 0 && last8[peakIdx]) {
-      bigDay = new Date(last8[peakIdx].date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
-    }
-
-    var pillHTML;
-    if (lastWeekTotal > 0) {
-      var wowPct = ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100;
-      var absP = Math.abs(wowPct);
-      var direction = absP < 5 ? 'flat' : (wowPct > 0 ? 'up' : 'down');
-      var sign = wowPct > 0 ? '+' : '−';
-      pillHTML = _deltaPill(sign + absP.toFixed(0) + '% WoW', direction);
-    } else {
-      pillHTML = _deltaPill('—', 'flat');
-    }
-
-    el.innerHTML = _statCardHTML(
-      'stat-card-icon-wrap--tss', '🔥', 'Weekly load (TSS)',
-      Math.round(thisWeekTotal), 'TSS',
-      pillHTML, _svgBarSpark(sparkVals, peakIdx, '#f4b89a', '#8a3d12'),
-      'Last 8 days', bigDay ? 'Big day: ' + bigDay : '—'
-    );
-  }
-
-  function renderHRVStatCard(summary) {
-    var el = document.getElementById('stat-card-hrv');
-    if (!el) return;
-    var series = summary && summary.hrv && summary.hrv.series;
-    var baseline = summary && summary.hrv && summary.hrv.baseline_mean;
-    if (!series || !series.length) { el.innerHTML = _emptyStatCard('HRV'); return; }
-
-    var sparkVals = series.map(function (d) { return d.value; });
-    var latestHrv = null;
-    for (var i = series.length - 1; i >= 0; i--) {
-      if (series[i].value !== null && series[i].value !== undefined) { latestHrv = series[i].value; break; }
-    }
-    if (latestHrv === null) { el.innerHTML = _emptyStatCard('HRV'); return; }
-
-    var pillHTML;
-    if (baseline !== null && baseline !== undefined) {
-      var delta = latestHrv - baseline;
-      var absD = Math.abs(delta);
-      var direction = absD < 2 ? 'flat' : (delta > 0 ? 'up' : 'down');
-      var sign = delta > 0 ? '+' : '−';
-      pillHTML = _deltaPill(sign + Math.round(absD) + ' vs baseline', direction);
-    } else {
-      pillHTML = _deltaPill('—', 'flat');
-    }
-
-    var footLeft = baseline !== null && baseline !== undefined
-      ? '30d baseline ' + Math.round(baseline) + ' ms'
-      : '30d trend';
-
-    el.innerHTML = _statCardHTML(
-      'stat-card-icon-wrap--hrv', '💓', 'HRV',
-      Math.round(latestHrv), 'ms',
-      pillHTML, _svgLineSpark(sparkVals, '#1e6438', baseline),
-      footLeft, ''
-    );
-  }
-
-  async function loadStatCards(userId) {
-    var summary = null;
-    try {
-      var res = await fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=30d');
-      if (res.ok) summary = await res.json();
-    } catch (_) {}
-
-    renderSleepStatCard(summary);
-    renderTSSStatCard(summary);
-    renderHRVStatCard(summary);
-
-    // Weight is not in trends/summary — issue a separate query
-    if (summary && summary.weight) {
-      renderWeightStatCard(summary.weight);
-    } else {
-      var weightEntries = null;
+    var btn = document.getElementById('readiness-compute-btn');
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ti ti-loader-2"></i>Computing…';
       try {
-        var wRes = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
-        if (wRes.ok) weightEntries = await wRes.json();
-      } catch (_) {}
-      renderWeightStatCard(weightEntries);
+        var res = await fetch('/api/readiness/compute?user_id=' + userId, { method: 'POST' });
+        if (res.ok) {
+          await onSuccess();
+        } else if (res.status === 404) {
+          renderEmpty(card);
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ti ti-calculator"></i>Compute today’s readiness';
+        }
+      } catch (_) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-calculator"></i>Compute today’s readiness';
+      }
+    });
+  }
+
+  function renderEmpty(card) {
+    card.innerHTML =
+      '<div class="lbl">Readiness · today</div>' +
+      '<div class="readiness-empty-body">' +
+        '<p class="readiness-empty-msg">No metrics yet — log your first day to see readiness</p>' +
+      '</div>';
+  }
+
+  async function loadReadinessCard(userId) {
+    var row1 = document.getElementById('row-1');
+    if (!row1) return;
+
+    var card = document.getElementById('readiness-hero-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'readiness-hero-card';
+      card.className = 'card readiness';
+      row1.insertBefore(card, row1.firstChild);
+    }
+
+    var today = new Date();
+    var from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    var todayStr = isoDate(today);
+    var fromStr  = isoDate(from);
+
+    var todayRes;
+    try {
+      todayRes = await fetch('/api/readiness/today?user_id=' + userId);
+    } catch (_) {
+      renderEmpty(card);
+      return;
+    }
+
+    if (todayRes.status === 404) {
+      renderCTA(card, userId, function () { return loadReadinessCard(userId); });
+      return;
+    }
+
+    if (!todayRes.ok) {
+      renderEmpty(card);
+      return;
+    }
+
+    var todayData;
+    try {
+      todayData = await todayRes.json();
+    } catch (_) {
+      renderEmpty(card);
+      return;
+    }
+
+    var rangeData = [];
+    var metricsData = [];
+    try {
+      var pair = await Promise.all([
+        fetch('/api/readiness?user_id=' + userId + '&from=' + fromStr + '&to=' + todayStr),
+        fetch('/api/daily-metrics?user_id=' + userId + '&from=' + fromStr + '&to=' + todayStr)
+      ]);
+      if (pair[0].ok) rangeData   = await pair[0].json();
+      if (pair[1].ok) metricsData = await pair[1].json();
+    } catch (_) {
+      /* continue with whatever we have */
+    }
+
+    if (!metricsData.length) {
+      renderEmpty(card);
+      return;
+    }
+
+    renderScored(card, todayData, rangeData, metricsData);
+  }
+
+  /* ---- Init ---- */
+
+  async function init() {
+    setGreetingDate();
+    var userId = null;
+    try {
+      var res = await fetch('/api/users');
+      if (!res.ok) throw new Error('users fetch failed');
+      var users = await res.json();
+      if (Array.isArray(users) && users.length > 0) {
+        var name = users[0].name || '';
+        userId = users[0].id;
+        setGreetingText(name);
+        setNavAvatar(name);
+      } else {
+        setGreetingText('');
+      }
+    } catch (_) {
+      setGreetingText('');
+    }
+
+    if (userId) {
+      loadReadinessCard(userId);
     }
   }
 
-  // ── Wiring ─────────────────────────────────────────────────────────────────
-
-  function refreshSections(userId) {
-    loadReadinessCard(userId);
-    loadWeightSection(userId);
-    loadHabitsSection(userId);
-    loadTrainingSection(userId);
-    loadCheckinSection(userId);
-    loadTrendChart(userId);
-    loadWeeklyDigestSection(userId);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
-
-  setTodayLabel();
-  wireUpPillGroups();
-  initCheckinToggle();
-  initCheckinSave();
-  initReadinessToggle();
-
-  window.addEventListener('userReady', function (e) {
-    _checkinUserId = e.detail.userId;
-    refreshCards(e.detail.userId);
-    refreshSections(e.detail.userId);
-    loadStatCards(e.detail.userId);
-  });
-
-  window.addEventListener('userChanged', function (e) {
-    _checkinUserId = e.detail.userId;
-    refreshCards(e.detail.userId);
-    refreshSections(e.detail.userId);
-    loadStatCards(e.detail.userId);
-  });
-
-  // Refresh when returning to tab (handles cross-tab entry submissions)
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') {
-      var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-      if (uid) { refreshCards(uid); refreshSections(uid); loadStatCards(uid); }
-    }
-  });
-}());
+})();
