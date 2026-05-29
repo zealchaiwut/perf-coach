@@ -312,7 +312,7 @@ def test_ac11_delete_nonexistent_log_returns_404(client):
 
 def test_ac12_habits_js_uses_api_not_localstorage():
     """AC-12: habits.js must not reference localStorage or STORAGE_KEY."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
     content = js_path.read_text()
     forbidden = ["localStorage", "STORAGE_KEY"]
     for token in forbidden:
@@ -324,14 +324,14 @@ def test_ac12_habits_js_uses_api_not_localstorage():
 
 def test_ac13_habits_js_listens_for_user_ready_event():
     """AC-13: habits.js listens to userReady event dispatched by user.js."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
     content = js_path.read_text()
     assert "userReady" in content, "habits.js must listen for userReady event from user.js"
 
 
 def test_ac13_user_js_dispatches_user_ready_event():
     """AC-13: user.js dispatches userReady event after loading the user."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "user.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "user.js"
     content = js_path.read_text()
     assert "userReady" in content, "user.js must dispatch the userReady event"
 
@@ -340,14 +340,14 @@ def test_ac13_user_js_dispatches_user_ready_event():
 
 def test_ac14_habits_js_listens_for_user_changed_event():
     """AC-14: habits.js listens to userChanged event to refresh on user switch."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
     content = js_path.read_text()
     assert "userChanged" in content, "habits.js must listen for userChanged event"
 
 
 def test_ac14_user_js_dispatches_user_changed_event():
     """AC-14: user.js dispatches userChanged when user selector changes."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "user.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "user.js"
     content = js_path.read_text()
     assert "userChanged" in content, "user.js must dispatch userChanged on selector change"
 
@@ -356,7 +356,7 @@ def test_ac14_user_js_dispatches_user_changed_event():
 
 def test_ac15_localStorage_fully_removed_from_habits_js():
     """AC-15: habits.js has no reference to localStorage or old localStorage helpers."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
     content = js_path.read_text()
     for token in ["localStorage", "STORAGE_KEY", "load()", "save("]:
         assert token not in content, f"Found old localStorage token '{token}' in habits.js"
@@ -366,7 +366,7 @@ def test_ac15_localStorage_fully_removed_from_habits_js():
 
 def test_ac16_empty_state_message_in_habits_js():
     """AC-16: habits.js renders empty state with 'No habits yet.' text and '+ Add habit' button."""
-    js_path = pathlib.Path(__file__).parent.parent / "js" / "habits.js"
+    js_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "habits.js"
     content = js_path.read_text()
     assert "No habits yet." in content, "Empty state text 'No habits yet.' missing from habits.js"
     assert "+ Add habit" in content, "Empty state link '+ Add habit' missing from habits.js"
@@ -376,7 +376,7 @@ def test_ac16_empty_state_message_in_habits_js():
 
 def test_ac17_habits_html_has_add_modal():
     """AC-17: habits.html has the add-habit modal with a form."""
-    html_path = pathlib.Path(__file__).parent.parent / "habits.html"
+    html_path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "habits.html"
     content = html_path.read_text()
     assert "habit-modal" in content, "habits.html missing #habit-modal element"
     assert "modal-form" in content, "habits.html missing modal form"

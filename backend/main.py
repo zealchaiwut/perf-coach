@@ -20,8 +20,8 @@ app = FastAPI()
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
 _static_root = Path(__file__).parent.parent
-app.mount("/css", StaticFiles(directory=str(_static_root / "css")), name="css")
-app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
+app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
+app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
 
 
 @app.get("/api/health")
@@ -563,32 +563,32 @@ def get_active_streak(user_id: str):
 
 @app.get("/")
 def index():
-    return FileResponse(str(_static_root / "index.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "index.html"))
 
 
 @app.get("/home.html")
 def home():
-    return FileResponse(str(_static_root / "home.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "home.html"))
 
 
 @app.get("/weight.html")
 def weight():
-    return FileResponse(str(_static_root / "weight.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "weight.html"))
 
 
 @app.get("/habits.html")
 def habits():
-    return FileResponse(str(_static_root / "habits.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "habits.html"))
 
 
 @app.get("/users.html")
 def users_page():
-    return FileResponse(str(_static_root / "users.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "users.html"))
 
 
 @app.get("/calendar.html")
 def calendar_page():
-    return FileResponse(str(_static_root / "calendar.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "calendar.html"))
 
 
 @app.get("/api/calendar/month")
@@ -702,22 +702,22 @@ def get_calendar_month(
 
 @app.get("/log.html")
 def log_page():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/log")
 def log_redirect():
-    return FileResponse(str(_static_root / "training-log.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
 @app.get("/trends.html")
 def trends_page():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 @app.get("/trends")
 def trends_redirect():
-    return FileResponse(str(_static_root / "trends.html"))
+    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────

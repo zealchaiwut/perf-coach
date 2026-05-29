@@ -14,8 +14,8 @@ BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
 TODAY_STR = TODAY.isoformat()
 
-JS_PATH = pathlib.Path(__file__).parent.parent / "js" / "weight.js"
-HTML_PATH = pathlib.Path(__file__).parent.parent / "weight.html"
+JS_PATH = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
+HTML_PATH = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "weight.html"
 
 
 @pytest.fixture(scope="module")

@@ -12,10 +12,10 @@ import pytest
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today().isoformat()
 
-HOME_JS = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
-TRENDS_JS = (pathlib.Path(__file__).parent.parent / "js" / "trends.js").read_text()
-HOME_HTML = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
-TRENDS_HTML = (pathlib.Path(__file__).parent.parent / "trends.html").read_text()
+HOME_JS = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
+TRENDS_JS = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
+HOME_HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
+TRENDS_HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
 
 EXPECTED_KEYS = {"range", "readiness", "hrv", "rhr", "sleep", "energy", "mood", "tss", "deltas"}
 

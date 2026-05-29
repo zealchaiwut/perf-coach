@@ -48,123 +48,123 @@ def habit_id(client, user_id):
 # ── Static HTML: structure ────────────────────────────────────────────────────
 
 def test_home_html_has_row4():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="row-4"' in html
 
 def test_home_html_row4_is_two_col_desktop():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "#row-4" in html and "2fr" in html, \
         "#row-4 must use a 2fr grid column for the desktop layout"
 
 def test_home_html_habits_graph_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".habits-graph" in html, "home.html must define .habits-graph CSS"
 
 def test_home_html_hg_body_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-body" in html, "home.html must define .hg-body for the two-column layout"
 
 def test_home_html_hg_chart_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-chart" in html, "home.html must define .hg-chart for the bar chart grid"
 
 def test_home_html_hg_day_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-day" in html, "home.html must define .hg-day"
 
 def test_home_html_hg_day_today_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-day.today" in html, "home.html must style .hg-day.today with a darker bar"
 
 def test_home_html_hg_day_future_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-day.future" in html, "home.html must style .hg-day.future with a gray bar"
 
 def test_home_html_hg_stats_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-stats" in html, "home.html must define .hg-stats"
 
 def test_home_html_hg_stat_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert ".hg-stat" in html, "home.html must define .hg-stat"
 
 def test_home_html_pct_bar_css():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "pct-bar" in html, "home.html must define .pct-bar for the fill progress bar"
 
 def test_home_html_mobile_hg_body_stacked():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "flex-direction: column" in html or "flex-direction:column" in html, \
         "mobile layout must stack hg-body as a column"
 
 def test_home_html_mobile_hg_stats_grid():
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "1fr 1fr" in html, "mobile hg-stats must be a 2-column grid"
 
 
 # ── Static JS: logic ──────────────────────────────────────────────────────────
 
 def test_home_js_defines_load_habits_stats_card():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "loadHabitsStatsCard" in js
 
 def test_home_js_calls_load_habits_stats_card():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert js.count("loadHabitsStatsCard") >= 2, \
         "loadHabitsStatsCard must be defined AND called from init()"
 
 def test_home_js_fetches_habits_stats_without_habit_id():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits/stats?user_id=" in js or "habits/stats" in js
     assert "days=30" in js
 
 def test_home_js_fetches_habits_logs_for_week():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits/logs" in js
 
 def test_home_js_computes_habits_completed_by_day():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "habitsCompletedByDay" in js
 
 def test_home_js_computes_total_possible():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "totalPossible" in js
 
 def test_home_js_computes_completion_rate():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "completionRate" in js
 
 def test_home_js_computes_best_day():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "bestDay" in js or "bestDayNames" in js
 
 def test_home_js_computes_longest_streak():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "longestStreak" in js or "longestStreakNum" in js
 
 def test_home_js_zero_habits_hides_card():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "activeCount === 0" in js or "activeCount == 0" in js, \
         "Zero-habits edge case must hide the card"
 
 def test_home_js_future_bar_label_dash():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "'—'" in js or '"—"' in js, "Future day bar label must show '—'"
 
 def test_home_js_today_bar_class():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "hg-day" in js and "today" in js
 
 def test_home_js_future_bar_class():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "hg-day" in js and "future" in js
 
 def test_home_js_streak_from_list_response():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "habit_name" in js, "longestStreak must read habit_name from stats list response"
 
 def test_home_js_streak_text_format():
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "days ·" in js or "days·" in js, \
         "Longest streak must be formatted as 'X days · [Habit Name]'"
 

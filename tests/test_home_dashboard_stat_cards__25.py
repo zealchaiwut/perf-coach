@@ -113,20 +113,20 @@ def _post_workout(client, user_id, date_str, name="Push day", workout_type="Stre
 
 def test_ac1_today_label_element_in_html():
     """home.html must contain an element with id='today-label'."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert 'id="today-label"' in html, "Missing id='today-label' element in home.html"
 
 
 def test_ac1_today_label_uses_weekday_long_format():
     """home.js must format the date with weekday: 'long' for the Today header."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "weekday" in js and "long" in js, \
         "home.js must use weekday: 'long' in date formatting for today-label"
 
 
 def test_ac1_today_label_includes_month_and_day():
     """home.js date format must include month and day (e.g. 'Tuesday, May 26')."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "month" in js and "day" in js, \
         "home.js must include 'month' and 'day' in toLocaleDateString options"
 
@@ -135,20 +135,20 @@ def test_ac1_today_label_includes_month_and_day():
 
 def test_ac2_four_column_grid_defined():
     """home.html CSS must define a 4-column grid for .dash-cards on desktop."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "repeat(4, 1fr)" in html, "Missing 4-column grid definition for .dash-cards"
 
 
 def test_ac2_two_column_breakpoint_exists():
     """home.html CSS must include a media query at < 700px to reflow to 2×2."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "699px" in html or "700px" in html, \
         "No 700px (or 699px) breakpoint found in home.html"
 
 
 def test_ac2_narrow_viewport_two_column_grid():
     """Inside the ≤699px media query, .dash-cards must switch to 2 columns."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     block = re.search(r'@media[^{]+69\d+px[^{]*\{(.+?)\}', html, re.DOTALL)
     if not block:
         block = re.search(r'@media[^{]+700px[^{]*\{(.+?)\}', html, re.DOTALL)
@@ -159,7 +159,7 @@ def test_ac2_narrow_viewport_two_column_grid():
 
 def test_ac2_four_dash_cards_exist_in_html():
     """home.html must contain exactly 4 .dash-card elements."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     cards = re.findall(r'class="dash-card"', html)
     assert len(cards) == 4, f"Expected 4 .dash-card elements, found {len(cards)}"
 
@@ -168,7 +168,7 @@ def test_ac2_four_dash_cards_exist_in_html():
 
 def test_ac3_weight_card_ids_in_html():
     """home.html must have Weight label and required element IDs for the weight card."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "card-weight-value" in html, "Missing id='card-weight-value' in home.html"
     assert "card-weight-sub" in html, "Missing id='card-weight-sub' in home.html"
     assert "Weight" in html, "Missing 'Weight' label in home.html"
@@ -226,13 +226,13 @@ def test_ac3_weight_no_prior_data_handled(client, bob_id):
 
 def test_ac3_not_logged_today_sub_text_in_js():
     """home.js must contain 'Not logged today' sub-line text for when weight is absent."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "Not logged today" in js, "Missing 'Not logged today' text in home.js"
 
 
 def test_ac3_weight_diff_arrow_icons_in_js():
     """home.js must use ▲ and ▼ arrow icons for weight diff direction."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "▲" in js, "Missing ▲ (up arrow) for weight gain in home.js"
     assert "▼" in js, "Missing ▼ (down arrow) for weight loss in home.js"
 
@@ -241,7 +241,7 @@ def test_ac3_weight_diff_arrow_icons_in_js():
 
 def test_ac4_habits_card_ids_in_html():
     """home.html must have Habits label and required element IDs for the habits card."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "card-habits-value" in html, "Missing id='card-habits-value' in home.html"
     assert "card-habits-sub" in html, "Missing id='card-habits-sub' in home.html"
     assert "Habits" in html, "Missing 'Habits' label in home.html"
@@ -294,19 +294,19 @@ def test_ac4_habits_x_of_y_count_derivable_from_api(client, alice_id):
 
 def test_ac4_pending_sub_text_in_js():
     """home.js must contain 'pending today' sub-line text for incomplete habits."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "pending today" in js, "Missing 'pending today' text in home.js"
 
 
 def test_ac4_all_done_sub_text_in_js():
     """home.js must contain 'All done today' sub-line for when all habits are complete."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "All done today" in js, "Missing 'All done today' text in home.js"
 
 
 def test_ac4_habits_fetches_both_habits_and_logs(client, alice_id):
     """home.js must fetch both /api/habits and /api/habits/logs to compute the card."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/habits?" in js or "/api/habits'" in js or '"/api/habits"' in js or "'/api/habits'" in js, \
         "home.js must fetch /api/habits for habits list"
     assert "/api/habits/logs" in js, "home.js must fetch /api/habits/logs for today's logs"
@@ -316,7 +316,7 @@ def test_ac4_habits_fetches_both_habits_and_logs(client, alice_id):
 
 def test_ac5_training_card_ids_in_html():
     """home.html must have Training label and required element IDs for the training card."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "card-training-value" in html, "Missing id='card-training-value' in home.html"
     assert "card-training-sub" in html, "Missing id='card-training-sub' in home.html"
     assert "Training" in html, "Missing 'Training' label in home.html"
@@ -335,7 +335,7 @@ def test_ac5_no_workout_today_returns_empty(client, alice_id):
 
 def test_ac5_rest_day_text_in_js():
     """home.js must display 'Rest day' when no workout is logged today."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "Rest day" in js, "Missing 'Rest day' text in home.js"
 
 
@@ -355,14 +355,14 @@ def test_ac5_workout_today_returns_session_data(client, alice_id):
 
 def test_ac5_workout_detail_fetch_used_for_duration(client, alice_id):
     """home.js must fetch the workout detail endpoint to compute total duration."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/workouts/" in js, \
         "home.js must fetch /api/workouts/{id} for workout detail (duration calculation)"
 
 
 def test_ac5_duration_parsing_handles_min_suffix():
     """home.js parseDurationMin must handle '45 min' and '45m' style strings."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "parseDurationMin" in js, "Missing parseDurationMin function in home.js"
     assert r"min" in js, "parseDurationMin must handle 'min' suffix"
 
@@ -392,7 +392,7 @@ def test_ac5_workout_exercises_queried_for_duration(client, alice_id):
 
 def test_ac6_streak_card_ids_in_html():
     """home.html must have 'Active days' label and required element IDs for streak card."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "card-streak-value" in html, "Missing id='card-streak-value' in home.html"
     assert "card-streak-sub" in html, "Missing id='card-streak-sub' in home.html"
     assert "Active days" in html, "Missing 'Active days' label in home.html"
@@ -400,13 +400,13 @@ def test_ac6_streak_card_ids_in_html():
 
 def test_ac6_streak_sub_text_in_html():
     """home.html must show 'consecutive days' as the streak sub-line."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "consecutive days" in html, "Missing 'consecutive days' sub-line in home.html"
 
 
 def test_ac6_fire_emoji_in_js():
     """home.js must include the 🔥 emoji for the streak card value."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "🔥" in js, "Missing 🔥 emoji in home.js streak card"
 
 
@@ -472,7 +472,7 @@ def test_ac6_streak_counts_across_all_three_tables(client, alice_id):
 
 def test_ac6_streak_fetched_via_active_streak_endpoint():
     """home.js must call /api/stats/active-streak to compute the streak card."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "/api/stats/active-streak" in js, \
         "home.js must fetch /api/stats/active-streak for the streak card"
 
@@ -481,13 +481,13 @@ def test_ac6_streak_fetched_via_active_streak_endpoint():
 
 def test_ac7_listens_to_user_changed_event():
     """home.js must listen to the 'userChanged' event to refresh all cards."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "userChanged" in js, "home.js must listen for 'userChanged' event"
 
 
 def test_ac7_listens_to_user_ready_event():
     """home.js must listen to the 'userReady' event to load initial card data."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "userReady" in js, "home.js must listen for 'userReady' event"
 
 
@@ -522,7 +522,7 @@ def test_ac7_different_users_return_different_streak(client, alice_id, carol_id)
 
 def test_ac8_visibility_change_handler_in_js():
     """home.js must listen to 'visibilitychange' to refresh cards when tab regains focus."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "visibilitychange" in js, "home.js must listen for visibilitychange event"
     assert "visibilityState" in js, "home.js must check document.visibilityState === 'visible'"
 
@@ -559,7 +559,7 @@ def test_ac8_post_workout_immediately_visible_in_api(client, bob_id):
 
 def test_ac8_refresh_cards_function_exists():
     """home.js must have a refreshCards() function that loads all 4 cards."""
-    js = (pathlib.Path(__file__).parent.parent / "js" / "home.js").read_text()
+    js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "home.js").read_text()
     assert "refreshCards" in js, "Missing refreshCards function in home.js"
     # Must call all 4 card loaders
     assert "loadWeightCard" in js, "refreshCards must call loadWeightCard"
@@ -639,19 +639,19 @@ def test_ac9_cleanup_test_user(client):
 
 def test_home_html_loads_home_js():
     """home.html must load js/home.js."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "js/home.js" in html, "home.html must include <script src='js/home.js'>"
 
 
 def test_home_html_loads_user_js():
     """home.html must load js/user.js to get the user selector and events."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "js/user.js" in html, "home.html must include <script src='js/user.js'>"
 
 
 def test_home_html_loads_env_js():
     """home.html must load js/env.js for environment detection."""
-    html = (pathlib.Path(__file__).parent.parent / "home.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "home.html").read_text()
     assert "js/env.js" in html, "home.html must include <script src='js/env.js'>"
 
 

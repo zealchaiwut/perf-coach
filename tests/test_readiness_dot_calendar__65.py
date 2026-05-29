@@ -10,8 +10,8 @@ from datetime import date
 
 BASE = "http://127.0.0.1:9001"
 
-HTML = (pathlib.Path(__file__).parent.parent / "calendar.html").read_text()
-JS   = (pathlib.Path(__file__).parent.parent / "js" / "calendar.js").read_text()
+HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "calendar.html").read_text()
+JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "calendar.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
