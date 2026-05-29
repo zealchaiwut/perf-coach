@@ -1,0 +1,52 @@
+---
+# render.yaml — Render Blueprint for perf-coach
+# yamllint: autoDeploy uses yes/no (not true/false) — required by Render's API.
+#
+# DATABASE_URL is intentionally absent from this file and must be set manually
+# in the Render dashboard for each service after the blueprint is applied:
+#
+#   perf-coach-uat → paste the Neon "uat" branch connection string
+#   perf-coach-prd → paste the Neon "main" (PRD) branch connection string
+#
+# NEVER commit a DATABASE_URL value to this file or any tracked file.
+
+services:
+  - type: web
+    name: perf-coach-uat
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: develop
+    autoDeploy: yes  # yamllint: truthy — Render requires yes/no, not true/false
+    pythonVersion: "3.12"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: uat
+      - key: GIT_SHA
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      - key: DATABASE_URL
+        sync: false  # set via Render dashboard — see top of file
+
+  - type: web
+    name: perf-coach-prd
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: master
+    autoDeploy: no  # yamllint: truthy — Render requires yes/no, not true/false
+    pythonVersion: "3.12"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: prd
+      - key: GIT_SHA
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      - key: DATABASE_URL
+        sync: false  # set via Render dashboard — see top of file

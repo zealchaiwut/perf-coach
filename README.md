@@ -106,3 +106,43 @@ The startup scripts run `alembic upgrade head` automatically, so you normally do
 **Test migration idempotency** (requires a throwaway Postgres DB):
 
     TEST_DATABASE_URL=postgresql://... bash scripts/test_migrations.sh
+
+## Deployment
+
+perf-coach is deployed on [Render](https://render.com) using the `render.yaml` blueprint in this repo. Two web services are defined: `perf-coach-uat` (auto-deploys from `develop`) and `perf-coach-prd` (manually promoted from `master`).
+
+### Connect the repo to Render via Blueprint
+
+1. Log in to the [Render dashboard](https://dashboard.render.com).
+2. Click **New** → **Blueprint**.
+3. Connect your GitHub account if prompted, then select the `perf-coach` repository.
+4. Render detects `render.yaml` automatically. Review the two services (`perf-coach-uat`, `perf-coach-prd`) and click **Apply**.
+5. Both services are created. They will fail their first deploy because `DATABASE_URL` has not been set yet — this is expected. Proceed to the next section.
+
+### Populate DATABASE_URL for each service
+
+`DATABASE_URL` is intentionally absent from `render.yaml`. Set it manually in the Render dashboard after the services are created.
+
+**perf-coach-uat (UAT)**
+
+1. In the [Neon console](https://console.neon.tech), open your `perf-coach` project.
+2. Select the `uat` branch → **Connection Details** → copy the connection string.
+3. In the Render dashboard, open the `perf-coach-uat` service → **Environment**.
+4. Find the `DATABASE_URL` variable and paste the Neon UAT connection string as its value.
+5. Click **Save Changes**. Render triggers a new deploy automatically.
+
+**perf-coach-prd (PRD)**
+
+1. In the Neon console, select the `main` (PRD) branch → **Connection Details** → copy the connection string.
+2. In the Render dashboard, open the `perf-coach-prd` service → **Environment**.
+3. Find the `DATABASE_URL` variable and paste the Neon PRD connection string as its value.
+4. Click **Save Changes**.
+
+### Promote to PRD (manual deploy)
+
+PRD does not auto-deploy. To release a new version to production:
+
+1. Merge your changes to the `master` branch.
+2. In the Render dashboard, open the `perf-coach-prd` service.
+3. Click **Manual Deploy** → **Deploy latest commit on master**.
+4. Monitor the deploy log; Render runs `alembic upgrade head` before traffic switches to the new version.
