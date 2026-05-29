@@ -57,6 +57,9 @@ with Session(engine) as session:
         text(
             "SELECT COUNT(*) FROM workouts w"
             " WHERE w.workout_type ILIKE 'strength'"
+            # Exclude 'Squat 1RM Test': it is a dedicated testing session (single
+            # max-effort lift), not a regular training workout, so it intentionally
+            # has fewer than 4 exercises and should not trigger a re-seed.
             "   AND w.name NOT IN ('Squat 1RM Test')"
             "   AND (SELECT COUNT(*) FROM workout_exercises we WHERE we.workout_id = w.id) < 4"
         )
