@@ -1,0 +1,1 @@
+These HTML files are visual references for the home page layout. The live page is at /home.html and is built from these references; the mockups are not edited as part of feature work and are not served by the application.
