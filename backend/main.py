@@ -2645,6 +2645,8 @@ def strava_callback(
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
 from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.strava import refresh_token_if_needed  # noqa: E402
+from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
 
 class _StrydConnectIn(BaseModel):
@@ -2719,3 +2721,146 @@ def stryd_connect(body: _StrydConnectIn):
         "athlete_id": athlete_id,
         "stryd_user_email": body.email,
     })
+
+
+# ── Strava / Stryd status and disconnect endpoints ────────────────────────────
+
+def _get_default_user_id() -> str:
+    """Return user_id for the default (first by name) user, or raise 500 if none."""
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        return str(user.id)
+
+
+@app.get("/api/strava/status")
+def strava_status():
+    """Return Strava connection status; refresh token if near expiry."""
+    _null_response = {"connected": False, "athlete_name": None, "scope": None, "expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        scope = token_row.scope
+        expires_at = token_row.expires_at
+        athlete_data = token_row.athlete_data or {}
+
+    athlete_name = None
+    first = athlete_data.get("firstname") or ""
+    last = athlete_data.get("lastname") or ""
+    full = (first + " " + last).strip()
+    if full:
+        athlete_name = full
+
+    try:
+        refresh_token_if_needed(user_id)
+    except Exception:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        expires_at = token_row.expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_name": athlete_name,
+        "scope": scope,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    })
+
+
+@app.delete("/api/strava/disconnect")
+def strava_disconnect():
+    """Delete Strava token row and optionally deauthorize with Strava API."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is not None:
+            access_token = token_row.access_token
+            session.delete(token_row)
+            session.commit()
+
+            try:
+                deauth_data = _urlencode({"access_token": access_token}).encode()
+                deauth_req = _urllib_request.Request(
+                    "https://www.strava.com/oauth/deauthorize",
+                    data=deauth_data,
+                    method="POST",
+                )
+                _urllib_request.urlopen(deauth_req)
+            except Exception:
+                pass
+
+    return JSONResponse({"disconnected": True})
+
+
+@app.get("/api/stryd/status")
+def stryd_status():
+    """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
+    _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        athlete_id = cred.athlete_id
+        stryd_email = cred.stryd_email
+        session_expires_at = cred.session_token_expires_at
+
+    try:
+        refresh_stryd_session_if_needed(user_id)
+    except Exception:
+        with Session(engine) as session:
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+            if cred is not None:
+                session.delete(cred)
+                session.commit()
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        session_expires_at = cred.session_token_expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_email": stryd_email,
+        "session_expires_at": session_expires_at.isoformat() if session_expires_at else None,
+    })
+
+
+@app.delete("/api/stryd/disconnect")
+def stryd_disconnect():
+    """Delete Stryd credentials row."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is not None:
+            session.delete(cred)
+            session.commit()
+
+    return JSONResponse({"disconnected": True})
