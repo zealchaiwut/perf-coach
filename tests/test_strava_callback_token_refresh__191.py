@@ -141,7 +141,7 @@ def test_refresh_token_if_needed_refreshes_expired():
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session.query.return_value.filter.return_value.one.return_value = mock_token
+    mock_session.query.return_value.filter.return_value.one_or_none.return_value = mock_token
 
     strava_resp = {
         "access_token": "refreshed-at",
@@ -173,12 +173,29 @@ def test_refresh_token_if_needed_skips_when_fresh():
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session.query.return_value.filter.return_value.one.return_value = mock_token
+    mock_session.query.return_value.filter.return_value.one_or_none.return_value = mock_token
 
     with patch("backend.services.strava.Session", return_value=mock_session), \
          patch("backend.services.strava._call_strava_refresh") as mock_refresh:
         result = refresh_token_if_needed(TEST_USER_ID)
 
     assert result == "still-valid-at"
+    mock_refresh.assert_not_called()
+    mock_session.commit.assert_not_called()
+
+
+# ── 7. refresh_token_if_needed returns None for user with no token row ─────────
+
+def test_refresh_token_if_needed_returns_none_when_no_token_row():
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.query.return_value.filter.return_value.one_or_none.return_value = None
+
+    with patch("backend.services.strava.Session", return_value=mock_session), \
+         patch("backend.services.strava._call_strava_refresh") as mock_refresh:
+        result = refresh_token_if_needed("user-with-no-strava-token")
+
+    assert result is None
     mock_refresh.assert_not_called()
     mock_session.commit.assert_not_called()
