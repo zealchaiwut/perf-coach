@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import BigInteger, Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -234,6 +234,33 @@ class StrydCredentials(Base):
     athlete_id = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class StravaActivity(Base):
+    __tablename__ = "strava_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    strava_activity_id = Column(BigInteger, nullable=False, unique=True, index=True)
+    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    activity_type = Column(String(50), nullable=False)
+    name = Column(String(255), nullable=False)
+    distance_km = Column(Numeric(10, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+    elevation_m = Column(Integer, nullable=True)
+    avg_power_w = Column(Integer, nullable=True)
+    max_power_w = Column(Integer, nullable=True)
+    device_name = Column(String(255), nullable=True)
+    external_id = Column(String(255), nullable=True)
+    is_stryd_synced = Column(Boolean, server_default=text("false"), nullable=False)
+    raw_payload = Column(JSONB, nullable=False)
+    synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_strava_activities_user_start_time", "user_id", "start_time"),
+    )
 
 
 class DailyReadiness(Base):
