@@ -222,6 +222,20 @@ class StravaToken(Base):
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
+class StrydCredentials(Base):
+    __tablename__ = "stryd_credentials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    stryd_email = Column(String(255), nullable=False)
+    stryd_password_encrypted = Column(Text, nullable=False)
+    session_token = Column(Text, nullable=True)
+    session_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    athlete_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class DailyReadiness(Base):
     __tablename__ = "daily_readiness"
 

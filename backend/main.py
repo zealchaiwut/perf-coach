@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
 _start_time = time.monotonic()
 
@@ -93,16 +93,28 @@ def get_users():
                 select(StravaToken.user_id)
                 .subquery()
             )
+            now = _datetime.now(_timezone.utc)
+            stryd_sub = (
+                select(StrydCredentials.user_id)
+                .where(
+                    StrydCredentials.session_token.isnot(None),
+                    StrydCredentials.session_token_expires_at.isnot(None),
+                    StrydCredentials.session_token_expires_at > now,
+                )
+                .subquery()
+            )
             rows = (
                 session.query(
                     User,
                     func.coalesce(wcount_sub.c.wcount, 0),
                     func.coalesce(hcount_sub.c.hcount, 0),
                     strava_sub.c.user_id.isnot(None).label("strava_connected"),
+                    stryd_sub.c.user_id.isnot(None).label("stryd_connected"),
                 )
                 .outerjoin(wcount_sub, User.id == wcount_sub.c.user_id)
                 .outerjoin(hcount_sub, User.id == hcount_sub.c.user_id)
                 .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+                .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
                 .order_by(User.name)
                 .all()
             )
@@ -114,8 +126,9 @@ def get_users():
                     "weight_count": wc,
                     "habits_count": hc,
                     "strava_connected": bool(sc),
+                    "stryd_connected": bool(syc),
                 }
-                for u, wc, hc, sc in rows
+                for u, wc, hc, sc, syc in rows
             ]
             return JSONResponse(result)
     except Exception as exc:
