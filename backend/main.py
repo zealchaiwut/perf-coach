@@ -15,7 +15,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 
 _start_time = time.monotonic()
 
@@ -67,19 +67,47 @@ def get_environment():
 @app.get("/api/users")
 def get_users():
     try:
+        from sqlalchemy import func, outerjoin, select
         with Session(engine) as session:
-            users = session.query(User).order_by(User.name).all()
-            result = []
-            for u in users:
-                wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
-                hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
-                result.append({
+            wcount_sub = (
+                select(WeightEntry.user_id, func.count().label("wcount"))
+                .group_by(WeightEntry.user_id)
+                .subquery()
+            )
+            hcount_sub = (
+                select(Habit.user_id, func.count().label("hcount"))
+                .where(Habit.archived_at.is_(None))
+                .group_by(Habit.user_id)
+                .subquery()
+            )
+            strava_sub = (
+                select(StravaToken.user_id)
+                .subquery()
+            )
+            rows = (
+                session.query(
+                    User,
+                    func.coalesce(wcount_sub.c.wcount, 0),
+                    func.coalesce(hcount_sub.c.hcount, 0),
+                    strava_sub.c.user_id.isnot(None).label("strava_connected"),
+                )
+                .outerjoin(wcount_sub, User.id == wcount_sub.c.user_id)
+                .outerjoin(hcount_sub, User.id == hcount_sub.c.user_id)
+                .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+                .order_by(User.name)
+                .all()
+            )
+            result = [
+                {
                     "id": str(u.id),
                     "name": u.name,
                     "created_at": u.created_at.isoformat() if u.created_at else None,
-                    "weight_count": wcount,
-                    "habits_count": hcount,
-                })
+                    "weight_count": wc,
+                    "habits_count": hc,
+                    "strava_connected": bool(sc),
+                }
+                for u, wc, hc, sc in rows
+            ]
             return JSONResponse(result)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database unavailable: " + str(exc))
