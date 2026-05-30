@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import BigInteger, Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -204,6 +204,22 @@ class PersonalRecord(Base):
         CheckConstraint("track_type IN ('time', 'weight')", name="ck_personal_records_track_type"),
         CheckConstraint("value_numeric > 0", name="ck_personal_records_value_positive"),
     )
+
+
+class StravaToken(Base):
+    __tablename__ = "strava_tokens"
+
+    # This sprint uses the DEFAULT user from users table for OAuth flows; user_id column exists for multi-user readiness later.
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    athlete_id = Column(BigInteger, nullable=False)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    scope = Column(String(255), nullable=True)
+    athlete_data = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class DailyReadiness(Base):
