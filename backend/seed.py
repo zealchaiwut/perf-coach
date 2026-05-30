@@ -1,7 +1,7 @@
 import os
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import Session
 from models import Workout, WorkoutExercise
 
@@ -54,17 +54,23 @@ with Session(engine) as session:
     # If so, the data is stale (from a previous under-populated seed run) and
     # should be wiped and re-seeded so the AC ("each strength workout has 4-6
     # exercise rows") is satisfied.
-    thin_strength = session.execute(
-        text(
-            "SELECT COUNT(*) FROM workouts w"
-            " WHERE w.workout_type ILIKE 'strength'"
-            # Exclude 'Squat 1RM Test': it is a dedicated testing session (single
-            # max-effort lift), not a regular training workout, so it intentionally
+    exercise_count_sq = (
+        session.query(func.count(WorkoutExercise.id))
+        .filter(WorkoutExercise.workout_id == Workout.id)
+        .correlate(Workout)
+        .scalar_subquery()
+    )
+    thin_strength = (
+        session.query(Workout)
+        .filter(
+            Workout.workout_type.ilike("strength"),
+            # Exclude 'Squat 1RM Test': dedicated single-lift test, intentionally
             # has fewer than 4 exercises and should not trigger a re-seed.
-            "   AND w.name NOT IN ('Squat 1RM Test')"
-            "   AND (SELECT COUNT(*) FROM workout_exercises we WHERE we.workout_id = w.id) < 4"
+            Workout.name.notin_(["Squat 1RM Test"]),
+            exercise_count_sq < 4,
         )
-    ).scalar()
+        .count()
+    )
 
     workout_count = session.execute(text("SELECT COUNT(*) FROM workouts")).scalar()
 
