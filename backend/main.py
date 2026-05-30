@@ -1,9 +1,15 @@
+import base64 as _base64
+import hashlib as _hashlib
+import hmac as _hmac
+import json as _json
 import os
+import secrets as _secrets
 import time
 import uuid as _uuid
 from datetime import date as _date
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode as _urlencode
 
 _start_time = time.monotonic()
 
@@ -2430,3 +2436,77 @@ def delete_personal_record(record_id: str):
         session.delete(pr)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Strava OAuth ──────────────────────────────────────────────────────────────
+
+_VALID_STRAVA_SCOPES = {"read", "activity:read", "activity:read_all"}
+_STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
+_STATE_TOKEN_MAX_AGE = 600  # 10 minutes
+
+
+def _make_strava_state_token(user_id: str, secret: str) -> str:
+    """Return a signed state token encoding {user_id, ts, nonce}."""
+    payload = {"user_id": user_id, "ts": int(time.time()), "nonce": _secrets.token_hex(8)}
+    payload_b64 = _base64.urlsafe_b64encode(_json.dumps(payload).encode()).rstrip(b"=").decode()
+    sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    sig_b64 = _base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{payload_b64}.{sig_b64}"
+
+
+def _verify_strava_state_token(token: str, secret: str, max_age: int = _STATE_TOKEN_MAX_AGE) -> dict:
+    """Decode and verify a state token. Raises ValueError on bad signature or expiry."""
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid token format")
+    payload_b64, sig_b64 = parts
+    expected_sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    expected_b64 = _base64.urlsafe_b64encode(expected_sig).rstrip(b"=").decode()
+    if not _hmac.compare_digest(sig_b64, expected_b64):
+        raise ValueError("Invalid signature")
+    pad = (4 - len(payload_b64) % 4) % 4
+    payload = _json.loads(_base64.urlsafe_b64decode(payload_b64 + "=" * pad))
+    if time.time() - payload["ts"] > max_age:
+        raise ValueError("Token expired")
+    return payload
+
+
+@app.get("/api/strava/connect")
+def strava_connect(scope: str = Query(default="activity:read_all")):
+    """Initiate Strava OAuth flow for the default user.
+
+    Returns authorize_url; does not redirect. Default user is the first user
+    (by name) in the users table — multi-user support is deferred.
+    """
+    if scope not in _VALID_STRAVA_SCOPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid scope '{scope}'. Must be one of: read, activity:read, activity:read_all",
+        )
+
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="STRAVA_CLIENT_ID is not configured")
+
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    redirect_uri = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:9001/api/strava/callback")
+
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    state = _make_strava_state_token(user_id, state_secret)
+    authorize_url = _STRAVA_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "approval_prompt": "auto",
+        "scope": scope,
+        "state": state,
+    })
+    return JSONResponse({"authorize_url": authorize_url})
