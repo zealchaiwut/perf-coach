@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -67,12 +67,16 @@ class Workout(Base):
     avg_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
     elevation_m = Column(Integer, nullable=True)
+    start_time = Column(DateTime(timezone=True), nullable=True)
+    strava_activity_pk = Column(UUID(as_uuid=True), ForeignKey("strava_activities.id", ondelete="SET NULL"), nullable=True)
+    stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="SET NULL"), nullable=True)
+    manual_overrides = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
         CheckConstraint("tss_source IS NULL OR tss_source IN ('manual', 'calculated')", name="ck_workouts_tss_source_values"),
-        CheckConstraint("source IS NULL OR source IN ('strava', 'manual')", name="ck_workouts_source_values"),
+        CheckConstraint("source IS NULL OR source IN ('manual', 'strava', 'stryd', 'strava,stryd', 'stryd,strava', 'both')", name="ck_workouts_source_values"),
         CheckConstraint("distance_km IS NULL OR distance_km >= 0", name="ck_workouts_distance_non_negative"),
         CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workouts_duration_non_negative"),
         CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
@@ -91,6 +95,18 @@ class Workout(Base):
         back_populates="workout",
         cascade="all, delete-orphan",
         order_by="WorkoutSplit.split_index",
+    )
+
+    strava_activity = relationship(
+        "StravaActivity",
+        foreign_keys="[Workout.strava_activity_pk]",
+        lazy="select",
+    )
+
+    stryd_activity = relationship(
+        "StrydActivity",
+        foreign_keys="[Workout.stryd_activity_pk]",
+        lazy="select",
     )
 
 
@@ -206,6 +222,63 @@ class PersonalRecord(Base):
     )
 
 
+class StravaToken(Base):
+    __tablename__ = "strava_tokens"
+
+    # This sprint uses the DEFAULT user from users table for OAuth flows; user_id column exists for multi-user readiness later.
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    athlete_id = Column(BigInteger, nullable=False)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    scope = Column(String(255), nullable=True)
+    athlete_data = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class StrydCredentials(Base):
+    __tablename__ = "stryd_credentials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    stryd_email = Column(String(255), nullable=False)
+    stryd_password_encrypted = Column(Text, nullable=False)
+    session_token = Column(Text, nullable=True)
+    session_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    athlete_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class StravaActivity(Base):
+    __tablename__ = "strava_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    strava_activity_id = Column(BigInteger, nullable=False, unique=True, index=True)
+    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    activity_type = Column(String(50), nullable=False)
+    name = Column(String(255), nullable=False)
+    distance_km = Column(Numeric(10, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+    elevation_m = Column(Integer, nullable=True)
+    avg_power_w = Column(Integer, nullable=True)
+    max_power_w = Column(Integer, nullable=True)
+    device_name = Column(String(255), nullable=True)
+    external_id = Column(String(255), nullable=True)
+    is_stryd_synced = Column(Boolean, server_default=text("false"), nullable=False)
+    raw_payload = Column(JSONB, nullable=False)
+    synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_strava_activities_user_start_time", "user_id", "start_time"),
+    )
+
+
 class DailyReadiness(Base):
     __tablename__ = "daily_readiness"
 
@@ -224,4 +297,28 @@ class DailyReadiness(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_daily_readiness_user_date"),
         CheckConstraint("score >= 0 AND score <= 100", name="ck_daily_readiness_score_range"),
+    )
+
+
+class StrydActivity(Base):
+    __tablename__ = "stryd_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    stryd_activity_id = Column(String(255), nullable=False, unique=True, index=True)
+    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    distance_km = Column(Numeric(10, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_power_w = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    tss = Column(Integer, nullable=True)
+    form_metrics = Column(JSONB, nullable=True)
+    power_zones = Column(JSONB, nullable=True)
+    splits = Column(JSONB, nullable=True)
+    raw_payload = Column(JSONB, nullable=False)
+    synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_stryd_activities_user_start_time", "user_id", "start_time"),
     )

@@ -1,21 +1,31 @@
+import base64 as _base64
+import hashlib as _hashlib
+import hmac as _hmac
+import json as _json
 import os
+import secrets as _secrets
 import time
 import uuid as _uuid
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode as _urlencode
+import urllib.request as _urllib_request
+import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.services.workout_merge import compute_best_values
 
 _start_time = time.monotonic()
 
@@ -67,19 +77,60 @@ def get_environment():
 @app.get("/api/users")
 def get_users():
     try:
+        from sqlalchemy import func, outerjoin, select
         with Session(engine) as session:
-            users = session.query(User).order_by(User.name).all()
-            result = []
-            for u in users:
-                wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
-                hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
-                result.append({
+            wcount_sub = (
+                select(WeightEntry.user_id, func.count().label("wcount"))
+                .group_by(WeightEntry.user_id)
+                .subquery()
+            )
+            hcount_sub = (
+                select(Habit.user_id, func.count().label("hcount"))
+                .where(Habit.archived_at.is_(None))
+                .group_by(Habit.user_id)
+                .subquery()
+            )
+            strava_sub = (
+                select(StravaToken.user_id)
+                .subquery()
+            )
+            now = _datetime.now(_timezone.utc)
+            stryd_sub = (
+                select(StrydCredentials.user_id)
+                .where(
+                    StrydCredentials.session_token.isnot(None),
+                    StrydCredentials.session_token_expires_at.isnot(None),
+                    StrydCredentials.session_token_expires_at > now,
+                )
+                .subquery()
+            )
+            rows = (
+                session.query(
+                    User,
+                    func.coalesce(wcount_sub.c.wcount, 0),
+                    func.coalesce(hcount_sub.c.hcount, 0),
+                    strava_sub.c.user_id.isnot(None).label("strava_connected"),
+                    stryd_sub.c.user_id.isnot(None).label("stryd_connected"),
+                )
+                .outerjoin(wcount_sub, User.id == wcount_sub.c.user_id)
+                .outerjoin(hcount_sub, User.id == hcount_sub.c.user_id)
+                .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+                .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+                .order_by(User.name)
+                .all()
+            )
+            result = [
+                {
                     "id": str(u.id),
                     "name": u.name,
                     "created_at": u.created_at.isoformat() if u.created_at else None,
-                    "weight_count": wcount,
-                    "habits_count": hcount,
-                })
+                    "weight_count": wc,
+                    "habits_count": hc,
+                    "strava_connected": bool(sc),
+                    "stryd_connected": bool(syc),
+                }
+                for u, wc, hc, sc, syc in rows
+            ]
             return JSONResponse(result)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database unavailable: " + str(exc))
@@ -849,6 +900,19 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     }
 
 
+def _best_values_dict(w: Workout) -> dict:
+    bv = compute_best_values(w)
+    dist = bv["best_distance_km"]
+    return {
+        "best_distance_km": float(dist) if dist is not None else None,
+        "best_duration_seconds": bv["best_duration_seconds"],
+        "best_avg_hr": bv["best_avg_hr"],
+        "best_avg_power_w": bv["best_avg_power_w"],
+        "best_tss": float(bv["best_tss"]) if bv["best_tss"] is not None else None,
+        "best_name": bv["best_name"],
+    }
+
+
 def _workout_dict(w: Workout, exercises: list) -> dict:
     return {
         "id": str(w.id),
@@ -860,6 +924,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "tss": w.tss,
         "tss_source": w.tss_source,
         "source": w.source,
+        "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
+        "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -868,6 +934,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "elevation_m": w.elevation_m,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
+        **_best_values_dict(w),
     }
 
 
@@ -880,7 +947,6 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -889,6 +955,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "elevation_m": w.elevation_m,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
+        **_best_values_dict(w),
     }
 
 
@@ -2402,3 +2469,415 @@ def delete_personal_record(record_id: str):
         session.delete(pr)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Strava OAuth ──────────────────────────────────────────────────────────────
+
+_VALID_STRAVA_SCOPES = {"read", "activity:read", "activity:read_all"}
+_STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
+_STATE_TOKEN_MAX_AGE = 600  # 10 minutes
+
+
+def _make_strava_state_token(user_id: str, secret: str) -> str:
+    """Return a signed state token encoding {user_id, ts, nonce}."""
+    payload = {"user_id": user_id, "ts": int(time.time()), "nonce": _secrets.token_hex(8)}
+    payload_b64 = _base64.urlsafe_b64encode(_json.dumps(payload).encode()).rstrip(b"=").decode()
+    sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    sig_b64 = _base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{payload_b64}.{sig_b64}"
+
+
+def _verify_strava_state_token(token: str, secret: str, max_age: int = _STATE_TOKEN_MAX_AGE) -> dict:
+    """Decode and verify a state token. Raises ValueError on bad signature or expiry."""
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid token format")
+    payload_b64, sig_b64 = parts
+    expected_sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    expected_b64 = _base64.urlsafe_b64encode(expected_sig).rstrip(b"=").decode()
+    if not _hmac.compare_digest(sig_b64, expected_b64):
+        raise ValueError("Invalid signature")
+    pad = (4 - len(payload_b64) % 4) % 4
+    payload = _json.loads(_base64.urlsafe_b64decode(payload_b64 + "=" * pad))
+    if time.time() - payload["ts"] > max_age:
+        raise ValueError("Token expired")
+    return payload
+
+
+@app.get("/api/strava/connect")
+def strava_connect(scope: str = Query(default="activity:read_all")):
+    """Initiate Strava OAuth flow for the default user.
+
+    Returns authorize_url; does not redirect. Default user is the first user
+    (by name) in the users table — multi-user support is deferred.
+    """
+    if scope not in _VALID_STRAVA_SCOPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid scope '{scope}'. Must be one of: read, activity:read, activity:read_all",
+        )
+
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="STRAVA_CLIENT_ID is not configured")
+
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    redirect_uri = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:9001/api/strava/callback")
+
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    state = _make_strava_state_token(user_id, state_secret)
+    authorize_url = _STRAVA_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "approval_prompt": "auto",
+        "scope": scope,
+        "state": state,
+    })
+    return JSONResponse({"authorize_url": authorize_url})
+
+
+def _exchange_strava_code(code: str, client_id: str, client_secret: str) -> dict:
+    """POST to Strava token endpoint and return parsed JSON. Raises HTTP 502 on Strava 4xx."""
+    data = _urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+    }).encode()
+    req = _urllib_request.Request("https://www.strava.com/oauth/token", data=data, method="POST")
+    try:
+        with _urllib_request.urlopen(req) as resp:
+            return _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        if 400 <= exc.code < 500:
+            raise HTTPException(status_code=502, detail="Strava token exchange failed, please try again")
+        raise
+
+
+def _upsert_strava_token(
+    user_id: str,
+    athlete_id: int,
+    access_token: str,
+    refresh_token: str,
+    expires_at: _datetime,
+    scope: Optional[str],
+    athlete_data: dict,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(StravaToken)
+            .values(
+                user_id=user_id,
+                athlete_id=athlete_id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                scope=scope,
+                athlete_data=athlete_data,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "athlete_id": athlete_id,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_at": expires_at,
+                    "scope": scope,
+                    "athlete_data": athlete_data,
+                    "updated_at": now,
+                },
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+_STRAVA_CALLBACK_HTML = """<!DOCTYPE html>
+<html>
+<body>
+<script>
+if (window.opener) {
+  window.opener.postMessage({type: 'strava_connected'}, '*');
+}
+window.close();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/api/strava/callback")
+def strava_callback(
+    code: str = Query(...),
+    scope: str = Query(default=""),
+    state: str = Query(...),
+):
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    try:
+        payload = _verify_strava_state_token(state, state_secret)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization state expired or invalid, please reconnect",
+        )
+
+    user_id = payload["user_id"]
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+
+    token_resp = _exchange_strava_code(code, client_id, client_secret)
+
+    access_token = token_resp["access_token"]
+    refresh_token = token_resp["refresh_token"]
+    expires_at = _datetime.fromtimestamp(token_resp["expires_at"], tz=_timezone.utc)
+    athlete = token_resp.get("athlete", {})
+    athlete_id = athlete.get("id", 0)
+
+    _upsert_strava_token(
+        user_id=user_id,
+        athlete_id=athlete_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        scope=scope or None,
+        athlete_data=athlete,
+    )
+
+    return Response(content=_STRAVA_CALLBACK_HTML, media_type="text/html")
+
+
+# ── Stryd ──────────────────────────────────────────────────────────────────────
+
+from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.strava import refresh_token_if_needed  # noqa: E402
+from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
+
+
+class _StrydConnectIn(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=1)
+
+
+def _upsert_stryd_credentials(
+    user_id: str,
+    stryd_email: str,
+    password_encrypted: str,
+    session_token: str,
+    session_token_expires_at: _datetime,
+    athlete_id: int,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as db_session:
+        stmt = (
+            _pg_insert(StrydCredentials)
+            .values(
+                user_id=user_id,
+                stryd_email=stryd_email,
+                stryd_password_encrypted=password_encrypted,
+                session_token=session_token,
+                session_token_expires_at=session_token_expires_at,
+                athlete_id=athlete_id,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "stryd_email": stryd_email,
+                    "stryd_password_encrypted": password_encrypted,
+                    "session_token": session_token,
+                    "session_token_expires_at": session_token_expires_at,
+                    "athlete_id": athlete_id,
+                    "updated_at": now,
+                },
+            )
+        )
+        db_session.execute(stmt)
+        db_session.commit()
+
+
+@app.post("/api/stryd/connect")
+def stryd_connect(body: _StrydConnectIn):
+    """Authenticate against Stryd, encrypt and store credentials, return connection status."""
+    resp = _stryd_signin(body.email, body.password)
+
+    password_encrypted = _encrypt_value(body.password)
+    now = _datetime.now(tz=_timezone.utc)
+    session_token_expires_at = now + _timedelta(days=25)
+    athlete_id = int(resp.get("id") or resp.get("athlete_id") or 0)
+    session_token = str(resp.get("token") or resp.get("session_token") or "")
+
+    with Session(engine) as db_session:
+        user = db_session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    _upsert_stryd_credentials(
+        user_id=user_id,
+        stryd_email=body.email,
+        password_encrypted=password_encrypted,
+        session_token=session_token,
+        session_token_expires_at=session_token_expires_at,
+        athlete_id=athlete_id,
+    )
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_user_email": body.email,
+    })
+
+
+# ── Strava / Stryd status and disconnect endpoints ────────────────────────────
+
+def _get_default_user_id() -> str:
+    """Return user_id for the default (first by name) user, or raise 500 if none."""
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        return str(user.id)
+
+
+@app.get("/api/strava/status")
+def strava_status():
+    """Return Strava connection status; refresh token if near expiry."""
+    _null_response = {"connected": False, "athlete_name": None, "scope": None, "expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        scope = token_row.scope
+        expires_at = token_row.expires_at
+        athlete_data = token_row.athlete_data or {}
+
+    athlete_name = None
+    first = athlete_data.get("firstname") or ""
+    last = athlete_data.get("lastname") or ""
+    full = (first + " " + last).strip()
+    if full:
+        athlete_name = full
+
+    try:
+        refresh_token_if_needed(user_id)
+    except Exception:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        expires_at = token_row.expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_name": athlete_name,
+        "scope": scope,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    })
+
+
+@app.delete("/api/strava/disconnect")
+def strava_disconnect():
+    """Delete Strava token row and optionally deauthorize with Strava API."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is not None:
+            access_token = token_row.access_token
+            session.delete(token_row)
+            session.commit()
+
+            try:
+                deauth_data = _urlencode({"access_token": access_token}).encode()
+                deauth_req = _urllib_request.Request(
+                    "https://www.strava.com/oauth/deauthorize",
+                    data=deauth_data,
+                    method="POST",
+                )
+                _urllib_request.urlopen(deauth_req)
+            except Exception:
+                pass
+
+    return JSONResponse({"disconnected": True})
+
+
+@app.get("/api/stryd/status")
+def stryd_status():
+    """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
+    _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        athlete_id = cred.athlete_id
+        stryd_email = cred.stryd_email
+        session_expires_at = cred.session_token_expires_at
+
+    try:
+        refresh_stryd_session_if_needed(user_id)
+    except Exception:
+        with Session(engine) as session:
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+            if cred is not None:
+                session.delete(cred)
+                session.commit()
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        session_expires_at = cred.session_token_expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_email": stryd_email,
+        "session_expires_at": session_expires_at.isoformat() if session_expires_at else None,
+    })
+
+
+@app.delete("/api/stryd/disconnect")
+def stryd_disconnect():
+    """Delete Stryd credentials row."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is not None:
+            session.delete(cred)
+            session.commit()
+
+    return JSONResponse({"disconnected": True})
