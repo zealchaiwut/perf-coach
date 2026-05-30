@@ -6,10 +6,12 @@ import os
 import secrets as _secrets
 import time
 import uuid as _uuid
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode as _urlencode
+import urllib.request as _urllib_request
+import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
@@ -18,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import exc as sa_exc
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
@@ -2510,3 +2513,116 @@ def strava_connect(scope: str = Query(default="activity:read_all")):
         "state": state,
     })
     return JSONResponse({"authorize_url": authorize_url})
+
+
+def _exchange_strava_code(code: str, client_id: str, client_secret: str) -> dict:
+    """POST to Strava token endpoint and return parsed JSON. Raises HTTP 502 on Strava 4xx."""
+    data = _urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+    }).encode()
+    req = _urllib_request.Request("https://www.strava.com/oauth/token", data=data, method="POST")
+    try:
+        with _urllib_request.urlopen(req) as resp:
+            return _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        if 400 <= exc.code < 500:
+            raise HTTPException(status_code=502, detail="Strava token exchange failed, please try again")
+        raise
+
+
+def _upsert_strava_token(
+    user_id: str,
+    athlete_id: int,
+    access_token: str,
+    refresh_token: str,
+    expires_at: _datetime,
+    scope: Optional[str],
+    athlete_data: dict,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(StravaToken)
+            .values(
+                user_id=user_id,
+                athlete_id=athlete_id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                scope=scope,
+                athlete_data=athlete_data,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "athlete_id": athlete_id,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_at": expires_at,
+                    "scope": scope,
+                    "athlete_data": athlete_data,
+                    "updated_at": now,
+                },
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+_STRAVA_CALLBACK_HTML = """<!DOCTYPE html>
+<html>
+<body>
+<script>
+if (window.opener) {
+  window.opener.postMessage({type: 'strava_connected'}, '*');
+}
+window.close();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/api/strava/callback")
+def strava_callback(
+    code: str = Query(...),
+    scope: str = Query(default=""),
+    state: str = Query(...),
+):
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    try:
+        payload = _verify_strava_state_token(state, state_secret)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization state expired or invalid, please reconnect",
+        )
+
+    user_id = payload["user_id"]
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+
+    token_resp = _exchange_strava_code(code, client_id, client_secret)
+
+    access_token = token_resp["access_token"]
+    refresh_token = token_resp["refresh_token"]
+    expires_at = _datetime.fromtimestamp(token_resp["expires_at"], tz=_timezone.utc)
+    athlete = token_resp.get("athlete", {})
+    athlete_id = athlete.get("id", 0)
+
+    _upsert_strava_token(
+        user_id=user_id,
+        athlete_id=athlete_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        scope=scope or None,
+        athlete_data=athlete,
+    )
+
+    return Response(content=_STRAVA_CALLBACK_HTML, media_type="text/html")
