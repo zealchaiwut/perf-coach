@@ -48,3 +48,29 @@ def refresh_token_if_needed(user_id: str) -> str:
         session.commit()
 
         return token_row.access_token
+
+
+def detect_stryd_origin(strava_activity_dict: dict) -> bool:
+    # Strava API fields: device_name (activity.device_name), external_id (activity.external_id),
+    # avg_power_w / max_power_w (activity.average_watts / activity.max_watts), type (activity.type).
+    # Heuristic: any single signal is sufficient — Stryd device name, stryd-prefixed external ID,
+    # or power-on-run from a pod-class device. Order: cheapest checks first.
+    device = (strava_activity_dict.get("device_name") or "").lower()
+    ext_id = (strava_activity_dict.get("external_id") or "").lower()
+
+    if "stryd" in device:
+        return True
+
+    if ext_id.startswith("stryd:") or "stryd" in ext_id:
+        return True
+
+    has_power = bool(
+        strava_activity_dict.get("avg_power_w") or strava_activity_dict.get("max_power_w")
+    )
+    is_run = strava_activity_dict.get("activity_type") == "Run" or strava_activity_dict.get("type") == "Run"
+    is_pod_device = "pod" in device
+
+    if has_power and is_run and is_pod_device:
+        return True
+
+    return False
