@@ -18,7 +18,7 @@ _start_time = time.monotonic()
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
@@ -2639,3 +2639,83 @@ def strava_callback(
     )
 
     return Response(content=_STRAVA_CALLBACK_HTML, media_type="text/html")
+
+
+# ── Stryd ──────────────────────────────────────────────────────────────────────
+
+from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+
+
+class _StrydConnectIn(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=1)
+
+
+def _upsert_stryd_credentials(
+    user_id: str,
+    stryd_email: str,
+    password_encrypted: str,
+    session_token: str,
+    session_token_expires_at: _datetime,
+    athlete_id: int,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as db_session:
+        stmt = (
+            _pg_insert(StrydCredentials)
+            .values(
+                user_id=user_id,
+                stryd_email=stryd_email,
+                stryd_password_encrypted=password_encrypted,
+                session_token=session_token,
+                session_token_expires_at=session_token_expires_at,
+                athlete_id=athlete_id,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "stryd_email": stryd_email,
+                    "stryd_password_encrypted": password_encrypted,
+                    "session_token": session_token,
+                    "session_token_expires_at": session_token_expires_at,
+                    "athlete_id": athlete_id,
+                    "updated_at": now,
+                },
+            )
+        )
+        db_session.execute(stmt)
+        db_session.commit()
+
+
+@app.post("/api/stryd/connect")
+def stryd_connect(body: _StrydConnectIn):
+    """Authenticate against Stryd, encrypt and store credentials, return connection status."""
+    resp = _stryd_signin(body.email, body.password)
+
+    password_encrypted = _encrypt_value(body.password)
+    now = _datetime.now(tz=_timezone.utc)
+    session_token_expires_at = now + _timedelta(days=25)
+    athlete_id = int(resp.get("id") or resp.get("athlete_id") or 0)
+    session_token = str(resp.get("token") or resp.get("session_token") or "")
+
+    with Session(engine) as db_session:
+        user = db_session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    _upsert_stryd_credentials(
+        user_id=user_id,
+        stryd_email=body.email,
+        password_encrypted=password_encrypted,
+        session_token=session_token,
+        session_token_expires_at=session_token_expires_at,
+        athlete_id=athlete_id,
+    )
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_user_email": body.email,
+    })
