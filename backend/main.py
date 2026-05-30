@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.services.workout_merge import compute_best_values
 
 _start_time = time.monotonic()
 
@@ -899,6 +900,19 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     }
 
 
+def _best_values_dict(w: Workout) -> dict:
+    bv = compute_best_values(w)
+    dist = bv["best_distance_km"]
+    return {
+        "best_distance_km": float(dist) if dist is not None else None,
+        "best_duration_seconds": bv["best_duration_seconds"],
+        "best_avg_hr": bv["best_avg_hr"],
+        "best_avg_power_w": bv["best_avg_power_w"],
+        "best_tss": float(bv["best_tss"]) if bv["best_tss"] is not None else None,
+        "best_name": bv["best_name"],
+    }
+
+
 def _workout_dict(w: Workout, exercises: list) -> dict:
     return {
         "id": str(w.id),
@@ -910,6 +924,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "tss": w.tss,
         "tss_source": w.tss_source,
         "source": w.source,
+        "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
+        "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -918,6 +934,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "elevation_m": w.elevation_m,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
+        **_best_values_dict(w),
     }
 
 
@@ -930,7 +947,6 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -939,6 +955,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "elevation_m": w.elevation_m,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
+        **_best_values_dict(w),
     }
 
 
