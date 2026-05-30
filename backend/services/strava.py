@@ -26,10 +26,15 @@ def _call_strava_refresh(client_id: str, client_secret: str, refresh_token: str)
         return _json.loads(resp.read())
 
 
-def refresh_token_if_needed(user_id: str) -> str:
-    """Return a valid Strava access token for user_id, refreshing via Strava if < 5 min remaining."""
+def refresh_token_if_needed(user_id: str) -> str | None:
+    """Return a valid Strava access token for user_id, refreshing via Strava if < 5 min remaining.
+
+    Returns None if no Strava token row exists for the user (OAuth not yet completed).
+    """
     with Session(engine) as session:
-        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).one()
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).one_or_none()
+        if token_row is None:
+            return None
         now = datetime.now(tz=timezone.utc)
 
         if token_row.expires_at > now + timedelta(seconds=_REFRESH_BUFFER_SECONDS):

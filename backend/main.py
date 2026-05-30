@@ -2521,6 +2521,9 @@ def strava_connect(scope: str = Query(default="activity:read_all")):
     if not client_id:
         raise HTTPException(status_code=500, detail="STRAVA_CLIENT_ID is not configured")
 
+    if not os.getenv("STRAVA_CLIENT_SECRET"):
+        raise HTTPException(status_code=500, detail="STRAVA_CLIENT_SECRET is not configured")
+
     state_secret = os.getenv("STRAVA_STATE_SECRET")
     if not state_secret:
         raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
