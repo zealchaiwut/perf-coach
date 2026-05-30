@@ -282,3 +282,27 @@ class DailyReadiness(Base):
         UniqueConstraint("user_id", "date", name="uq_daily_readiness_user_date"),
         CheckConstraint("score >= 0 AND score <= 100", name="ck_daily_readiness_score_range"),
     )
+
+
+class StrydActivity(Base):
+    __tablename__ = "stryd_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    stryd_activity_id = Column(String(255), nullable=False, unique=True, index=True)
+    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    distance_km = Column(Numeric(10, 3), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    avg_power_w = Column(Integer, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    tss = Column(Integer, nullable=True)
+    form_metrics = Column(JSONB, nullable=True)
+    power_zones = Column(JSONB, nullable=True)
+    splits = Column(JSONB, nullable=True)
+    raw_payload = Column(JSONB, nullable=False)
+    synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_stryd_activities_user_start_time", "user_id", "start_time"),
+    )
