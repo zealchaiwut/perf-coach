@@ -23,6 +23,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from helpers import table_exists
+
 revision: str = "38a0b1c2d3e4"
 down_revision: Union[str, None] = "e5f6a7b8c9d0"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -30,10 +32,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if not inspector.has_table("daily_metrics"):
+    if not table_exists("daily_metrics"):
         op.create_table(
             "daily_metrics",
             sa.Column(
@@ -145,7 +144,5 @@ def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_daily_metrics_updated_at ON daily_metrics")
     op.execute("DROP FUNCTION IF EXISTS set_updated_at()")
     op.execute("DROP INDEX IF EXISTS ix_daily_metrics_user_date")
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    if inspector.has_table("daily_metrics"):
+    if table_exists("daily_metrics"):
         op.drop_table("daily_metrics")

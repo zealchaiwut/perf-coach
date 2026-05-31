@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# LOCAL DEV ONLY — Render uses render.yaml, not this script.
 set -euo pipefail
 
 if [ ! -f .env ]; then
-  echo "ERROR: .env not found. Create it with DATABASE_URL_UAT and DATABASE_URL_PRD set." >&2
+  echo "ERROR: .env not found. Copy .env.example to .env and fill in values." >&2
   exit 1
 fi
 
@@ -11,12 +12,15 @@ set -a
 source .env
 set +a
 
-# Environment and port are always determined by the script, not .env
-export ENVIRONMENT=UAT
+if [ "${ENVIRONMENT:-}" != "uat" ]; then
+  echo "ERROR: ENVIRONMENT must be 'uat' in .env to run this script." >&2
+  exit 1
+fi
+
 CONFIGURED_PORT=9001
 
-if [ -z "${DATABASE_URL_UAT:-}" ]; then
-  echo "ERROR: DATABASE_URL_UAT is not set in .env." >&2
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "ERROR: DATABASE_URL is not set in .env." >&2
   exit 1
 fi
 
@@ -24,7 +28,7 @@ fi
 python3 - <<'EOF'
 import os, sys
 from urllib.parse import urlparse
-url = os.environ.get("DATABASE_URL_UAT", "")
+url = os.environ.get("DATABASE_URL", "")
 host = urlparse(url).hostname or "(unknown)"
 print(f"Target DB host (UAT): {host}")
 EOF
@@ -33,7 +37,7 @@ echo "Verifying database connection (UAT)..."
 python3 - <<'EOF'
 import os, sys
 from sqlalchemy import create_engine, text
-url = os.environ["DATABASE_URL_UAT"]
+url = os.environ["DATABASE_URL"]
 try:
     engine = create_engine(url, pool_pre_ping=True)
     with engine.connect() as conn:

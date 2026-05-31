@@ -13,6 +13,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from helpers import column_exists
+
 revision: str = "c1d2e3f4a5b6"
 down_revision: Union[str, None] = "a1b2c3d4e5f7"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -20,14 +22,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_cols = {c["name"] for c in inspector.get_columns("workouts")}
-
-    if "source" not in existing_cols:
+    if not column_exists("workouts", "source"):
         op.add_column("workouts", sa.Column("source", sa.String(20), nullable=True))
 
-    if "strava_activity_url" not in existing_cols:
+    if not column_exists("workouts", "strava_activity_url"):
         op.add_column("workouts", sa.Column("strava_activity_url", sa.Text(), nullable=True))
 
     op.execute("""
