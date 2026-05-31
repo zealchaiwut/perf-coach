@@ -249,6 +249,7 @@ def test_post_feel_auto_link_no_workout(client, al_user_id):
 
 # (d) Manual trigger links all eligible entries for user/date
 def test_post_feel_auto_link_manual_trigger(client, al_user_id, al_backfill_workout_id):
+    # Insert two unlinked entries (no workout_id provided)
     for i in range(2):
         res = client.post(
             "/api/feel",
@@ -256,6 +257,7 @@ def test_post_feel_auto_link_manual_trigger(client, al_user_id, al_backfill_work
         )
         assert res.status_code == 201
 
+    # Manually trigger auto-link
     res = client.post(
         "/api/feel/auto-link",
         params={"user_id": al_user_id, "feel_date": _AL_DATE_BACKFILL},
@@ -265,6 +267,7 @@ def test_post_feel_auto_link_manual_trigger(client, al_user_id, al_backfill_work
     assert "linked" in data
     assert data["linked"] >= 0
 
+    # Verify entries are now linked
     entries_res = client.get("/api/feel", params={"user_id": al_user_id, "workout_id": al_backfill_workout_id})
     assert entries_res.status_code == 200
     assert entries_res.json()["count"] >= 1
