@@ -7,10 +7,10 @@ load_dotenv()
 
 environment = os.getenv("ENVIRONMENT", "local").lower()
 
-if environment == "uat":
-    database_url = os.getenv("DATABASE_URL_UAT")
-else:
-    database_url = os.getenv("DATABASE_URL_PRD")
+# Render sets DATABASE_URL per service; local dev uses DATABASE_URL_UAT / DATABASE_URL_PRD.
+database_url = os.getenv("DATABASE_URL") or (
+    os.getenv("DATABASE_URL_UAT") if environment == "uat" else os.getenv("DATABASE_URL_PRD")
+)
 
 engine = create_engine(database_url, pool_pre_ping=True)
 
