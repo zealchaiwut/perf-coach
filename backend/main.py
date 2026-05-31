@@ -1819,6 +1819,80 @@ def export_daily_metrics_csv(
     )
 
 
+@app.get("/api/exports/workouts")
+def export_workouts_csv(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    type_filter = [t.strip() for t in types.split(",")] if types else None
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(Workout).filter(Workout.user_id == uid)
+        if from_d is not None:
+            q = q.filter(Workout.workout_date >= from_d)
+        if to_d is not None:
+            q = q.filter(Workout.workout_date <= to_d)
+        if type_filter:
+            q = q.filter(Workout.workout_type.in_(type_filter))
+        rows = q.order_by(Workout.workout_date.asc()).all()
+
+    _desired_cols = ["workout_date", "workout_type", "name", "distance_km", "duration_seconds", "avg_hr", "tss", "source", "remarks"]
+    _model_col_keys = {c.key for c in Workout.__table__.columns}
+    headers = [c for c in _desired_cols if c in _model_col_keys]
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(headers)
+    for w in rows:
+        row = []
+        for col in headers:
+            val = getattr(w, col)
+            if val is None:
+                row.append("")
+            elif col == "workout_date":
+                row.append(str(val))
+            else:
+                row.append(val)
+        writer.writerow(row)
+
+    if from_d is not None and to_d is not None:
+        filename = f"workouts-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "workouts-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Trends summary endpoint ────────────────────────────────────────────────────
 
 def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
