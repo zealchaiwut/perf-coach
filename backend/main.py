@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 
 _start_time = time.monotonic()
@@ -3115,3 +3115,155 @@ def google_connect(scope: str = Query(default=_GOOGLE_SCOPE_DEFAULT)):
         "state": state,
     })
     return JSONResponse({"authorize_url": authorize_url})
+
+
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+_GOOGLE_CALLBACK_HTML = """<!DOCTYPE html>
+<html>
+<body>
+<script>
+if (window.opener) {
+  window.opener.postMessage({type: 'google_connected'}, '*');
+}
+window.close();
+</script>
+</body>
+</html>"""
+
+
+def _exchange_google_code(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
+    """POST auth code to Google token endpoint and return parsed response."""
+    data = _urlencode({
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }).encode()
+    req = _urllib_request.Request(_GOOGLE_TOKEN_URL, data=data, method="POST")
+    try:
+        with _urllib_request.urlopen(req) as resp:
+            return _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        if 400 <= exc.code < 500:
+            raise HTTPException(
+                status_code=502,
+                detail="Google token exchange failed, please try again",
+            )
+        raise
+
+
+def _decode_id_token_payload(id_token: str) -> dict:
+    """Base64-decode the payload segment of a JWT without signature verification."""
+    parts = id_token.split(".")
+    if len(parts) < 2:
+        return {}
+    payload_b64 = parts[1]
+    # Add padding
+    padding = 4 - len(payload_b64) % 4
+    if padding != 4:
+        payload_b64 += "=" * padding
+    try:
+        return _json.loads(_base64.urlsafe_b64decode(payload_b64))
+    except Exception:
+        return {}
+
+
+def _upsert_google_credentials(
+    *,
+    user_id: str,
+    google_sub: str,
+    email: str,
+    email_verified: bool,
+    access_token: str,
+    refresh_token: Optional[str],
+    expires_at: _datetime,
+    id_token_payload: dict,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        set_values: dict = {
+            "google_sub": google_sub,
+            "email": email,
+            "email_verified": email_verified,
+            "access_token": access_token,
+            "expires_at": expires_at,
+            "id_token_payload": id_token_payload,
+            "updated_at": now,
+        }
+        if refresh_token is not None:
+            set_values["refresh_token"] = refresh_token
+
+        insert_values = {
+            "user_id": user_id,
+            "google_sub": google_sub,
+            "email": email,
+            "email_verified": email_verified,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+            "id_token_payload": id_token_payload,
+        }
+
+        stmt = (
+            _pg_insert(GoogleOAuthCredentials)
+            .values(**insert_values)
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_=set_values,
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+@app.get("/api/google/callback")
+def google_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    scope: str = Query(default=""),
+):
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+
+    try:
+        state_payload = _verify_google_state_token(state, state_secret)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization state expired or invalid, please reconnect",
+        )
+
+    user_id = state_payload["user_id"]
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:9001/api/google/callback")
+
+    token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
+
+    access_token = token_resp["access_token"]
+    refresh_token = token_resp.get("refresh_token")
+    expires_in = token_resp.get("expires_in", 3600)
+    expires_at = _datetime.now(tz=_timezone.utc) + _timedelta(seconds=expires_in)
+
+    id_token = token_resp.get("id_token", "")
+    id_token_payload = _decode_id_token_payload(id_token)
+
+    google_sub = id_token_payload.get("sub", "")
+    email = id_token_payload.get("email", "")
+    email_verified = bool(id_token_payload.get("email_verified", False))
+
+    _upsert_google_credentials(
+        user_id=user_id,
+        google_sub=google_sub,
+        email=email,
+        email_verified=email_verified,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        id_token_payload=id_token_payload,
+    )
+
+    return Response(content=_GOOGLE_CALLBACK_HTML, media_type="text/html")
