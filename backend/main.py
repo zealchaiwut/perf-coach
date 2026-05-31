@@ -3183,3 +3183,87 @@ def post_sleep_import(body: _SleepImportBody):
                 "status": "parsed",
             },
         )
+
+
+@app.get("/api/imports/sleep")
+def get_sleep_imports(
+    user_id: str = Query(...),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+):
+    try:
+        parsed_user_id = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id format")
+
+    from_date = None
+    to_date = None
+    if from_ is not None:
+        try:
+            from_date = _date.fromisoformat(from_)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+    if to is not None:
+        try:
+            to_date = _date.fromisoformat(to)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    valid_statuses = {"pending", "parsed", "merged", "rejected", "failed"}
+    if status is not None and status not in valid_statuses:
+        raise HTTPException(status_code=422, detail={"field": "status", "error": f"status must be one of {sorted(valid_statuses)}"})
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        q = session.query(SleepImport).filter(SleepImport.user_id == parsed_user_id)
+        if from_date is not None:
+            q = q.filter(SleepImport.import_date >= from_date)
+        if to_date is not None:
+            q = q.filter(SleepImport.import_date <= to_date)
+        if status is not None:
+            q = q.filter(SleepImport.import_status == status)
+        rows = q.order_by(SleepImport.created_at.desc()).all()
+
+        by_status: dict = {}
+        earliest = None
+        latest = None
+        for r in rows:
+            s = r.import_status
+            by_status[s] = by_status.get(s, 0) + 1
+            d = r.import_date.isoformat() if r.import_date else None
+            if d is not None:
+                if earliest is None or d < earliest:
+                    earliest = d
+                if latest is None or d > latest:
+                    latest = d
+
+        imports = [
+            {
+                "id": str(r.id),
+                "source": r.source,
+                "source_identifier": r.source_identifier,
+                "import_date": r.import_date.isoformat() if r.import_date else None,
+                "import_status": r.import_status,
+                "error_message": r.error_message,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "imports": imports,
+                "count": len(imports),
+                "summary": {
+                    "total": len(imports),
+                    "by_status": by_status,
+                    "date_range": {"earliest": earliest, "latest": latest},
+                },
+            },
+        )
