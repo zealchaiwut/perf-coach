@@ -55,6 +55,26 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
   Never edit the DB by hand. Make migrations idempotent (guard create_table /
   add_column with existence checks).
 
+## Local Development
+
+- Copy `.env.example` to `.env` and fill in values before running locally.
+- Use `start_uat.sh` (with `ENVIRONMENT=uat` in `.env`) or `start_prd.sh`
+  (with `ENVIRONMENT=prd`) to start the app locally.
+- **Deprecated:** the old `uat/` + `main/` parallel-checkout pattern (two
+  separate clones in sibling directories) is no longer supported. The canonical
+  workflow is one clone — switch between `develop` (UAT) and `master` (PRD) via
+  `git checkout`.
+
+## Deployment
+
+Deployments are managed by Render via `render.yaml`. See:
+
+- `docs/release-process.md` — step-by-step release procedure
+- `docs/render-setup.md` — Render service configuration reference
+
+Do not describe deployment steps inline here; those docs are the source of
+truth.
+
 ## Conventions
 
 - Each HTML page loads only the JS it needs. One shared CSS file.

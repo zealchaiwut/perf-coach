@@ -11,6 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from helpers import table_exists
+
 revision: str = "c3d4e5f6a7b8"
 down_revision: Union[str, None] = "b2c3d4e5f6a7"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -18,10 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if not inspector.has_table("workouts"):
+    if not table_exists("workouts"):
         op.create_table(
             "workouts",
             sa.Column(
@@ -53,7 +52,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_workouts_user_id_workout_date")
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    if inspector.has_table("workouts"):
+    if table_exists("workouts"):
         op.drop_table("workouts")
