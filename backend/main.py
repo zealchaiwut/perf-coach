@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 
 _start_time = time.monotonic()
@@ -3265,5 +3265,99 @@ def get_sleep_imports(
                     "by_status": by_status,
                     "date_range": {"earliest": earliest, "latest": latest},
                 },
+            },
+        )
+
+
+# ── Feel entries ──────────────────────────────────────────────────────────────
+
+class _FeelBody(BaseModel):
+    user_id: str
+    feel_date: str
+    workout_id: Optional[str] = None
+    rpe_1_to_10: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@app.post("/api/feel", status_code=201)
+def post_feel(body: _FeelBody):
+    try:
+        feel_date = _date.fromisoformat(body.feel_date)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
+        )
+
+    today = _date.today()
+    tomorrow = today + _timedelta(days=1)
+    if feel_date > tomorrow:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date", "error": "feel_date cannot be in the future"},
+        )
+
+    if body.rpe_1_to_10 is not None and not (1 <= body.rpe_1_to_10 <= 10):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "rpe_1_to_10 must be an integer between 1 and 10"},
+        )
+
+    if body.rpe_1_to_10 is None and not body.notes:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "At least one of rpe_1_to_10 or notes is required"},
+        )
+
+    if body.notes is not None and len(body.notes) > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "notes", "error": "notes must not exceed 10,000 characters"},
+        )
+
+    try:
+        parsed_user_id = _uuid.UUID(body.user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_workout_id = None
+    if body.workout_id is not None:
+        try:
+            parsed_workout_id = _uuid.UUID(body.workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        if parsed_workout_id is not None:
+            workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
+            if workout is None or workout.user_id != parsed_user_id:
+                raise HTTPException(status_code=404, detail="workout not found")
+
+        row = WorkoutFeel(
+            user_id=parsed_user_id,
+            feel_date=feel_date,
+            workout_id=parsed_workout_id,
+            rpe_1_to_10=body.rpe_1_to_10,
+            notes=body.notes,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(row.id),
+                "user_id": str(row.user_id),
+                "feel_date": row.feel_date.isoformat(),
+                "workout_id": str(row.workout_id) if row.workout_id else None,
+                "rpe_1_to_10": row.rpe_1_to_10,
+                "notes": row.notes,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             },
         )
