@@ -3279,6 +3279,151 @@ class _FeelBody(BaseModel):
     notes: Optional[str] = None
 
 
+class _FeelPatchBody(BaseModel):
+    workout_id: Optional[str] = None
+    rpe_1_to_10: Optional[int] = None
+    notes: Optional[str] = None
+    feel_date: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+def _feel_dict(row) -> dict:
+    return {
+        "id": str(row.id),
+        "user_id": str(row.user_id),
+        "feel_date": row.feel_date.isoformat(),
+        "workout_id": str(row.workout_id) if row.workout_id else None,
+        "rpe_1_to_10": row.rpe_1_to_10,
+        "notes": row.notes,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@app.get("/api/feel")
+def get_feel(
+    user_id: str,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    workout_id: Optional[str] = None,
+    has_rpe: Optional[bool] = None,
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_from = None
+    if from_date is not None:
+        try:
+            parsed_from = _date.fromisoformat(from_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+
+    parsed_to = None
+    if to_date is not None:
+        try:
+            parsed_to = _date.fromisoformat(to_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    parsed_workout_id = None
+    if workout_id is not None:
+        try:
+            parsed_workout_id = _uuid.UUID(workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == uid)
+        if parsed_from is not None:
+            q = q.filter(WorkoutFeel.feel_date >= parsed_from)
+        if parsed_to is not None:
+            q = q.filter(WorkoutFeel.feel_date <= parsed_to)
+        if parsed_workout_id is not None:
+            q = q.filter(WorkoutFeel.workout_id == parsed_workout_id)
+        if has_rpe is True:
+            q = q.filter(WorkoutFeel.rpe_1_to_10.isnot(None))
+
+        rows = q.order_by(WorkoutFeel.feel_date.desc(), WorkoutFeel.created_at.desc()).all()
+        return JSONResponse({"entries": [_feel_dict(r) for r in rows], "count": len(rows)})
+
+
+@app.patch("/api/feel/{feel_id}")
+def patch_feel(feel_id: str, body: _FeelPatchBody):
+    if body.feel_date is not None or body.user_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date" if body.feel_date is not None else "user_id", "error": "field is immutable"},
+        )
+
+    try:
+        fid = _uuid.UUID(feel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid feel_id")
+
+    if body.rpe_1_to_10 is not None and not (1 <= body.rpe_1_to_10 <= 10):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "rpe_1_to_10 must be an integer between 1 and 10"},
+        )
+
+    if body.notes is not None and len(body.notes) > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "notes", "error": "notes must not exceed 10,000 characters"},
+        )
+
+    parsed_workout_id = None
+    _update_workout_id = False
+    if body.workout_id is not None:
+        _update_workout_id = True
+        try:
+            parsed_workout_id = _uuid.UUID(body.workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        row = session.get(WorkoutFeel, fid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="feel entry not found")
+
+        if _update_workout_id:
+            workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
+            if workout is None or workout.user_id != row.user_id:
+                raise HTTPException(status_code=404, detail="workout not found")
+            row.workout_id = parsed_workout_id
+        if body.rpe_1_to_10 is not None:
+            row.rpe_1_to_10 = body.rpe_1_to_10
+        if body.notes is not None:
+            row.notes = body.notes
+
+        from datetime import datetime, timezone as _tz
+        row.updated_at = datetime.now(_tz.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_feel_dict(row))
+
+
+@app.delete("/api/feel/{feel_id}", status_code=204)
+def delete_feel(feel_id: str):
+    try:
+        fid = _uuid.UUID(feel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid feel_id")
+    with Session(engine) as session:
+        row = session.get(WorkoutFeel, fid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="feel entry not found")
+        session.delete(row)
+        session.commit()
+    return Response(status_code=204)
+
+
 @app.post("/api/feel", status_code=201)
 def post_feel(body: _FeelBody):
     try:
