@@ -20,8 +20,9 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
+
+from helpers import table_exists
 
 revision: str = "59a1b2c3d4e5"
 down_revision: Union[str, None] = "38a0b1c2d3e4"
@@ -30,10 +31,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if inspector.has_table("daily_readiness"):
+    if table_exists("daily_readiness"):
         return
 
     op.create_table(
@@ -94,7 +92,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_daily_readiness_user_date")
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    if inspector.has_table("daily_readiness"):
+    if table_exists("daily_readiness"):
         op.drop_table("daily_readiness")

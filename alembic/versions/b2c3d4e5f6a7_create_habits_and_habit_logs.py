@@ -11,6 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from helpers import table_exists
+
 revision: str = "b2c3d4e5f6a7"
 down_revision: Union[str, None] = "a1b2c3d4e5f6"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -18,10 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if not inspector.has_table("habits"):
+    if not table_exists("habits"):
         op.create_table(
             "habits",
             sa.Column(
@@ -49,7 +48,7 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
         )
 
-    if not inspector.has_table("habit_logs"):
+    if not table_exists("habit_logs"):
         op.create_table(
             "habit_logs",
             sa.Column(
@@ -75,10 +74,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if inspector.has_table("habit_logs"):
+    if table_exists("habit_logs"):
         op.drop_table("habit_logs")
-    if inspector.has_table("habits"):
+    if table_exists("habits"):
         op.drop_table("habits")

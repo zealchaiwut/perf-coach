@@ -238,6 +238,22 @@ class StravaToken(Base):
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
+class GoogleOAuthCredentials(Base):
+    __tablename__ = "google_oauth_credentials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    google_sub = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    email_verified = Column(Boolean, nullable=False, server_default=text("false"))
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    id_token_payload = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class StrydCredentials(Base):
     __tablename__ = "stryd_credentials"
 
