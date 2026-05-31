@@ -1,4 +1,4 @@
-"""Tests for issue #233: GET, PATCH, DELETE /api/feel"""
+"""Tests for issues #233, #248: GET, PATCH, DELETE /api/feel"""
 import uuid
 
 import httpx
