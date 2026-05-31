@@ -1,6 +1,8 @@
 import base64 as _base64
+import csv as _csv
 import hashlib as _hashlib
 import hmac as _hmac
+import io as _io
 import json as _json
 import os
 import secrets as _secrets
@@ -16,7 +18,7 @@ import urllib.error as _urllib_error
 _start_time = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
@@ -1744,6 +1746,151 @@ def delete_daily_metric(user_id: str, metric_date: str):
         session.delete(row)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Exports ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/exports/daily-metrics")
+def export_daily_metrics_csv(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(DailyMetric, WeightEntry).outerjoin(
+            WeightEntry,
+            (WeightEntry.user_id == DailyMetric.user_id)
+            & (WeightEntry.recorded_date == DailyMetric.metric_date),
+        ).filter(DailyMetric.user_id == uid)
+        if from_d is not None:
+            q = q.filter(DailyMetric.metric_date >= from_d)
+        if to_d is not None:
+            q = q.filter(DailyMetric.metric_date <= to_d)
+        rows = q.order_by(DailyMetric.metric_date.asc()).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(["metric_date", "rhr", "hrv", "sleep_hours", "energy", "mood", "weight_kg", "notes"])
+    for m, w in rows:
+        writer.writerow([
+            str(m.metric_date),
+            m.resting_hr if m.resting_hr is not None else "",
+            m.hrv if m.hrv is not None else "",
+            float(m.sleep_hours) if m.sleep_hours is not None else "",
+            m.energy if m.energy is not None else "",
+            m.mood if m.mood is not None else "",
+            float(w.weight_kg) if w is not None and w.weight_kg is not None else "",
+            m.notes if m.notes is not None else "",
+        ])
+
+    if from_d is not None and to_d is not None:
+        filename = f"daily-metrics-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "daily-metrics-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/workouts")
+def export_workouts_csv(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    type_filter = [t.strip() for t in types.split(",")] if types else None
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(Workout).filter(Workout.user_id == uid)
+        if from_d is not None:
+            q = q.filter(Workout.workout_date >= from_d)
+        if to_d is not None:
+            q = q.filter(Workout.workout_date <= to_d)
+        if type_filter:
+            q = q.filter(Workout.workout_type.in_(type_filter))
+        rows = q.order_by(Workout.workout_date.asc()).all()
+
+    _desired_cols = ["workout_date", "workout_type", "name", "distance_km", "duration_seconds", "avg_hr", "tss", "source", "remarks"]
+    _model_col_keys = {c.key for c in Workout.__table__.columns}
+    headers = [c for c in _desired_cols if c in _model_col_keys]
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(headers)
+    for w in rows:
+        row = []
+        for col in headers:
+            val = getattr(w, col)
+            if val is None:
+                row.append("")
+            elif col == "workout_date":
+                row.append(str(val))
+            else:
+                row.append(val)
+        writer.writerow(row)
+
+    if from_d is not None and to_d is not None:
+        filename = f"workouts-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "workouts-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Trends summary endpoint ────────────────────────────────────────────────────
