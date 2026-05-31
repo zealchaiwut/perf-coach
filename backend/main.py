@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 
 _start_time = time.monotonic()
@@ -3031,3 +3031,155 @@ def stryd_disconnect():
             session.commit()
 
     return JSONResponse({"disconnected": True})
+
+
+# ── Imports ───────────────────────────────────────────────────────────────────
+
+class _SleepImportBody(BaseModel):
+    user_id: str
+    import_date: str
+    source: str
+    data: dict
+
+
+@app.post("/api/imports/sleep")
+def post_sleep_import(body: _SleepImportBody):
+    try:
+        parsed_date = _date.fromisoformat(body.import_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "import_date", "error": "import_date must be a valid YYYY-MM-DD date"},
+        )
+
+    if body.source != "manual_json":
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "source", "error": "source must be 'manual_json'"},
+        )
+
+    if not body.data:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "data", "error": "data must contain at least one key"},
+        )
+
+    for field in ("sleep_duration_minutes", "deep_sleep_minutes", "rem_sleep_minutes", "light_sleep_minutes", "awake_minutes"):
+        val = body.data.get(field)
+        if val is not None and not (0 <= val <= 1440):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": field, "error": f"{field} must be between 0 and 1440"},
+            )
+
+    sleep_score = body.data.get("sleep_score")
+    if sleep_score is not None and not (0 <= sleep_score <= 100):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "sleep_score", "error": "sleep_score must be between 0 and 100"},
+        )
+
+    raw_start = body.data.get("sleep_start_time")
+    raw_end = body.data.get("sleep_end_time")
+    raw_duration = body.data.get("sleep_duration_minutes")
+
+    parsed_start = None
+    parsed_end = None
+
+    if raw_start is not None:
+        try:
+            parsed_start = _datetime.fromisoformat(f"2000-01-01T{raw_start}").time()
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_start_time", "error": "sleep_start_time must be HH:MM or HH:MM:SS"},
+            )
+
+    if raw_end is not None:
+        try:
+            parsed_end = _datetime.fromisoformat(f"2000-01-01T{raw_end}").time()
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_end_time", "error": "sleep_end_time must be HH:MM or HH:MM:SS"},
+            )
+
+    if parsed_start is not None and parsed_end is not None:
+        if parsed_end <= parsed_start:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_end_time", "error": "sleep_end_time must be after sleep_start_time"},
+            )
+        if raw_duration is not None:
+            start_dt = _datetime.combine(_date(2000, 1, 1), parsed_start)
+            end_dt = _datetime.combine(_date(2000, 1, 1), parsed_end)
+            computed = (end_dt - start_dt).total_seconds() / 60
+            if abs(raw_duration - computed) > 5:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "field": "sleep_duration_minutes",
+                        "error": (
+                            f"sleep_duration_minutes ({raw_duration}) differs from computed"
+                            f" end-start ({computed:.0f} min) by more than 5 minutes"
+                        ),
+                    },
+                )
+
+    try:
+        parsed_user_id = _uuid.UUID(body.user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        source_identifier = _hashlib.sha256(
+            _json.dumps(body.data, sort_keys=True).encode()
+        ).hexdigest()
+
+        record = SleepImport(
+            user_id=parsed_user_id,
+            source=body.source,
+            source_identifier=source_identifier,
+            import_date=parsed_date,
+            raw_data=body.model_dump(),
+            parsed_data=body.model_dump(),
+            import_status="parsed",
+        )
+        session.add(record)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            existing = (
+                session.query(SleepImport)
+                .filter(
+                    SleepImport.user_id == parsed_user_id,
+                    SleepImport.source == body.source,
+                    SleepImport.source_identifier == source_identifier,
+                )
+                .first()
+            )
+            if existing:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error_code": "duplicate",
+                        "message": "This data has already been imported",
+                        "existing_id": str(existing.id),
+                    },
+                )
+            raise
+
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(record.id),
+                "import_date": body.import_date,
+                "source": "manual_json",
+                "status": "parsed",
+            },
+        )
