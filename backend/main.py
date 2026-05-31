@@ -4,6 +4,8 @@ import hashlib as _hashlib
 import hmac as _hmac
 import io as _io
 import json as _json
+import logging as _logging
+import math as _math
 import os
 import secrets as _secrets
 import time
@@ -26,8 +28,9 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
+from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
 
 _start_time = time.monotonic()
 
@@ -1091,6 +1094,12 @@ def post_workout(body: WorkoutIn):
         session.refresh(workout)
         for e in exercises:
             session.refresh(e)
+        try:
+            daily_update(str(uid), workout_date)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc
+            )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -1165,6 +1174,12 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             .all()
         )
         session.refresh(workout)
+        try:
+            daily_update(str(workout.user_id), workout.workout_date)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc
+            )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -2409,6 +2424,19 @@ def get_training_log(
                         },
                     })
 
+        total_workout_days = (
+            session.query(Workout.workout_date)
+            .filter(Workout.user_id == uid)
+            .distinct()
+            .count()
+        )
+        today_snap = None
+        if total_workout_days >= 7:
+            today_snap = session.query(TrainingLoadSnapshot).filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == today,
+            ).first()
+
     workout_entries = [
         {
             "date": str(w.workout_date),
@@ -2471,7 +2499,26 @@ def get_training_log(
             },
         })
 
-    return JSONResponse({"weeks": weeks})
+    load_context = None
+    if total_workout_days >= 7:
+        if today_snap is not None:
+            lc_ctl = round(today_snap.ctl, 1)
+            lc_atl = round(today_snap.atl, 1)
+            lc_tsb = round(today_snap.tsb, 1)
+        else:
+            _load = current_load(str(uid), as_of=today)
+            lc_ctl = round(_load["ctl"], 1)
+            lc_atl = round(_load["atl"], 1)
+            lc_tsb = round(_load["tsb"], 1)
+        load_context = {
+            "ctl": lc_ctl,
+            "atl": lc_atl,
+            "tsb": lc_tsb,
+            "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
+            "as_of": today.isoformat(),
+        }
+
+    return JSONResponse({"weeks": weeks, "load_context": load_context})
 
 
 # ── Personal records endpoints ────────────────────────────────────────────────
@@ -3493,16 +3540,340 @@ def post_feel(body: _FeelBody):
         session.commit()
         session.refresh(row)
 
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(row.id),
-                "user_id": str(row.user_id),
-                "feel_date": row.feel_date.isoformat(),
-                "workout_id": str(row.workout_id) if row.workout_id else None,
-                "rpe_1_to_10": row.rpe_1_to_10,
-                "notes": row.notes,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        return JSONResponse(status_code=201, content=_feel_dict(row))
+
+
+# ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
+
+
+def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
+    if tsb >= 5:
+        label = "Fresh"
+    elif tsb > -5:
+        label = "Neutral"
+    elif tsb > -15:
+        label = "Productive (high load)"
+    else:
+        label = "Overreached (high risk)"
+
+    if ctl > 60:
+        return f"{label}, well-trained"
+    elif ctl < 30:
+        return f"{label}, undertrained"
+    return label
+
+
+@app.get("/api/training-load/current")
+def get_training_load_current(
+    user_id: str,
+    as_of: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid as_of date; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    load = current_load(str(uid), as_of=as_of_date)
+    ctl = round(load["ctl"], 1)
+    atl = round(load["atl"], 1)
+    tsb = round(load["tsb"], 1)
+
+    return JSONResponse({
+        "date": load["date"].isoformat(),
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "interpretation": _load_interpretation(ctl, atl, tsb),
+    })
+
+
+@app.get("/api/training-load")
+def get_training_load(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range must not exceed 365 days")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        snaps = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date >= from_d,
+                TrainingLoadSnapshot.snapshot_date <= to_d,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date)
+            .all()
+        )
+
+    snap_map = {s.snapshot_date: s for s in snaps}
+    all_dates = [from_d + _timedelta(days=i) for i in range((to_d - from_d).days + 1)]
+    missing_dates = [d for d in all_dates if d not in snap_map]
+
+    tss_map: dict = {}
+    if missing_dates:
+        hist_missing = [d for d in missing_dates if d <= today]
+        if hist_missing:
+            tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
+            tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = 0.0, 0.0
+    curves_out = []
+
+    for d in all_dates:
+        if d in snap_map:
+            s = snap_map[d]
+            ctl = s.ctl
+            atl = s.atl
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": s.tss_for_day,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+        else:
+            tss = tss_map.get(d, 0)
+            ctl = ctl + (tss - ctl) * ctl_alpha
+            atl = atl + (tss - atl) * atl_alpha
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": tss,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+
+    return JSONResponse({
+        "curves": curves_out,
+        "current": curves_out[-1] if curves_out else None,
+        "as_of": to_d.isoformat(),
+    })
+
+
+@app.post("/api/training-load/recompute")
+def recompute_training_load(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        from_d = _date.fromisoformat(from_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
+
+    today = _date.today()
+    if from_d > today:
+        raise HTTPException(status_code=422, detail="'from' must not be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        seed_snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
+            )
+            .first()
+        )
+
+    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
+    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
+
+    tss_series = daily_tss_series(str(uid), from_d, today)
+    tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = seed_ctl, seed_atl
+    rows = []
+    current = from_d
+    while current <= today:
+        tss = tss_map.get(current, 0)
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        tsb = ctl - atl
+        rows.append({
+            "user_id": uid,
+            "snapshot_date": current,
+            "tss_for_day": tss,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "tsb": round(tsb, 2),
+        })
+        current += _timedelta(days=1)
+
+    if rows:
+        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": insert_stmt.excluded.tss_for_day,
+                "ctl": insert_stmt.excluded.ctl,
+                "atl": insert_stmt.excluded.atl,
+                "tsb": insert_stmt.excluded.tsb,
+                "computed_at": _datetime.now(tz=_timezone.utc),
             },
         )
+        with Session(engine) as session:
+            session.execute(upsert_stmt)
+            session.commit()
+
+    return JSONResponse({
+        "recomputed": len(rows),
+        "from": from_d.isoformat(),
+        "to": today.isoformat(),
+    })
+
+
+@app.post("/api/training-load/refresh")
+def refresh_training_load(
+    user_id: str,
+    target_date: Optional[str] = Query(default=None, alias="date"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    try:
+        target = _date.fromisoformat(target_date) if target_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date; use YYYY-MM-DD")
+
+    if target > today:
+        raise HTTPException(status_code=422, detail="date cannot be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    result = daily_update(str(uid), target)
+    return JSONResponse({
+        "date": result["date"].isoformat(),
+        "tss": result["tss"],
+        "ctl": result["ctl"],
+        "atl": result["atl"],
+        "tsb": result["tsb"],
+    })
+
+
+@app.post("/api/training-load/backfill")
+def backfill_training_load(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        from_d = _date.fromisoformat(from_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
+
+    today = _date.today()
+    if from_d > today:
+        raise HTTPException(status_code=422, detail="'from' must not be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        seed_snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
+            )
+            .first()
+        )
+
+    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
+    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
+
+    tss_series = daily_tss_series(str(uid), from_d, today)
+    tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = seed_ctl, seed_atl
+    rows = []
+    current = from_d
+    while current <= today:
+        tss = tss_map.get(current, 0)
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        tsb = ctl - atl
+        rows.append({
+            "user_id": uid,
+            "snapshot_date": current,
+            "tss_for_day": tss,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "tsb": round(tsb, 2),
+        })
+        current += _timedelta(days=1)
+
+    if rows:
+        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": insert_stmt.excluded.tss_for_day,
+                "ctl": insert_stmt.excluded.ctl,
+                "atl": insert_stmt.excluded.atl,
+                "tsb": insert_stmt.excluded.tsb,
+                "computed_at": _datetime.now(tz=_timezone.utc),
+            },
+        )
+        with Session(engine) as session:
+            session.execute(upsert_stmt)
+            session.commit()
+
+    return JSONResponse({
+        "backfilled": len(rows),
+        "from": from_d.isoformat(),
+        "to": today.isoformat(),
+    })

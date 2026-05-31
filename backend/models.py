@@ -338,6 +338,7 @@ class WorkoutFeel(Base):
 
     __table_args__ = (
         Index("ix_workout_feel_user_feel_date", "user_id", "feel_date"),
+        CheckConstraint("rpe_1_to_10 >= 1 AND rpe_1_to_10 <= 10", name="ck_workout_feel_rpe_range"),
     )
 
 
@@ -367,4 +368,22 @@ class SleepImport(Base):
         ),
         UniqueConstraint("user_id", "source", "source_identifier", name="uq_sleep_imports_user_source_identifier"),
         Index("ix_sleep_imports_user_import_date", "user_id", "import_date"),
+    )
+
+
+class TrainingLoadSnapshot(Base):
+    __tablename__ = "training_load_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    tss_for_day = Column(Integer, nullable=False)
+    ctl = Column(Float, nullable=False)
+    atl = Column(Float, nullable=False)
+    tsb = Column(Float, nullable=False)
+    computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_training_load_snapshots_user_date"),
+        Index("ix_training_load_snapshots_user_date", "user_id", "snapshot_date"),
     )
