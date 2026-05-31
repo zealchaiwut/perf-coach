@@ -8,3 +8,4 @@ venv/
 .venv
 .DS_Store
 codedb.snapshot
+snapshots/
