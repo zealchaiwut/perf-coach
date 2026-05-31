@@ -338,6 +338,7 @@ class WorkoutFeel(Base):
 
     __table_args__ = (
         Index("ix_workout_feel_user_feel_date", "user_id", "feel_date"),
+        CheckConstraint("rpe_1_to_10 >= 1 AND rpe_1_to_10 <= 10", name="ck_workout_feel_rpe_range"),
     )
 
 
