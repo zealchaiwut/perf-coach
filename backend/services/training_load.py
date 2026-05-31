@@ -22,12 +22,16 @@ until the EWMA "charges up" over several weeks.
 from __future__ import annotations
 
 import math
-from datetime import date, timedelta
+import uuid as _uuid_mod
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
+from sqlalchemy.orm import Session
 
 from backend.db import engine
+from backend.models import TrainingLoadSnapshot
 
 
 def daily_tss_series(
@@ -145,4 +149,59 @@ def current_load(
         "ctl": last["ctl"],
         "atl": last["atl"],
         "tsb": last["tsb"],
+    }
+
+
+def daily_update(
+    user_id: str,
+    target_date: Optional[date] = None,
+) -> dict:
+    """Compute CTL/ATL/TSB for target_date and UPSERT into training_load_snapshots.
+
+    Uses a 6-month warmup window for EWMA convergence. Safe to re-run (idempotent).
+
+    Args:
+        user_id: the user's ID.
+        target_date: date to compute and store (default: today).
+
+    Returns:
+        dict with keys: date, tss, ctl, atl, tsb.
+    """
+    target = target_date if target_date is not None else date.today()
+    start = target - timedelta(days=180)
+    series = daily_tss_series(user_id, start, target)
+    curves = compute_load_curves(series)
+    last = curves[-1]
+
+    uid = _uuid_mod.UUID(str(user_id))
+    row = {
+        "user_id": uid,
+        "snapshot_date": target,
+        "tss_for_day": last["tss"],
+        "ctl": round(last["ctl"], 2),
+        "atl": round(last["atl"], 2),
+        "tsb": round(last["tsb"], 2),
+    }
+
+    stmt = _pg_insert(TrainingLoadSnapshot).values([row])
+    upsert = stmt.on_conflict_do_update(
+        index_elements=["user_id", "snapshot_date"],
+        set_={
+            "tss_for_day": stmt.excluded.tss_for_day,
+            "ctl": stmt.excluded.ctl,
+            "atl": stmt.excluded.atl,
+            "tsb": stmt.excluded.tsb,
+            "computed_at": datetime.now(tz=timezone.utc),
+        },
+    )
+    with Session(engine) as session:
+        session.execute(upsert)
+        session.commit()
+
+    return {
+        "date": target,
+        "tss": last["tss"],
+        "ctl": row["ctl"],
+        "atl": row["atl"],
+        "tsb": row["tsb"],
     }
