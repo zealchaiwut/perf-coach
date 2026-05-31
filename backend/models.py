@@ -322,3 +322,32 @@ class StrydActivity(Base):
     __table_args__ = (
         Index("ix_stryd_activities_user_start_time", "user_id", "start_time"),
     )
+
+
+class SleepImport(Base):
+    __tablename__ = "sleep_imports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(30), nullable=False)
+    source_identifier = Column(String(255), nullable=True)
+    import_date = Column(Date, nullable=False)
+    raw_data = Column(JSONB, nullable=False)
+    parsed_data = Column(JSONB, nullable=True)
+    import_status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('samsung_health', 'google_fit', 'manual_json', 'ocr_screenshot')",
+            name="ck_sleep_imports_source_values",
+        ),
+        CheckConstraint(
+            "import_status IN ('pending', 'parsed', 'merged', 'rejected', 'failed')",
+            name="ck_sleep_imports_import_status_values",
+        ),
+        UniqueConstraint("user_id", "source", "source_identifier", name="uq_sleep_imports_user_source_identifier"),
+        Index("ix_sleep_imports_user_import_date", "user_id", "import_date"),
+    )
