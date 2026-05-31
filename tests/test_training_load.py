@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.services.training_load import compute_load_curves, current_load, daily_tss_series
+from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
 
 _client = TestClient(app)
 _USER_ID = str(uuid.uuid4())
@@ -450,4 +450,154 @@ def test_api_recompute_upserts_snapshots():
     body = res.json()
     assert body["recomputed"] >= 1
     assert body["from"] == today_str
+    mock_sess.execute.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# daily_update + workout hook tests (issue #245): (a)–(e)
+# ---------------------------------------------------------------------------
+
+
+def _make_du_session_mock():
+    """Session mock for daily_update: handles execute + commit."""
+    mock_sess = MagicMock()
+    mock_sess.__enter__ = MagicMock(return_value=mock_sess)
+    mock_sess.__exit__ = MagicMock(return_value=False)
+    return mock_sess
+
+
+def _make_engine_conn_mock(rows=None):
+    """engine.connect() mock that returns given rows for daily_tss_series."""
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = rows or []
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value = mock_result
+    mock_conn.__enter__ = lambda s: mock_conn
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    return mock_conn
+
+
+# (a) daily_update creates a snapshot row for today
+
+
+def test_daily_update_creates_snapshot_for_today():
+    today = date.today()
+    mock_conn = _make_engine_conn_mock([(today, 80)])
+    mock_sess = _make_du_session_mock()
+
+    with (
+        patch("backend.services.training_load.engine") as mock_engine,
+        patch("backend.services.training_load.Session") as MockSession,
+    ):
+        mock_engine.connect.return_value = mock_conn
+        MockSession.return_value = mock_sess
+        result = daily_update(_USER_ID)
+
+    assert result["date"] == today
+    assert "ctl" in result and "atl" in result and "tsb" in result
+    mock_sess.execute.assert_called_once()
+    mock_sess.commit.assert_called_once()
+
+
+# (b) re-running daily_update with same inputs produces identical values and no duplicate row
+
+
+def test_daily_update_is_idempotent():
+    today = date.today()
+    mock_conn = _make_engine_conn_mock([(today, 80)])
+    mock_sess = _make_du_session_mock()
+
+    with (
+        patch("backend.services.training_load.engine") as mock_engine,
+        patch("backend.services.training_load.Session") as MockSession,
+    ):
+        mock_engine.connect.return_value = mock_conn
+        MockSession.return_value = mock_sess
+        result1 = daily_update(_USER_ID)
+        result2 = daily_update(_USER_ID)
+
+    assert result1["ctl"] == result2["ctl"]
+    assert result1["atl"] == result2["atl"]
+    assert result1["tsb"] == result2["tsb"]
+    assert mock_sess.execute.call_count == 2
+
+
+# (c) POST /api/workouts results in daily_update being called
+
+
+def test_post_workout_calls_daily_update():
+    today_str = date.today().isoformat()
+    payload = {
+        "user_id": _USER_ID,
+        "name": "Test Run",
+        "workout_date": today_str,
+        "workout_type": "run",
+        "tss": 50.0,
+    }
+
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.daily_update") as mock_du,
+        patch("backend.main.compute_best_values", return_value={
+            "best_distance_km": None, "best_duration_seconds": None,
+            "best_avg_hr": None, "best_avg_power_w": None,
+            "best_tss": 50.0, "best_name": "Test Run",
+        }),
+    ):
+        res = _client.post("/api/workouts", json=payload)
+
+    assert res.status_code == 201
+    mock_du.assert_called_once()
+    call_args = mock_du.call_args
+    assert call_args[0][1] == date.today()
+
+
+# (d) simulated daily_update failure does not cause workout creation to fail
+
+
+def test_post_workout_succeeds_even_if_daily_update_fails():
+    today_str = date.today().isoformat()
+    payload = {
+        "user_id": _USER_ID,
+        "name": "Test Run",
+        "workout_date": today_str,
+        "workout_type": "run",
+    }
+
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.daily_update", side_effect=Exception("DB connection lost")),
+        patch("backend.main.compute_best_values", return_value={
+            "best_distance_km": None, "best_duration_seconds": None,
+            "best_avg_hr": None, "best_avg_power_w": None,
+            "best_tss": None, "best_name": "Test Run",
+        }),
+    ):
+        res = _client.post("/api/workouts", json=payload)
+
+    assert res.status_code == 201
+
+
+# (e) backfill endpoint returns 2xx and populates expected snapshot rows
+
+
+def test_backfill_endpoint_populates_snapshot_rows():
+    from_str = "2026-01-01"
+    from_d = date(2026, 1, 1)
+    today = date.today()
+    n_days = (today - from_d).days + 1
+
+    tss_series = [(from_d + timedelta(days=i), 80) for i in range(n_days)]
+    mock_sess = _mock_session_smart(seed_snap=None)
+
+    with (
+        patch("backend.main.Session", return_value=mock_sess),
+        patch("backend.main.daily_tss_series", return_value=tss_series),
+    ):
+        res = _client.post(f"/api/training-load/backfill?user_id={_USER_ID}&from={from_str}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["backfilled"] == n_days
+    assert body["from"] == from_str
     mock_sess.execute.assert_called()
