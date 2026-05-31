@@ -4,6 +4,7 @@ import hashlib as _hashlib
 import hmac as _hmac
 import io as _io
 import json as _json
+import math as _math
 import os
 import secrets as _secrets
 import time
@@ -26,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import compute_load_curves, current_load, daily_tss_series
 
@@ -3554,8 +3555,6 @@ def get_training_load(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
 ):
-    from datetime import timedelta
-
     try:
         uid = _uuid.UUID(user_id)
     except ValueError:
@@ -3563,7 +3562,7 @@ def get_training_load(
 
     today = _date.today()
     try:
-        from_d = _date.fromisoformat(from_date) if from_date else today - timedelta(days=90)
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
         to_d = _date.fromisoformat(to_date) if to_date else today
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
@@ -3578,22 +3577,142 @@ def get_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-    series = daily_tss_series(str(uid), from_d, to_d)
-    curves = compute_load_curves(series)
+        snaps = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date >= from_d,
+                TrainingLoadSnapshot.snapshot_date <= to_d,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date)
+            .all()
+        )
 
-    curves_out = [
-        {
-            "date": entry["date"].isoformat(),
-            "tss": entry["tss"],
-            "ctl": round(entry["ctl"], 1),
-            "atl": round(entry["atl"], 1),
-            "tsb": round(entry["tsb"], 1),
-        }
-        for entry in curves
-    ]
+    snap_map = {s.snapshot_date: s for s in snaps}
+    all_dates = [from_d + _timedelta(days=i) for i in range((to_d - from_d).days + 1)]
+    missing_dates = [d for d in all_dates if d not in snap_map]
+
+    tss_map: dict = {}
+    if missing_dates:
+        hist_missing = [d for d in missing_dates if d <= today]
+        if hist_missing:
+            tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
+            tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = 0.0, 0.0
+    curves_out = []
+
+    for d in all_dates:
+        if d in snap_map:
+            s = snap_map[d]
+            ctl = s.ctl
+            atl = s.atl
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": s.tss_for_day,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+        else:
+            tss = tss_map.get(d, 0)
+            ctl = ctl + (tss - ctl) * ctl_alpha
+            atl = atl + (tss - atl) * atl_alpha
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": tss,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
 
     return JSONResponse({
         "curves": curves_out,
         "current": curves_out[-1] if curves_out else None,
         "as_of": to_d.isoformat(),
+    })
+
+
+@app.post("/api/training-load/recompute")
+def recompute_training_load(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        from_d = _date.fromisoformat(from_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
+
+    today = _date.today()
+    if from_d > today:
+        raise HTTPException(status_code=422, detail="'from' must not be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        seed_snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
+            )
+            .first()
+        )
+
+    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
+    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
+
+    tss_series = daily_tss_series(str(uid), from_d, today)
+    tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = seed_ctl, seed_atl
+    rows = []
+    current = from_d
+    while current <= today:
+        tss = tss_map.get(current, 0)
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        tsb = ctl - atl
+        rows.append({
+            "user_id": uid,
+            "snapshot_date": current,
+            "tss_for_day": tss,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "tsb": round(tsb, 2),
+        })
+        current += _timedelta(days=1)
+
+    if rows:
+        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": insert_stmt.excluded.tss_for_day,
+                "ctl": insert_stmt.excluded.ctl,
+                "atl": insert_stmt.excluded.atl,
+                "tsb": insert_stmt.excluded.tsb,
+                "computed_at": _datetime.now(tz=_timezone.utc),
+            },
+        )
+        with Session(engine) as session:
+            session.execute(upsert_stmt)
+            session.commit()
+
+    return JSONResponse({
+        "recomputed": len(rows),
+        "from": from_d.isoformat(),
+        "to": today.isoformat(),
     })

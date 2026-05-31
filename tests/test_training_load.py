@@ -1,5 +1,6 @@
 """Tests for backend/services/training_load.py and /api/training-load endpoints."""
 
+import math
 import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,29 @@ from backend.services.training_load import compute_load_curves, current_load, da
 
 _client = TestClient(app)
 _USER_ID = str(uuid.uuid4())
+
+
+def _mock_session_smart(snap_list=None, seed_snap=None):
+    """Session mock that returns different results for User vs TrainingLoadSnapshot queries."""
+    from backend.models import User as _User, TrainingLoadSnapshot as _TLS
+
+    fake_user = MagicMock()
+    fake_user.id = uuid.UUID(_USER_ID)
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+
+    def _query_side_effect(model):
+        m = MagicMock()
+        if model is _User:
+            m.filter.return_value.first.return_value = fake_user
+        else:
+            m.filter.return_value.first.return_value = seed_snap
+            m.filter.return_value.order_by.return_value.all.return_value = snap_list or []
+        return m
+
+    mock_session.query.side_effect = _query_side_effect
+    return mock_session
 
 
 def _mock_session_with_user():
@@ -198,14 +222,15 @@ def _make_series(n_days: int, tss: int = 80, end: date | None = None) -> list[tu
 
 
 def test_api_training_load_response_shape():
+    today = date.today()
+    from_str = (today - timedelta(days=29)).isoformat()
+    to_str = today.isoformat()
     series = _make_series(30)
-    curves = compute_load_curves(series)
     with (
         patch("backend.main.Session", return_value=_mock_session_with_user()),
         patch("backend.main.daily_tss_series", return_value=series),
-        patch("backend.main.compute_load_curves", return_value=curves),
     ):
-        res = _client.get(f"/api/training-load?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
 
     assert res.status_code == 200
     body = res.json()
@@ -298,3 +323,131 @@ def test_api_training_load_current_tsb_neg15_is_overreached():
 
     assert res.status_code == 200
     assert res.json()["interpretation"] == "Overreached (high risk)"
+
+
+# ---------------------------------------------------------------------------
+# Snapshot cache tests (issue #244): (a)–(e)
+# ---------------------------------------------------------------------------
+
+
+# (a) backfill creates snapshot rows for date range
+
+
+def test_backfill_creates_snapshot_rows():
+    from scripts.backfill_training_load import _compute_backfill_rows
+
+    start = date(2024, 1, 1)
+    end = date(2024, 1, 10)
+    tss_by_date = {start + timedelta(days=i): 80 for i in range(10)}
+
+    rows = _compute_backfill_rows(str(uuid.uuid4()), start, tss_by_date, end)
+
+    assert len(rows) == 10
+    assert rows[0]["snapshot_date"] == start
+    assert rows[-1]["snapshot_date"] == end
+    for r in rows:
+        assert "ctl" in r and "atl" in r and "tsb" in r and "tss_for_day" in r
+    assert all(r["ctl"] > 0 for r in rows)
+
+
+# (b) re-running backfill produces identical rows (computation is idempotent)
+
+
+def test_backfill_is_idempotent():
+    from scripts.backfill_training_load import _compute_backfill_rows
+
+    start = date(2024, 1, 1)
+    end = date(2024, 1, 5)
+    tss_by_date = {start + timedelta(days=i): 60 for i in range(5)}
+    uid = str(uuid.uuid4())
+
+    rows1 = _compute_backfill_rows(uid, start, tss_by_date, end)
+    rows2 = _compute_backfill_rows(uid, start, tss_by_date, end)
+
+    assert rows1 == rows2
+
+
+# (c) GET reads from snapshots when all dates are cached
+
+
+def test_api_get_reads_from_snapshots():
+    from_str = "2024-01-01"
+    to_str = "2024-01-05"
+
+    snaps = []
+    for i in range(5):
+        s = MagicMock()
+        s.snapshot_date = date(2024, 1, i + 1)
+        s.tss_for_day = 100
+        s.ctl = 5.0 + i * 0.5
+        s.atl = 4.0 + i * 0.5
+        snaps.append(s)
+
+    with (
+        patch("backend.main.Session", return_value=_mock_session_smart(snap_list=snaps)),
+        patch("backend.main.daily_tss_series") as mock_tss,
+    ):
+        res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["curves"]) == 5
+    for i, entry in enumerate(body["curves"]):
+        assert entry["tss"] == 100
+        assert entry["ctl"] == round(5.0 + i * 0.5, 1)
+    mock_tss.assert_not_called()
+
+
+# (d) GET falls back to on-demand computation for dates missing from snapshots
+
+
+def test_api_get_falls_back_for_missing_days():
+    from_str = "2024-01-01"
+    to_str = "2024-01-05"
+
+    # Jan 3 (index 2) is absent from snapshots
+    snaps = []
+    for i in [0, 1, 3, 4]:
+        s = MagicMock()
+        s.snapshot_date = date(2024, 1, i + 1)
+        s.tss_for_day = 80
+        s.ctl = 10.0 + i
+        s.atl = 9.0 + i
+        snaps.append(s)
+
+    missing_tss = [(date(2024, 1, 3), 80)]
+
+    with (
+        patch("backend.main.Session", return_value=_mock_session_smart(snap_list=snaps)),
+        patch("backend.main.daily_tss_series", return_value=missing_tss) as mock_tss,
+    ):
+        res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["curves"]) == 5
+    assert "2024-01-03" in [e["date"] for e in body["curves"]]
+    mock_tss.assert_called_once()
+
+
+# (e) recompute endpoint UPSERTs snapshot values and returns 200
+
+
+def test_api_recompute_upserts_snapshots():
+    today = date.today()
+    today_str = today.isoformat()
+    today_series = [(today, 80)]
+
+    mock_sess = _mock_session_smart(seed_snap=None)
+
+    with (
+        patch("backend.main.Session", return_value=mock_sess),
+        patch("backend.main.daily_tss_series", return_value=today_series),
+    ):
+        res = _client.post(f"/api/training-load/recompute?user_id={_USER_ID}&from={today_str}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["recomputed"] >= 1
+    assert body["from"] == today_str
+    mock_sess.execute.assert_called()
