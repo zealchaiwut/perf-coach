@@ -31,6 +31,7 @@ from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.feel_link import auto_link_feel_entries
 
 _start_time = time.monotonic()
 
@@ -3540,7 +3541,29 @@ def post_feel(body: _FeelBody):
         session.commit()
         session.refresh(row)
 
+        if parsed_workout_id is None:
+            try:
+                auto_link_feel_entries(parsed_user_id, feel_date)
+                session.refresh(row)
+            except Exception as exc:
+                import logging as _logging
+                _logging.getLogger(__name__).warning("auto_link_feel_entries failed: %s", exc)
+
         return JSONResponse(status_code=201, content=_feel_dict(row))
+
+
+@app.post("/api/feel/auto-link")
+def post_feel_auto_link(user_id: str, feel_date: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id")
+    try:
+        parsed_date = _date.fromisoformat(feel_date)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail={"field": "feel_date", "error": "feel_date must be YYYY-MM-DD"})
+    linked = auto_link_feel_entries(uid, parsed_date)
+    return JSONResponse({"linked": linked})
 
 
 # ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
