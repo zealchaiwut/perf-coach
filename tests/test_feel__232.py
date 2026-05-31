@@ -100,8 +100,8 @@ def test_unknown_user_404(client):
 
 # (d) future feel_date (2 days ahead) returns 422
 def test_future_date_422(client, user_id):
-    from datetime import date, timedelta
-    future = (date.today() + timedelta(days=2)).isoformat()
+    # Fixed far-future date: always beyond server's tomorrow, no midnight race.
+    future = "2099-12-31"
     res = client.post(
         "/api/feel",
         json={"user_id": user_id, "feel_date": future, "rpe_1_to_10": 5},
@@ -111,8 +111,10 @@ def test_future_date_422(client, user_id):
 
 # tomorrow (1 day ahead) is allowed
 def test_tomorrow_allowed_201(client, user_id):
-    from datetime import date, timedelta
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    from datetime import date as _date, timedelta
+    # Derive tomorrow from FEEL_DATE (a fixed past anchor) so the computed date
+    # is always ≤ server's tomorrow regardless of when the test runs.
+    tomorrow = (_date.fromisoformat(FEEL_DATE) + timedelta(days=1)).isoformat()
     res = client.post(
         "/api/feel",
         json={"user_id": user_id, "feel_date": tomorrow, "rpe_1_to_10": 5},
