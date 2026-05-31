@@ -168,3 +168,120 @@ def test_single_field_201(client, user_id):
     assert body["source"] == "manual_json"
     assert body["status"] == "parsed"
     uuid.UUID(body["id"])
+
+
+# ── GET /api/imports/sleep (issue #219) ───────────────────────────────────────
+
+LIST_DATE_A = "2026-01-15"
+LIST_DATE_B = "2026-02-20"
+LIST_DATE_C = "2026-03-10"
+
+
+@pytest.fixture(scope="module")
+def list_user_id(client):
+    name = f"ListUser_{_RUN}"
+    res = client.post("/api/users", json={"name": name})
+    assert res.status_code in (201, 409)
+    users = client.get("/api/users").json()
+    u = next((u for u in users if u["name"] == name), None)
+    assert u is not None
+    return u["id"]
+
+
+def _post_import(client, uid: str, import_date: str, tag: str) -> str:
+    res = client.post(
+        "/api/imports/sleep",
+        json={
+            "user_id": uid,
+            "import_date": import_date,
+            "source": "manual_json",
+            "data": {"sleep_score": 80, "_tag": tag},
+        },
+    )
+    assert res.status_code == 201
+    return res.json()["id"]
+
+
+@pytest.fixture(scope="module")
+def list_imports(client, list_user_id):
+    ids = [
+        _post_import(client, list_user_id, LIST_DATE_A, f"{_RUN}_a"),
+        _post_import(client, list_user_id, LIST_DATE_B, f"{_RUN}_b"),
+        _post_import(client, list_user_id, LIST_DATE_C, f"{_RUN}_c"),
+    ]
+    return ids
+
+
+# (a) Empty list for user with no imports
+def test_get_list_empty(client):
+    new_user = client.post("/api/users", json={"name": f"EmptyUser_{_RUN}"}).json()
+    uid = new_user["id"]
+    res = client.get(f"/api/imports/sleep?user_id={uid}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["imports"] == []
+    assert body["count"] == 0
+    assert body["summary"]["total"] == 0
+    assert body["summary"]["by_status"] == {}
+    assert body["summary"]["date_range"] == {"earliest": None, "latest": None}
+
+
+# (b) Returns correct imports for valid user_id
+def test_get_list_returns_imports(client, list_user_id, list_imports):
+    res = client.get(f"/api/imports/sleep?user_id={list_user_id}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["count"] == len(list_imports)
+    assert len(body["imports"]) == body["count"]
+    returned_ids = {i["id"] for i in body["imports"]}
+    for iid in list_imports:
+        assert iid in returned_ids
+
+
+# (c) from/to date range filter
+def test_get_list_date_range(client, list_user_id, list_imports):
+    res = client.get(f"/api/imports/sleep?user_id={list_user_id}&from=2026-01-01&to=2026-02-28")
+    assert res.status_code == 200
+    body = res.json()
+    dates = [i["import_date"] for i in body["imports"]]
+    assert all("2026-01-01" <= d <= "2026-02-28" for d in dates)
+    assert LIST_DATE_A in dates
+    assert LIST_DATE_B in dates
+    assert LIST_DATE_C not in dates
+
+
+# (d) status filter
+def test_get_list_status_filter(client, list_user_id, list_imports):
+    res = client.get(f"/api/imports/sleep?user_id={list_user_id}&status=parsed")
+    assert res.status_code == 200
+    body = res.json()
+    assert all(i["import_status"] == "parsed" for i in body["imports"])
+
+    res2 = client.get(f"/api/imports/sleep?user_id={list_user_id}&status=rejected")
+    assert res2.status_code == 200
+    assert res2.json()["count"] == 0
+
+
+# (e) summary.by_status counts match actual records
+def test_get_list_summary_by_status(client, list_user_id, list_imports):
+    res = client.get(f"/api/imports/sleep?user_id={list_user_id}")
+    assert res.status_code == 200
+    body = res.json()
+    by_status = body["summary"]["by_status"]
+    assert body["summary"]["total"] == body["count"]
+    assert sum(by_status.values()) == body["count"]
+
+
+# (f) raw_data and parsed_data absent from every item
+def test_get_list_no_raw_parsed(client, list_user_id, list_imports):
+    res = client.get(f"/api/imports/sleep?user_id={list_user_id}")
+    assert res.status_code == 200
+    for item in res.json()["imports"]:
+        assert "raw_data" not in item
+        assert "parsed_data" not in item
+
+
+# 404 for unknown user_id
+def test_get_list_unknown_user_404(client):
+    res = client.get(f"/api/imports/sleep?user_id={uuid.uuid4()}")
+    assert res.status_code == 404
