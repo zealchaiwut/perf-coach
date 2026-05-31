@@ -33,8 +33,6 @@ from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 
-_start_time = time.monotonic()
-
 app = FastAPI()
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
@@ -45,16 +43,20 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 @app.get("/api/health")
 def health():
-    """Return service health status.
+    """Return service liveness and environment metadata.
 
     Response schema (current — introduced in #155/#156):
         {
-            "status":          "ok" | "degraded",
-            "environment":     "uat" | "prd" | "local",
-            "version":         "<GIT_SHA>" | "unknown",
-            "db":              "ok" | "error: <msg>",
+            "status":          "ok",
+            "environment":     "uat" | "prd" | "local"  (ENVIRONMENT env var, defaults to "local"),
+            "version":         "<GIT_SHA>" | "unknown"   (GIT_SHA env var, defaults to "unknown"),
+            "db":              "ok" | "error",
             "uptime_seconds":  <int>
         }
+
+    Always returns HTTP 200. "db" is "error" when SELECT 1 fails or times out
+    (hard cap: 2 s). "status" is always "ok" regardless of db state.
+    No authentication or user_id required.
 
     Breaking changes from the previous schema:
         - "database" key renamed to "db"
