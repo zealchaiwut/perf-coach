@@ -2424,6 +2424,19 @@ def get_training_log(
                         },
                     })
 
+        total_workout_days = (
+            session.query(Workout.workout_date)
+            .filter(Workout.user_id == uid)
+            .distinct()
+            .count()
+        )
+        today_snap = None
+        if total_workout_days >= 7:
+            today_snap = session.query(TrainingLoadSnapshot).filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == today,
+            ).first()
+
     workout_entries = [
         {
             "date": str(w.workout_date),
@@ -2486,7 +2499,26 @@ def get_training_log(
             },
         })
 
-    return JSONResponse({"weeks": weeks})
+    load_context = None
+    if total_workout_days >= 7:
+        if today_snap is not None:
+            lc_ctl = round(today_snap.ctl, 1)
+            lc_atl = round(today_snap.atl, 1)
+            lc_tsb = round(today_snap.tsb, 1)
+        else:
+            _load = current_load(str(uid), as_of=today)
+            lc_ctl = round(_load["ctl"], 1)
+            lc_atl = round(_load["atl"], 1)
+            lc_tsb = round(_load["tsb"], 1)
+        load_context = {
+            "ctl": lc_ctl,
+            "atl": lc_atl,
+            "tsb": lc_tsb,
+            "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
+            "as_of": today.isoformat(),
+        }
+
+    return JSONResponse({"weeks": weeks, "load_context": load_context})
 
 
 # ── Personal records endpoints ────────────────────────────────────────────────
@@ -3513,6 +3545,24 @@ def post_feel(body: _FeelBody):
 
 # ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
 
+
+def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
+    if tsb >= 5:
+        label = "Fresh"
+    elif tsb > -5:
+        label = "Neutral"
+    elif tsb > -15:
+        label = "Productive (high load)"
+    else:
+        label = "Overreached (high risk)"
+
+    if ctl > 60:
+        return f"{label}, well-trained"
+    elif ctl < 30:
+        return f"{label}, undertrained"
+    return label
+
+
 @app.get("/api/training-load/current")
 def get_training_load_current(
     user_id: str,
@@ -3537,28 +3587,12 @@ def get_training_load_current(
     atl = round(load["atl"], 1)
     tsb = round(load["tsb"], 1)
 
-    if tsb >= 5:
-        label = "Fresh"
-    elif tsb > -5:
-        label = "Neutral"
-    elif tsb > -15:
-        label = "Productive (high load)"
-    else:
-        label = "Overreached (high risk)"
-
-    if ctl > 60:
-        interpretation = f"{label}, well-trained"
-    elif ctl < 30:
-        interpretation = f"{label}, undertrained"
-    else:
-        interpretation = label
-
     return JSONResponse({
         "date": load["date"].isoformat(),
         "ctl": ctl,
         "atl": atl,
         "tsb": tsb,
-        "interpretation": interpretation,
+        "interpretation": _load_interpretation(ctl, atl, tsb),
     })
 
 
