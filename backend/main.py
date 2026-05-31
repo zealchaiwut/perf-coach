@@ -3031,3 +3031,87 @@ def stryd_disconnect():
             session.commit()
 
     return JSONResponse({"disconnected": True})
+
+
+# ── Google OAuth ───────────────────────────────────────────────────────────────
+
+_GOOGLE_SCOPE_DEFAULT = "openid email profile"
+_GOOGLE_SCOPE_FITNESS = "openid email profile https://www.googleapis.com/auth/fitness.activity.read"
+_VALID_GOOGLE_SCOPES = {_GOOGLE_SCOPE_DEFAULT, _GOOGLE_SCOPE_FITNESS}
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+
+
+def _make_google_state_token(user_id: str, secret: str) -> str:
+    """Return a signed state token encoding {user_id, ts, nonce}."""
+    payload = {"user_id": user_id, "ts": int(time.time()), "nonce": _secrets.token_hex(8)}
+    payload_b64 = _base64.urlsafe_b64encode(_json.dumps(payload).encode()).rstrip(b"=").decode()
+    sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    sig_b64 = _base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{payload_b64}.{sig_b64}"
+
+
+def _verify_google_state_token(token: str, secret: str, max_age: int = _STATE_TOKEN_MAX_AGE) -> dict:
+    """Decode and verify a state token. Raises ValueError on bad signature or expiry."""
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid token format")
+    payload_b64, sig_b64 = parts
+    expected_sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    expected_b64 = _base64.urlsafe_b64encode(expected_sig).rstrip(b"=").decode()
+    if not _hmac.compare_digest(sig_b64, expected_b64):
+        raise ValueError("Invalid signature")
+    pad = (4 - len(payload_b64) % 4) % 4
+    payload = _json.loads(_base64.urlsafe_b64decode(payload_b64 + "=" * pad))
+    if time.time() - payload["ts"] > max_age:
+        raise ValueError("Token expired")
+    return payload
+
+
+@app.get("/api/google/connect")
+def google_connect(scope: str = Query(default=_GOOGLE_SCOPE_DEFAULT)):
+    """Initiate Google OAuth flow for the default user.
+
+    Returns authorize_url as JSON; does not redirect. Default user is the first
+    user (by name) in the users table — multi-user support is deferred.
+    Valid scopes: 'openid email profile' (default) or the same plus the fitness
+    activity read scope.
+    """
+    if scope not in _VALID_GOOGLE_SCOPES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid scope '{scope}'. Must be one of: "
+                f"'{_GOOGLE_SCOPE_DEFAULT}' or '{_GOOGLE_SCOPE_FITNESS}'"
+            ),
+        )
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID is not configured")
+
+    if not os.getenv("GOOGLE_CLIENT_SECRET"):
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_SECRET is not configured")
+
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:9001/api/google/callback")
+
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    state = _make_google_state_token(user_id, state_secret)
+    authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scope,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return JSONResponse({"authorize_url": authorize_url})
