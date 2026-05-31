@@ -1,11 +1,35 @@
-"""Tests for backend/services/training_load.py"""
+"""Tests for backend/services/training_load.py and /api/training-load endpoints."""
 
+import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
+from backend.main import app
 from backend.services.training_load import compute_load_curves, current_load, daily_tss_series
+
+_client = TestClient(app)
+_USER_ID = str(uuid.uuid4())
+
+
+def _mock_session_with_user():
+    fake_user = MagicMock()
+    fake_user.id = uuid.UUID(_USER_ID)
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.query.return_value.filter.return_value.first.return_value = fake_user
+    return mock_session
+
+
+def _mock_session_no_user():
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.query.return_value.filter.return_value.first.return_value = None
+    return mock_session
 
 
 # ---------------------------------------------------------------------------
@@ -158,3 +182,119 @@ def test_daily_tss_series_future_from_date():
     future = date.today() + timedelta(days=10)
     with pytest.raises(ValueError, match="future"):
         daily_tss_series("user-1", future, future + timedelta(days=5))
+
+
+# ---------------------------------------------------------------------------
+# API endpoint tests (a)–(e)
+# ---------------------------------------------------------------------------
+
+def _make_series(n_days: int, tss: int = 80, end: date | None = None) -> list[tuple[date, int]]:
+    end = end or date.today()
+    start = end - timedelta(days=n_days - 1)
+    return [(start + timedelta(days=i), tss) for i in range(n_days)]
+
+
+# (a) GET /api/training-load returns correct response shape
+
+
+def test_api_training_load_response_shape():
+    series = _make_series(30)
+    curves = compute_load_curves(series)
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.daily_tss_series", return_value=series),
+        patch("backend.main.compute_load_curves", return_value=curves),
+    ):
+        res = _client.get(f"/api/training-load?user_id={_USER_ID}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert "curves" in body
+    assert "current" in body
+    assert "as_of" in body
+    assert isinstance(body["curves"], list)
+    assert len(body["curves"]) == 30
+    first = body["curves"][0]
+    for key in ("date", "tss", "ctl", "atl", "tsb"):
+        assert key in first
+    assert body["current"] == body["curves"][-1]
+
+
+# (b) from/to filter trims returned curves correctly
+
+
+def test_api_training_load_date_range_filter():
+    from_str = "2025-01-01"
+    to_str = "2025-01-10"
+    series = [(date(2025, 1, i), 50) for i in range(1, 11)]
+    curves = compute_load_curves(series)
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.daily_tss_series", return_value=series),
+        patch("backend.main.compute_load_curves", return_value=curves),
+    ):
+        res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["as_of"] == to_str
+    dates = [e["date"] for e in body["curves"]]
+    assert dates[0] == from_str
+    assert dates[-1] == to_str
+    assert len(dates) == 10
+
+
+# (c) Range > 365 days returns 422
+
+
+def test_api_training_load_range_exceeds_365():
+    res = _client.get(
+        f"/api/training-load?user_id={_USER_ID}&from=2024-01-01&to=2025-06-01"
+    )
+    assert res.status_code == 422
+    assert "365" in res.text
+
+
+# (d) GET /api/training-load/current returns interpretation field
+
+
+def test_api_training_load_current_has_interpretation():
+    load = {"date": date.today(), "ctl": 50.0, "atl": 48.0, "tsb": 2.0}
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.current_load", return_value=load),
+    ):
+        res = _client.get(f"/api/training-load/current?user_id={_USER_ID}")
+
+    assert res.status_code == 200
+    body = res.json()
+    for key in ("date", "ctl", "atl", "tsb", "interpretation"):
+        assert key in body
+    assert body["interpretation"] == "Neutral"
+
+
+# (e) Boundary values: TSB = 5 → "Fresh", TSB = -15 → "Overreached (high risk)"
+
+
+def test_api_training_load_current_tsb_5_is_fresh():
+    load = {"date": date.today(), "ctl": 40.0, "atl": 35.0, "tsb": 5.0}
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.current_load", return_value=load),
+    ):
+        res = _client.get(f"/api/training-load/current?user_id={_USER_ID}")
+
+    assert res.status_code == 200
+    assert res.json()["interpretation"] == "Fresh"
+
+
+def test_api_training_load_current_tsb_neg15_is_overreached():
+    load = {"date": date.today(), "ctl": 40.0, "atl": 55.0, "tsb": -15.0}
+    with (
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.current_load", return_value=load),
+    ):
+        res = _client.get(f"/api/training-load/current?user_id={_USER_ID}")
+
+    assert res.status_code == 200
+    assert res.json()["interpretation"] == "Overreached (high risk)"

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
+from backend.services.training_load import compute_load_curves, current_load, daily_tss_series
 
 _start_time = time.monotonic()
 
@@ -3494,3 +3495,105 @@ def post_feel(body: _FeelBody):
         session.refresh(row)
 
         return JSONResponse(status_code=201, content=_feel_dict(row))
+
+
+# ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
+
+@app.get("/api/training-load/current")
+def get_training_load_current(
+    user_id: str,
+    as_of: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid as_of date; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    load = current_load(str(uid), as_of=as_of_date)
+    ctl = round(load["ctl"], 1)
+    atl = round(load["atl"], 1)
+    tsb = round(load["tsb"], 1)
+
+    if tsb >= 5:
+        label = "Fresh"
+    elif tsb > -5:
+        label = "Neutral"
+    elif tsb > -15:
+        label = "Productive (high load)"
+    else:
+        label = "Overreached (high risk)"
+
+    if ctl > 60:
+        interpretation = f"{label}, well-trained"
+    elif ctl < 30:
+        interpretation = f"{label}, undertrained"
+    else:
+        interpretation = label
+
+    return JSONResponse({
+        "date": load["date"].isoformat(),
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "interpretation": interpretation,
+    })
+
+
+@app.get("/api/training-load")
+def get_training_load(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    from datetime import timedelta
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - timedelta(days=90)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range must not exceed 365 days")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    series = daily_tss_series(str(uid), from_d, to_d)
+    curves = compute_load_curves(series)
+
+    curves_out = [
+        {
+            "date": entry["date"].isoformat(),
+            "tss": entry["tss"],
+            "ctl": round(entry["ctl"], 1),
+            "atl": round(entry["atl"], 1),
+            "tsb": round(entry["tsb"], 1),
+        }
+        for entry in curves
+    ]
+
+    return JSONResponse({
+        "curves": curves_out,
+        "current": curves_out[-1] if curves_out else None,
+        "as_of": to_d.isoformat(),
+    })
