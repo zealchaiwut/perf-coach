@@ -1,8 +1,9 @@
 import os
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import Session
+from models import Workout, WorkoutExercise
 
 load_dotenv()
 
@@ -53,14 +54,23 @@ with Session(engine) as session:
     # If so, the data is stale (from a previous under-populated seed run) and
     # should be wiped and re-seeded so the AC ("each strength workout has 4-6
     # exercise rows") is satisfied.
-    thin_strength = session.execute(
-        text(
-            "SELECT COUNT(*) FROM workouts w"
-            " WHERE w.workout_type ILIKE 'strength'"
-            "   AND w.name NOT IN ('Squat 1RM Test')"
-            "   AND (SELECT COUNT(*) FROM workout_exercises we WHERE we.workout_id = w.id) < 4"
+    exercise_count_sq = (
+        session.query(func.count(WorkoutExercise.id))
+        .filter(WorkoutExercise.workout_id == Workout.id)
+        .correlate(Workout)
+        .scalar_subquery()
+    )
+    thin_strength = (
+        session.query(Workout)
+        .filter(
+            Workout.workout_type.ilike("strength"),
+            # Exclude 'Squat 1RM Test': dedicated single-lift test, intentionally
+            # has fewer than 4 exercises and should not trigger a re-seed.
+            Workout.name.notin_(["Squat 1RM Test"]),
+            exercise_count_sq < 4,
         )
-    ).scalar()
+        .count()
+    )
 
     workout_count = session.execute(text("SELECT COUNT(*) FROM workouts")).scalar()
 
@@ -269,58 +279,30 @@ with Session(engine) as session:
         today = date.today()
 
         # Half-marathon run: 1:58:12 (7092 s) at 21.1 km — gives amber delta vs 1:54:31 PR
-        hm_exists = session.execute(
-            text("SELECT COUNT(*) FROM workouts WHERE user_id = :uid AND name = 'Half Marathon Race'"),
-            {"uid": str(alice.id)},
-        ).scalar()
+        hm_exists = session.query(Workout).filter_by(user_id=alice.id, name="Half Marathon Race").first()
         if not hm_exists:
-            result = session.execute(
-                text(
-                    "INSERT INTO workouts (user_id, name, workout_date, workout_type,"
-                    " distance_km, duration_seconds)"
-                    " VALUES (:user_id, :name, :workout_date, :workout_type,"
-                    " :distance_km, :duration_seconds)"
-                    " RETURNING id"
-                ),
-                {
-                    "user_id": str(alice.id),
-                    "name": "Half Marathon Race",
-                    "workout_date": str(today - timedelta(days=17)),
-                    "workout_type": "run",
-                    "distance_km": 21.1,
-                    "duration_seconds": 7092,
-                },
-            )
+            session.add(Workout(
+                user_id=alice.id,
+                name="Half Marathon Race",
+                workout_date=today - timedelta(days=17),
+                workout_type="run",
+                distance_km=21.1,
+                duration_seconds=7092,
+            ))
             session.commit()
             print("Seeded Half Marathon Race workout for Alice")
 
         # Squat 1RM test: 132 kg — gives amber delta vs 140 kg PR
-        squat_exists = session.execute(
-            text("SELECT COUNT(*) FROM workouts WHERE user_id = :uid AND name = 'Squat 1RM Test'"),
-            {"uid": str(alice.id)},
-        ).scalar()
+        squat_exists = session.query(Workout).filter_by(user_id=alice.id, name="Squat 1RM Test").first()
         if not squat_exists:
-            result = session.execute(
-                text(
-                    "INSERT INTO workouts (user_id, name, workout_date, workout_type)"
-                    " VALUES (:user_id, :name, :workout_date, :workout_type)"
-                    " RETURNING id"
-                ),
-                {
-                    "user_id": str(alice.id),
-                    "name": "Squat 1RM Test",
-                    "workout_date": str(today - timedelta(days=7)),
-                    "workout_type": "strength",
-                },
-            )
-            workout_id = result.fetchone().id
-            session.execute(
-                text(
-                    "INSERT INTO workout_exercises"
-                    " (workout_id, display_order, name, sets, reps, weight_kg, rpe)"
-                    " VALUES (:workout_id, 0, 'Squat', 1, 1, 132.0, 9)"
-                ),
-                {"workout_id": str(workout_id)},
-            )
+            session.add(Workout(
+                user_id=alice.id,
+                name="Squat 1RM Test",
+                workout_date=today - timedelta(days=7),
+                workout_type="strength",
+                exercises=[
+                    WorkoutExercise(display_order=0, name="Squat", sets=1, reps=1, weight_kg=132.0, rpe=9),
+                ],
+            ))
             session.commit()
             print("Seeded Squat 1RM Test workout for Alice")

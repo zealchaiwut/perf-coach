@@ -1,21 +1,37 @@
+import base64 as _base64
+import csv as _csv
+import hashlib as _hashlib
+import hmac as _hmac
+import io as _io
+import json as _json
+import logging as _logging
+import math as _math
 import os
+import secrets as _secrets
 import time
 import uuid as _uuid
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode as _urlencode
+import urllib.request as _urllib_request
+import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, User, WeightEntry, Workout, WorkoutExercise, WorkoutSplit
+from backend.models import DailyMetric, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.services.workout_merge import compute_best_values
+from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.feel_link import auto_link_feel_entries
 
 app = FastAPI()
 
@@ -29,18 +45,23 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 def health():
     """Return service liveness and environment metadata.
 
-    Response schema:
+    Response schema (current — introduced in #155/#156):
         {
             "status":          "ok",
-            "environment":     str  (ENVIRONMENT env var, defaults to "local"),
-            "version":         str  (GIT_SHA env var, defaults to "unknown"),
+            "environment":     "uat" | "prd" | "local"  (ENVIRONMENT env var, defaults to "local"),
+            "version":         "<GIT_SHA>" | "unknown"   (GIT_SHA env var, defaults to "unknown"),
             "db":              "ok" | "error",
-            "uptime_seconds":  int
+            "uptime_seconds":  <int>
         }
 
     Always returns HTTP 200. "db" is "error" when SELECT 1 fails or times out
     (hard cap: 2 s). "status" is always "ok" regardless of db state.
     No authentication or user_id required.
+
+    Breaking changes from the previous schema:
+        - "database" key renamed to "db"
+        - "version" field added (git SHA injected at deploy time via GIT_SHA env var)
+        - "uptime_seconds" field added
     """
     return JSONResponse({
         "status": "ok",
@@ -64,19 +85,60 @@ def get_environment():
 @app.get("/api/users")
 def get_users():
     try:
+        from sqlalchemy import func, outerjoin, select
         with Session(engine) as session:
-            users = session.query(User).order_by(User.name).all()
-            result = []
-            for u in users:
-                wcount = session.query(WeightEntry).filter(WeightEntry.user_id == u.id).count()
-                hcount = session.query(Habit).filter(Habit.user_id == u.id, Habit.archived_at.is_(None)).count()
-                result.append({
+            wcount_sub = (
+                select(WeightEntry.user_id, func.count().label("wcount"))
+                .group_by(WeightEntry.user_id)
+                .subquery()
+            )
+            hcount_sub = (
+                select(Habit.user_id, func.count().label("hcount"))
+                .where(Habit.archived_at.is_(None))
+                .group_by(Habit.user_id)
+                .subquery()
+            )
+            strava_sub = (
+                select(StravaToken.user_id)
+                .subquery()
+            )
+            now = _datetime.now(_timezone.utc)
+            stryd_sub = (
+                select(StrydCredentials.user_id)
+                .where(
+                    StrydCredentials.session_token.isnot(None),
+                    StrydCredentials.session_token_expires_at.isnot(None),
+                    StrydCredentials.session_token_expires_at > now,
+                )
+                .subquery()
+            )
+            rows = (
+                session.query(
+                    User,
+                    func.coalesce(wcount_sub.c.wcount, 0),
+                    func.coalesce(hcount_sub.c.hcount, 0),
+                    strava_sub.c.user_id.isnot(None).label("strava_connected"),
+                    stryd_sub.c.user_id.isnot(None).label("stryd_connected"),
+                )
+                .outerjoin(wcount_sub, User.id == wcount_sub.c.user_id)
+                .outerjoin(hcount_sub, User.id == hcount_sub.c.user_id)
+                .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+                .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+                .order_by(User.name)
+                .all()
+            )
+            result = [
+                {
                     "id": str(u.id),
                     "name": u.name,
                     "created_at": u.created_at.isoformat() if u.created_at else None,
-                    "weight_count": wcount,
-                    "habits_count": hcount,
-                })
+                    "weight_count": wc,
+                    "habits_count": hc,
+                    "strava_connected": bool(sc),
+                    "stryd_connected": bool(syc),
+                }
+                for u, wc, hc, sc, syc in rows
+            ]
             return JSONResponse(result)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database unavailable: " + str(exc))
@@ -761,6 +823,7 @@ class ExerciseIn(BaseModel):
     avg_hr: Optional[int] = None
 
 
+# Compound sources (e.g. 'strava,stryd') are supported so a single workout can carry data from multiple integrations.
 _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
 
 
@@ -845,6 +908,19 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     }
 
 
+def _best_values_dict(w: Workout) -> dict:
+    bv = compute_best_values(w)
+    dist = bv["best_distance_km"]
+    return {
+        "best_distance_km": float(dist) if dist is not None else None,
+        "best_duration_seconds": bv["best_duration_seconds"],
+        "best_avg_hr": bv["best_avg_hr"],
+        "best_avg_power_w": bv["best_avg_power_w"],
+        "best_tss": float(bv["best_tss"]) if bv["best_tss"] is not None else None,
+        "best_name": bv["best_name"],
+    }
+
+
 def _workout_dict(w: Workout, exercises: list) -> dict:
     return {
         "id": str(w.id),
@@ -856,6 +932,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "tss": w.tss,
         "tss_source": w.tss_source,
         "source": w.source,
+        "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
+        "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -864,6 +942,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "elevation_m": w.elevation_m,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
+        **_best_values_dict(w),
     }
 
 
@@ -876,7 +955,6 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -885,6 +963,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "elevation_m": w.elevation_m,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
+        **_best_values_dict(w),
     }
 
 
@@ -1018,6 +1097,12 @@ def post_workout(body: WorkoutIn):
         session.refresh(workout)
         for e in exercises:
             session.refresh(e)
+        try:
+            daily_update(str(uid), workout_date)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc
+            )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -1092,6 +1177,12 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             .all()
         )
         session.refresh(workout)
+        try:
+            daily_update(str(workout.user_id), workout.workout_date)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc
+            )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -1675,6 +1766,151 @@ def delete_daily_metric(user_id: str, metric_date: str):
     return Response(status_code=204)
 
 
+# ── Exports ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/exports/daily-metrics")
+def export_daily_metrics_csv(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(DailyMetric, WeightEntry).outerjoin(
+            WeightEntry,
+            (WeightEntry.user_id == DailyMetric.user_id)
+            & (WeightEntry.recorded_date == DailyMetric.metric_date),
+        ).filter(DailyMetric.user_id == uid)
+        if from_d is not None:
+            q = q.filter(DailyMetric.metric_date >= from_d)
+        if to_d is not None:
+            q = q.filter(DailyMetric.metric_date <= to_d)
+        rows = q.order_by(DailyMetric.metric_date.asc()).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(["metric_date", "rhr", "hrv", "sleep_hours", "energy", "mood", "weight_kg", "notes"])
+    for m, w in rows:
+        writer.writerow([
+            str(m.metric_date),
+            m.resting_hr if m.resting_hr is not None else "",
+            m.hrv if m.hrv is not None else "",
+            float(m.sleep_hours) if m.sleep_hours is not None else "",
+            m.energy if m.energy is not None else "",
+            m.mood if m.mood is not None else "",
+            float(w.weight_kg) if w is not None and w.weight_kg is not None else "",
+            m.notes if m.notes is not None else "",
+        ])
+
+    if from_d is not None and to_d is not None:
+        filename = f"daily-metrics-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "daily-metrics-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/workouts")
+def export_workouts_csv(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    types: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    type_filter = [t.strip() for t in types.split(",")] if types else None
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(Workout).filter(Workout.user_id == uid)
+        if from_d is not None:
+            q = q.filter(Workout.workout_date >= from_d)
+        if to_d is not None:
+            q = q.filter(Workout.workout_date <= to_d)
+        if type_filter:
+            q = q.filter(Workout.workout_type.in_(type_filter))
+        rows = q.order_by(Workout.workout_date.asc()).all()
+
+    _desired_cols = ["workout_date", "workout_type", "name", "distance_km", "duration_seconds", "avg_hr", "tss", "source", "remarks"]
+    _model_col_keys = {c.key for c in Workout.__table__.columns}
+    headers = [c for c in _desired_cols if c in _model_col_keys]
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(headers)
+    for w in rows:
+        row = []
+        for col in headers:
+            val = getattr(w, col)
+            if val is None:
+                row.append("")
+            elif col == "workout_date":
+                row.append(str(val))
+            else:
+                row.append(val)
+        writer.writerow(row)
+
+    if from_d is not None and to_d is not None:
+        filename = f"workouts-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "workouts-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Trends summary endpoint ────────────────────────────────────────────────────
 
 def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
@@ -2191,6 +2427,19 @@ def get_training_log(
                         },
                     })
 
+        total_workout_days = (
+            session.query(Workout.workout_date)
+            .filter(Workout.user_id == uid)
+            .distinct()
+            .count()
+        )
+        today_snap = None
+        if total_workout_days >= 7:
+            today_snap = session.query(TrainingLoadSnapshot).filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == today,
+            ).first()
+
     workout_entries = [
         {
             "date": str(w.workout_date),
@@ -2253,7 +2502,26 @@ def get_training_log(
             },
         })
 
-    return JSONResponse({"weeks": weeks})
+    load_context = None
+    if total_workout_days >= 7:
+        if today_snap is not None:
+            lc_ctl = round(today_snap.ctl, 1)
+            lc_atl = round(today_snap.atl, 1)
+            lc_tsb = round(today_snap.tsb, 1)
+        else:
+            _load = current_load(str(uid), as_of=today)
+            lc_ctl = round(_load["ctl"], 1)
+            lc_atl = round(_load["atl"], 1)
+            lc_tsb = round(_load["tsb"], 1)
+        load_context = {
+            "ctl": lc_ctl,
+            "atl": lc_atl,
+            "tsb": lc_tsb,
+            "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
+            "as_of": today.isoformat(),
+        }
+
+    return JSONResponse({"weeks": weeks, "load_context": load_context})
 
 
 # ── Personal records endpoints ────────────────────────────────────────────────
@@ -2378,8 +2646,8 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch):
             pr.track_name = body.track_name.strip()
         if "source" in body.model_fields_set:
             pr.source = body.source
-        from sqlalchemy import text as _sql_text
-        session.execute(_sql_text("UPDATE personal_records SET updated_at = now() WHERE id = :id"), {"id": str(rid)})
+        from sqlalchemy.sql import func as _func
+        pr.updated_at = _func.now()
         session.commit()
         session.refresh(pr)
         return JSONResponse(_pr_dict(pr))
@@ -2398,3 +2666,1239 @@ def delete_personal_record(record_id: str):
         session.delete(pr)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Strava OAuth ──────────────────────────────────────────────────────────────
+
+_VALID_STRAVA_SCOPES = {"read", "activity:read", "activity:read_all"}
+_STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
+_STATE_TOKEN_MAX_AGE = 600  # 10 minutes
+
+
+def _make_strava_state_token(user_id: str, secret: str) -> str:
+    """Return a signed state token encoding {user_id, ts, nonce}."""
+    payload = {"user_id": user_id, "ts": int(time.time()), "nonce": _secrets.token_hex(8)}
+    payload_b64 = _base64.urlsafe_b64encode(_json.dumps(payload).encode()).rstrip(b"=").decode()
+    sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    sig_b64 = _base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{payload_b64}.{sig_b64}"
+
+
+def _verify_strava_state_token(token: str, secret: str, max_age: int = _STATE_TOKEN_MAX_AGE) -> dict:
+    """Decode and verify a state token. Raises ValueError on bad signature or expiry."""
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid token format")
+    payload_b64, sig_b64 = parts
+    expected_sig = _hmac.new(secret.encode(), payload_b64.encode(), _hashlib.sha256).digest()
+    expected_b64 = _base64.urlsafe_b64encode(expected_sig).rstrip(b"=").decode()
+    if not _hmac.compare_digest(sig_b64, expected_b64):
+        raise ValueError("Invalid signature")
+    pad = (4 - len(payload_b64) % 4) % 4
+    payload = _json.loads(_base64.urlsafe_b64decode(payload_b64 + "=" * pad))
+    if time.time() - payload["ts"] > max_age:
+        raise ValueError("Token expired")
+    return payload
+
+
+@app.get("/api/strava/connect")
+def strava_connect(scope: str = Query(default="activity:read_all")):
+    """Initiate Strava OAuth flow for the default user.
+
+    Returns authorize_url; does not redirect. Default user is the first user
+    (by name) in the users table — multi-user support is deferred.
+    """
+    if scope not in _VALID_STRAVA_SCOPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid scope '{scope}'. Must be one of: read, activity:read, activity:read_all",
+        )
+
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="STRAVA_CLIENT_ID is not configured")
+
+    if not os.getenv("STRAVA_CLIENT_SECRET"):
+        raise HTTPException(status_code=500, detail="STRAVA_CLIENT_SECRET is not configured")
+
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    redirect_uri = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:9001/api/strava/callback")
+
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    state = _make_strava_state_token(user_id, state_secret)
+    authorize_url = _STRAVA_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "approval_prompt": "auto",
+        "scope": scope,
+        "state": state,
+    })
+    return JSONResponse({"authorize_url": authorize_url})
+
+
+def _exchange_strava_code(code: str, client_id: str, client_secret: str) -> dict:
+    """POST to Strava token endpoint and return parsed JSON. Raises HTTP 502 on Strava 4xx."""
+    data = _urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+    }).encode()
+    req = _urllib_request.Request("https://www.strava.com/oauth/token", data=data, method="POST")
+    try:
+        with _urllib_request.urlopen(req) as resp:
+            return _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        if 400 <= exc.code < 500:
+            raise HTTPException(status_code=502, detail="Strava token exchange failed, please try again")
+        raise
+
+
+def _upsert_strava_token(
+    user_id: str,
+    athlete_id: int,
+    access_token: str,
+    refresh_token: str,
+    expires_at: _datetime,
+    scope: Optional[str],
+    athlete_data: dict,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(StravaToken)
+            .values(
+                user_id=user_id,
+                athlete_id=athlete_id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                scope=scope,
+                athlete_data=athlete_data,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "athlete_id": athlete_id,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_at": expires_at,
+                    "scope": scope,
+                    "athlete_data": athlete_data,
+                    "updated_at": now,
+                },
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+_STRAVA_CALLBACK_HTML = """<!DOCTYPE html>
+<html>
+<body>
+<script>
+if (window.opener) {
+  window.opener.postMessage({type: 'strava_connected'}, '*');
+}
+window.close();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/api/strava/callback")
+def strava_callback(
+    code: str = Query(...),
+    scope: str = Query(default=""),
+    state: str = Query(...),
+):
+    state_secret = os.getenv("STRAVA_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="STRAVA_STATE_SECRET is not configured")
+
+    try:
+        payload = _verify_strava_state_token(state, state_secret)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization state expired or invalid, please reconnect",
+        )
+
+    user_id = payload["user_id"]
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+
+    token_resp = _exchange_strava_code(code, client_id, client_secret)
+
+    access_token = token_resp["access_token"]
+    refresh_token = token_resp["refresh_token"]
+    expires_at = _datetime.fromtimestamp(token_resp["expires_at"], tz=_timezone.utc)
+    athlete = token_resp.get("athlete", {})
+    athlete_id = athlete.get("id", 0)
+
+    _upsert_strava_token(
+        user_id=user_id,
+        athlete_id=athlete_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        scope=scope or None,
+        athlete_data=athlete,
+    )
+
+    return Response(content=_STRAVA_CALLBACK_HTML, media_type="text/html")
+
+
+# ── Stryd ──────────────────────────────────────────────────────────────────────
+
+from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.strava import refresh_token_if_needed  # noqa: E402
+from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
+
+
+class _StrydConnectIn(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=1)
+
+
+def _upsert_stryd_credentials(
+    user_id: str,
+    stryd_email: str,
+    password_encrypted: str,
+    session_token: str,
+    session_token_expires_at: _datetime,
+    athlete_id: int,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as db_session:
+        stmt = (
+            _pg_insert(StrydCredentials)
+            .values(
+                user_id=user_id,
+                stryd_email=stryd_email,
+                stryd_password_encrypted=password_encrypted,
+                session_token=session_token,
+                session_token_expires_at=session_token_expires_at,
+                athlete_id=athlete_id,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "stryd_email": stryd_email,
+                    "stryd_password_encrypted": password_encrypted,
+                    "session_token": session_token,
+                    "session_token_expires_at": session_token_expires_at,
+                    "athlete_id": athlete_id,
+                    "updated_at": now,
+                },
+            )
+        )
+        db_session.execute(stmt)
+        db_session.commit()
+
+
+@app.post("/api/stryd/connect")
+def stryd_connect(body: _StrydConnectIn):
+    """Authenticate against Stryd, encrypt and store credentials, return connection status."""
+    resp = _stryd_signin(body.email, body.password)
+
+    password_encrypted = _encrypt_value(body.password)
+    now = _datetime.now(tz=_timezone.utc)
+    session_token_expires_at = now + _timedelta(days=25)
+    athlete_id = int(resp.get("id") or resp.get("athlete_id") or 0)
+    session_token = str(resp.get("token") or resp.get("session_token") or "")
+
+    with Session(engine) as db_session:
+        user = db_session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        user_id = str(user.id)
+
+    _upsert_stryd_credentials(
+        user_id=user_id,
+        stryd_email=body.email,
+        password_encrypted=password_encrypted,
+        session_token=session_token,
+        session_token_expires_at=session_token_expires_at,
+        athlete_id=athlete_id,
+    )
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_user_email": body.email,
+    })
+
+
+# ── Strava / Stryd status and disconnect endpoints ────────────────────────────
+
+def _get_default_user_id() -> str:
+    """Return user_id for the default (first by name) user, or raise 500 if none."""
+    with Session(engine) as session:
+        user = session.query(User).order_by(User.name).first()
+        if user is None:
+            raise HTTPException(status_code=500, detail="No users found in database")
+        return str(user.id)
+
+
+@app.get("/api/strava/status")
+def strava_status():
+    """Return Strava connection status; refresh token if near expiry."""
+    _null_response = {"connected": False, "athlete_name": None, "scope": None, "expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        scope = token_row.scope
+        expires_at = token_row.expires_at
+        athlete_data = token_row.athlete_data or {}
+
+    athlete_name = None
+    first = athlete_data.get("firstname") or ""
+    last = athlete_data.get("lastname") or ""
+    full = (first + " " + last).strip()
+    if full:
+        athlete_name = full
+
+    try:
+        refresh_token_if_needed(user_id)
+    except Exception:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is None:
+            return JSONResponse(_null_response)
+        expires_at = token_row.expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_name": athlete_name,
+        "scope": scope,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    })
+
+
+@app.delete("/api/strava/disconnect")
+def strava_disconnect():
+    """Delete Strava token row and optionally deauthorize with Strava API."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
+        if token_row is not None:
+            access_token = token_row.access_token
+            session.delete(token_row)
+            session.commit()
+
+            try:
+                deauth_data = _urlencode({"access_token": access_token}).encode()
+                deauth_req = _urllib_request.Request(
+                    "https://www.strava.com/oauth/deauthorize",
+                    data=deauth_data,
+                    method="POST",
+                )
+                _urllib_request.urlopen(deauth_req)
+            except Exception:
+                pass
+
+    return JSONResponse({"disconnected": True})
+
+
+@app.get("/api/stryd/status")
+def stryd_status():
+    """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
+    _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
+
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        athlete_id = cred.athlete_id
+        stryd_email = cred.stryd_email
+        session_expires_at = cred.session_token_expires_at
+
+    try:
+        refresh_stryd_session_if_needed(user_id)
+    except Exception:
+        with Session(engine) as session:
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+            if cred is not None:
+                session.delete(cred)
+                session.commit()
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        session_expires_at = cred.session_token_expires_at
+
+    return JSONResponse({
+        "connected": True,
+        "athlete_id": athlete_id,
+        "stryd_email": stryd_email,
+        "session_expires_at": session_expires_at.isoformat() if session_expires_at else None,
+    })
+
+
+@app.delete("/api/stryd/disconnect")
+def stryd_disconnect():
+    """Delete Stryd credentials row."""
+    try:
+        user_id = _get_default_user_id()
+    except HTTPException:
+        return JSONResponse({"disconnected": True})
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is not None:
+            session.delete(cred)
+            session.commit()
+
+    return JSONResponse({"disconnected": True})
+
+
+# ── Imports ───────────────────────────────────────────────────────────────────
+
+class _SleepImportBody(BaseModel):
+    user_id: str
+    import_date: str
+    source: str
+    data: dict
+
+
+@app.post("/api/imports/sleep")
+def post_sleep_import(body: _SleepImportBody):
+    try:
+        parsed_date = _date.fromisoformat(body.import_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "import_date", "error": "import_date must be a valid YYYY-MM-DD date"},
+        )
+
+    if body.source != "manual_json":
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "source", "error": "source must be 'manual_json'"},
+        )
+
+    if not body.data:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "data", "error": "data must contain at least one key"},
+        )
+
+    for field in ("sleep_duration_minutes", "deep_sleep_minutes", "rem_sleep_minutes", "light_sleep_minutes", "awake_minutes"):
+        val = body.data.get(field)
+        if val is not None and not (0 <= val <= 1440):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": field, "error": f"{field} must be between 0 and 1440"},
+            )
+
+    sleep_score = body.data.get("sleep_score")
+    if sleep_score is not None and not (0 <= sleep_score <= 100):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "sleep_score", "error": "sleep_score must be between 0 and 100"},
+        )
+
+    raw_start = body.data.get("sleep_start_time")
+    raw_end = body.data.get("sleep_end_time")
+    raw_duration = body.data.get("sleep_duration_minutes")
+
+    parsed_start = None
+    parsed_end = None
+
+    if raw_start is not None:
+        try:
+            parsed_start = _datetime.fromisoformat(f"2000-01-01T{raw_start}").time()
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_start_time", "error": "sleep_start_time must be HH:MM or HH:MM:SS"},
+            )
+
+    if raw_end is not None:
+        try:
+            parsed_end = _datetime.fromisoformat(f"2000-01-01T{raw_end}").time()
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_end_time", "error": "sleep_end_time must be HH:MM or HH:MM:SS"},
+            )
+
+    if parsed_start is not None and parsed_end is not None:
+        if parsed_end <= parsed_start:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "sleep_end_time", "error": "sleep_end_time must be after sleep_start_time"},
+            )
+        if raw_duration is not None:
+            start_dt = _datetime.combine(_date(2000, 1, 1), parsed_start)
+            end_dt = _datetime.combine(_date(2000, 1, 1), parsed_end)
+            computed = (end_dt - start_dt).total_seconds() / 60
+            if abs(raw_duration - computed) > 5:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "field": "sleep_duration_minutes",
+                        "error": (
+                            f"sleep_duration_minutes ({raw_duration}) differs from computed"
+                            f" end-start ({computed:.0f} min) by more than 5 minutes"
+                        ),
+                    },
+                )
+
+    try:
+        parsed_user_id = _uuid.UUID(body.user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        source_identifier = _hashlib.sha256(
+            _json.dumps(body.data, sort_keys=True).encode()
+        ).hexdigest()
+
+        record = SleepImport(
+            user_id=parsed_user_id,
+            source=body.source,
+            source_identifier=source_identifier,
+            import_date=parsed_date,
+            raw_data=body.model_dump(),
+            parsed_data=body.model_dump(),
+            import_status="parsed",
+        )
+        session.add(record)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            existing = (
+                session.query(SleepImport)
+                .filter(
+                    SleepImport.user_id == parsed_user_id,
+                    SleepImport.source == body.source,
+                    SleepImport.source_identifier == source_identifier,
+                )
+                .first()
+            )
+            if existing:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error_code": "duplicate",
+                        "message": "This data has already been imported",
+                        "existing_id": str(existing.id),
+                    },
+                )
+            raise
+
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(record.id),
+                "import_date": body.import_date,
+                "source": "manual_json",
+                "status": "parsed",
+            },
+        )
+
+
+@app.get("/api/imports/sleep")
+def get_sleep_imports(
+    user_id: str = Query(...),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+):
+    try:
+        parsed_user_id = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id format")
+
+    from_date = None
+    to_date = None
+    if from_ is not None:
+        try:
+            from_date = _date.fromisoformat(from_)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+    if to is not None:
+        try:
+            to_date = _date.fromisoformat(to)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    valid_statuses = {"pending", "parsed", "merged", "rejected", "failed"}
+    if status is not None and status not in valid_statuses:
+        raise HTTPException(status_code=422, detail={"field": "status", "error": f"status must be one of {sorted(valid_statuses)}"})
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        q = session.query(SleepImport).filter(SleepImport.user_id == parsed_user_id)
+        if from_date is not None:
+            q = q.filter(SleepImport.import_date >= from_date)
+        if to_date is not None:
+            q = q.filter(SleepImport.import_date <= to_date)
+        if status is not None:
+            q = q.filter(SleepImport.import_status == status)
+        rows = q.order_by(SleepImport.created_at.desc()).all()
+
+        by_status: dict = {}
+        earliest = None
+        latest = None
+        for r in rows:
+            s = r.import_status
+            by_status[s] = by_status.get(s, 0) + 1
+            d = r.import_date.isoformat() if r.import_date else None
+            if d is not None:
+                if earliest is None or d < earliest:
+                    earliest = d
+                if latest is None or d > latest:
+                    latest = d
+
+        imports = [
+            {
+                "id": str(r.id),
+                "source": r.source,
+                "source_identifier": r.source_identifier,
+                "import_date": r.import_date.isoformat() if r.import_date else None,
+                "import_status": r.import_status,
+                "error_message": r.error_message,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "imports": imports,
+                "count": len(imports),
+                "summary": {
+                    "total": len(imports),
+                    "by_status": by_status,
+                    "date_range": {"earliest": earliest, "latest": latest},
+                },
+            },
+        )
+
+
+# ── Feel entries ──────────────────────────────────────────────────────────────
+
+class _FeelBody(BaseModel):
+    user_id: str
+    feel_date: str
+    workout_id: Optional[str] = None
+    rpe_1_to_10: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class _FeelPatchBody(BaseModel):
+    workout_id: Optional[str] = None
+    rpe_1_to_10: Optional[int] = None
+    notes: Optional[str] = None
+    feel_date: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+def _feel_dict(row) -> dict:
+    return {
+        "id": str(row.id),
+        "user_id": str(row.user_id),
+        "feel_date": row.feel_date.isoformat(),
+        "workout_id": str(row.workout_id) if row.workout_id else None,
+        "rpe_1_to_10": row.rpe_1_to_10,
+        "notes": row.notes,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@app.get("/api/feel")
+def get_feel(
+    user_id: str,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    workout_id: Optional[str] = None,
+    has_rpe: Optional[bool] = None,
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_from = None
+    if from_date is not None:
+        try:
+            parsed_from = _date.fromisoformat(from_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+
+    parsed_to = None
+    if to_date is not None:
+        try:
+            parsed_to = _date.fromisoformat(to_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    parsed_workout_id = None
+    if workout_id is not None:
+        try:
+            parsed_workout_id = _uuid.UUID(workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == uid)
+        if parsed_from is not None:
+            q = q.filter(WorkoutFeel.feel_date >= parsed_from)
+        if parsed_to is not None:
+            q = q.filter(WorkoutFeel.feel_date <= parsed_to)
+        if parsed_workout_id is not None:
+            q = q.filter(WorkoutFeel.workout_id == parsed_workout_id)
+        if has_rpe is True:
+            q = q.filter(WorkoutFeel.rpe_1_to_10.isnot(None))
+
+        rows = q.order_by(WorkoutFeel.feel_date.desc(), WorkoutFeel.created_at.desc()).all()
+        return JSONResponse({"entries": [_feel_dict(r) for r in rows], "count": len(rows)})
+
+
+@app.patch("/api/feel/{feel_id}")
+def patch_feel(feel_id: str, body: _FeelPatchBody):
+    if body.feel_date is not None or body.user_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date" if body.feel_date is not None else "user_id", "error": "field is immutable"},
+        )
+
+    try:
+        fid = _uuid.UUID(feel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid feel_id")
+
+    if body.rpe_1_to_10 is not None and not (1 <= body.rpe_1_to_10 <= 10):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "rpe_1_to_10 must be an integer between 1 and 10"},
+        )
+
+    if body.notes is not None and len(body.notes) > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "notes", "error": "notes must not exceed 10,000 characters"},
+        )
+
+    parsed_workout_id = None
+    _update_workout_id = False
+    if body.workout_id is not None:
+        _update_workout_id = True
+        try:
+            parsed_workout_id = _uuid.UUID(body.workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        row = session.get(WorkoutFeel, fid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="feel entry not found")
+
+        if _update_workout_id:
+            workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
+            if workout is None or workout.user_id != row.user_id:
+                raise HTTPException(status_code=404, detail="workout not found")
+            row.workout_id = parsed_workout_id
+        if body.rpe_1_to_10 is not None:
+            row.rpe_1_to_10 = body.rpe_1_to_10
+        if body.notes is not None:
+            row.notes = body.notes
+
+        from datetime import datetime, timezone as _tz
+        row.updated_at = datetime.now(_tz.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_feel_dict(row))
+
+
+@app.delete("/api/feel/{feel_id}", status_code=204)
+def delete_feel(feel_id: str):
+    try:
+        fid = _uuid.UUID(feel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid feel_id")
+    with Session(engine) as session:
+        row = session.get(WorkoutFeel, fid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="feel entry not found")
+        session.delete(row)
+        session.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/feel", status_code=201)
+def post_feel(body: _FeelBody):
+    try:
+        feel_date = _date.fromisoformat(body.feel_date)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
+        )
+
+    today = _date.today()
+    tomorrow = today + _timedelta(days=1)
+    if feel_date > tomorrow:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "feel_date", "error": "feel_date cannot be in the future"},
+        )
+
+    if body.rpe_1_to_10 is not None and not (1 <= body.rpe_1_to_10 <= 10):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "rpe_1_to_10 must be an integer between 1 and 10"},
+        )
+
+    if body.rpe_1_to_10 is None and not body.notes:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "rpe_1_to_10", "error": "At least one of rpe_1_to_10 or notes is required"},
+        )
+
+    if body.notes is not None and len(body.notes) > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "notes", "error": "notes must not exceed 10,000 characters"},
+        )
+
+    try:
+        parsed_user_id = _uuid.UUID(body.user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_workout_id = None
+    if body.workout_id is not None:
+        try:
+            parsed_workout_id = _uuid.UUID(body.workout_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="invalid workout_id format")
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == parsed_user_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        if parsed_workout_id is not None:
+            workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
+            if workout is None or workout.user_id != parsed_user_id:
+                raise HTTPException(status_code=404, detail="workout not found")
+
+        row = WorkoutFeel(
+            user_id=parsed_user_id,
+            feel_date=feel_date,
+            workout_id=parsed_workout_id,
+            rpe_1_to_10=body.rpe_1_to_10,
+            notes=body.notes,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+
+        if parsed_workout_id is None:
+            try:
+                auto_link_feel_entries(parsed_user_id, feel_date)
+                session.refresh(row)
+            except Exception as exc:
+                import logging as _logging
+                _logging.getLogger(__name__).warning("auto_link_feel_entries failed: %s", exc)
+
+        return JSONResponse(status_code=201, content=_feel_dict(row))
+
+
+@app.post("/api/feel/auto-link")
+def post_feel_auto_link(user_id: str, feel_date: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid user_id")
+    try:
+        parsed_date = _date.fromisoformat(feel_date)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail={"field": "feel_date", "error": "feel_date must be YYYY-MM-DD"})
+    linked = auto_link_feel_entries(uid, parsed_date)
+    return JSONResponse({"linked": linked})
+
+
+# ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
+
+
+def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
+    if tsb >= 5:
+        label = "Fresh"
+    elif tsb > -5:
+        label = "Neutral"
+    elif tsb > -15:
+        label = "Productive (high load)"
+    else:
+        label = "Overreached (high risk)"
+
+    if ctl > 60:
+        return f"{label}, well-trained"
+    elif ctl < 30:
+        return f"{label}, undertrained"
+    return label
+
+
+@app.get("/api/training-load/current")
+def get_training_load_current(
+    user_id: str,
+    as_of: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid as_of date; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    load = current_load(str(uid), as_of=as_of_date)
+    ctl = round(load["ctl"], 1)
+    atl = round(load["atl"], 1)
+    tsb = round(load["tsb"], 1)
+
+    return JSONResponse({
+        "date": load["date"].isoformat(),
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "interpretation": _load_interpretation(ctl, atl, tsb),
+    })
+
+
+@app.get("/api/training-load")
+def get_training_load(
+    user_id: str,
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range must not exceed 365 days")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        snaps = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date >= from_d,
+                TrainingLoadSnapshot.snapshot_date <= to_d,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date)
+            .all()
+        )
+
+    snap_map = {s.snapshot_date: s for s in snaps}
+    all_dates = [from_d + _timedelta(days=i) for i in range((to_d - from_d).days + 1)]
+    missing_dates = [d for d in all_dates if d not in snap_map]
+
+    tss_map: dict = {}
+    if missing_dates:
+        hist_missing = [d for d in missing_dates if d <= today]
+        if hist_missing:
+            tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
+            tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = 0.0, 0.0
+    curves_out = []
+
+    for d in all_dates:
+        if d in snap_map:
+            s = snap_map[d]
+            ctl = s.ctl
+            atl = s.atl
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": s.tss_for_day,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+        else:
+            tss = tss_map.get(d, 0)
+            ctl = ctl + (tss - ctl) * ctl_alpha
+            atl = atl + (tss - atl) * atl_alpha
+            tsb = ctl - atl
+            curves_out.append({
+                "date": d.isoformat(),
+                "tss": tss,
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+
+    return JSONResponse({
+        "curves": curves_out,
+        "current": curves_out[-1] if curves_out else None,
+        "as_of": to_d.isoformat(),
+    })
+
+
+@app.post("/api/training-load/recompute")
+def recompute_training_load(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        from_d = _date.fromisoformat(from_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
+
+    today = _date.today()
+    if from_d > today:
+        raise HTTPException(status_code=422, detail="'from' must not be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        seed_snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
+            )
+            .first()
+        )
+
+    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
+    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
+
+    tss_series = daily_tss_series(str(uid), from_d, today)
+    tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = seed_ctl, seed_atl
+    rows = []
+    current = from_d
+    while current <= today:
+        tss = tss_map.get(current, 0)
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        tsb = ctl - atl
+        rows.append({
+            "user_id": uid,
+            "snapshot_date": current,
+            "tss_for_day": tss,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "tsb": round(tsb, 2),
+        })
+        current += _timedelta(days=1)
+
+    if rows:
+        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": insert_stmt.excluded.tss_for_day,
+                "ctl": insert_stmt.excluded.ctl,
+                "atl": insert_stmt.excluded.atl,
+                "tsb": insert_stmt.excluded.tsb,
+                "computed_at": _datetime.now(tz=_timezone.utc),
+            },
+        )
+        with Session(engine) as session:
+            session.execute(upsert_stmt)
+            session.commit()
+
+    return JSONResponse({
+        "recomputed": len(rows),
+        "from": from_d.isoformat(),
+        "to": today.isoformat(),
+    })
+
+
+@app.post("/api/training-load/refresh")
+def refresh_training_load(
+    user_id: str,
+    target_date: Optional[str] = Query(default=None, alias="date"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    try:
+        target = _date.fromisoformat(target_date) if target_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date; use YYYY-MM-DD")
+
+    if target > today:
+        raise HTTPException(status_code=422, detail="date cannot be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    result = daily_update(str(uid), target)
+    return JSONResponse({
+        "date": result["date"].isoformat(),
+        "tss": result["tss"],
+        "ctl": result["ctl"],
+        "atl": result["atl"],
+        "tsb": result["tsb"],
+    })
+
+
+@app.post("/api/training-load/backfill")
+def backfill_training_load(
+    user_id: str,
+    from_date: str = Query(alias="from"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        from_d = _date.fromisoformat(from_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
+
+    today = _date.today()
+    if from_d > today:
+        raise HTTPException(status_code=422, detail="'from' must not be in the future")
+
+    with Session(engine) as session:
+        if session.query(User).filter(User.id == uid).first() is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        seed_snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
+            )
+            .first()
+        )
+
+    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
+    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
+
+    tss_series = daily_tss_series(str(uid), from_d, today)
+    tss_map = {d: t for d, t in tss_series}
+
+    ctl_alpha = 1 - _math.exp(-1 / 42)
+    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl, atl = seed_ctl, seed_atl
+    rows = []
+    current = from_d
+    while current <= today:
+        tss = tss_map.get(current, 0)
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        tsb = ctl - atl
+        rows.append({
+            "user_id": uid,
+            "snapshot_date": current,
+            "tss_for_day": tss,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "tsb": round(tsb, 2),
+        })
+        current += _timedelta(days=1)
+
+    if rows:
+        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": insert_stmt.excluded.tss_for_day,
+                "ctl": insert_stmt.excluded.ctl,
+                "atl": insert_stmt.excluded.atl,
+                "tsb": insert_stmt.excluded.tsb,
+                "computed_at": _datetime.now(tz=_timezone.utc),
+            },
+        )
+        with Session(engine) as session:
+            session.execute(upsert_stmt)
+            session.commit()
+
+    return JSONResponse({
+        "backfilled": len(rows),
+        "from": from_d.isoformat(),
+        "to": today.isoformat(),
+    })

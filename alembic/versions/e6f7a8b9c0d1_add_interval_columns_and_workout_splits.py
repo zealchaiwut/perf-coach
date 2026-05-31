@@ -1,7 +1,7 @@
 """add interval columns to workout_exercises and create workout_splits table
 
-Revision ID: b3c4d5e6f7a8
-Revises: a1b2c3d4e5f7
+Revision ID: e6f7a8b9c0d1
+Revises: b3c4d5e6f7a8
 Create Date: 2026-05-29 00:00:00.000000
 
 """
@@ -16,8 +16,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from helpers import column_exists, table_exists
 
-revision: str = "b3c4d5e6f7a8"
-down_revision: Union[str, None] = "a1b2c3d4e5f7"
+revision: str = "e6f7a8b9c0d1"
+down_revision: Union[str, None] = "b3c4d5e6f7a8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

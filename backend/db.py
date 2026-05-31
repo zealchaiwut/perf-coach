@@ -25,5 +25,5 @@ def check_db() -> str:
         fut = ex.submit(_ping)
         try:
             return fut.result(timeout=2)
-        except Exception:
+        except _FuturesTimeout:
             return "error"

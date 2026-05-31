@@ -1,13 +1,17 @@
 """
 Tests for issue #156: health check and environment metadata endpoints
-Server under test: http://127.0.0.1:9001
+
+Expects a running server. Default: http://127.0.0.1:9001 (UAT dev port).
+Override with: TEST_BASE_URL=http://127.0.0.1:<port> pytest <this file>
 """
+import os
 import time
 
 import httpx
 import pytest
 
-BASE = "http://127.0.0.1:9001"
+# UAT dev server runs on 9001 by convention (start_uat.sh binds this port).
+BASE = os.environ.get("TEST_BASE_URL", "http://127.0.0.1:9001")
 
 
 @pytest.fixture(scope="module")
