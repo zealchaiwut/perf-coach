@@ -5,12 +5,14 @@ import urllib.parse
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from backend.main import (
     _GOOGLE_SCOPE_DEFAULT,
     _GOOGLE_SCOPE_FITNESS,
     _make_google_state_token,
     _verify_google_state_token,
+    app,
 )
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:9001")
@@ -123,26 +125,29 @@ def test_google_connect_state_verifiable(client):
     assert abs(time.time() - payload["ts"]) < 60
 
 
-def test_google_connect_missing_client_id(client, monkeypatch):
+def test_google_connect_missing_client_id(monkeypatch):
+    # monkeypatch affects the in-process app; must use TestClient, not the live httpx client
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
-    res = client.get("/api/google/connect")
+    with TestClient(app) as tc:
+        res = tc.get("/api/google/connect")
     assert res.status_code == 500
     assert "GOOGLE_CLIENT_ID" in res.json()["detail"]
 
 
-def test_google_connect_missing_client_secret(client, monkeypatch):
-    if not os.environ.get("GOOGLE_CLIENT_ID"):
-        pytest.skip("GOOGLE_CLIENT_ID not set — cannot test missing secret in isolation")
+def test_google_connect_missing_client_secret(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-id")
     monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
-    res = client.get("/api/google/connect")
+    with TestClient(app) as tc:
+        res = tc.get("/api/google/connect")
     assert res.status_code == 500
     assert "GOOGLE_CLIENT_SECRET" in res.json()["detail"]
 
 
-def test_google_connect_missing_state_secret(client, monkeypatch):
-    if not os.environ.get("GOOGLE_CLIENT_ID") or not os.environ.get("GOOGLE_CLIENT_SECRET"):
-        pytest.skip("GOOGLE_CLIENT_ID/SECRET not set — cannot test missing state secret in isolation")
+def test_google_connect_missing_state_secret(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "fake-secret")
     monkeypatch.delenv("GOOGLE_STATE_SECRET", raising=False)
-    res = client.get("/api/google/connect")
+    with TestClient(app) as tc:
+        res = tc.get("/api/google/connect")
     assert res.status_code == 500
     assert "GOOGLE_STATE_SECRET" in res.json()["detail"]
