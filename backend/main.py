@@ -3493,16 +3493,4 @@ def post_feel(body: _FeelBody):
         session.commit()
         session.refresh(row)
 
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(row.id),
-                "user_id": str(row.user_id),
-                "feel_date": row.feel_date.isoformat(),
-                "workout_id": str(row.workout_id) if row.workout_id else None,
-                "rpe_1_to_10": row.rpe_1_to_10,
-                "notes": row.notes,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            },
-        )
+        return JSONResponse(status_code=201, content=_feel_dict(row))
