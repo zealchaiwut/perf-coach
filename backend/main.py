@@ -19,7 +19,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -378,6 +378,60 @@ def logout():
 async def me(request: Request):
     user = await get_current_user(request)
     return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+
+
+# ── Avatar endpoints ──────────────────────────────────────────────────────────
+
+_ALLOWED_AVATAR_MIMES = {"image/jpeg", "image/png", "image/webp"}
+_MAX_AVATAR_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+@app.post("/api/users/me/avatar")
+async def upload_avatar(request: Request, file: UploadFile = File(...)):
+    user = await get_current_user(request)
+    if file.content_type not in _ALLOWED_AVATAR_MIMES:
+        raise HTTPException(status_code=415, detail="Unsupported media type. Allowed: JPEG, PNG, WebP")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 2 MB")
+    with Session(engine) as session:
+        db_user = session.get(User, user.id)
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db_user.avatar = data
+        db_user.avatar_mime = file.content_type
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/users/{user_id}/avatar")
+def get_avatar(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None or not user.avatar:
+            raise HTTPException(status_code=404, detail="No avatar set")
+        return Response(
+            content=bytes(user.avatar),
+            media_type=user.avatar_mime or "image/jpeg",
+            headers={"Cache-Control": "max-age=3600"},
+        )
+
+
+@app.delete("/api/users/me/avatar", status_code=204)
+async def delete_avatar(request: Request):
+    user = await get_current_user(request)
+    with Session(engine) as session:
+        db_user = session.get(User, user.id)
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db_user.avatar = None
+        db_user.avatar_mime = None
+        session.commit()
+    return Response(status_code=204)
 
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
