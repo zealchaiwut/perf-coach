@@ -41,7 +41,7 @@
     '.global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
     '.global-nav .gn-link.active{background:#0b1530;color:#fff;}',
     '.global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}',
-    '.global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;',
+    '.global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;overflow:hidden;',
       'background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;',
       'align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}',
     '.global-nav .gn-settings{width:34px;height:34px;border-radius:50%;display:inline-flex;',
@@ -130,12 +130,27 @@
   }
 
   var _navUserName = null;
+  var _navUserId = null;
 
-  function updateAvatar() {
-    var el = document.getElementById('nav-avatar');
-    if (!el || !_navUserName) return;
-    el.textContent = (_navUserName.trim().charAt(0) || 'U').toUpperCase();
+  function _navInitial() {
+    return (_navUserName ? (_navUserName.trim().charAt(0) || 'U') : 'U').toUpperCase();
   }
+
+  function updateAvatar(bust) {
+    var el = document.getElementById('nav-avatar');
+    if (!el) return;
+    var initial = _navInitial();
+    el.innerHTML = '';
+    el.textContent = initial;
+    if (!_navUserId) return;
+    var img = new Image();
+    img.style.cssText = 'width:34px;height:34px;object-fit:cover;display:block;';
+    img.alt = initial;
+    img.onload = function () { el.innerHTML = ''; el.appendChild(img); };
+    img.src = '/api/users/' + _navUserId + '/avatar' + (bust ? '?_t=' + Date.now() : '');
+  }
+
+  window.navRefreshAvatar = function () { updateAvatar(true); };
 
   function init() {
     ensureIconFont();
@@ -143,7 +158,8 @@
     buildNav();
     window.addEventListener('userReady', function (e) {
       _navUserName = (e.detail && e.detail.userName) || '';
-      updateAvatar();
+      _navUserId = (e.detail && e.detail.userId) || null;
+      updateAvatar(false);
     });
   }
 
