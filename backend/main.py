@@ -54,6 +54,36 @@ async def _no_cache_frontend(request, call_next):
     return response
 
 
+def _is_guarded_path(path: str) -> bool:
+    """Return True if this path requires authentication (HTML page guard only)."""
+    if path == "/":
+        return True
+    clean = path.lstrip("/")
+    if clean in _PAGES:
+        return True
+    if clean.endswith(".html") and clean[:-5] in _PAGES:
+        return True
+    return False
+
+
+@app.middleware("http")
+async def _auth_guard(request: Request, call_next):
+    """Redirect unauthenticated browser requests to /login; return 401 for JSON clients."""
+    if not _is_guarded_path(request.url.path):
+        return await call_next(request)
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        try:
+            read_session_cookie(token)
+            return await call_next(request)
+        except ValueError:
+            pass
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    return RedirectResponse(url="/login", status_code=302)
+
+
 @app.get("/api/health")
 def health():
     """Return service liveness and environment metadata.
@@ -247,7 +277,9 @@ def delete_user(user_id: str):
 
 from backend.auth import (  # noqa: E402
     clear_session,
+    COOKIE_NAME,
     get_current_user,
+    read_session_cookie,
     set_session,
     verify_password,
 )
@@ -767,6 +799,13 @@ for _clean, _file in _PAGES.items():
     _handler = _make_page_handler(_file)
     app.add_api_route("/" + _clean, _handler, include_in_schema=False)
     app.add_api_route("/" + _clean + ".html", _handler, include_in_schema=False)
+
+
+def _serve_login():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "login.html"))
+
+app.add_api_route("/login", _serve_login, include_in_schema=False)
+app.add_api_route("/login.html", _serve_login, include_in_schema=False)
 
 
 @app.get("/")

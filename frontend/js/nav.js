@@ -44,8 +44,15 @@
     '.global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;',
       'background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;',
       'align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}',
+    '.global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;',
+      'color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;',
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
+      'display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}',
+    '.global-nav .gn-logout:hover{background:rgba(13,30,67,0.05);color:#0b1530;border-color:rgba(13,30,67,0.2);}',
+    '.global-nav .gn-logout:disabled{opacity:0.55;cursor:default;}',
     '@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}',
-      '.global-nav .gn-brand-text{display:none;}}'
+      '.global-nav .gn-brand-text{display:none;}',
+      '.global-nav .gn-logout .gn-logout-label{display:none;}}'
   ].join('');
 
   function ensureIconFont() {
@@ -91,9 +98,23 @@
       '<div class="gn-links">' + linksHtml + '</div>' +
       '<div class="gn-right">' +
         '<div class="gn-avatar" id="nav-avatar" aria-label="User avatar">U</div>' +
+        '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
+          '<i class="ti ti-logout" aria-hidden="true"></i>' +
+          '<span class="gn-logout-label">Log out</span>' +
+        '</button>' +
       '</div>';
 
     document.body.insertBefore(nav, document.body.firstChild);
+
+    document.getElementById('nav-logout').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      fetch('/api/auth/logout', { method: 'POST' })
+        .then(function () { window.location.href = '/login'; })
+        .catch(function () {
+          btn.disabled = false;
+        });
+    });
   }
 
   // Mirror the selected user's initial into the avatar. Works with user.js's
