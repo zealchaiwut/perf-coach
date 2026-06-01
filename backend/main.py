@@ -18,7 +18,7 @@ import urllib.error as _urllib_error
 _start_time = time.monotonic()
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
@@ -37,6 +37,19 @@ app = FastAPI()
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
 app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
+
+
+@app.middleware("http")
+async def _no_cache_frontend(request, call_next):
+    """Force browsers to revalidate HTML/JS/CSS instead of using heuristic
+    caching. Without this, UAT keeps serving a stale page/script after a fix
+    (e.g. an old disabled button) until the user manually hard-refreshes.
+    `no-cache` still permits 304s via ETag, so unchanged files aren't re-sent.
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.get("/api/health")
@@ -644,34 +657,37 @@ def get_active_streak(user_id: str):
     })
 
 
+# ── Page routes ───────────────────────────────────────────────────────────────
+# Every page is served at a clean path (e.g. /home) AND its legacy .html path
+# (/home.html), both backed by the same file. Add new pages here only.
+_PAGES = {
+    "home": "home.html",
+    "weight": "weight.html",
+    "habits": "habits.html",
+    "users": "users.html",
+    "calendar": "calendar.html",
+    "log": "training-log.html",
+    "training": "training.html",
+    "trends": "trends.html",
+}
+
+
+def _make_page_handler(filename: str):
+    def _serve_page():
+        return FileResponse(str(_static_root / "frontend" / "pages" / filename))
+    return _serve_page
+
+
+for _clean, _file in _PAGES.items():
+    _handler = _make_page_handler(_file)
+    app.add_api_route("/" + _clean, _handler, include_in_schema=False)
+    app.add_api_route("/" + _clean + ".html", _handler, include_in_schema=False)
+
+
 @app.get("/")
 def index():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "index.html"))
-
-
-@app.get("/home.html")
-def home():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "home.html"))
-
-
-@app.get("/weight.html")
-def weight():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "weight.html"))
-
-
-@app.get("/habits.html")
-def habits():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "habits.html"))
-
-
-@app.get("/users.html")
-def users_page():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "users.html"))
-
-
-@app.get("/calendar.html")
-def calendar_page():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "calendar.html"))
+    # Bare domain → the home dashboard (clean URL).
+    return RedirectResponse(url="/home")
 
 
 @app.get("/api/calendar/month")
@@ -781,36 +797,6 @@ def get_calendar_month(
         })
 
     return JSONResponse(days)
-
-
-@app.get("/log.html")
-def log_page():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
-
-
-@app.get("/log")
-def log_redirect():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
-
-
-@app.get("/training.html")
-def training_page():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "training.html"))
-
-
-@app.get("/training")
-def training_redirect():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "training.html"))
-
-
-@app.get("/trends.html")
-def trends_page():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
-
-
-@app.get("/trends")
-def trends_redirect():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────

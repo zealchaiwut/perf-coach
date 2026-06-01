@@ -12,13 +12,13 @@
 
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
-    { href: '/home.html',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home.html', '/index.html'] },
-    { href: '/log',           label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/log.html', '/training', '/training.html'] },
-    { href: '/trends',        label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
-    { href: '/calendar.html', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar.html'] },
-    { href: '/weight.html',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight.html'] },
-    { href: '/habits.html',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits.html'] },
-    { href: '/users.html',    label: 'Users',        icon: 'ti-users',        match: ['/users.html'] }
+    { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
+    { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/log.html', '/training', '/training.html'] },
+    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
+    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'] },
+    { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
+    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
+    { href: '/users',    label: 'Users',        icon: 'ti-users',        match: ['/users', '/users.html'] }
   ];
 
   // Scoped under .global-nav so it cannot leak into page styles. Colours are the
@@ -84,7 +84,7 @@
     nav.className = 'global-nav';
     nav.setAttribute('aria-label', 'Primary navigation');
     nav.innerHTML =
-      '<a class="gn-brand" href="/home.html">' +
+      '<a class="gn-brand" href="/home">' +
         '<span class="gn-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>' +
         '<span class="gn-brand-text">perf-coach</span>' +
       '</a>' +

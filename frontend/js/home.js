@@ -887,7 +887,7 @@
     var header =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-checkbox"></i>Habits · this week</div>' +
-        '<a href="/habits.html">All</a>' +
+        '<a href="/habits">All</a>' +
       '</div>';
 
     card.innerHTML = header + '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 4px;">Loading…</div>';
@@ -900,7 +900,7 @@
 
     if (!habits.length) {
       card.innerHTML = header +
-        '<div class="habits-empty">Add a habit to start tracking your week — <a href="/habits.html">go to Habits</a></div>';
+        '<div class="habits-empty">Add a habit to start tracking your week — <a href="/habits">go to Habits</a></div>';
       return;
     }
 
