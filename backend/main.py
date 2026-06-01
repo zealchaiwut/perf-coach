@@ -284,6 +284,34 @@ from backend.auth import (  # noqa: E402
     verify_password,
 )
 
+_resolve_user_log = _logging.getLogger(__name__)
+
+LEGACY_USER_ID_SHIM_ENABLED = True
+
+
+async def resolve_user(
+    request: Request,
+    user_id: Optional[str] = Query(None),
+) -> User:
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        return await get_current_user(request)
+    if LEGACY_USER_ID_SHIM_ENABLED and user_id is not None:
+        _resolve_user_log.warning(
+            "Deprecated: user resolved via ?user_id query param. Migrate to session auth."
+        )
+        with Session(engine) as db:
+            try:
+                uid = _uuid.UUID(user_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid user_id")
+            user = db.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
 _LOCKOUT_MAX_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
 _lockout: dict = {}  # (username_lower, ip) -> {"count": int, "window_start": float}
