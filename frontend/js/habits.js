@@ -42,8 +42,8 @@ async function loadAndRender(userId) {
   clearError();
   try {
     const [habitsRes, logsRes] = await Promise.all([
-      fetch(`/api/habits?user_id=${encodeURIComponent(userId)}`),
-      fetch(`/api/habits/logs?user_id=${encodeURIComponent(userId)}&from=${today}&to=${today}`),
+      fetch('/api/habits'),
+      fetch(`/api/habits/logs?from=${today}&to=${today}`),
     ]);
     if (!habitsRes.ok) throw new Error(`Server error ${habitsRes.status}`);
     if (!logsRes.ok) throw new Error(`Server error ${logsRes.status}`);
@@ -115,7 +115,7 @@ function renderRateEl(el, data) {
 async function fetchStats(habitId, userId) {
   try {
     const res = await fetch(
-      `/api/habits/stats?user_id=${encodeURIComponent(userId)}&habit_id=${encodeURIComponent(habitId)}&days=30`
+      `/api/habits/stats?habit_id=${encodeURIComponent(habitId)}&days=30`
     );
     if (!res.ok) return null;
     return await res.json();
@@ -209,7 +209,7 @@ async function toggleLog(habitId, logId, checkbox) {
       const res = await fetch('/api/habits/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ habit_id: habitId, user_id: currentUserId, logged_date: today }),
+        body: JSON.stringify({ habit_id: habitId, logged_date: today }),
       });
       if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
     } catch (e) {
@@ -230,7 +230,7 @@ async function toggleLog(habitId, logId, checkbox) {
   }
   try {
     const logsRes = await fetch(
-      `/api/habits/logs?user_id=${encodeURIComponent(currentUserId)}&from=${today}&to=${today}`
+      `/api/habits/logs?from=${today}&to=${today}`
     );
     if (logsRes.ok) todayLogs = await logsRes.json();
   } catch { /* keep stale logs */ }
@@ -294,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/habits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: currentUserId, name }),
+        body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       closeModal();

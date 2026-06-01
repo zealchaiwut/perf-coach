@@ -117,26 +117,22 @@
     });
   }
 
-  // Mirror the selected user's initial into the avatar. Works with user.js's
-  // selector + userReady/userChanged events; no-ops on pages without it.
+  var _navUserName = null;
+
   function updateAvatar() {
     var el = document.getElementById('nav-avatar');
-    if (!el) return;
-    var sel = document.getElementById('user-selector-select');
-    if (!sel || sel.selectedIndex < 0) return;
-    var opt = sel.options[sel.selectedIndex];
-    if (!opt || opt.value === '__add__') return;
-    el.textContent = (opt.textContent.trim().charAt(0) || 'U').toUpperCase();
+    if (!el || !_navUserName) return;
+    el.textContent = (_navUserName.trim().charAt(0) || 'U').toUpperCase();
   }
 
   function init() {
     ensureIconFont();
     injectStyles();
     buildNav();
-    updateAvatar();
-    window.addEventListener('userReady', updateAvatar);
-    // user.js repopulates its <select> after a change; defer a tick to read it.
-    window.addEventListener('userChanged', function () { setTimeout(updateAvatar, 0); });
+    window.addEventListener('userReady', function (e) {
+      _navUserName = (e.detail && e.detail.userName) || '';
+      updateAvatar();
+    });
   }
 
   if (document.body) init();

@@ -278,7 +278,6 @@
     var tssRaw = document.getElementById('workout-tss').value.trim();
     var tssVal = tssRaw !== '' ? parseFloat(tssRaw) : null;
     var payload = {
-      user_id: currentUserId,
       name: document.getElementById('workout-name').value.trim(),
       workout_date: document.getElementById('workout-date').value,
       workout_type: getSelectedType(),
@@ -340,8 +339,7 @@
       var to = new Date();
       var from = new Date();
       from.setDate(from.getDate() - 30);
-      var res = await fetch('/api/workouts?user_id=' + encodeURIComponent(currentUserId) +
-        '&from=' + ymd(from) + '&to=' + ymd(to));
+      var res = await fetch('/api/workouts?from=' + ymd(from) + '&to=' + ymd(to));
       if (!res.ok) throw new Error('Server error ' + res.status);
       var workouts = await res.json();
       renderHistory(workouts);
