@@ -356,8 +356,11 @@ class LoginIn(BaseModel):
 def login(body: LoginIn, request: Request):
     ip = request.client.host if request.client else "unknown"
     _check_lockout(body.username, ip)
-    with Session(engine) as session:
-        user = session.query(User).filter(User.name == body.username).first()
+    try:
+        with Session(engine) as session:
+            user = session.query(User).filter(User.name == body.username).first()
+    except sa_exc.SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error")
     if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
         _record_failure(body.username, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
