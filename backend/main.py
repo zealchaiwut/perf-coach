@@ -144,6 +144,7 @@ def get_users():
                 {
                     "id": str(u.id),
                     "name": u.name,
+                    "is_admin": bool(u.is_admin),
                     "created_at": u.created_at.isoformat() if u.created_at else None,
                     "weight_count": wc,
                     "habits_count": hc,
@@ -182,6 +183,7 @@ def create_user(body: UserIn):
             content={
                 "id": str(user.id),
                 "name": user.name,
+                "is_admin": bool(user.is_admin),
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             },
         )
