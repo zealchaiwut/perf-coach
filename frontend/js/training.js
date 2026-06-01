@@ -31,12 +31,6 @@
     return icons[t] || '⚡';
   }
 
-  function avgRpe(exercises) {
-    var vals = exercises.filter(function (e) { return e.rpe != null; }).map(function (e) { return e.rpe; });
-    if (!vals.length) return null;
-    return (vals.reduce(function (a, b) { return a + b; }, 0) / vals.length).toFixed(1);
-  }
-
   function showToast(msg, isError) {
     var t = document.getElementById('toast');
     t.textContent = msg;
@@ -320,7 +314,9 @@
 
       showToast(editingWorkoutId ? 'Workout updated!' : 'Workout saved!');
       resetForm();
-      switchTab('history');
+      // Return to the Training Log (the canonical history view) — brief delay
+      // so the success toast is visible before we navigate.
+      setTimeout(function () { window.location.href = '/log'; }, 700);
     } catch (e) {
       showToast('Save failed: ' + e.message, true);
     } finally {
@@ -335,7 +331,17 @@
     var list = document.getElementById('history-list');
     list.innerHTML = '<p class="loading-msg">Loading…</p>';
     try {
-      var res = await fetch('/api/workouts?user_id=' + currentUserId + '&days=30');
+      // /api/workouts takes a from/to range (YYYY-MM-DD), not a day count.
+      function ymd(d) {
+        return d.getFullYear() + '-' +
+          String(d.getMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getDate()).padStart(2, '0');
+      }
+      var to = new Date();
+      var from = new Date();
+      from.setDate(from.getDate() - 30);
+      var res = await fetch('/api/workouts?user_id=' + encodeURIComponent(currentUserId) +
+        '&from=' + ymd(from) + '&to=' + ymd(to));
       if (!res.ok) throw new Error('Server error ' + res.status);
       var workouts = await res.json();
       renderHistory(workouts);
@@ -354,16 +360,14 @@
     workouts.forEach(function (w) {
       var row = document.createElement('div');
       row.className = 'history-row';
-      var rpe = avgRpe(w.exercises);
-      var rpeText = rpe ? 'RPE avg ' + rpe : '';
+      var count = w.exercise_count || 0;
       row.innerHTML =
         '<div class="history-main">' +
           '<span class="history-name">' + escapeHtml(w.name) + '</span>' +
           '<span class="history-meta">' +
             '<span class="history-date">' + relativeDate(w.workout_date) + '</span>' +
             '<span class="history-type">' + typeIcon(w.workout_type) + ' ' + escapeHtml(w.workout_type) + '</span>' +
-            '<span class="history-count">' + w.exercises.length + ' exercise' + (w.exercises.length !== 1 ? 's' : '') + '</span>' +
-            (rpeText ? '<span class="history-rpe">' + rpeText + '</span>' : '') +
+            '<span class="history-count">' + count + ' exercise' + (count !== 1 ? 's' : '') + '</span>' +
           '</span>' +
         '</div>' +
         '<span class="history-chevron">›</span>';
@@ -382,7 +386,14 @@
 
   // ── Detail modal ──────────────────────────────────────────────────────────────
 
-  function openDetail(workout) {
+  async function openDetail(listItem) {
+    // The history list omits exercises; fetch the full workout for the modal + edit.
+    var workout = listItem;
+    try {
+      var full = await fetch('/api/workouts/' + listItem.id);
+      if (full.ok) workout = await full.json();
+    } catch (e) { /* fall back to the list item */ }
+
     var modal = document.getElementById('detail-modal');
     document.getElementById('detail-title').textContent = workout.name;
     document.getElementById('detail-meta').textContent =
