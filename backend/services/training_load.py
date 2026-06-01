@@ -34,6 +34,11 @@ from backend.db import engine
 from backend.models import TrainingLoadSnapshot
 
 
+def _ewma_alpha(days: int) -> float:
+    """Exponential weighted moving average alpha factor."""
+    return 1 - math.exp(-1 / days)
+
+
 def daily_tss_series(
     user_id: str,
     from_date: date,
@@ -107,8 +112,8 @@ def compute_load_curves(
             f"ctl_days ({ctl_days}) must be greater than atl_days ({atl_days})"
         )
 
-    ctl_alpha = 1 - math.exp(-1 / ctl_days)
-    atl_alpha = 1 - math.exp(-1 / atl_days)
+    ctl_alpha = _ewma_alpha(ctl_days)
+    atl_alpha = _ewma_alpha(atl_days)
 
     ctl = 0.0
     atl = 0.0
