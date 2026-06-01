@@ -3971,6 +3971,7 @@ def get_feel_search(
 
 
 def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
+    # inclusive thresholds per #259 TSB interpretation spec
     if tsb >= 5:
         label = "Fresh"
     elif tsb >= -5:
