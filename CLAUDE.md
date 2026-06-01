@@ -11,21 +11,20 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
 - **Migrations:** Alembic (`alembic/` dir, config in `alembic.ini`)
 - **Frontend:** Static HTML pages + vanilla JavaScript, served BY FastAPI as
   FileResponse routes. No SPA framework, no bundler. Chart.js via CDN for charts.
-- **No build step** for frontend — pages are plain HTML/CSS/JS files at repo root.
+- **No build step** for frontend — pages are plain HTML/CSS/JS files under `frontend/`.
 
 ## Project Structure
 
-    backend/main.py        FastAPI app — ALL API endpoints live here
-    backend/models.py      SQLAlchemy models (source of truth for schema)
-    backend/db.py          Engine, session, environment detection, check_db()
-    backend/seed.py        Seed/sample data
-    alembic/               Migrations (versions/ holds migration files)
-    alembic.ini            Alembic config
-    css/styles.css         Shared styles
-    js/                    Page-specific vanilla JS modules
-    index.html, home.html, weight.html, habits.html, training.html,
-    calendar.html, users.html, weight.html   Static pages, each served by a
-                                              FileResponse route in main.py
+    backend/main.py               FastAPI app — ALL API endpoints live here
+    backend/models.py             SQLAlchemy models (source of truth for schema)
+    backend/db.py                 Engine, session, environment detection, check_db()
+    backend/seed.py               Seed/sample data
+    alembic/                      Migrations (versions/ holds migration files)
+    alembic.ini                   Alembic config
+    frontend/css/styles.css       Shared styles
+    frontend/js/                  Page-specific vanilla JS modules
+    frontend/pages/               Static HTML pages, each served by a
+                                  FileResponse route in main.py
 
 ## API Conventions (FOLLOW THESE EXACTLY)
 
@@ -55,6 +54,26 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
 - ANY schema change MUST be a new Alembic migration in `alembic/versions/`.
   Never edit the DB by hand. Make migrations idempotent (guard create_table /
   add_column with existence checks).
+
+## Local Development
+
+- Copy `.env.example` to `.env` and fill in values before running locally.
+- Use `start_uat.sh` (with `ENVIRONMENT=uat` in `.env`) or `start_prd.sh`
+  (with `ENVIRONMENT=prd`) to start the app locally.
+- **Deprecated:** the old `uat/` + `main/` parallel-checkout pattern (two
+  separate clones in sibling directories) is no longer supported. The canonical
+  workflow is one clone — switch between `develop` (UAT) and `master` (PRD) via
+  `git checkout`.
+
+## Deployment
+
+Deployments are managed by Render via `render.yaml`. See:
+
+- `docs/release-process.md` — step-by-step release procedure
+- `docs/render-setup.md` — Render service configuration reference
+
+Do not describe deployment steps inline here; those docs are the source of
+truth.
 
 ## Conventions
 

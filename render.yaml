@@ -1,0 +1,56 @@
+---
+# render.yaml — Render Blueprint for perf-coach
+# yamllint: autoDeploy uses yes/no (not true/false) — required by Render's API.
+#
+# Python version is pinned via the repo-root `.python-version` file (Render
+# reads it). The service schema has no `pythonVersion` field — setting one makes
+# the blueprint fail with "field pythonVersion not found in type file.service".
+#
+# The DB connection string is intentionally absent from this file and must be
+# set manually in the Render dashboard for each service after the blueprint is
+# applied. The app (backend/db.py) and Alembic select the var by ENVIRONMENT,
+# so each service needs the matching name:
+#
+#   perf-coach-uat → DATABASE_URL_UAT = Neon "uat" branch connection string
+#   perf-coach-prd → DATABASE_URL_PRD = Neon "main" (PRD) branch connection string
+#
+# NEVER commit a connection-string value to this file or any tracked file.
+
+services:
+  - type: web
+    name: perf-coach-uat
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: develop
+    autoDeploy: yes  # yamllint: truthy — Render requires yes/no, not true/false
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: uat
+      - key: GIT_SHA
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      - key: DATABASE_URL_UAT
+        sync: false  # set via Render dashboard — see top of file
+
+  - type: web
+    name: perf-coach-prd
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: master
+    autoDeploy: no  # yamllint: truthy — Render requires yes/no, not true/false
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: prd
+      - key: GIT_SHA
+        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      - key: DATABASE_URL_PRD
+        sync: false  # set via Render dashboard — see top of file

@@ -1,8 +1,9 @@
 import os
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import Session
+from models import Workout, WorkoutExercise
 
 load_dotenv()
 
@@ -53,13 +54,23 @@ with Session(engine) as session:
     # If so, the data is stale (from a previous under-populated seed run) and
     # should be wiped and re-seeded so the AC ("each strength workout has 4-6
     # exercise rows") is satisfied.
-    thin_strength = session.execute(
-        text(
-            "SELECT COUNT(*) FROM workouts w"
-            " WHERE w.workout_type ILIKE 'strength'"
-            "   AND (SELECT COUNT(*) FROM workout_exercises we WHERE we.workout_id = w.id) < 4"
+    exercise_count_sq = (
+        session.query(func.count(WorkoutExercise.id))
+        .filter(WorkoutExercise.workout_id == Workout.id)
+        .correlate(Workout)
+        .scalar_subquery()
+    )
+    thin_strength = (
+        session.query(Workout)
+        .filter(
+            Workout.workout_type.ilike("strength"),
+            # Exclude 'Squat 1RM Test': dedicated single-lift test, intentionally
+            # has fewer than 4 exercises and should not trigger a re-seed.
+            Workout.name.notin_(["Squat 1RM Test"]),
+            exercise_count_sq < 4,
         )
-    ).scalar()
+        .count()
+    )
 
     workout_count = session.execute(text("SELECT COUNT(*) FROM workouts")).scalar()
 
@@ -208,3 +219,90 @@ with Session(engine) as session:
             print(f"Alice already has {dm_count} daily_metrics row(s) — skipping daily metrics seed")
     else:
         print("Alice not found — skipping daily metrics seed")
+
+with Session(engine) as session:
+    alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+    if alice:
+        pr_count = session.execute(
+            text("SELECT COUNT(*) FROM personal_records WHERE user_id = :uid"),
+            {"uid": str(alice.id)},
+        ).scalar()
+        if pr_count == 0:
+            seed_prs = [
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "half_marathon",
+                    "track_name": "Half Marathon",
+                    "track_type": "time",
+                    "value_numeric": "6871",
+                    "achieved_on": "2026-01-28",
+                    "source": None,
+                },
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "10k",
+                    "track_name": "10K",
+                    "track_type": "time",
+                    "value_numeric": "3128",
+                    "achieved_on": "2026-02-18",
+                    "source": None,
+                },
+                {
+                    "user_id": str(alice.id),
+                    "track_key": "squat_1rm",
+                    "track_name": "Squat 1RM",
+                    "track_type": "weight",
+                    "value_numeric": "140",
+                    "achieved_on": "2026-03-04",
+                    "source": None,
+                },
+            ]
+            session.execute(
+                text(
+                    "INSERT INTO personal_records"
+                    " (user_id, track_key, track_name, track_type, value_numeric, achieved_on, source)"
+                    " VALUES (:user_id, :track_key, :track_name, :track_type, :value_numeric, :achieved_on, :source)"
+                ),
+                seed_prs,
+            )
+            session.commit()
+            print(f"Seeded {len(seed_prs)} personal_records for Alice")
+        else:
+            print(f"Alice already has {pr_count} personal_records row(s) — skipping personal records seed")
+    else:
+        print("Alice not found — skipping personal records seed")
+
+# Seed performance-widget demo workouts (idempotent: guarded by workout name)
+with Session(engine) as session:
+    alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
+    if alice:
+        today = date.today()
+
+        # Half-marathon run: 1:58:12 (7092 s) at 21.1 km — gives amber delta vs 1:54:31 PR
+        hm_exists = session.query(Workout).filter_by(user_id=alice.id, name="Half Marathon Race").first()
+        if not hm_exists:
+            session.add(Workout(
+                user_id=alice.id,
+                name="Half Marathon Race",
+                workout_date=today - timedelta(days=17),
+                workout_type="run",
+                distance_km=21.1,
+                duration_seconds=7092,
+            ))
+            session.commit()
+            print("Seeded Half Marathon Race workout for Alice")
+
+        # Squat 1RM test: 132 kg — gives amber delta vs 140 kg PR
+        squat_exists = session.query(Workout).filter_by(user_id=alice.id, name="Squat 1RM Test").first()
+        if not squat_exists:
+            session.add(Workout(
+                user_id=alice.id,
+                name="Squat 1RM Test",
+                workout_date=today - timedelta(days=7),
+                workout_type="strength",
+                exercises=[
+                    WorkoutExercise(display_order=0, name="Squat", sets=1, reps=1, weight_kg=132.0, rpe=9),
+                ],
+            ))
+            session.commit()
+            print("Seeded Squat 1RM Test workout for Alice")

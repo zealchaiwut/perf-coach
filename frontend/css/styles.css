@@ -1,0 +1,219 @@
+* { box-sizing: border-box; }
+
+/* Ensure [hidden] always hides elements even when a class sets display:flex/block */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #fafafa;
+  color: #1a1a1a;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: #fff;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+main {
+  padding: 2rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.env-label {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: #e5e5e5;
+  color: #666;
+}
+
+[data-env="prd"] .env-label   { background: #dc3545; color: #fff; }
+[data-env="uat"] .env-label   { background: #0d6efd; color: #fff; }
+[data-env="local"] .env-label { background: #6c757d; color: #fff; }
+
+.user-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.75rem;
+}
+
+.user-selector-label {
+  font-size: 0.8125rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.user-selector select {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+}
+
+.user-selector select:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay.is-open {
+  display: flex;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* ── Users table ── */
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.25rem;
+}
+
+.users-table th {
+  text-align: left;
+  font-size: 0.8125rem;
+  color: #666;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid #e5e5e5;
+}
+
+.users-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 0.9375rem;
+  vertical-align: middle;
+}
+
+.users-table .actions-cell {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ── Inline add-user form (users page) ── */
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.inline-form input[type="text"] {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9375rem;
+  min-width: 200px;
+}
+
+.inline-form input[type="text"]:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+}
+
+.field-error {
+  font-size: 0.8125rem;
+  color: #c0392b;
+}
+
+.page-error {
+  color: #c0392b;
+  font-size: 0.875rem;
+  min-height: 1.2em;
+  margin-bottom: 0.5rem;
+}
+
+/* ── Small buttons (table actions) ── */
+.btn-sm {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: #1a1a1a;
+  white-space: nowrap;
+}
+
+.btn-sm:hover { background: #f5f5f5; }
+
+.btn-sm.btn-delete { color: #c0392b; border-color: #f5c6c3; }
+.btn-sm.btn-delete:hover { background: #fee2e2; border-color: #f87171; }
+
+.btn-primary {
+  padding: 0.45rem 1rem;
+  background: #1a1a1a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.btn-primary:hover { background: #333; }
+
+.btn-danger {
+  padding: 0.45rem 1rem;
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.btn-danger:hover { background: #a93226; }
+
+.btn-secondary {
+  padding: 0.45rem 1rem;
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.btn-secondary:hover { background: #f5f5f5; }

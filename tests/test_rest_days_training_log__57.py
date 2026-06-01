@@ -67,11 +67,11 @@ def _create_workout(client, user_id, date_str, *, workout_type="run", name="Test
 
 
 def _get_log(client, user_id, from_date=_RANGE_FROM, to_date=_RANGE_TO, **params):
-    query = f"/training_log?user_id={user_id}&from={from_date}&to={to_date}"
+    query = f"/api/training-log?user_id={user_id}&from={from_date}&to={to_date}"
     for k, v in params.items():
         query += f"&{k}={v}"
     res = client.get(query)
-    assert res.status_code == 200, f"GET /training_log failed: {res.status_code} {res.text}"
+    assert res.status_code == 200, f"GET /api/training-log failed: {res.status_code} {res.text}"
     return res.json()
 
 
@@ -309,7 +309,7 @@ def test_rest_entry_has_no_workout_keys(client, test_user):
 
 @pytest.fixture(scope="module")
 def log_html():
-    path = pathlib.Path(__file__).parent.parent / "log.html"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html"
     assert path.exists(), "log.html not found at repo root"
     return path.read_text(encoding="utf-8")
 
@@ -342,7 +342,7 @@ def test_log_html_has_empty_state_message(training_log_js):
 
 @pytest.fixture(scope="module")
 def training_log_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "training-log.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "training-log.js"
     assert path.exists(), "js/training-log.js not found"
     return path.read_text(encoding="utf-8")
 
@@ -392,7 +392,7 @@ def test_training_log_js_week_summary_uses_workouts_not_entries(training_log_js)
 
 @pytest.fixture(scope="module")
 def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "js" / "mock-data.js"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
     assert path.exists(), "js/mock-data.js not found"
     return path.read_text(encoding="utf-8")
 
@@ -416,10 +416,15 @@ def test_mock_rest_days_dates_do_not_overlap_workouts(mock_data_js):
         assert not overlap, f"MOCK_REST_DAYS and MOCK_WORKOUTS share dates: {overlap}"
 
 
-# ── /training_log route must exist ────────────────────────────────────────────
+# ── /api/training-log route must exist; old /training_log must return 404 ──────
+
+def test_old_training_log_route_returns_404(client):
+    res = client.get("/training_log?from=2025-03-01&to=2025-03-31")
+    assert res.status_code == 404, f"Old /training_log route should be gone, got {res.status_code}"
+
 
 def test_training_log_route_exists(client, test_user):
-    res = client.get(f"/training_log?user_id={test_user}&from=2025-03-01&to=2025-03-31")
+    res = client.get(f"/api/training-log?user_id={test_user}&from=2025-03-01&to=2025-03-31")
     assert res.status_code == 200
 
 
@@ -429,10 +434,10 @@ def test_training_log_returns_weeks_key(client, test_user):
 
 
 def test_training_log_invalid_user_returns_400(client):
-    res = client.get("/training_log?user_id=not-a-uuid&from=2025-03-01&to=2025-03-31")
+    res = client.get("/api/training-log?user_id=not-a-uuid&from=2025-03-01&to=2025-03-31")
     assert res.status_code == 400
 
 
 def test_training_log_invalid_date_returns_400(client, test_user):
-    res = client.get(f"/training_log?user_id={test_user}&from=bad-date&to=2025-03-31")
+    res = client.get(f"/api/training-log?user_id={test_user}&from=bad-date&to=2025-03-31")
     assert res.status_code == 400

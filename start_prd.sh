@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# LOCAL DEV ONLY — Render uses render.yaml, not this script.
 set -euo pipefail
 
 if [ ! -f .env ]; then
-  echo "ERROR: .env not found. Create it with DATABASE_URL_UAT and DATABASE_URL_PRD set." >&2
+  echo "ERROR: .env not found. Copy .env.example to .env and fill in values." >&2
   exit 1
 fi
 
@@ -11,12 +12,15 @@ set -a
 source .env
 set +a
 
-# Environment and port are always determined by the script, not .env
-export ENVIRONMENT=PRD
-export PORT=9000
+if [ "${ENVIRONMENT:-}" != "prd" ]; then
+  echo "ERROR: ENVIRONMENT must be 'prd' in .env to run this script." >&2
+  exit 1
+fi
 
-if [ -z "${DATABASE_URL_PRD:-}" ]; then
-  echo "ERROR: DATABASE_URL_PRD is not set in .env." >&2
+CONFIGURED_PORT=9000
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "ERROR: DATABASE_URL is not set in .env." >&2
   exit 1
 fi
 
@@ -24,7 +28,7 @@ fi
 python3 - <<'EOF'
 import os, sys
 from urllib.parse import urlparse
-url = os.environ.get("DATABASE_URL_PRD", "")
+url = os.environ.get("DATABASE_URL", "")
 host = urlparse(url).hostname or "(unknown)"
 print(f"Target DB host (PRD): {host}")
 EOF
@@ -33,7 +37,7 @@ echo "Verifying database connection (PRD)..."
 python3 - <<'EOF'
 import os, sys
 from sqlalchemy import create_engine, text
-url = os.environ["DATABASE_URL_PRD"]
+url = os.environ["DATABASE_URL"]
 try:
     engine = create_engine(url, pool_pre_ping=True)
     with engine.connect() as conn:
@@ -44,10 +48,46 @@ except Exception as e:
     sys.exit(1)
 EOF
 
+# Select an available port, falling back to a random free port if configured port is occupied
+PORT=$(python3 - "$CONFIGURED_PORT" <<'EOF'
+import socket
+import random
+import sys
+
+RESERVED_PORTS = {21, 22, 23, 25, 80, 443, 1433, 1521, 3000, 3306, 5432, 6379, 8080, 8443, 27017}
+MAX_RETRIES = 100
+
+def is_port_free(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            return False
+
+configured_port = int(sys.argv[1])
+
+if is_port_free(configured_port):
+    print(configured_port)
+    sys.exit(0)
+
+for _ in range(MAX_RETRIES):
+    port = random.randint(1024, 65535)
+    if port not in RESERVED_PORTS and is_port_free(port):
+        print(port)
+        sys.exit(0)
+
+print("ERROR: Unable to find a free port after 100 attempts", file=sys.stderr)
+sys.exit(1)
+EOF
+)
+
+export PORT
+echo "Server listening on port $PORT"
+
 source .venv/bin/activate
 
 echo "Applying database migrations (PRD)..."
 uv run alembic upgrade head
 
-echo "Starting perf-coach backend (PRD) on http://localhost:$PORT"
 exec uv run uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"

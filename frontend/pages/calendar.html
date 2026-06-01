@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calendar – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css">
+  <style>
+    main { max-width: 840px; }
+
+    .cal-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .cal-nav-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #374151;
+      flex-shrink: 0;
+    }
+
+    .cal-nav-btn:hover { background: #f3f4f6; }
+
+    .cal-nav-btn svg { pointer-events: none; }
+
+    .cal-month-label {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      min-width: 180px;
+      text-align: center;
+    }
+
+    .cal-today-btn {
+      padding: 0.3rem 0.75rem;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: #374151;
+    }
+
+    .cal-today-btn:hover { background: #f3f4f6; }
+
+    .cal-filters {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .cal-filter-label {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8125rem;
+      color: #444;
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .cal-filter-label input[type="checkbox"] {
+      width: 0.875rem;
+      height: 0.875rem;
+      cursor: pointer;
+    }
+
+    .cal-grid-scroll {
+      width: 100%;
+    }
+
+    .cal-grid {
+      width: 100%;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .cal-grid-header {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .cal-dow {
+      padding: 0.5rem 0;
+      text-align: center;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+
+    .cal-grid-cells {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      transition: opacity 75ms ease;
+    }
+
+    .cal-grid-cells.fading { opacity: 0; }
+
+    .cal-cell {
+      min-height: 90px;
+      border-right: 1px solid #e5e5e5;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 0.375rem 0.5rem;
+      background: #fff;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .cal-cell:nth-child(7n) { border-right: none; }
+
+    .cal-cell:nth-last-child(-n+7) { border-bottom: none; }
+
+    .cal-cell.out-of-month {
+      opacity: 0.4;
+      background: #fafafa;
+      cursor: default;
+    }
+
+    .cal-cell.today { background: #e0f2fe; }
+
+    .cal-cell:not(.out-of-month):hover { background: #f0f9ff; }
+    .cal-cell.today:not(.out-of-month):hover { background: #bae6fd; }
+
+    .cal-day-num {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #374151;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cal-cell.today .cal-day-num {
+      color: #0284c7;
+      font-weight: 700;
+    }
+
+    /* ── Cell data elements ── */
+
+    .cal-cell-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.25rem;
+    }
+
+    .cal-weight-val {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: #6b7280;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+      line-height: 1.3;
+    }
+
+    .cal-cell.today .cal-weight-val { color: #0284c7; }
+
+    .cal-habits-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-top: 0.3rem;
+    }
+
+    .cal-habit-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      border: 1.5px solid transparent;
+      flex-shrink: 0;
+    }
+
+    .cal-habit-dot.done        { background: #16a34a; border-color: #16a34a; }
+    .cal-habit-dot.missed      { background: #d1d5db; border-color: #d1d5db; opacity: 0.5; }
+    .cal-habit-dot.today-pending { background: transparent; border: 1.5px dashed #9ca3af; }
+    .cal-habit-dot.future      { display: none; }
+
+    .cal-cell.today .cal-habit-dot.done { background: #0284c7; border-color: #0284c7; }
+    .cal-cell.today .cal-habit-dot.today-pending { border-color: #0284c7; }
+
+    .cal-training-row {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-top: 0.25rem;
+    }
+
+    .cal-training-icon {
+      font-size: 0.6875rem;
+      color: #6b7280;
+      line-height: 1;
+    }
+
+    .cal-cell.today .cal-training-icon { color: #0284c7; }
+
+    .cal-training-dur {
+      font-size: 0.5625rem;
+      color: #9ca3af;
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .cal-cell.today .cal-training-dur { color: #0ea5e9; }
+
+    /* ── Legend ── */
+
+    .cal-legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem 1rem;
+      margin-top: 0.875rem;
+      padding: 0.625rem 0.875rem;
+      background: #f9fafb;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .cal-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+
+    .cal-legend-sep {
+      width: 1px;
+      height: 1rem;
+      background: #d1d5db;
+      flex-shrink: 0;
+    }
+
+    .legend-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1.5px solid transparent;
+      flex-shrink: 0;
+    }
+
+    .legend-dot.done    { background: #16a34a; border-color: #16a34a; }
+    .legend-dot.missed  { background: #d1d5db; border-color: #d1d5db; opacity: 0.5; }
+    .legend-dot.pending { background: transparent; border: 1.5px dashed #9ca3af; }
+
+    .legend-icon { font-size: 0.875rem; color: #6b7280; line-height: 1; }
+
+    .legend-today {
+      background: #e0f2fe;
+      color: #0284c7;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* ── Day-detail modal ── */
+
+    .day-modal-box {
+      max-width: 520px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .day-modal-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #e5e5e5;
+      flex-shrink: 0;
+    }
+
+    .day-modal-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      line-height: 1.3;
+      margin: 0;
+    }
+
+    .day-modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      line-height: 1;
+      cursor: pointer;
+      color: #6b7280;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .day-modal-close:hover { color: #1a1a1a; }
+
+    .day-modal-body {
+      overflow-y: auto;
+      padding-top: 1rem;
+    }
+
+    .day-modal-future-msg {
+      color: #6b7280;
+      font-size: 0.9375rem;
+      margin: 0;
+    }
+
+    .day-modal-loading,
+    .day-modal-error {
+      font-size: 0.875rem;
+      color: #aaa;
+    }
+
+    .day-modal-error { color: #c0392b; }
+
+    .day-modal-section {
+      margin-bottom: 1.25rem;
+    }
+
+    .day-modal-section:last-child { margin-bottom: 0; }
+
+    .day-modal-section-title {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin: 0 0 0.5rem;
+    }
+
+    .day-modal-weight-value {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin: 0;
+    }
+
+    .day-modal-add-btn {
+      display: inline-block;
+      background: none;
+      border: 1px dashed #9ca3af;
+      border-radius: 4px;
+      color: #374151;
+      font-size: 0.8125rem;
+      padding: 0.35rem 0.75rem;
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 0.25rem;
+      font-family: inherit;
+    }
+
+    .day-modal-add-btn:hover { border-color: #6b7280; background: #f9fafb; }
+
+    .day-modal-inline-form {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.25rem;
+    }
+
+    .day-modal-weight-input {
+      padding: 0.35rem 0.6rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9375rem;
+      width: 110px;
+    }
+
+    .day-modal-weight-input:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    .day-modal-form-error {
+      font-size: 0.8125rem;
+      color: #c0392b;
+      width: 100%;
+    }
+
+    .day-modal-habit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .day-modal-habit-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9375rem;
+    }
+
+    .day-modal-habit-cb {
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .day-modal-habit-item label { cursor: pointer; }
+
+    .day-modal-habit-state {
+      width: 1rem;
+      height: 1rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .day-modal-habit-state.state-done {
+      background: #16a34a;
+      font-size: 0.625rem;
+      color: #fff;
+    }
+
+    .day-modal-habit-state.state-done::after { content: '✓'; }
+
+    .day-modal-habit-state.state-missed { background: #e5e7eb; }
+
+    .day-modal-habit-name {
+      font-size: 0.9375rem;
+      color: #374151;
+    }
+
+    .day-modal-training-list {
+      list-style: none;
+      margin: 0 0 0.5rem;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .day-modal-training-item {
+      font-size: 0.875rem;
+      color: #374151;
+    }
+
+    .day-modal-empty {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin: 0 0 0.4rem;
+    }
+
+    /* ── Recovery dots (sleep, energy, readiness) ── */
+
+    .cal-recovery-dots {
+      display: flex;
+      justify-content: flex-end;
+      gap: 3px;
+      margin-top: 0.25rem;
+      position: relative;
+    }
+
+    .cal-recovery-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      position: relative;
+      cursor: default;
+    }
+
+    /* Touch target expansion for mobile (min 24×24 px) */
+    .cal-recovery-dot::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Color scale 1–5 (energy and sleep quality) */
+    .cal-recovery-dot.scale-1 { background: #ef4444; }
+    .cal-recovery-dot.scale-2 { background: #f97316; }
+    .cal-recovery-dot.scale-3 { background: #eab308; }
+    .cal-recovery-dot.scale-4 { background: #86efac; }
+    .cal-recovery-dot.scale-5 { background: #16a34a; }
+
+    /* Readiness band colors (thresholds: red < 50, amber 50–70, green > 70) */
+    .cal-recovery-dot.readiness-green { background: #16a34a; }
+    .cal-recovery-dot.readiness-amber { background: #eab308; }
+    .cal-recovery-dot.readiness-red   { background: #ef4444; }
+    .cal-recovery-dot.readiness-gray  { background: #9ca3af; }
+
+    /* CSS tooltip on hover — shown on the dots container to surface all three values */
+    .cal-recovery-dots[data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      background: rgba(17,24,39,0.9);
+      color: #fff;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* < 900px: shrink cells to 60px min-height */
+    @media (max-width: 899px) {
+      .cal-cell {
+        min-height: 60px;
+        padding: 0.25rem 0.3rem;
+      }
+
+      .cal-day-num      { font-size: 0.75rem; }
+      .cal-weight-val   { font-size: 0.5625rem; }
+      .cal-habit-dot    { width: 5px; height: 5px; }
+      .cal-training-icon { font-size: 0.625rem; }
+      .cal-training-dur { font-size: 0.5rem; }
+
+      /* Shrink recovery dots on narrow viewports — stack vertically if needed */
+      .cal-recovery-dot { width: 6px; height: 6px; }
+      .cal-recovery-dots { gap: 2px; flex-wrap: wrap; }
+    }
+
+    /* < 700px: allow horizontal scroll so grid never crashes */
+    @media (max-width: 699px) {
+      .cal-grid-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .cal-grid {
+        min-width: 420px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Calendar</h1>
+    <span id="env-label" class="env-label"></span>
+  </header>
+  <main>
+    <div class="cal-toolbar">
+      <div class="cal-nav">
+        <button class="cal-nav-btn" id="prev-btn" aria-label="Previous month">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <span class="cal-month-label" id="month-label"></span>
+        <button class="cal-nav-btn" id="next-btn" aria-label="Next month">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+        <button class="cal-today-btn" id="today-btn">Today</button>
+      </div>
+      <div class="cal-filters">
+        <label class="cal-filter-label">
+          <input type="checkbox" id="filter-weight" checked> Show Weight
+        </label>
+        <label class="cal-filter-label">
+          <input type="checkbox" id="filter-habits" checked> Show Habits
+        </label>
+        <label class="cal-filter-label">
+          <input type="checkbox" id="filter-training" checked> Show Training
+        </label>
+        <label class="cal-filter-label">
+          <input type="checkbox" id="filter-recovery" checked> Show Recovery
+        </label>
+      </div>
+    </div>
+
+    <div class="cal-grid-scroll">
+      <div class="cal-grid">
+        <div class="cal-grid-header">
+          <div class="cal-dow">Mon</div>
+          <div class="cal-dow">Tue</div>
+          <div class="cal-dow">Wed</div>
+          <div class="cal-dow">Thu</div>
+          <div class="cal-dow">Fri</div>
+          <div class="cal-dow">Sat</div>
+          <div class="cal-dow">Sun</div>
+        </div>
+        <div class="cal-grid-cells" id="cal-grid-cells"></div>
+      </div>
+    </div>
+
+    <div class="cal-legend" aria-label="Calendar legend">
+      <span class="cal-legend-item"><span class="legend-dot done"></span> Habit done</span>
+      <span class="cal-legend-item"><span class="legend-dot missed"></span> Habit missed</span>
+      <span class="cal-legend-item"><span class="legend-dot pending"></span> Not logged yet</span>
+      <span class="cal-legend-sep" aria-hidden="true"></span>
+      <span class="cal-legend-item"><i class="ti ti-run legend-icon" aria-hidden="true"></i> Cardio</span>
+      <span class="cal-legend-item"><i class="ti ti-barbell legend-icon" aria-hidden="true"></i> Strength</span>
+      <span class="cal-legend-item"><i class="ti ti-yoga legend-icon" aria-hidden="true"></i> Yoga / Flex</span>
+      <span class="cal-legend-sep" aria-hidden="true"></span>
+      <span class="cal-legend-item" style="gap:0.2rem">
+        <span class="cal-recovery-dot scale-1" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-2" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-3" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-4" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot scale-5" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        Energy / Sleep (1–5)
+      </span>
+      <span class="cal-legend-item" style="gap:0.2rem">
+        <span class="cal-recovery-dot readiness-red"   style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-amber" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-green" style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        <span class="cal-recovery-dot readiness-gray"  style="position:static;width:8px;height:8px;flex-shrink:0"></span>
+        Readiness (Low / Mod / High / No data)
+      </span>
+      <span class="cal-legend-sep" aria-hidden="true"></span>
+      <span class="cal-legend-item"><span class="legend-today">Today</span></span>
+    </div>
+
+  </main>
+
+  <script src="js/nav.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/env.js"></script>
+</body>
+</html>

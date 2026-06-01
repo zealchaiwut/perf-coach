@@ -47,46 +47,46 @@ def test_ac1_users_html_returns_200(client):
 
 def test_ac1_nav_link_in_index():
     """index.html must contain a link to users.html."""
-    html = (ROOT / "index.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "index.html").read_text()
     assert "users.html" in html, "index.html has no nav link to users.html"
 
 
 def test_ac1_nav_link_in_weight():
     """weight.html must contain a link to users.html."""
-    html = (ROOT / "weight.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "weight.html").read_text()
     assert "users.html" in html, "weight.html has no nav link to users.html"
 
 
 def test_ac1_nav_link_in_habits():
     """habits.html must contain a link to users.html."""
-    html = (ROOT / "habits.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "habits.html").read_text()
     assert "users.html" in html, "habits.html has no nav link to users.html"
 
 
 # ── AC-2: Table columns — Name, Created, Weight entries, Habits, Actions ────
 
 def test_ac2_table_column_name():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "Name" in html, "users.html missing Name column header"
 
 
 def test_ac2_table_column_created():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "Created" in html, "users.html missing Created column header"
 
 
 def test_ac2_table_column_weight_entries():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "Weight" in html, "users.html missing Weight entries column header"
 
 
 def test_ac2_table_column_habits():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "Habits" in html, "users.html missing Habits column header"
 
 
 def test_ac2_table_column_actions():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "Actions" in html, "users.html missing Actions column header"
 
 
@@ -115,29 +115,29 @@ def test_ac2_api_includes_created_at(client):
 
 def test_ac3_add_user_button_present():
     """users.html must have an add-user button."""
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "add-user-btn" in html or "Add user" in html, "users.html missing add-user button"
 
 
 def test_ac3_add_form_name_input_present():
     """users.html must have a text input for the new user's name."""
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "add-name-input" in html, "users.html missing add-name-input element"
 
 
 def test_ac3_add_form_save_button_present():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "add-save-btn" in html or "Save" in html, "users.html missing Save button"
 
 
 def test_ac3_add_form_cancel_button_present():
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "add-cancel-btn" in html or "Cancel" in html, "users.html missing Cancel button"
 
 
 def test_ac3_add_form_inline_hidden_by_default():
     """Inline add form must be hidden (hidden attribute) on page load."""
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert 'id="add-form-inline"' in html, "users.html missing add-form-inline element"
     assert "hidden" in html, "add-form-inline must start hidden"
 
@@ -146,20 +146,20 @@ def test_ac3_add_form_inline_hidden_by_default():
 
 def test_ac4_users_js_validates_empty_name():
     """users.js must reject empty name before making an API call."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "cannot be empty" in js.lower() or "Name cannot be empty" in js, \
         "users.js missing empty-name guard"
 
 
 def test_ac4_users_js_validates_duplicate_name():
     """users.js must check the local cache for duplicate names before calling POST."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "already exists" in js.lower(), "users.js missing duplicate-name guard"
 
 
 def test_ac4_users_js_shows_inline_error():
     """users.js must render the inline error in a named element."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "add-name-error" in js, "users.js must write to add-name-error span"
 
 
@@ -292,19 +292,19 @@ def test_ac6_renamed_user_appears_in_list(client):
 
 def test_ac7_delete_modal_element_in_html():
     """users.html must include a delete-modal overlay element."""
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "delete-modal" in html, "users.html missing delete-modal element"
 
 
 def test_ac7_delete_modal_text_element_in_html():
     """users.html must have a delete-modal-text paragraph."""
-    html = (ROOT / "users.html").read_text()
+    html = (ROOT / "frontend" / "pages" / "users.html").read_text()
     assert "delete-modal-text" in html, "users.html missing delete-modal-text element"
 
 
 def test_ac7_users_js_builds_confirmation_message():
     """users.js must set modal text including user name and deletion warning."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "delete-modal-text" in js, "users.js must update delete-modal-text"
     assert "permanently delete" in js.lower(), \
         "Modal message must say 'permanently delete'"
@@ -312,13 +312,13 @@ def test_ac7_users_js_builds_confirmation_message():
 
 def test_ac7_modal_mentions_weight_entries():
     """Confirmation modal message must reference weight entries."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "weight entries" in js.lower(), "Modal must mention weight entries"
 
 
 def test_ac7_modal_mentions_habit_logs():
     """Confirmation modal message must reference habit logs."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "habit logs" in js.lower(), "Modal must mention habit logs"
 
 
@@ -387,21 +387,21 @@ def test_ac8_backend_cascade_deletes_habit_logs():
 
 def test_ac9_users_js_checks_current_user_before_delete():
     """users.js must call getCurrentUserId() before showing the delete modal."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "getCurrentUserId" in js, \
         "users.js must call getCurrentUserId() to guard against deleting current user"
 
 
 def test_ac9_users_js_shows_switch_user_error():
     """users.js must display 'Switch to another user first' without making an API call."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     assert "Switch to another user first" in js, \
         "users.js missing 'Switch to another user first' guard message"
 
 
 def test_ac9_switch_guard_happens_before_modal():
     """The currentId check must come before opening the delete modal."""
-    js = (ROOT / "js" / "users.js").read_text()
+    js = (ROOT / "frontend" / "js" / "users.js").read_text()
     switch_pos = js.find("Switch to another user first")
     modal_open_pos = js.find("delete-modal")
     assert switch_pos < modal_open_pos, \
@@ -445,46 +445,46 @@ def test_ac10_delete_last_user_returns_409(client):
 
 def test_ac11_user_js_has_add_user_option_magic_value():
     """user.js must add a '__add__' option to the user selector."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "__add__" in js, "user.js missing '__add__' option in selector"
 
 
 def test_ac11_user_js_add_option_label():
     """user.js must label the option '+ Add user...'."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "Add user" in js, "user.js missing '+ Add user...' option text"
 
 
 def test_ac11_weight_js_has_add_user_option():
     """weight.js must also include a '+ Add user...' option in its user selector."""
-    js = (ROOT / "js" / "weight.js").read_text()
+    js = (ROOT / "frontend" / "js" / "weight.js").read_text()
     assert "__add__" in js, "weight.js missing '__add__' option in user selector"
 
 
 def test_ac11_user_js_dispatches_user_changed_after_add():
     """user.js must dispatch the 'userChanged' event after creating a user via the modal."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "userChanged" in js, \
         "user.js must dispatch userChanged after adding a user via the modal"
 
 
 def test_ac11_user_js_auto_selects_new_user():
     """user.js must store the new user ID in localStorage after adding."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "localStorage.setItem" in js, \
         "user.js must call localStorage.setItem to auto-select the new user"
 
 
 def test_ac11_user_js_refreshes_selector_options_after_add():
     """user.js must re-fetch /api/users to refresh the selector after adding a user."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "/api/users" in js, \
         "user.js must re-fetch /api/users to rebuild selector after adding a user"
 
 
 def test_ac11_user_js_reverts_selector_if_add_cancelled():
     """user.js must restore the previous selection if the add modal is cancelled."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "prevValue" in js or "prev" in js, \
         "user.js must track previous value to revert selector on cancel"
 
@@ -493,20 +493,20 @@ def test_ac11_user_js_reverts_selector_if_add_cancelled():
 
 def test_ac12_user_js_validates_saved_id_against_list():
     """user.js must check whether the saved localStorage ID still exists in users list."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "validSaved" in js or "some(" in js, \
         "user.js must validate saved user ID against the returned users list"
 
 
 def test_ac12_user_js_falls_back_to_first_user():
     """user.js must fall back to users[0].id when saved ID is stale."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "users[0]" in js, \
         "user.js must use users[0].id as fallback when saved ID is no longer valid"
 
 
 def test_ac12_user_js_updates_storage_on_fallback():
     """user.js must write the fallback ID back to localStorage."""
-    js = (ROOT / "js" / "user.js").read_text()
+    js = (ROOT / "frontend" / "js" / "user.js").read_text()
     assert "localStorage.setItem" in js, \
         "user.js must call localStorage.setItem to persist the fallback user ID"

@@ -1,0 +1,18 @@
+name: Protect master — require PR
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  block-direct-push:
+    name: Block direct push to master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject direct push
+        run: |
+          echo "ERROR: Direct pushes to master are not allowed."
+          echo "All changes must be merged via a pull request (develop → master)."
+          echo "See docs/release-process.md for the full release workflow."
+          exit 1

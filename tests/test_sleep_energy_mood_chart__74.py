@@ -20,9 +20,9 @@ import pytest
 BASE = "http://127.0.0.1:9001"
 ROOT = pathlib.Path(__file__).parent.parent
 
-HTML = (ROOT / "trends.html").read_text()
-JS   = (ROOT / "js" / "trends.js").read_text()
-MOCK = (ROOT / "js" / "mock-data.js").read_text()
+HTML = (ROOT / "frontend" / "pages" / "trends.html").read_text()
+JS   = (ROOT / "frontend" / "js" / "trends.js").read_text()
+MOCK = (ROOT / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

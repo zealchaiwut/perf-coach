@@ -11,6 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from helpers import table_exists
+
 revision: str = "a1b2c3d4e5f6"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
@@ -18,10 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if not inspector.has_table("users"):
+    if not table_exists("users"):
         op.create_table(
             "users",
             sa.Column(
@@ -41,7 +40,7 @@ def upgrade() -> None:
             sa.UniqueConstraint("name"),
         )
 
-    if not inspector.has_table("weight_entries"):
+    if not table_exists("weight_entries"):
         op.create_table(
             "weight_entries",
             sa.Column(
@@ -66,10 +65,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if inspector.has_table("weight_entries"):
+    if table_exists("weight_entries"):
         op.drop_table("weight_entries")
-    if inspector.has_table("users"):
+    if table_exists("users"):
         op.drop_table("users")

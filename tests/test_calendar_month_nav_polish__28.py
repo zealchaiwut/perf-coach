@@ -10,8 +10,8 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 
-HTML = (pathlib.Path(__file__).parent.parent / "calendar.html").read_text()
-JS   = (pathlib.Path(__file__).parent.parent / "js" / "calendar.js").read_text()
+HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "calendar.html").read_text()
+JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "calendar.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -331,4 +331,4 @@ def test_structural_calendar_html_served(client):
 
 def test_structural_calendar_js_exists():
     """js/calendar.js must exist."""
-    assert (pathlib.Path(__file__).parent.parent / "js" / "calendar.js").exists()
+    assert (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "calendar.js").exists()
