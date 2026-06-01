@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -3202,6 +3202,104 @@ def stryd_disconnect(user: User = Depends(resolve_user)):
             session.commit()
 
     return JSONResponse({"disconnected": True})
+
+
+@app.get("/api/strava/configured")
+def strava_configured():
+    """Return whether Strava OAuth env vars are all present."""
+    configured = bool(
+        os.getenv("STRAVA_CLIENT_ID")
+        and os.getenv("STRAVA_CLIENT_SECRET")
+        and os.getenv("STRAVA_STATE_SECRET")
+    )
+    return JSONResponse({"configured": configured})
+
+
+@app.get("/api/stryd/configured")
+def stryd_configured():
+    """Return whether Stryd encryption env var is present."""
+    return JSONResponse({"configured": bool(os.getenv("STRYD_FERNET_KEY"))})
+
+
+_STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
+_STRAVA_SYNC_PER_PAGE = 100
+_STRAVA_SYNC_DAYS = 90
+
+
+@app.post("/api/strava/sync")
+def strava_sync(user: User = Depends(resolve_user)):
+    """Fetch recent Strava activities (last 90 days) and upsert into strava_activities."""
+    user_id = str(user.id)
+
+    access_token = refresh_token_if_needed(user_id)
+    if access_token is None:
+        raise HTTPException(status_code=400, detail="Strava account not connected")
+
+    after_ts = int((_datetime.now(tz=_timezone.utc) - _timedelta(days=_STRAVA_SYNC_DAYS)).timestamp())
+
+    activities: list[dict] = []
+    page = 1
+    while True:
+        url = (
+            _STRAVA_ACTIVITIES_URL
+            + "?"
+            + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page, "after": after_ts})
+        )
+        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+        try:
+            with _urllib_request.urlopen(req) as resp:
+                batch = _json.loads(resp.read())
+        except _urllib_error.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Strava API error: {exc.code}")
+        if not batch:
+            break
+        activities.extend(batch)
+        if len(batch) < _STRAVA_SYNC_PER_PAGE:
+            break
+        page += 1
+
+    if not activities:
+        return JSONResponse({"synced": 0})
+
+    now = _datetime.now(tz=_timezone.utc)
+    rows = []
+    for act in activities:
+        start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_timezone.utc)
+        rows.append({
+            "user_id": user_id,
+            "strava_activity_id": int(act["id"]),
+            "start_time": start_dt,
+            "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
+            "name": act.get("name") or "Untitled",
+            "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
+            "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
+            "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
+            "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+            "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
+            "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
+            "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
+            "device_name": act.get("device_name"),
+            "external_id": act.get("external_id"),
+            "is_stryd_synced": False,
+            "raw_payload": act,
+            "synced_at": now,
+        })
+
+    with Session(engine) as session:
+        ins = _pg_insert(StravaActivity).values(rows)
+        stmt = ins.on_conflict_do_update(
+            index_elements=["strava_activity_id"],
+            set_={
+                "name": ins.excluded.name,
+                "activity_type": ins.excluded.activity_type,
+                "raw_payload": ins.excluded.raw_payload,
+                "synced_at": now,
+            },
+        )
+        session.execute(stmt)
+        session.commit()
+
+    return JSONResponse({"synced": len(activities)})
 
 
 # ── Google OAuth ───────────────────────────────────────────────────────────────

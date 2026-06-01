@@ -127,6 +127,117 @@
     }
     .avatar-remove-btn:hover { background: rgba(185, 28, 28, 0.05); }
     .avatar-remove-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .integration-card {
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+      background: #fafafa;
+    }
+    .integration-card:last-child { margin-bottom: 0; }
+
+    .integration-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .integration-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0b1530;
+    }
+
+    .integration-badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+    .integration-badge--connected {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .integration-badge--disconnected {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .integration-badge--unconfigured {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .integration-meta {
+      font-size: 12.5px;
+      color: #8b95ad;
+      margin-bottom: 10px;
+      min-height: 16px;
+    }
+
+    .integration-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .integration-btn {
+      padding: 7px 14px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .integration-btn:hover:not(:disabled) { opacity: 0.82; }
+    .integration-btn:disabled { opacity: 0.45; cursor: default; }
+
+    .integration-btn--primary {
+      background: #0b1530;
+      color: #fff;
+    }
+    .integration-btn--secondary {
+      background: #f1f5f9;
+      color: #0b1530;
+      border: 1px solid rgba(13, 30, 67, 0.12);
+    }
+    .integration-btn--danger {
+      background: none;
+      color: #b91c1c;
+      border: 1.5px solid rgba(185, 28, 28, 0.25);
+    }
+    .integration-btn--danger:hover:not(:disabled) { background: rgba(185, 28, 28, 0.05); }
+
+    .integration-feedback {
+      font-size: 12.5px;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+    .integration-feedback.success { color: #15803d; }
+    .integration-feedback.error   { color: #b91c1c; }
+
+    .stryd-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .stryd-form input {
+      padding: 8px 10px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #fff;
+      outline: none;
+    }
+    .stryd-form input:focus { border-color: #0b1530; }
+    .stryd-form input:disabled { background: #f8f9fb; color: #adb5c4; }
   </style>
 </head>
 <body>
@@ -157,7 +268,29 @@
 
     <div class="settings-section">
       <h2>Integrations</h2>
-      <p>Integrations settings coming soon.</p>
+
+      <!-- Strava -->
+      <div class="integration-card" id="strava-card">
+        <div class="integration-header">
+          <span class="integration-name">Strava</span>
+          <span class="integration-badge integration-badge--disconnected" id="strava-badge">Loading…</span>
+        </div>
+        <div class="integration-meta" id="strava-meta"></div>
+        <div class="integration-actions" id="strava-actions"></div>
+        <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
+      </div>
+
+      <!-- Stryd -->
+      <div class="integration-card" id="stryd-card">
+        <div class="integration-header">
+          <span class="integration-name">Stryd</span>
+          <span class="integration-badge integration-badge--disconnected" id="stryd-badge">Loading…</span>
+        </div>
+        <div class="integration-meta" id="stryd-meta"></div>
+        <div id="stryd-form-wrap"></div>
+        <div class="integration-actions" id="stryd-actions"></div>
+        <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
+      </div>
     </div>
   </div>
   <script src="/js/user.js"></script>
@@ -247,6 +380,284 @@
             btn.disabled = false;
             showFeedback('avatar-feedback', 'Network error — try again', 'error');
           });
+      });
+    }());
+  </script>
+  <script>
+    (function () {
+      var _userId = null;
+
+      function intFeedback(id, msg, type) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'integration-feedback' + (type ? ' ' + type : '');
+      }
+
+      // ── Strava ─────────────────────────────────────────────────────────────
+
+      function renderStravaUnconfigured() {
+        document.getElementById('strava-badge').textContent = 'Not configured';
+        document.getElementById('strava-badge').className = 'integration-badge integration-badge--unconfigured';
+        document.getElementById('strava-meta').textContent = 'Strava OAuth has not been configured by the administrator.';
+        document.getElementById('strava-actions').innerHTML = '';
+      }
+
+      function renderStravaDisconnected() {
+        document.getElementById('strava-badge').textContent = 'Not connected';
+        document.getElementById('strava-badge').className = 'integration-badge integration-badge--disconnected';
+        document.getElementById('strava-meta').textContent = '';
+        var actions = document.getElementById('strava-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.textContent = 'Connect Strava';
+        btn.addEventListener('click', stravaConnect);
+        actions.appendChild(btn);
+      }
+
+      function renderStravaConnected(athleteName, expiresAt) {
+        document.getElementById('strava-badge').textContent = 'Connected';
+        document.getElementById('strava-badge').className = 'integration-badge integration-badge--connected';
+        var meta = athleteName ? 'Connected as ' + athleteName : 'Connected';
+        if (expiresAt) {
+          var exp = new Date(expiresAt);
+          meta += ' · token expires ' + exp.toLocaleDateString();
+        }
+        document.getElementById('strava-meta').textContent = meta;
+
+        var actions = document.getElementById('strava-actions');
+        actions.innerHTML = '';
+
+        var syncBtn = document.createElement('button');
+        syncBtn.className = 'integration-btn integration-btn--secondary';
+        syncBtn.id = 'strava-sync-btn';
+        syncBtn.textContent = 'Sync Strava';
+        syncBtn.addEventListener('click', stravaSync);
+
+        var discBtn = document.createElement('button');
+        discBtn.className = 'integration-btn integration-btn--danger';
+        discBtn.id = 'strava-disconnect-btn';
+        discBtn.textContent = 'Disconnect';
+        discBtn.addEventListener('click', stravaDisconnect);
+
+        actions.appendChild(syncBtn);
+        actions.appendChild(discBtn);
+      }
+
+      function loadStravaStatus() {
+        fetch('/api/strava/configured')
+          .then(function (r) { return r.json(); })
+          .then(function (cfg) {
+            if (!cfg.configured) { renderStravaUnconfigured(); return; }
+            return fetch('/api/strava/status')
+              .then(function (r) { return r.json(); })
+              .then(function (st) {
+                if (st.connected) {
+                  renderStravaConnected(st.athlete_name, st.expires_at);
+                } else {
+                  renderStravaDisconnected();
+                }
+              });
+          })
+          .catch(function () { renderStravaDisconnected(); });
+      }
+
+      function stravaConnect() {
+        intFeedback('strava-feedback', '', '');
+        fetch('/api/strava/connect')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d.authorize_url) throw new Error('No authorize URL');
+            var popup = window.open(d.authorize_url, 'strava_oauth', 'width=600,height=700');
+            function onMsg(e) {
+              if (e.data && e.data.type === 'strava_connected') {
+                window.removeEventListener('message', onMsg);
+                if (popup && !popup.closed) popup.close();
+                intFeedback('strava-feedback', 'Strava connected!', 'success');
+                loadStravaStatus();
+              }
+            }
+            window.addEventListener('message', onMsg);
+          })
+          .catch(function (err) {
+            intFeedback('strava-feedback', (err && err.message) || 'Failed to initiate Strava connection', 'error');
+          });
+      }
+
+      function stravaSync() {
+        var btn = document.getElementById('strava-sync-btn');
+        var discBtn = document.getElementById('strava-disconnect-btn');
+        intFeedback('strava-feedback', '', '');
+        if (btn) btn.disabled = true;
+        if (discBtn) discBtn.disabled = true;
+        if (btn) btn.textContent = 'Syncing…';
+        fetch('/api/strava/sync', { method: 'POST' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Sync failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            intFeedback('strava-feedback', 'Synced ' + d.synced + ' activities.', 'success');
+          })
+          .catch(function (err) {
+            intFeedback('strava-feedback', typeof err === 'string' ? err : 'Sync failed', 'error');
+          })
+          .finally(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Sync Strava'; }
+            if (discBtn) discBtn.disabled = false;
+          });
+      }
+
+      function stravaDisconnect() {
+        var discBtn = document.getElementById('strava-disconnect-btn');
+        var syncBtn = document.getElementById('strava-sync-btn');
+        intFeedback('strava-feedback', '', '');
+        if (discBtn) discBtn.disabled = true;
+        if (syncBtn) syncBtn.disabled = true;
+        fetch('/api/strava/disconnect', { method: 'DELETE' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
+            return r.json();
+          })
+          .then(function () {
+            renderStravaDisconnected();
+            intFeedback('strava-feedback', 'Strava disconnected.', 'success');
+          })
+          .catch(function (err) {
+            if (discBtn) discBtn.disabled = false;
+            if (syncBtn) syncBtn.disabled = false;
+            intFeedback('strava-feedback', typeof err === 'string' ? err : 'Disconnect failed', 'error');
+          });
+      }
+
+      // ── Stryd ──────────────────────────────────────────────────────────────
+
+      function renderStrydUnconfigured() {
+        document.getElementById('stryd-badge').textContent = 'Not configured';
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--unconfigured';
+        document.getElementById('stryd-meta').textContent = 'Stryd integration has not been configured by the administrator.';
+        document.getElementById('stryd-form-wrap').innerHTML = '';
+        document.getElementById('stryd-actions').innerHTML = '';
+      }
+
+      function renderStrydDisconnected() {
+        document.getElementById('stryd-badge').textContent = 'Not connected';
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--disconnected';
+        document.getElementById('stryd-meta').textContent = '';
+
+        document.getElementById('stryd-form-wrap').innerHTML =
+          '<div class="stryd-form" id="stryd-cred-form">' +
+          '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username">' +
+          '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password">' +
+          '</div>';
+
+        var actions = document.getElementById('stryd-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.id = 'stryd-connect-btn';
+        btn.textContent = 'Save credentials';
+        btn.addEventListener('click', strydConnect);
+        actions.appendChild(btn);
+      }
+
+      function renderStrydConnected(email, expiresAt) {
+        document.getElementById('stryd-badge').textContent = 'Connected';
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--connected';
+        var meta = email ? 'Connected as ' + email : 'Connected';
+        if (expiresAt) {
+          var exp = new Date(expiresAt);
+          meta += ' · session expires ' + exp.toLocaleDateString();
+        }
+        document.getElementById('stryd-meta').textContent = meta;
+        document.getElementById('stryd-form-wrap').innerHTML = '';
+
+        var actions = document.getElementById('stryd-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--danger';
+        btn.id = 'stryd-disconnect-btn';
+        btn.textContent = 'Disconnect Stryd';
+        btn.addEventListener('click', strydDisconnect);
+        actions.appendChild(btn);
+      }
+
+      function loadStrydStatus() {
+        fetch('/api/stryd/configured')
+          .then(function (r) { return r.json(); })
+          .then(function (cfg) {
+            if (!cfg.configured) { renderStrydUnconfigured(); return; }
+            return fetch('/api/stryd/status')
+              .then(function (r) { return r.json(); })
+              .then(function (st) {
+                if (st.connected) {
+                  renderStrydConnected(st.stryd_email, st.session_expires_at);
+                } else {
+                  renderStrydDisconnected();
+                }
+              });
+          })
+          .catch(function () { renderStrydDisconnected(); });
+      }
+
+      function strydConnect() {
+        var btn = document.getElementById('stryd-connect-btn');
+        var emailEl = document.getElementById('stryd-email');
+        var pwEl = document.getElementById('stryd-password');
+        intFeedback('stryd-feedback', '', '');
+        var email = emailEl ? emailEl.value.trim() : '';
+        var password = pwEl ? pwEl.value : '';
+        if (!email || !password) {
+          intFeedback('stryd-feedback', 'Enter email and password.', 'error');
+          return;
+        }
+        if (btn) btn.disabled = true;
+        if (emailEl) emailEl.disabled = true;
+        if (pwEl) pwEl.disabled = true;
+        fetch('/api/stryd/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, password: password }),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Connection failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            intFeedback('stryd-feedback', 'Stryd connected!', 'success');
+            renderStrydConnected(d.stryd_user_email, null);
+          })
+          .catch(function (err) {
+            if (btn) btn.disabled = false;
+            if (emailEl) emailEl.disabled = false;
+            if (pwEl) pwEl.disabled = false;
+            intFeedback('stryd-feedback', typeof err === 'string' ? err : 'Connection failed', 'error');
+          });
+      }
+
+      function strydDisconnect() {
+        var btn = document.getElementById('stryd-disconnect-btn');
+        intFeedback('stryd-feedback', '', '');
+        if (btn) btn.disabled = true;
+        fetch('/api/stryd/disconnect', { method: 'DELETE' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
+            return r.json();
+          })
+          .then(function () {
+            renderStrydDisconnected();
+            intFeedback('stryd-feedback', 'Stryd disconnected.', 'success');
+          })
+          .catch(function (err) {
+            if (btn) btn.disabled = false;
+            intFeedback('stryd-feedback', typeof err === 'string' ? err : 'Disconnect failed', 'error');
+          });
+      }
+
+      window.addEventListener('userReady', function () {
+        loadStravaStatus();
+        loadStrydStatus();
       });
     }());
   </script>
