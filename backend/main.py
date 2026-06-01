@@ -793,6 +793,16 @@ def log_redirect():
     return FileResponse(str(_static_root / "frontend" / "pages" / "training-log.html"))
 
 
+@app.get("/training.html")
+def training_page():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training.html"))
+
+
+@app.get("/training")
+def training_redirect():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "training.html"))
+
+
 @app.get("/trends.html")
 def trends_page():
     return FileResponse(str(_static_root / "frontend" / "pages" / "trends.html"))

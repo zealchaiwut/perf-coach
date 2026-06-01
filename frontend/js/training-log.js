@@ -1197,6 +1197,11 @@
       window.location.href = 'training.html';
     });
 
+    var newBtn = document.getElementById('log-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () {
+      window.location.href = 'training.html';
+    });
+
     document.addEventListener('keydown', function (e) {
       var panel = document.getElementById('detail-panel');
       if (!panel || !panel.classList.contains('is-open')) return;
