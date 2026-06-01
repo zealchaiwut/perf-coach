@@ -1099,7 +1099,7 @@ def post_workout(body: WorkoutIn):
             daily_update(str(uid), workout_date)
         except Exception as _exc:
             _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc
+                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
             )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
@@ -1179,7 +1179,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             daily_update(str(workout.user_id), workout.workout_date)
         except Exception as _exc:
             _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc
+                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
             )
         return JSONResponse(_workout_dict(workout, exercises))
 
