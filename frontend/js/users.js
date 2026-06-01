@@ -185,10 +185,10 @@
 
     var currentId = typeof window.getCurrentUserId === 'function'
       ? window.getCurrentUserId()
-      : localStorage.getItem('perf-coach.current-user-id');
+      : null;
 
     if (userId === currentId) {
-      showPageError('Switch to another user first');
+      showPageError('Cannot delete your own account');
       return;
     }
 

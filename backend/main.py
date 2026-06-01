@@ -286,7 +286,7 @@ from backend.auth import (  # noqa: E402
 
 _resolve_user_log = _logging.getLogger(__name__)
 
-LEGACY_USER_ID_SHIM_ENABLED = True
+LEGACY_USER_ID_SHIM_ENABLED = False
 
 
 async def resolve_user(

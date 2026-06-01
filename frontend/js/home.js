@@ -192,7 +192,7 @@
       btn.disabled = true;
       btn.innerHTML = '<i class="ti ti-loader-2"></i>Computing…';
       try {
-        var res = await fetch('/api/readiness/compute?user_id=' + userId, { method: 'POST' });
+        var res = await fetch('/api/readiness/compute', { method: 'POST' });
         if (res.ok) {
           await onSuccess();
         } else if (res.status === 404) {
@@ -236,7 +236,7 @@
 
     var todayRes;
     try {
-      todayRes = await fetch('/api/readiness/today?user_id=' + userId);
+      todayRes = await fetch('/api/readiness/today');
     } catch (_) {
       renderEmpty(card);
       return;
@@ -264,8 +264,8 @@
     var metricsData = [];
     try {
       var pair = await Promise.all([
-        fetch('/api/readiness?user_id=' + userId + '&from=' + fromStr + '&to=' + todayStr),
-        fetch('/api/daily-metrics?user_id=' + userId + '&from=' + fromStr + '&to=' + todayStr)
+        fetch('/api/readiness?from=' + fromStr + '&to=' + todayStr),
+        fetch('/api/daily-metrics?from=' + fromStr + '&to=' + todayStr)
       ]);
       if (pair[0].ok) rangeData   = await pair[0].json();
       if (pair[1].ok) metricsData = await pair[1].json();
@@ -586,7 +586,7 @@
 
     var prs = [];
     try {
-      var r = await fetch('/api/personal-records?user_id=' + userId);
+      var r = await fetch('/api/personal-records');
       if (r.ok) prs = await r.json();
     } catch (_) { prs = []; }
 
@@ -610,8 +610,7 @@
     var allWorkouts = [];
     try {
       var wr = await fetch(
-        '/api/workouts?user_id=' + userId +
-        '&from=' + isoDate(from6m) + '&to=' + isoDate(today)
+        '/api/workouts?from=' + isoDate(from6m) + '&to=' + isoDate(today)
       );
       if (wr.ok) allWorkouts = await wr.json();
     } catch (_) { allWorkouts = []; }
@@ -745,8 +744,7 @@
     var workouts = [];
     try {
       var res = await fetch(
-        '/api/workouts?user_id=' + userId +
-        '&from=' + isoDate(from14) + '&to=' + isoDate(today)
+        '/api/workouts?from=' + isoDate(from14) + '&to=' + isoDate(today)
       );
       if (res.ok) workouts = await res.json();
     } catch (_) { workouts = []; }
@@ -817,7 +815,7 @@
   async function refreshHabitRow(card, habit, weekDates, todayStr, userId) {
     var logs = [];
     try {
-      var lr = await fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]);
+      var lr = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr.ok) logs = await lr.json();
     } catch (_) {}
 
@@ -828,7 +826,7 @@
 
     var streakNum = 0;
     try {
-      var sr = await fetch('/api/habits/stats?user_id=' + userId + '&habit_id=' + habit.id + '&days=30');
+      var sr = await fetch('/api/habits/stats?habit_id=' + habit.id + '&days=30');
       if (sr.ok) { var sd = await sr.json(); streakNum = sd.streak || 0; }
     } catch (_) {}
 
@@ -863,7 +861,7 @@
             await fetch('/api/habits/logs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ habit_id: hid, user_id: userId, logged_date: dateStr })
+              body: JSON.stringify({ habit_id: hid, logged_date: dateStr })
             });
           }
         } catch (_) { return; }
@@ -894,7 +892,7 @@
 
     var habits = [];
     try {
-      var hr = await fetch('/api/habits?user_id=' + userId);
+      var hr = await fetch('/api/habits');
       if (hr.ok) habits = await hr.json();
     } catch (_) {}
 
@@ -912,7 +910,7 @@
 
     var allLogs = [];
     try {
-      var lr2 = await fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]);
+      var lr2 = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr2.ok) allLogs = await lr2.json();
     } catch (_) {}
 
@@ -925,7 +923,7 @@
     var streaks = {};
     await Promise.all(habits.map(async function (h) {
       try {
-        var sr = await fetch('/api/habits/stats?user_id=' + userId + '&habit_id=' + h.id + '&days=30');
+        var sr = await fetch('/api/habits/stats?habit_id=' + h.id + '&days=30');
         if (sr.ok) { var sd = await sr.json(); streaks[h.id] = sd.streak || 0; }
         else streaks[h.id] = 0;
       } catch (_) { streaks[h.id] = 0; }
@@ -978,9 +976,9 @@
     var habits = [], logs = [], allStats = [];
     try {
       var results = await Promise.all([
-        fetch('/api/habits?user_id=' + userId),
-        fetch('/api/habits/logs?user_id=' + userId + '&from=' + weekDates[0] + '&to=' + weekDates[6]),
-        fetch('/api/habits/stats?user_id=' + userId + '&days=30')
+        fetch('/api/habits'),
+        fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]),
+        fetch('/api/habits/stats?days=30')
       ]);
       if (results[0].ok) habits = await results[0].json();
       if (results[1].ok) logs = await results[1].json();
@@ -1348,14 +1346,14 @@
       btn.disabled = true;
       try {
         var todayStr = isoDate(new Date());
-        var res = await fetch('/api/weight?user_id=' + encodeURIComponent(userId), {
+        var res = await fetch('/api/weight', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ weight_kg: val, recorded_date: todayStr })
         });
         if (res.ok || res.status === 409) {
           inp.value = '';
-          var wRes = await fetch('/api/weight?user_id=' + encodeURIComponent(userId));
+          var wRes = await fetch('/api/weight');
           if (wRes.ok) {
             var entries = await wRes.json();
             renderWeightTrendCard(cardEl, entries, userId);
@@ -1442,8 +1440,8 @@
     var weightEntries = null;
 
     var results = await Promise.allSettled([
-      fetch('/trends/summary?user_id=' + encodeURIComponent(userId) + '&range=30d'),
-      fetch('/api/weight?user_id=' + encodeURIComponent(userId))
+      fetch('/trends/summary?range=30d'),
+      fetch('/api/weight')
     ]);
 
     var tResult = results[0];
@@ -1471,17 +1469,14 @@
     setGreetingDate();
     var userId = null;
     try {
-      var res = await fetch('/api/users');
-      if (!res.ok) throw new Error('users fetch failed');
-      var users = await res.json();
-      if (Array.isArray(users) && users.length > 0) {
-        var name = users[0].name || '';
-        userId = users[0].id;
-        setGreetingText(name);
-        setNavAvatar(name);
-      } else {
-        setGreetingText('');
-      }
+      var res = await fetch('/api/auth/me');
+      if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
+      if (!res.ok) throw new Error('auth/me failed');
+      var user = await res.json();
+      var name = user.name || '';
+      userId = user.id;
+      setGreetingText(name);
+      setNavAvatar(name);
     } catch (_) {
       setGreetingText('');
     }

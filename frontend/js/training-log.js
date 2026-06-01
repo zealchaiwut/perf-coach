@@ -343,9 +343,6 @@
     var today = todayISO();
     var params = new URLSearchParams();
 
-    var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    if (userId) params.set('user_id', userId);
-
     if (filters.type && filters.type !== 'all') params.set('types', filters.type);
     if (filters.search) params.set('search', filters.search);
     params.set('from', filters.from || addDays(today, -29));
@@ -1181,7 +1178,6 @@
 
   var TYPE_ORDER = ['run', 'lift', 'wod', 'bike'];
 
-  var USER_KEY = 'perf-coach.current-user-id';
 
   function toISODate(d) {
     var y = d.getFullYear();
@@ -1231,14 +1227,9 @@
     return month + ' ' + monday.getDate() + ' – ' + sunday.getDate();
   }
 
-  function getCurrentUserId() {
-    return localStorage.getItem(USER_KEY) || null;
-  }
-
   var currentMonday = parseWeekParam();
-  var currentUserId = null;
 
-  async function loadAndRender(monday, userId) {
+  async function loadAndRender(monday) {
     var sunday = new Date(monday);
     sunday.setDate(sunday.getDate() + 6);
 
@@ -1246,7 +1237,6 @@
     var toStr   = toISODate(sunday);
 
     var url = '/api/training-log?from=' + fromStr + '&to=' + toStr + '&include_rest=false';
-    if (userId) url += '&user_id=' + encodeURIComponent(userId);
 
     var dotsByDate = {};
     try {
@@ -1313,32 +1303,26 @@
       currentMonday = new Date(currentMonday);
       currentMonday.setDate(currentMonday.getDate() - 7);
       pushWeekParam(currentMonday);
-      loadAndRender(currentMonday, currentUserId);
+      loadAndRender(currentMonday);
     });
 
     document.getElementById('week-next').addEventListener('click', function () {
       currentMonday = new Date(currentMonday);
       currentMonday.setDate(currentMonday.getDate() + 7);
       pushWeekParam(currentMonday);
-      loadAndRender(currentMonday, currentUserId);
+      loadAndRender(currentMonday);
     });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    currentUserId = getCurrentUserId();
-    loadAndRender(currentMonday, currentUserId);
+    loadAndRender(currentMonday);
   });
 
-  window.addEventListener('userReady', function (e) {
-    var newId = (e.detail && e.detail.userId) ? e.detail.userId : null;
-    if (newId !== currentUserId) {
-      currentUserId = newId;
-      loadAndRender(currentMonday, currentUserId);
-    }
+  window.addEventListener('userReady', function () {
+    loadAndRender(currentMonday);
   });
 
-  window.addEventListener('userChanged', function (e) {
-    currentUserId = (e.detail && e.detail.userId) ? e.detail.userId : getCurrentUserId();
-    loadAndRender(currentMonday, currentUserId);
+  window.addEventListener('userChanged', function () {
+    loadAndRender(currentMonday);
   });
 }());
