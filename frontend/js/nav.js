@@ -44,6 +44,13 @@
     '.global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;',
       'background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;',
       'align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}',
+    '.global-nav .gn-settings{width:34px;height:34px;border-radius:50%;display:inline-flex;',
+      'align-items:center;justify-content:center;color:#5c6886;text-decoration:none;flex-shrink:0;',
+      'background:none;border:none;cursor:pointer;padding:0;',
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
+    '.global-nav .gn-settings i{font-size:18px;}',
+    '.global-nav .gn-settings:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
+    '.global-nav .gn-settings.active{background:rgba(13,30,67,0.1);color:#0b1530;}',
     '.global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;',
       'color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;',
       "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
@@ -98,6 +105,11 @@
       '<div class="gn-links">' + linksHtml + '</div>' +
       '<div class="gn-right">' +
         '<div class="gn-avatar" id="nav-avatar" aria-label="User avatar">U</div>' +
+        '<a class="gn-settings' + (path === '/settings' ? ' active' : '') + '" href="/settings"' +
+          ' aria-label="Settings"' +
+          (path === '/settings' ? ' aria-current="page"' : '') + '>' +
+          '<i class="ti ti-settings" aria-hidden="true"></i>' +
+        '</a>' +
         '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
           '<i class="ti ti-logout" aria-hidden="true"></i>' +
           '<span class="gn-logout-label">Log out</span>' +

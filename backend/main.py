@@ -801,6 +801,7 @@ _PAGES = {
     "log": "training-log.html",
     "training": "training.html",
     "trends": "trends.html",
+    "settings": "settings.html",
 }
 
 
