@@ -17,8 +17,8 @@
     { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
     { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
-    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
-    { href: '/users',    label: 'Users',        icon: 'ti-users',        match: ['/users', '/users.html'] }
+    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] }
+    // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 
   // Scoped under .global-nav so it cannot leak into page styles. Colours are the

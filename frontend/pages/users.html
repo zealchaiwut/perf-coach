@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Users – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
+  <!-- Hidden until admin-gate.js confirms the selected user is an admin -->
+  <style id="admin-gate-hide">body { visibility: hidden; }</style>
 </head>
 <body>
   <header>
@@ -50,6 +52,7 @@
 
     <p style="margin-top:2rem"><a href="/home">Back</a></p>
   </main>
+  <script src="js/admin-gate.js"></script>
   <script src="js/nav.js"></script>
   <script src="js/user.js"></script>
   <script src="js/users.js"></script>
