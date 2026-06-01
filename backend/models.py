@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -13,6 +13,9 @@ class User(Base):
     name = Column(String(100), nullable=False, unique=True)
     is_admin = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    password_hash = Column(Text, nullable=True)
+    avatar = Column(LargeBinary, nullable=True)
+    avatar_mime = Column(Text, nullable=True)
 
 
 class WeightEntry(Base):

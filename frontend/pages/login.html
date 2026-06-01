@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log In – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      letter-spacing: -0.01em;
+    }
+
+    .login-card {
+      background: #fff;
+      border-radius: 24px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 8px 40px rgba(11, 21, 48, 0.18);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6e90f0, #2b4ca8);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .brand-text {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+      color: #0b1530;
+    }
+
+    h1 {
+      margin: 0 0 24px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #0b1530;
+      letter-spacing: -0.025em;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+    .field label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #5c6886;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .field input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid rgba(13, 30, 67, 0.14);
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #f7f9fd;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .field input:focus {
+      border-color: #2b4ca8;
+      background: #fff;
+    }
+
+    .error-msg {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #ffd9d9;
+      color: #7a1a1a;
+      border-radius: 9px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+    .error-msg i { font-size: 15px; flex-shrink: 0; }
+
+    .submit-btn {
+      width: 100%;
+      padding: 12px;
+      background: #0b1530;
+      color: #fff;
+      border: 0;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.15s;
+    }
+    .submit-btn:disabled { opacity: 0.6; cursor: default; }
+    .submit-btn .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 440px) {
+      .login-card { padding: 32px 22px; }
+    }
+  </style>
+</head>
+<body>
+<div class="login-card">
+  <div class="brand">
+    <span class="brand-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>
+    <span class="brand-text">perf-coach</span>
+  </div>
+  <h1>Welcome back</h1>
+  <form id="login-form" novalidate>
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <div id="error-msg" class="error-msg" hidden>
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span id="error-text"></span>
+    </div>
+    <button type="submit" id="submit-btn" class="submit-btn">
+      <span id="btn-label">Log in</span>
+    </button>
+  </form>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  var form = document.getElementById('login-form');
+  var btn = document.getElementById('submit-btn');
+  var btnLabel = document.getElementById('btn-label');
+  var errorMsg = document.getElementById('error-msg');
+  var errorText = document.getElementById('error-text');
+
+  function setLoading(on) {
+    btn.disabled = on;
+    if (on) {
+      btnLabel.textContent = '';
+      var spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      spinner.id = 'btn-spinner';
+      btn.appendChild(spinner);
+    } else {
+      var s = document.getElementById('btn-spinner');
+      if (s) s.remove();
+      btnLabel.textContent = 'Log in';
+    }
+  }
+
+  function showError(msg) {
+    errorText.textContent = msg;
+    errorMsg.hidden = false;
+  }
+
+  function hideError() {
+    errorMsg.hidden = true;
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    hideError();
+
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value;
+
+    if (!username || !password) {
+      showError('Please enter your username and password.');
+      return;
+    }
+
+    setLoading(true);
+
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password }),
+    })
+      .then(function (res) {
+        if (res.ok) {
+          window.location.href = '/home';
+        } else {
+          return res.json().then(function (body) {
+            setLoading(false);
+            showError(body.detail || 'Login failed. Please try again.');
+          }).catch(function () {
+            setLoading(false);
+            showError('Login failed. Please try again.');
+          });
+        }
+      })
+      .catch(function () {
+        setLoading(false);
+        showError('Network error. Please check your connection.');
+      });
+  });
+}());
+</script>
+</body>
+</html>

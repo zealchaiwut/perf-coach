@@ -1,0 +1,52 @@
+[
+  {
+    "feel_date": "2026-05-02",
+    "rpe_1_to_10": 1,
+    "notes": null
+  },
+  {
+    "feel_date": "2026-05-04",
+    "rpe_1_to_10": 3,
+    "notes": null
+  },
+  {
+    "feel_date": "2026-05-06",
+    "rpe_1_to_10": null,
+    "notes": "Felt sluggish in the morning. Right hamstring was tight throughout the warm-up but loosened after 10 minutes."
+  },
+  {
+    "feel_date": "2026-05-08",
+    "rpe_1_to_10": 5,
+    "notes": "Steady effort. Nothing special — just getting the miles in."
+  },
+  {
+    "feel_date": "2026-05-10",
+    "rpe_1_to_10": 7,
+    "notes": "Good workout. Hamstring held up well. Hit all target paces in the tempo blocks."
+  },
+  {
+    "feel_date": "2026-05-14",
+    "rpe_1_to_10": 8,
+    "notes": "Hard interval session. Legs were heavy from yesterday but I pushed through. Heart rate was elevated the entire time."
+  },
+  {
+    "feel_date": "2026-05-16",
+    "rpe_1_to_10": null,
+    "notes": "Recovery day walk. Very easy."
+  },
+  {
+    "feel_date": "2026-05-18",
+    "rpe_1_to_10": 9,
+    "notes": "Race simulation. Left everything on the track. Hamstring twinged at km 6 — will monitor. Overall a strong session despite the fatigue from the training block. Will take two easy days before the next hard effort."
+  },
+  {
+    "feel_date": "2026-05-22",
+    "rpe_1_to_10": 10,
+    "notes": "Peak effort race day. Conditions were perfect. No hamstring issues. PR attempt — felt controlled through the first half and built into the second. Finished strong."
+  },
+  {
+    "feel_date": "2026-05-28",
+    "rpe_1_to_10": 4,
+    "notes": "Easy shakeout after the race. Legs sore but manageable. Hamstring completely fine."
+  }
+]

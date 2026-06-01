@@ -19,7 +19,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
-from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 
 app = FastAPI()
@@ -52,6 +52,36 @@ async def _no_cache_frontend(request, call_next):
     if not request.url.path.startswith("/api"):
         response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+def _is_guarded_path(path: str) -> bool:
+    """Return True if this path requires authentication (HTML page guard only)."""
+    if path == "/":
+        return True
+    clean = path.lstrip("/")
+    if clean in _PAGES:
+        return True
+    if clean.endswith(".html") and clean[:-5] in _PAGES:
+        return True
+    return False
+
+
+@app.middleware("http")
+async def _auth_guard(request: Request, call_next):
+    """Redirect unauthenticated browser requests to /login; return 401 for JSON clients."""
+    if not _is_guarded_path(request.url.path):
+        return await call_next(request)
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        try:
+            read_session_cookie(token)
+            return await call_next(request)
+        except ValueError:
+            pass
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    return RedirectResponse(url="/login", status_code=302)
 
 
 @app.get("/api/health")
@@ -241,6 +271,85 @@ def delete_user(user_id: str):
         session.delete(user)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+from backend.auth import (  # noqa: E402
+    clear_session,
+    COOKIE_NAME,
+    get_current_user,
+    read_session_cookie,
+    set_session,
+    verify_password,
+)
+
+_LOCKOUT_MAX_ATTEMPTS = 5
+_LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
+_lockout: dict = {}  # (username_lower, ip) -> {"count": int, "window_start": float}
+
+
+def _lockout_key(username: str, ip: str) -> tuple:
+    return (username.lower(), ip)
+
+
+def _check_lockout(username: str, ip: str) -> None:
+    key = _lockout_key(username, ip)
+    entry = _lockout.get(key)
+    if entry is None:
+        return
+    if time.time() - entry["window_start"] > _LOCKOUT_WINDOW_SECONDS:
+        del _lockout[key]
+        return
+    if entry["count"] >= _LOCKOUT_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again later.")
+
+
+def _record_failure(username: str, ip: str) -> None:
+    key = _lockout_key(username, ip)
+    now = time.time()
+    entry = _lockout.get(key)
+    if entry is None or now - entry["window_start"] > _LOCKOUT_WINDOW_SECONDS:
+        _lockout[key] = {"count": 1, "window_start": now}
+    else:
+        entry["count"] += 1
+
+
+def _clear_lockout(username: str, ip: str) -> None:
+    _lockout.pop(_lockout_key(username, ip), None)
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    _check_lockout(body.username, ip)
+    with Session(engine) as session:
+        user = session.query(User).filter(User.name == body.username).first()
+    if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
+        _record_failure(body.username, ip)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    _clear_lockout(body.username, ip)
+    resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+    set_session(resp, str(user.id))
+    return resp
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout():
+    resp = Response(status_code=204)
+    clear_session(resp)
+    return resp
+
+
+@app.get("/api/auth/me")
+async def me(request: Request):
+    user = await get_current_user(request)
+    return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
 
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
@@ -692,6 +801,13 @@ for _clean, _file in _PAGES.items():
     app.add_api_route("/" + _clean + ".html", _handler, include_in_schema=False)
 
 
+def _serve_login():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "login.html"))
+
+app.add_api_route("/login", _serve_login, include_in_schema=False)
+app.add_api_route("/login.html", _serve_login, include_in_schema=False)
+
+
 @app.get("/")
 def index():
     # Bare domain → the home dashboard (clean URL).
@@ -1099,7 +1215,7 @@ def post_workout(body: WorkoutIn):
             daily_update(str(uid), workout_date)
         except Exception as _exc:
             _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc
+                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
             )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
@@ -1179,7 +1295,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
             daily_update(str(workout.user_id), workout.workout_date)
         except Exception as _exc:
             _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc
+                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
             )
         return JSONResponse(_workout_dict(workout, exercises))
 
@@ -3782,7 +3898,6 @@ def post_feel(body: _FeelBody):
                 auto_link_feel_entries(parsed_user_id, feel_date)
                 session.refresh(row)
             except Exception as exc:
-                import logging as _logging
                 _logging.getLogger(__name__).warning("auto_link_feel_entries failed: %s", exc)
 
         return JSONResponse(status_code=201, content=_feel_dict(row))
@@ -3802,10 +3917,177 @@ def post_feel_auto_link(user_id: str, feel_date: str):
     return JSONResponse({"linked": linked})
 
 
+@app.get("/api/feel/summary")
+def get_feel_summary(
+    user_id: str,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+):
+    from sqlalchemy import func as _func
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_from = None
+    if from_date is not None:
+        try:
+            parsed_from = _date.fromisoformat(from_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+
+    parsed_to = None
+    if to_date is not None:
+        try:
+            parsed_to = _date.fromisoformat(to_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == uid)
+        if parsed_from is not None:
+            q = q.filter(WorkoutFeel.feel_date >= parsed_from)
+        if parsed_to is not None:
+            q = q.filter(WorkoutFeel.feel_date <= parsed_to)
+
+        rows = q.all()
+        total = len(rows)
+
+        if total == 0:
+            return JSONResponse({
+                "total_entries": 0,
+                "linked_to_workouts": 0,
+                "standalone": 0,
+                "avg_rpe": None,
+                "min_rpe": None,
+                "max_rpe": None,
+                "rpe_distribution": {},
+                "entries_with_notes": 0,
+                "avg_notes_length_chars": None,
+                "date_range": {"first": None, "last": None},
+            })
+
+        linked = sum(1 for r in rows if r.workout_id is not None)
+        standalone = total - linked
+        rpe_rows = [r.rpe_1_to_10 for r in rows if r.rpe_1_to_10 is not None]
+        avg_rpe = round(sum(rpe_rows) / len(rpe_rows), 2) if rpe_rows else None
+        min_rpe = min(rpe_rows) if rpe_rows else None
+        max_rpe = max(rpe_rows) if rpe_rows else None
+        rpe_dist: dict = {}
+        for v in rpe_rows:
+            rpe_dist[str(v)] = rpe_dist.get(str(v), 0) + 1
+
+        notes_rows = [r.notes for r in rows if r.notes]
+        entries_with_notes = len(notes_rows)
+        avg_notes_len = round(sum(len(n) for n in notes_rows) / len(notes_rows), 2) if notes_rows else None
+
+        dates = [r.feel_date for r in rows]
+        first_date = min(dates).isoformat()
+        last_date = max(dates).isoformat()
+
+        return JSONResponse({
+            "total_entries": total,
+            "linked_to_workouts": linked,
+            "standalone": standalone,
+            "avg_rpe": avg_rpe,
+            "min_rpe": min_rpe,
+            "max_rpe": max_rpe,
+            "rpe_distribution": rpe_dist,
+            "entries_with_notes": entries_with_notes,
+            "avg_notes_length_chars": avg_notes_len,
+            "date_range": {"first": first_date, "last": last_date},
+        })
+
+
+def _make_preview(notes: str, query: str, window: int = 80) -> str:
+    lower = notes.lower()
+    idx = lower.find(query.lower())
+    if idx == -1:
+        return notes[:window * 2]
+    start = max(0, idx - window // 2)
+    end = min(len(notes), idx + len(query) + window // 2)
+    snippet = notes[start:end]
+    # replace match within snippet (case-preserving)
+    snip_lower = snippet.lower()
+    rel = idx - start
+    matched_text = snippet[rel: rel + len(query)]
+    preview = snippet[:rel] + f"**{matched_text}**" + snippet[rel + len(query):]
+    if start > 0:
+        preview = "..." + preview
+    if end < len(notes):
+        preview = preview + "..."
+    return preview
+
+
+@app.get("/api/feel/search")
+def get_feel_search(
+    user_id: str,
+    q: str,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+):
+    if len(q) < 2:
+        raise HTTPException(status_code=422, detail={"field": "q", "error": "q must be at least 2 characters"})
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
+
+    parsed_from = None
+    if from_date is not None:
+        try:
+            parsed_from = _date.fromisoformat(from_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "from must be a valid YYYY-MM-DD date"})
+
+    parsed_to = None
+    if to_date is not None:
+        try:
+            parsed_to = _date.fromisoformat(to_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
+
+    with Session(engine) as session:
+        user = session.query(User).filter(User.id == uid).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+
+        query_obj = session.query(WorkoutFeel).filter(
+            WorkoutFeel.user_id == uid,
+            WorkoutFeel.notes.ilike(f"%{q}%"),
+        )
+        if parsed_from is not None:
+            query_obj = query_obj.filter(WorkoutFeel.feel_date >= parsed_from)
+        if parsed_to is not None:
+            query_obj = query_obj.filter(WorkoutFeel.feel_date <= parsed_to)
+
+        rows = (
+            query_obj
+            .order_by(WorkoutFeel.feel_date.desc(), WorkoutFeel.created_at.desc())
+            .limit(50)
+            .all()
+        )
+
+        results = []
+        for r in rows:
+            entry = _feel_dict(r)
+            entry["preview"] = _make_preview(r.notes, q) if r.notes else ""
+            results.append(entry)
+
+        return JSONResponse({"results": results, "count": len(results)})
+
+
 # ── Training Load (CTL / ATL / TSB) ──────────────────────────────────────────
 
 
 def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
+    # inclusive thresholds per #259 TSB interpretation spec
     if tsb >= 5:
         label = "Fresh"
     elif tsb >= -5:
@@ -3905,8 +4187,8 @@ def get_training_load(
             tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
             tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = 0.0, 0.0
     curves_out = []
 
@@ -3981,8 +4263,8 @@ def recompute_training_load(
     tss_series = daily_tss_series(str(uid), from_d, today)
     tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = seed_ctl, seed_atl
     rows = []
     current = from_d
@@ -4095,8 +4377,8 @@ def backfill_training_load(
     tss_series = daily_tss_series(str(uid), from_d, today)
     tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = seed_ctl, seed_atl
     rows = []
     current = from_d
