@@ -1,7 +1,7 @@
-fastapi
-uvicorn
-psycopg2-binary
-sqlalchemy
-python-dotenv
-alembic
-cryptography
+fastapi==0.136.3
+uvicorn==0.48.0
+psycopg2-binary==2.9.12
+sqlalchemy==2.0.50
+python-dotenv==1.2.2
+alembic==1.18.4
+cryptography==48.0.0
