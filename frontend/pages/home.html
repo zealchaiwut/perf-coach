@@ -51,133 +51,6 @@
       letter-spacing: -0.01em;
     }
 
-    /* ---- TOP NAV ---- */
-    .topnav {
-      background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%);
-      border-bottom: 1px solid var(--card-border);
-      padding: 0 28px;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      gap: 28px;
-      position: sticky;
-      top: 0;
-      z-index: 50;
-    }
-    .topnav .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 16px;
-      letter-spacing: -0.02em;
-      color: var(--text-primary);
-      text-decoration: none;
-      flex-shrink: 0;
-    }
-    .topnav .brand .mark {
-      width: 30px;
-      height: 30px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #6e90f0, #2b4ca8);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      flex-shrink: 0;
-    }
-    .topnav .nav-links {
-      display: flex;
-      gap: 4px;
-      flex: 1;
-    }
-    .topnav .nav-link {
-      padding: 8px 14px;
-      border-radius: 999px;
-      font-size: 13.5px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      white-space: nowrap;
-    }
-    .topnav .nav-link:hover {
-      background: rgba(13, 30, 67, 0.05);
-      color: var(--text-primary);
-    }
-    .topnav .nav-link.active {
-      background: #0b1530;
-      color: #fff;
-    }
-    .topnav .nav-link i { font-size: 15px; }
-    .topnav .more-btn {
-      background: none;
-      border: 0;
-      cursor: pointer;
-      padding: 8px 12px;
-      border-radius: 999px;
-      color: var(--text-secondary);
-      font-family: inherit;
-      font-size: 13.5px;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap;
-    }
-    .topnav .more-btn:hover {
-      background: rgba(13, 30, 67, 0.05);
-      color: var(--text-primary);
-    }
-    .topnav .more-btn i { font-size: 13px; }
-    .topnav .right-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    .topnav .search {
-      background: #fff;
-      border: 1px solid var(--card-border);
-      border-radius: 999px;
-      padding: 7px 14px;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      color: var(--text-tertiary);
-      font-size: 13px;
-      width: 240px;
-    }
-    .topnav .search-icon-btn {
-      display: none;
-      width: 40px;
-      height: 40px;
-      border: 0;
-      background: transparent;
-      border-radius: 10px;
-      align-items: center;
-      justify-content: center;
-      font-size: 19px;
-      color: var(--text-primary);
-      cursor: pointer;
-    }
-    .topnav .avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #ffb88a, #d97a3a);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 600;
-      font-size: 13px;
-      flex-shrink: 0;
-    }
-
     /* ---- PAGE ---- */
     .page {
       max-width: 1320px;
@@ -843,61 +716,8 @@
       background: #2b4ca8; border-radius: 3px;
     }
 
-    /* ---- BOTTOM TAB BAR (mobile only) ---- */
-    .bottombar {
-      display: none;
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: #fff;
-      border-top: 1px solid var(--card-border);
-      height: 60px;
-      padding-bottom: env(safe-area-inset-bottom, 0);
-      z-index: 50;
-      box-shadow: 0 -2px 12px rgba(0,0,0,0.04);
-    }
-    .bottombar-inner {
-      display: flex;
-      height: 100%;
-    }
-    .bottombar .tab {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      color: var(--text-tertiary);
-      text-decoration: none;
-      font-size: 10.5px;
-      font-weight: 500;
-      font-family: inherit;
-      background: none;
-      border: 0;
-      cursor: pointer;
-      padding: 0;
-    }
-    .bottombar .tab i { font-size: 21px; }
-    .bottombar .tab.active,
-    .bottombar .tab.active i { color: #0b1530; }
-
     /* ---- RESPONSIVE: <= 880px ---- */
     @media (max-width: 880px) {
-      body { padding-bottom: 76px; }
-
-      .topnav {
-        padding: 0 16px;
-        height: 56px;
-        gap: 0;
-        justify-content: space-between;
-      }
-      .topnav .nav-links { display: none; }
-      .topnav .search { display: none; }
-      .topnav .search-icon-btn { display: flex; }
-
-      .bottombar { display: block; }
-
       .page { padding: 16px 14px 8px; }
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
@@ -1016,29 +836,6 @@
 </head>
 <body>
 
-<!-- TOP NAV -->
-<nav class="topnav" aria-label="Primary navigation">
-  <a href="/home.html" class="brand">
-    <div class="mark"><i class="ti ti-activity-heartbeat"></i></div>
-    perf-coach
-  </a>
-  <div class="nav-links">
-    <a href="/home.html" class="nav-link active" aria-current="page"><i class="ti ti-home"></i>Home</a>
-    <a href="/log" class="nav-link"><i class="ti ti-list-details"></i>Training Log</a>
-    <a href="/trends" class="nav-link"><i class="ti ti-chart-line"></i>Trends</a>
-    <a href="/calendar.html" class="nav-link"><i class="ti ti-calendar"></i>Calendar</a>
-    <button class="more-btn" type="button" aria-label="More options">More <i class="ti ti-chevron-down"></i></button>
-  </div>
-  <div class="right-actions">
-    <button class="search-icon-btn" type="button" aria-label="Search"><i class="ti ti-search"></i></button>
-    <div class="search" role="search" aria-label="Search placeholder">
-      <i class="ti ti-search"></i><span>Search</span>
-    </div>
-    <div class="avatar" id="nav-avatar" aria-label="User avatar">Z</div>
-    <span id="env-label" class="env-label"></span>
-  </div>
-</nav>
-
 <!-- MAIN PAGE -->
 <main class="page">
   <div class="greeting">
@@ -1052,17 +849,7 @@
   <div id="row-4"></div>
 </main>
 
-<!-- BOTTOM TAB BAR (mobile) -->
-<nav class="bottombar" aria-label="Mobile navigation">
-  <div class="bottombar-inner">
-    <a href="/home.html" class="tab active" aria-current="page"><i class="ti ti-home"></i><span>Home</span></a>
-    <a href="/log" class="tab"><i class="ti ti-list-details"></i><span>Log</span></a>
-    <a href="/trends" class="tab"><i class="ti ti-chart-line"></i><span>Trends</span></a>
-    <a href="/calendar.html" class="tab"><i class="ti ti-calendar"></i><span>Calendar</span></a>
-    <button class="tab" type="button" aria-label="More options"><i class="ti ti-menu-2"></i><span>More</span></button>
-  </div>
-</nav>
-
+<script src="js/nav.js"></script>
 <script src="js/home.js"></script>
 <script src="js/env.js"></script>
 </body>

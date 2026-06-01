@@ -7,148 +7,6 @@
   <link rel="stylesheet" href="css/styles.css">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <style>
-    /* ── App header (top nav) ─────────────────────────────────────────────── */
-    .app-header {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0 2rem;
-      height: 52px;
-      background: #fff;
-      border-bottom: 1px solid #e5e5e5;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-
-    .app-brand {
-      font-size: 1rem;
-      font-weight: 700;
-      color: #1a1a1a;
-      text-decoration: none;
-      margin-right: 1rem;
-      white-space: nowrap;
-      letter-spacing: -0.02em;
-    }
-
-    .app-brand:hover { opacity: 0.75; }
-
-    .top-nav {
-      display: flex;
-      align-items: center;
-      gap: 0.125rem;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .top-nav-link {
-      display: inline-block;
-      padding: 0.375rem 0.75rem;
-      border-radius: 4px;
-      text-decoration: none;
-      color: #555;
-      font-size: 0.9375rem;
-      font-weight: 500;
-      white-space: nowrap;
-      transition: background 0.1s, color 0.1s;
-    }
-
-    .top-nav-link:hover { background: #f5f5f5; color: #1a1a1a; }
-
-    .top-nav-link.active {
-      background: #1a1a1a;
-      color: #fff;
-    }
-
-    .top-nav-more {
-      position: relative;
-    }
-
-    .top-nav-more-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.2rem;
-      padding: 0.375rem 0.75rem;
-      background: none;
-      border: none;
-      border-radius: 4px;
-      color: #555;
-      font-size: 0.9375rem;
-      font-weight: 500;
-      cursor: pointer;
-      white-space: nowrap;
-      font-family: inherit;
-      transition: background 0.1s, color 0.1s;
-    }
-
-    .top-nav-more-btn:hover { background: #f5f5f5; color: #1a1a1a; }
-
-    .top-nav-dropdown {
-      position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
-      min-width: 148px;
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-      z-index: 300;
-      overflow: hidden;
-    }
-
-    .top-nav-dropdown a {
-      display: block;
-      padding: 0.5rem 1rem;
-      color: #333;
-      text-decoration: none;
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: background 0.1s;
-    }
-
-    .top-nav-dropdown a:hover { background: #f5f5f5; }
-
-    .app-header-right {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      margin-left: auto;
-      flex-shrink: 0;
-    }
-
-    .header-search-btn {
-      width: 34px;
-      height: 34px;
-      border: none;
-      background: none;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #555;
-      padding: 0;
-      transition: background 0.1s;
-    }
-
-    .header-search-btn:hover { background: #f5f5f5; }
-
-    .header-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: #e5e5e5;
-      color: #555;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8125rem;
-      font-weight: 700;
-      user-select: none;
-      text-transform: uppercase;
-      flex-shrink: 0;
-    }
-
     /* ── Page header ─────────────────────────────────────────────────────── */
     .log-page-header {
       display: flex;
@@ -759,7 +617,6 @@
     }
 
     @media (max-width: 599px) {
-      .app-header { padding: 0 1rem; }
       .log-page-header { padding: 0.75rem 1rem; }
       #week-strip { padding: 0.75rem 1rem; }
       #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
@@ -1197,56 +1054,18 @@
 </head>
 <body>
 
-  <!-- Top navigation -->
-  <header class="app-header">
-    <a href="home.html" class="app-brand">perf-coach</a>
-
-    <nav class="top-nav" aria-label="Main navigation">
-      <a href="home.html" class="top-nav-link">Home</a>
-      <a href="log" class="top-nav-link active">Log</a>
-      <a href="habits.html" class="top-nav-link">Habits</a>
-      <a href="trends.html" class="top-nav-link">Trends</a>
-
-      <div class="top-nav-more">
-        <button class="top-nav-more-btn" id="top-nav-more-btn"
-                aria-haspopup="true" aria-expanded="false" type="button">
-          More ▾
-        </button>
-        <div class="top-nav-dropdown" id="top-nav-dropdown" hidden>
-          <a href="weight.html">Weight</a>
-          <a href="calendar.html">Calendar</a>
-          <a href="training.html">Training</a>
-          <a href="users.html">Users</a>
-        </div>
-      </div>
-    </nav>
-
-    <div class="app-header-right">
-      <button class="header-search-btn" aria-label="Search" type="button">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2" stroke-linecap="round"
-             stroke-linejoin="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="8"/>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-      </button>
-      <div class="header-avatar" id="header-avatar" aria-label="User avatar">U</div>
-    </div>
-    <span id="env-label" class="env-label"></span>
-  </header>
-
   <!-- Page header: title, stats subtitle, action buttons -->
-  <div class="log-page-header">
+  <header class="log-page-header">
     <div class="log-page-header-info">
       <h1 class="log-page-title">Training log</h1>
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
       <button id="log-export-btn" class="btn-secondary">Export CSV</button>
-      <button id="log-new-btn" class="btn-primary" disabled
-              title="Coming soon — modal not built yet">Log workout</button>
+      <button id="log-new-btn" class="btn-primary">Log workout</button>
+      <span id="env-label" class="env-label"></span>
     </div>
-  </div>
+  </header>
 
   <!-- Week strip (JS renders into this) -->
   <div id="week-strip"></div>
@@ -1333,6 +1152,7 @@
     </aside>
   </div>
 
+  <script src="js/nav.js"></script>
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>

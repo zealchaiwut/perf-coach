@@ -1089,46 +1089,6 @@
       });
   }
 
-  // ── More dropdown toggle ──────────────────────────────────────────────────
-  function initMoreDropdown() {
-    var moreBtn      = document.getElementById('top-nav-more-btn');
-    var moreDropdown = document.getElementById('top-nav-dropdown');
-    if (!moreBtn || !moreDropdown) return;
-
-    moreBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var isOpen = !moreDropdown.hidden;
-      moreDropdown.hidden = isOpen;
-      moreBtn.setAttribute('aria-expanded', String(!isOpen));
-    });
-
-    document.addEventListener('click', function (e) {
-      if (!moreDropdown.hidden && !moreDropdown.contains(e.target) && e.target !== moreBtn) {
-        moreDropdown.hidden = true;
-        moreBtn.setAttribute('aria-expanded', 'false');
-      }
-    });
-
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !moreDropdown.hidden) {
-        moreDropdown.hidden = true;
-        moreBtn.setAttribute('aria-expanded', 'false');
-        moreBtn.focus();
-      }
-    });
-  }
-
-  // ── Avatar initial ────────────────────────────────────────────────────────
-  function updateAvatarInitial() {
-    var avatarEl  = document.getElementById('header-avatar');
-    if (!avatarEl) return;
-    var selectEl  = document.getElementById('user-selector-select');
-    if (!selectEl || selectEl.selectedIndex < 0) return;
-    var opt = selectEl.options[selectEl.selectedIndex];
-    if (!opt || opt.value === '__add__') return;
-    avatarEl.textContent = opt.textContent.trim().charAt(0).toUpperCase() || 'U';
-  }
-
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
   function initSwipe() {
     var panel = document.getElementById('dp-scroll');
@@ -1157,12 +1117,10 @@
     readURLParams();
     buildFilterBar();
     fetchAndRender();
-    initMoreDropdown();
     initSwipe();
 
     window.addEventListener('userChanged', function () {
       fetchAndRender();
-      updateAvatarInitial();
     });
 
     var exportBtn = document.getElementById('log-export-btn');
@@ -1194,7 +1152,12 @@
 
     var emptyCta = document.getElementById('log-empty-cta');
     if (emptyCta) emptyCta.addEventListener('click', function () {
-      window.location.href = 'training.html';
+      window.location.href = '/training';
+    });
+
+    var newBtn = document.getElementById('log-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () {
+      window.location.href = '/training';
     });
 
     document.addEventListener('keydown', function (e) {
@@ -1372,7 +1335,6 @@
       currentUserId = newId;
       loadAndRender(currentMonday, currentUserId);
     }
-    updateAvatarInitial();
   });
 
   window.addEventListener('userChanged', function (e) {
