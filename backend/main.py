@@ -19,7 +19,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -241,6 +241,83 @@ def delete_user(user_id: str):
         session.delete(user)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+from backend.auth import (  # noqa: E402
+    clear_session,
+    get_current_user,
+    set_session,
+    verify_password,
+)
+
+_LOCKOUT_MAX_ATTEMPTS = 5
+_LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
+_lockout: dict = {}  # (username_lower, ip) -> {"count": int, "window_start": float}
+
+
+def _lockout_key(username: str, ip: str) -> tuple:
+    return (username.lower(), ip)
+
+
+def _check_lockout(username: str, ip: str) -> None:
+    key = _lockout_key(username, ip)
+    entry = _lockout.get(key)
+    if entry is None:
+        return
+    if time.time() - entry["window_start"] > _LOCKOUT_WINDOW_SECONDS:
+        del _lockout[key]
+        return
+    if entry["count"] >= _LOCKOUT_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again later.")
+
+
+def _record_failure(username: str, ip: str) -> None:
+    key = _lockout_key(username, ip)
+    now = time.time()
+    entry = _lockout.get(key)
+    if entry is None or now - entry["window_start"] > _LOCKOUT_WINDOW_SECONDS:
+        _lockout[key] = {"count": 1, "window_start": now}
+    else:
+        entry["count"] += 1
+
+
+def _clear_lockout(username: str, ip: str) -> None:
+    _lockout.pop(_lockout_key(username, ip), None)
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    _check_lockout(body.username, ip)
+    with Session(engine) as session:
+        user = session.query(User).filter(User.name == body.username).first()
+    if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
+        _record_failure(body.username, ip)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    _clear_lockout(body.username, ip)
+    resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+    set_session(resp, str(user.id))
+    return resp
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout():
+    resp = Response(status_code=204)
+    clear_session(resp)
+    return resp
+
+
+@app.get("/api/auth/me")
+async def me(request: Request):
+    user = await get_current_user(request)
+    return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
 
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
