@@ -299,3 +299,93 @@ def test_post_feel_auto_link_failure_does_not_fail_post(client, al_user_id, monk
     assert res.status_code == 201
     data = res.json()
     assert data["workout_id"] is None
+
+
+# ── Issue #251: summary and search endpoints ──────────────────────────────────
+
+_SS_RUN = str(uuid.uuid4())[:8]
+
+
+@pytest.fixture(scope="module")
+def ss_user_id(client):
+    name = f"SSUser_{_SS_RUN}"
+    res = client.post("/api/users", json={"name": name})
+    assert res.status_code in (201, 409)
+    users = client.get("/api/users").json()
+    u = next(u for u in users if u["name"] == name)
+    return u["id"]
+
+
+@pytest.fixture(scope="module")
+def ss_entries(client, ss_user_id):
+    """Seed three feel entries: one RPE-only, one notes-only, one both."""
+    entries = [
+        {"user_id": ss_user_id, "feel_date": "2026-01-10", "rpe_1_to_10": 6},
+        {"user_id": ss_user_id, "feel_date": "2026-01-12", "notes": "hamstring felt tight during warm-up"},
+        {"user_id": ss_user_id, "feel_date": "2026-01-14", "rpe_1_to_10": 8, "notes": "strong session; HAMSTRING fine today"},
+    ]
+    created = []
+    for e in entries:
+        res = client.post("/api/feel", json=e)
+        assert res.status_code == 201
+        created.append(res.json())
+    return created
+
+
+# (a) summary with no entries returns null stats
+def test_summary_no_entries_returns_null_stats(client):
+    name = f"EmptyUser_{_SS_RUN}"
+    res = client.post("/api/users", json={"name": name})
+    assert res.status_code in (201, 409)
+    users = client.get("/api/users").json()
+    u = next(u for u in users if u["name"] == name)
+    empty_uid = u["id"]
+
+    res = client.get("/api/feel/summary", params={"user_id": empty_uid})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_entries"] == 0
+    assert data["avg_rpe"] is None
+    assert data["min_rpe"] is None
+    assert data["max_rpe"] is None
+    assert data["avg_notes_length_chars"] is None
+
+
+# (b) summary computes avg_rpe correctly
+def test_summary_computes_avg_rpe(client, ss_user_id, ss_entries):
+    res = client.get("/api/feel/summary", params={"user_id": ss_user_id, "from": "2026-01-01", "to": "2026-01-31"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_entries"] >= 3
+    # entries with RPE: 6 and 8; avg = 7.0
+    rpe_entries = [e for e in ss_entries if e["rpe_1_to_10"] is not None]
+    expected_avg = sum(e["rpe_1_to_10"] for e in rpe_entries) / len(rpe_entries)
+    assert abs(data["avg_rpe"] - expected_avg) < 0.01
+
+
+# (c) search finds case-insensitive matches
+def test_search_case_insensitive(client, ss_user_id, ss_entries):
+    for term in ("hamstring", "HAMSTRING", "Hamstring"):
+        res = client.get("/api/feel/search", params={"user_id": ss_user_id, "q": term})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["count"] >= 2, f"expected >=2 results for q={term!r}, got {data['count']}"
+        ids = {r["id"] for r in data["results"]}
+        assert ss_entries[1]["id"] in ids
+        assert ss_entries[2]["id"] in ids
+
+
+# (d) search with <2-char query returns 422
+def test_search_short_query_returns_422(client, ss_user_id):
+    res = client.get("/api/feel/search", params={"user_id": ss_user_id, "q": "x"})
+    assert res.status_code == 422
+
+
+# (e) search highlights matched text in preview
+def test_search_highlights_match_in_preview(client, ss_user_id, ss_entries):
+    res = client.get("/api/feel/search", params={"user_id": ss_user_id, "q": "hamstring"})
+    assert res.status_code == 200
+    data = res.json()
+    for result in data["results"]:
+        assert "preview" in result
+        assert "**hamstring**" in result["preview"].lower()
