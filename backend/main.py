@@ -3782,7 +3782,6 @@ def post_feel(body: _FeelBody):
                 auto_link_feel_entries(parsed_user_id, feel_date)
                 session.refresh(row)
             except Exception as exc:
-                import logging as _logging
                 _logging.getLogger(__name__).warning("auto_link_feel_entries failed: %s", exc)
 
         return JSONResponse(status_code=201, content=_feel_dict(row))
