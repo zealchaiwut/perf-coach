@@ -3806,9 +3806,9 @@ def post_feel_auto_link(user_id: str, feel_date: str):
 def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
     if tsb >= 5:
         label = "Fresh"
-    elif tsb > -5:
+    elif tsb >= -5:
         label = "Neutral"
-    elif tsb > -15:
+    elif tsb >= -15:
         label = "Productive (high load)"
     else:
         label = "Overreached (high risk)"

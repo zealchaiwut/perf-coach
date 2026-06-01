@@ -71,7 +71,7 @@ Each script:
 | `GET /api/environment` | Returns `{"environment": "PRD"\|"UAT", "version": "0.1.0"}` |
 | `GET /api/health` | Returns DB connection status |
 | `GET /api/users` | Returns list of users |
-| `GET /api/training-log` | Returns training log entries with workout details (distance, duration, HR, elevation, pace); supports `from`, `to`, `types`, `search`, `include_rest` query params |
+| `GET /api/training-log` | Returns training log entries with workout details (distance, duration, HR, elevation, pace); supports `from`, `to`, `types`, `search`, `include_rest` query params. Response includes a top-level `load_context` block (CTL/ATL/TSB + interpretation) when user has ≥7 days of data. |
 | `GET /trends/summary` | Returns trend aggregations (readiness, HRV, RHR, sleep, energy, mood, TSS) for a date range |
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |

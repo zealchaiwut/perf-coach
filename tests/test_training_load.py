@@ -313,7 +313,7 @@ def test_api_training_load_current_tsb_5_is_fresh():
     assert res.json()["interpretation"] == "Fresh"
 
 
-def test_api_training_load_current_tsb_neg15_is_overreached():
+def test_api_training_load_current_tsb_neg15_is_productive():
     load = {"date": date.today(), "ctl": 40.0, "atl": 55.0, "tsb": -15.0}
     with (
         patch("backend.main.Session", return_value=_mock_session_with_user()),
@@ -322,7 +322,7 @@ def test_api_training_load_current_tsb_neg15_is_overreached():
         res = _client.get(f"/api/training-load/current?user_id={_USER_ID}")
 
     assert res.status_code == 200
-    assert res.json()["interpretation"] == "Overreached (high risk)"
+    assert res.json()["interpretation"] == "Productive (high load)"
 
 
 # ---------------------------------------------------------------------------

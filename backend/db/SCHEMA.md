@@ -152,11 +152,45 @@ Each field is the signal's additive share of `score`; the four values sum to `sc
 | GET | `/api/readiness/today` | Readiness record for today (server timezone). 404 if none exists. |
 | GET | `/api/readiness?from=YYYY-MM-DD&to=YYYY-MM-DD` | Readiness records for a date range, one entry per day (null for days with no data), ordered ascending. |
 
+### training_load_snapshots
+
+Pre-computed daily training load values (CTL/ATL/TSB) written by the load snapshot job.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default `gen_random_uuid()` |
+| user_id | UUID | FK → users.id (CASCADE), NOT NULL |
+| snapshot_date | DATE | NOT NULL |
+| tss_for_day | INT | NOT NULL |
+| ctl | FLOAT | NOT NULL — Chronic Training Load |
+| atl | FLOAT | NOT NULL — Acute Training Load |
+| tsb | FLOAT | NOT NULL — Training Stress Balance (`ctl - atl`) |
+| computed_at | TIMESTAMPTZ | NOT NULL, default `now()` |
+
+Unique constraint: `(user_id, snapshot_date)` — one snapshot per user per day.
+Index: `(user_id, snapshot_date)`.
+
 ### Training Log
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/training-log` | Returns workout and optional rest-day entries for a date range. Query params: `user_id`, `from` (default: 30 days ago), `to` (default: today), `types` (workout_type filter), `search` (name/remarks text search), `include_rest` (default: true). Each workout entry includes `duration_seconds`, `duration_minutes`, `distance_km`, `avg_hr`, `elevation_m`, `average_pace_seconds_per_km` (run/bike only), `tss`, `source`, and `notes`. |
+| GET | `/api/training-log` | Returns workout and optional rest-day entries for a date range, plus a top-level `load_context` block. Query params: `user_id`, `from` (default: 30 days ago), `to` (default: today), `types` (workout_type filter), `search` (name/remarks text search), `include_rest` (default: true). Each workout entry includes `duration_seconds`, `duration_minutes`, `distance_km`, `avg_hr`, `elevation_m`, `average_pace_seconds_per_km` (run/bike only), `tss`, `source`, and `notes`. |
+
+#### `load_context` response field
+
+Present when the user has ≥ 7 days of training data; `null` otherwise.
+
+```json
+{
+  "ctl": 55.0,
+  "atl": 60.0,
+  "tsb": -5.0,
+  "interpretation": "Productive — carrying fatigue but building fitness",
+  "as_of": "2026-06-01"
+}
+```
+
+Values are read from `training_load_snapshots` for today when a snapshot exists; computed on-demand otherwise. Interpretation thresholds: Fresh (TSB > 5), Neutral (−5 to 5), Productive (−20 to −5), Overreached (TSB < −20). See `docs/training-load.md` for the full model.
 
 Both endpoints require `user_id` as a query parameter and return:
 

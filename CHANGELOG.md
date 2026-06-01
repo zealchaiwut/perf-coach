@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 36
+
+- #262: Add load_context to training-log endpoint and load docs
+
 ## Sprint 19
 
 - #151: Build training log page shell, week strip, and filter bar
