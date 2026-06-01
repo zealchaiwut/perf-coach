@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from backend.db import check_db, engine, environment
 from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
-from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 
 app = FastAPI()
@@ -4071,8 +4071,8 @@ def get_training_load(
             tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
             tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = 0.0, 0.0
     curves_out = []
 
@@ -4147,8 +4147,8 @@ def recompute_training_load(
     tss_series = daily_tss_series(str(uid), from_d, today)
     tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = seed_ctl, seed_atl
     rows = []
     current = from_d
@@ -4261,8 +4261,8 @@ def backfill_training_load(
     tss_series = daily_tss_series(str(uid), from_d, today)
     tss_map = {d: t for d, t in tss_series}
 
-    ctl_alpha = 1 - _math.exp(-1 / 42)
-    atl_alpha = 1 - _math.exp(-1 / 7)
+    ctl_alpha = _ewma_alpha(42)
+    atl_alpha = _ewma_alpha(7)
     ctl, atl = seed_ctl, seed_atl
     rows = []
     current = from_d
