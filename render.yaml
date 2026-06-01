@@ -2,6 +2,10 @@
 # render.yaml — Render Blueprint for perf-coach
 # yamllint: autoDeploy uses yes/no (not true/false) — required by Render's API.
 #
+# Python version is pinned via the repo-root `.python-version` file (Render
+# reads it). The service schema has no `pythonVersion` field — setting one makes
+# the blueprint fail with "field pythonVersion not found in type file.service".
+#
 # The DB connection string is intentionally absent from this file and must be
 # set manually in the Render dashboard for each service after the blueprint is
 # applied. The app (backend/db.py) and Alembic select the var by ENVIRONMENT,
@@ -20,7 +24,6 @@ services:
     plan: starter
     branch: develop
     autoDeploy: yes  # yamllint: truthy — Render requires yes/no, not true/false
-    pythonVersion: "3.12"
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     preDeployCommand: alembic upgrade head
@@ -40,7 +43,6 @@ services:
     plan: starter
     branch: master
     autoDeploy: no  # yamllint: truthy — Render requires yes/no, not true/false
-    pythonVersion: "3.12"
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     preDeployCommand: alembic upgrade head
