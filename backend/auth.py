@@ -18,6 +18,7 @@ from backend.models import User
 _log = logging.getLogger(__name__)
 
 COOKIE_NAME = "session"
+MIN_PASSWORD_LENGTH = 8
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
