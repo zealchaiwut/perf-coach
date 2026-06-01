@@ -136,7 +136,7 @@ class TestSameUserAccess:
         cookies = {"session": cookie_a}
         res = client.post(
             "/api/daily-metrics",
-            json={"metric_date": "2024-04-01", "energy": 6, "user_id": user_a["id"]},
+            json={"metric_date": "2024-04-01", "energy": 4, "user_id": user_a["id"]},
             cookies=cookies,
         )
         assert res.status_code in (201, 409), res.text
@@ -198,7 +198,7 @@ class TestCrossUserIsolation:
         rows = client.get("/api/weight", cookies={"session": cookie_a}).json()
         assert not any(r["id"] == weight_entry_b for r in rows), "User B's weight entry must not be visible to User A"
 
-    def test_weight_post_ignores_body_user_id(self, client, user_a, user_b, cookie_a):
+    def test_weight_post_ignores_body_user_id(self, client, user_a, user_b, cookie_a, cookie_b):
         """POST /weight with user_b's id in body still creates entry for user_a."""
         res = client.post(
             "/api/weight",
@@ -242,7 +242,7 @@ class TestCrossUserIsolation:
         date = "2024-06-01"
         res = client.post(
             "/api/daily-metrics",
-            json={"metric_date": date, "energy": 8, "user_id": user_b["id"]},
+            json={"metric_date": date, "energy": 4, "user_id": user_b["id"]},
             cookies={"session": cookie_a},
         )
         if res.status_code == 409:
