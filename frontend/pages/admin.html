@@ -62,7 +62,7 @@
     .logout-btn:hover { background: rgba(255,255,255,0.08); }
 
     .container {
-      max-width: 960px;
+      max-width: 1100px;
       margin: 40px auto;
       padding: 0 24px;
     }
@@ -185,11 +185,90 @@
     }
     .badge-admin { background: #dbeafe; color: #1e40af; }
     .badge-user { background: #f0f0f0; color: #555; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-disabled { background: #fee2e2; color: #991b1b; }
     .table-empty {
       text-align: center;
       color: #5c6886;
       padding: 24px;
     }
+
+    /* Action buttons */
+    .actions-cell { white-space: nowrap; }
+    .btn-action {
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 9px;
+      border-radius: 6px;
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+      margin-right: 4px;
+    }
+    .btn-action:last-child { margin-right: 0; }
+    .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-action-default {
+      background: #eef2ff;
+      color: #2b4ca8;
+      border-color: #c7d4f8;
+    }
+    .btn-action-default:hover:not(:disabled) { background: #dbe4fd; }
+    .btn-action-warning {
+      background: #fffbeb;
+      color: #92400e;
+      border-color: #fcd34d;
+    }
+    .btn-action-warning:hover:not(:disabled) { background: #fef3c7; }
+    .btn-action-success {
+      background: #ecfdf5;
+      color: #065f46;
+      border-color: #6ee7b7;
+    }
+    .btn-action-success:hover:not(:disabled) { background: #d1fae5; }
+    .btn-action-danger {
+      background: #fff1f2;
+      color: #9f1239;
+      border-color: #fca5a5;
+    }
+    .btn-action-danger:hover:not(:disabled) { background: #ffe4e6; }
+
+    /* Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(11,21,48,0.45);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      width: 360px;
+      max-width: 90vw;
+      box-shadow: 0 8px 40px rgba(11,21,48,0.18);
+    }
+    .modal h2 { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
+    .modal p { font-size: 13px; color: #5c6886; margin: 0 0 16px; }
+    .modal .form-group { margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-cancel {
+      background: #f0f4fb;
+      color: #0b1530;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-cancel:hover { background: #e2e8f5; }
+    .modal-feedback { font-size: 12px; color: #c0392b; margin-top: 8px; display: none; }
   </style>
 </head>
 <body>
@@ -250,20 +329,46 @@
         <tr>
           <th>Username</th>
           <th>Role</th>
+          <th>Status</th>
           <th>Integrations</th>
           <th>Created</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="users-tbody">
-        <tr><td colspan="4" class="table-empty">Loading…</td></tr>
+        <tr><td colspan="6" class="table-empty">Loading…</td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-backdrop" id="reset-pw-modal">
+  <div class="modal">
+    <h2>Reset Password</h2>
+    <p id="reset-pw-label">Set a new password for <strong id="reset-pw-username"></strong>.</p>
+    <div class="form-group">
+      <label for="reset-pw-input">New Password</label>
+      <input id="reset-pw-input" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+    </div>
+    <div id="reset-pw-feedback" class="modal-feedback"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="reset-pw-cancel">Cancel</button>
+      <button class="btn-primary" id="reset-pw-submit">Reset Password</button>
+    </div>
   </div>
 </div>
 
 <script>
 (function () {
   'use strict';
+
+  var currentUserId = null;
+
+  fetch('/api/auth/me', { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (me) { if (me) currentUserId = me.id; })
+    .catch(function () {});
 
   document.getElementById('logout-btn').addEventListener('click', function () {
     fetch('/api/admin/logout', { method: 'POST' })
@@ -275,25 +380,6 @@
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  function renderUsers(users) {
-    var tbody = document.getElementById('users-tbody');
-    if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">No users found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = users.map(function (u) {
-      var badge = u.is_admin
-        ? '<span class="badge badge-admin">Admin</span>'
-        : '<span class="badge badge-user">User</span>';
-      return '<tr>'
-        + '<td>' + escHtml(u.username) + '</td>'
-        + '<td>' + badge + '</td>'
-        + '<td>' + u.integration_count + '</td>'
-        + '<td>' + formatDate(u.created_at) + '</td>'
-        + '</tr>';
-    }).join('');
-  }
-
   function escHtml(s) {
     return String(s)
       .replace(/&/g, '&amp;')
@@ -302,15 +388,194 @@
       .replace(/"/g, '&quot;');
   }
 
+  function renderUsers(users) {
+    var tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No users found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map(function (u) {
+      var isSelf = currentUserId && u.id === currentUserId;
+      var isActive = u.is_active !== false;
+
+      var roleBadge = u.is_admin
+        ? '<span class="badge badge-admin">Admin</span>'
+        : '<span class="badge badge-user">User</span>';
+
+      var statusBadge = isActive
+        ? '<span class="badge badge-active">Active</span>'
+        : '<span class="badge badge-disabled">Disabled</span>';
+
+      var resetBtn = '<button class="btn-action btn-action-default"'
+        + ' data-action="reset-pw" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+        + 'Reset PW</button>';
+
+      var toggleAdminLabel = u.is_admin ? 'Revoke Admin' : 'Make Admin';
+      var toggleAdminBtn = isSelf
+        ? '<button class="btn-action btn-action-default" disabled title="Cannot change your own admin status">'
+          + toggleAdminLabel + '</button>'
+        : '<button class="btn-action btn-action-default"'
+          + ' data-action="toggle-admin" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + toggleAdminLabel + '</button>';
+
+      var disableBtn = isActive
+        ? '<button class="btn-action btn-action-warning"'
+          + ' data-action="disable" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Disable</button>'
+        : '<button class="btn-action btn-action-success"'
+          + ' data-action="enable" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Enable</button>';
+
+      var deleteBtn = isSelf
+        ? ''
+        : '<button class="btn-action btn-action-danger"'
+          + ' data-action="delete" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Delete</button>';
+
+      return '<tr>'
+        + '<td>' + escHtml(u.username) + (isSelf ? ' <span style="font-size:10px;color:#5c6886;">(you)</span>' : '') + '</td>'
+        + '<td>' + roleBadge + '</td>'
+        + '<td>' + statusBadge + '</td>'
+        + '<td>' + u.integration_count + '</td>'
+        + '<td>' + formatDate(u.created_at) + '</td>'
+        + '<td class="actions-cell">' + resetBtn + ' ' + toggleAdminBtn + ' ' + disableBtn + (deleteBtn ? ' ' + deleteBtn : '') + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
   function loadUsers() {
     fetch('/api/admin/users', { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(renderUsers)
       .catch(function () {
         document.getElementById('users-tbody').innerHTML =
-          '<tr><td colspan="4" class="table-empty">Failed to load users.</td></tr>';
+          '<tr><td colspan="6" class="table-empty">Failed to load users.</td></tr>';
       });
   }
+
+  // ── Action delegation ──────────────────────────────────────────────────────
+
+  document.getElementById('users-tbody').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn || btn.disabled) return;
+
+    var action = btn.dataset.action;
+    var userId = btn.dataset.id;
+    var username = btn.dataset.name;
+
+    if (action === 'reset-pw') {
+      openResetPwModal(userId, username);
+    } else if (action === 'toggle-admin') {
+      doToggleAdmin(userId, username, btn);
+    } else if (action === 'disable') {
+      doDisable(userId, username, btn);
+    } else if (action === 'enable') {
+      doEnable(userId, username, btn);
+    } else if (action === 'delete') {
+      doDelete(userId, username, btn);
+    }
+  });
+
+  function apiAction(method, url, body, btn, onSuccess) {
+    if (btn) btn.disabled = true;
+    var opts = { method: method, headers: { 'Accept': 'application/json' } };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    fetch(url, opts)
+      .then(function (r) {
+        if (r.ok || r.status === 204) {
+          onSuccess();
+        } else {
+          return r.json().then(function (d) {
+            alert((d && d.detail) ? d.detail : 'Action failed (' + r.status + ')');
+          });
+        }
+      })
+      .catch(function () { alert('Network error. Please try again.'); })
+      .finally(function () { if (btn) btn.disabled = false; });
+  }
+
+  function doToggleAdmin(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/toggle-admin', null, btn, loadUsers);
+  }
+
+  function doDisable(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/disable', null, btn, loadUsers);
+  }
+
+  function doEnable(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/enable', null, btn, loadUsers);
+  }
+
+  function doDelete(userId, username, btn) {
+    if (!window.confirm('Delete user "' + username + '"?\nThis cannot be undone.')) return;
+    apiAction('DELETE', '/api/admin/users/' + userId, null, btn, loadUsers);
+  }
+
+  // ── Reset Password Modal ───────────────────────────────────────────────────
+
+  var resetPwModal = document.getElementById('reset-pw-modal');
+  var resetPwInput = document.getElementById('reset-pw-input');
+  var resetPwFeedback = document.getElementById('reset-pw-feedback');
+  var resetPwUsernameEl = document.getElementById('reset-pw-username');
+  var resetPwSubmit = document.getElementById('reset-pw-submit');
+  var _resetTargetId = null;
+
+  function openResetPwModal(userId, username) {
+    _resetTargetId = userId;
+    resetPwUsernameEl.textContent = username;
+    resetPwInput.value = '';
+    resetPwFeedback.style.display = 'none';
+    resetPwModal.classList.add('open');
+    resetPwInput.focus();
+  }
+
+  function closeResetPwModal() {
+    resetPwModal.classList.remove('open');
+    _resetTargetId = null;
+  }
+
+  document.getElementById('reset-pw-cancel').addEventListener('click', closeResetPwModal);
+
+  resetPwModal.addEventListener('click', function (e) {
+    if (e.target === resetPwModal) closeResetPwModal();
+  });
+
+  resetPwSubmit.addEventListener('click', function () {
+    var pw = resetPwInput.value;
+    if (!pw || pw.length < 8) {
+      resetPwFeedback.textContent = 'Password must be at least 8 characters.';
+      resetPwFeedback.style.display = 'block';
+      return;
+    }
+    resetPwFeedback.style.display = 'none';
+    resetPwSubmit.disabled = true;
+
+    fetch('/api/admin/users/' + _resetTargetId + '/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ new_password: pw }),
+    })
+      .then(function (r) {
+        if (r.ok) {
+          closeResetPwModal();
+        } else {
+          return r.json().then(function (d) {
+            resetPwFeedback.textContent = (d && d.detail) ? d.detail : 'Failed to reset password.';
+            resetPwFeedback.style.display = 'block';
+          });
+        }
+      })
+      .catch(function () {
+        resetPwFeedback.textContent = 'Network error. Please try again.';
+        resetPwFeedback.style.display = 'block';
+      })
+      .finally(function () { resetPwSubmit.disabled = false; });
+  });
+
+  // ── Create User form ───────────────────────────────────────────────────────
 
   var feedback = document.getElementById('form-feedback');
   function showFeedback(msg, type) {

@@ -376,6 +376,8 @@ def login(body: LoginIn, request: Request):
         _record_failure(body.username, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     _clear_lockout(body.username, ip)
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
     resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
     set_session(resp, str(user.id))
     return resp
@@ -4616,8 +4618,108 @@ def admin_list_users():
                 "id": str(u.id),
                 "username": u.name,
                 "is_admin": bool(u.is_admin),
+                "is_active": bool(getattr(u, "is_active", True)),
                 "integration_count": int(bool(has_strava)) + int(bool(has_google)) + int(bool(has_stryd)),
                 "created_at": u.created_at.isoformat() if u.created_at else None,
             }
             for u, has_strava, has_google, has_stryd in rows
         ])
+
+
+class AdminResetPasswordIn(BaseModel):
+    new_password: str
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", dependencies=[Depends(require_admin)])
+def admin_reset_password(user_id: str, body: AdminResetPasswordIn):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.password_hash = hash_password(body.new_password)
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/users/{user_id}/toggle-admin", dependencies=[Depends(require_admin)])
+def admin_toggle_admin(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove admin: at least one admin must remain",
+                )
+        user.is_admin = not user.is_admin
+        session.commit()
+        session.refresh(user)
+    return JSONResponse({"id": str(user.id), "is_admin": bool(user.is_admin)})
+
+
+@app.post("/api/admin/users/{user_id}/disable", dependencies=[Depends(require_admin)])
+def admin_disable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = False
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": False})
+
+
+@app.post("/api/admin/users/{user_id}/enable", dependencies=[Depends(require_admin)])
+def admin_enable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = True
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": True})
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot delete the last admin account",
+                )
+        session.delete(user)
+        session.commit()
+    return Response(status_code=204)
