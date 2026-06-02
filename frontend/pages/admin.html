@@ -190,6 +190,47 @@
       color: #5c6886;
       padding: 24px;
     }
+
+    /* Google Login section */
+    .config-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f4fb;
+    }
+    .config-row:last-child { border-bottom: none; }
+    .config-label { font-size: 13px; font-weight: 600; color: #0b1530; }
+    .config-value { font-size: 13px; color: #5c6886; }
+    .badge-on { background: #d1fae5; color: #065f46; }
+    .badge-off { background: #fee2e2; color: #991b1b; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .warning-box {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #92400e;
+      margin-top: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .config-toggle-btn {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 7px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .config-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .config-toggle-btn.btn-enable { background: #d1fae5; color: #065f46; }
+    .config-toggle-btn.btn-disable { background: #fee2e2; color: #991b1b; }
   </style>
 </head>
 <body>
@@ -238,6 +279,14 @@
       </div>
     </form>
     <div id="form-feedback" class="form-feedback" role="alert"></div>
+  </div>
+
+  <div class="section" id="google-login-section">
+    <div class="section-title">
+      <i class="ti ti-brand-google" aria-hidden="true"></i>
+      Google Login
+    </div>
+    <div id="google-login-body">Loading…</div>
   </div>
 
   <div class="section">
@@ -311,6 +360,61 @@
           '<tr><td colspan="4" class="table-empty">Failed to load users.</td></tr>';
       });
   }
+
+  // ── Google Login config ────────────────────────────────────────────────────
+
+  function renderGoogleConfig(cfg) {
+    var body = document.getElementById('google-login-body');
+    var toggleLabel = cfg.toggle_enabled ? 'Disable' : 'Enable';
+    var toggleClass = cfg.toggle_enabled ? 'btn-disable' : 'btn-enable';
+    var activeBadge = cfg.active
+      ? '<span class="badge badge-on">Active</span>'
+      : '<span class="badge badge-off">Inactive</span>';
+    var envBadge = cfg.env_enabled
+      ? '<span class="badge badge-on">true</span>'
+      : '<span class="badge badge-off">false / unset</span>';
+    var credsBadge = cfg.credentials_present
+      ? '<span class="badge badge-on">Present</span>'
+      : '<span class="badge badge-warn">Missing</span>';
+    var toggleBadge = cfg.toggle_enabled
+      ? '<span class="badge badge-on">Enabled</span>'
+      : '<span class="badge badge-off">Disabled</span>';
+    var warningHtml = cfg.warning
+      ? '<div class="warning-box"><i class="ti ti-alert-triangle"></i> ' + escHtml(cfg.warning) + '</div>'
+      : '';
+    body.innerHTML = ''
+      + '<div class="config-row"><span class="config-label">Status</span><span>' + activeBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">GOOGLE_LOGIN_ENABLED env</span><span>' + envBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">Google credentials</span><span>' + credsBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">Admin toggle</span>'
+      + '<span style="display:flex;align-items:center;gap:10px;">' + toggleBadge
+      + '<button class="config-toggle-btn ' + toggleClass + '" id="google-toggle-btn">' + toggleLabel + '</button>'
+      + '</span></div>'
+      + warningHtml;
+    document.getElementById('google-toggle-btn').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      fetch('/api/admin/config/google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ enabled: !cfg.toggle_enabled }),
+      })
+        .then(function (r) { return r.ok ? loadGoogleConfig() : r.json().then(function (d) { alert(d.detail || 'Failed'); }); })
+        .catch(function () { alert('Network error.'); })
+        .finally(function () { btn.disabled = false; });
+    });
+  }
+
+  function loadGoogleConfig() {
+    fetch('/api/admin/config/google-login', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(renderGoogleConfig)
+      .catch(function () {
+        document.getElementById('google-login-body').textContent = 'Failed to load Google login config.';
+      });
+  }
+
+  loadGoogleConfig();
 
   var feedback = document.getElementById('form-feedback');
   function showFeedback(msg, type) {
