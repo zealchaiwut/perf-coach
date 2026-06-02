@@ -3291,6 +3291,10 @@ def _strava_sync_worker(user_id: str) -> None:
 
         page = 1
         while True:
+            if _sync_jobs.is_cancel_requested(uid):
+                _sync_jobs.mark_error(uid, "cancelled")
+                return
+
             url = (
                 _STRAVA_ACTIVITIES_URL
                 + "?"
@@ -3310,6 +3314,9 @@ def _strava_sync_worker(user_id: str) -> None:
             now = _datetime.now(tz=_timezone.utc)
             rows = []
             for act in batch:
+                if _sync_jobs.is_cancel_requested(uid):
+                    _sync_jobs.mark_error(uid, "cancelled")
+                    return
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
