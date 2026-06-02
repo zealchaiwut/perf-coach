@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -82,6 +82,25 @@ async def _auth_guard(request: Request, call_next):
     if "application/json" in accept:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     return RedirectResponse(url="/login", status_code=302)
+
+
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+@app.middleware("http")
+async def _csrf_protect(request: Request, call_next):
+    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    if request.method not in _CSRF_SAFE_METHODS:
+        session_cookie = request.cookies.get(COOKIE_NAME)
+        if session_cookie:
+            expected = request.cookies.get(CSRF_COOKIE_NAME)
+            actual = request.headers.get("X-CSRF-Token")
+            if not expected or not actual or not _hmac.compare_digest(expected, actual):
+                return JSONResponse(
+                    {"detail": "CSRF token missing or invalid"},
+                    status_code=403,
+                )
+    return await call_next(request)
 
 
 @app.get("/api/health")
@@ -276,10 +295,24 @@ def delete_user(user_id: str):
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 
 from backend.auth import (  # noqa: E402
+    ADMIN_COOKIE_NAME,
+    admin_lockout_check,
+    admin_lockout_clear,
+    admin_lockout_record,
+    clear_admin_cookie,
     clear_session,
     COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    generate_csrf_token,
+    get_admin_secret,
     get_current_user,
+    hash_password,
+    MIN_PASSWORD_LENGTH,
+    read_admin_cookie,
     read_session_cookie,
+    require_admin,
+    set_admin_cookie,
+    set_csrf_cookie,
     set_session,
     verify_password,
 )
@@ -365,6 +398,8 @@ def login(body: LoginIn, request: Request):
         _record_failure(body.username, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     _clear_lockout(body.username, ip)
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
     resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
     set_session(resp, str(user.id))
     return resp
@@ -381,6 +416,18 @@ def logout():
 async def me(request: Request):
     user = await get_current_user(request)
     return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+
+
+@app.get("/api/csrf-token")
+async def get_csrf_token(request: Request):
+    """Return the current CSRF token, setting a fresh one if the cookie is absent."""
+    existing = request.cookies.get(CSRF_COOKIE_NAME)
+    if existing:
+        return JSONResponse({"csrf_token": existing})
+    token = generate_csrf_token()
+    resp = JSONResponse({"csrf_token": token})
+    set_csrf_cookie(resp, token)
+    return resp
 
 
 # ── Avatar endpoints ──────────────────────────────────────────────────────────
@@ -3305,6 +3352,44 @@ def strava_sync(user: User = Depends(resolve_user)):
     return JSONResponse({"synced": len(activities)})
 
 
+# ── App config (persistent key-value settings) ────────────────────────────────
+
+_APP_CONFIG_GOOGLE_LOGIN = "google_login_enabled"
+
+
+def _get_app_config(key: str, default: str = "") -> str:
+    with Session(engine) as session:
+        row = session.get(AppConfig, key)
+        return row.value if row else default
+
+
+def _set_app_config(key: str, value: str) -> None:
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(AppConfig)
+            .values(key=key, value=value, updated_at=_datetime.now(tz=_timezone.utc))
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": value, "updated_at": _datetime.now(tz=_timezone.utc)},
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+def _google_credentials_present() -> bool:
+    return bool(os.getenv("GOOGLE_CLIENT_ID")) and bool(os.getenv("GOOGLE_CLIENT_SECRET"))
+
+
+def _google_login_active() -> bool:
+    """True when env flag is set, DB toggle is not disabled, and credentials are present."""
+    if os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() != "true":
+        return False
+    if _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() == "false":
+        return False
+    return _google_credentials_present()
+
+
 # ── Google OAuth ───────────────────────────────────────────────────────────────
 
 _GOOGLE_SCOPE_DEFAULT = "openid email profile"
@@ -3337,6 +3422,107 @@ def _verify_google_state_token(token: str, secret: str, max_age: int = _STATE_TO
     if time.time() - payload["ts"] > max_age:
         raise ValueError("Token expired")
     return payload
+
+
+_GOOGLE_SIGNIN_ERROR_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Sign-in failed</title></head>
+<body>
+<p>Google sign-in failed: {reason}. <a href="/login">Return to login</a>.</p>
+</body>
+</html>"""
+
+
+@app.get("/auth/google")
+def google_signin_initiate():
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    state = _make_google_state_token("signin", state_secret)
+    authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": _GOOGLE_SCOPE_DEFAULT,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@app.get("/auth/google/callback")
+def google_signin_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+):
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    try:
+        state_payload = _verify_google_state_token(state, state_secret)
+    except ValueError:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="state expired or invalid"),
+            media_type="text/html",
+            status_code=400,
+        )
+    if state_payload.get("user_id") != "signin":
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="invalid state"),
+            media_type="text/html",
+            status_code=400,
+        )
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
+    id_token = token_resp.get("id_token", "")
+    id_token_payload = _decode_id_token_payload(id_token)
+    google_sub = id_token_payload.get("sub", "")
+    if not google_sub:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="could not read Google account"),
+            media_type="text/html",
+            status_code=502,
+        )
+    with Session(engine) as session:
+        creds = session.query(GoogleOAuthCredentials).filter(
+            GoogleOAuthCredentials.google_sub == google_sub
+        ).first()
+        if creds is None:
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="no account linked to this Google identity"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user = session.get(User, creds.user_id)
+        if user is None or not getattr(user, "is_active", True):
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="account not found or disabled"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user_id = str(user.id)
+    resp = RedirectResponse(url="/home", status_code=302)
+    set_session(resp, user_id)
+    return resp
+
+
+@app.get("/api/auth/google-status")
+def google_status():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_ok = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    return JSONResponse({
+        "enabled": env_enabled and creds_ok and toggle_enabled,
+    })
 
 
 @app.get("/api/google/connect")
@@ -4485,3 +4671,258 @@ def backfill_training_load(
         "from": from_d.isoformat(),
         "to": today.isoformat(),
     })
+
+
+# ── Admin gate ────────────────────────────────────────────────────────────────
+
+class AdminLoginIn(BaseModel):
+    secret: str
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_entry(request: Request):
+    """Entry point for the admin area.
+
+    - No ADMIN_SECRET_* env var set → 403 (admin disabled).
+    - No valid admin cookie → serve login form.
+    - Valid admin cookie → serve admin dashboard.
+    """
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return FileResponse(str(_static_root / "frontend" / "pages" / "admin.html"))
+        except ValueError:
+            pass
+    return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
+
+
+@app.post("/api/admin/login")
+def admin_login(body: AdminLoginIn, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    admin_lockout_check(ip)
+
+    admin_secret = get_admin_secret()
+    if not admin_secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled")
+
+    if not _hmac.compare_digest(body.secret.encode(), admin_secret.encode()):
+        admin_lockout_record(ip)
+        raise HTTPException(status_code=401, detail="Invalid admin secret")
+
+    admin_lockout_clear(ip)
+    resp = JSONResponse({"ok": True})
+    set_admin_cookie(resp)
+    return resp
+
+
+@app.post("/api/admin/logout", status_code=204)
+def admin_logout():
+    resp = Response(status_code=204)
+    clear_admin_cookie(resp)
+    return resp
+
+
+# ── Admin user management endpoints ──────────────────────────────────────────
+
+class AdminUserCreateIn(BaseModel):
+    username: str
+    password: str
+    is_admin: bool = False
+
+
+@app.post("/api/admin/users", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_user(body: AdminUserCreateIn):
+    username = body.username.strip()
+    if not (1 <= len(username) <= 100):
+        raise HTTPException(status_code=422, detail="username must be 1–100 characters")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    pw_hash = hash_password(body.password)
+    with Session(engine) as session:
+        user = User(name=username, password_hash=pw_hash, is_admin=body.is_admin)
+        session.add(user)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"Username '{username}' already exists")
+        session.refresh(user)
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(user.id),
+                "username": user.name,
+                "is_admin": bool(user.is_admin),
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            },
+        )
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require_admin)])
+def admin_list_users():
+    from sqlalchemy import func, select
+    with Session(engine) as session:
+        strava_sub = select(StravaToken.user_id).subquery()
+        google_sub = select(GoogleOAuthCredentials.user_id).subquery()
+        stryd_sub = select(StrydCredentials.user_id).subquery()
+
+        rows = (
+            session.query(
+                User,
+                strava_sub.c.user_id.isnot(None).label("has_strava"),
+                google_sub.c.user_id.isnot(None).label("has_google"),
+                stryd_sub.c.user_id.isnot(None).label("has_stryd"),
+            )
+            .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+            .outerjoin(google_sub, User.id == google_sub.c.user_id)
+            .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+            .order_by(User.name)
+            .all()
+        )
+        return JSONResponse([
+            {
+                "id": str(u.id),
+                "username": u.name,
+                "is_admin": bool(u.is_admin),
+                "is_active": bool(getattr(u, "is_active", True)),
+                "integration_count": int(bool(has_strava)) + int(bool(has_google)) + int(bool(has_stryd)),
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            }
+            for u, has_strava, has_google, has_stryd in rows
+        ])
+
+
+class AdminResetPasswordIn(BaseModel):
+    new_password: str
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", dependencies=[Depends(require_admin)])
+def admin_reset_password(user_id: str, body: AdminResetPasswordIn):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.password_hash = hash_password(body.new_password)
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/users/{user_id}/toggle-admin", dependencies=[Depends(require_admin)])
+def admin_toggle_admin(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove admin: at least one admin must remain",
+                )
+        user.is_admin = not user.is_admin
+        session.commit()
+        session.refresh(user)
+    return JSONResponse({"id": str(user.id), "is_admin": bool(user.is_admin)})
+
+
+@app.post("/api/admin/users/{user_id}/disable", dependencies=[Depends(require_admin)])
+def admin_disable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = False
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": False})
+
+
+@app.post("/api/admin/users/{user_id}/enable", dependencies=[Depends(require_admin)])
+def admin_enable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = True
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": True})
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot delete the last admin account",
+                )
+        session.delete(user)
+        session.commit()
+    return Response(status_code=204)
+
+
+# ── Admin: Google login config ────────────────────────────────────────────────
+
+class AdminGoogleLoginToggleIn(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_get_google_login_config():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_present = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    active = env_enabled and creds_present and toggle_enabled
+    warning = None
+    if env_enabled and not creds_present:
+        warning = "GOOGLE_LOGIN_ENABLED is true but GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing"
+    return JSONResponse({
+        "env_enabled": env_enabled,
+        "credentials_present": creds_present,
+        "toggle_enabled": toggle_enabled,
+        "active": active,
+        "warning": warning,
+    })
+
+
+@app.post("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
+    _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
+    return JSONResponse({"toggle_enabled": body.enabled})

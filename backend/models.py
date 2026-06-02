@@ -12,6 +12,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     name = Column(String(100), nullable=False, unique=True)
     is_admin = Column(Boolean, nullable=False, server_default=text("false"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     password_hash = Column(Text, nullable=True)
     avatar = Column(LargeBinary, nullable=True)
@@ -389,6 +390,14 @@ class SleepImport(Base):
         UniqueConstraint("user_id", "source", "source_identifier", name="uq_sleep_imports_user_source_identifier"),
         Index("ix_sleep_imports_user_import_date", "user_id", "import_date"),
     )
+
+
+class AppConfig(Base):
+    __tablename__ = "app_config"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class TrainingLoadSnapshot(Base):
