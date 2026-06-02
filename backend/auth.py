@@ -18,6 +18,11 @@ from backend.models import User
 _log = logging.getLogger(__name__)
 
 COOKIE_NAME = "session"
+ADMIN_COOKIE_NAME = "admin_session"
+_ADMIN_COOKIE_MAX_AGE = int(os.getenv("ADMIN_COOKIE_MAX_AGE", str(4 * 3600)))  # 4 hours default
+_ADMIN_LOCKOUT_MAX = int(os.getenv("ADMIN_LOCKOUT_MAX", "5"))
+_ADMIN_LOCKOUT_WINDOW = int(os.getenv("ADMIN_LOCKOUT_WINDOW", "300"))  # 5 minutes
+_admin_lockout: dict = {}  # ip -> {"count": int, "window_start": float}
 MIN_PASSWORD_LENGTH = 8
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
@@ -107,6 +112,103 @@ def set_session(response: Response, user_id: str) -> None:
 
 def clear_session(response: Response) -> None:
     response.delete_cookie(key=COOKIE_NAME)
+
+
+def get_admin_secret() -> Optional[str]:
+    """Return env-specific admin secret, or None if unset."""
+    env = os.getenv("ENVIRONMENT", "local")
+    val = os.getenv("ADMIN_SECRET_PRD" if env == "prd" else "ADMIN_SECRET_UAT")
+    return val or None
+
+
+def create_admin_cookie(issued_at: float) -> str:
+    payload = _b64_encode(json.dumps({"admin": True, "iat": issued_at}).encode())
+    sig = hmac.new(SESSION_SECRET, payload.encode(), "sha256").digest()
+    return f"{payload}.{_b64_encode(sig)}"
+
+
+def read_admin_cookie(token: str) -> dict:
+    try:
+        payload_b64, sig_b64 = token.rsplit(".", 1)
+    except (ValueError, AttributeError):
+        raise ValueError("invalid token format")
+    expected_sig = hmac.new(SESSION_SECRET, payload_b64.encode(), "sha256").digest()
+    try:
+        actual_sig = _b64_decode(sig_b64)
+    except Exception:
+        raise ValueError("invalid token encoding")
+    if not hmac.compare_digest(expected_sig, actual_sig):
+        raise ValueError("invalid token signature")
+    try:
+        data = json.loads(_b64_decode(payload_b64))
+    except Exception:
+        raise ValueError("invalid token payload")
+    if time.time() - data.get("iat", 0) > _ADMIN_COOKIE_MAX_AGE:
+        raise ValueError("admin token expired")
+    return data
+
+
+def set_admin_cookie(response: Response) -> None:
+    env = os.getenv("ENVIRONMENT", "local")
+    token = create_admin_cookie(time.time())
+    response.set_cookie(
+        key=ADMIN_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=(env != "local"),
+        samesite="strict",
+        max_age=_ADMIN_COOKIE_MAX_AGE,
+    )
+
+
+def clear_admin_cookie(response: Response) -> None:
+    response.delete_cookie(key=ADMIN_COOKIE_NAME)
+
+
+def admin_lockout_check(ip: str) -> None:
+    entry = _admin_lockout.get(ip)
+    if entry is None:
+        return
+    if time.time() - entry["window_start"] > _ADMIN_LOCKOUT_WINDOW:
+        del _admin_lockout[ip]
+        return
+    if entry["count"] >= _ADMIN_LOCKOUT_MAX:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
+
+
+def admin_lockout_record(ip: str) -> None:
+    now = time.time()
+    entry = _admin_lockout.get(ip)
+    if entry is None or now - entry["window_start"] > _ADMIN_LOCKOUT_WINDOW:
+        _admin_lockout[ip] = {"count": 1, "window_start": now}
+    else:
+        entry["count"] += 1
+
+
+def admin_lockout_clear(ip: str) -> None:
+    _admin_lockout.pop(ip, None)
+
+
+async def require_admin(request: Request) -> None:
+    """FastAPI dependency: gates all /admin* routes and admin API endpoints.
+
+    Browser clients (no JSON accept) are redirected to /admin on failure.
+    JSON clients get 401. Secret unset → 403 for all clients.
+    """
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return
+        except ValueError:
+            pass
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    raise HTTPException(status_code=302, headers={"Location": "/admin"})
 
 
 async def get_current_user(request: Request) -> User:
