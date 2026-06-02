@@ -1,4 +1,28 @@
 (function () {
+  // Patch window.fetch once to auto-attach X-CSRF-Token on mutating requests.
+  if (!window._csrfFetchPatched) {
+    window._csrfFetchPatched = true;
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = function (url, opts) {
+      opts = opts || {};
+      var method = (opts.method || 'GET').toUpperCase();
+      if (method === 'POST' || method === 'PATCH' || method === 'DELETE' || method === 'PUT') {
+        var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+        if (match) {
+          var headers = opts.headers || {};
+          if (headers instanceof Headers) {
+            headers = new Headers(headers);
+            headers.set('X-CSRF-Token', decodeURIComponent(match[1]));
+          } else {
+            headers = Object.assign({}, headers, { 'X-CSRF-Token': decodeURIComponent(match[1]) });
+          }
+          opts = Object.assign({}, opts, { headers: headers });
+        }
+      }
+      return _origFetch(url, opts);
+    };
+  }
+
   var _currentUser = null;
 
   function getCurrentUserId() {
