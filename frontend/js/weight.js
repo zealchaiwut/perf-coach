@@ -314,12 +314,13 @@ function clearApiError() {
   showApiError('');
 }
 
+let _sessionUserId = null;
+
 async function loadAndRender() {
-  const userId = document.getElementById('user-select').value;
-  if (!userId) return;
+  if (!_sessionUserId) return;
   clearApiError();
   try {
-    const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`);
+    const res = await fetch('/api/weight');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     allEntries = await res.json();
     renderSummaryCards(allEntries);
@@ -345,7 +346,6 @@ async function deleteEntry(entryId) {
 document.addEventListener('DOMContentLoaded', async () => {
   readUrlParams();
 
-  const userSelect = document.getElementById('user-select');
   const form = document.getElementById('weight-form');
   const weightInput = document.getElementById('weight-input');
   const dateInput = document.getElementById('date-input');
@@ -371,51 +371,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   syncAvgCheckbox();
 
-  // Load users into selector
+  // Identify session user
   try {
-    const res = await fetch('/api/users');
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    const users = await res.json();
-    userSelect.innerHTML = users
-      .map(u => `<option value="${u.id}">${u.name}</option>`)
-      .join('');
+    const meRes = await fetch('/api/auth/me');
+    if (meRes.status === 401 || meRes.status === 403) {
+      window.location.href = '/login';
+      return;
+    }
+    if (!meRes.ok) throw new Error(`Server error ${meRes.status}`);
+    const me = await meRes.json();
+    _sessionUserId = me.id;
   } catch (e) {
-    userSelect.innerHTML = '<option value="">Failed to load users</option>';
-    showApiError('Unable to load users: ' + e.message);
+    showApiError('Unable to identify user: ' + e.message);
     return;
   }
 
-  const addUserOpt = document.createElement('option');
-  addUserOpt.value = '__add__';
-  addUserOpt.textContent = '+ Add user...';
-  userSelect.appendChild(addUserOpt);
-
-  let prevUserId = userSelect.value;
-
   await loadAndRender();
-
-  userSelect.addEventListener('change', () => {
-    if (userSelect.value === '__add__') {
-      userSelect.value = prevUserId;
-      if (typeof window.buildAddUserModal === 'function') {
-        window.buildAddUserModal(function (newUser) {
-          fetch('/api/users')
-            .then(r => r.json())
-            .then(freshUsers => {
-              userSelect.innerHTML = freshUsers
-                .map(u => `<option value="${u.id}"${u.id === newUser.id ? ' selected' : ''}>${u.name}</option>`)
-                .join('') + '<option value="__add__">+ Add user...</option>';
-              prevUserId = newUser.id;
-              loadAndRender();
-            })
-            .catch(() => {});
-        });
-      }
-      return;
-    }
-    prevUserId = userSelect.value;
-    loadAndRender();
-  });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
@@ -429,14 +400,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    const userId = userSelect.value;
-    if (!userId) {
-      errorMsg.textContent = 'Please select a user.';
-      return;
-    }
-
     try {
-      const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`, {
+      const res = await fetch('/api/weight', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

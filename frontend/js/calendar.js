@@ -51,17 +51,16 @@
     return 'readiness-green';
   }
 
-  async function fetchCalendarData(userId, year, month) {
+  async function fetchCalendarData(year, month) {
     const { from, to } = monthRange(year, month);
-    const enc = s => encodeURIComponent(s);
     try {
       const [wR, hR, lR, tR, mR, rdR] = await Promise.all([
-        fetch(`/api/weight?user_id=${enc(userId)}`),
-        fetch(`/api/habits?user_id=${enc(userId)}`),
-        fetch(`/api/habits/logs?user_id=${enc(userId)}&from=${from}&to=${to}`),
-        fetch(`/api/workouts?user_id=${enc(userId)}&from=${from}&to=${to}`),
-        fetch(`/api/calendar/month?user_id=${enc(userId)}&year=${year}&month=${month + 1}`),
-        fetch(`/api/readiness?user_id=${enc(userId)}&from=${from}&to=${to}`),
+        fetch('/api/weight'),
+        fetch('/api/habits'),
+        fetch(`/api/habits/logs?from=${from}&to=${to}`),
+        fetch(`/api/workouts?from=${from}&to=${to}`),
+        fetch(`/api/calendar/month?year=${year}&month=${month + 1}`),
+        fetch(`/api/readiness?from=${from}&to=${to}`),
       ]);
       const [weights, habits, logs, workouts, calMonthData, readinessData] = await Promise.all([
         wR.ok ? wR.json() : [],
@@ -309,7 +308,7 @@
   async function loadData() {
     const seq = ++loadSeq;
     if (!currentUserId) return;
-    await fetchCalendarData(currentUserId, state.year, state.month);
+    await fetchCalendarData(state.year, state.month);
     if (seq !== loadSeq) return;
     render();
   }
@@ -414,12 +413,11 @@
     body.innerHTML = '<div class="day-modal-loading">Loading…</div>';
 
     try {
-      const enc = s => encodeURIComponent(s);
       const [wR, hR, lR, tR] = await Promise.all([
-        fetch(`/api/weight?user_id=${enc(currentUserId)}`),
-        fetch(`/api/habits?user_id=${enc(currentUserId)}`),
-        fetch(`/api/habits/logs?user_id=${enc(currentUserId)}&from=${dateStr}&to=${dateStr}`),
-        fetch(`/api/workouts?user_id=${enc(currentUserId)}&from=${dateStr}&to=${dateStr}`),
+        fetch('/api/weight'),
+        fetch('/api/habits'),
+        fetch(`/api/habits/logs?from=${dateStr}&to=${dateStr}`),
+        fetch(`/api/workouts?from=${dateStr}&to=${dateStr}`),
       ]);
       const allWeights = wR.ok ? await wR.json() : [];
       const habits = hR.ok ? await hR.json() : [];
@@ -516,7 +514,7 @@
       }
       saveBtn.disabled = true;
       try {
-        const res = await fetch(`/api/weight?user_id=${encodeURIComponent(currentUserId)}`, {
+        const res = await fetch('/api/weight', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ weight_kg: +raw, recorded_date: dateStr }),
@@ -585,7 +583,7 @@
               const res = await fetch('/api/habits/logs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ habit_id: habit.id, user_id: currentUserId, logged_date: dateStr }),
+                body: JSON.stringify({ habit_id: habit.id, logged_date: dateStr }),
               });
               if (res.status === 201) {
                 const newLog = await res.json();
@@ -673,7 +671,7 @@
     if (!cell || cell.classList.contains('out-of-month')) return;
 
     const d = new Date(dateStr + 'T00:00:00');
-    fetchCalendarData(currentUserId, state.year, state.month).then(() => {
+    fetchCalendarData(state.year, state.month).then(() => {
       cell.innerHTML = '';
       populateCell(cell, d, true);
 

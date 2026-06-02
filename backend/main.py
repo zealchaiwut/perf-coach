@@ -19,7 +19,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -284,6 +284,34 @@ from backend.auth import (  # noqa: E402
     verify_password,
 )
 
+_resolve_user_log = _logging.getLogger(__name__)
+
+LEGACY_USER_ID_SHIM_ENABLED = False
+
+
+async def resolve_user(
+    request: Request,
+    user_id: Optional[str] = Query(None),
+) -> User:
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        return await get_current_user(request)
+    if LEGACY_USER_ID_SHIM_ENABLED and user_id is not None:
+        _resolve_user_log.warning(
+            "Deprecated: user resolved via ?user_id query param. Migrate to session auth."
+        )
+        with Session(engine) as db:
+            try:
+                uid = _uuid.UUID(user_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid user_id")
+            user = db.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
 _LOCKOUT_MAX_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
 _lockout: dict = {}  # (username_lower, ip) -> {"count": int, "window_start": float}
@@ -328,8 +356,11 @@ class LoginIn(BaseModel):
 def login(body: LoginIn, request: Request):
     ip = request.client.host if request.client else "unknown"
     _check_lockout(body.username, ip)
-    with Session(engine) as session:
-        user = session.query(User).filter(User.name == body.username).first()
+    try:
+        with Session(engine) as session:
+            user = session.query(User).filter(User.name == body.username).first()
+    except sa_exc.SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error")
     if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
         _record_failure(body.username, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -352,6 +383,60 @@ async def me(request: Request):
     return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
 
 
+# ── Avatar endpoints ──────────────────────────────────────────────────────────
+
+_ALLOWED_AVATAR_MIMES = {"image/jpeg", "image/png", "image/webp"}
+_MAX_AVATAR_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+@app.post("/api/users/me/avatar")
+async def upload_avatar(request: Request, file: UploadFile = File(...)):
+    user = await get_current_user(request)
+    if file.content_type not in _ALLOWED_AVATAR_MIMES:
+        raise HTTPException(status_code=415, detail="Unsupported media type. Allowed: JPEG, PNG, WebP")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 2 MB")
+    with Session(engine) as session:
+        db_user = session.get(User, user.id)
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db_user.avatar = data
+        db_user.avatar_mime = file.content_type
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/users/{user_id}/avatar")
+def get_avatar(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None or not user.avatar:
+            raise HTTPException(status_code=404, detail="No avatar set")
+        return Response(
+            content=bytes(user.avatar),
+            media_type=user.avatar_mime or "image/jpeg",
+            headers={"Cache-Control": "max-age=3600"},
+        )
+
+
+@app.delete("/api/users/me/avatar", status_code=204)
+async def delete_avatar(request: Request):
+    user = await get_current_user(request)
+    with Session(engine) as session:
+        db_user = session.get(User, user.id)
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        db_user.avatar = None
+        db_user.avatar_mime = None
+        session.commit()
+    return Response(status_code=204)
+
+
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
 
 class WeightEntryIn(BaseModel):
@@ -360,15 +445,11 @@ class WeightEntryIn(BaseModel):
 
 
 @app.get("/api/weight")
-def get_weight(user_id: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def get_weight(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         rows = (
             session.query(WeightEntry)
-            .filter(WeightEntry.user_id == uid)
+            .filter(WeightEntry.user_id == user.id)
             .order_by(WeightEntry.recorded_date)
             .all()
         )
@@ -384,14 +465,10 @@ def get_weight(user_id: str):
 
 
 @app.post("/api/weight", status_code=201)
-def post_weight(user_id: str, body: WeightEntryIn):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def post_weight(body: WeightEntryIn, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         entry = WeightEntry(
-            user_id=uid,
+            user_id=user.id,
             weight_kg=body.weight_kg,
             recorded_date=body.recorded_date,
         )
@@ -417,7 +494,7 @@ def post_weight(user_id: str, body: WeightEntryIn):
 
 
 @app.delete("/api/weight/{entry_id}", status_code=204)
-def delete_weight(entry_id: str):
+def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
     try:
         eid = _uuid.UUID(entry_id)
     except ValueError:
@@ -426,6 +503,8 @@ def delete_weight(entry_id: str):
         entry = session.get(WeightEntry, eid)
         if entry is None:
             raise HTTPException(status_code=404, detail="Entry not found")
+        if entry.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.delete(entry)
         session.commit()
     return Response(status_code=204)
@@ -434,7 +513,7 @@ def delete_weight(entry_id: str):
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     name: str
 
 
@@ -445,20 +524,16 @@ class HabitPatch(BaseModel):
 
 class HabitLogIn(BaseModel):
     habit_id: str
-    user_id: str
+    user_id: Optional[str] = None
     logged_date: str  # YYYY-MM-DD
 
 
 @app.get("/api/habits")
-def get_habits(user_id: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def get_habits(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         rows = (
             session.query(Habit)
-            .filter(Habit.user_id == uid, Habit.archived_at.is_(None))
+            .filter(Habit.user_id == user.id, Habit.archived_at.is_(None))
             .order_by(Habit.display_order, Habit.created_at)
             .all()
         )
@@ -474,13 +549,9 @@ def get_habits(user_id: str):
 
 
 @app.post("/api/habits", status_code=201)
-def post_habit(body: HabitIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
     with Session(engine) as session:
-        habit = Habit(user_id=uid, name=body.name.strip())
+        habit = Habit(user_id=user.id, name=body.name.strip())
         session.add(habit)
         session.commit()
         session.refresh(habit)
@@ -496,7 +567,7 @@ def post_habit(body: HabitIn):
 
 
 @app.patch("/api/habits/{habit_id}")
-def patch_habit(habit_id: str, body: HabitPatch):
+def patch_habit(habit_id: str, body: HabitPatch, user: User = Depends(resolve_user)):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
@@ -505,6 +576,8 @@ def patch_habit(habit_id: str, body: HabitPatch):
         habit = session.get(Habit, hid)
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         if body.name is not None:
             habit.name = body.name.strip()
         session.commit()
@@ -517,7 +590,7 @@ def patch_habit(habit_id: str, body: HabitPatch):
 
 
 @app.delete("/api/habits/{habit_id}", status_code=204)
-def delete_habit(habit_id: str):
+def delete_habit(habit_id: str, user: User = Depends(resolve_user)):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
@@ -527,6 +600,8 @@ def delete_habit(habit_id: str):
         habit = session.get(Habit, hid)
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         habit.archived_at = datetime.now(timezone.utc)
         session.commit()
     return Response(status_code=204)
@@ -534,14 +609,10 @@ def delete_habit(habit_id: str):
 
 @app.get("/api/habits/logs")
 def get_habit_logs(
-    user_id: str,
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
     try:
         from_d = _date.fromisoformat(from_date)
         to_d = _date.fromisoformat(to_date)
@@ -551,7 +622,7 @@ def get_habit_logs(
         rows = (
             session.query(HabitLog)
             .filter(
-                HabitLog.user_id == uid,
+                HabitLog.user_id == user.id,
                 HabitLog.logged_date >= from_d,
                 HabitLog.logged_date <= to_d,
             )
@@ -569,14 +640,16 @@ def get_habit_logs(
 
 
 @app.post("/api/habits/logs", status_code=201)
-def post_habit_log(body: HabitLogIn):
+def post_habit_log(body: HabitLogIn, user: User = Depends(resolve_user)):
     try:
         hid = _uuid.UUID(body.habit_id)
-        uid = _uuid.UUID(body.user_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid habit_id or user_id")
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
     with Session(engine) as session:
-        log = HabitLog(habit_id=hid, user_id=uid, logged_date=body.logged_date)
+        habit = session.get(Habit, hid)
+        if habit is None or habit.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        log = HabitLog(habit_id=hid, user_id=user.id, logged_date=body.logged_date)
         session.add(log)
         try:
             session.commit()
@@ -622,14 +695,11 @@ def _compute_habit_streak(session, hid, uid, window_dates, today):
 
 @app.get("/api/habits/stats")
 def get_habit_stats(
-    user_id: str,
     habit_id: Optional[str] = None,
     days: int = Query(default=30, ge=1, le=365),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     from datetime import timedelta
     today = _date.today()
@@ -703,7 +773,7 @@ def get_habit_stats(
 
 
 @app.delete("/api/habits/logs/{log_id}", status_code=204)
-def delete_habit_log(log_id: str):
+def delete_habit_log(log_id: str, user: User = Depends(resolve_user)):
     try:
         lid = _uuid.UUID(log_id)
     except ValueError:
@@ -712,6 +782,8 @@ def delete_habit_log(log_id: str):
         log = session.get(HabitLog, lid)
         if log is None:
             raise HTTPException(status_code=404, detail="Log not found")
+        if log.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.delete(log)
         session.commit()
     return Response(status_code=204)
@@ -786,6 +858,7 @@ _PAGES = {
     "log": "training-log.html",
     "training": "training.html",
     "trends": "trends.html",
+    "settings": "settings.html",
 }
 
 
@@ -816,9 +889,9 @@ def index():
 
 @app.get("/api/calendar/month")
 def get_calendar_month(
-    user_id: str,
     year: int = Query(...),
     month: int = Query(...),
+    user: User = Depends(resolve_user),
 ):
     """Return per-day calendar data for the given month.
 
@@ -835,10 +908,7 @@ def get_calendar_month(
     from datetime import date as _date, timedelta
     import calendar as _cal
 
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     if not (1 <= month <= 12):
         raise HTTPException(status_code=400, detail="month must be 1–12")
@@ -942,7 +1012,7 @@ _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,
 
 
 class WorkoutIn(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     name: str
     workout_date: str  # YYYY-MM-DD
     workout_type: str
@@ -1083,14 +1153,11 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
 
 @app.get("/api/workouts")
 def get_workouts(
-    user_id: str,
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
     try:
         from_d = _date.fromisoformat(from_date)
         to_d = _date.fromisoformat(to_date)
@@ -1119,7 +1186,7 @@ def get_workouts(
 
 
 @app.get("/api/workouts/{workout_id}")
-def get_workout(workout_id: str):
+def get_workout(workout_id: str, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1128,6 +1195,8 @@ def get_workout(workout_id: str):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         exercises = (
             session.query(WorkoutExercise)
             .filter(WorkoutExercise.workout_id == wid)
@@ -1138,11 +1207,8 @@ def get_workout(workout_id: str):
 
 
 @app.post("/api/workouts", status_code=201)
-def post_workout(body: WorkoutIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
+    uid = user.id
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Workout name is required")
@@ -1169,9 +1235,6 @@ def post_workout(body: WorkoutIn):
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         workout = Workout(
             user_id=uid,
             name=name,
@@ -1221,7 +1284,7 @@ def post_workout(body: WorkoutIn):
 
 
 @app.patch("/api/workouts/{workout_id}")
-def patch_workout(workout_id: str, body: WorkoutPatch):
+def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1230,6 +1293,8 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -1301,7 +1366,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch):
 
 
 @app.delete("/api/workouts/{workout_id}", status_code=204)
-def delete_workout(workout_id: str):
+def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1310,13 +1375,15 @@ def delete_workout(workout_id: str):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.delete(workout)
         session.commit()
     return Response(status_code=204)
 
 
 @app.post("/api/workouts/{workout_id}/exercises/reorder", status_code=200)
-def reorder_exercises(workout_id: str, body: ExerciseReorderIn):
+def reorder_exercises(workout_id: str, body: ExerciseReorderIn, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1325,6 +1392,8 @@ def reorder_exercises(workout_id: str, body: ExerciseReorderIn):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         for order, eid_str in enumerate(body.ordered_ids):
             try:
                 eid = _uuid.UUID(eid_str)
@@ -1346,7 +1415,7 @@ def reorder_exercises(workout_id: str, body: ExerciseReorderIn):
 
 
 @app.post("/api/workouts/{workout_id}/exercises", status_code=201)
-def append_exercise(workout_id: str, body: ExerciseIn):
+def append_exercise(workout_id: str, body: ExerciseIn, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1356,6 +1425,8 @@ def append_exercise(workout_id: str, body: ExerciseIn):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         max_order = (
             session.query(WorkoutExercise.display_order)
             .filter(WorkoutExercise.workout_id == wid)
@@ -1383,7 +1454,7 @@ def append_exercise(workout_id: str, body: ExerciseIn):
 
 
 @app.patch("/api/workouts/{workout_id}/exercises/{exercise_id}")
-def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
+def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
         eid = _uuid.UUID(exercise_id)
@@ -1393,6 +1464,8 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         ex = session.get(WorkoutExercise, eid)
         if ex is None or ex.workout_id != wid:
             raise HTTPException(status_code=404, detail="Exercise not found in this workout")
@@ -1433,7 +1506,7 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn):
 
 
 @app.delete("/api/workouts/{workout_id}/exercises/{exercise_id}", status_code=204)
-def delete_exercise(workout_id: str, exercise_id: str):
+def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
         eid = _uuid.UUID(exercise_id)
@@ -1443,6 +1516,8 @@ def delete_exercise(workout_id: str, exercise_id: str):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         ex = session.get(WorkoutExercise, eid)
         if ex is None or ex.workout_id != wid:
             raise HTTPException(status_code=404, detail="Exercise not found in this workout")
@@ -1478,7 +1553,7 @@ def _split_dict(s: WorkoutSplit) -> dict:
 
 
 @app.get("/api/workouts/{workout_id}/splits")
-def get_splits(workout_id: str):
+def get_splits(workout_id: str, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1487,6 +1562,8 @@ def get_splits(workout_id: str):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         splits = (
             session.query(WorkoutSplit)
             .filter(WorkoutSplit.workout_id == wid)
@@ -1497,7 +1574,7 @@ def get_splits(workout_id: str):
 
 
 @app.post("/api/workouts/{workout_id}/splits", status_code=201)
-def replace_splits(workout_id: str, body: SplitsIn):
+def replace_splits(workout_id: str, body: SplitsIn, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1513,6 +1590,8 @@ def replace_splits(workout_id: str, body: SplitsIn):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == wid).delete()
         new_splits = []
         for s in body.splits:
@@ -1533,7 +1612,7 @@ def replace_splits(workout_id: str, body: SplitsIn):
 
 
 @app.delete("/api/workouts/{workout_id}/splits", status_code=204)
-def delete_splits(workout_id: str):
+def delete_splits(workout_id: str, user: User = Depends(resolve_user)):
     try:
         wid = _uuid.UUID(workout_id)
     except ValueError:
@@ -1542,6 +1621,8 @@ def delete_splits(workout_id: str):
         workout = session.get(Workout, wid)
         if workout is None:
             raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == wid).delete()
         session.commit()
     return Response(status_code=204)
@@ -1550,7 +1631,7 @@ def delete_splits(workout_id: str):
 # ── Daily metrics endpoints ────────────────────────────────────────────────────
 
 class DailyMetricIn(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     metric_date: str  # YYYY-MM-DD
     resting_hr: Optional[int] = None
     hrv: Optional[int] = None
@@ -1612,15 +1693,11 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
 
 @app.get("/api/daily-metrics")
 def list_daily_metrics(
-    user_id: str,
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
     today = _date.today()
     if from_date is None and to_date is None:
         from_d = today - timedelta(days=29)
@@ -1635,7 +1712,7 @@ def list_daily_metrics(
         rows = (
             session.query(DailyMetric)
             .filter(
-                DailyMetric.user_id == uid,
+                DailyMetric.user_id == user.id,
                 DailyMetric.metric_date >= from_d,
                 DailyMetric.metric_date <= to_d,
             )
@@ -1645,12 +1722,14 @@ def list_daily_metrics(
         return JSONResponse([_daily_metric_dict(r) for r in rows])
 
 
-@app.get("/api/daily-metrics/{user_id}/{metric_date}")
-def get_daily_metric(user_id: str, metric_date: str):
+@app.get("/api/daily-metrics/{uid}/{metric_date}")
+def get_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve_user)):
     try:
-        uid = _uuid.UUID(user_id)
+        uid = _uuid.UUID(uid)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
+    if uid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         md = _date.fromisoformat(metric_date)
     except ValueError:
@@ -1667,11 +1746,7 @@ def get_daily_metric(user_id: str, metric_date: str):
 
 
 @app.post("/api/daily-metrics", status_code=201)
-def create_daily_metric(body: DailyMetricIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user)):
     try:
         md = _date.fromisoformat(body.metric_date)
     except ValueError:
@@ -1687,11 +1762,8 @@ def create_daily_metric(body: DailyMetricIn):
         mood=body.mood,
     )
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         row = DailyMetric(
-            user_id=uid,
+            user_id=user.id,
             metric_date=md,
             resting_hr=body.resting_hr,
             hrv=body.hrv,
@@ -1714,12 +1786,14 @@ def create_daily_metric(body: DailyMetricIn):
         return JSONResponse(status_code=201, content=_daily_metric_dict(row))
 
 
-@app.patch("/api/daily-metrics/{user_id}/{metric_date}")
-def patch_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
+@app.patch("/api/daily-metrics/{uid}/{metric_date}")
+def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: User = Depends(resolve_user)):
     try:
-        uid = _uuid.UUID(user_id)
+        uid = _uuid.UUID(uid)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
+    if uid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         md = _date.fromisoformat(metric_date)
     except ValueError:
@@ -1761,12 +1835,14 @@ def patch_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
         return JSONResponse(_daily_metric_dict(row))
 
 
-@app.put("/api/daily-metrics/{user_id}/{metric_date}")
-def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
+@app.put("/api/daily-metrics/{uid}/{metric_date}")
+def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: User = Depends(resolve_user)):
     try:
-        uid = _uuid.UUID(user_id)
+        uid = _uuid.UUID(uid)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
+    if uid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         md = _date.fromisoformat(metric_date)
     except ValueError:
@@ -1788,9 +1864,6 @@ def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
             .first()
         )
         if row is None:
-            user = session.get(User, uid)
-            if user is None:
-                raise HTTPException(status_code=404, detail="User not found")
             row = DailyMetric(
                 user_id=uid,
                 metric_date=md,
@@ -1818,14 +1891,11 @@ def upsert_daily_metric(user_id: str, metric_date: str, body: DailyMetricBody):
 
 @app.get("/api/daily-metrics/trend")
 def get_daily_metrics_trend(
-    user_id: str,
     days: int = Query(default=7, ge=1, le=90),
+    user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     today = _date.today()
     window_start = today - timedelta(days=days - 1)
@@ -1857,12 +1927,14 @@ def get_daily_metrics_trend(
         return JSONResponse(result)
 
 
-@app.delete("/api/daily-metrics/{user_id}/{metric_date}", status_code=204)
-def delete_daily_metric(user_id: str, metric_date: str):
+@app.delete("/api/daily-metrics/{uid}/{metric_date}", status_code=204)
+def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve_user)):
     try:
-        uid = _uuid.UUID(user_id)
+        uid = _uuid.UUID(uid)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
+    if uid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         md = _date.fromisoformat(metric_date)
     except ValueError:
@@ -1884,14 +1956,11 @@ def delete_daily_metric(user_id: str, metric_date: str):
 
 @app.get("/api/exports/daily-metrics")
 def export_daily_metrics_csv(
-    user_id: str,
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     from_d: Optional[_date] = None
     to_d: Optional[_date] = None
@@ -1909,10 +1978,6 @@ def export_daily_metrics_csv(
         raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == uid).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         q = session.query(DailyMetric, WeightEntry).outerjoin(
             WeightEntry,
             (WeightEntry.user_id == DailyMetric.user_id)
@@ -1953,15 +2018,12 @@ def export_daily_metrics_csv(
 
 @app.get("/api/exports/workouts")
 def export_workouts_csv(
-    user_id: str,
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
     types: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     from_d: Optional[_date] = None
     to_d: Optional[_date] = None
@@ -1981,10 +2043,6 @@ def export_workouts_csv(
     type_filter = [t.strip() for t in types.split(",")] if types else None
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == uid).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         q = session.query(Workout).filter(Workout.user_id == uid)
         if from_d is not None:
             q = q.filter(Workout.workout_date >= from_d)
@@ -2089,17 +2147,14 @@ def _delta_pct(curr, prev):
 
 @app.get("/trends/summary")
 def get_trends_summary(
-    user_id: str,
     range_preset: Optional[str] = Query(default=None, alias="range"),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
 
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     today = _date.today()
 
@@ -2290,17 +2345,14 @@ def get_trends_summary(
 
 @app.post("/api/readiness/compute", status_code=200)
 def compute_readiness_score(
-    user_id: str = Query(...),
     date: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
 ):
     """
     Trigger readiness computation for a user on a given date (defaults to today).
     Idempotent: existing rows are upserted with freshly computed values.
     """
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
     target_date = _date.today()
     if date is not None:
         try:
@@ -2321,7 +2373,7 @@ def compute_readiness_score(
 # ── Readiness GET endpoints ───────────────────────────────────────────────────
 
 @app.get("/api/readiness/today")
-def get_readiness_today(user_id: str = Query(...)):
+def get_readiness_today(user: User = Depends(resolve_user)):
     """
     Return today's readiness record for a user.
 
@@ -2331,10 +2383,7 @@ def get_readiness_today(user_id: str = Query(...)):
 
     Returns 404 when no readiness row exists for today (card falls back to mock data).
     """
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     today = _date.today()
     from sqlalchemy import text as _text
@@ -2372,19 +2421,16 @@ def get_readiness_today(user_id: str = Query(...)):
 
 @app.get("/api/readiness")
 def get_readiness_range(
-    user_id: str = Query(...),
     from_date: str = Query(..., alias="from"),
     to_date: str = Query(..., alias="to"),
+    user: User = Depends(resolve_user),
 ):
     """
     Return daily readiness scores for a date range (one entry per day, null if missing).
 
     Response: list of { date, score } or null per day in [from, to].
     """
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     try:
         d_from = _date.fromisoformat(from_date)
@@ -2461,24 +2507,17 @@ def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
 
 @app.get("/api/training-log")
 def get_training_log(
-    user_id: Optional[str] = Query(default=None),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
     types: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=False),
+    user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
     today = _date.today()
 
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-
-    uid = None
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:
@@ -2499,9 +2538,8 @@ def get_training_log(
         q = session.query(Workout).filter(
             Workout.workout_date >= from_d,
             Workout.workout_date <= to_d,
+            Workout.user_id == uid,
         )
-        if uid is not None:
-            q = q.filter(Workout.user_id == uid)
         if types and types != "all":
             type_list = [t.strip().lower() for t in types.split(",") if t.strip()]
             q = q.filter(_func.lower(Workout.workout_type).in_(type_list))
@@ -2517,9 +2555,8 @@ def get_training_log(
             mq = session.query(DailyMetric).filter(
                 DailyMetric.metric_date >= from_d,
                 DailyMetric.metric_date <= to_d,
+                DailyMetric.user_id == uid,
             )
-            if uid is not None:
-                mq = mq.filter(DailyMetric.user_id == uid)
             metrics = mq.all()
             for m in metrics:
                 if str(m.metric_date) not in workout_dates and _metric_has_data(m):
@@ -2816,12 +2853,8 @@ def _verify_strava_state_token(token: str, secret: str, max_age: int = _STATE_TO
 
 
 @app.get("/api/strava/connect")
-def strava_connect(scope: str = Query(default="activity:read_all")):
-    """Initiate Strava OAuth flow for the default user.
-
-    Returns authorize_url; does not redirect. Default user is the first user
-    (by name) in the users table — multi-user support is deferred.
-    """
+def strava_connect(scope: str = Query(default="activity:read_all"), user: User = Depends(resolve_user)):
+    """Initiate Strava OAuth flow for the authenticated user."""
     if scope not in _VALID_STRAVA_SCOPES:
         raise HTTPException(
             status_code=422,
@@ -2841,11 +2874,7 @@ def strava_connect(scope: str = Query(default="activity:read_all")):
 
     redirect_uri = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:9001/api/strava/callback")
 
-    with Session(engine) as session:
-        user = session.query(User).order_by(User.name).first()
-        if user is None:
-            raise HTTPException(status_code=500, detail="No users found in database")
-        user_id = str(user.id)
+    user_id = str(user.id)
 
     state = _make_strava_state_token(user_id, state_secret)
     authorize_url = _STRAVA_AUTH_URL + "?" + _urlencode({
@@ -3022,7 +3051,7 @@ def _upsert_stryd_credentials(
 
 
 @app.post("/api/stryd/connect")
-def stryd_connect(body: _StrydConnectIn):
+def stryd_connect(body: _StrydConnectIn, user: User = Depends(resolve_user)):
     """Authenticate against Stryd, encrypt and store credentials, return connection status."""
     resp = _stryd_signin(body.email, body.password)
 
@@ -3031,12 +3060,7 @@ def stryd_connect(body: _StrydConnectIn):
     session_token_expires_at = now + _timedelta(days=25)
     athlete_id = int(resp.get("id") or resp.get("athlete_id") or 0)
     session_token = str(resp.get("token") or resp.get("session_token") or "")
-
-    with Session(engine) as db_session:
-        user = db_session.query(User).order_by(User.name).first()
-        if user is None:
-            raise HTTPException(status_code=500, detail="No users found in database")
-        user_id = str(user.id)
+    user_id = str(user.id)
 
     _upsert_stryd_credentials(
         user_id=user_id,
@@ -3066,14 +3090,10 @@ def _get_default_user_id() -> str:
 
 
 @app.get("/api/strava/status")
-def strava_status():
+def strava_status(user: User = Depends(resolve_user)):
     """Return Strava connection status; refresh token if near expiry."""
     _null_response = {"connected": False, "athlete_name": None, "scope": None, "expires_at": None}
-
-    try:
-        user_id = _get_default_user_id()
-    except HTTPException:
-        return JSONResponse(_null_response)
+    user_id = str(user.id)
 
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
@@ -3110,12 +3130,9 @@ def strava_status():
 
 
 @app.delete("/api/strava/disconnect")
-def strava_disconnect():
+def strava_disconnect(user: User = Depends(resolve_user)):
     """Delete Strava token row and optionally deauthorize with Strava API."""
-    try:
-        user_id = _get_default_user_id()
-    except HTTPException:
-        return JSONResponse({"disconnected": True})
+    user_id = str(user.id)
 
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
@@ -3139,14 +3156,10 @@ def strava_disconnect():
 
 
 @app.get("/api/stryd/status")
-def stryd_status():
+def stryd_status(user: User = Depends(resolve_user)):
     """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
     _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
-
-    try:
-        user_id = _get_default_user_id()
-    except HTTPException:
-        return JSONResponse(_null_response)
+    user_id = str(user.id)
 
     with Session(engine) as session:
         cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
@@ -3181,12 +3194,9 @@ def stryd_status():
 
 
 @app.delete("/api/stryd/disconnect")
-def stryd_disconnect():
+def stryd_disconnect(user: User = Depends(resolve_user)):
     """Delete Stryd credentials row."""
-    try:
-        user_id = _get_default_user_id()
-    except HTTPException:
-        return JSONResponse({"disconnected": True})
+    user_id = str(user.id)
 
     with Session(engine) as session:
         cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
@@ -3195,6 +3205,104 @@ def stryd_disconnect():
             session.commit()
 
     return JSONResponse({"disconnected": True})
+
+
+@app.get("/api/strava/configured")
+def strava_configured():
+    """Return whether Strava OAuth env vars are all present."""
+    configured = bool(
+        os.getenv("STRAVA_CLIENT_ID")
+        and os.getenv("STRAVA_CLIENT_SECRET")
+        and os.getenv("STRAVA_STATE_SECRET")
+    )
+    return JSONResponse({"configured": configured})
+
+
+@app.get("/api/stryd/configured")
+def stryd_configured():
+    """Return whether Stryd encryption env var is present."""
+    return JSONResponse({"configured": bool(os.getenv("STRYD_FERNET_KEY"))})
+
+
+_STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
+_STRAVA_SYNC_PER_PAGE = 100
+_STRAVA_SYNC_DAYS = 90
+
+
+@app.post("/api/strava/sync")
+def strava_sync(user: User = Depends(resolve_user)):
+    """Fetch recent Strava activities (last 90 days) and upsert into strava_activities."""
+    user_id = str(user.id)
+
+    access_token = refresh_token_if_needed(user_id)
+    if access_token is None:
+        raise HTTPException(status_code=400, detail="Strava account not connected")
+
+    after_ts = int((_datetime.now(tz=_timezone.utc) - _timedelta(days=_STRAVA_SYNC_DAYS)).timestamp())
+
+    activities: list[dict] = []
+    page = 1
+    while True:
+        url = (
+            _STRAVA_ACTIVITIES_URL
+            + "?"
+            + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page, "after": after_ts})
+        )
+        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+        try:
+            with _urllib_request.urlopen(req) as resp:
+                batch = _json.loads(resp.read())
+        except _urllib_error.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Strava API error: {exc.code}")
+        if not batch:
+            break
+        activities.extend(batch)
+        if len(batch) < _STRAVA_SYNC_PER_PAGE:
+            break
+        page += 1
+
+    if not activities:
+        return JSONResponse({"synced": 0})
+
+    now = _datetime.now(tz=_timezone.utc)
+    rows = []
+    for act in activities:
+        start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_timezone.utc)
+        rows.append({
+            "user_id": user_id,
+            "strava_activity_id": int(act["id"]),
+            "start_time": start_dt,
+            "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
+            "name": act.get("name") or "Untitled",
+            "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
+            "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
+            "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
+            "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+            "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
+            "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
+            "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
+            "device_name": act.get("device_name"),
+            "external_id": act.get("external_id"),
+            "is_stryd_synced": False,
+            "raw_payload": act,
+            "synced_at": now,
+        })
+
+    with Session(engine) as session:
+        ins = _pg_insert(StravaActivity).values(rows)
+        stmt = ins.on_conflict_do_update(
+            index_elements=["strava_activity_id"],
+            set_={
+                "name": ins.excluded.name,
+                "activity_type": ins.excluded.activity_type,
+                "raw_payload": ins.excluded.raw_payload,
+                "synced_at": now,
+            },
+        )
+        session.execute(stmt)
+        session.commit()
+
+    return JSONResponse({"synced": len(activities)})
 
 
 # ── Google OAuth ───────────────────────────────────────────────────────────────
@@ -3232,11 +3340,10 @@ def _verify_google_state_token(token: str, secret: str, max_age: int = _STATE_TO
 
 
 @app.get("/api/google/connect")
-def google_connect(scope: str = Query(default=_GOOGLE_SCOPE_DEFAULT)):
-    """Initiate Google OAuth flow for the default user.
+def google_connect(scope: str = Query(default=_GOOGLE_SCOPE_DEFAULT), user: User = Depends(resolve_user)):
+    """Initiate Google OAuth flow for the authenticated user.
 
-    Returns authorize_url as JSON; does not redirect. Default user is the first
-    user (by name) in the users table — multi-user support is deferred.
+    Returns authorize_url as JSON; does not redirect.
     Valid scopes: 'openid email profile' (default) or the same plus the fitness
     activity read scope.
     """
@@ -3262,11 +3369,7 @@ def google_connect(scope: str = Query(default=_GOOGLE_SCOPE_DEFAULT)):
 
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:9001/api/google/callback")
 
-    with Session(engine) as session:
-        user = session.query(User).order_by(User.name).first()
-        if user is None:
-            raise HTTPException(status_code=500, detail="No users found in database")
-        user_id = str(user.id)
+    user_id = str(user.id)
 
     state = _make_google_state_token(user_id, state_secret)
     authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
@@ -3672,7 +3775,7 @@ def get_sleep_imports(
 # ── Feel entries ──────────────────────────────────────────────────────────────
 
 class _FeelBody(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     feel_date: str
     workout_id: Optional[str] = None
     rpe_1_to_10: Optional[int] = None
@@ -3702,17 +3805,12 @@ def _feel_dict(row) -> dict:
 
 @app.get("/api/feel")
 def get_feel(
-    user_id: str,
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     workout_id: Optional[str] = None,
     has_rpe: Optional[bool] = None,
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
-
     parsed_from = None
     if from_date is not None:
         try:
@@ -3735,11 +3833,7 @@ def get_feel(
             raise HTTPException(status_code=400, detail="invalid workout_id format")
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == uid).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
-        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == uid)
+        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == user.id)
         if parsed_from is not None:
             q = q.filter(WorkoutFeel.feel_date >= parsed_from)
         if parsed_to is not None:
@@ -3754,7 +3848,7 @@ def get_feel(
 
 
 @app.patch("/api/feel/{feel_id}")
-def patch_feel(feel_id: str, body: _FeelPatchBody):
+def patch_feel(feel_id: str, body: _FeelPatchBody, user: User = Depends(resolve_user)):
     if body.feel_date is not None or body.user_id is not None:
         raise HTTPException(
             status_code=422,
@@ -3791,6 +3885,8 @@ def patch_feel(feel_id: str, body: _FeelPatchBody):
         row = session.get(WorkoutFeel, fid)
         if row is None:
             raise HTTPException(status_code=404, detail="feel entry not found")
+        if row.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
 
         if _update_workout_id:
             workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
@@ -3810,7 +3906,7 @@ def patch_feel(feel_id: str, body: _FeelPatchBody):
 
 
 @app.delete("/api/feel/{feel_id}", status_code=204)
-def delete_feel(feel_id: str):
+def delete_feel(feel_id: str, user: User = Depends(resolve_user)):
     try:
         fid = _uuid.UUID(feel_id)
     except ValueError:
@@ -3819,13 +3915,15 @@ def delete_feel(feel_id: str):
         row = session.get(WorkoutFeel, fid)
         if row is None:
             raise HTTPException(status_code=404, detail="feel entry not found")
+        if row.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
         session.delete(row)
         session.commit()
     return Response(status_code=204)
 
 
 @app.post("/api/feel", status_code=201)
-def post_feel(body: _FeelBody):
+def post_feel(body: _FeelBody, user: User = Depends(resolve_user)):
     try:
         feel_date = _date.fromisoformat(body.feel_date)
     except (ValueError, TypeError):
@@ -3860,11 +3958,6 @@ def post_feel(body: _FeelBody):
             detail={"field": "notes", "error": "notes must not exceed 10,000 characters"},
         )
 
-    try:
-        parsed_user_id = _uuid.UUID(body.user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
-
     parsed_workout_id = None
     if body.workout_id is not None:
         try:
@@ -3873,17 +3966,13 @@ def post_feel(body: _FeelBody):
             raise HTTPException(status_code=400, detail="invalid workout_id format")
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == parsed_user_id).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
         if parsed_workout_id is not None:
             workout = session.query(Workout).filter(Workout.id == parsed_workout_id).first()
-            if workout is None or workout.user_id != parsed_user_id:
+            if workout is None or workout.user_id != user.id:
                 raise HTTPException(status_code=404, detail="workout not found")
 
         row = WorkoutFeel(
-            user_id=parsed_user_id,
+            user_id=user.id,
             feel_date=feel_date,
             workout_id=parsed_workout_id,
             rpe_1_to_10=body.rpe_1_to_10,
@@ -3895,7 +3984,7 @@ def post_feel(body: _FeelBody):
 
         if parsed_workout_id is None:
             try:
-                auto_link_feel_entries(parsed_user_id, feel_date)
+                auto_link_feel_entries(user.id, feel_date)
                 session.refresh(row)
             except Exception as exc:
                 _logging.getLogger(__name__).warning("auto_link_feel_entries failed: %s", exc)
@@ -3904,31 +3993,22 @@ def post_feel(body: _FeelBody):
 
 
 @app.post("/api/feel/auto-link")
-def post_feel_auto_link(user_id: str, feel_date: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="invalid user_id")
+def post_feel_auto_link(feel_date: str, user: User = Depends(resolve_user)):
     try:
         parsed_date = _date.fromisoformat(feel_date)
     except (ValueError, TypeError):
         raise HTTPException(status_code=422, detail={"field": "feel_date", "error": "feel_date must be YYYY-MM-DD"})
-    linked = auto_link_feel_entries(uid, parsed_date)
+    linked = auto_link_feel_entries(user.id, parsed_date)
     return JSONResponse({"linked": linked})
 
 
 @app.get("/api/feel/summary")
 def get_feel_summary(
-    user_id: str,
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
     from sqlalchemy import func as _func
-
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
 
     parsed_from = None
     if from_date is not None:
@@ -3945,11 +4025,7 @@ def get_feel_summary(
             raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == uid).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
-        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == uid)
+        q = session.query(WorkoutFeel).filter(WorkoutFeel.user_id == user.id)
         if parsed_from is not None:
             q = q.filter(WorkoutFeel.feel_date >= parsed_from)
         if parsed_to is not None:
@@ -4026,18 +4102,13 @@ def _make_preview(notes: str, query: str, window: int = 80) -> str:
 
 @app.get("/api/feel/search")
 def get_feel_search(
-    user_id: str,
     q: str,
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
     if len(q) < 2:
         raise HTTPException(status_code=422, detail={"field": "q", "error": "q must be at least 2 characters"})
-
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=422, detail={"field": "user_id", "error": "invalid user_id format"})
 
     parsed_from = None
     if from_date is not None:
@@ -4054,12 +4125,8 @@ def get_feel_search(
             raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be a valid YYYY-MM-DD date"})
 
     with Session(engine) as session:
-        user = session.query(User).filter(User.id == uid).first()
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-
         query_obj = session.query(WorkoutFeel).filter(
-            WorkoutFeel.user_id == uid,
+            WorkoutFeel.user_id == user.id,
             WorkoutFeel.notes.ilike(f"%{q}%"),
         )
         if parsed_from is not None:
