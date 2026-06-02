@@ -1109,6 +1109,52 @@
     }, { passive: true });
   }
 
+  // ── Sync button state ─────────────────────────────────────────────────────
+  var _syncPollTimer = null;
+
+  function _syncSetBusy(busy) {
+    var stravaBtn = document.getElementById('sync-strava-btn');
+    if (stravaBtn) stravaBtn.disabled = busy;
+    // Stryd stays disabled regardless; we only manage the aria/visual state for
+    // the Strava button. Stryd's disabled attr is set in HTML and never cleared.
+  }
+
+  function _syncPollStatus() {
+    fetch('/api/sync/status')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) { _syncStopStatusPoll(); _syncSetBusy(false); return; }
+        if (data.status === 'running') {
+          _syncSetBusy(true);
+          if (!_syncPollTimer) {
+            _syncPollTimer = setInterval(_syncPollStatus, 3000);
+          }
+        } else {
+          _syncStopStatusPoll();
+          _syncSetBusy(false);
+        }
+      })
+      .catch(function () { _syncStopStatusPoll(); _syncSetBusy(false); });
+  }
+
+  function _syncStopStatusPoll() {
+    if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
+  }
+
+  function _onSyncStravaClick() {
+    _syncSetBusy(true);
+    fetch('/api/strava/sync', { method: 'POST' })
+      .then(function (res) {
+        if (res.status === 202 || res.status === 409) {
+          if (window.syncBarRefresh) window.syncBarRefresh();
+          _syncPollStatus();
+        } else {
+          _syncSetBusy(false);
+        }
+      })
+      .catch(function () { _syncSetBusy(false); });
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -1116,9 +1162,14 @@
     fetchAndRender();
     initSwipe();
 
+    _syncPollStatus();
+
     window.addEventListener('userChanged', function () {
       fetchAndRender();
     });
+
+    var syncStravaBtn = document.getElementById('sync-strava-btn');
+    if (syncStravaBtn) syncStravaBtn.addEventListener('click', _onSyncStravaClick);
 
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);

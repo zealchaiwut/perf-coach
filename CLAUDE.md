@@ -65,6 +65,17 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
   workflow is one clone — switch between `develop` (UAT) and `master` (PRD) via
   `git checkout`.
 
+## Sync Architecture
+
+Background sync jobs (Strava, Stryd) run as daemon threads. See
+`docs/sync.md` for the full reference: one-job-per-user model, job phases,
+409 single-flight guard, restart behaviour, cancel hook, and polling cadence.
+
+Key sync endpoints:
+- `GET /api/sync/status` — current job state for the authenticated user
+- `POST /api/strava/sync` — start a Strava full-history pull (returns 202)
+- `POST /api/stryd/sync` — start a Stryd full-history pull (returns 202)
+
 ## Deployment
 
 Deployments are managed by Render via `render.yaml`. See:

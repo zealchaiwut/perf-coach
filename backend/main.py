@@ -8,6 +8,7 @@ import logging as _logging
 import math as _math
 import os
 import secrets as _secrets
+import threading as _threading
 import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
@@ -32,6 +33,8 @@ from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
+from backend.services import sync_jobs as _sync_jobs
+from backend.services import reconcile as _reconcile
 
 app = FastAPI()
 
@@ -3273,83 +3276,108 @@ def stryd_configured():
 
 _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
-_STRAVA_SYNC_DAYS = 90
+
+
+def _strava_sync_worker(user_id: str) -> None:
+    """Background daemon thread: pull all-time Strava activities and upsert."""
+    uid = _uuid.UUID(user_id)
+    try:
+        _sync_jobs.set_phase(uid, "pulling_strava")
+
+        access_token = refresh_token_if_needed(user_id)
+        if access_token is None:
+            _sync_jobs.mark_error(uid, "Strava account not connected")
+            return
+
+        page = 1
+        while True:
+            if _sync_jobs.is_cancel_requested(uid):
+                _sync_jobs.mark_error(uid, "cancelled")
+                return
+
+            url = (
+                _STRAVA_ACTIVITIES_URL
+                + "?"
+                + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page})
+            )
+            req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+            try:
+                with _urllib_request.urlopen(req) as resp:
+                    batch = _json.loads(resp.read())
+            except _urllib_error.HTTPError as exc:
+                _sync_jobs.mark_error(uid, f"Strava API error: {exc.code}")
+                return
+
+            if not batch:
+                break
+
+            now = _datetime.now(tz=_timezone.utc)
+            rows = []
+            for act in batch:
+                if _sync_jobs.is_cancel_requested(uid):
+                    _sync_jobs.mark_error(uid, "cancelled")
+                    return
+                start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=_timezone.utc
+                )
+                rows.append({
+                    "user_id": user_id,
+                    "strava_activity_id": int(act["id"]),
+                    "start_time": start_dt,
+                    "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
+                    "name": act.get("name") or "Untitled",
+                    "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
+                    "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
+                    "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
+                    "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+                    "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
+                    "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
+                    "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
+                    "device_name": act.get("device_name"),
+                    "external_id": act.get("external_id"),
+                    "is_stryd_synced": False,
+                    "raw_payload": act,
+                    "synced_at": now,
+                })
+
+            with Session(engine) as session:
+                ins = _pg_insert(StravaActivity).values(rows)
+                stmt = ins.on_conflict_do_update(
+                    index_elements=["strava_activity_id"],
+                    set_={
+                        "name": ins.excluded.name,
+                        "activity_type": ins.excluded.activity_type,
+                        "raw_payload": ins.excluded.raw_payload,
+                        "synced_at": now,
+                    },
+                )
+                session.execute(stmt)
+                session.commit()
+
+            _sync_jobs.increment(uid, current=len(rows), items_synced=len(rows))
+
+            if len(batch) < _STRAVA_SYNC_PER_PAGE:
+                break
+            page += 1
+
+        _reconcile.reconcile_workouts(uid, uid)
+        _sync_jobs.mark_success(uid)
+    except Exception as exc:  # noqa: BLE001
+        _sync_jobs.mark_error(uid, str(exc))
 
 
 @app.post("/api/strava/sync")
 def strava_sync(user: User = Depends(resolve_user)):
-    """Fetch recent Strava activities (last 90 days) and upsert into strava_activities."""
-    user_id = str(user.id)
+    """Start an async Strava full-history pull; returns 202 immediately."""
+    uid = user.id
+    try:
+        _sync_jobs.start(uid, "strava")
+    except _sync_jobs.SyncInProgress:
+        raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    access_token = refresh_token_if_needed(user_id)
-    if access_token is None:
-        raise HTTPException(status_code=400, detail="Strava account not connected")
-
-    after_ts = int((_datetime.now(tz=_timezone.utc) - _timedelta(days=_STRAVA_SYNC_DAYS)).timestamp())
-
-    activities: list[dict] = []
-    page = 1
-    while True:
-        url = (
-            _STRAVA_ACTIVITIES_URL
-            + "?"
-            + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page, "after": after_ts})
-        )
-        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
-        try:
-            with _urllib_request.urlopen(req) as resp:
-                batch = _json.loads(resp.read())
-        except _urllib_error.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Strava API error: {exc.code}")
-        if not batch:
-            break
-        activities.extend(batch)
-        if len(batch) < _STRAVA_SYNC_PER_PAGE:
-            break
-        page += 1
-
-    if not activities:
-        return JSONResponse({"synced": 0})
-
-    now = _datetime.now(tz=_timezone.utc)
-    rows = []
-    for act in activities:
-        start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_timezone.utc)
-        rows.append({
-            "user_id": user_id,
-            "strava_activity_id": int(act["id"]),
-            "start_time": start_dt,
-            "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
-            "name": act.get("name") or "Untitled",
-            "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
-            "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
-            "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
-            "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
-            "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
-            "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
-            "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
-            "device_name": act.get("device_name"),
-            "external_id": act.get("external_id"),
-            "is_stryd_synced": False,
-            "raw_payload": act,
-            "synced_at": now,
-        })
-
-    with Session(engine) as session:
-        ins = _pg_insert(StravaActivity).values(rows)
-        stmt = ins.on_conflict_do_update(
-            index_elements=["strava_activity_id"],
-            set_={
-                "name": ins.excluded.name,
-                "activity_type": ins.excluded.activity_type,
-                "raw_payload": ins.excluded.raw_payload,
-                "synced_at": now,
-            },
-        )
-        session.execute(stmt)
-        session.commit()
-
-    return JSONResponse({"synced": len(activities)})
+    t = _threading.Thread(target=_strava_sync_worker, args=(str(uid),), daemon=True)
+    t.start()
+    return JSONResponse({"started": True}, status_code=202)
 
 
 # ── App config (persistent key-value settings) ────────────────────────────────
@@ -4926,3 +4954,18 @@ def admin_get_google_login_config():
 def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
     _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
     return JSONResponse({"toggle_enabled": body.enabled})
+
+
+# ── Sync status endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/sync/status")
+async def get_sync_status(user: User = Depends(resolve_user)):
+    job = _sync_jobs.snapshot(user.id)
+    if job is None:
+        return JSONResponse({"status": "idle"})
+    serialized = {
+        **job,
+        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+    }
+    return JSONResponse(serialized)
