@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -3318,6 +3318,44 @@ def strava_sync(user: User = Depends(resolve_user)):
     return JSONResponse({"synced": len(activities)})
 
 
+# ── App config (persistent key-value settings) ────────────────────────────────
+
+_APP_CONFIG_GOOGLE_LOGIN = "google_login_enabled"
+
+
+def _get_app_config(key: str, default: str = "") -> str:
+    with Session(engine) as session:
+        row = session.get(AppConfig, key)
+        return row.value if row else default
+
+
+def _set_app_config(key: str, value: str) -> None:
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(AppConfig)
+            .values(key=key, value=value, updated_at=_datetime.now(tz=_timezone.utc))
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": value, "updated_at": _datetime.now(tz=_timezone.utc)},
+            )
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+def _google_credentials_present() -> bool:
+    return bool(os.getenv("GOOGLE_CLIENT_ID")) and bool(os.getenv("GOOGLE_CLIENT_SECRET"))
+
+
+def _google_login_active() -> bool:
+    """True when env flag is set, DB toggle is not disabled, and credentials are present."""
+    if os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() != "true":
+        return False
+    if _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() == "false":
+        return False
+    return _google_credentials_present()
+
+
 # ── Google OAuth ───────────────────────────────────────────────────────────────
 
 _GOOGLE_SCOPE_DEFAULT = "openid email profile"
@@ -3350,6 +3388,107 @@ def _verify_google_state_token(token: str, secret: str, max_age: int = _STATE_TO
     if time.time() - payload["ts"] > max_age:
         raise ValueError("Token expired")
     return payload
+
+
+_GOOGLE_SIGNIN_ERROR_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Sign-in failed</title></head>
+<body>
+<p>Google sign-in failed: {reason}. <a href="/login">Return to login</a>.</p>
+</body>
+</html>"""
+
+
+@app.get("/auth/google")
+def google_signin_initiate():
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    state = _make_google_state_token("signin", state_secret)
+    authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": _GOOGLE_SCOPE_DEFAULT,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@app.get("/auth/google/callback")
+def google_signin_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+):
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    try:
+        state_payload = _verify_google_state_token(state, state_secret)
+    except ValueError:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="state expired or invalid"),
+            media_type="text/html",
+            status_code=400,
+        )
+    if state_payload.get("user_id") != "signin":
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="invalid state"),
+            media_type="text/html",
+            status_code=400,
+        )
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
+    id_token = token_resp.get("id_token", "")
+    id_token_payload = _decode_id_token_payload(id_token)
+    google_sub = id_token_payload.get("sub", "")
+    if not google_sub:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="could not read Google account"),
+            media_type="text/html",
+            status_code=502,
+        )
+    with Session(engine) as session:
+        creds = session.query(GoogleOAuthCredentials).filter(
+            GoogleOAuthCredentials.google_sub == google_sub
+        ).first()
+        if creds is None:
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="no account linked to this Google identity"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user = session.get(User, creds.user_id)
+        if user is None or not getattr(user, "is_active", True):
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="account not found or disabled"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user_id = str(user.id)
+    resp = RedirectResponse(url="/home", status_code=302)
+    set_session(resp, user_id)
+    return resp
+
+
+@app.get("/api/auth/google-status")
+def google_status():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_ok = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    return JSONResponse({
+        "enabled": env_enabled and creds_ok and toggle_enabled,
+    })
 
 
 @app.get("/api/google/connect")
@@ -4723,3 +4862,33 @@ def admin_delete_user(user_id: str):
         session.delete(user)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Admin: Google login config ────────────────────────────────────────────────
+
+class AdminGoogleLoginToggleIn(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_get_google_login_config():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_present = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    active = env_enabled and creds_present and toggle_enabled
+    warning = None
+    if env_enabled and not creds_present:
+        warning = "GOOGLE_LOGIN_ENABLED is true but GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing"
+    return JSONResponse({
+        "env_enabled": env_enabled,
+        "credentials_present": creds_present,
+        "toggle_enabled": toggle_enabled,
+        "active": active,
+        "warning": warning,
+    })
+
+
+@app.post("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
+    _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
+    return JSONResponse({"toggle_enabled": body.enabled})
