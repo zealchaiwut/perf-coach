@@ -276,10 +276,19 @@ def delete_user(user_id: str):
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 
 from backend.auth import (  # noqa: E402
+    ADMIN_COOKIE_NAME,
+    admin_lockout_check,
+    admin_lockout_clear,
+    admin_lockout_record,
+    clear_admin_cookie,
     clear_session,
     COOKIE_NAME,
+    get_admin_secret,
     get_current_user,
+    read_admin_cookie,
     read_session_cookie,
+    require_admin,
+    set_admin_cookie,
     set_session,
     verify_password,
 )
@@ -4485,3 +4494,56 @@ def backfill_training_load(
         "from": from_d.isoformat(),
         "to": today.isoformat(),
     })
+
+
+# ── Admin gate ────────────────────────────────────────────────────────────────
+
+class AdminLoginIn(BaseModel):
+    secret: str
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_entry(request: Request):
+    """Entry point for the admin area.
+
+    - No ADMIN_SECRET_* env var set → 403 (admin disabled).
+    - No valid admin cookie → serve login form.
+    - Valid admin cookie → serve admin dashboard.
+    """
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return FileResponse(str(_static_root / "frontend" / "pages" / "admin.html"))
+        except ValueError:
+            pass
+    return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
+
+
+@app.post("/api/admin/login")
+def admin_login(body: AdminLoginIn, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    admin_lockout_check(ip)
+
+    admin_secret = get_admin_secret()
+    if not admin_secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled")
+
+    if not _hmac.compare_digest(body.secret.encode(), admin_secret.encode()):
+        admin_lockout_record(ip)
+        raise HTTPException(status_code=401, detail="Invalid admin secret")
+
+    admin_lockout_clear(ip)
+    resp = JSONResponse({"ok": True})
+    set_admin_cookie(resp)
+    return resp
+
+
+@app.post("/api/admin/logout", status_code=204)
+def admin_logout():
+    resp = Response(status_code=204)
+    clear_admin_cookie(resp)
+    return resp
