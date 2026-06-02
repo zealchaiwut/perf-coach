@@ -34,6 +34,7 @@ from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services import sync_jobs as _sync_jobs
+from backend.services import reconcile as _reconcile
 
 app = FastAPI()
 
@@ -3352,6 +3353,7 @@ def _strava_sync_worker(user_id: str) -> None:
                 break
             page += 1
 
+        _reconcile.reconcile_workouts(uid, uid)
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
