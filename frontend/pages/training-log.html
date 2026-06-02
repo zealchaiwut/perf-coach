@@ -40,13 +40,36 @@
       flex-shrink: 0;
     }
 
-    .btn-primary:disabled {
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
       background: #ccc;
       color: #888;
       cursor: not-allowed;
+      opacity: 1;
     }
 
-    .btn-primary:disabled:hover { background: #ccc; }
+    .btn-primary:disabled:hover,
+    .btn-secondary:disabled:hover { background: #ccc; }
+
+    .btn-coming-soon {
+      position: relative;
+    }
+
+    .btn-coming-soon::after {
+      content: 'soon';
+      position: absolute;
+      top: -7px;
+      right: -4px;
+      font-size: 0.5625rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #f59e0b;
+      color: #fff;
+      padding: 1px 4px;
+      border-radius: 3px;
+      line-height: 1.4;
+    }
 
     /* ── Week strip ── */
     #week-strip {
@@ -1061,6 +1084,8 @@
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
+      <button id="sync-strava-btn" class="btn-secondary" type="button">Sync Strava</button>
+      <button id="sync-stryd-btn" class="btn-secondary btn-coming-soon" type="button" disabled title="Stryd sync coming soon">Sync Stryd</button>
       <button id="log-export-btn" class="btn-secondary">Export CSV</button>
       <button id="log-new-btn" class="btn-primary">Log workout</button>
       <span id="env-label" class="env-label"></span>
