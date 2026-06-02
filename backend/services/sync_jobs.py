@@ -46,6 +46,13 @@ def increment(user_id: uuid.UUID, *, current: int = 0, items_synced: int = 0) ->
             _registry[user_id]["items_synced"] += items_synced
 
 
+def reset_progress(user_id: uuid.UUID, total: int) -> None:
+    with _lock:
+        if user_id in _registry:
+            _registry[user_id]["current"] = 0
+            _registry[user_id]["total"] = total
+
+
 def mark_success(user_id: uuid.UUID) -> None:
     with _lock:
         if user_id in _registry:
