@@ -84,6 +84,25 @@ async def _auth_guard(request: Request, call_next):
     return RedirectResponse(url="/login", status_code=302)
 
 
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+@app.middleware("http")
+async def _csrf_protect(request: Request, call_next):
+    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    if request.method not in _CSRF_SAFE_METHODS:
+        session_cookie = request.cookies.get(COOKIE_NAME)
+        if session_cookie:
+            expected = request.cookies.get(CSRF_COOKIE_NAME)
+            actual = request.headers.get("X-CSRF-Token")
+            if not expected or not actual or not _hmac.compare_digest(expected, actual):
+                return JSONResponse(
+                    {"detail": "CSRF token missing or invalid"},
+                    status_code=403,
+                )
+    return await call_next(request)
+
+
 @app.get("/api/health")
 def health():
     """Return service liveness and environment metadata.
@@ -283,6 +302,8 @@ from backend.auth import (  # noqa: E402
     clear_admin_cookie,
     clear_session,
     COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    generate_csrf_token,
     get_admin_secret,
     get_current_user,
     hash_password,
@@ -291,6 +312,7 @@ from backend.auth import (  # noqa: E402
     read_session_cookie,
     require_admin,
     set_admin_cookie,
+    set_csrf_cookie,
     set_session,
     verify_password,
 )
@@ -394,6 +416,18 @@ def logout():
 async def me(request: Request):
     user = await get_current_user(request)
     return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+
+
+@app.get("/api/csrf-token")
+async def get_csrf_token(request: Request):
+    """Return the current CSRF token, setting a fresh one if the cookie is absent."""
+    existing = request.cookies.get(CSRF_COOKIE_NAME)
+    if existing:
+        return JSONResponse({"csrf_token": existing})
+    token = generate_csrf_token()
+    resp = JSONResponse({"csrf_token": token})
+    set_csrf_cookie(resp, token)
+    return resp
 
 
 # ── Avatar endpoints ──────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ _log = logging.getLogger(__name__)
 
 COOKIE_NAME = "session"
 ADMIN_COOKIE_NAME = "admin_session"
+CSRF_COOKIE_NAME = "csrf-token"
 _ADMIN_COOKIE_MAX_AGE = int(os.getenv("ADMIN_COOKIE_MAX_AGE", str(4 * 3600)))  # 4 hours default
 _ADMIN_LOCKOUT_MAX = int(os.getenv("ADMIN_LOCKOUT_MAX", "5"))
 _ADMIN_LOCKOUT_WINDOW = int(os.getenv("ADMIN_LOCKOUT_WINDOW", "300"))  # 5 minutes
@@ -100,7 +101,22 @@ def read_session_cookie(token: str) -> dict:
     return data
 
 
-def set_session(response: Response, user_id: str) -> None:
+def generate_csrf_token() -> str:
+    return secrets.token_hex(32)
+
+
+def set_csrf_cookie(response: Response, token: str) -> None:
+    env = os.getenv("ENVIRONMENT", "local")
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=token,
+        httponly=False,
+        secure=(env != "local"),
+        samesite="lax",
+    )
+
+
+def set_session(response: Response, user_id: str) -> str:
     token = create_session_cookie(user_id, time.time())
     response.set_cookie(
         key=COOKIE_NAME,
@@ -108,10 +124,14 @@ def set_session(response: Response, user_id: str) -> None:
         httponly=True,
         samesite="lax",
     )
+    csrf_token = generate_csrf_token()
+    set_csrf_cookie(response, csrf_token)
+    return csrf_token
 
 
 def clear_session(response: Response) -> None:
     response.delete_cookie(key=COOKIE_NAME)
+    response.delete_cookie(key=CSRF_COOKIE_NAME)
 
 
 def get_admin_secret() -> Optional[str]:
