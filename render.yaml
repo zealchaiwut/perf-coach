@@ -14,7 +14,17 @@
 #   perf-coach-uat → DATABASE_URL_UAT = Neon "uat" branch connection string
 #   perf-coach-prd → DATABASE_URL_PRD = Neon "main" (PRD) branch connection string
 #
-# NEVER commit a connection-string value to this file or any tracked file.
+# The following secrets must also be set manually in the Render dashboard under
+# Environment → Env Vars (they appear with sync: false below, meaning Render
+# creates the slot but leaves the value empty until a human fills it in):
+#
+#   SESSION_SECRET     — random string; signs session cookies (all services)
+#   ADMIN_SECRET_UAT   — UAT admin gate passphrase (perf-coach-uat only)
+#   ADMIN_SECRET_PRD   — PRD admin gate passphrase (perf-coach-prd only)
+#
+# GOOGLE_LOGIN_ENABLED is not a secret and is set inline below.
+#
+# NEVER commit a connection-string or secret value to this file or any tracked file.
 
 services:
   - type: web
@@ -35,6 +45,12 @@ services:
         value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL_UAT
         sync: false  # set via Render dashboard — see top of file
+      - key: SESSION_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: ADMIN_SECRET_UAT
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_LOGIN_ENABLED
+        value: "false"  # toggle in Render dashboard to enable Google login
 
   - type: web
     name: perf-coach-prd
@@ -54,3 +70,9 @@ services:
         value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL_PRD
         sync: false  # set via Render dashboard — see top of file
+      - key: SESSION_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: ADMIN_SECRET_PRD
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_LOGIN_ENABLED
+        value: "false"  # toggle in Render dashboard to enable Google login
