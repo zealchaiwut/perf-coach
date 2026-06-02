@@ -32,6 +32,7 @@ from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
+from backend.services import sync_jobs as _sync_jobs
 
 app = FastAPI()
 
@@ -4926,3 +4927,18 @@ def admin_get_google_login_config():
 def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
     _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
     return JSONResponse({"toggle_enabled": body.enabled})
+
+
+# ── Sync status endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/sync/status")
+async def get_sync_status(user: User = Depends(resolve_user)):
+    job = _sync_jobs.snapshot(user.id)
+    if job is None:
+        return JSONResponse({"status": "idle"})
+    serialized = {
+        **job,
+        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+    }
+    return JSONResponse(serialized)
