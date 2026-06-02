@@ -62,7 +62,7 @@
     .logout-btn:hover { background: rgba(255,255,255,0.08); }
 
     .container {
-      max-width: 900px;
+      max-width: 960px;
       margin: 40px auto;
       padding: 0 24px;
     }
@@ -75,42 +75,120 @@
     }
     .subtitle { color: #5c6886; font-size: 14px; margin: 0 0 32px; }
 
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 16px;
-    }
-    .card {
+    .section {
       background: #fff;
       border-radius: 16px;
-      padding: 24px;
-      text-decoration: none;
-      color: inherit;
+      padding: 28px;
       box-shadow: 0 2px 12px rgba(11,21,48,0.07);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      transition: box-shadow 0.15s, transform 0.15s;
+      margin-bottom: 28px;
     }
-    .card:hover { box-shadow: 0 4px 20px rgba(11,21,48,0.12); transform: translateY(-1px); }
-    .card-icon {
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      background: #eef2fb;
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 20px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      color: #2b4ca8;
+      gap: 8px;
     }
-    .card-title {
-      font-size: 15px;
-      font-weight: 600;
+    .section-title i { color: #2b4ca8; }
+
+    /* Create User form */
+    .create-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      gap: 10px;
+      align-items: end;
     }
-    .card-desc {
+    @media (max-width: 640px) {
+      .create-form { grid-template-columns: 1fr; }
+    }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .form-group input[type="text"],
+    .form-group input[type="password"] {
+      border: 1.5px solid #d4ddf0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: inherit;
       font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-group input:focus { border-color: #6e90f0; }
+    .toggle-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .toggle-group label.label-text { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+    }
+    .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+    .toggle-row span { font-size: 13px; }
+    .btn-primary {
+      background: #2b4ca8;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 18px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+      align-self: end;
+    }
+    .btn-primary:hover { background: #1f3b8a; }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .form-feedback {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+    }
+    .form-feedback.error { color: #c0392b; }
+    .form-feedback.success { color: #1a7a45; }
+
+    /* Users table */
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .users-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
       color: #5c6886;
+      border-bottom: 1.5px solid #e8edf8;
+    }
+    .users-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f4fb;
+      vertical-align: middle;
+    }
+    .users-table tbody tr:last-child td { border-bottom: none; }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .badge-user { background: #f0f0f0; color: #555; }
+    .table-empty {
+      text-align: center;
+      color: #5c6886;
+      padding: 24px;
     }
   </style>
 </head>
@@ -131,24 +209,155 @@
   <h1>Admin dashboard</h1>
   <p class="subtitle">Server-enforced admin session active.</p>
 
-  <div class="cards">
-    <a href="/users" class="card">
-      <div class="card-icon"><i class="ti ti-users" aria-hidden="true"></i></div>
-      <div class="card-title">Users</div>
-      <div class="card-desc">Manage user accounts.</div>
-    </a>
+  <div class="section">
+    <div class="section-title">
+      <i class="ti ti-user-plus" aria-hidden="true"></i>
+      Create User
+    </div>
+    <form id="create-user-form" autocomplete="off">
+      <div class="create-form">
+        <div class="form-group">
+          <label for="new-username">Username</label>
+          <input id="new-username" type="text" placeholder="e.g. jane" maxlength="100" required>
+        </div>
+        <div class="form-group">
+          <label for="new-password">Password</label>
+          <input id="new-password" type="password" placeholder="Min 8 characters" required>
+        </div>
+        <div class="toggle-group">
+          <span class="label-text">Admin</span>
+          <div class="toggle-row">
+            <input id="new-is-admin" type="checkbox">
+            <span>Is admin</span>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" id="create-btn">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          Create
+        </button>
+      </div>
+    </form>
+    <div id="form-feedback" class="form-feedback" role="alert"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">
+      <i class="ti ti-users" aria-hidden="true"></i>
+      Users
+    </div>
+    <table class="users-table" id="users-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Integrations</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="users-tbody">
+        <tr><td colspan="4" class="table-empty">Loading…</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
 <script>
 (function () {
   'use strict';
+
   document.getElementById('logout-btn').addEventListener('click', function () {
     fetch('/api/admin/logout', { method: 'POST' })
+      .finally(function () { window.location.href = '/admin'; });
+  });
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function renderUsers(users) {
+    var tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">No users found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map(function (u) {
+      var badge = u.is_admin
+        ? '<span class="badge badge-admin">Admin</span>'
+        : '<span class="badge badge-user">User</span>';
+      return '<tr>'
+        + '<td>' + escHtml(u.username) + '</td>'
+        + '<td>' + badge + '</td>'
+        + '<td>' + u.integration_count + '</td>'
+        + '<td>' + formatDate(u.created_at) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function loadUsers() {
+    fetch('/api/admin/users', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(renderUsers)
+      .catch(function () {
+        document.getElementById('users-tbody').innerHTML =
+          '<tr><td colspan="4" class="table-empty">Failed to load users.</td></tr>';
+      });
+  }
+
+  var feedback = document.getElementById('form-feedback');
+  function showFeedback(msg, type) {
+    feedback.textContent = msg;
+    feedback.className = 'form-feedback ' + type;
+    feedback.style.display = 'block';
+  }
+
+  document.getElementById('create-user-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var username = document.getElementById('new-username').value.trim();
+    var password = document.getElementById('new-password').value;
+    var isAdmin = document.getElementById('new-is-admin').checked;
+    var btn = document.getElementById('create-btn');
+
+    feedback.style.display = 'none';
+    btn.disabled = true;
+
+    fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ username: username, password: password, is_admin: isAdmin })
+    })
+      .then(function (r) {
+        return r.json().then(function (data) { return { status: r.status, data: data }; });
+      })
+      .then(function (res) {
+        if (res.status === 201) {
+          showFeedback('User "' + escHtml(res.data.username) + '" created successfully.', 'success');
+          document.getElementById('create-user-form').reset();
+          loadUsers();
+        } else if (res.status === 409) {
+          showFeedback(res.data.detail || 'Username already exists.', 'error');
+        } else {
+          var msg = (res.data.detail) || ('Error ' + res.status);
+          showFeedback(msg, 'error');
+        }
+      })
+      .catch(function () {
+        showFeedback('Network error. Please try again.', 'error');
+      })
       .finally(function () {
-        window.location.href = '/admin';
+        btn.disabled = false;
       });
   });
+
+  loadUsers();
 }());
 </script>
 </body>

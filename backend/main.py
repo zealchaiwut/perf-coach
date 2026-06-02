@@ -285,6 +285,8 @@ from backend.auth import (  # noqa: E402
     COOKIE_NAME,
     get_admin_secret,
     get_current_user,
+    hash_password,
+    MIN_PASSWORD_LENGTH,
     read_admin_cookie,
     read_session_cookie,
     require_admin,
@@ -4547,3 +4549,75 @@ def admin_logout():
     resp = Response(status_code=204)
     clear_admin_cookie(resp)
     return resp
+
+
+# ── Admin user management endpoints ──────────────────────────────────────────
+
+class AdminUserCreateIn(BaseModel):
+    username: str
+    password: str
+    is_admin: bool = False
+
+
+@app.post("/api/admin/users", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_user(body: AdminUserCreateIn):
+    username = body.username.strip()
+    if not (1 <= len(username) <= 100):
+        raise HTTPException(status_code=422, detail="username must be 1–100 characters")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    pw_hash = hash_password(body.password)
+    with Session(engine) as session:
+        user = User(name=username, password_hash=pw_hash, is_admin=body.is_admin)
+        session.add(user)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"Username '{username}' already exists")
+        session.refresh(user)
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(user.id),
+                "username": user.name,
+                "is_admin": bool(user.is_admin),
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            },
+        )
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require_admin)])
+def admin_list_users():
+    from sqlalchemy import func, select
+    with Session(engine) as session:
+        strava_sub = select(StravaToken.user_id).subquery()
+        google_sub = select(GoogleOAuthCredentials.user_id).subquery()
+        stryd_sub = select(StrydCredentials.user_id).subquery()
+
+        rows = (
+            session.query(
+                User,
+                strava_sub.c.user_id.isnot(None).label("has_strava"),
+                google_sub.c.user_id.isnot(None).label("has_google"),
+                stryd_sub.c.user_id.isnot(None).label("has_stryd"),
+            )
+            .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+            .outerjoin(google_sub, User.id == google_sub.c.user_id)
+            .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+            .order_by(User.name)
+            .all()
+        )
+        return JSONResponse([
+            {
+                "id": str(u.id),
+                "username": u.name,
+                "is_admin": bool(u.is_admin),
+                "integration_count": int(bool(has_strava)) + int(bool(has_google)) + int(bool(has_stryd)),
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            }
+            for u, has_strava, has_google, has_stryd in rows
+        ])
