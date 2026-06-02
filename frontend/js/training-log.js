@@ -1114,9 +1114,9 @@
 
   function _syncSetBusy(busy) {
     var stravaBtn = document.getElementById('sync-strava-btn');
-    var strydBtn  = document.getElementById('sync-stryd-btn');
     if (stravaBtn) stravaBtn.disabled = busy;
-    if (strydBtn)  strydBtn.disabled  = busy;
+    // Stryd stays disabled regardless; we only manage the aria/visual state for
+    // the Strava button. Stryd's disabled attr is set in HTML and never cleared.
   }
 
   function _syncPollStatus() {
@@ -1155,20 +1155,6 @@
       .catch(function () { _syncSetBusy(false); });
   }
 
-  function _onSyncStrydClick() {
-    _syncSetBusy(true);
-    fetch('/api/stryd/sync', { method: 'POST' })
-      .then(function (res) {
-        if (res.status === 202 || res.status === 409) {
-          if (window.syncBarRefresh) window.syncBarRefresh();
-          _syncPollStatus();
-        } else {
-          _syncSetBusy(false);
-        }
-      })
-      .catch(function () { _syncSetBusy(false); });
-  }
-
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -1184,9 +1170,6 @@
 
     var syncStravaBtn = document.getElementById('sync-strava-btn');
     if (syncStravaBtn) syncStravaBtn.addEventListener('click', _onSyncStravaClick);
-
-    var syncStrydBtn = document.getElementById('sync-stryd-btn');
-    if (syncStrydBtn) syncStrydBtn.addEventListener('click', _onSyncStrydClick);
 
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);

@@ -11,7 +11,6 @@ from backend.models import StrydCredentials
 from backend.services.crypto import decrypt_value
 
 _STRYD_SIGNIN_URL = "https://www.stryd.com/b/email/signin"
-_STRYD_RUNS_URL = "https://www.stryd.com/b/runs"
 _SESSION_LIFETIME_DAYS = 25
 _REFRESH_BUFFER_DAYS = 1
 
@@ -66,30 +65,3 @@ def refresh_stryd_session_if_needed(user_id: str) -> str:
         session.commit()
 
         return cred.session_token
-
-
-def fetch_stryd_activities(user_id: str) -> list[dict]:
-    """Fetch all Stryd run activities for user, returning raw API payloads.
-
-    Reuses refresh_stryd_session_if_needed for session handling.
-    Raises HTTPException on auth or API failure.
-    """
-    session_token = refresh_stryd_session_if_needed(user_id)
-    req = _urllib_request.Request(
-        _STRYD_RUNS_URL,
-        headers={"Authorization": f"Bearer {session_token}"},
-    )
-    try:
-        with _urllib_request.urlopen(req) as resp:
-            data = _json.loads(resp.read())
-    except _urllib_error.HTTPError as exc:
-        if exc.code in (401, 403):
-            raise HTTPException(
-                status_code=401,
-                detail="Stryd session rejected — re-connect your Stryd account.",
-            )
-        raise HTTPException(status_code=502, detail=f"Stryd API error: {exc.code}")
-
-    if isinstance(data, list):
-        return data
-    return data.get("runs") or []

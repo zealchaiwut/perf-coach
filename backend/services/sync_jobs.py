@@ -68,6 +68,12 @@ def mark_error(user_id: uuid.UUID, error: str) -> None:
             _registry[user_id]["finished_at"] = datetime.now(timezone.utc)
 
 
+def is_cancel_requested(user_id: uuid.UUID) -> bool:
+    with _lock:
+        job = _registry.get(user_id)
+        return bool(job and job.get("cancel_requested"))
+
+
 def snapshot(user_id: uuid.UUID) -> Optional[dict]:
     with _lock:
         job = _registry.get(user_id)

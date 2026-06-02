@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -3054,7 +3054,6 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.stryd import fetch_stryd_activities as _fetch_stryd_activities  # noqa: E402
 from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
@@ -3292,6 +3291,10 @@ def _strava_sync_worker(user_id: str) -> None:
 
         page = 1
         while True:
+            if _sync_jobs.is_cancel_requested(uid):
+                _sync_jobs.mark_error(uid, "cancelled")
+                return
+
             url = (
                 _STRAVA_ACTIVITIES_URL
                 + "?"
@@ -3311,6 +3314,9 @@ def _strava_sync_worker(user_id: str) -> None:
             now = _datetime.now(tz=_timezone.utc)
             rows = []
             for act in batch:
+                if _sync_jobs.is_cancel_requested(uid):
+                    _sync_jobs.mark_error(uid, "cancelled")
+                    return
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
@@ -3370,88 +3376,6 @@ def strava_sync(user: User = Depends(resolve_user)):
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
     t = _threading.Thread(target=_strava_sync_worker, args=(str(uid),), daemon=True)
-    t.start()
-    return JSONResponse({"started": True}, status_code=202)
-
-
-def _stryd_sync_worker(user_id: str) -> None:
-    """Background daemon thread: pull all Stryd activities and upsert."""
-    from sqlalchemy.orm.exc import NoResultFound
-
-    uid = _uuid.UUID(user_id)
-    try:
-        _sync_jobs.set_phase(uid, "pulling_stryd")
-
-        try:
-            activities = _fetch_stryd_activities(user_id)
-        except NoResultFound:
-            _sync_jobs.mark_error(uid, "Stryd account not connected")
-            return
-        except HTTPException as exc:
-            _sync_jobs.mark_error(uid, exc.detail)
-            return
-
-        now = _datetime.now(tz=_timezone.utc)
-        rows = []
-        for act in activities:
-            ts = act.get("timestamp") or act.get("start_time")
-            if isinstance(ts, (int, float)):
-                start_dt = _datetime.fromtimestamp(ts, tz=_timezone.utc)
-            elif isinstance(ts, str):
-                start_dt = _datetime.fromisoformat(ts)
-                if start_dt.tzinfo is None:
-                    start_dt = start_dt.replace(tzinfo=_timezone.utc)
-            else:
-                continue
-
-            rows.append({
-                "user_id": user_id,
-                "stryd_activity_id": str(act.get("id") or ""),
-                "start_time": start_dt,
-                "name": act.get("name") or "Untitled",
-                "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
-                "duration_seconds": int(act["duration"]) if act.get("duration") else None,
-                "avg_power_w": int(act["average_power"]) if act.get("average_power") else None,
-                "avg_hr": int(act["average_heart_rate"]) if act.get("average_heart_rate") else None,
-                "tss": int(act["training_stress_score"]) if act.get("training_stress_score") else None,
-                "form_metrics": act.get("form_metrics"),
-                "power_zones": act.get("power_zones"),
-                "splits": act.get("laps"),
-                "raw_payload": act,
-                "synced_at": now,
-            })
-
-        if rows:
-            with Session(engine) as session:
-                ins = _pg_insert(StrydActivity).values(rows)
-                stmt = ins.on_conflict_do_update(
-                    index_elements=["stryd_activity_id"],
-                    set_={
-                        "name": ins.excluded.name,
-                        "raw_payload": ins.excluded.raw_payload,
-                        "synced_at": now,
-                    },
-                )
-                session.execute(stmt)
-                session.commit()
-            _sync_jobs.increment(uid, current=len(rows), items_synced=len(rows))
-
-        _reconcile.reconcile_workouts(uid, uid)
-        _sync_jobs.mark_success(uid)
-    except Exception as exc:  # noqa: BLE001
-        _sync_jobs.mark_error(uid, str(exc))
-
-
-@app.post("/api/stryd/sync")
-def stryd_sync_start(user: User = Depends(resolve_user)):
-    """Start an async Stryd full-history pull; returns 202 immediately."""
-    uid = user.id
-    try:
-        _sync_jobs.start(uid, "stryd")
-    except _sync_jobs.SyncInProgress:
-        raise HTTPException(status_code=409, detail="Sync already in progress")
-
-    t = _threading.Thread(target=_stryd_sync_worker, args=(str(uid),), daemon=True)
     t.start()
     return JSONResponse({"started": True}, status_code=202)
 
