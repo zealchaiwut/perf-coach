@@ -1463,6 +1463,165 @@
     renderWeightTrendCard(document.getElementById('trend-card-weight'), weightEntries, userId);
   }
 
+  /* ---- Log Today card ---- */
+
+  function renderLogTodayCard(card, existing, userId, today) {
+    var v = existing || {};
+
+    function field(id, label, required, value, placeholder) {
+      var req = required ? '<span class="lt-required">*</span>' : '';
+      var val = value != null ? ' value="' + value + '"' : '';
+      return '<div class="lt-field">' +
+        '<label class="lt-label" for="lt-' + id + '">' + label + req + '</label>' +
+        '<input class="lt-input" type="number" id="lt-' + id + '" name="' + id + '"' +
+          (required ? ' data-required="1"' : '') +
+          (placeholder ? ' placeholder="' + placeholder + '"' : '') +
+          val + ' step="any">' +
+        '<div class="lt-error" id="lt-err-' + id + '"></div>' +
+      '</div>';
+    }
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>' +
+        '<span class="lt-date-lbl">' + today + '</span>' +
+      '</div>' +
+      '<form class="lt-form" id="lt-form" novalidate>' +
+        '<div class="lt-grid">' +
+          field('sleep_hours',   'Sleep hours',   true,  v.sleep_hours,   '0–24') +
+          field('sleep_quality', 'Sleep quality', true,  v.sleep_quality, '1–5') +
+          field('energy',        'Energy',        true,  v.energy,        '1–5') +
+          field('mood',          'Mood',          true,  v.mood,          '1–5') +
+          field('resting_hr',    'Resting HR',    false, v.resting_hr,    'bpm') +
+          field('hrv',           'HRV',           false, v.hrv,           'ms') +
+        '</div>' +
+        '<div class="lt-actions">' +
+          '<button class="lt-save-btn" type="submit" id="lt-save-btn">Save</button>' +
+          '<div class="lt-feedback" id="lt-feedback"></div>' +
+        '</div>' +
+      '</form>';
+
+    card.querySelector('#lt-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      card.querySelectorAll('.lt-error').forEach(function (el) { el.textContent = ''; });
+
+      var valid = true;
+
+      function val(name) {
+        var el = card.querySelector('#lt-' + name);
+        return el ? el.value.trim() : '';
+      }
+      function err(name, msg) { var el = card.querySelector('#lt-err-' + name); if (el) el.textContent = msg; valid = false; }
+
+      var shStr  = val('sleep_hours');
+      var sqStr  = val('sleep_quality');
+      var enStr  = val('energy');
+      var moStr  = val('mood');
+      var rhrStr = val('resting_hr');
+      var hrvStr = val('hrv');
+
+      if (shStr === '') {
+        err('sleep_hours', 'Required');
+      } else {
+        var sh = parseFloat(shStr);
+        if (isNaN(sh) || sh < 0 || sh > 24) err('sleep_hours', 'Must be 0–24');
+      }
+      if (sqStr === '') {
+        err('sleep_quality', 'Required');
+      } else {
+        var sq = parseInt(sqStr, 10);
+        if (isNaN(sq) || sq < 1 || sq > 5) err('sleep_quality', 'Must be 1–5');
+      }
+      if (enStr === '') {
+        err('energy', 'Required');
+      } else {
+        var en = parseInt(enStr, 10);
+        if (isNaN(en) || en < 1 || en > 5) err('energy', 'Must be 1–5');
+      }
+      if (moStr === '') {
+        err('mood', 'Required');
+      } else {
+        var mo = parseInt(moStr, 10);
+        if (isNaN(mo) || mo < 1 || mo > 5) err('mood', 'Must be 1–5');
+      }
+      if (rhrStr !== '') {
+        var rhr = parseInt(rhrStr, 10);
+        if (isNaN(rhr) || rhr < 1 || String(rhr) !== rhrStr) err('resting_hr', 'Positive integer');
+      }
+      if (hrvStr !== '') {
+        var hrv2 = parseInt(hrvStr, 10);
+        if (isNaN(hrv2) || hrv2 < 1 || String(hrv2) !== hrvStr) err('hrv', 'Positive integer');
+      }
+
+      if (!valid) return;
+
+      var btn = card.querySelector('#lt-save-btn');
+      var feedback = card.querySelector('#lt-feedback');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      feedback.className = 'lt-feedback';
+      feedback.textContent = '';
+
+      var payload = {
+        sleep_hours:   parseFloat(shStr),
+        sleep_quality: parseInt(sqStr, 10),
+        energy:        parseInt(enStr, 10),
+        mood:          parseInt(moStr, 10)
+      };
+      if (rhrStr !== '') payload.resting_hr = parseInt(rhrStr, 10);
+      if (hrvStr !== '') payload.hrv = parseInt(hrvStr, 10);
+
+      try {
+        var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          feedback.className = 'lt-feedback lt-feedback--ok';
+          feedback.textContent = 'Saved';
+          setTimeout(function () { feedback.textContent = ''; }, 3000);
+          loadSleepCard(userId);
+          loadReadinessCard(userId);
+          loadRow3(userId);
+        } else {
+          var errData = null;
+          try { errData = await res.json(); } catch (_) {}
+          feedback.className = 'lt-feedback lt-feedback--err';
+          feedback.textContent = (errData && errData.detail) ? String(errData.detail) : 'Save failed (' + res.status + ')';
+        }
+      } catch (_) {
+        feedback.className = 'lt-feedback lt-feedback--err';
+        feedback.textContent = 'Network error — try again';
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    });
+  }
+
+  async function loadLogTodayCard(userId) {
+    var rowLog = document.getElementById('row-log');
+    if (!rowLog) return;
+
+    var card = document.getElementById('log-today-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'log-today-card';
+      card.className = 'card log-today';
+      rowLog.appendChild(card);
+    }
+
+    var today = isoDate(new Date());
+    var existing = null;
+    try {
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
+      if (res.ok) existing = await res.json();
+    } catch (_) {}
+
+    renderLogTodayCard(card, existing, userId, today);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -1486,6 +1645,7 @@
       loadSleepCard(userId);
       loadPerformanceCard(userId);
       loadRecentWorkoutsCard(userId);
+      loadLogTodayCard(userId);
       loadRow3(userId);
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);
