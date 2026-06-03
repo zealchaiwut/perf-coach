@@ -1465,7 +1465,7 @@
 
   /* ---- Log Today card ---- */
 
-  function renderLogTodayCard(card, existing, userId, today) {
+  function renderLogTodayCard(card, existing, userId, selectedDate, todayStr) {
     var v = existing || {};
 
     function field(id, label, required, value, placeholder) {
@@ -1484,7 +1484,8 @@
     card.innerHTML =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>' +
-        '<span class="lt-date-lbl">' + today + '</span>' +
+        '<input type="date" id="lt-date-picker" class="lt-date-input"' +
+          ' value="' + selectedDate + '" max="' + todayStr + '">' +
       '</div>' +
       '<form class="lt-form" id="lt-form" novalidate>' +
         '<div class="lt-grid">' +
@@ -1500,6 +1501,28 @@
           '<div class="lt-feedback" id="lt-feedback"></div>' +
         '</div>' +
       '</form>';
+
+    var initialValues = {
+      sleep_hours:   v.sleep_hours   != null ? String(v.sleep_hours)   : '',
+      sleep_quality: v.sleep_quality != null ? String(v.sleep_quality) : '',
+      energy:        v.energy        != null ? String(v.energy)        : '',
+      mood:          v.mood          != null ? String(v.mood)          : '',
+      resting_hr:    v.resting_hr    != null ? String(v.resting_hr)    : '',
+      hrv:           v.hrv           != null ? String(v.hrv)           : ''
+    };
+
+    var datePicker = card.querySelector('#lt-date-picker');
+    datePicker.addEventListener('change', async function () {
+      var newDate = this.value;
+      if (!newDate || newDate > todayStr) { this.value = selectedDate; return; }
+      var newExisting = null;
+      try {
+        var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
+        if (r.ok) newExisting = await r.json();
+      } catch (_) {}
+      renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
+    });
+
 
     card.querySelector('#lt-form').addEventListener('submit', async function (e) {
       e.preventDefault();
@@ -1572,7 +1595,7 @@
       if (hrvStr !== '') payload.hrv = parseInt(hrvStr, 10);
 
       try {
-        var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today, {
+        var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + selectedDate, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1581,9 +1604,12 @@
           feedback.className = 'lt-feedback lt-feedback--ok';
           feedback.textContent = 'Saved';
           setTimeout(function () { feedback.textContent = ''; }, 3000);
-          loadSleepCard(userId);
-          loadReadinessCard(userId);
-          loadRow3(userId);
+          initialValues = { sleep_hours: shStr, sleep_quality: sqStr, energy: enStr, mood: moStr, resting_hr: rhrStr, hrv: hrvStr };
+          if (selectedDate === todayStr) {
+            loadSleepCard(userId);
+            loadReadinessCard(userId);
+            loadRow3(userId);
+          }
         } else {
           var errData = null;
           try { errData = await res.json(); } catch (_) {}
@@ -1612,14 +1638,14 @@
       rowLog.appendChild(card);
     }
 
-    var today = isoDate(new Date());
+    var todayStr = isoDate(new Date());
     var existing = null;
     try {
-      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
       if (res.ok) existing = await res.json();
     } catch (_) {}
 
-    renderLogTodayCard(card, existing, userId, today);
+    renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
 
   /* ---- Init ---- */
