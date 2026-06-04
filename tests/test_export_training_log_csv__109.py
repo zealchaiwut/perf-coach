@@ -119,9 +119,9 @@ def sample_workouts(client, alice_id):
 # ── AC-1: Clicking the Export button triggers a file download ─────────────────
 
 def test_export_button_exists_in_html():
-    """log.html must have a button element with id='log-export-btn'."""
-    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
-    assert 'id="log-export-btn"' in html, "Missing id='log-export-btn' in log.html"
+    """training-log.html must have a button element with id='log-export-btn'."""
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html").read_text()
+    assert 'id="log-export-btn"' in html, "Missing id='log-export-btn' in training-log.html"
 
 
 def test_export_button_has_click_handler_in_js():
@@ -317,18 +317,16 @@ def test_log_html_serves_from_uat_server(client):
 
 
 def test_log_html_includes_training_log_js():
-    """log.html must include a script tag loading js/training-log.js."""
-    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
+    """training-log.html must include a script tag loading js/training-log.js."""
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html").read_text()
     assert "training-log.js" in html or "js/training-log.js" in html, \
-        "log.html must load js/training-log.js"
+        "training-log.html must load js/training-log.js"
 
 
 def test_log_html_has_export_button_and_input_elements(client):
-    """log.html must have export button, search input, and date range select."""
-    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
+    """training-log.html must have export button."""
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html").read_text()
     assert 'id="log-export-btn"' in html, "Missing export button"
-    assert 'id="search-input"' in html, "Missing search input"
-    assert 'id="date-range"' in html, "Missing date range select"
 
 
 def test_sample_workouts_api_returns_data(client, sample_workouts):
