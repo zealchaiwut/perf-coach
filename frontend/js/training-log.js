@@ -1078,11 +1078,12 @@
     fetch('/api/workouts/' + workoutId, { method: 'DELETE' })
       .then(function (res) {
         if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status);
+        UIStates.showToast('Workout deleted');
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        alert('Could not delete workout. Please try again.');
+        UIStates.showToast('Could not delete workout. Please try again.', true);
       });
   }
 

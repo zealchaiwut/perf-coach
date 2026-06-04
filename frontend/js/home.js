@@ -228,6 +228,8 @@
       row1.insertBefore(card, row1.firstChild);
     }
 
+    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
+
     var today = new Date();
     var from = new Date(today);
     from.setDate(from.getDate() - 6);
@@ -310,6 +312,8 @@
       card.className = 'card sleep-card';
       row1.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = isoDate(new Date());
     var data = null;
@@ -577,12 +581,12 @@
       row2.insertBefore(card, row2.firstChild);
     }
 
-    card.innerHTML =
+    var perfHeader =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
         '<a href="#">All tracks</a>' +
-      '</div>' +
-      '<div class="perf-loading" style="font-size:13px;color:var(--text-tertiary);padding:16px 4px;">Loading…</div>';
+      '</div>';
+    card.innerHTML = perfHeader + UIStates.loadingHTML();
 
     var prs = [];
     try {
@@ -593,7 +597,7 @@
     var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
 
     if (configuredPrs.length === 0) {
-      var emptyLoading = card.querySelector('.perf-loading');
+      var emptyLoading = card.querySelector('.ui-loading');
       if (emptyLoading) emptyLoading.remove();
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
@@ -639,7 +643,7 @@
       mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
     }
 
-    var loadingEl = card.querySelector('.perf-loading');
+    var loadingEl = card.querySelector('.ui-loading');
     if (loadingEl) loadingEl.remove();
 
     var contentEl = document.createElement('div');
@@ -736,6 +740,8 @@
       card.className = 'card workouts';
       row2.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = new Date();
     var from14 = new Date(today);
@@ -937,7 +943,7 @@
         '<a href="/habits">All</a>' +
       '</div>';
 
-    card.innerHTML = header + '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 4px;">Loading…</div>';
+    card.innerHTML = header + UIStates.loadingHTML();
 
     var habits = [];
     try {
@@ -1669,6 +1675,7 @@
           body: JSON.stringify(payload)
         });
         if (res.ok) {
+          UIStates.showToast('Saved');
           feedback.className = 'lt-feedback lt-feedback--ok';
           feedback.textContent = 'Saved';
           setTimeout(function () { feedback.textContent = ''; }, 3000);
