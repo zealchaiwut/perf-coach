@@ -130,7 +130,7 @@
     tr.draggable = true;
     tr.innerHTML =
       '<td class="drag-handle" title="Drag to reorder">⠿</td>' +
-      '<td><input type="text" class="ex-input ex-name" placeholder="Exercise name" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></td>' +
+      '<td><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-sets" placeholder="—" min="1" value="' + (data && data.sets != null ? data.sets : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-reps" placeholder="—" min="1" value="' + (data && data.reps != null ? data.reps : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-weight" placeholder="—" min="0" step="0.5" value="' + (data && data.weight_kg != null ? data.weight_kg : '') + '"></td>' +
@@ -267,6 +267,64 @@
     }
 
     return valid;
+  }
+
+  // ── Type-ahead suggestions ────────────────────────────────────────────────────
+
+  async function loadSuggestions() {
+    try {
+      var to = todayIso();
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 1);
+      var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+      var res = await fetch('/api/workouts?from=' + from + '&to=' + to);
+      if (!res.ok) return;
+      var workouts = await res.json();
+      if (!workouts.length) return;
+
+      var workoutNames = [];
+      var seen = {};
+      workouts.forEach(function (w) {
+        var n = w.name;
+        if (n && !seen[n]) { seen[n] = true; workoutNames.push(n); }
+      });
+
+      var wDL = document.getElementById('workout-name-suggestions');
+      if (wDL) {
+        wDL.innerHTML = '';
+        workoutNames.forEach(function (name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          wDL.appendChild(opt);
+        });
+      }
+
+      var detailIds = workouts.slice(0, 10).map(function (w) { return w.id; });
+      var details = await Promise.all(detailIds.map(function (id) {
+        return fetch('/api/workouts/' + id).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+      }));
+
+      var exSeen = {};
+      var exNames = [];
+      details.forEach(function (w) {
+        if (!w || !w.exercises) return;
+        w.exercises.forEach(function (ex) {
+          var n = ex.name;
+          if (n && !exSeen[n]) { exSeen[n] = true; exNames.push(n); }
+        });
+      });
+
+      var exDL = document.getElementById('exercise-name-suggestions');
+      if (exDL) {
+        exDL.innerHTML = '';
+        exNames.forEach(function (name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          exDL.appendChild(opt);
+        });
+      }
+    } catch (e) { /* suggestions are best-effort; never block the form */ }
   }
 
   // ── Repeat last workout ───────────────────────────────────────────────────────
@@ -521,10 +579,12 @@
 
   window.addEventListener('userReady', function (e) {
     currentUserId = e.detail.userId;
+    loadSuggestions();
   });
 
   window.addEventListener('userChanged', function (e) {
     currentUserId = e.detail.userId;
+    loadSuggestions();
     if (currentView === 'history') {
       loadHistory();
     } else {
