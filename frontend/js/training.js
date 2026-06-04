@@ -482,9 +482,9 @@
 
       showToast(editingWorkoutId ? 'Workout updated!' : 'Workout saved!');
       resetForm();
-      // Return to the Training Log (the canonical history view) — brief delay
-      // so the success toast is visible before we navigate.
-      setTimeout(function () { window.location.href = '/log'; }, 700);
+      var returnParam = new URLSearchParams(location.search).get('return');
+      var dest = (returnParam && /^\//.test(returnParam)) ? returnParam : '/log';
+      setTimeout(function () { window.location.replace(dest); }, 700);
     } catch (e) {
       showToast('Save failed: ' + e.message, true);
     } finally {
