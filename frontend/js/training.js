@@ -32,11 +32,7 @@
   }
 
   function showToast(msg, isError) {
-    var t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'toast' + (isError ? ' toast-error' : ' toast-ok');
-    t.style.display = 'block';
-    setTimeout(function () { t.style.display = 'none'; }, 3000);
+    UIStates.showToast(msg, isError);
   }
 
   // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -497,7 +493,7 @@
   async function loadHistory() {
     if (!currentUserId) return;
     var list = document.getElementById('history-list');
-    list.innerHTML = '<p class="loading-msg">Loading…</p>';
+    UIStates.setLoading(list);
     try {
       // /api/workouts takes a from/to range (YYYY-MM-DD), not a day count.
       function ymd(d) {
@@ -512,15 +508,15 @@
       if (!res.ok) throw new Error('Server error ' + res.status);
       var workouts = await res.json();
       renderHistory(workouts);
-    } catch (e) {
-      list.innerHTML = '<p class="error-msg">Failed to load history: ' + e.message + '</p>';
+    } catch (_) {
+      UIStates.setError(list, 'Something went wrong. Please try again.');
     }
   }
 
   function renderHistory(workouts) {
     var list = document.getElementById('history-list');
     if (!workouts.length) {
-      list.innerHTML = '<p class="empty-msg">No workouts yet.</p>';
+      UIStates.setEmpty(list, 'No workouts yet.', '<a href="/training">Log a workout</a>');
       return;
     }
     list.innerHTML = '';
