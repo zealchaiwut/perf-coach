@@ -37,7 +37,7 @@
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
-    { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/log.html', '/training', '/training.html'] },
+    { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
     { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },

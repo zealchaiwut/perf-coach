@@ -379,7 +379,7 @@ const MOCK_DAILY_METRICS_TODAY = {
   energy: 4,
 };
 
-// MOCK — training log workouts for log.html (30+ days ending 2026-05-27)
+// MOCK — training log workouts for training-log.html (30+ days ending 2026-05-27)
 // Shape mirrors GET /training_log response workouts array.
 const MOCK_WORKOUTS = [
   // Week May 25–31
