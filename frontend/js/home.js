@@ -842,6 +842,18 @@
     attachHabitCellListeners(card, [habit], weekDates, todayStr, userId);
   }
 
+  function showHabitError(card, msg) {
+    var existing = card.querySelector('.habit-inline-error');
+    if (existing) existing.remove();
+    var el = document.createElement('div');
+    el.className = 'habit-inline-error';
+    el.textContent = msg;
+    var footer = card.querySelector('.habits-streak-footer');
+    if (footer) footer.insertAdjacentElement('beforebegin', el);
+    else card.appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 4000);
+  }
+
   function attachHabitCellListeners(card, habits, weekDates, todayStr, userId) {
     var habitMap = {};
     habits.forEach(function (h) { habitMap[h.id] = h; });
@@ -854,18 +866,55 @@
         var logId = cell.getAttribute('data-log-id');
         var habit = habitMap[hid];
         if (!habit) return;
+
+        var wasLogged = !!logId;
+        if (wasLogged) {
+          cell.classList.remove('done');
+          cell.innerHTML = '';
+          cell.removeAttribute('data-log-id');
+        } else {
+          cell.classList.add('done');
+          cell.innerHTML = '<i class="ti ti-check"></i>';
+        }
+
         try {
-          if (logId) {
-            await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
+          if (wasLogged) {
+            var delRes = await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
+            if (!delRes.ok) throw new Error('delete failed');
           } else {
-            await fetch('/api/habits/logs', {
+            var postRes = await fetch('/api/habits/logs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ habit_id: hid, logged_date: dateStr })
             });
+            if (!postRes.ok) throw new Error('post failed');
+            var newLog = await postRes.json();
+            cell.setAttribute('data-log-id', String(newLog.id));
           }
-        } catch (_) { return; }
-        await refreshHabitRow(card, habit, weekDates, todayStr, userId);
+        } catch (_) {
+          if (wasLogged) {
+            cell.classList.add('done');
+            cell.innerHTML = '<i class="ti ti-check"></i>';
+            cell.setAttribute('data-log-id', logId);
+          } else {
+            cell.classList.remove('done');
+            cell.innerHTML = '';
+            cell.removeAttribute('data-log-id');
+          }
+          showHabitError(card, 'Could not save — try again');
+          return;
+        }
+
+        try {
+          var sr = await fetch('/api/habits/stats?habit_id=' + hid + '&days=30');
+          if (sr.ok) {
+            var sd = await sr.json();
+            var badge = card.querySelector('[data-streak-badge="' + hid + '"]');
+            if (badge) badge.textContent = habit.name.split(' ')[0] + ' ' + (sd.streak || 0) + 'd';
+            var streakCell = card.querySelector('[data-habit-row="' + hid + '"] .streak-col .num');
+            if (streakCell) streakCell.textContent = sd.streak || 0;
+          }
+        } catch (_) {}
       });
     });
   }
@@ -1328,21 +1377,35 @@
       bigDay ? 'Peak: ' + bigDay : '—', '');
   }
 
-  function _buildWeightQuickInput() {
+  function _buildWeightQuickInput(prefillValue) {
+    var valAttr = (prefillValue != null) ? ' value="' + prefillValue + '"' : '';
     return '<div class="trend-quick-input">' +
       '<input type="number" class="trend-weight-input" step="0.1" min="20" max="300"' +
-        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg">' +
+        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg"' + valAttr + '>' +
       '<button type="button" class="trend-quick-save-btn" data-save="weight">Save</button>' +
+      '<span class="trend-weight-error" style="display:none;font-size:11px;color:#dc2626;margin-left:6px;"></span>' +
     '</div>';
   }
 
   function _wireWeightSave(cardEl, userId) {
     var btn = cardEl.querySelector('[data-save="weight"]');
     var inp = cardEl.querySelector('.trend-weight-input');
+    var errEl = cardEl.querySelector('.trend-weight-error');
     if (!btn || !inp) return;
+
+    function showWeightErr(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg;
+      errEl.style.display = 'inline';
+      setTimeout(function () { errEl.style.display = 'none'; }, 4000);
+    }
+
     btn.addEventListener('click', async function () {
-      var val = parseFloat(inp.value);
-      if (!val || val < 20 || val > 300) { inp.focus(); return; }
+      var raw = inp.value.trim();
+      if (errEl) errEl.style.display = 'none';
+      if (raw === '' || isNaN(Number(raw))) { showWeightErr('Enter a number'); inp.focus(); return; }
+      var val = parseFloat(raw);
+      if (val < 20 || val > 300) { showWeightErr('Must be 20–300 kg'); inp.focus(); return; }
       btn.disabled = true;
       try {
         var todayStr = isoDate(new Date());
@@ -1358,17 +1421,21 @@
             var entries = await wRes.json();
             renderWeightTrendCard(cardEl, entries, userId);
           }
+        } else {
+          showWeightErr('Save failed — try again');
         }
-      } catch (_) { /* silent */ }
+      } catch (_) {
+        showWeightErr('Network error — try again');
+      }
       btn.disabled = false;
     });
   }
 
   function renderWeightTrendCard(el, weightEntries, userId) {
     var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
-    var quickInput = _buildWeightQuickInput();
 
     if (!weightEntries || !weightEntries.length) {
+      var quickInput = _buildWeightQuickInput(null);
       el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weight', '30d') + quickInput;
       _wireWeightSave(el, userId);
       return;
@@ -1400,6 +1467,7 @@
       pillHTML = _trendDeltaPill('—', 'flat');
     }
 
+    var quickInput = _buildWeightQuickInput(latest.weight_kg.toFixed(1));
     el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weight', '30d',
       latest.weight_kg.toFixed(1), 'kg', pillHTML,
       _trendAreaSpark(sparkVals, '#2b4ca8', '#2b4ca8', null),
