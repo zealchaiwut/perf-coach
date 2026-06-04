@@ -269,6 +269,50 @@
     return valid;
   }
 
+  // ── Repeat last workout ───────────────────────────────────────────────────────
+
+  async function repeatLastWorkout() {
+    var btn = document.getElementById('repeat-last-btn');
+    btn.disabled = true;
+    try {
+      var to = todayIso();
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 3);
+      var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+      var res = await fetch('/api/workouts?from=' + from + '&to=' + to);
+      if (!res.ok) throw new Error('Server error ' + res.status);
+      var workouts = await res.json();
+
+      if (!workouts.length) {
+        showToast('No previous workout found.');
+        return;
+      }
+
+      var fullRes = await fetch('/api/workouts/' + workouts[0].id);
+      if (!fullRes.ok) throw new Error('Server error ' + fullRes.status);
+      var w = await fullRes.json();
+
+      editingWorkoutId = null;
+      document.getElementById('workout-name').value = w.name;
+      document.getElementById('workout-date').value = todayIso();
+      document.getElementById('workout-remarks').value = w.remarks || '';
+      document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
+      document.getElementById('exercises-tbody').innerHTML = '';
+      document.getElementById('exercises-error').textContent = '';
+      document.getElementById('name-error').textContent = '';
+      document.getElementById('save-workout-btn').textContent = 'Save workout';
+      setSelectedType(w.workout_type);
+      (w.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+      if (!w.exercises || !w.exercises.length) addExerciseRow(null);
+      showToast('“' + w.name + '” prefilled — date set to today.');
+    } catch (e) {
+      showToast('Could not load last workout: ' + e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // ── Save workout ──────────────────────────────────────────────────────────────
 
   async function saveWorkout() {
@@ -457,6 +501,8 @@
     document.getElementById('add-exercise-btn').addEventListener('click', function () {
       addExerciseRow(null);
     });
+
+    document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);
 
     document.getElementById('save-workout-btn').addEventListener('click', saveWorkout);
 
