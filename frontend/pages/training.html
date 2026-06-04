@@ -487,7 +487,8 @@
       <div class="workout-meta">
         <div class="meta-field">
           <label for="workout-name">Name <span style="color:#c0392b">*</span></label>
-          <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off">
+          <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
+          <datalist id="workout-name-suggestions"></datalist>
           <p id="name-error" class="field-error"></p>
         </div>
 
@@ -533,6 +534,7 @@
             <tbody id="exercises-tbody"></tbody>
           </table>
         </div>
+        <datalist id="exercise-name-suggestions"></datalist>
         <p id="exercises-error" class="error-msg"></p>
         <div class="table-actions">
           <button id="add-exercise-btn" type="button">+ Add exercise</button>
