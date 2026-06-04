@@ -40,6 +40,8 @@ async function loadAndRender(userId) {
   currentUserId = userId;
   const today = getLocalDateString();
   clearError();
+  const list = document.getElementById('habit-list');
+  if (list) UIStates.setLoading(list);
   try {
     const [habitsRes, logsRes] = await Promise.all([
       fetch('/api/habits'),
@@ -56,6 +58,7 @@ async function loadAndRender(userId) {
     updateRefreshTimestamp();
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
+    if (list) UIStates.setError(list, 'Something went wrong. Please try again.');
   }
 }
 
@@ -212,6 +215,7 @@ async function toggleLog(habitId, logId, checkbox) {
         body: JSON.stringify({ habit_id: habitId, logged_date: today }),
       });
       if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
+      UIStates.showToast('Habit logged');
     } catch (e) {
       showError('Failed to log habit: ' + e.message);
       checkbox.checked = false;
@@ -254,6 +258,7 @@ async function deleteHabit(habitId) {
   try {
     const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
+    UIStates.showToast('Habit deleted');
     await loadAndRender(currentUserId);
   } catch (e) {
     showError('Failed to delete habit: ' + e.message);
@@ -298,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       closeModal();
+      UIStates.showToast('Habit added');
       await loadAndRender(currentUserId);
     } catch (e) {
       errorEl.textContent = 'Failed to add habit: ' + e.message;

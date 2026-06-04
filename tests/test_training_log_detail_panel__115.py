@@ -44,7 +44,7 @@ def test_training_log_detail_panel__clicking_workout_opens_panel(client):
     AC: Clicking any workout row opens the detail panel populated with that workout's data
     Tests that the training log page loads and is ready for interaction
     """
-    r = client.get("/log.html")
+    r = client.get("/log")
     assert r.status_code == 200, f"Training log page should load; got {r.status_code}"
     assert "training-log" in r.text.lower() or "workout" in r.text.lower(), \
         "Training log page should contain workout-related content"
@@ -146,7 +146,7 @@ def test_training_log_detail_panel__vanilla_js_no_framework_deps(client):
     no new framework dependencies are introduced
     Tests that training-log.js is loaded and available
     """
-    r = client.get("/log.html")
+    r = client.get("/log")
     assert r.status_code == 200, "Training log page should load"
 
     # Check that training-log.js is referenced in the HTML
@@ -161,7 +161,7 @@ def test_training_log_detail_panel__dismissible_via_escape_api_stability(client,
     Tests that the API remains stable and accessible after interactions
     """
     # Verify the training log page is still accessible
-    r = client.get("/log.html")
+    r = client.get("/log")
     assert r.status_code == 200, "Training log page must remain accessible after panel dismissal"
 
     # API must remain stable during panel interactions
@@ -215,7 +215,7 @@ def test_training_log_detail_panel__mobile_sheet_overlay(client):
     AC: Mobile sheet includes a visible back/close button in the header
     Tests that the page loads on all viewport sizes
     """
-    r = client.get("/log.html")
+    r = client.get("/log")
     assert r.status_code == 200, "Training log page must load on mobile viewports"
 
     # Page should contain workout content for mobile display
@@ -265,7 +265,7 @@ def test_training_log_detail_panel__focus_return_on_close(client, test_user_id):
     Tests that API and page structure support focus management
     """
     # Confirm page and API are available for focus management
-    r = client.get("/log.html")
+    r = client.get("/log")
     assert r.status_code == 200
 
     r = client.get(f"/api/workouts?user_id={test_user_id}&from=2026-01-01&to=2026-12-31")

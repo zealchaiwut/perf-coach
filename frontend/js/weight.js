@@ -376,6 +376,8 @@ let _sessionUserId = null;
 async function loadAndRender() {
   if (!_sessionUserId) return;
   clearApiError();
+  const list = document.getElementById('entry-list');
+  if (list && !allEntries.length) UIStates.setLoading(list);
   try {
     const res = await fetch('/api/weight');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -385,6 +387,7 @@ async function loadAndRender() {
     renderChart(allEntries);
   } catch (e) {
     showApiError('Unable to load data: ' + e.message);
+    if (list) UIStates.setError(list, 'Something went wrong. Please try again.');
   }
 }
 
@@ -395,6 +398,7 @@ async function deleteEntry(entryId) {
     const res = await fetch(`/api/weight/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
     if (res.status === 404) throw new Error('Entry not found');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
+    UIStates.showToast('Entry deleted');
     await loadAndRender();
   } catch (e) {
     showApiError('Delete failed: ' + e.message);
@@ -417,6 +421,7 @@ async function patchEntry(entryId, weight_kg, recorded_date, inlineErrorEl) {
       return;
     }
     if (!res.ok) throw new Error(`Server error ${res.status}`);
+    UIStates.showToast('Entry updated');
     await loadAndRender();
   } catch (e) {
     showApiError('Update failed: ' + e.message);
@@ -497,6 +502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
 
+      UIStates.showToast('Entry saved');
       form.reset();
       dateInput.value = todayISO();
       await loadAndRender();

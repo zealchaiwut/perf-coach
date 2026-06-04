@@ -242,17 +242,15 @@ def test_exercise_breakdown_notes__both_empty(client, user_id):
 
 # ─── AC-8: Notes section is read-only (no edit affordance) ─────────────────────
 
+@pytest.mark.skip(reason="log.html removed by #323 (dead code); detail-notes-* IDs existed only there, not in training-log.html")
 def test_notes_section__read_only(client, user_id):
     """AC: Notes section is read-only; no edit field is present in the HTML."""
-    # This test validates that the HTML (log.html) for the notes section is read-only
     import pathlib
     html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
 
-    # Check that detail-notes-section exists and contains a p.detail-notes-text
     assert 'id="detail-notes-section"' in html, "Missing detail-notes-section in log.html"
     assert 'id="detail-notes-text"' in html, "Missing detail-notes-text in log.html"
 
-    # Verify the notes element is a <p> (not a textarea or input)
     notes_start = html.find('id="detail-notes-text"')
     notes_context = html[max(0, notes_start - 50):min(len(html), notes_start + 100)]
     assert '<p' in notes_context or 'class=' in notes_context, \
@@ -266,19 +264,18 @@ def test_notes_section__read_only(client, user_id):
 def test_not_implemented__hr_zones_section_not_in_html():
     """AC (out of scope): HR-zones section is not implemented."""
     import pathlib
-    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html").read_text()
 
-    # These should NOT be in the HTML
     assert "HR-zones" not in html and "hr-zones" not in html, \
         "HR-zones section should not be implemented in this sprint"
 
 
+@pytest.mark.skip(reason="log.html removed by #323; training-log.html now has dp-splits (implemented in later sprint)")
 def test_not_implemented__splits_section_not_in_html():
     """AC (out of scope): Splits section is not implemented."""
     import pathlib
-    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html").read_text()
+    html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html").read_text()
 
-    # These should NOT be in the HTML
     assert "Splits" not in html and "splits" not in html, \
         "Splits section should not be implemented in this sprint"
 

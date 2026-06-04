@@ -244,9 +244,18 @@
     cell.addEventListener('click', () => openDayModal(dateStr));
   }
 
+  function updateTodayBtn() {
+    var btn = document.getElementById('today-btn');
+    if (!btn) return;
+    var now = new Date();
+    var isCurrentMonth = state.year === now.getFullYear() && state.month === now.getMonth();
+    btn.disabled = isCurrentMonth;
+  }
+
   function render() {
     const { year, month } = state;
     const today = new Date();
+    updateTodayBtn();
     const showWeight = document.getElementById('filter-weight').checked;
     const showHabits = document.getElementById('filter-habits').checked;
     const showTraining = document.getElementById('filter-training').checked;
@@ -308,7 +317,17 @@
   async function loadData() {
     const seq = ++loadSeq;
     if (!currentUserId) return;
-    await fetchCalendarData(state.year, state.month);
+    const grid = document.getElementById('cal-grid-cells');
+    if (grid && !grid.querySelector('.cal-cell')) {
+      UIStates.setLoading(grid, 'Loading calendar…');
+    }
+    try {
+      await fetchCalendarData(state.year, state.month);
+    } catch (_) {
+      if (seq !== loadSeq) return;
+      if (grid) UIStates.setError(grid, 'Something went wrong. Please try again.');
+      return;
+    }
     if (seq !== loadSeq) return;
     render();
   }
@@ -665,6 +684,7 @@
 
         feedbackEl.textContent = 'Saved!';
         feedbackEl.className = 'day-modal-metrics-feedback day-modal-metrics-feedback--success';
+        UIStates.showToast('Wellness saved');
         setTimeout(() => {
           feedbackEl.textContent = '';
           feedbackEl.className = 'day-modal-metrics-feedback';
@@ -672,6 +692,7 @@
       } catch (err) {
         feedbackEl.textContent = 'Failed: ' + err.message;
         feedbackEl.className = 'day-modal-metrics-feedback day-modal-metrics-feedback--error';
+        UIStates.showToast('Something went wrong. Please try again.', true);
       }
       saveBtn.disabled = false;
     });
@@ -766,6 +787,7 @@
         }
         if (!res.ok) throw new Error(`Server error ${res.status}`);
         modalDirty = true;
+        UIStates.showToast('Weight saved');
         form.remove();
         const p = document.createElement('p');
         p.className = 'day-modal-weight-value';

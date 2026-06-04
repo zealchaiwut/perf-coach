@@ -61,7 +61,12 @@
       color: #374151;
     }
 
-    .cal-today-btn:hover { background: #f3f4f6; }
+    .cal-today-btn:hover:not(:disabled) { background: #f3f4f6; }
+
+    .cal-today-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
 
     .cal-filters {
       display: flex;
@@ -732,6 +737,7 @@
   </main>
 
   <script src="js/nav.js"></script>
+  <script src="js/ui-states.js"></script>
   <script src="js/calendar.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>

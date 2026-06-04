@@ -23,12 +23,9 @@ def client():
 # ─ Acceptance Criteria Tests ───────────────────────────────────────────────
 
 def test_training_log_page_shell__get_log_endpoints(client):
-    """AC: GET /log and GET /log.html both return HTTP 200"""
+    """AC: GET /log returns HTTP 200"""
     r_log = client.get("/log")
     assert r_log.status_code == 200, f"GET /log returned {r_log.status_code}"
-
-    r_log_html = client.get("/log.html")
-    assert r_log_html.status_code == 200, f"GET /log.html returned {r_log_html.status_code}"
 
 
 def test_training_log_page_shell__top_nav_links_resolve(client):

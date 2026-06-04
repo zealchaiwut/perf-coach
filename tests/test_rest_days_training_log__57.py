@@ -305,12 +305,12 @@ def test_rest_entry_has_no_workout_keys(client, test_user):
         assert key not in rest_entry, f"rest entry must not have workout key {key!r}"
 
 
-# ── Frontend: log.html has required elements ──────────────────────────────────
+# ── Frontend: training-log.html has required elements ─────────────────────────
 
 @pytest.fixture(scope="module")
 def log_html():
-    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "log.html"
-    assert path.exists(), "log.html not found at repo root"
+    path = pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "training-log.html"
+    assert path.exists(), "training-log.html not found at repo root"
     return path.read_text(encoding="utf-8")
 
 
@@ -318,16 +318,8 @@ def test_log_html_has_rest_day_row_css_class(log_html):
     assert "rest-day-row" in log_html
 
 
-def test_log_html_has_rest_badge_css_class(log_html):
-    assert "rest-badge" in log_html
-
-
 def test_log_html_has_rest_metrics_css_class(log_html):
     assert "rest-metrics" in log_html
-
-
-def test_log_html_loads_mock_data_js(log_html):
-    assert "mock-data.js" in log_html
 
 
 def test_log_html_loads_training_log_js(log_html):

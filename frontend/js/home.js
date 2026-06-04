@@ -39,6 +39,12 @@
       String(d.getDate()).padStart(2, '0');
   }
 
+  function addISODays(isoStr, n) {
+    var d = new Date(isoStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return isoDate(d);
+  }
+
   function avgOf(arr) {
     var vals = arr.filter(function (v) { return v != null && !isNaN(v); });
     if (!vals.length) return null;
@@ -228,6 +234,8 @@
       row1.insertBefore(card, row1.firstChild);
     }
 
+    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
+
     var today = new Date();
     var from = new Date(today);
     from.setDate(from.getDate() - 6);
@@ -310,6 +318,8 @@
       card.className = 'card sleep-card';
       row1.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = isoDate(new Date());
     var data = null;
@@ -577,12 +587,12 @@
       row2.insertBefore(card, row2.firstChild);
     }
 
-    card.innerHTML =
+    var perfHeader =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
         '<a href="#">All tracks</a>' +
-      '</div>' +
-      '<div class="perf-loading" style="font-size:13px;color:var(--text-tertiary);padding:16px 4px;">Loading…</div>';
+      '</div>';
+    card.innerHTML = perfHeader + UIStates.loadingHTML();
 
     var prs = [];
     try {
@@ -593,7 +603,7 @@
     var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
 
     if (configuredPrs.length === 0) {
-      var emptyLoading = card.querySelector('.perf-loading');
+      var emptyLoading = card.querySelector('.ui-loading');
       if (emptyLoading) emptyLoading.remove();
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
@@ -639,7 +649,7 @@
       mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
     }
 
-    var loadingEl = card.querySelector('.perf-loading');
+    var loadingEl = card.querySelector('.ui-loading');
     if (loadingEl) loadingEl.remove();
 
     var contentEl = document.createElement('div');
@@ -736,6 +746,8 @@
       card.className = 'card workouts';
       row2.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = new Date();
     var from14 = new Date(today);
@@ -937,7 +949,7 @@
         '<a href="/habits">All</a>' +
       '</div>';
 
-    card.innerHTML = header + '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 4px;">Loading…</div>';
+    card.innerHTML = header + UIStates.loadingHTML();
 
     var habits = [];
     try {
@@ -1549,11 +1561,19 @@
       '</div>';
     }
 
+    var isOnToday = selectedDate === todayStr;
     card.innerHTML =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>' +
-        '<input type="date" id="lt-date-picker" class="lt-date-input"' +
-          ' value="' + selectedDate + '" max="' + todayStr + '">' +
+        '<div class="lt-date-nav">' +
+          '<button class="lt-nav-btn" id="lt-prev-btn" type="button" aria-label="Previous day">&#8249;</button>' +
+          '<input type="date" id="lt-date-picker" class="lt-date-input"' +
+            ' value="' + selectedDate + '" max="' + todayStr + '">' +
+          '<button class="lt-today-btn' + (isOnToday ? ' lt-today-btn--active' : '') + '"' +
+            ' id="lt-today-btn" type="button"' + (isOnToday ? ' disabled' : '') + '>Today</button>' +
+          '<button class="lt-nav-btn" id="lt-next-btn" type="button" aria-label="Next day"' +
+            (isOnToday ? ' disabled' : '') + '>&#8250;</button>' +
+        '</div>' +
       '</div>' +
       '<form class="lt-form" id="lt-form" novalidate>' +
         '<div class="lt-grid">' +
@@ -1579,17 +1599,27 @@
       hrv:           v.hrv           != null ? String(v.hrv)           : ''
     };
 
-    var datePicker = card.querySelector('#lt-date-picker');
-    datePicker.addEventListener('change', async function () {
-      var newDate = this.value;
-      if (!newDate || newDate > todayStr) { this.value = selectedDate; return; }
+    async function navigateDateTo(newDate) {
+      if (!newDate || newDate > todayStr || newDate === selectedDate) return;
       var newExisting = null;
       try {
         var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
         if (r.ok) newExisting = await r.json();
       } catch (_) {}
       renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
-    });
+    }
+
+    var datePicker = card.querySelector('#lt-date-picker');
+    datePicker.addEventListener('change', function () { navigateDateTo(this.value); });
+
+    var prevBtn = card.querySelector('#lt-prev-btn');
+    if (prevBtn) prevBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, -1)); });
+
+    var nextBtn = card.querySelector('#lt-next-btn');
+    if (nextBtn) nextBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, 1)); });
+
+    var todayNavBtn = card.querySelector('#lt-today-btn');
+    if (todayNavBtn) todayNavBtn.addEventListener('click', function () { navigateDateTo(todayStr); });
 
 
     card.querySelector('#lt-form').addEventListener('submit', async function (e) {
@@ -1669,6 +1699,7 @@
           body: JSON.stringify(payload)
         });
         if (res.ok) {
+          UIStates.showToast('Saved');
           feedback.className = 'lt-feedback lt-feedback--ok';
           feedback.textContent = 'Saved';
           setTimeout(function () { feedback.textContent = ''; }, 3000);

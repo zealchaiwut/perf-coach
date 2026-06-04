@@ -803,7 +803,8 @@
         var isRun  = workout.workout_type === 'run';
         var isBike = workout.workout_type === 'bike';
 
-        if (editBtn) editBtn.href = '/workout-edit/' + workout.id;
+        var returnUrl = '/log?week=' + toISODate(currentMonday);
+        if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
 
         var isStrava = (workout.source === 'strava') || !!workout.strava_activity_url;
         if (isStrava) {
@@ -1078,11 +1079,12 @@
     fetch('/api/workouts/' + workoutId, { method: 'DELETE' })
       .then(function (res) {
         if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status);
+        UIStates.showToast('Workout deleted');
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        alert('Could not delete workout. Please try again.');
+        UIStates.showToast('Could not delete workout. Please try again.', true);
       });
   }
 
@@ -1318,6 +1320,7 @@
     var today = new Date();
     today.setHours(0, 0, 0, 0);
     var todayStr = toISODate(today);
+    var isCurrentWeek = weekContainsToday(monday);
 
     var pillsHtml = '';
     for (var i = 0; i < 7; i++) {
@@ -1346,6 +1349,7 @@
       '<div class="ws-nav">' +
         '<button id="week-prev" class="ws-chevron" aria-label="Previous week">&#8249;</button>' +
         '<span id="week-label" class="ws-label">' + buildWeekLabel(monday) + '</span>' +
+        '<button id="week-today" class="ws-today-btn"' + (isCurrentWeek ? ' disabled' : '') + '>Today</button>' +
         '<button id="week-next" class="ws-chevron" aria-label="Next week">&#8250;</button>' +
       '</div>' +
       '<div class="ws-pills">' + pillsHtml + '</div>';
@@ -1360,6 +1364,12 @@
     document.getElementById('week-next').addEventListener('click', function () {
       currentMonday = new Date(currentMonday);
       currentMonday.setDate(currentMonday.getDate() + 7);
+      pushWeekParam(currentMonday);
+      loadAndRender(currentMonday);
+    });
+
+    document.getElementById('week-today').addEventListener('click', function () {
+      currentMonday = getMondayOf(new Date());
       pushWeekParam(currentMonday);
       loadAndRender(currentMonday);
     });
