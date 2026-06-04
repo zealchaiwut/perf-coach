@@ -244,9 +244,18 @@
     cell.addEventListener('click', () => openDayModal(dateStr));
   }
 
+  function updateTodayBtn() {
+    var btn = document.getElementById('today-btn');
+    if (!btn) return;
+    var now = new Date();
+    var isCurrentMonth = state.year === now.getFullYear() && state.month === now.getMonth();
+    btn.disabled = isCurrentMonth;
+  }
+
   function render() {
     const { year, month } = state;
     const today = new Date();
+    updateTodayBtn();
     const showWeight = document.getElementById('filter-weight').checked;
     const showHabits = document.getElementById('filter-habits').checked;
     const showTraining = document.getElementById('filter-training').checked;

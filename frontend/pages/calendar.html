@@ -61,7 +61,12 @@
       color: #374151;
     }
 
-    .cal-today-btn:hover { background: #f3f4f6; }
+    .cal-today-btn:hover:not(:disabled) { background: #f3f4f6; }
+
+    .cal-today-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
 
     .cal-filters {
       display: flex;
