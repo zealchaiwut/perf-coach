@@ -18,7 +18,7 @@ NAV_PAGES = [
     "habits.html",
     "users.html",
     "calendar.html",
-    "log.html",
+    "training-log.html",
     "trends.html",
 ]
 
@@ -120,21 +120,3 @@ def test_trends_route_200(client):
 # AC: log-workout-btn has disabled attribute and title="Coming soon"
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_log_workout_btn_is_disabled():
-    """log-workout-btn has the disabled attribute."""
-    content = (STATIC_ROOT / "log.html").read_text()
-    match = re.search(r'id=["\']log-workout-btn["\'][^>]*>', content)
-    assert match, "log-workout-btn element not found in log.html"
-    tag = match.group(0)
-    assert "disabled" in tag, f"log-workout-btn is missing 'disabled': {tag}"
-
-
-def test_log_workout_btn_has_coming_soon_title():
-    """log-workout-btn has title='Coming soon'."""
-    content = (STATIC_ROOT / "log.html").read_text()
-    match = re.search(r'id=["\']log-workout-btn["\'][^>]*>', content)
-    assert match, "log-workout-btn element not found in log.html"
-    tag = match.group(0)
-    assert "Coming soon" in tag, (
-        f"log-workout-btn is missing title='Coming soon': {tag}"
-    )

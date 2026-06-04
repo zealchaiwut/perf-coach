@@ -26,40 +26,40 @@ def client():
 # ── Skeleton CSS ──────────────────────────────────────────────────────────────
 
 def test_log_html_has_skeleton_shimmer_animation(client):
-    """log.html must define @keyframes skeleton-shimmer for loading animation."""
+    """training-log.html must define @keyframes skeleton-shimmer for loading animation."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-shimmer" in res.text, (
-        "log.html must define @keyframes skeleton-shimmer for list/panel loading animation"
+        "training-log.html must define @keyframes skeleton-shimmer for list/panel loading animation"
     )
 
 
 def test_log_html_has_skeleton_row_class(client):
-    """log.html must define .skeleton-row for list loading placeholder."""
+    """training-log.html must define .skeleton-row for list loading placeholder."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-row" in res.text, (
-        "log.html must define .skeleton-row CSS for list skeleton rows"
+        "training-log.html must define .skeleton-row CSS for list skeleton rows"
     )
 
 
 def test_log_html_has_skeleton_stat_grid_class(client):
-    """log.html must define .skeleton-stat-grid for detail panel loading."""
+    """training-log.html must define .skeleton-stat-grid for detail panel loading."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-stat-grid" in res.text, (
-        "log.html must define .skeleton-stat-grid CSS for detail panel loading"
+        "training-log.html must define .skeleton-stat-grid CSS for detail panel loading"
     )
 
 
 # ── List error state ──────────────────────────────────────────────────────────
 
 def test_log_html_has_list_error_element(client):
-    """log.html must include #log-error-msg for list-level API error state."""
+    """training-log.html must include #log-error-msg for list-level API error state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-error-msg"' in res.text, (
-        "log.html must include #log-error-msg for list error state"
+        "training-log.html must include #log-error-msg for list error state"
     )
 
 
@@ -79,18 +79,18 @@ def test_log_html_list_error_has_retry_button(client):
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-retry-btn"' in res.text, (
-        "log.html must include #log-retry-btn inside the list error state"
+        "training-log.html must include #log-retry-btn inside the list error state"
     )
 
 
 # ── Detail panel loading skeleton ─────────────────────────────────────────────
 
 def test_log_html_has_detail_panel_loading(client):
-    """log.html must include #detail-panel-loading for the panel skeleton state."""
+    """training-log.html must include #detail-panel-loading for the panel skeleton state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-panel-loading"' in res.text, (
-        "log.html must include #detail-panel-loading for detail panel loading skeleton"
+        "training-log.html must include #detail-panel-loading for detail panel loading skeleton"
     )
 
 
@@ -108,11 +108,11 @@ def test_log_html_detail_panel_loading_initially_hidden(client):
 # ── Detail panel error state ──────────────────────────────────────────────────
 
 def test_log_html_has_detail_panel_error(client):
-    """log.html must include #detail-panel-error for the panel error state."""
+    """training-log.html must include #detail-panel-error for the panel error state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-panel-error"' in res.text, (
-        "log.html must include #detail-panel-error for detail panel error state"
+        "training-log.html must include #detail-panel-error for detail panel error state"
     )
 
 
@@ -130,11 +130,11 @@ def test_log_html_detail_panel_error_initially_hidden(client):
 # ── Empty state ───────────────────────────────────────────────────────────────
 
 def test_log_html_has_empty_state_element(client):
-    """log.html must include #log-empty-msg for the zero-workouts empty state."""
+    """training-log.html must include #log-empty-msg for the zero-workouts empty state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-empty-msg"' in res.text, (
-        "log.html must include #log-empty-msg for the empty state"
+        "training-log.html must include #log-empty-msg for the empty state"
     )
 
 
@@ -154,27 +154,27 @@ def test_log_html_empty_state_has_cta(client):
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-empty-cta"' in res.text, (
-        "log.html must include #log-empty-cta inside the empty state"
+        "training-log.html must include #log-empty-cta inside the empty state"
     )
 
 
 # ── Detail panel action buttons ───────────────────────────────────────────────
 
 def test_log_html_has_detail_edit_btn(client):
-    """log.html must include #detail-edit-btn in the detail panel footer."""
+    """training-log.html must include #detail-edit-btn in the detail panel footer."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-edit-btn"' in res.text, (
-        "log.html must include #detail-edit-btn in the detail panel footer"
+        "training-log.html must include #detail-edit-btn in the detail panel footer"
     )
 
 
 def test_log_html_has_detail_strava_btn(client):
-    """log.html must include #detail-strava-btn in the detail panel footer."""
+    """training-log.html must include #detail-strava-btn in the detail panel footer."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-strava-btn"' in res.text, (
-        "log.html must include #detail-strava-btn in the detail panel footer"
+        "training-log.html must include #detail-strava-btn in the detail panel footer"
     )
 
 
@@ -250,58 +250,58 @@ def test_training_log_js_links_edit_to_workout_edit(client):
 # ── CSS classes ───────────────────────────────────────────────────────────────
 
 def test_log_html_has_empty_state_css(client):
-    """log.html must define .empty-state CSS class."""
+    """training-log.html must define .empty-state CSS class."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".empty-state" in res.text, (
-        "log.html must define .empty-state CSS for the empty state container"
+        "training-log.html must define .empty-state CSS for the empty state container"
     )
 
 
 def test_log_html_has_list_error_state_css(client):
-    """log.html must define .list-error-state CSS class."""
+    """training-log.html must define .list-error-state CSS class."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".list-error-state" in res.text, (
-        "log.html must define .list-error-state CSS for the list error visual treatment"
+        "training-log.html must define .list-error-state CSS for the list error visual treatment"
     )
 
 
 def test_log_html_has_detail_error_state_css(client):
-    """log.html must define .detail-error-state CSS class."""
+    """training-log.html must define .detail-error-state CSS class."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".detail-error-state" in res.text, (
-        "log.html must define .detail-error-state CSS for the detail panel error treatment"
+        "training-log.html must define .detail-error-state CSS for the detail panel error treatment"
     )
 
 
 def test_log_html_has_detail_panel_footer_css(client):
-    """log.html must define .detail-panel-footer CSS for the action button row."""
+    """training-log.html must define .detail-panel-footer CSS for the action button row."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "detail-panel-footer" in res.text, (
-        "log.html must define .detail-panel-footer CSS for the Edit/Strava button footer"
+        "training-log.html must define .detail-panel-footer CSS for the Edit/Strava button footer"
     )
 
 
 # ── Mobile layout ─────────────────────────────────────────────────────────────
 
 def test_log_html_has_mobile_media_query(client):
-    """log.html must include a @media (max-width: 599px) block for mobile layout."""
+    """training-log.html must include a @media (max-width: 599px) block for mobile layout."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "max-width: 599px" in res.text or "max-width:599px" in res.text, (
-        "log.html must include a @media (max-width: 599px) block for mobile layout"
+        "training-log.html must include a @media (max-width: 599px) block for mobile layout"
     )
 
 
 def test_log_html_week_pills_overflow_auto(client):
-    """log.html must set overflow-x: auto on .week-pills to make week strip scrollable."""
+    """training-log.html must set overflow-x: auto on .week-pills to make week strip scrollable."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "overflow-x: auto" in res.text or "overflow-x:auto" in res.text, (
-        "log.html must set overflow-x: auto on .week-pills to prevent overflow at 375px"
+        "training-log.html must set overflow-x: auto on .week-pills to prevent overflow at 375px"
     )
 
 
@@ -350,7 +350,7 @@ def test_log_html_mobile_close_btn_tap_target(client):
 
 
 def test_log_html_main_nav_scrollable_on_mobile(client):
-    """log.html must make .main-nav overflow-x scrollable on mobile to prevent page overflow."""
+    """training-log.html must make .main-nav overflow-x scrollable on mobile to prevent page overflow."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
@@ -365,7 +365,7 @@ def test_log_html_main_nav_scrollable_on_mobile(client):
 
 
 def test_log_html_mobile_hides_workout_primary_metric(client):
-    """log.html must hide .workout-primary-metric on mobile to reduce row overflow."""
+    """training-log.html must hide .workout-primary-metric on mobile to reduce row overflow."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
@@ -385,7 +385,7 @@ def test_log_html_mobile_hides_workout_primary_metric(client):
 
 
 def test_log_html_mobile_hides_source_pill(client):
-    """log.html must hide .source-pill on mobile to keep rows compact."""
+    """training-log.html must hide .source-pill on mobile to keep rows compact."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
@@ -400,7 +400,7 @@ def test_log_html_mobile_hides_source_pill(client):
 
 
 def test_log_html_mobile_day_pill_reduced_size(client):
-    """log.html must set a reduced min-width for .day-pill inside the mobile media query."""
+    """training-log.html must set a reduced min-width for .day-pill inside the mobile media query."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
