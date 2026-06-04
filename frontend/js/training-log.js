@@ -653,6 +653,43 @@
     }
   }
 
+  // ── Strava sync ─────────────────────────────────────────────────────────--
+  function setSyncFeedback(msg, kind) {
+    var el = document.getElementById('log-sync-feedback');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = kind === 'error' ? '#b91c1c'
+                   : kind === 'success' ? '#15803d'
+                   : '#5c6886';
+  }
+
+  function syncStrava() {
+    var btn = document.getElementById('log-sync-strava-btn');
+    if (btn) { btn.disabled = true; }
+    setSyncFeedback('Syncing Strava…', 'info');
+    fetch('/api/strava/sync', { method: 'POST' })
+      .then(function (res) {
+        return res.json().then(function (body) { return { ok: res.ok, status: res.status, body: body }; });
+      })
+      .then(function (r) {
+        if (!r.ok) {
+          var detail = (r.body && r.body.detail) || ('Sync failed (' + r.status + ')');
+          if (r.status === 400) detail = 'Strava not connected — connect it in Settings → Integrations first.';
+          setSyncFeedback(detail, 'error');
+          return;
+        }
+        var n = (r.body && typeof r.body.synced === 'number') ? r.body.synced : 0;
+        setSyncFeedback('Synced ' + n + ' Strava activit' + (n === 1 ? 'y' : 'ies') + '.', 'success');
+        fetchAndRender();
+      })
+      .catch(function () {
+        setSyncFeedback('Sync failed — network error.', 'error');
+      })
+      .finally(function () {
+        if (btn) { btn.disabled = false; }
+      });
+  }
+
   // ── CSV Export ────────────────────────────────────────────────────────────
   function exportCSV() {
     var today    = todayISO();
@@ -1122,6 +1159,9 @@
 
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);
+
+    var syncStravaBtn = document.getElementById('log-sync-strava-btn');
+    if (syncStravaBtn) syncStravaBtn.addEventListener('click', syncStrava);
 
     var closeBtn = document.getElementById('dp-close-btn');
     if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);

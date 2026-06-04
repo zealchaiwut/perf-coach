@@ -2715,15 +2715,11 @@ def _pr_dict(pr: PersonalRecord) -> dict:
 
 
 @app.get("/api/personal-records")
-def list_personal_records(user_id: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def list_personal_records(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         rows = (
             session.query(PersonalRecord)
-            .filter(PersonalRecord.user_id == uid)
+            .filter(PersonalRecord.user_id == user.id)
             .order_by(PersonalRecord.achieved_on.desc())
             .all()
         )
