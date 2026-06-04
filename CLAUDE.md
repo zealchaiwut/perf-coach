@@ -3,6 +3,11 @@
 A personal performance dashboard. Tracks weight, habits, workouts, and daily
 wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
 
+Users log in with a username/password session (cookie-based); all data is
+per-user and resolved from that session, never a client-supplied id. Workouts
+can be pulled from **Strava** and **Stryd** via OAuth / credential integrations,
+and a daily **readiness** score is computed from the wellness metrics.
+
 ## Stack
 
 - **Backend:** FastAPI (Python 3.12), served by uvicorn
@@ -17,21 +22,34 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
 
     backend/main.py               FastAPI app — ALL API endpoints live here
     backend/models.py             SQLAlchemy models (source of truth for schema)
+    backend/auth.py               Password hashing (scrypt) + signed session cookie
     backend/db.py                 Engine, session, environment detection, check_db()
     backend/seed.py               Seed/sample data
+    backend/services/             Domain logic: strava.py, stryd.py, crypto.py,
+                                  reconcile.py, workout_merge.py, sync_jobs.py,
+                                  training_load.py, tss.py, …
+    backend/utils/                Shared helpers (errors, logging, time)
+    scripts/                      One-off CLIs (set_user_password.py, seed_mock_user.py)
     alembic/                      Migrations (versions/ holds migration files)
     alembic.ini                   Alembic config
     frontend/css/styles.css       Shared styles
-    frontend/js/                  Page-specific vanilla JS modules
+    frontend/js/                  Page-specific vanilla JS modules; nav.js is the
+                                  global nav, injected on every page
     frontend/pages/               Static HTML pages, each served by a
                                   FileResponse route in main.py
+    resources/                    Non-code assets (e.g. resources/brand/ app icons)
+    docs/                         Release/setup docs; docs/sprints/ holds sprint plans
 
 ## API Conventions (FOLLOW THESE EXACTLY)
 
 - All API routes are prefixed `/api/` and use HYPHENS, not underscores or slashes:
   e.g. `/api/daily-metrics`, `/api/workouts`, `/api/habits/logs`.
-- This is a MULTI-USER app. Almost every endpoint takes `user_id` as a query
-  param (or path param). Never assume a single implicit user.
+- This is a MULTI-USER app with **session auth**. Endpoints derive the user from
+  the `resolve_user` dependency (the signed session cookie), NOT a client-supplied
+  `user_id`. The legacy `?user_id` shim is OFF (`LEGACY_USER_ID_SHIM_ENABLED =
+  False`). Anonymous requests get **401**; never trust a client id for identity,
+  and never read/write across users. (A few admin/CLI-style writes still take an
+  explicit id in the body — match the surrounding endpoint, don't add new ones.)
 - Date params are ISO `YYYY-MM-DD`. Range endpoints use query aliases `from` and `to`.
 - Responses are JSON via `JSONResponse`. Follow the existing `_*_dict()` helper
   pattern in main.py for serialization shape.
@@ -42,39 +60,81 @@ wellness metrics (HRV, RHR, sleep, energy, mood) for one or more users.
 
 ## Database / Schema
 
-- The schema is defined ONLY in `backend/models.py`. Existing tables:
+- The schema is defined ONLY in `backend/models.py`. Current tables:
   `users`, `weight_entries`, `habits`, `habit_logs`, `workouts`,
-  `workout_exercises`, `daily_metrics`.
-- `workouts` currently has: `workout_date`, `name`, `workout_type`, `remarks`,
-  `tss`, `tss_source`, and child `exercises`. It does NOT have distance, pace,
-  heart rate, GPS, elevation, or splits. Do not assume those exist.
-- `daily_metrics` has: `resting_hr`, `hrv`, `sleep_hours`, `sleep_quality`,
-  `energy`, `mood`, `notes`. There is NO readiness score table.
-- There is NO personal_records / PR table yet.
+  `workout_exercises`, `workout_splits`, `daily_metrics`, `daily_readiness`,
+  `personal_records`, `workout_feel`, `sleep_imports`, `training_load_snapshots`,
+  `strava_tokens`, `strava_activities`, `stryd_credentials`, `stryd_activities`,
+  `google_oauth_credentials`.
+- `users` has `name`, `is_admin`, `is_active`, `password_hash`, `avatar`,
+  `avatar_mime`, `created_at`.
+- `workouts` DOES now have distance/duration/HR/elevation and source links:
+  `workout_date`, `name`, `workout_type`, `remarks`, `tss`, `tss_source`,
+  `source`, `distance_km`, `duration_seconds`, `avg_hr`, `max_hr`, `elevation_m`,
+  `start_time`, `strava_activity_url`, `strava_activity_pk`, `stryd_activity_pk`,
+  `manual_overrides`, plus child `workout_exercises` and `workout_splits`.
+- `daily_metrics` has `resting_hr`, `hrv`, `sleep_hours`, `sleep_quality`,
+  `energy`, `mood`, `notes`. Readiness IS its own table (`daily_readiness`),
+  computed from these via `POST /api/readiness/compute`.
+- `personal_records` exists (PR tracks). `strava_activities` / `stryd_activities`
+  hold raw pulled activities; `reconcile.py` (using `workout_merge.py` helpers)
+  reconciles them into `workouts`.
 - ANY schema change MUST be a new Alembic migration in `alembic/versions/`.
   Never edit the DB by hand. Make migrations idempotent (guard create_table /
-  add_column with existence checks).
+  add_column with existence checks; helpers `column_exists` / `table_exists` in
+  `alembic/`). New revision ids continue the sequential-letter-prefix chain.
+
+## Auth & Sessions
+
+- `backend/auth.py` does password hashing (`hashlib.scrypt`) and a signed
+  httpOnly session cookie (HMAC over `SESSION_SECRET`). Endpoints: `POST
+  /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST
+  /api/auth/change-password`. Login has brute-force lockout.
+- Page routes are auth-gated: unauthenticated browser requests to app pages
+  redirect to `/login`; API requests get 401. Pages: `/login`, `/settings`
+  (Profile / Security / Integrations, reached via the avatar in the nav), `/admin`.
+- `/admin` is gated by a per-environment secret word (`ADMIN_SECRET_UAT` /
+  `ADMIN_SECRET_PRD`) behind a separate admin cookie + `require_admin`.
+- Set a user's password with `scripts/set_user_password.py <username>`.
+
+## Integrations & Sync
+
+- **Strava** (OAuth) and **Stryd** (encrypted credentials via `STRYD_FERNET_KEY`)
+  and **Google** (OAuth, off by default). Connect/status/disconnect endpoints
+  live in `main.py` (`/api/strava/*`, `/api/stryd/*`, `/api/google/*`) and are
+  managed from Settings → Integrations. Tokens/credentials are tied to the
+  session user. Reuse the existing OAuth/credential code — do not rebuild it.
+- Syncing pulls activities into `strava_activities` / `stryd_activities`, then
+  `reconcile.py` merges them into `workouts`. The multi-phase background sync IS
+  built (daemon thread per job, phases `pulling_strava` → `pulling_stryd` →
+  `reconciling`, with progress polled by the nav status bar). Endpoints: `POST
+  /api/strava/sync` starts a job (202; 409 if one is already running for the
+  user), `GET /api/sync/status` returns its state. Sync state is an **in-memory
+  job registry** (`backend/services/sync_jobs.py`, one job per user, 409
+  single-flight), NOT a DB table — intentionally lost on restart, which is safe
+  because every upsert is idempotent (`ON CONFLICT DO UPDATE`). **`docs/sync.md`
+  is the full reference** (job model, phases, cancel hook, polling cadence).
 
 ## Local Development
 
-- Copy `.env.example` to `.env` and fill in values before running locally.
-- Use `start_uat.sh` (with `ENVIRONMENT=uat` in `.env`) or `start_prd.sh`
-  (with `ENVIRONMENT=prd`) to start the app locally.
+- Copy `.env.example` to `.env` and fill in values before running locally. Local
+  `.env` selects the DB by `ENVIRONMENT` (`uat`/`prd`) and provides
+  `DATABASE_URL_UAT` / `DATABASE_URL_PRD` (Render injects a single `DATABASE_URL`
+  in prod). Auth/integrations also read `SESSION_SECRET`, `STRAVA_*`, `STRYD_*`,
+  `GOOGLE_*`, `ADMIN_SECRET_*` — see `.env.example`.
+- The venv is **uv-managed**: install deps with
+  `uv pip install --python .venv/bin/python -r requirements.txt`, and run tools as
+  `.venv/bin/python` / `.venv/bin/alembic`. Tests need `pytest` + `httpx`.
+- `start_uat.sh` / `start_prd.sh` exist but assume lowercase `ENVIRONMENT` and a
+  single `DATABASE_URL`; to run directly: source `.env`, export
+  `ENVIRONMENT=uat` and `DATABASE_URL=$DATABASE_URL_UAT`, then
+  `uvicorn backend.main:app`. Integration tests in `tests/` hit a live server at
+  `http://127.0.0.1:9001` and authenticate via a session (set a password, then
+  `POST /api/auth/login`).
 - **Deprecated:** the old `uat/` + `main/` parallel-checkout pattern (two
   separate clones in sibling directories) is no longer supported. The canonical
   workflow is one clone — switch between `develop` (UAT) and `master` (PRD) via
   `git checkout`.
-
-## Sync Architecture
-
-Background sync jobs (Strava, Stryd) run as daemon threads. See
-`docs/sync.md` for the full reference: one-job-per-user model, job phases,
-409 single-flight guard, restart behaviour, cancel hook, and polling cadence.
-
-Key sync endpoints:
-- `GET /api/sync/status` — current job state for the authenticated user
-- `POST /api/strava/sync` — start a Strava full-history pull (returns 202)
-- `POST /api/stryd/sync` — start a Stryd full-history pull (returns 202)
 
 ## Deployment
 
