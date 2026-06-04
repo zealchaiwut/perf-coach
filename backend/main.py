@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -558,6 +558,46 @@ def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
         session.delete(entry)
         session.commit()
     return Response(status_code=204)
+
+
+class WeightEntryPatch(BaseModel):
+    weight_kg: Optional[float] = None
+    recorded_date: Optional[str] = None  # YYYY-MM-DD
+
+
+@app.patch("/api/weight/{entry_id}")
+def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(resolve_user)):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+    if body.weight_kg is not None and body.weight_kg <= 0:
+        raise HTTPException(status_code=422, detail="weight_kg must be positive")
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        if entry.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if body.weight_kg is not None:
+            entry.weight_kg = body.weight_kg
+        if body.recorded_date is not None:
+            entry.recorded_date = body.recorded_date
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "Entry exists for this date"},
+            )
+        session.refresh(entry)
+        return JSONResponse({
+            "id": str(entry.id),
+            "weight_kg": float(entry.weight_kg),
+            "recorded_date": str(entry.recorded_date),
+            "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        })
 
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
@@ -1574,6 +1614,64 @@ def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(reso
         session.delete(ex)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Workout template endpoints ────────────────────────────────────────────────
+
+class WorkoutTemplateIn(BaseModel):
+    name: str
+    exercises: list
+
+
+def _template_dict(t: WorkoutTemplate) -> dict:
+    return {
+        "id": str(t.id),
+        "user_id": str(t.user_id),
+        "name": t.name,
+        "exercises": t.exercises,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+@app.get("/api/workout-templates")
+def get_workout_templates(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        templates = (
+            session.query(WorkoutTemplate)
+            .filter(WorkoutTemplate.user_id == user.id)
+            .order_by(WorkoutTemplate.created_at.desc())
+            .all()
+        )
+        return JSONResponse([_template_dict(t) for t in templates])
+
+
+@app.post("/api/workout-templates", status_code=201)
+def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_user)):
+    name = body.name.strip() if body.name else ""
+    if not name:
+        raise HTTPException(status_code=422, detail="Template name is required")
+    if not body.exercises:
+        raise HTTPException(status_code=422, detail="Template must have at least one exercise")
+    exercises = [
+        {
+            "name": str(ex.get("name", "")).strip(),
+            "sets": ex.get("sets"),
+            "reps": ex.get("reps"),
+            "weight_kg": ex.get("weight_kg"),
+            "duration": ex.get("duration"),
+            "rpe": ex.get("rpe"),
+        }
+        for ex in body.exercises
+        if isinstance(ex, dict) and str(ex.get("name", "")).strip()
+    ]
+    if not exercises:
+        raise HTTPException(status_code=422, detail="Template must have at least one named exercise")
+    with Session(engine) as session:
+        tmpl = WorkoutTemplate(user_id=user.id, name=name, exercises=exercises)
+        session.add(tmpl)
+        session.commit()
+        session.refresh(tmpl)
+        return JSONResponse(status_code=201, content=_template_dict(tmpl))
 
 
 # ── Workout splits endpoints ──────────────────────────────────────────────────

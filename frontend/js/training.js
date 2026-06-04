@@ -130,7 +130,7 @@
     tr.draggable = true;
     tr.innerHTML =
       '<td class="drag-handle" title="Drag to reorder">⠿</td>' +
-      '<td><input type="text" class="ex-input ex-name" placeholder="Exercise name" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></td>' +
+      '<td><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-sets" placeholder="—" min="1" value="' + (data && data.sets != null ? data.sets : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-reps" placeholder="—" min="1" value="' + (data && data.reps != null ? data.reps : '') + '"></td>' +
       '<td><input type="number" class="ex-input ex-weight" placeholder="—" min="0" step="0.5" value="' + (data && data.weight_kg != null ? data.weight_kg : '') + '"></td>' +
@@ -267,6 +267,175 @@
     }
 
     return valid;
+  }
+
+  // ── Type-ahead suggestions ────────────────────────────────────────────────────
+
+  async function loadSuggestions() {
+    try {
+      var to = todayIso();
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 1);
+      var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+      var res = await fetch('/api/workouts?from=' + from + '&to=' + to);
+      if (!res.ok) return;
+      var workouts = await res.json();
+      if (!workouts.length) return;
+
+      var workoutNames = [];
+      var seen = {};
+      workouts.forEach(function (w) {
+        var n = w.name;
+        if (n && !seen[n]) { seen[n] = true; workoutNames.push(n); }
+      });
+
+      var wDL = document.getElementById('workout-name-suggestions');
+      if (wDL) {
+        wDL.innerHTML = '';
+        workoutNames.forEach(function (name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          wDL.appendChild(opt);
+        });
+      }
+
+      var detailIds = workouts.slice(0, 10).map(function (w) { return w.id; });
+      var details = await Promise.all(detailIds.map(function (id) {
+        return fetch('/api/workouts/' + id).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+      }));
+
+      var exSeen = {};
+      var exNames = [];
+      details.forEach(function (w) {
+        if (!w || !w.exercises) return;
+        w.exercises.forEach(function (ex) {
+          var n = ex.name;
+          if (n && !exSeen[n]) { exSeen[n] = true; exNames.push(n); }
+        });
+      });
+
+      var exDL = document.getElementById('exercise-name-suggestions');
+      if (exDL) {
+        exDL.innerHTML = '';
+        exNames.forEach(function (name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          exDL.appendChild(opt);
+        });
+      }
+    } catch (e) { /* suggestions are best-effort; never block the form */ }
+  }
+
+  // ── Repeat last workout ───────────────────────────────────────────────────────
+
+  async function repeatLastWorkout() {
+    var btn = document.getElementById('repeat-last-btn');
+    btn.disabled = true;
+    try {
+      var to = todayIso();
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 3);
+      var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+      var res = await fetch('/api/workouts?from=' + from + '&to=' + to);
+      if (!res.ok) throw new Error('Server error ' + res.status);
+      var workouts = await res.json();
+
+      if (!workouts.length) {
+        showToast('No previous workout found.');
+        return;
+      }
+
+      var fullRes = await fetch('/api/workouts/' + workouts[0].id);
+      if (!fullRes.ok) throw new Error('Server error ' + fullRes.status);
+      var w = await fullRes.json();
+
+      editingWorkoutId = null;
+      document.getElementById('workout-name').value = w.name;
+      document.getElementById('workout-date').value = todayIso();
+      document.getElementById('workout-remarks').value = w.remarks || '';
+      document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
+      document.getElementById('exercises-tbody').innerHTML = '';
+      document.getElementById('exercises-error').textContent = '';
+      document.getElementById('name-error').textContent = '';
+      document.getElementById('save-workout-btn').textContent = 'Save workout';
+      setSelectedType(w.workout_type);
+      (w.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+      if (!w.exercises || !w.exercises.length) addExerciseRow(null);
+      showToast('“' + w.name + '” prefilled — date set to today.');
+    } catch (e) {
+      showToast('Could not load last workout: ' + e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Workout templates ─────────────────────────────────────────────────────────
+
+  async function saveTemplate() {
+    var exercises = getExerciseRows().filter(function (r) { return r.name; });
+    if (!exercises.length) {
+      showToast('Add at least one exercise before saving a template.', true);
+      return;
+    }
+    var tplName = prompt('Template name:');
+    if (!tplName || !tplName.trim()) return;
+    try {
+      var res = await fetch('/api/workout-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tplName.trim(), exercises: exercises }),
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        showToast('Could not save template: ' + (err.detail || res.status), true);
+        return;
+      }
+      showToast('Template "' + tplName.trim() + '" saved!');
+    } catch (e) {
+      showToast('Could not save template: ' + e.message, true);
+    }
+  }
+
+  async function openTemplatePicker() {
+    var modal = document.getElementById('template-modal');
+    var listEl = document.getElementById('template-list');
+    listEl.innerHTML = '<p class="loading-msg">Loading…</p>';
+    modal.style.display = 'flex';
+    try {
+      var res = await fetch('/api/workout-templates');
+      if (!res.ok) throw new Error('Server error ' + res.status);
+      var templates = await res.json();
+      if (!templates.length) {
+        listEl.innerHTML = '<p class="empty-msg">No templates saved yet.</p>';
+        return;
+      }
+      listEl.innerHTML = '';
+      templates.forEach(function (t) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.style.cssText = 'display:block;width:100%;text-align:left;padding:0.65rem 0.75rem;margin-bottom:0.4rem;border:1px solid #e5e5e5;border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
+        btn.textContent = t.name;
+        btn.addEventListener('mouseover', function () { btn.style.background = '#f8f9ff'; btn.style.borderColor = '#b3c0f0'; });
+        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = '#e5e5e5'; });
+        btn.addEventListener('click', function () {
+          modal.style.display = 'none';
+          applyTemplate(t);
+        });
+        listEl.appendChild(btn);
+      });
+    } catch (e) {
+      listEl.innerHTML = '<p class="error-msg">Failed to load templates: ' + e.message + '</p>';
+    }
+  }
+
+  function applyTemplate(template) {
+    document.getElementById('exercises-tbody').innerHTML = '';
+    document.getElementById('exercises-error').textContent = '';
+    (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+    if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    showToast('Prefilled from template "' + template.name + '".');
   }
 
   // ── Save workout ──────────────────────────────────────────────────────────────
@@ -458,6 +627,20 @@
       addExerciseRow(null);
     });
 
+    document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);
+
+    document.getElementById('save-template-btn').addEventListener('click', saveTemplate);
+
+    document.getElementById('template-picker-btn').addEventListener('click', openTemplatePicker);
+
+    document.getElementById('template-modal-close').addEventListener('click', function () {
+      document.getElementById('template-modal').style.display = 'none';
+    });
+
+    document.getElementById('template-modal').addEventListener('click', function (e) {
+      if (e.target === this) this.style.display = 'none';
+    });
+
     document.getElementById('save-workout-btn').addEventListener('click', saveWorkout);
 
     document.getElementById('cancel-btn').addEventListener('click', function () {
@@ -475,10 +658,12 @@
 
   window.addEventListener('userReady', function (e) {
     currentUserId = e.detail.userId;
+    loadSuggestions();
   });
 
   window.addEventListener('userChanged', function (e) {
     currentUserId = e.detail.userId;
+    loadSuggestions();
     if (currentView === 'history') {
       loadHistory();
     } else {

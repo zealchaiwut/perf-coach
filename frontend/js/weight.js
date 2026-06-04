@@ -289,19 +289,76 @@ function renderEntries(entries) {
     list.innerHTML = '<li class="empty">No entries yet.</li>';
     return;
   }
-  list.innerHTML = entries
-    .slice()
-    .sort((a, b) => b.recorded_date.localeCompare(a.recorded_date))
-    .map(e => `
-      <li>
-        <span class="entry-date">${e.recorded_date}</span>
-        <span class="entry-weight">${e.weight_kg} kg</span>
-        <button class="entry-delete" data-id="${e.id}" type="button">Delete</button>
-      </li>`)
-    .join('');
+  const sorted = entries.slice().sort((a, b) => b.recorded_date.localeCompare(a.recorded_date));
+  list.innerHTML = sorted.map(e => `
+    <li data-entry-id="${e.id}">
+      <span class="entry-date">${e.recorded_date}</span>
+      <span class="entry-weight">${e.weight_kg} kg</span>
+      <span class="entry-actions">
+        <button class="entry-edit" data-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.recorded_date}" type="button" aria-label="Edit entry">Edit</button>
+        <button class="entry-delete" data-id="${e.id}" type="button" aria-label="Delete entry">Delete</button>
+      </span>
+    </li>`).join('');
 
   list.querySelectorAll('.entry-delete').forEach(btn => {
     btn.addEventListener('click', () => deleteEntry(btn.dataset.id));
+  });
+  list.querySelectorAll('.entry-edit').forEach(btn => {
+    btn.addEventListener('click', () => openInlineEdit(btn.dataset.id, btn.dataset.weight, btn.dataset.date));
+  });
+}
+
+function openInlineEdit(entryId, currentWeight, currentDate) {
+  const li = document.querySelector(`li[data-entry-id="${entryId}"]`);
+  if (!li) return;
+  li.innerHTML = `
+    <form class="inline-edit-form" novalidate>
+      <input class="inline-weight-input" type="number" step="0.1" min="0.1" value="${currentWeight}" aria-label="Weight (kg)" required>
+      <input class="inline-date-input" type="date" value="${currentDate}" aria-label="Date" required>
+      <span class="inline-edit-error" role="alert"></span>
+      <button type="submit" class="inline-save-btn">Save</button>
+      <button type="button" class="inline-cancel-btn">Cancel</button>
+    </form>`;
+
+  const form = li.querySelector('.inline-edit-form');
+  const weightInput = li.querySelector('.inline-weight-input');
+  const errorEl = li.querySelector('.inline-edit-error');
+
+  weightInput.focus();
+
+  li.querySelector('.inline-cancel-btn').addEventListener('click', () => {
+    const entry = allEntries.find(e => e.id === entryId);
+    if (entry) {
+      li.innerHTML = `
+        <span class="entry-date">${entry.recorded_date}</span>
+        <span class="entry-weight">${entry.weight_kg} kg</span>
+        <span class="entry-actions">
+          <button class="entry-edit" data-id="${entry.id}" data-weight="${entry.weight_kg}" data-date="${entry.recorded_date}" type="button" aria-label="Edit entry">Edit</button>
+          <button class="entry-delete" data-id="${entry.id}" type="button" aria-label="Delete entry">Delete</button>
+        </span>`;
+      li.querySelector('.entry-delete').addEventListener('click', () => deleteEntry(entry.id));
+      li.querySelector('.entry-edit').addEventListener('click', () => openInlineEdit(entry.id, entry.weight_kg, entry.recorded_date));
+    }
+  });
+
+  document.addEventListener('keydown', function escHandler(ev) {
+    if (ev.key === 'Escape') {
+      document.removeEventListener('keydown', escHandler);
+      li.querySelector('.inline-cancel-btn')?.click();
+    }
+  });
+
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    errorEl.textContent = '';
+    const raw = weightInput.value.trim();
+    const dateVal = li.querySelector('.inline-date-input').value;
+    if (raw === '' || isNaN(Number(raw)) || Number(raw) <= 0) {
+      errorEl.textContent = 'Weight must be a positive number.';
+      weightInput.focus();
+      return;
+    }
+    await patchEntry(entryId, Number(raw), dateVal, errorEl);
   });
 }
 
@@ -332,6 +389,7 @@ async function loadAndRender() {
 }
 
 async function deleteEntry(entryId) {
+  if (!confirm('Delete this weight entry?')) return;
   clearApiError();
   try {
     const res = await fetch(`/api/weight/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
@@ -340,6 +398,28 @@ async function deleteEntry(entryId) {
     await loadAndRender();
   } catch (e) {
     showApiError('Delete failed: ' + e.message);
+  }
+}
+
+async function patchEntry(entryId, weight_kg, recorded_date, inlineErrorEl) {
+  try {
+    const res = await fetch(`/api/weight/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weight_kg, recorded_date }),
+    });
+    if (res.status === 409) {
+      if (inlineErrorEl) inlineErrorEl.textContent = 'An entry already exists for that date.';
+      return;
+    }
+    if (res.status === 403 || res.status === 404) {
+      showApiError('Update failed: not found or forbidden.');
+      return;
+    }
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    await loadAndRender();
+  } catch (e) {
+    showApiError('Update failed: ' + e.message);
   }
 }
 
