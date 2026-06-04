@@ -371,6 +371,73 @@
     }
   }
 
+  // ── Workout templates ─────────────────────────────────────────────────────────
+
+  async function saveTemplate() {
+    var exercises = getExerciseRows().filter(function (r) { return r.name; });
+    if (!exercises.length) {
+      showToast('Add at least one exercise before saving a template.', true);
+      return;
+    }
+    var tplName = prompt('Template name:');
+    if (!tplName || !tplName.trim()) return;
+    try {
+      var res = await fetch('/api/workout-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tplName.trim(), exercises: exercises }),
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        showToast('Could not save template: ' + (err.detail || res.status), true);
+        return;
+      }
+      showToast('Template "' + tplName.trim() + '" saved!');
+    } catch (e) {
+      showToast('Could not save template: ' + e.message, true);
+    }
+  }
+
+  async function openTemplatePicker() {
+    var modal = document.getElementById('template-modal');
+    var listEl = document.getElementById('template-list');
+    listEl.innerHTML = '<p class="loading-msg">Loading…</p>';
+    modal.style.display = 'flex';
+    try {
+      var res = await fetch('/api/workout-templates');
+      if (!res.ok) throw new Error('Server error ' + res.status);
+      var templates = await res.json();
+      if (!templates.length) {
+        listEl.innerHTML = '<p class="empty-msg">No templates saved yet.</p>';
+        return;
+      }
+      listEl.innerHTML = '';
+      templates.forEach(function (t) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.style.cssText = 'display:block;width:100%;text-align:left;padding:0.65rem 0.75rem;margin-bottom:0.4rem;border:1px solid #e5e5e5;border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
+        btn.textContent = t.name;
+        btn.addEventListener('mouseover', function () { btn.style.background = '#f8f9ff'; btn.style.borderColor = '#b3c0f0'; });
+        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = '#e5e5e5'; });
+        btn.addEventListener('click', function () {
+          modal.style.display = 'none';
+          applyTemplate(t);
+        });
+        listEl.appendChild(btn);
+      });
+    } catch (e) {
+      listEl.innerHTML = '<p class="error-msg">Failed to load templates: ' + e.message + '</p>';
+    }
+  }
+
+  function applyTemplate(template) {
+    document.getElementById('exercises-tbody').innerHTML = '';
+    document.getElementById('exercises-error').textContent = '';
+    (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+    if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    showToast('Prefilled from template "' + template.name + '".');
+  }
+
   // ── Save workout ──────────────────────────────────────────────────────────────
 
   async function saveWorkout() {
@@ -561,6 +628,18 @@
     });
 
     document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);
+
+    document.getElementById('save-template-btn').addEventListener('click', saveTemplate);
+
+    document.getElementById('template-picker-btn').addEventListener('click', openTemplatePicker);
+
+    document.getElementById('template-modal-close').addEventListener('click', function () {
+      document.getElementById('template-modal').style.display = 'none';
+    });
+
+    document.getElementById('template-modal').addEventListener('click', function (e) {
+      if (e.target === this) this.style.display = 'none';
+    });
 
     document.getElementById('save-workout-btn').addEventListener('click', saveWorkout);
 
