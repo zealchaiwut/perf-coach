@@ -560,6 +560,46 @@ def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
     return Response(status_code=204)
 
 
+class WeightEntryPatch(BaseModel):
+    weight_kg: Optional[float] = None
+    recorded_date: Optional[str] = None  # YYYY-MM-DD
+
+
+@app.patch("/api/weight/{entry_id}")
+def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(resolve_user)):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+    if body.weight_kg is not None and body.weight_kg <= 0:
+        raise HTTPException(status_code=422, detail="weight_kg must be positive")
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        if entry.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if body.weight_kg is not None:
+            entry.weight_kg = body.weight_kg
+        if body.recorded_date is not None:
+            entry.recorded_date = body.recorded_date
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "Entry exists for this date"},
+            )
+        session.refresh(entry)
+        return JSONResponse({
+            "id": str(entry.id),
+            "weight_kg": float(entry.weight_kg),
+            "recorded_date": str(entry.recorded_date),
+            "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
