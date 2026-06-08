@@ -614,6 +614,239 @@ def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(res
         })
 
 
+# ── Weight entries CRUD endpoints ─────────────────────────────────────────────
+
+class WeightEntriesCreateIn(BaseModel):
+    user_id: str
+    entry_date: str  # YYYY-MM-DD
+    entry_time: Optional[str] = None  # HH:MM or HH:MM:SS
+    weight_kg: float
+    notes: Optional[str] = None
+
+
+class WeightEntriesPatchIn(BaseModel):
+    user_id: Optional[str] = None    # forbidden — 422 if present in model_fields_set
+    entry_date: Optional[str] = None  # forbidden — 422 if present in model_fields_set
+    weight_kg: Optional[float] = None
+    entry_time: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _weight_entry_dict(e: WeightEntry) -> dict:
+    return {
+        "id": str(e.id),
+        "user_id": str(e.user_id),
+        "entry_date": str(e.entry_date),
+        "entry_time": str(e.entry_time) if e.entry_time is not None else None,
+        "weight_kg": float(e.weight_kg),
+        "notes": e.notes,
+        "source": e.source,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+    }
+
+
+def _parse_entry_time(entry_time_str: str):
+    """Parse HH:MM or HH:MM:SS string to datetime.time; raises HTTPException on bad format."""
+    from datetime import time as _time
+    try:
+        parts = entry_time_str.split(":")
+        if len(parts) == 2:
+            return _time(int(parts[0]), int(parts[1]))
+        elif len(parts) == 3:
+            return _time(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, AttributeError):
+        pass
+    raise HTTPException(status_code=422, detail="Invalid entry_time; use HH:MM or HH:MM:SS")
+
+
+@app.post("/api/weight-entries", status_code=201)
+def create_weight_entry(body: WeightEntriesCreateIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    if not (20 <= body.weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    if body.notes is not None and len(body.notes) > 500:
+        raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+
+    try:
+        entry_date = _date.fromisoformat(body.entry_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
+    if entry_date > _date.today() + _timedelta(days=1):
+        raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
+
+    entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        entry = WeightEntry(
+            user_id=uid,
+            entry_date=entry_date,
+            entry_time=entry_time,
+            weight_kg=body.weight_kg,
+            notes=body.notes,
+            source="manual",
+        )
+        session.add(entry)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            q = session.query(WeightEntry).filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date == entry_date,
+            )
+            if entry_time is None:
+                q = q.filter(WeightEntry.entry_time.is_(None))
+            else:
+                q = q.filter(WeightEntry.entry_time == entry_time)
+            existing = q.first()
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "duplicate",
+                    "existing_id": str(existing.id) if existing else None,
+                },
+            )
+        session.refresh(entry)
+        return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+
+
+@app.get("/api/weight-entries")
+def list_weight_entries(
+    user_id: str = Query(...),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+    days_in_range = (to_d - from_d).days + 1
+    if days_in_range > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    from sqlalchemy import nullslast
+    with Session(engine) as session:
+        rows = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= from_d,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.desc(), nullslast(WeightEntry.entry_time.desc()))
+            .all()
+        )
+
+        entries = [_weight_entry_dict(r) for r in rows]
+        count = len(entries)
+
+        if count > 0:
+            unique_dates = {r.entry_date for r in rows}
+            weights = [float(r.weight_kg) for r in rows]
+            first_date = str(min(unique_dates))
+            last_date = str(max(unique_dates))
+            min_kg = min(weights)
+            max_kg = max(weights)
+            avg_kg = round(sum(weights) / count, 4)
+            days_logged_pct = round(len(unique_dates) / days_in_range * 100, 2)
+        else:
+            first_date = last_date = None
+            min_kg = max_kg = avg_kg = None
+            days_logged_pct = 0.0
+
+        summary = {
+            "first_date": first_date,
+            "last_date": last_date,
+            "min_kg": min_kg,
+            "max_kg": max_kg,
+            "avg_kg": avg_kg,
+            "entries_logged": count,
+            "days_in_range": days_in_range,
+            "days_logged_pct": days_logged_pct,
+        }
+
+        return JSONResponse({"entries": entries, "count": count, "summary": summary})
+
+
+@app.patch("/api/weight-entries/{entry_id}")
+def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn):
+    if "user_id" in body.model_fields_set or "entry_date" in body.model_fields_set:
+        raise HTTPException(status_code=422, detail="user_id and entry_date cannot be changed")
+
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        if "weight_kg" in body.model_fields_set and body.weight_kg is not None:
+            if not (20 <= body.weight_kg <= 300):
+                raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+            entry.weight_kg = body.weight_kg
+
+        if "notes" in body.model_fields_set:
+            if body.notes is not None and len(body.notes) > 500:
+                raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+            entry.notes = body.notes
+
+        if "entry_time" in body.model_fields_set:
+            entry.entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
+
+        entry.updated_at = _datetime.now(_timezone.utc)
+
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(status_code=409, content={"error": "Duplicate entry for this user/date/time"})
+
+        session.refresh(entry)
+        return JSONResponse(_weight_entry_dict(entry))
+
+
+@app.delete("/api/weight-entries/{entry_id}")
+def delete_weight_entry(entry_id: str):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        session.delete(entry)
+        session.commit()
+    return JSONResponse({"deleted": True})
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
