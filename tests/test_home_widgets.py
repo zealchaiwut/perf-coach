@@ -19,6 +19,15 @@ Issue #350: GET /api/home/personal-records
   AC (e) trend "stable" within 1% threshold
   AC (f) graceful empty response when personal_records table absent
   AC (g) graceful empty response when user has no records
+
+Issue #351: GET /api/home/readiness
+  AC (a) response has expected shape
+  AC (b) score is null when no daily_metrics row for queried date
+  AC (c) all-average values yield score ≈ 50
+  AC (d) great sleep + great HRV yields score > 70
+  AC (e) score_label correct at every boundary value (19, 20, 39, 40, 59, 60, 79, 80)
+  AC (f) rolling_baseline excludes the queried date, covers only prior 7 days
+  AC (g) contributors array contains exactly 5 factors
 """
 import datetime
 import uuid
@@ -542,3 +551,140 @@ def test_pr_no_records_for_user():
     assert track["current_value"] is None
     assert track["current_value_formatted"] is None
     assert track["trend"] == "no_data"
+
+
+# ── Home readiness widget tests (issue #351) ──────────────────────────────────
+
+_RDY_UID = str(uuid.uuid4())
+_RDY_TODAY = datetime.date.today()
+
+
+def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3):
+    m = MagicMock()
+    m.metric_date = metric_date or _RDY_TODAY
+    m.sleep_hours = Decimal(str(sleep_hours)) if sleep_hours is not None else None
+    m.hrv = hrv
+    m.resting_hr = resting_hr
+    m.mood = mood
+    m.energy = energy
+    return m
+
+
+def _patch_readiness_session(user_found=True, metrics_row=None, baseline_rows=None):
+    mock_user = MagicMock()
+    mock_user.id = uuid.UUID(_RDY_UID)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_user if user_found else None
+
+    query_chain = MagicMock()
+    query_chain.filter.return_value = query_chain
+    query_chain.first.return_value = metrics_row
+    query_chain.all.return_value = baseline_rows or []
+    mock_session.query.return_value = query_chain
+
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+
+    return patch("backend.main.Session", return_value=mock_cm)
+
+
+# (a) response has expected shape
+def test_readiness_response_shape():
+    m = _make_daily_metric()
+    with _patch_readiness_session(metrics_row=m, baseline_rows=[]):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+    assert res.status_code == 200
+    body = res.json()
+    for key in ("date", "score", "score_label", "contributors", "rolling_baseline"):
+        assert key in body
+    assert len(body["contributors"]) == 5
+    for c in body["contributors"]:
+        for key in ("factor", "value", "weight", "impact"):
+            assert key in c
+    for key in ("hrv_7d_avg", "rhr_7d_avg", "sleep_7d_avg_hours"):
+        assert key in body["rolling_baseline"]
+
+
+# (b) score null when no daily_metrics row
+def test_readiness_score_null_when_no_metrics():
+    with _patch_readiness_session(metrics_row=None, baseline_rows=[]):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["score"] is None
+    assert body["score_label"] == "No data"
+    for c in body["contributors"]:
+        assert c["value"] is None
+
+
+# (c) all-average values yield score ≈ 50
+def test_readiness_all_average_score_approx_50():
+    baseline = [
+        _make_daily_metric(sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3)
+        for _ in range(7)
+    ]
+    today_m = _make_daily_metric(sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3)
+    with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+    body = res.json()
+    assert body["score"] is not None
+    assert 40 <= body["score"] <= 65
+
+
+# (d) great sleep + great HRV yields score > 70
+def test_readiness_great_sleep_hrv_yields_high_score():
+    baseline = [
+        _make_daily_metric(sleep_hours=6.0, hrv=60, resting_hr=60, mood=3, energy=3)
+        for _ in range(7)
+    ]
+    today_m = _make_daily_metric(sleep_hours=9.0, hrv=90, resting_hr=60, mood=3, energy=3)
+    with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+    body = res.json()
+    assert body["score"] is not None
+    assert body["score"] > 70
+
+
+# (e) score_label correct at every boundary
+@pytest.mark.parametrize("score,expected_label", [
+    (19, "Recovery"),
+    (20, "Caution"),
+    (39, "Caution"),
+    (40, "OK"),
+    (59, "OK"),
+    (60, "Good"),
+    (79, "Good"),
+    (80, "Excellent"),
+    (None, "No data"),
+])
+def test_readiness_score_label_boundaries(score, expected_label):
+    from backend.main import _readiness_score_label
+    assert _readiness_score_label(score) == expected_label
+
+
+# (f) rolling_baseline excludes queried date, covers only prior 7 days
+def test_readiness_rolling_baseline_excludes_queried_date():
+    baseline = [
+        _make_daily_metric(sleep_hours=6.0, hrv=50, resting_hr=65, mood=2, energy=2)
+        for _ in range(7)
+    ]
+    today_m = _make_daily_metric(sleep_hours=9.0, hrv=90, resting_hr=45, mood=5, energy=5)
+    with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+    body = res.json()
+    rb = body["rolling_baseline"]
+    assert rb["sleep_7d_avg_hours"] == pytest.approx(6.0, abs=0.1)
+    assert rb["hrv_7d_avg"] == pytest.approx(50.0, abs=0.1)
+    assert rb["rhr_7d_avg"] == pytest.approx(65.0, abs=0.1)
+
+
+# (g) contributors array contains exactly 5 factors
+def test_readiness_contributors_5_factors():
+    m = _make_daily_metric()
+    with _patch_readiness_session(metrics_row=m, baseline_rows=[]):
+        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+    factors = [c["factor"] for c in res.json()["contributors"]]
+    assert len(factors) == 5
+    assert set(factors) == {"sleep_hours", "hrv", "rhr", "mood", "energy"}
