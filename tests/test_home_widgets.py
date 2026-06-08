@@ -1,21 +1,27 @@
-"""Tests for issue #348: GET /api/home/recent-workouts endpoint.
+"""Tests for home widget endpoints.
 
-Acceptance Criteria:
-(a) Returns expected response shape: {workouts: [...], count: int, has_more: bool}
-(b) limit=11 returns 422
-(c) relative_date correct for today, yesterday, 3 days ago
-(d) Sort order is most-recent-first
-(e) Empty result returns {workouts: [], count: 0, has_more: false}
-(f) has_more accurate when total exceeds limit
+Issue #348: GET /api/home/recent-workouts
+  AC (a)-(f): shape, limit validation, relative_date, sort, empty, has_more
+
+Issue #349: GET /api/home/weight-summary
+  AC (a) shape with current weight present
+  AC (b) nulls when no weight entries
+  AC (c) sparkline length=30, nulls for days with no data
+  AC (d) target block when active target exists
+  AC (e) target is null when no active target
+  AC (f) graceful empty-defaults when weight_entries table absent
 """
 import datetime
 import uuid
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import exc as _sa_exc
 
 from backend.main import app
+from backend.models import WeightEntry, WeightTarget
 
 client = TestClient(app)
 
@@ -248,3 +254,163 @@ def test_unknown_user_returns_404():
 def test_invalid_user_id_returns_404():
     res = client.get("/api/home/recent-workouts?user_id=not-a-uuid")
     assert res.status_code == 404
+
+
+# ── Issue #349: GET /api/home/weight-summary ─────────────────────────────────
+
+_W_UID = str(uuid.uuid4())
+_TODAY = datetime.date.today()
+
+
+def _make_entry(entry_date, weight_kg):
+    e = MagicMock()
+    e.entry_date = entry_date
+    e.weight_kg = Decimal(str(weight_kg))
+    return e
+
+
+def _make_target(target_weight_kg, target_date, start_weight_kg, start_date):
+    t = MagicMock()
+    t.target_weight_kg = Decimal(str(target_weight_kg))
+    t.target_date = target_date
+    t.start_weight_kg = Decimal(str(start_weight_kg))
+    t.start_date = start_date
+    t.status = "active"
+    return t
+
+
+def _patch_weight_session(entries, target=None, user_exists=True):
+    mock_user = MagicMock()
+    mock_user.id = uuid.UUID(_W_UID)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_user if user_exists else None
+
+    entry_q = MagicMock()
+    entry_q.filter.return_value = entry_q
+    entry_q.order_by.return_value = entry_q
+    entry_q.all.return_value = entries
+
+    target_q = MagicMock()
+    target_q.filter.return_value = target_q
+    target_q.first.return_value = target
+
+    def _query(model):
+        if model is WeightEntry:
+            return entry_q
+        return target_q
+
+    mock_session.query.side_effect = _query
+
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+
+    return patch("backend.main.Session", return_value=mock_cm)
+
+
+# AC (a): returns expected shape with current weight present
+def test_weight_summary_shape():
+    entry = _make_entry(_TODAY, 75.0)
+    with _patch_weight_session([entry]):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+    assert res.status_code == 200
+    body = res.json()
+    for key in ("current_weight_kg", "current_date", "moving_avg_7d_kg",
+                "delta_7d_kg", "delta_30d_kg", "target", "sparkline"):
+        assert key in body, f"missing key: {key}"
+    assert isinstance(body["current_weight_kg"], float)
+    assert body["current_weight_kg"] == 75.0
+    assert body["current_date"] == str(_TODAY)
+
+
+# AC (b): returns nulls cleanly when no weight entries exist
+def test_weight_summary_no_entries():
+    with _patch_weight_session([]):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["current_weight_kg"] is None
+    assert body["moving_avg_7d_kg"] is None
+    assert body["delta_7d_kg"] is None
+    assert body["delta_30d_kg"] is None
+    assert body["current_date"] is None
+    assert body["target"] is None
+    assert len(body["sparkline"]) == 30
+    assert all(v is None for v in body["sparkline"])
+
+
+# AC (c): sparkline length is exactly 30, nulls for days with no data
+def test_weight_summary_sparkline_length():
+    entry = _make_entry(_TODAY, 75.0)
+    with _patch_weight_session([entry]):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+    sparkline = res.json()["sparkline"]
+    assert len(sparkline) == 30
+    assert sparkline[-1] is not None  # today's MA is non-null
+    assert all(v is None for v in sparkline[:-1])  # older days have no data
+
+
+# AC (d): target block populated correctly when active target exists
+def test_weight_summary_target_block():
+    entry = _make_entry(_TODAY, 75.0)
+    target_date = _TODAY + datetime.timedelta(days=60)
+    start_date = _TODAY - datetime.timedelta(days=30)
+    target = _make_target(
+        target_weight_kg=70.0,
+        target_date=target_date,
+        start_weight_kg=80.0,
+        start_date=start_date,
+    )
+    with _patch_weight_session([entry], target=target):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+    assert res.status_code == 200
+    t = res.json()["target"]
+    assert t is not None
+    assert "target_weight_kg" in t
+    assert "target_date" in t
+    assert "progress_pct" in t
+    assert "kg_to_go" in t
+    assert "status_label" in t
+    assert t["target_weight_kg"] == 70.0
+    assert t["target_date"] == str(target_date)
+    assert 0 <= t["progress_pct"] <= 100
+    assert t["status_label"] in ("on_track", "behind", "ahead", "no_data")
+
+
+# AC (e): target is null when no active target exists
+def test_weight_summary_no_target():
+    entry = _make_entry(_TODAY, 75.0)
+    with _patch_weight_session([entry], target=None):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+    assert res.status_code == 200
+    assert res.json()["target"] is None
+
+
+# AC (f): graceful empty-defaults when weight_entries table absent
+def test_weight_summary_table_absent():
+    mock_user = MagicMock()
+    mock_user.id = uuid.UUID(_W_UID)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_user
+    mock_session.query.side_effect = _sa_exc.OperationalError(
+        "no such table: weight_entries", "SELECT 1", None, None
+    )
+
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+
+    with patch("backend.main.Session", return_value=mock_cm):
+        res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["current_weight_kg"] is None
+    assert body["moving_avg_7d_kg"] is None
+    assert body["delta_7d_kg"] is None
+    assert body["delta_30d_kg"] is None
+    assert body["current_date"] is None
+    assert body["target"] is None
+    assert body["sparkline"] == []
