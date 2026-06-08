@@ -33,6 +33,7 @@ from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
+from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 
@@ -905,7 +906,8 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
         .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
         .first()
     )
-    current_weight = float(recent_entry.weight_kg) if recent_entry else float(t.start_weight_kg)
+    current_avg_kg = float(recent_entry.weight_kg) if recent_entry else None
+    current_weight = current_avg_kg if current_avg_kg is not None else float(t.start_weight_kg)
 
     kg_lost = float(t.start_weight_kg) - current_weight
     kg_to_go = current_weight - float(t.target_weight_kg)
@@ -949,15 +951,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
         weeks_to_go = kg_to_go / current_pace
         projected_end_date = (today + _timedelta(weeks=weeks_to_go)).isoformat()
 
-    # status_label
-    if current_pace is None or required_pace is None or required_pace <= 0:
-        status_label = "behind"
-    elif current_pace >= required_pace:
-        status_label = "ahead"
-    elif current_pace >= required_pace * 0.9:
-        status_label = "on_track"
-    else:
-        status_label = "behind"
+    status_label = _compute_status_label(t, current_avg_kg, today)
 
     base.update({
         "progress_pct": progress_pct,
