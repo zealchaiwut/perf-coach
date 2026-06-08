@@ -1206,6 +1206,180 @@ def end_weight_target(target_id: str, body: WeightTargetEndIn):
         return JSONResponse(_weight_target_dict(target))
 
 
+# ── Weight chart endpoint ──────────────────────────────────────────────────────
+
+def _advance_one_month(d: _date) -> _date:
+    """Return same day-of-month in the next calendar month, clamped to month end."""
+    month = d.month + 1
+    year = d.year
+    if month > 12:
+        month = 1
+        year += 1
+    if month == 12:
+        last_day = (_date(year + 1, 1, 1) - _timedelta(days=1)).day
+    else:
+        last_day = (_date(year, month + 1, 1) - _timedelta(days=1)).day
+    return _date(year, month, min(d.day, last_day))
+
+
+@app.get("/api/weight-chart")
+def get_weight_chart(
+    user_id: Optional[str] = Query(default=None),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    include_target: bool = Query(default=True),
+):
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to)
+        fetch_start = min(from_d - _timedelta(days=6), to_d - _timedelta(days=36))
+        all_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_start,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+
+        # Map date → list of weights for MA computation
+        date_weights: dict = {}
+        for e in all_entries:
+            d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+            date_weights.setdefault(d, []).append(float(e.weight_kg))
+
+        def _ma_for_day(day: _date):
+            window_start = day - _timedelta(days=6)
+            vals = []
+            for offset in range(7):
+                di = window_start + _timedelta(days=offset)
+                if di in date_weights:
+                    vals.extend(date_weights[di])
+            if not vals:
+                return None
+            return round(sum(vals) / len(vals), 2)
+
+        # Actuals: one object per real weight_entry row in [from_d, to_d]
+        actuals = []
+        for e in all_entries:
+            d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+            if d < from_d:
+                continue
+            actuals.append({"date": str(d), "weight_kg": float(e.weight_kg)})
+
+        # Trend: dense, one point per day in [from_d, to_d]; null when window is empty
+        num_days = (to_d - from_d).days + 1
+        trend = []
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            trend.append({"date": str(day), "weight_kg": _ma_for_day(day)})
+
+        # Stats
+        in_range = [e for e in all_entries if (
+            (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))) >= from_d
+        )]
+        current_weight_kg = float(in_range[-1].weight_kg) if in_range else None
+
+        current_avg_kg = None
+        for t in reversed(trend):
+            if t["weight_kg"] is not None:
+                current_avg_kg = t["weight_kg"]
+                break
+
+        delta_7d_kg = None
+        if current_avg_kg is not None:
+            ma_7d_ago = _ma_for_day(to_d - _timedelta(days=7))
+            if ma_7d_ago is not None:
+                delta_7d_kg = round(current_avg_kg - ma_7d_ago, 2)
+
+        delta_30d_kg = None
+        if current_avg_kg is not None:
+            ma_30d_ago = _ma_for_day(to_d - _timedelta(days=30))
+            if ma_30d_ago is not None:
+                delta_30d_kg = round(current_avg_kg - ma_30d_ago, 2)
+
+        stats = {
+            "current_weight_kg": current_weight_kg,
+            "current_avg_kg": current_avg_kg,
+            "delta_7d_kg": delta_7d_kg,
+            "delta_30d_kg": delta_30d_kg,
+        }
+
+        # Target block
+        result = {
+            "range": {"from": str(from_d), "to": str(to_d)},
+            "actuals": actuals,
+            "trend": trend,
+            "stats": stats,
+        }
+
+        if include_target:
+            active_target = (
+                session.query(WeightTarget)
+                .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+                .first()
+            )
+            target_block = None
+            if active_target is not None:
+                target_weight = float(active_target.target_weight_kg)
+                target_date = (
+                    active_target.target_date
+                    if isinstance(active_target.target_date, _date)
+                    else _date.fromisoformat(str(active_target.target_date))
+                )
+                proj_start_weight = current_weight_kg if current_weight_kg is not None else float(active_target.start_weight_kg)
+                proj_start = today
+                total_days = (target_date - proj_start).days
+
+                if total_days <= 0:
+                    projected_path = [{"date": str(target_date), "weight_kg": round(target_weight, 2)}]
+                else:
+                    projected_path = []
+                    d = proj_start
+                    while d <= target_date:
+                        frac = (d - proj_start).days / total_days
+                        w = proj_start_weight + (target_weight - proj_start_weight) * frac
+                        projected_path.append({"date": str(d), "weight_kg": round(w, 2)})
+                        d = _advance_one_month(d)
+                    if projected_path[-1]["date"] != str(target_date):
+                        projected_path.append({"date": str(target_date), "weight_kg": round(target_weight, 2)})
+
+                target_block = {
+                    "target_weight_kg": target_weight,
+                    "target_date": str(target_date),
+                    "projected_path": projected_path,
+                }
+            result["target"] = target_block
+
+        return JSONResponse(result)
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
