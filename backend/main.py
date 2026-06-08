@@ -1374,6 +1374,129 @@ def get_weight_chart(
         return JSONResponse(result)
 
 
+# ── Home weight-summary endpoint ──────────────────────────────────────────────
+
+@app.get("/api/home/weight-summary")
+def get_home_weight_summary(user: User = Depends(resolve_user)):
+    """Return a pre-computed weight summary for the home page weight widget."""
+    today = _date.today()
+    cutoff_30 = today - _timedelta(days=30)
+    cutoff_7 = today - _timedelta(days=7)
+
+    with Session(engine) as session:
+        # All entries in last 30 days, ascending
+        recent_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == user.id,
+                WeightEntry.entry_date >= cutoff_30,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+
+        # Nearest entry at or before cutoff_30 (for month delta)
+        entry_before_30 = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == user.id,
+                WeightEntry.entry_date < cutoff_30,
+            )
+            .order_by(WeightEntry.entry_date.desc())
+            .first()
+        )
+
+        # Active target
+        active_target = (
+            session.query(WeightTarget)
+            .filter(
+                WeightTarget.user_id == user.id,
+                WeightTarget.status == "active",
+            )
+            .first()
+        )
+
+        if not recent_entries and entry_before_30 is None:
+            return JSONResponse({
+                "current_weight": None,
+                "avg_7d": None,
+                "delta_week": None,
+                "delta_month": None,
+                "ma30": [],
+                "target": None,
+            })
+
+        current_weight = float(recent_entries[-1].weight_kg) if recent_entries else float(entry_before_30.weight_kg)
+
+        # 7-day average from entries in the last 7 days
+        entries_7d = [e for e in recent_entries if e.entry_date >= cutoff_7]
+        if entries_7d:
+            avg_7d = round(sum(float(e.weight_kg) for e in entries_7d) / len(entries_7d), 2)
+        else:
+            avg_7d = current_weight
+
+        # delta_week: current vs nearest entry at or before 7d ago
+        entry_before_7 = None
+        for e in reversed(recent_entries):
+            if e.entry_date <= cutoff_7:
+                entry_before_7 = e
+                break
+        if entry_before_7 is None:
+            entry_before_7 = entry_before_30
+        delta_week = round(current_weight - float(entry_before_7.weight_kg), 2) if entry_before_7 else None
+
+        # delta_month: current vs nearest entry at or before 30d ago
+        delta_month = round(current_weight - float(entry_before_30.weight_kg), 2) if entry_before_30 else None
+
+        # ma30: build a 7-day rolling moving-average series over last 30 days
+        # Combine all known entries (entry_before_30 as anchor + recent)
+        all_ordered = (([entry_before_30] if entry_before_30 else []) + list(recent_entries))
+        # Deduplicate by date (keep last entry per date)
+        by_date = {}
+        for e in all_ordered:
+            by_date[e.entry_date] = float(e.weight_kg)
+        sorted_dates = sorted(by_date.keys())
+        sorted_weights = [by_date[d] for d in sorted_dates]
+
+        ma30 = []
+        window = 7
+        for i, d in enumerate(sorted_dates):
+            if d < cutoff_30:
+                continue
+            start = max(0, i - window + 1)
+            segment = sorted_weights[start: i + 1]
+            ma_val = round(sum(segment) / len(segment), 2)
+            ma30.append({"date": str(d), "value": ma_val})
+
+        # Target block
+        target_info = None
+        if active_target:
+            status = _compute_status_label(active_target, avg_7d, today)
+            start_w = float(active_target.start_weight_kg)
+            target_w = float(active_target.target_weight_kg)
+            total_kg = start_w - target_w
+            if total_kg != 0:
+                kg_changed = start_w - current_weight
+                progress_pct = round(min(max(kg_changed / total_kg * 100, 0), 100), 2)
+            else:
+                progress_pct = 100.0
+            direction = "down" if target_w < start_w else "up"
+            target_info = {
+                "progress_pct": progress_pct,
+                "status_label": status,
+                "direction": direction,
+            }
+
+        return JSONResponse({
+            "current_weight": current_weight,
+            "avg_7d": avg_7d,
+            "delta_week": delta_week,
+            "delta_month": delta_month,
+            "ma30": ma30,
+            "target": target_info,
+        })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
