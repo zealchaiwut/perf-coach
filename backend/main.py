@@ -1377,34 +1377,24 @@ def get_weight_chart(
 # ── Home weight-summary endpoint ──────────────────────────────────────────────
 
 _WEIGHT_SUMMARY_EMPTY = {
-    "current_weight_kg": None,
-    "current_date": None,
-    "moving_avg_7d_kg": None,
-    "delta_7d_kg": None,
-    "delta_30d_kg": None,
+    "current_weight": None,
+    "avg_7d": None,
+    "delta_week": None,
+    "delta_month": None,
     "target": None,
-    "sparkline": [],
+    "ma30": [],
 }
 
 
 @app.get("/api/home/weight-summary")
-def get_home_weight_summary(user_id: str = Query(...)):
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
-
+def get_home_weight_summary(user: User = Depends(resolve_user)):
+    uid = user.id
     today = _date.today()
-    # Fetch entries from today-36 to cover 7-day MA windows for all sparkline days
-    # and for delta_30d_kg (MA 30 days ago needs entries back to today-36)
+    # today-36 covers 7-day MA windows for all 30 sparkline days and delta_month
     fetch_from = today - _timedelta(days=36)
 
     try:
         with Session(engine) as session:
-            user = session.get(User, uid)
-            if not user:
-                raise HTTPException(status_code=404, detail="User not found")
-
             entries = (
                 session.query(WeightEntry)
                 .filter(
@@ -1423,8 +1413,6 @@ def get_home_weight_summary(user_id: str = Query(...)):
                 )
                 .first()
             )
-    except HTTPException:
-        raise
     except sa_exc.OperationalError:
         return JSONResponse(_WEIGHT_SUMMARY_EMPTY)
 
@@ -1443,62 +1431,63 @@ def get_home_weight_summary(user_id: str = Query(...)):
                 vals.extend(date_weights[di])
         return round(sum(vals) / len(vals), 2) if vals else None
 
-    # Sparkline: exactly 30 values, oldest (today-29) first
-    sparkline = [_ma(today - _timedelta(days=29 - i)) for i in range(30)]
+    # ma30: 30-day window of {date, value} items, nulls filtered out, oldest first
+    ma30 = []
+    for i in range(30):
+        day = today - _timedelta(days=29 - i)
+        v = _ma(day)
+        if v is not None:
+            ma30.append({"date": str(day), "value": v})
 
     # Current weight from most recent entry
     if entries:
         last = entries[-1]
-        current_weight_kg: Optional[float] = round(float(last.weight_kg), 2)
-        ld = last.entry_date if isinstance(last.entry_date, _date) else _date.fromisoformat(str(last.entry_date))
-        current_date: Optional[str] = str(ld)
+        current_weight: Optional[float] = round(float(last.weight_kg), 2)
     else:
-        current_weight_kg = None
-        current_date = None
+        current_weight = None
 
-    moving_avg_7d_kg = _ma(today)
+    avg_7d = _ma(today)
 
-    delta_7d_kg = None
-    if moving_avg_7d_kg is not None:
+    delta_week = None
+    if avg_7d is not None:
         ma_7d_ago = _ma(today - _timedelta(days=7))
         if ma_7d_ago is not None:
-            delta_7d_kg = round(moving_avg_7d_kg - ma_7d_ago, 2)
+            delta_week = round(avg_7d - ma_7d_ago, 2)
 
-    delta_30d_kg = None
-    if moving_avg_7d_kg is not None:
+    delta_month = None
+    if avg_7d is not None:
         ma_30d_ago = _ma(today - _timedelta(days=30))
         if ma_30d_ago is not None:
-            delta_30d_kg = round(moving_avg_7d_kg - ma_30d_ago, 2)
+            delta_month = round(avg_7d - ma_30d_ago, 2)
 
     target_info = None
     if active_target:
-        status_label = _compute_status_label(active_target, moving_avg_7d_kg, today)
+        status_label = _compute_status_label(active_target, avg_7d, today)
         target_w = float(active_target.target_weight_kg)
         start_w = float(active_target.start_weight_kg)
-        total_kg = start_w - target_w
+        direction = "down" if target_w < start_w else "up"
+        total_kg = abs(start_w - target_w)
         if total_kg != 0:
-            kg_changed = start_w - (current_weight_kg if current_weight_kg is not None else start_w)
+            kg_changed = abs(start_w - (current_weight if current_weight is not None else start_w))
             progress_pct = round(min(max(kg_changed / total_kg * 100, 0), 100), 2)
         else:
             progress_pct = 100.0
-        kg_to_go = round(current_weight_kg - target_w, 2) if current_weight_kg is not None else None
         td = active_target.target_date if isinstance(active_target.target_date, _date) else _date.fromisoformat(str(active_target.target_date))
         target_info = {
+            "direction": direction,
             "target_weight_kg": target_w,
             "target_date": str(td),
             "progress_pct": progress_pct,
-            "kg_to_go": kg_to_go,
             "status_label": status_label,
         }
 
     return JSONResponse({
-        "current_weight_kg": current_weight_kg,
-        "current_date": current_date,
-        "moving_avg_7d_kg": moving_avg_7d_kg,
-        "delta_7d_kg": delta_7d_kg,
-        "delta_30d_kg": delta_30d_kg,
+        "current_weight": current_weight,
+        "avg_7d": avg_7d,
+        "delta_week": delta_week,
+        "delta_month": delta_month,
         "target": target_info,
-        "sparkline": sparkline,
+        "ma30": ma30,
     })
 
 
