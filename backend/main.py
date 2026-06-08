@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -415,10 +415,24 @@ def logout():
     return resp
 
 
+def _user_dict(user: User) -> dict:
+    with Session(engine) as session:
+        has_active = session.query(WeightTarget).filter(
+            WeightTarget.user_id == user.id,
+            WeightTarget.status == "active",
+        ).first() is not None
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "is_admin": bool(user.is_admin),
+        "has_active_weight_target": has_active,
+    }
+
+
 @app.get("/api/auth/me")
 async def me(request: Request):
     user = await get_current_user(request)
-    return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+    return JSONResponse(_user_dict(user))
 
 
 @app.get("/api/csrf-token")

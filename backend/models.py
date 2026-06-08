@@ -46,6 +46,38 @@ class WeightEntry(Base):
     )
 
 
+class WeightTarget(Base):
+    __tablename__ = "weight_targets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_weight_kg = Column(Numeric(5, 2), nullable=False)
+    start_date = Column(Date, nullable=False)
+    target_weight_kg = Column(Numeric(5, 2), nullable=False)
+    target_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    end_weight_kg = Column(Numeric(5, 2), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'achieved', 'abandoned', 'replaced')",
+            name="ck_weight_targets_status_values",
+        ),
+        Index("ix_weight_targets_user_status", "user_id", "status"),
+        # Partial unique index — one active target per user; enforced at DB level
+        Index(
+            "uix_weight_targets_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+
 class Habit(Base):
     __tablename__ = "habits"
 
