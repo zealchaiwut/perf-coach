@@ -688,3 +688,190 @@ def test_readiness_contributors_5_factors():
     factors = [c["factor"] for c in res.json()["contributors"]]
     assert len(factors) == 5
     assert set(factors) == {"sleep_hours", "hrv", "rhr", "mood", "energy"}
+
+
+# ── Home weekly-summary widget tests (issue #352) ─────────────────────────────
+
+_WK_UID = str(uuid.uuid4())
+_WK_START = datetime.date(2026, 6, 2)   # Monday
+_WK_END = datetime.date(2026, 6, 8)     # Sunday
+_WK_PREV_START = datetime.date(2026, 5, 26)  # Previous Monday
+
+
+def _make_wk_workout(workout_date, workout_type="run", distance_km=None,
+                      duration_seconds=None, tss=None, elevation_m=None):
+    w = MagicMock()
+    w.id = uuid.uuid4()
+    w.workout_date = workout_date
+    w.workout_type = workout_type
+    w.distance_km = Decimal(str(distance_km)) if distance_km is not None else None
+    w.duration_seconds = duration_seconds
+    w.tss = tss
+    w.elevation_m = elevation_m
+    return w
+
+
+def _patch_wk_session(workouts, user_found=True):
+    mock_user = MagicMock()
+    mock_user.id = uuid.UUID(_WK_UID)
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_user if user_found else None
+    q = MagicMock()
+    q.filter.return_value = q
+    q.all.return_value = workouts
+    mock_session.query.return_value = q
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+    return patch("backend.main.Session", return_value=mock_cm)
+
+
+# (a) returns 7-day window with correct schema
+def test_weekly_summary_returns_7day_window():
+    w = _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0)
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session([w]):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["week_start"] == "2026-06-02"
+    assert body["week_end"] == "2026-06-08"
+    assert "workouts" in body
+    assert "total" in body["workouts"]
+    assert "by_type" in body["workouts"]
+    assert "distance_km" in body
+    assert "duration_minutes" in body
+    assert "total_tss" in body
+    assert "elevation_m" in body
+    assert "rest_days" in body
+    assert "vs_prev_week" in body
+    assert "daily_load" in body
+    assert len(body["daily_load"]) == 7
+
+
+# (b) by_type counts correct
+def test_weekly_summary_by_type_counts():
+    workouts = [
+        _make_wk_workout(_WK_START, workout_type="run"),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=1), workout_type="run"),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=2), workout_type="lift"),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=3), workout_type="bike"),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=4), workout_type="wod"),
+    ]
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session(workouts):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    by_type = res.json()["workouts"]["by_type"]
+    assert by_type["run"] == 2
+    assert by_type["lift"] == 1
+    assert by_type["bike"] == 1
+    assert by_type["wod"] == 1
+
+
+# (c) distance_km and tss sums correct
+def test_weekly_summary_aggregates():
+    workouts = [
+        _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0, duration_seconds=1800, elevation_m=100),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=1), distance_km=10.0, tss=80.0, duration_seconds=3600, elevation_m=200),
+    ]
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session(workouts):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    body = res.json()
+    assert body["distance_km"] == pytest.approx(15.0, abs=0.01)
+    assert body["total_tss"] == pytest.approx(130.0, abs=0.01)
+    assert body["duration_minutes"] == pytest.approx(90.0, abs=0.1)
+    assert body["elevation_m"] == 300
+
+
+# (d) vs_prev_week deltas correct
+def test_weekly_summary_vs_prev_week():
+    prev_w = _make_wk_workout(_WK_PREV_START, distance_km=8.0, tss=60.0)
+    curr_w1 = _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0)
+    curr_w2 = _make_wk_workout(_WK_START + datetime.timedelta(days=1), distance_km=10.0, tss=80.0)
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session([prev_w, curr_w1, curr_w2]):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    vp = res.json()["vs_prev_week"]
+    assert vp["total_delta"] == 1
+    assert vp["distance_km_delta"] == pytest.approx(7.0, abs=0.01)
+    assert vp["tss_delta"] == pytest.approx(70.0, abs=0.01)
+
+
+# (e) daily_load has exactly 7 entries with date/tss/is_rest
+def test_weekly_summary_daily_load_7_entries():
+    w = _make_wk_workout(_WK_START, tss=40.0)
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session([w]):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    dl = res.json()["daily_load"]
+    assert len(dl) == 7
+    dates = [entry["date"] for entry in dl]
+    assert dates[0] == _WK_START.isoformat()
+    assert dates[-1] == _WK_END.isoformat()
+    for entry in dl:
+        assert "date" in entry
+        assert "tss" in entry
+        assert "is_rest" in entry
+    assert dl[0]["tss"] == pytest.approx(40.0, abs=0.01)
+    assert dl[0]["is_rest"] is False
+    assert all(entry["is_rest"] for entry in dl[1:])
+
+
+# (f) rest_days counts correctly
+def test_weekly_summary_rest_days():
+    workouts = [
+        _make_wk_workout(_WK_START),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=2)),
+        _make_wk_workout(_WK_START + datetime.timedelta(days=4)),
+    ]
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session(workouts):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    assert res.json()["rest_days"] == 4
+
+
+# (g) graceful degradation when distance/duration/tss columns absent
+def test_weekly_summary_graceful_no_columns():
+    class _SlimWorkout:
+        def __init__(self, d):
+            self.id = uuid.uuid4()
+            self.workout_date = d
+            self.workout_type = "run"
+
+    slim = _SlimWorkout(_WK_START)
+    qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
+    with _patch_wk_session([slim]):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["distance_km"] is None
+    assert body["duration_minutes"] is None
+    assert body["total_tss"] is None
+    assert body["workouts"]["total"] == 1
+
+
+# (h) week boundaries computed in Bangkok time — default week_start is Monday
+def test_weekly_summary_default_week_start_is_monday():
+    qs = f"?user_id={_WK_UID}"
+    with _patch_wk_session([]):
+        res = client.get(f"/api/home/weekly-summary{qs}")
+    assert res.status_code == 200
+    body = res.json()
+    ws = datetime.date.fromisoformat(body["week_start"])
+    we = datetime.date.fromisoformat(body["week_end"])
+    assert ws.weekday() == 0  # Monday
+    assert (we - ws).days == 6
+
+
+# 404 cases (AC: user_id missing or unknown returns 404)
+def test_weekly_summary_missing_user_id_returns_404():
+    with _patch_wk_session([]):
+        res = client.get("/api/home/weekly-summary")
+    assert res.status_code == 404
+
+
+def test_weekly_summary_unknown_user_returns_404():
+    with _patch_wk_session([], user_found=False):
+        res = client.get(f"/api/home/weekly-summary?user_id={_WK_UID}")
+    assert res.status_code == 404

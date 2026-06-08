@@ -1888,6 +1888,144 @@ def get_home_readiness(
     })
 
 
+# ── Home weekly-summary endpoint ──────────────────────────────────────────────
+
+_WK_TYPE_BUCKETS = ("run", "lift", "wod", "bike")
+
+
+@app.get("/api/home/weekly-summary")
+def get_home_weekly_summary(
+    user_id: Optional[str] = Query(default=None),
+    week_start: Optional[str] = Query(default=None),
+):
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if week_start is None:
+        from zoneinfo import ZoneInfo
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        ws = today_bkk - _timedelta(days=today_bkk.weekday())
+    else:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week_start format")
+
+    we = ws + _timedelta(days=6)
+    prev_ws = ws - _timedelta(days=7)
+    prev_we = ws - _timedelta(days=1)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        all_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_ws,
+                Workout.workout_date <= we,
+            )
+            .all()
+        )
+
+    current_week = [w for w in all_workouts if ws <= w.workout_date <= we]
+    prev_week = [w for w in all_workouts if prev_ws <= w.workout_date <= prev_we]
+
+    by_type = {k: 0 for k in _WK_TYPE_BUCKETS}
+    for w in current_week:
+        try:
+            wt = (w.workout_type or "").lower()
+            if wt in by_type:
+                by_type[wt] += 1
+        except Exception:
+            pass
+
+    def _safe_float(val):
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _safe_int(val):
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _sum_attr(workouts, attr, cast):
+        try:
+            vals = [cast(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+            return sum(vals) if vals else None
+        except Exception:
+            return None
+
+    distance_km = _sum_attr(current_week, "distance_km", _safe_float)
+    if distance_km is not None:
+        distance_km = round(distance_km, 3)
+
+    dur_sec = _sum_attr(current_week, "duration_seconds", _safe_int)
+    duration_minutes = round(dur_sec / 60.0, 1) if dur_sec is not None else None
+
+    total_tss = _sum_attr(current_week, "tss", _safe_float)
+    if total_tss is not None:
+        total_tss = round(total_tss, 2)
+
+    elevation_m = _sum_attr(current_week, "elevation_m", _safe_int)
+
+    workout_dates_current = set(w.workout_date for w in current_week)
+    rest_days = sum(
+        1 for i in range(7)
+        if (ws + _timedelta(days=i)) not in workout_dates_current
+    )
+
+    prev_distance = _sum_attr(prev_week, "distance_km", _safe_float) or 0.0
+    prev_tss = _sum_attr(prev_week, "tss", _safe_float) or 0.0
+    curr_distance_for_delta = distance_km if distance_km is not None else 0.0
+    curr_tss_for_delta = total_tss if total_tss is not None else 0.0
+
+    vs_prev_week = {
+        "total_delta": len(current_week) - len(prev_week),
+        "distance_km_delta": round(curr_distance_for_delta - prev_distance, 3),
+        "tss_delta": round(curr_tss_for_delta - prev_tss, 2),
+    }
+
+    daily_load = []
+    for i in range(7):
+        day = ws + _timedelta(days=i)
+        day_workouts = [w for w in current_week if w.workout_date == day]
+        day_tss = _sum_attr(day_workouts, "tss", _safe_float)
+        if day_tss is not None:
+            day_tss = round(day_tss, 2)
+        daily_load.append({
+            "date": day.isoformat(),
+            "tss": day_tss,
+            "is_rest": day not in workout_dates_current,
+        })
+
+    return JSONResponse({
+        "week_start": ws.isoformat(),
+        "week_end": we.isoformat(),
+        "workouts": {
+            "total": len(current_week),
+            "by_type": by_type,
+        },
+        "distance_km": distance_km,
+        "duration_minutes": duration_minutes,
+        "total_tss": total_tss,
+        "elevation_m": elevation_m,
+        "rest_days": rest_days,
+        "vs_prev_week": vs_prev_week,
+        "daily_load": daily_load,
+    })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
