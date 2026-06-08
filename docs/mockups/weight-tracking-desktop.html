@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Weight Tracking – Desktop Mockup</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }
+    .page { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
+    .sub { font-size: 0.875rem; color: #6b7280; margin: 0 0 24px; }
+    .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .cell { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 18px; }
+    .cell-label { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 8px; }
+    .cell-value { font-size: 1.75rem; font-weight: 700; color: #111827; font-variant-numeric: tabular-nums; }
+    .pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; margin-top: 6px; }
+    .pill.loss { background: #dcfce7; color: #15803d; }
+    .pill.neutral { background: #f3f4f6; color: #6b7280; }
+    .quicklog { display: flex; gap: 8px; margin-top: 8px; }
+    .quicklog input { width: 80px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9375rem; }
+    .quicklog button { padding: 6px 14px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 0.875rem; cursor: pointer; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .card h2 { font-size: 0.9375rem; font-weight: 600; color: #374151; margin: 0 0 16px; }
+    .chart-area { background: #f9fafb; border-radius: 8px; height: 220px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 0.875rem; }
+    .tabs { display: inline-flex; border: 1px solid #e5e7eb; border-radius: 7px; overflow: hidden; margin-bottom: 14px; }
+    .tab { padding: 5px 14px; background: #fff; border: none; border-right: 1px solid #e5e7eb; font-size: 0.8125rem; font-weight: 500; color: #6b7280; cursor: pointer; }
+    .tab:last-child { border-right: none; }
+    .tab.active { background: #1a1a1a; color: #fff; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: #9ca3af; text-align: left; padding: 0 0 8px; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 0.9375rem; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #9ca3af; font-size: 0.9375rem; }
+    .note { font-size: 0.75rem; color: #9ca3af; margin-top: 4px; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Weight</h1>
+    <p class="sub">Visual reference for /weight desktop layout. Not served by the application.</p>
+
+    <!-- Hero strip -->
+    <div class="hero">
+      <div class="cell">
+        <div class="cell-label">Current weight</div>
+        <div class="cell-value">82.4 kg</div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">7-day avg</div>
+        <div class="cell-value" style="font-size:1.375rem">82.8 kg</div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Change</div>
+        <div><span class="pill loss">↓ 0.6 kg This wk</span></div>
+        <div><span class="pill loss">↓ 1.2 kg This mo</span></div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Log weight</div>
+        <div class="quicklog">
+          <input type="number" placeholder="kg">
+          <button>Log</button>
+        </div>
+        <p class="note">Rejects dates &gt; 1 day in the future</p>
+      </div>
+    </div>
+
+    <!-- Chart card -->
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active">30D</button>
+        <button class="tab">90D</button>
+        <button class="tab">6M</button>
+        <button class="tab">1Y</button>
+        <button class="tab">ALL</button>
+      </div>
+      <!-- Loading placeholder shown while Chart.js CDN loads -->
+      <div class="chart-area">Loading chart… (replaced once Chart.js loads)</div>
+    </div>
+
+    <!-- Progress card (shown only with active target) -->
+    <div class="card">
+      <h2>Progress toward goal</h2>
+      <div style="background:#f3f4f6;border-radius:999px;height:10px;margin-bottom:12px;">
+        <div style="background:#2563eb;border-radius:999px;height:10px;width:62%"></div>
+      </div>
+      <div style="display:flex;gap:24px;align-items:center;">
+        <div style="font-size:2rem;font-weight:800;">62<span style="font-size:1rem;font-weight:400;color:#6b7280">%</span></div>
+        <div style="font-size:0.875rem;color:#374151">4.7 kg to go</div>
+        <span class="pill loss" style="margin:0">On track</span>
+      </div>
+    </div>
+
+    <!-- Recent entries -->
+    <div class="card">
+      <h2>Recent entries <span style="color:#9ca3af;font-weight:400">(last 14 days)</span></h2>
+      <table>
+        <thead><tr><th>Date</th><th>Time</th><th>Weight</th><th>Delta</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Today, Jun 8</td><td>07:15</td><td><b>82.4 kg</b></td><td><span style="color:#15803d">↓ 0.3</span></td><td>⋯</td></tr>
+          <tr><td>Sat, Jun 7</td><td>07:22</td><td><b>82.7 kg</b></td><td><span style="color:#15803d">↓ 0.1</span></td><td>⋯</td></tr>
+          <tr><td colspan="5" class="empty-state">
+            <!-- empty state: no entries yet -->
+            No weight entries yet — log your first weigh-in above
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

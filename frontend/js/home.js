@@ -39,6 +39,12 @@
       String(d.getDate()).padStart(2, '0');
   }
 
+  function addISODays(isoStr, n) {
+    var d = new Date(isoStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return isoDate(d);
+  }
+
   function avgOf(arr) {
     var vals = arr.filter(function (v) { return v != null && !isNaN(v); });
     if (!vals.length) return null;
@@ -228,6 +234,8 @@
       row1.insertBefore(card, row1.firstChild);
     }
 
+    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
+
     var today = new Date();
     var from = new Date(today);
     from.setDate(from.getDate() - 6);
@@ -310,6 +318,8 @@
       card.className = 'card sleep-card';
       row1.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = isoDate(new Date());
     var data = null;
@@ -577,12 +587,12 @@
       row2.insertBefore(card, row2.firstChild);
     }
 
-    card.innerHTML =
+    var perfHeader =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
         '<a href="#">All tracks</a>' +
-      '</div>' +
-      '<div class="perf-loading" style="font-size:13px;color:var(--text-tertiary);padding:16px 4px;">Loading…</div>';
+      '</div>';
+    card.innerHTML = perfHeader + UIStates.loadingHTML();
 
     var prs = [];
     try {
@@ -593,7 +603,7 @@
     var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
 
     if (configuredPrs.length === 0) {
-      var emptyLoading = card.querySelector('.perf-loading');
+      var emptyLoading = card.querySelector('.ui-loading');
       if (emptyLoading) emptyLoading.remove();
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
@@ -639,7 +649,7 @@
       mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
     }
 
-    var loadingEl = card.querySelector('.perf-loading');
+    var loadingEl = card.querySelector('.ui-loading');
     if (loadingEl) loadingEl.remove();
 
     var contentEl = document.createElement('div');
@@ -736,6 +746,8 @@
       card.className = 'card workouts';
       row2.appendChild(card);
     }
+
+    card.innerHTML = UIStates.loadingHTML();
 
     var today = new Date();
     var from14 = new Date(today);
@@ -842,6 +854,18 @@
     attachHabitCellListeners(card, [habit], weekDates, todayStr, userId);
   }
 
+  function showHabitError(card, msg) {
+    var existing = card.querySelector('.habit-inline-error');
+    if (existing) existing.remove();
+    var el = document.createElement('div');
+    el.className = 'habit-inline-error';
+    el.textContent = msg;
+    var footer = card.querySelector('.habits-streak-footer');
+    if (footer) footer.insertAdjacentElement('beforebegin', el);
+    else card.appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 4000);
+  }
+
   function attachHabitCellListeners(card, habits, weekDates, todayStr, userId) {
     var habitMap = {};
     habits.forEach(function (h) { habitMap[h.id] = h; });
@@ -854,18 +878,55 @@
         var logId = cell.getAttribute('data-log-id');
         var habit = habitMap[hid];
         if (!habit) return;
+
+        var wasLogged = !!logId;
+        if (wasLogged) {
+          cell.classList.remove('done');
+          cell.innerHTML = '';
+          cell.removeAttribute('data-log-id');
+        } else {
+          cell.classList.add('done');
+          cell.innerHTML = '<i class="ti ti-check"></i>';
+        }
+
         try {
-          if (logId) {
-            await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
+          if (wasLogged) {
+            var delRes = await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
+            if (!delRes.ok) throw new Error('delete failed');
           } else {
-            await fetch('/api/habits/logs', {
+            var postRes = await fetch('/api/habits/logs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ habit_id: hid, logged_date: dateStr })
             });
+            if (!postRes.ok) throw new Error('post failed');
+            var newLog = await postRes.json();
+            cell.setAttribute('data-log-id', String(newLog.id));
           }
-        } catch (_) { return; }
-        await refreshHabitRow(card, habit, weekDates, todayStr, userId);
+        } catch (_) {
+          if (wasLogged) {
+            cell.classList.add('done');
+            cell.innerHTML = '<i class="ti ti-check"></i>';
+            cell.setAttribute('data-log-id', logId);
+          } else {
+            cell.classList.remove('done');
+            cell.innerHTML = '';
+            cell.removeAttribute('data-log-id');
+          }
+          showHabitError(card, 'Could not save — try again');
+          return;
+        }
+
+        try {
+          var sr = await fetch('/api/habits/stats?habit_id=' + hid + '&days=30');
+          if (sr.ok) {
+            var sd = await sr.json();
+            var badge = card.querySelector('[data-streak-badge="' + hid + '"]');
+            if (badge) badge.textContent = habit.name.split(' ')[0] + ' ' + (sd.streak || 0) + 'd';
+            var streakCell = card.querySelector('[data-habit-row="' + hid + '"] .streak-col .num');
+            if (streakCell) streakCell.textContent = sd.streak || 0;
+          }
+        } catch (_) {}
       });
     });
   }
@@ -888,7 +949,7 @@
         '<a href="/habits">All</a>' +
       '</div>';
 
-    card.innerHTML = header + '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 4px;">Loading…</div>';
+    card.innerHTML = header + UIStates.loadingHTML();
 
     var habits = [];
     try {
@@ -1328,21 +1389,35 @@
       bigDay ? 'Peak: ' + bigDay : '—', '');
   }
 
-  function _buildWeightQuickInput() {
+  function _buildWeightQuickInput(prefillValue) {
+    var valAttr = (prefillValue != null) ? ' value="' + prefillValue + '"' : '';
     return '<div class="trend-quick-input">' +
       '<input type="number" class="trend-weight-input" step="0.1" min="20" max="300"' +
-        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg">' +
+        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg"' + valAttr + '>' +
       '<button type="button" class="trend-quick-save-btn" data-save="weight">Save</button>' +
+      '<span class="trend-weight-error" style="display:none;font-size:11px;color:#dc2626;margin-left:6px;"></span>' +
     '</div>';
   }
 
   function _wireWeightSave(cardEl, userId) {
     var btn = cardEl.querySelector('[data-save="weight"]');
     var inp = cardEl.querySelector('.trend-weight-input');
+    var errEl = cardEl.querySelector('.trend-weight-error');
     if (!btn || !inp) return;
+
+    function showWeightErr(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg;
+      errEl.style.display = 'inline';
+      setTimeout(function () { errEl.style.display = 'none'; }, 4000);
+    }
+
     btn.addEventListener('click', async function () {
-      var val = parseFloat(inp.value);
-      if (!val || val < 20 || val > 300) { inp.focus(); return; }
+      var raw = inp.value.trim();
+      if (errEl) errEl.style.display = 'none';
+      if (raw === '' || isNaN(Number(raw))) { showWeightErr('Enter a number'); inp.focus(); return; }
+      var val = parseFloat(raw);
+      if (val < 20 || val > 300) { showWeightErr('Must be 20–300 kg'); inp.focus(); return; }
       btn.disabled = true;
       try {
         var todayStr = isoDate(new Date());
@@ -1358,17 +1433,21 @@
             var entries = await wRes.json();
             renderWeightTrendCard(cardEl, entries, userId);
           }
+        } else {
+          showWeightErr('Save failed — try again');
         }
-      } catch (_) { /* silent */ }
+      } catch (_) {
+        showWeightErr('Network error — try again');
+      }
       btn.disabled = false;
     });
   }
 
   function renderWeightTrendCard(el, weightEntries, userId) {
     var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
-    var quickInput = _buildWeightQuickInput();
 
     if (!weightEntries || !weightEntries.length) {
+      var quickInput = _buildWeightQuickInput(null);
       el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weight', '30d') + quickInput;
       _wireWeightSave(el, userId);
       return;
@@ -1400,11 +1479,12 @@
       pillHTML = _trendDeltaPill('—', 'flat');
     }
 
+    var quickInput = _buildWeightQuickInput(latest.weight_kg.toFixed(1));
     el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weight', '30d',
       latest.weight_kg.toFixed(1), 'kg', pillHTML,
       _trendAreaSpark(sparkVals, '#2b4ca8', '#2b4ca8', null),
       '30d trend',
-      'Latest: ' + latest.weight_kg.toFixed(1) + ' kg',
+      '<a href="/weight" style="color:#2b4ca8;text-decoration:none;font-size:11px;">View all →</a>',
       quickInput);
     _wireWeightSave(el, userId);
   }
@@ -1463,6 +1543,210 @@
     renderWeightTrendCard(document.getElementById('trend-card-weight'), weightEntries, userId);
   }
 
+  /* ---- Log Today card ---- */
+
+  function renderLogTodayCard(card, existing, userId, selectedDate, todayStr) {
+    var v = existing || {};
+
+    function field(id, label, required, value, placeholder) {
+      var req = required ? '<span class="lt-required">*</span>' : '';
+      var val = value != null ? ' value="' + value + '"' : '';
+      return '<div class="lt-field">' +
+        '<label class="lt-label" for="lt-' + id + '">' + label + req + '</label>' +
+        '<input class="lt-input" type="number" id="lt-' + id + '" name="' + id + '"' +
+          (required ? ' data-required="1"' : '') +
+          (placeholder ? ' placeholder="' + placeholder + '"' : '') +
+          val + ' step="any">' +
+        '<div class="lt-error" id="lt-err-' + id + '"></div>' +
+      '</div>';
+    }
+
+    var isOnToday = selectedDate === todayStr;
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>' +
+        '<div class="lt-date-nav">' +
+          '<button class="lt-nav-btn" id="lt-prev-btn" type="button" aria-label="Previous day">&#8249;</button>' +
+          '<input type="date" id="lt-date-picker" class="lt-date-input"' +
+            ' value="' + selectedDate + '" max="' + todayStr + '">' +
+          '<button class="lt-today-btn' + (isOnToday ? ' lt-today-btn--active' : '') + '"' +
+            ' id="lt-today-btn" type="button"' + (isOnToday ? ' disabled' : '') + '>Today</button>' +
+          '<button class="lt-nav-btn" id="lt-next-btn" type="button" aria-label="Next day"' +
+            (isOnToday ? ' disabled' : '') + '>&#8250;</button>' +
+        '</div>' +
+      '</div>' +
+      '<form class="lt-form" id="lt-form" novalidate>' +
+        '<div class="lt-grid">' +
+          field('sleep_hours',   'Sleep hours',   true,  v.sleep_hours,   '0–24') +
+          field('sleep_quality', 'Sleep quality', true,  v.sleep_quality, '1–5') +
+          field('energy',        'Energy',        true,  v.energy,        '1–5') +
+          field('mood',          'Mood',          true,  v.mood,          '1–5') +
+          field('resting_hr',    'Resting HR',    false, v.resting_hr,    'bpm') +
+          field('hrv',           'HRV',           false, v.hrv,           'ms') +
+        '</div>' +
+        '<div class="lt-actions">' +
+          '<button class="lt-save-btn" type="submit" id="lt-save-btn">Save</button>' +
+          '<div class="lt-feedback" id="lt-feedback"></div>' +
+        '</div>' +
+      '</form>';
+
+    var initialValues = {
+      sleep_hours:   v.sleep_hours   != null ? String(v.sleep_hours)   : '',
+      sleep_quality: v.sleep_quality != null ? String(v.sleep_quality) : '',
+      energy:        v.energy        != null ? String(v.energy)        : '',
+      mood:          v.mood          != null ? String(v.mood)          : '',
+      resting_hr:    v.resting_hr    != null ? String(v.resting_hr)    : '',
+      hrv:           v.hrv           != null ? String(v.hrv)           : ''
+    };
+
+    async function navigateDateTo(newDate) {
+      if (!newDate || newDate > todayStr || newDate === selectedDate) return;
+      var newExisting = null;
+      try {
+        var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
+        if (r.ok) newExisting = await r.json();
+      } catch (_) {}
+      renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
+    }
+
+    var datePicker = card.querySelector('#lt-date-picker');
+    datePicker.addEventListener('change', function () { navigateDateTo(this.value); });
+
+    var prevBtn = card.querySelector('#lt-prev-btn');
+    if (prevBtn) prevBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, -1)); });
+
+    var nextBtn = card.querySelector('#lt-next-btn');
+    if (nextBtn) nextBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, 1)); });
+
+    var todayNavBtn = card.querySelector('#lt-today-btn');
+    if (todayNavBtn) todayNavBtn.addEventListener('click', function () { navigateDateTo(todayStr); });
+
+
+    card.querySelector('#lt-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      card.querySelectorAll('.lt-error').forEach(function (el) { el.textContent = ''; });
+
+      var valid = true;
+
+      function val(name) {
+        var el = card.querySelector('#lt-' + name);
+        return el ? el.value.trim() : '';
+      }
+      function err(name, msg) { var el = card.querySelector('#lt-err-' + name); if (el) el.textContent = msg; valid = false; }
+
+      var shStr  = val('sleep_hours');
+      var sqStr  = val('sleep_quality');
+      var enStr  = val('energy');
+      var moStr  = val('mood');
+      var rhrStr = val('resting_hr');
+      var hrvStr = val('hrv');
+
+      if (shStr === '') {
+        err('sleep_hours', 'Required');
+      } else {
+        var sh = parseFloat(shStr);
+        if (isNaN(sh) || sh < 0 || sh > 24) err('sleep_hours', 'Must be 0–24');
+      }
+      if (sqStr === '') {
+        err('sleep_quality', 'Required');
+      } else {
+        var sq = parseInt(sqStr, 10);
+        if (isNaN(sq) || sq < 1 || sq > 5) err('sleep_quality', 'Must be 1–5');
+      }
+      if (enStr === '') {
+        err('energy', 'Required');
+      } else {
+        var en = parseInt(enStr, 10);
+        if (isNaN(en) || en < 1 || en > 5) err('energy', 'Must be 1–5');
+      }
+      if (moStr === '') {
+        err('mood', 'Required');
+      } else {
+        var mo = parseInt(moStr, 10);
+        if (isNaN(mo) || mo < 1 || mo > 5) err('mood', 'Must be 1–5');
+      }
+      if (rhrStr !== '') {
+        var rhr = parseInt(rhrStr, 10);
+        if (isNaN(rhr) || rhr < 1 || String(rhr) !== rhrStr) err('resting_hr', 'Positive integer');
+      }
+      if (hrvStr !== '') {
+        var hrv2 = parseInt(hrvStr, 10);
+        if (isNaN(hrv2) || hrv2 < 1 || String(hrv2) !== hrvStr) err('hrv', 'Positive integer');
+      }
+
+      if (!valid) return;
+
+      var btn = card.querySelector('#lt-save-btn');
+      var feedback = card.querySelector('#lt-feedback');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      feedback.className = 'lt-feedback';
+      feedback.textContent = '';
+
+      var payload = {
+        sleep_hours:   parseFloat(shStr),
+        sleep_quality: parseInt(sqStr, 10),
+        energy:        parseInt(enStr, 10),
+        mood:          parseInt(moStr, 10)
+      };
+      if (rhrStr !== '') payload.resting_hr = parseInt(rhrStr, 10);
+      if (hrvStr !== '') payload.hrv = parseInt(hrvStr, 10);
+
+      try {
+        var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + selectedDate, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          UIStates.showToast('Saved');
+          feedback.className = 'lt-feedback lt-feedback--ok';
+          feedback.textContent = 'Saved';
+          setTimeout(function () { feedback.textContent = ''; }, 3000);
+          initialValues = { sleep_hours: shStr, sleep_quality: sqStr, energy: enStr, mood: moStr, resting_hr: rhrStr, hrv: hrvStr };
+          if (selectedDate === todayStr) {
+            loadSleepCard(userId);
+            loadReadinessCard(userId);
+            loadRow3(userId);
+          }
+        } else {
+          var errData = null;
+          try { errData = await res.json(); } catch (_) {}
+          feedback.className = 'lt-feedback lt-feedback--err';
+          feedback.textContent = (errData && errData.detail) ? String(errData.detail) : 'Save failed (' + res.status + ')';
+        }
+      } catch (_) {
+        feedback.className = 'lt-feedback lt-feedback--err';
+        feedback.textContent = 'Network error — try again';
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    });
+  }
+
+  async function loadLogTodayCard(userId) {
+    var rowLog = document.getElementById('row-log');
+    if (!rowLog) return;
+
+    var card = document.getElementById('log-today-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'log-today-card';
+      card.className = 'card log-today';
+      rowLog.appendChild(card);
+    }
+
+    var todayStr = isoDate(new Date());
+    var existing = null;
+    try {
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
+      if (res.ok) existing = await res.json();
+    } catch (_) {}
+
+    renderLogTodayCard(card, existing, userId, todayStr, todayStr);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -1486,6 +1770,7 @@
       loadSleepCard(userId);
       loadPerformanceCard(userId);
       loadRecentWorkoutsCard(userId);
+      loadLogTodayCard(userId);
       loadRow3(userId);
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);

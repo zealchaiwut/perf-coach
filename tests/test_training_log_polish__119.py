@@ -56,11 +56,11 @@ def test_workout_detail_unknown_id_returns_404(client):
 # ── AC: HTML contains error state elements for the workout list ───────────────
 
 def test_log_html_has_list_error_element(client):
-    """log.html must contain #log-error-msg for displaying list-level API errors."""
+    """training-log.html must contain #log-error-msg for displaying list-level API errors."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-error-msg"' in res.text, (
-        "log.html must include an element with id='log-error-msg' for list error state"
+        "training-log.html must include an element with id='log-error-msg' for list error state"
     )
 
 
@@ -80,20 +80,20 @@ def test_log_html_error_element_initially_hidden(client):
 # ── AC: HTML contains detail panel loading and error states ──────────────────
 
 def test_log_html_has_detail_panel_loading(client):
-    """log.html must contain #detail-panel-loading for panel loading skeleton."""
+    """training-log.html must contain #detail-panel-loading for panel loading skeleton."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-panel-loading"' in res.text, (
-        "log.html must include #detail-panel-loading for detail panel loading state"
+        "training-log.html must include #detail-panel-loading for detail panel loading state"
     )
 
 
 def test_log_html_has_detail_panel_error(client):
-    """log.html must contain #detail-panel-error for panel error state."""
+    """training-log.html must contain #detail-panel-error for panel error state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-panel-error"' in res.text, (
-        "log.html must include #detail-panel-error for detail panel error state"
+        "training-log.html must include #detail-panel-error for detail panel error state"
     )
 
 
@@ -124,11 +124,11 @@ def test_log_html_detail_error_initially_hidden(client):
 # ── AC: HTML contains a proper empty state ───────────────────────────────────
 
 def test_log_html_has_empty_state_element(client):
-    """log.html must contain #log-empty-msg for empty state rendering."""
+    """training-log.html must contain #log-empty-msg for empty state rendering."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-empty-msg"' in res.text, (
-        "log.html must include #log-empty-msg for empty state"
+        "training-log.html must include #log-empty-msg for empty state"
     )
 
 
@@ -137,7 +137,7 @@ def test_log_html_empty_state_has_cta(client):
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="log-empty-cta"' in res.text, (
-        "log.html must include #log-empty-cta button in the empty state"
+        "training-log.html must include #log-empty-cta button in the empty state"
     )
 
 
@@ -156,49 +156,49 @@ def test_log_html_empty_state_initially_hidden(client):
 # ── AC: HTML contains skeleton loading CSS ───────────────────────────────────
 
 def test_log_html_has_skeleton_row_css(client):
-    """log.html must define .skeleton-row for list loading animation."""
+    """training-log.html must define .skeleton-row for list loading animation."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-row" in res.text, (
-        "log.html must define .skeleton-row CSS for list loading skeleton"
+        "training-log.html must define .skeleton-row CSS for list loading skeleton"
     )
 
 
 def test_log_html_has_skeleton_stat_grid_css(client):
-    """log.html must define .skeleton-stat-grid for detail panel loading."""
+    """training-log.html must define .skeleton-stat-grid for detail panel loading."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-stat-grid" in res.text, (
-        "log.html must define .skeleton-stat-grid CSS for detail panel loading"
+        "training-log.html must define .skeleton-stat-grid CSS for detail panel loading"
     )
 
 
 def test_log_html_has_skeleton_shimmer_animation(client):
-    """log.html must define the skeleton-shimmer @keyframes animation."""
+    """training-log.html must define the skeleton-shimmer @keyframes animation."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "skeleton-shimmer" in res.text, (
-        "log.html must define @keyframes skeleton-shimmer for loading animation"
+        "training-log.html must define @keyframes skeleton-shimmer for loading animation"
     )
 
 
 # ── AC: Detail panel footer buttons are present ──────────────────────────────
 
 def test_log_html_has_detail_edit_btn(client):
-    """log.html must include #detail-edit-btn in the detail panel footer."""
+    """training-log.html must include #detail-edit-btn in the detail panel footer."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-edit-btn"' in res.text, (
-        "log.html must include #detail-edit-btn (required by training-log.js)"
+        "training-log.html must include #detail-edit-btn (required by training-log.js)"
     )
 
 
 def test_log_html_has_detail_strava_btn(client):
-    """log.html must include #detail-strava-btn in the detail panel footer."""
+    """training-log.html must include #detail-strava-btn in the detail panel footer."""
     res = client.get("/log")
     assert res.status_code == 200
     assert 'id="detail-strava-btn"' in res.text, (
-        "log.html must include #detail-strava-btn (required by training-log.js)"
+        "training-log.html must include #detail-strava-btn (required by training-log.js)"
     )
 
 
@@ -262,30 +262,30 @@ def test_training_log_js_hides_loading_on_success(client):
 # ── AC: Mobile layout — CSS supports small viewports ─────────────────────────
 
 def test_log_html_has_mobile_media_query(client):
-    """log.html must include a mobile media query at max-width: 599px."""
+    """training-log.html must include a mobile media query at max-width: 599px."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "max-width: 599px" in res.text or "max-width:599px" in res.text, (
-        "log.html must include a @media (max-width: 599px) block for mobile layout"
+        "training-log.html must include a @media (max-width: 599px) block for mobile layout"
     )
 
 
 def test_log_html_week_pills_overflow_auto(client):
-    """log.html must set overflow-x: auto on .week-pills for small viewports."""
+    """training-log.html must set overflow-x: auto on .week-pills for small viewports."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "overflow-x: auto" in res.text or "overflow-x:auto" in res.text, (
-        "log.html must set overflow-x: auto on .week-pills to prevent page overflow at 375px"
+        "training-log.html must set overflow-x: auto on .week-pills to prevent page overflow at 375px"
     )
 
 
 def test_log_html_mobile_hides_primary_metric(client):
-    """log.html must hide .workout-primary-metric inside the mobile media query."""
+    """training-log.html must hide .workout-primary-metric inside the mobile media query."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
     assert "workout-primary-metric" in src, (
-        "log.html must reference .workout-primary-metric in CSS (should hide on mobile)"
+        "training-log.html must reference .workout-primary-metric in CSS (should hide on mobile)"
     )
     # Search within the mobile media query block, not the first (desktop) occurrence
     mobile_idx = src.rfind("max-width: 599px")
@@ -304,16 +304,16 @@ def test_log_html_mobile_hides_primary_metric(client):
 
 
 def test_log_html_mobile_hides_source_pill(client):
-    """log.html must hide .source-pill on mobile to reduce row width."""
+    """training-log.html must hide .source-pill on mobile to reduce row width."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
     idx = src.find(".source-pill { display: none") if ".source-pill { display: none" in src else src.find("source-pill")
-    assert idx != -1, "log.html must hide .source-pill on mobile"
+    assert idx != -1, "training-log.html must hide .source-pill on mobile"
 
 
 def test_log_html_mobile_day_pill_size(client):
-    """log.html must set a reduced min-width for .day-pill on mobile (≤44px) to fit 7 pills at 375px."""
+    """training-log.html must set a reduced min-width for .day-pill on mobile (≤44px) to fit 7 pills at 375px."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
@@ -331,7 +331,7 @@ def test_log_html_mobile_day_pill_size(client):
 
 
 def test_log_html_main_nav_scrollable_on_mobile(client):
-    """log.html must make .main-nav scrollable on mobile to prevent page overflow."""
+    """training-log.html must make .main-nav scrollable on mobile to prevent page overflow."""
     res = client.get("/log")
     assert res.status_code == 200
     src = res.text
@@ -348,36 +348,36 @@ def test_log_html_main_nav_scrollable_on_mobile(client):
 # ── AC: Consistent visual design ─────────────────────────────────────────────
 
 def test_log_html_empty_state_css(client):
-    """log.html must define .empty-state CSS class for the empty state container."""
+    """training-log.html must define .empty-state CSS class for the empty state container."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".empty-state" in res.text, (
-        "log.html must define .empty-state CSS for the empty state visual treatment"
+        "training-log.html must define .empty-state CSS for the empty state visual treatment"
     )
 
 
 def test_log_html_list_error_state_css(client):
-    """log.html must define .list-error-state CSS class for the list error state."""
+    """training-log.html must define .list-error-state CSS class for the list error state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".list-error-state" in res.text, (
-        "log.html must define .list-error-state CSS for the list error visual treatment"
+        "training-log.html must define .list-error-state CSS for the list error visual treatment"
     )
 
 
 def test_log_html_detail_error_state_css(client):
-    """log.html must define .detail-error-state CSS class for the panel error state."""
+    """training-log.html must define .detail-error-state CSS class for the panel error state."""
     res = client.get("/log")
     assert res.status_code == 200
     assert ".detail-error-state" in res.text, (
-        "log.html must define .detail-error-state CSS for the detail panel error treatment"
+        "training-log.html must define .detail-error-state CSS for the detail panel error treatment"
     )
 
 
 def test_log_html_detail_panel_footer_css(client):
-    """log.html must define .detail-panel-footer CSS for the action buttons."""
+    """training-log.html must define .detail-panel-footer CSS for the action buttons."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "detail-panel-footer" in res.text, (
-        "log.html must define .detail-panel-footer CSS (was missing after feature/116 merge)"
+        "training-log.html must define .detail-panel-footer CSS (was missing after feature/116 merge)"
     )

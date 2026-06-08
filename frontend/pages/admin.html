@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: #f0f4fb;
+      color: #0b1530;
+      letter-spacing: -0.01em;
+    }
+
+    .topbar {
+      background: #0b1530;
+      color: #fff;
+      padding: 0 28px;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+    .topbar-brand i { font-size: 18px; color: #6e90f0; }
+    .topbar-tag {
+      font-size: 11px;
+      font-weight: 600;
+      background: #1f3b8a;
+      border-radius: 6px;
+      padding: 2px 8px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .logout-btn {
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,0.2);
+      color: #fff;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+    .logout-btn:hover { background: rgba(255,255,255,0.08); }
+
+    .container {
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      letter-spacing: -0.025em;
+    }
+    .subtitle { color: #5c6886; font-size: 14px; margin: 0 0 32px; }
+
+    .section {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 2px 12px rgba(11,21,48,0.07);
+      margin-bottom: 28px;
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title i { color: #2b4ca8; }
+
+    /* Create User form */
+    .create-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+    @media (max-width: 640px) {
+      .create-form { grid-template-columns: 1fr; }
+    }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .form-group input[type="text"],
+    .form-group input[type="password"] {
+      border: 1.5px solid #d4ddf0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-group input:focus { border-color: #6e90f0; }
+    .toggle-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .toggle-group label.label-text { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+    }
+    .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+    .toggle-row span { font-size: 13px; }
+    .btn-primary {
+      background: #2b4ca8;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 18px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+      align-self: end;
+    }
+    .btn-primary:hover { background: #1f3b8a; }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .form-feedback {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+    }
+    .form-feedback.error { color: #c0392b; }
+    .form-feedback.success { color: #1a7a45; }
+
+    /* Users table */
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .users-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #5c6886;
+      border-bottom: 1.5px solid #e8edf8;
+    }
+    .users-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f4fb;
+      vertical-align: middle;
+    }
+    .users-table tbody tr:last-child td { border-bottom: none; }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .badge-user { background: #f0f0f0; color: #555; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-disabled { background: #fee2e2; color: #991b1b; }
+    .table-empty {
+      text-align: center;
+      color: #5c6886;
+      padding: 24px;
+    }
+
+    /* Action buttons */
+    .actions-cell { white-space: nowrap; }
+    .btn-action {
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 9px;
+      border-radius: 6px;
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+      margin-right: 4px;
+    }
+    .btn-action:last-child { margin-right: 0; }
+    .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-action-default {
+      background: #eef2ff;
+      color: #2b4ca8;
+      border-color: #c7d4f8;
+    }
+    .btn-action-default:hover:not(:disabled) { background: #dbe4fd; }
+    .btn-action-warning {
+      background: #fffbeb;
+      color: #92400e;
+      border-color: #fcd34d;
+    }
+    .btn-action-warning:hover:not(:disabled) { background: #fef3c7; }
+    .btn-action-success {
+      background: #ecfdf5;
+      color: #065f46;
+      border-color: #6ee7b7;
+    }
+    .btn-action-success:hover:not(:disabled) { background: #d1fae5; }
+    .btn-action-danger {
+      background: #fff1f2;
+      color: #9f1239;
+      border-color: #fca5a5;
+    }
+    .btn-action-danger:hover:not(:disabled) { background: #ffe4e6; }
+
+    /* Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(11,21,48,0.45);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      width: 360px;
+      max-width: 90vw;
+      box-shadow: 0 8px 40px rgba(11,21,48,0.18);
+    }
+    .modal h2 { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
+    .modal p { font-size: 13px; color: #5c6886; margin: 0 0 16px; }
+    .modal .form-group { margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-cancel {
+      background: #f0f4fb;
+      color: #0b1530;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-cancel:hover { background: #e2e8f5; }
+    .modal-feedback { font-size: 12px; color: #c0392b; margin-top: 8px; display: none; }
+
+    /* Google Login section */
+    .config-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f4fb;
+    }
+    .config-row:last-child { border-bottom: none; }
+    .config-label { font-size: 13px; font-weight: 600; color: #0b1530; }
+    .config-value { font-size: 13px; color: #5c6886; }
+    .badge-on { background: #d1fae5; color: #065f46; }
+    .badge-off { background: #fee2e2; color: #991b1b; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .warning-box {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #92400e;
+      margin-top: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .config-toggle-btn {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 7px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .config-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .config-toggle-btn.btn-enable { background: #d1fae5; color: #065f46; }
+    .config-toggle-btn.btn-disable { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-brand">
+    <i class="ti ti-shield-lock" aria-hidden="true"></i>
+    perf-coach
+    <span class="topbar-tag">Admin</span>
+  </div>
+  <button class="logout-btn" id="logout-btn">
+    <i class="ti ti-logout" aria-hidden="true"></i>
+    Log out
+  </button>
+</div>
+
+<div class="container">
+  <h1>Admin dashboard</h1>
+  <p class="subtitle">Server-enforced admin session active.</p>
+
+  <div class="section">
+    <div class="section-title">
+      <i class="ti ti-user-plus" aria-hidden="true"></i>
+      Create User
+    </div>
+    <form id="create-user-form" autocomplete="off">
+      <div class="create-form">
+        <div class="form-group">
+          <label for="new-username">Username</label>
+          <input id="new-username" type="text" placeholder="e.g. jane" maxlength="100" required>
+        </div>
+        <div class="form-group">
+          <label for="new-password">Password</label>
+          <input id="new-password" type="password" placeholder="Min 8 characters" required>
+        </div>
+        <div class="toggle-group">
+          <span class="label-text">Admin</span>
+          <div class="toggle-row">
+            <input id="new-is-admin" type="checkbox">
+            <span>Is admin</span>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" id="create-btn">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          Create
+        </button>
+      </div>
+    </form>
+    <div id="form-feedback" class="form-feedback" role="alert"></div>
+  </div>
+
+  <div class="section" id="google-login-section">
+    <div class="section-title">
+      <i class="ti ti-brand-google" aria-hidden="true"></i>
+      Google Login
+    </div>
+    <div id="google-login-body">Loading…</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">
+      <i class="ti ti-users" aria-hidden="true"></i>
+      Users
+    </div>
+    <table class="users-table" id="users-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Integrations</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="users-tbody">
+        <tr><td colspan="6" class="table-empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-backdrop" id="reset-pw-modal">
+  <div class="modal">
+    <h2>Reset Password</h2>
+    <p id="reset-pw-label">Set a new password for <strong id="reset-pw-username"></strong>.</p>
+    <div class="form-group">
+      <label for="reset-pw-input">New Password</label>
+      <input id="reset-pw-input" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+    </div>
+    <div id="reset-pw-feedback" class="modal-feedback"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="reset-pw-cancel">Cancel</button>
+      <button class="btn-primary" id="reset-pw-submit">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var currentUserId = null;
+
+  fetch('/api/auth/me', { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (me) { if (me) currentUserId = me.id; })
+    .catch(function () {});
+
+  document.getElementById('logout-btn').addEventListener('click', function () {
+    fetch('/api/admin/logout', { method: 'POST' })
+      .finally(function () { window.location.href = '/admin'; });
+  });
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderUsers(users) {
+    var tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No users found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map(function (u) {
+      var isSelf = currentUserId && u.id === currentUserId;
+      var isActive = u.is_active !== false;
+
+      var roleBadge = u.is_admin
+        ? '<span class="badge badge-admin">Admin</span>'
+        : '<span class="badge badge-user">User</span>';
+
+      var statusBadge = isActive
+        ? '<span class="badge badge-active">Active</span>'
+        : '<span class="badge badge-disabled">Disabled</span>';
+
+      var resetBtn = '<button class="btn-action btn-action-default"'
+        + ' data-action="reset-pw" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+        + 'Reset PW</button>';
+
+      var toggleAdminLabel = u.is_admin ? 'Revoke Admin' : 'Make Admin';
+      var toggleAdminBtn = isSelf
+        ? '<button class="btn-action btn-action-default" disabled title="Cannot change your own admin status">'
+          + toggleAdminLabel + '</button>'
+        : '<button class="btn-action btn-action-default"'
+          + ' data-action="toggle-admin" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + toggleAdminLabel + '</button>';
+
+      var disableBtn = isActive
+        ? '<button class="btn-action btn-action-warning"'
+          + ' data-action="disable" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Disable</button>'
+        : '<button class="btn-action btn-action-success"'
+          + ' data-action="enable" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Enable</button>';
+
+      var deleteBtn = isSelf
+        ? ''
+        : '<button class="btn-action btn-action-danger"'
+          + ' data-action="delete" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
+          + 'Delete</button>';
+
+      return '<tr>'
+        + '<td>' + escHtml(u.username) + (isSelf ? ' <span style="font-size:10px;color:#5c6886;">(you)</span>' : '') + '</td>'
+        + '<td>' + roleBadge + '</td>'
+        + '<td>' + statusBadge + '</td>'
+        + '<td>' + u.integration_count + '</td>'
+        + '<td>' + formatDate(u.created_at) + '</td>'
+        + '<td class="actions-cell">' + resetBtn + ' ' + toggleAdminBtn + ' ' + disableBtn + (deleteBtn ? ' ' + deleteBtn : '') + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  function loadUsers() {
+    fetch('/api/admin/users', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(renderUsers)
+      .catch(function () {
+        document.getElementById('users-tbody').innerHTML =
+          '<tr><td colspan="6" class="table-empty">Failed to load users.</td></tr>';
+      });
+  }
+
+  // ── Action delegation ──────────────────────────────────────────────────────
+
+  document.getElementById('users-tbody').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn || btn.disabled) return;
+
+    var action = btn.dataset.action;
+    var userId = btn.dataset.id;
+    var username = btn.dataset.name;
+
+    if (action === 'reset-pw') {
+      openResetPwModal(userId, username);
+    } else if (action === 'toggle-admin') {
+      doToggleAdmin(userId, username, btn);
+    } else if (action === 'disable') {
+      doDisable(userId, username, btn);
+    } else if (action === 'enable') {
+      doEnable(userId, username, btn);
+    } else if (action === 'delete') {
+      doDelete(userId, username, btn);
+    }
+  });
+
+  function apiAction(method, url, body, btn, onSuccess) {
+    if (btn) btn.disabled = true;
+    var opts = { method: method, headers: { 'Accept': 'application/json' } };
+    if (body) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    fetch(url, opts)
+      .then(function (r) {
+        if (r.ok || r.status === 204) {
+          onSuccess();
+        } else {
+          return r.json().then(function (d) {
+            alert((d && d.detail) ? d.detail : 'Action failed (' + r.status + ')');
+          });
+        }
+      })
+      .catch(function () { alert('Network error. Please try again.'); })
+      .finally(function () { if (btn) btn.disabled = false; });
+  }
+
+  function doToggleAdmin(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/toggle-admin', null, btn, loadUsers);
+  }
+
+  function doDisable(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/disable', null, btn, loadUsers);
+  }
+
+  function doEnable(userId, username, btn) {
+    apiAction('POST', '/api/admin/users/' + userId + '/enable', null, btn, loadUsers);
+  }
+
+  function doDelete(userId, username, btn) {
+    if (!window.confirm('Delete user "' + username + '"?\nThis cannot be undone.')) return;
+    apiAction('DELETE', '/api/admin/users/' + userId, null, btn, loadUsers);
+  }
+
+  // ── Reset Password Modal ───────────────────────────────────────────────────
+
+  var resetPwModal = document.getElementById('reset-pw-modal');
+  var resetPwInput = document.getElementById('reset-pw-input');
+  var resetPwFeedback = document.getElementById('reset-pw-feedback');
+  var resetPwUsernameEl = document.getElementById('reset-pw-username');
+  var resetPwSubmit = document.getElementById('reset-pw-submit');
+  var _resetTargetId = null;
+
+  function openResetPwModal(userId, username) {
+    _resetTargetId = userId;
+    resetPwUsernameEl.textContent = username;
+    resetPwInput.value = '';
+    resetPwFeedback.style.display = 'none';
+    resetPwModal.classList.add('open');
+    resetPwInput.focus();
+  }
+
+  function closeResetPwModal() {
+    resetPwModal.classList.remove('open');
+    _resetTargetId = null;
+  }
+
+  document.getElementById('reset-pw-cancel').addEventListener('click', closeResetPwModal);
+
+  resetPwModal.addEventListener('click', function (e) {
+    if (e.target === resetPwModal) closeResetPwModal();
+  });
+
+  resetPwSubmit.addEventListener('click', function () {
+    var pw = resetPwInput.value;
+    if (!pw || pw.length < 8) {
+      resetPwFeedback.textContent = 'Password must be at least 8 characters.';
+      resetPwFeedback.style.display = 'block';
+      return;
+    }
+    resetPwFeedback.style.display = 'none';
+    resetPwSubmit.disabled = true;
+
+    fetch('/api/admin/users/' + _resetTargetId + '/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ new_password: pw }),
+    })
+      .then(function (r) {
+        if (r.ok) {
+          closeResetPwModal();
+        } else {
+          return r.json().then(function (d) {
+            resetPwFeedback.textContent = (d && d.detail) ? d.detail : 'Failed to reset password.';
+            resetPwFeedback.style.display = 'block';
+          });
+        }
+      })
+      .catch(function () {
+        resetPwFeedback.textContent = 'Network error. Please try again.';
+        resetPwFeedback.style.display = 'block';
+      })
+      .finally(function () { resetPwSubmit.disabled = false; });
+  });
+
+  // ── Google Login config ────────────────────────────────────────────────────
+
+  function renderGoogleConfig(cfg) {
+    var body = document.getElementById('google-login-body');
+    var toggleLabel = cfg.toggle_enabled ? 'Disable' : 'Enable';
+    var toggleClass = cfg.toggle_enabled ? 'btn-disable' : 'btn-enable';
+    var activeBadge = cfg.active
+      ? '<span class="badge badge-on">Active</span>'
+      : '<span class="badge badge-off">Inactive</span>';
+    var envBadge = cfg.env_enabled
+      ? '<span class="badge badge-on">true</span>'
+      : '<span class="badge badge-off">false / unset</span>';
+    var credsBadge = cfg.credentials_present
+      ? '<span class="badge badge-on">Present</span>'
+      : '<span class="badge badge-warn">Missing</span>';
+    var toggleBadge = cfg.toggle_enabled
+      ? '<span class="badge badge-on">Enabled</span>'
+      : '<span class="badge badge-off">Disabled</span>';
+    var warningHtml = cfg.warning
+      ? '<div class="warning-box"><i class="ti ti-alert-triangle"></i> ' + escHtml(cfg.warning) + '</div>'
+      : '';
+    body.innerHTML = ''
+      + '<div class="config-row"><span class="config-label">Status</span><span>' + activeBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">GOOGLE_LOGIN_ENABLED env</span><span>' + envBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">Google credentials</span><span>' + credsBadge + '</span></div>'
+      + '<div class="config-row"><span class="config-label">Admin toggle</span>'
+      + '<span style="display:flex;align-items:center;gap:10px;">' + toggleBadge
+      + '<button class="config-toggle-btn ' + toggleClass + '" id="google-toggle-btn">' + toggleLabel + '</button>'
+      + '</span></div>'
+      + warningHtml;
+    document.getElementById('google-toggle-btn').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      fetch('/api/admin/config/google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ enabled: !cfg.toggle_enabled }),
+      })
+        .then(function (r) { return r.ok ? loadGoogleConfig() : r.json().then(function (d) { alert(d.detail || 'Failed'); }); })
+        .catch(function () { alert('Network error.'); })
+        .finally(function () { btn.disabled = false; });
+    });
+  }
+
+  function loadGoogleConfig() {
+    fetch('/api/admin/config/google-login', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(renderGoogleConfig)
+      .catch(function () {
+        document.getElementById('google-login-body').textContent = 'Failed to load Google login config.';
+      });
+  }
+
+  loadGoogleConfig();
+
+  // ── Create User form ───────────────────────────────────────────────────────
+
+  var feedback = document.getElementById('form-feedback');
+  function showFeedback(msg, type) {
+    feedback.textContent = msg;
+    feedback.className = 'form-feedback ' + type;
+    feedback.style.display = 'block';
+  }
+
+  document.getElementById('create-user-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var username = document.getElementById('new-username').value.trim();
+    var password = document.getElementById('new-password').value;
+    var isAdmin = document.getElementById('new-is-admin').checked;
+    var btn = document.getElementById('create-btn');
+
+    feedback.style.display = 'none';
+    btn.disabled = true;
+
+    fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ username: username, password: password, is_admin: isAdmin })
+    })
+      .then(function (r) {
+        return r.json().then(function (data) { return { status: r.status, data: data }; });
+      })
+      .then(function (res) {
+        if (res.status === 201) {
+          showFeedback('User "' + escHtml(res.data.username) + '" created successfully.', 'success');
+          document.getElementById('create-user-form').reset();
+          loadUsers();
+        } else if (res.status === 409) {
+          showFeedback(res.data.detail || 'Username already exists.', 'error');
+        } else {
+          var msg = (res.data.detail) || ('Error ' + res.status);
+          showFeedback(msg, 'error');
+        }
+      })
+      .catch(function () {
+        showFeedback('Network error. Please try again.', 'error');
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  });
+
+  loadUsers();
+}());
+</script>
+</body>
+</html>

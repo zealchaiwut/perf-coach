@@ -10,10 +10,34 @@
 (function () {
   'use strict';
 
+  // Patch window.fetch once to auto-attach X-CSRF-Token on mutating requests.
+  if (!window._csrfFetchPatched) {
+    window._csrfFetchPatched = true;
+    var _origFetch = window.fetch.bind(window);
+    window.fetch = function (url, opts) {
+      opts = opts || {};
+      var method = (opts.method || 'GET').toUpperCase();
+      if (method === 'POST' || method === 'PATCH' || method === 'DELETE' || method === 'PUT') {
+        var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+        if (match) {
+          var headers = opts.headers || {};
+          if (headers instanceof Headers) {
+            headers = new Headers(headers);
+            headers.set('X-CSRF-Token', decodeURIComponent(match[1]));
+          } else {
+            headers = Object.assign({}, headers, { 'X-CSRF-Token': decodeURIComponent(match[1]) });
+          }
+          opts = Object.assign({}, opts, { headers: headers });
+        }
+      }
+      return _origFetch(url, opts);
+    };
+  }
+
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
-    { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/log.html', '/training', '/training.html'] },
+    { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
     { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
@@ -63,6 +87,27 @@
     '@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}',
       '.global-nav .gn-brand-text{display:none;}',
       '.global-nav .gn-logout .gn-logout-label{display:none;}}'
+  ].join('');
+
+  var SYNC_BAR_CSS = [
+    '#sync-status-bar{display:none;align-items:center;gap:8px;padding:5px 24px;',
+      'font-size:12px;font-weight:500;line-height:1.4;',
+      'border-bottom:1px solid rgba(13,30,67,0.08);',
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
+    '#sync-status-bar.ssb-state-running{background:#eef2ff;color:#3b5bdb;display:flex;}',
+    '#sync-status-bar.ssb-state-success{background:#ebfbee;color:#2f9e44;display:flex;}',
+    '#sync-status-bar.ssb-state-error{background:#fff5f5;color:#c92a2a;display:flex;}',
+    '#sync-status-bar .ssb-spinner{width:11px;height:11px;border-radius:50%;flex-shrink:0;',
+      'border:2px solid rgba(59,91,219,0.25);border-top-color:#3b5bdb;',
+      'animation:ssb-spin 0.75s linear infinite;}',
+    '@keyframes ssb-spin{to{transform:rotate(360deg)}}',
+    '#sync-status-bar .ssb-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '#sync-status-bar .ssb-dismiss{margin-left:auto;padding:2px 10px;border-radius:999px;',
+      'font-size:11.5px;font-weight:500;cursor:pointer;background:none;color:inherit;flex-shrink:0;',
+      'border:1.5px solid rgba(201,42,42,0.3);',
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
+    '#sync-status-bar .ssb-dismiss:hover{background:rgba(201,42,42,0.08);}',
+    '@media(max-width:880px){#sync-status-bar{padding:5px 14px;}}'
   ].join('');
 
   function ensureIconFont() {
@@ -153,10 +198,113 @@
 
   window.navRefreshAvatar = function () { updateAvatar(true); };
 
+  var _PHASE_LABELS = {
+    pulling_strava: 'Pulling Strava history…',
+    pulling_stryd: 'Pulling Stryd history…',
+    reconciling: 'Reconciling activities…'
+  };
+
+  var _syncTimer = null;
+
+  function buildSyncBar() {
+    if (document.getElementById('sync-status-bar')) return;
+    var style = document.createElement('style');
+    style.id = 'sync-bar-styles';
+    style.textContent = SYNC_BAR_CSS;
+    document.head.appendChild(style);
+    var bar = document.createElement('div');
+    bar.id = 'sync-status-bar';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    var nav = document.querySelector('.global-nav');
+    if (nav && nav.parentNode) {
+      nav.parentNode.insertBefore(bar, nav.nextSibling);
+    } else {
+      document.body.appendChild(bar);
+    }
+  }
+
+  function _ssbShow(state, html) {
+    var bar = document.getElementById('sync-status-bar');
+    if (!bar) return;
+    bar.className = 'ssb-state-' + state;
+    bar.innerHTML = html;
+  }
+
+  function _ssbHide() {
+    var bar = document.getElementById('sync-status-bar');
+    if (bar) bar.className = '';
+  }
+
+  function _ssbRunning(data) {
+    var provider = data.provider
+      ? data.provider.charAt(0).toUpperCase() + data.provider.slice(1)
+      : '';
+    var phase = _PHASE_LABELS[data.phase] || data.phase || '';
+    var label = [provider, phase].filter(Boolean).join(' — ');
+    var count = '';
+    if (data.current > 0) {
+      count = data.total != null
+        ? ' (' + data.current + ' / ' + data.total + ')'
+        : ' (' + data.current + ' activities)';
+    }
+    _ssbShow('running',
+      '<span class="ssb-spinner" aria-hidden="true"></span>' +
+      '<span class="ssb-msg">' + escAttr(label) + escAttr(count) + '</span>'
+    );
+  }
+
+  function _ssbSuccess(data) {
+    var n = data.items_synced != null ? data.items_synced : 0;
+    _ssbShow('success', '<span class="ssb-msg">Synced ✓ ' + n + ' activities</span>');
+    setTimeout(function () {
+      var bar = document.getElementById('sync-status-bar');
+      if (bar && bar.className === 'ssb-state-success') _ssbHide();
+    }, 4000);
+  }
+
+  function _ssbError(data) {
+    var msg = data.error || 'Sync failed';
+    _ssbShow('error',
+      '<span class="ssb-msg">' + escAttr(msg) + '</span>' +
+      '<button class="ssb-dismiss" type="button">Dismiss</button>'
+    );
+    var dismiss = document.querySelector('#sync-status-bar .ssb-dismiss');
+    if (dismiss) dismiss.addEventListener('click', _ssbHide);
+  }
+
+  function _syncStopPoll() {
+    if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+  }
+
+  function _doPoll() {
+    fetch('/api/sync/status')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) { _syncStopPoll(); return; }
+        if (data.status === 'running') {
+          _ssbRunning(data);
+          if (!_syncTimer) _syncTimer = setInterval(_doPoll, 4000);
+        } else {
+          _syncStopPoll();
+          if (data.status === 'success') _ssbSuccess(data);
+          else if (data.status === 'error') _ssbError(data);
+        }
+      })
+      .catch(function () { _syncStopPoll(); });
+  }
+
+  window.syncBarRefresh = function () {
+    _syncStopPoll();
+    _doPoll();
+  };
+
   function init() {
     ensureIconFont();
     injectStyles();
     buildNav();
+    buildSyncBar();
+    _doPoll();
     window.addEventListener('userReady', function (e) {
       _navUserName = (e.detail && e.detail.userName) || '';
       _navUserId = (e.detail && e.detail.userId) || null;

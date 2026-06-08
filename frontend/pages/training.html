@@ -483,7 +483,8 @@
       <div class="workout-meta">
         <div class="meta-field">
           <label for="workout-name">Name <span style="color:#c0392b">*</span></label>
-          <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off">
+          <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
+          <datalist id="workout-name-suggestions"></datalist>
           <p id="name-error" class="field-error"></p>
         </div>
 
@@ -529,17 +530,19 @@
             <tbody id="exercises-tbody"></tbody>
           </table>
         </div>
+        <datalist id="exercise-name-suggestions"></datalist>
         <p id="exercises-error" class="error-msg"></p>
         <div class="table-actions">
           <button id="add-exercise-btn" type="button">+ Add exercise</button>
-          <button id="add-section-btn" type="button" disabled title="Coming in sprint-5">+ Add section (Cooldown, Extra, WOD…)</button>
         </div>
       </div>
 
       <!-- Form action bar -->
       <div class="form-actions">
-        <div>
-          <button id="save-template-btn" type="button" disabled title="Coming in sprint-5" class="btn-secondary">Save as template</button>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button id="repeat-last-btn" type="button" class="btn-secondary">Repeat last workout</button>
+          <button id="template-picker-btn" type="button" class="btn-secondary">Start from template</button>
+          <button id="save-template-btn" type="button" class="btn-secondary">Save as template</button>
         </div>
         <div class="form-actions-right">
           <button id="cancel-btn" type="button" class="btn-secondary">Cancel</button>
@@ -556,6 +559,17 @@
       <p style="margin-top:1.5rem"><a href="/home">Back</a> &middot; <a href="/habits">Habits</a> &middot; <a href="/users">Users</a></p>
     </div>
   </main>
+
+  <!-- Template picker modal -->
+  <div id="template-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true">
+    <div class="detail-box" style="max-width:420px">
+      <div class="detail-header">
+        <h2 class="detail-title">Start from template</h2>
+        <button id="template-modal-close" class="detail-close" title="Close">✕</button>
+      </div>
+      <div id="template-list" style="margin-top:0.75rem"></div>
+    </div>
+  </div>
 
   <!-- Detail modal -->
   <div id="detail-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true">
@@ -590,6 +604,7 @@
   <div id="toast"></div>
 
   <script src="js/nav.js"></script>
+  <script src="js/ui-states.js"></script>
   <script src="js/training.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>

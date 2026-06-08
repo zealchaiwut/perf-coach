@@ -653,43 +653,6 @@
     }
   }
 
-  // ── Strava sync ─────────────────────────────────────────────────────────--
-  function setSyncFeedback(msg, kind) {
-    var el = document.getElementById('log-sync-feedback');
-    if (!el) return;
-    el.textContent = msg || '';
-    el.style.color = kind === 'error' ? '#b91c1c'
-                   : kind === 'success' ? '#15803d'
-                   : '#5c6886';
-  }
-
-  function syncStrava() {
-    var btn = document.getElementById('log-sync-strava-btn');
-    if (btn) { btn.disabled = true; }
-    setSyncFeedback('Syncing Strava…', 'info');
-    fetch('/api/strava/sync', { method: 'POST' })
-      .then(function (res) {
-        return res.json().then(function (body) { return { ok: res.ok, status: res.status, body: body }; });
-      })
-      .then(function (r) {
-        if (!r.ok) {
-          var detail = (r.body && r.body.detail) || ('Sync failed (' + r.status + ')');
-          if (r.status === 400) detail = 'Strava not connected — connect it in Settings → Integrations first.';
-          setSyncFeedback(detail, 'error');
-          return;
-        }
-        var n = (r.body && typeof r.body.synced === 'number') ? r.body.synced : 0;
-        setSyncFeedback('Synced ' + n + ' Strava activit' + (n === 1 ? 'y' : 'ies') + '.', 'success');
-        fetchAndRender();
-      })
-      .catch(function () {
-        setSyncFeedback('Sync failed — network error.', 'error');
-      })
-      .finally(function () {
-        if (btn) { btn.disabled = false; }
-      });
-  }
-
   // ── CSV Export ────────────────────────────────────────────────────────────
   function exportCSV() {
     var today    = todayISO();
@@ -840,7 +803,8 @@
         var isRun  = workout.workout_type === 'run';
         var isBike = workout.workout_type === 'bike';
 
-        if (editBtn) editBtn.href = '/workout-edit/' + workout.id;
+        var returnUrl = '/log?week=' + toISODate(currentMonday);
+        if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
 
         var isStrava = (workout.source === 'strava') || !!workout.strava_activity_url;
         if (isStrava) {
@@ -1115,11 +1079,12 @@
     fetch('/api/workouts/' + workoutId, { method: 'DELETE' })
       .then(function (res) {
         if (!res.ok && res.status !== 204) throw new Error('HTTP ' + res.status);
+        UIStates.showToast('Workout deleted');
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        alert('Could not delete workout. Please try again.');
+        UIStates.showToast('Could not delete workout. Please try again.', true);
       });
   }
 
@@ -1146,6 +1111,52 @@
     }, { passive: true });
   }
 
+  // ── Sync button state ─────────────────────────────────────────────────────
+  var _syncPollTimer = null;
+
+  function _syncSetBusy(busy) {
+    var stravaBtn = document.getElementById('sync-strava-btn');
+    if (stravaBtn) stravaBtn.disabled = busy;
+    // Stryd stays disabled regardless; we only manage the aria/visual state for
+    // the Strava button. Stryd's disabled attr is set in HTML and never cleared.
+  }
+
+  function _syncPollStatus() {
+    fetch('/api/sync/status')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) { _syncStopStatusPoll(); _syncSetBusy(false); return; }
+        if (data.status === 'running') {
+          _syncSetBusy(true);
+          if (!_syncPollTimer) {
+            _syncPollTimer = setInterval(_syncPollStatus, 3000);
+          }
+        } else {
+          _syncStopStatusPoll();
+          _syncSetBusy(false);
+        }
+      })
+      .catch(function () { _syncStopStatusPoll(); _syncSetBusy(false); });
+  }
+
+  function _syncStopStatusPoll() {
+    if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
+  }
+
+  function _onSyncStravaClick() {
+    _syncSetBusy(true);
+    fetch('/api/strava/sync', { method: 'POST' })
+      .then(function (res) {
+        if (res.status === 202 || res.status === 409) {
+          if (window.syncBarRefresh) window.syncBarRefresh();
+          _syncPollStatus();
+        } else {
+          _syncSetBusy(false);
+        }
+      })
+      .catch(function () { _syncSetBusy(false); });
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -1153,15 +1164,17 @@
     fetchAndRender();
     initSwipe();
 
+    _syncPollStatus();
+
     window.addEventListener('userChanged', function () {
       fetchAndRender();
     });
 
+    var syncStravaBtn = document.getElementById('sync-strava-btn');
+    if (syncStravaBtn) syncStravaBtn.addEventListener('click', _onSyncStravaClick);
+
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);
-
-    var syncStravaBtn = document.getElementById('log-sync-strava-btn');
-    if (syncStravaBtn) syncStravaBtn.addEventListener('click', syncStrava);
 
     var closeBtn = document.getElementById('dp-close-btn');
     if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);
@@ -1307,6 +1320,7 @@
     var today = new Date();
     today.setHours(0, 0, 0, 0);
     var todayStr = toISODate(today);
+    var isCurrentWeek = weekContainsToday(monday);
 
     var pillsHtml = '';
     for (var i = 0; i < 7; i++) {
@@ -1335,6 +1349,7 @@
       '<div class="ws-nav">' +
         '<button id="week-prev" class="ws-chevron" aria-label="Previous week">&#8249;</button>' +
         '<span id="week-label" class="ws-label">' + buildWeekLabel(monday) + '</span>' +
+        '<button id="week-today" class="ws-today-btn"' + (isCurrentWeek ? ' disabled' : '') + '>Today</button>' +
         '<button id="week-next" class="ws-chevron" aria-label="Next week">&#8250;</button>' +
       '</div>' +
       '<div class="ws-pills">' + pillsHtml + '</div>';
@@ -1349,6 +1364,12 @@
     document.getElementById('week-next').addEventListener('click', function () {
       currentMonday = new Date(currentMonday);
       currentMonday.setDate(currentMonday.getDate() + 7);
+      pushWeekParam(currentMonday);
+      loadAndRender(currentMonday);
+    });
+
+    document.getElementById('week-today').addEventListener('click', function () {
+      currentMonday = getMondayOf(new Date());
       pushWeekParam(currentMonday);
       loadAndRender(currentMonday);
     });

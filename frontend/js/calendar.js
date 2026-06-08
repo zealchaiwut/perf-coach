@@ -244,9 +244,18 @@
     cell.addEventListener('click', () => openDayModal(dateStr));
   }
 
+  function updateTodayBtn() {
+    var btn = document.getElementById('today-btn');
+    if (!btn) return;
+    var now = new Date();
+    var isCurrentMonth = state.year === now.getFullYear() && state.month === now.getMonth();
+    btn.disabled = isCurrentMonth;
+  }
+
   function render() {
     const { year, month } = state;
     const today = new Date();
+    updateTodayBtn();
     const showWeight = document.getElementById('filter-weight').checked;
     const showHabits = document.getElementById('filter-habits').checked;
     const showTraining = document.getElementById('filter-training').checked;
@@ -308,7 +317,17 @@
   async function loadData() {
     const seq = ++loadSeq;
     if (!currentUserId) return;
-    await fetchCalendarData(state.year, state.month);
+    const grid = document.getElementById('cal-grid-cells');
+    if (grid && !grid.querySelector('.cal-cell')) {
+      UIStates.setLoading(grid, 'Loading calendar…');
+    }
+    try {
+      await fetchCalendarData(state.year, state.month);
+    } catch (_) {
+      if (seq !== loadSeq) return;
+      if (grid) UIStates.setError(grid, 'Something went wrong. Please try again.');
+      return;
+    }
     if (seq !== loadSeq) return;
     render();
   }
@@ -350,6 +369,7 @@
 
   function openDayModal(dateStr) {
     modalDirty = false;
+    const metricsRef = { dirty: false };
 
     const todayStr = toLocalDateStr(new Date());
     const isFuture = dateStr > todayStr;
@@ -390,6 +410,7 @@
     document.body.appendChild(overlay);
 
     function closeModal() {
+      if (metricsRef.dirty && !confirm('You have unsaved wellness changes. Close anyway?')) return;
       overlay.remove();
       if (modalDirty) refreshGridCell(dateStr);
     }
@@ -406,10 +427,10 @@
       return;
     }
 
-    renderModalContent(body, dateStr, isToday);
+    renderModalContent(body, dateStr, isToday, metricsRef);
   }
 
-  async function renderModalContent(body, dateStr, isToday) {
+  async function renderModalContent(body, dateStr, isToday, metricsRef) {
     body.innerHTML = '<div class="day-modal-loading">Loading…</div>';
 
     try {
@@ -435,6 +456,246 @@
     } catch {
       body.innerHTML = '<p class="day-modal-error">Failed to load data.</p>';
     }
+
+    renderMetricsSection(body, dateStr, metricsRef);
+  }
+
+  async function renderMetricsSection(body, dateStr, metricsRef) {
+    const section = document.createElement('section');
+    section.className = 'day-modal-section';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'day-modal-section-title';
+    h3.textContent = 'Daily Wellness';
+    section.appendChild(h3);
+
+    body.appendChild(section);
+
+    const loadingEl = document.createElement('p');
+    loadingEl.className = 'day-modal-loading';
+    loadingEl.textContent = 'Loading…';
+    section.appendChild(loadingEl);
+
+    let existing = null;
+    try {
+      const res = await fetch(`/api/daily-metrics/${currentUserId}/${dateStr}`);
+      if (res.ok) {
+        existing = await res.json();
+      } else if (res.status !== 404) {
+        throw new Error(`Server error ${res.status}`);
+      }
+    } catch {
+      loadingEl.className = 'day-modal-error';
+      loadingEl.textContent = 'Failed to load wellness data.';
+      return;
+    }
+
+    loadingEl.remove();
+
+    const FIELDS = [
+      { key: 'resting_hr',    label: 'Resting HR',    min: 20, max: 200, step: 1,   placeholder: 'bpm' },
+      { key: 'hrv',           label: 'HRV',           min: 0,  max: 300, step: 1,   placeholder: 'ms'  },
+      { key: 'sleep_hours',   label: 'Sleep Hours',   min: 0,  max: 24,  step: 0.5, placeholder: 'hrs' },
+      { key: 'sleep_quality', label: 'Sleep Quality', min: 1,  max: 5,   step: 1,   placeholder: '1–5' },
+      { key: 'energy',        label: 'Energy',        min: 1,  max: 5,   step: 1,   placeholder: '1–5' },
+      { key: 'mood',          label: 'Mood',          min: 1,  max: 5,   step: 1,   placeholder: '1–5' },
+    ];
+
+    const original = {};
+    const inputs = {};
+
+    const form = document.createElement('form');
+    form.className = 'day-modal-metrics-form';
+
+    const grid = document.createElement('div');
+    grid.className = 'day-modal-metrics-grid';
+
+    for (const f of FIELDS) {
+      const wrap = document.createElement('div');
+      wrap.className = 'day-modal-metrics-field';
+
+      const label = document.createElement('label');
+      label.className = 'day-modal-metrics-label';
+      label.htmlFor = `modal-metric-${f.key}`;
+      label.textContent = f.label;
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.id = `modal-metric-${f.key}`;
+      input.className = 'day-modal-metrics-input';
+      input.min = f.min;
+      input.max = f.max;
+      input.step = f.step;
+      input.placeholder = f.placeholder;
+
+      const val = existing ? existing[f.key] : null;
+      input.value = val != null ? val : '';
+      original[f.key] = val != null ? String(val) : '';
+      inputs[f.key] = input;
+
+      const errEl = document.createElement('span');
+      errEl.className = 'day-modal-metrics-field-error';
+      errEl.id = `modal-metric-err-${f.key}`;
+
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      wrap.appendChild(errEl);
+      grid.appendChild(wrap);
+    }
+
+    // Notes — full width
+    const notesWrap = document.createElement('div');
+    notesWrap.className = 'day-modal-metrics-field day-modal-metrics-field--full';
+
+    const notesLabel = document.createElement('label');
+    notesLabel.className = 'day-modal-metrics-label';
+    notesLabel.htmlFor = 'modal-metric-notes';
+    notesLabel.textContent = 'Notes';
+
+    const notesInput = document.createElement('textarea');
+    notesInput.id = 'modal-metric-notes';
+    notesInput.className = 'day-modal-metrics-textarea';
+    notesInput.rows = 2;
+    notesInput.placeholder = 'Optional notes…';
+    notesInput.value = existing ? (existing.notes || '') : '';
+    original.notes = existing ? (existing.notes || '') : '';
+    inputs.notes = notesInput;
+
+    notesWrap.appendChild(notesLabel);
+    notesWrap.appendChild(notesInput);
+    grid.appendChild(notesWrap);
+
+    form.appendChild(grid);
+
+    const footer = document.createElement('div');
+    footer.className = 'day-modal-metrics-footer';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'submit';
+    saveBtn.className = 'btn-primary btn-sm';
+    saveBtn.textContent = 'Save';
+
+    const feedbackEl = document.createElement('span');
+    feedbackEl.className = 'day-modal-metrics-feedback';
+
+    footer.appendChild(saveBtn);
+    footer.appendChild(feedbackEl);
+    form.appendChild(footer);
+    section.appendChild(form);
+
+    // Dirty tracking
+    function checkDirty() {
+      for (const f of FIELDS) {
+        if (inputs[f.key].value !== original[f.key]) { metricsRef.dirty = true; return; }
+      }
+      metricsRef.dirty = inputs.notes.value !== original.notes;
+    }
+    form.addEventListener('input', checkDirty);
+
+    // Per-field inline validation on input
+    for (const f of FIELDS) {
+      inputs[f.key].addEventListener('input', () => {
+        const errEl = document.getElementById(`modal-metric-err-${f.key}`);
+        errEl.textContent = '';
+        const raw = inputs[f.key].value;
+        if (raw === '') return;
+        const v = +raw;
+        if (isNaN(v) || v < f.min || v > f.max) {
+          errEl.textContent = `${f.label}: must be ${f.min}–${f.max}`;
+        }
+      });
+    }
+
+    function clearFieldErrors() {
+      for (const f of FIELDS) document.getElementById(`modal-metric-err-${f.key}`).textContent = '';
+    }
+
+    function validateAll() {
+      let valid = true;
+      for (const f of FIELDS) {
+        const raw = inputs[f.key].value;
+        if (raw === '') continue;
+        const v = +raw;
+        if (isNaN(v) || v < f.min || v > f.max) {
+          document.getElementById(`modal-metric-err-${f.key}`).textContent =
+            `${f.label}: must be ${f.min}–${f.max}`;
+          valid = false;
+        }
+      }
+      return valid;
+    }
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      clearFieldErrors();
+      if (!validateAll()) return;
+
+      const payload = {};
+      for (const f of FIELDS) {
+        const raw = inputs[f.key].value;
+        payload[f.key] = raw === '' ? null : +raw;
+      }
+      payload.notes = inputs.notes.value || null;
+
+      saveBtn.disabled = true;
+      feedbackEl.textContent = '';
+      feedbackEl.className = 'day-modal-metrics-feedback';
+
+      try {
+        const res = await fetch(`/api/daily-metrics/${currentUserId}/${dateStr}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status === 422) {
+          const data = await res.json();
+          const detail = data.detail;
+          if (Array.isArray(detail)) {
+            // Pydantic validation errors: [{loc: [..., fieldName], msg: "..."}]
+            for (const err of detail) {
+              const fieldName = (err.loc || []).slice(-1)[0];
+              const errEl = document.getElementById(`modal-metric-err-${fieldName}`);
+              if (errEl) errEl.textContent = err.msg;
+            }
+          } else if (detail && typeof detail === 'object' && detail.field) {
+            // Custom validation: {field: "...", error: "..."}
+            const errEl = document.getElementById(`modal-metric-err-${detail.field}`);
+            if (errEl) errEl.textContent = detail.error;
+            else { feedbackEl.textContent = detail.error; feedbackEl.classList.add('day-modal-metrics-feedback--error'); }
+          } else {
+            feedbackEl.textContent = typeof detail === 'string' ? detail : 'Validation error.';
+            feedbackEl.classList.add('day-modal-metrics-feedback--error');
+          }
+          saveBtn.disabled = false;
+          return;
+        }
+
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+        const saved = await res.json();
+        for (const f of FIELDS) {
+          const v = saved[f.key];
+          original[f.key] = v != null ? String(v) : '';
+        }
+        original.notes = saved.notes || '';
+        metricsRef.dirty = false;
+        modalDirty = true;
+
+        feedbackEl.textContent = 'Saved!';
+        feedbackEl.className = 'day-modal-metrics-feedback day-modal-metrics-feedback--success';
+        UIStates.showToast('Wellness saved');
+        setTimeout(() => {
+          feedbackEl.textContent = '';
+          feedbackEl.className = 'day-modal-metrics-feedback';
+        }, 3000);
+      } catch (err) {
+        feedbackEl.textContent = 'Failed: ' + err.message;
+        feedbackEl.className = 'day-modal-metrics-feedback day-modal-metrics-feedback--error';
+        UIStates.showToast('Something went wrong. Please try again.', true);
+      }
+      saveBtn.disabled = false;
+    });
   }
 
   function renderWeightSection(body, weightEntry, dateStr) {
@@ -526,6 +787,7 @@
         }
         if (!res.ok) throw new Error(`Server error ${res.status}`);
         modalDirty = true;
+        UIStates.showToast('Weight saved');
         form.remove();
         const p = document.createElement('p');
         p.className = 'day-modal-weight-value';

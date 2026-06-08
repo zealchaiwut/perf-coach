@@ -134,6 +134,43 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 18px 0;
+      color: #b0b8cc;
+      font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e8edf8;
+    }
+
+    .google-btn {
+      width: 100%;
+      padding: 11px;
+      background: #fff;
+      color: #0b1530;
+      border: 1.5px solid #d4ddf0;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background 0.15s, border-color 0.15s;
+      text-decoration: none;
+    }
+    .google-btn:hover { background: #f7f9fd; border-color: #b0b8cc; }
+    .google-btn svg { flex-shrink: 0; }
+
     @media (max-width: 440px) {
       .login-card { padding: 32px 22px; }
     }
@@ -163,6 +200,18 @@
       <span id="btn-label">Log in</span>
     </button>
   </form>
+  <div id="google-section" hidden>
+    <div class="divider">or</div>
+    <a href="/auth/google" class="google-btn" id="google-btn">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M17.64 9.2045c0-.638-.0573-1.252-.1636-1.8409H9v3.4814h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7164v2.2581h2.9087C16.6582 14.252 17.64 11.9455 17.64 9.2045z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.4673-.8064 5.9564-2.1818l-2.9087-2.2582c-.8064.54-1.8382.8591-3.0477.8591-2.3445 0-4.3282-1.5836-5.036-3.7118H.9574v2.3318C2.4382 15.9832 5.4818 18 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.71c-.18-.54-.2827-1.1168-.2827-1.71s.1027-1.17.2827-1.71V4.9582H.9573C.3477 6.1732 0 7.5477 0 9s.3477 2.8268.9573 4.0418L3.964 10.71z" fill="#FBBC05"/>
+        <path d="M9 3.5791c1.3214 0 2.5077.4545 3.4405 1.346l2.5814-2.5814C13.4627.8918 11.4255 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9582L3.964 7.29C4.6718 5.1618 6.6555 3.5791 9 3.5791z" fill="#EA4335"/>
+      </svg>
+      Sign in with Google
+    </a>
+  </div>
 </div>
 <script>
 (function () {
@@ -197,6 +246,15 @@
   function hideError() {
     errorMsg.hidden = true;
   }
+
+  fetch('/api/auth/google-status')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.enabled) {
+        document.getElementById('google-section').hidden = false;
+      }
+    })
+    .catch(function () {});
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();

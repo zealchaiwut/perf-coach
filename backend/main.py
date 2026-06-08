@@ -8,6 +8,7 @@ import logging as _logging
 import math as _math
 import os
 import secrets as _secrets
+import threading as _threading
 import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
@@ -28,10 +29,13 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
+from backend.services.weight_status import compute_status_label as _compute_status_label
+from backend.services import sync_jobs as _sync_jobs
+from backend.services import reconcile as _reconcile
 
 app = FastAPI()
 
@@ -82,6 +86,25 @@ async def _auth_guard(request: Request, call_next):
     if "application/json" in accept:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     return RedirectResponse(url="/login", status_code=302)
+
+
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+@app.middleware("http")
+async def _csrf_protect(request: Request, call_next):
+    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    if request.method not in _CSRF_SAFE_METHODS:
+        session_cookie = request.cookies.get(COOKIE_NAME)
+        if session_cookie:
+            expected = request.cookies.get(CSRF_COOKIE_NAME)
+            actual = request.headers.get("X-CSRF-Token")
+            if not expected or not actual or not _hmac.compare_digest(expected, actual):
+                return JSONResponse(
+                    {"detail": "CSRF token missing or invalid"},
+                    status_code=403,
+                )
+    return await call_next(request)
 
 
 @app.get("/api/health")
@@ -276,10 +299,24 @@ def delete_user(user_id: str):
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 
 from backend.auth import (  # noqa: E402
+    ADMIN_COOKIE_NAME,
+    admin_lockout_check,
+    admin_lockout_clear,
+    admin_lockout_record,
+    clear_admin_cookie,
     clear_session,
     COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    generate_csrf_token,
+    get_admin_secret,
     get_current_user,
+    hash_password,
+    MIN_PASSWORD_LENGTH,
+    read_admin_cookie,
     read_session_cookie,
+    require_admin,
+    set_admin_cookie,
+    set_csrf_cookie,
     set_session,
     verify_password,
 )
@@ -365,6 +402,8 @@ def login(body: LoginIn, request: Request):
         _record_failure(body.username, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     _clear_lockout(body.username, ip)
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
     resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
     set_session(resp, str(user.id))
     return resp
@@ -377,10 +416,36 @@ def logout():
     return resp
 
 
+def _user_dict(user: User) -> dict:
+    with Session(engine) as session:
+        has_active = session.query(WeightTarget).filter(
+            WeightTarget.user_id == user.id,
+            WeightTarget.status == "active",
+        ).first() is not None
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "is_admin": bool(user.is_admin),
+        "has_active_weight_target": has_active,
+    }
+
+
 @app.get("/api/auth/me")
 async def me(request: Request):
     user = await get_current_user(request)
-    return JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
+    return JSONResponse(_user_dict(user))
+
+
+@app.get("/api/csrf-token")
+async def get_csrf_token(request: Request):
+    """Return the current CSRF token, setting a fresh one if the cookie is absent."""
+    existing = request.cookies.get(CSRF_COOKIE_NAME)
+    if existing:
+        return JSONResponse({"csrf_token": existing})
+    token = generate_csrf_token()
+    resp = JSONResponse({"csrf_token": token})
+    set_csrf_cookie(resp, token)
+    return resp
 
 
 # ── Avatar endpoints ──────────────────────────────────────────────────────────
@@ -508,6 +573,805 @@ def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
         session.delete(entry)
         session.commit()
     return Response(status_code=204)
+
+
+class WeightEntryPatch(BaseModel):
+    weight_kg: Optional[float] = None
+    recorded_date: Optional[str] = None  # YYYY-MM-DD
+
+
+@app.patch("/api/weight/{entry_id}")
+def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(resolve_user)):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+    if body.weight_kg is not None and body.weight_kg <= 0:
+        raise HTTPException(status_code=422, detail="weight_kg must be positive")
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        if entry.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if body.weight_kg is not None:
+            entry.weight_kg = body.weight_kg
+        if body.recorded_date is not None:
+            entry.recorded_date = body.recorded_date
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "Entry exists for this date"},
+            )
+        session.refresh(entry)
+        return JSONResponse({
+            "id": str(entry.id),
+            "weight_kg": float(entry.weight_kg),
+            "recorded_date": str(entry.recorded_date),
+            "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        })
+
+
+# ── Weight entries CRUD endpoints ─────────────────────────────────────────────
+
+class WeightEntriesCreateIn(BaseModel):
+    user_id: str
+    entry_date: str  # YYYY-MM-DD
+    entry_time: Optional[str] = None  # HH:MM or HH:MM:SS
+    weight_kg: float
+    notes: Optional[str] = None
+
+
+class WeightEntriesPatchIn(BaseModel):
+    user_id: Optional[str] = None    # forbidden — 422 if present in model_fields_set
+    entry_date: Optional[str] = None  # forbidden — 422 if present in model_fields_set
+    weight_kg: Optional[float] = None
+    entry_time: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _weight_entry_dict(e: WeightEntry) -> dict:
+    return {
+        "id": str(e.id),
+        "user_id": str(e.user_id),
+        "entry_date": str(e.entry_date),
+        "entry_time": str(e.entry_time) if e.entry_time is not None else None,
+        "weight_kg": float(e.weight_kg),
+        "notes": e.notes,
+        "source": e.source,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+    }
+
+
+def _parse_entry_time(entry_time_str: str):
+    """Parse HH:MM or HH:MM:SS string to datetime.time; raises HTTPException on bad format."""
+    from datetime import time as _time
+    try:
+        parts = entry_time_str.split(":")
+        if len(parts) == 2:
+            return _time(int(parts[0]), int(parts[1]))
+        elif len(parts) == 3:
+            return _time(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, AttributeError):
+        pass
+    raise HTTPException(status_code=422, detail="Invalid entry_time; use HH:MM or HH:MM:SS")
+
+
+@app.post("/api/weight-entries", status_code=201)
+def create_weight_entry(body: WeightEntriesCreateIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    if not (20 <= body.weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    if body.notes is not None and len(body.notes) > 500:
+        raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+
+    try:
+        entry_date = _date.fromisoformat(body.entry_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
+    if entry_date > _date.today() + _timedelta(days=1):
+        raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
+
+    entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        entry = WeightEntry(
+            user_id=uid,
+            entry_date=entry_date,
+            entry_time=entry_time,
+            weight_kg=body.weight_kg,
+            notes=body.notes,
+            source="manual",
+        )
+        session.add(entry)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            q = session.query(WeightEntry).filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date == entry_date,
+            )
+            if entry_time is None:
+                q = q.filter(WeightEntry.entry_time.is_(None))
+            else:
+                q = q.filter(WeightEntry.entry_time == entry_time)
+            existing = q.first()
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "duplicate",
+                    "existing_id": str(existing.id) if existing else None,
+                },
+            )
+        session.refresh(entry)
+        return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+
+
+@app.get("/api/weight-entries")
+def list_weight_entries(
+    user_id: str = Query(...),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+    days_in_range = (to_d - from_d).days + 1
+    if days_in_range > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    from sqlalchemy import nullslast
+    with Session(engine) as session:
+        rows = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= from_d,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.desc(), nullslast(WeightEntry.entry_time.desc()))
+            .all()
+        )
+
+        entries = [_weight_entry_dict(r) for r in rows]
+        count = len(entries)
+
+        if count > 0:
+            unique_dates = {r.entry_date for r in rows}
+            weights = [float(r.weight_kg) for r in rows]
+            first_date = str(min(unique_dates))
+            last_date = str(max(unique_dates))
+            min_kg = min(weights)
+            max_kg = max(weights)
+            avg_kg = round(sum(weights) / count, 4)
+            days_logged_pct = round(len(unique_dates) / days_in_range * 100, 2)
+        else:
+            first_date = last_date = None
+            min_kg = max_kg = avg_kg = None
+            days_logged_pct = 0.0
+
+        summary = {
+            "first_date": first_date,
+            "last_date": last_date,
+            "min_kg": min_kg,
+            "max_kg": max_kg,
+            "avg_kg": avg_kg,
+            "entries_logged": count,
+            "days_in_range": days_in_range,
+            "days_logged_pct": days_logged_pct,
+        }
+
+        return JSONResponse({"entries": entries, "count": count, "summary": summary})
+
+
+@app.patch("/api/weight-entries/{entry_id}")
+def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn):
+    if "user_id" in body.model_fields_set or "entry_date" in body.model_fields_set:
+        raise HTTPException(status_code=422, detail="user_id and entry_date cannot be changed")
+
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        if "weight_kg" in body.model_fields_set and body.weight_kg is not None:
+            if not (20 <= body.weight_kg <= 300):
+                raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+            entry.weight_kg = body.weight_kg
+
+        if "notes" in body.model_fields_set:
+            if body.notes is not None and len(body.notes) > 500:
+                raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+            entry.notes = body.notes
+
+        if "entry_time" in body.model_fields_set:
+            entry.entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
+
+        entry.updated_at = _datetime.now(_timezone.utc)
+
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(status_code=409, content={"error": "Duplicate entry for this user/date/time"})
+
+        session.refresh(entry)
+        return JSONResponse(_weight_entry_dict(entry))
+
+
+@app.delete("/api/weight-entries/{entry_id}")
+def delete_weight_entry(entry_id: str):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        session.delete(entry)
+        session.commit()
+    return JSONResponse({"deleted": True})
+
+
+# ── Weight target endpoints ───────────────────────────────────────────────────
+
+class WeightTargetCreateIn(BaseModel):
+    user_id: str
+    start_weight_kg: float
+    start_date: str        # YYYY-MM-DD
+    target_weight_kg: float
+    target_date: str       # YYYY-MM-DD
+    notes: Optional[str] = None
+
+
+class WeightTargetPatchIn(BaseModel):
+    start_weight_kg: Optional[float] = None   # forbidden — 422 if present
+    start_date: Optional[str] = None          # forbidden — 422 if present
+    target_weight_kg: Optional[float] = None
+    target_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class WeightTargetEndIn(BaseModel):
+    status: str   # "achieved" | "abandoned"
+
+
+def _weight_target_dict(t: WeightTarget) -> dict:
+    return {
+        "id": str(t.id),
+        "user_id": str(t.user_id),
+        "start_weight_kg": float(t.start_weight_kg),
+        "start_date": str(t.start_date),
+        "target_weight_kg": float(t.target_weight_kg),
+        "target_date": str(t.target_date),
+        "status": t.status,
+        "notes": t.notes,
+        "end_weight_kg": float(t.end_weight_kg) if t.end_weight_kg is not None else None,
+        "ended_at": t.ended_at.isoformat() if t.ended_at else None,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+def _compute_weight_target_active(t: WeightTarget, session) -> dict:
+    """Return _weight_target_dict augmented with computed fields for the active target view."""
+    base = _weight_target_dict(t)
+
+    today = _date.today()
+    target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
+    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+
+    days_remaining = (target_date - today).days
+    total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+
+    # Most recent weight entry for this user
+    recent_entry = (
+        session.query(WeightEntry)
+        .filter(WeightEntry.user_id == t.user_id)
+        .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
+        .first()
+    )
+    current_avg_kg = float(recent_entry.weight_kg) if recent_entry else None
+    current_weight = current_avg_kg if current_avg_kg is not None else float(t.start_weight_kg)
+
+    kg_lost = float(t.start_weight_kg) - current_weight
+    kg_to_go = current_weight - float(t.target_weight_kg)
+
+    if total_kg != 0:
+        progress_pct = round(min(max(kg_lost / total_kg * 100, 0), 100), 2)
+    else:
+        progress_pct = 100.0
+
+    weeks_remaining = days_remaining / 7.0
+    required_pace = round(kg_to_go / weeks_remaining, 4) if weeks_remaining > 0 else None
+
+    # Current pace from last 14 days of weight entries (linear regression or avg)
+    cutoff_14 = today - _timedelta(days=14)
+    entries_14 = (
+        session.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == t.user_id,
+            WeightEntry.entry_date >= cutoff_14,
+        )
+        .order_by(WeightEntry.entry_date.asc())
+        .all()
+    )
+
+    current_pace = None
+    projected_end_date = None
+    if len(entries_14) >= 2:
+        first_e = entries_14[0]
+        last_e = entries_14[-1]
+        days_span = (last_e.entry_date - first_e.entry_date).days
+        if days_span > 0:
+            kg_change = float(first_e.weight_kg) - float(last_e.weight_kg)
+            current_pace = round(kg_change / days_span * 7, 4)
+    elif len(entries_14) == 1:
+        days_elapsed = (today - start_date).days
+        if days_elapsed > 0:
+            kg_change = float(t.start_weight_kg) - float(entries_14[0].weight_kg)
+            current_pace = round(kg_change / days_elapsed * 7, 4)
+
+    if current_pace is not None and current_pace > 0 and kg_to_go > 0:
+        weeks_to_go = kg_to_go / current_pace
+        projected_end_date = (today + _timedelta(weeks=weeks_to_go)).isoformat()
+
+    status_label = _compute_status_label(t, current_avg_kg, today)
+
+    base.update({
+        "progress_pct": progress_pct,
+        "kg_to_go": round(kg_to_go, 2),
+        "days_remaining": days_remaining,
+        "required_pace_kg_per_week": required_pace,
+        "current_pace_kg_per_week": current_pace,
+        "projected_end_date": projected_end_date,
+        "status_label": status_label,
+    })
+    return base
+
+
+def _weight_target_history_dict(t: WeightTarget) -> dict:
+    """Return _weight_target_dict augmented with history computed fields."""
+    base = _weight_target_dict(t)
+    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+
+    achieved_weight_kg = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+    total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+    if achieved_weight_kg is not None and total_kg != 0:
+        achieved_kg = float(t.start_weight_kg) - achieved_weight_kg
+        achieved_pct = round(min(achieved_kg / total_kg * 100, 100), 2)
+    else:
+        achieved_pct = None
+
+    if t.ended_at:
+        ended_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+        duration_days = (ended_date - start_date).days
+    else:
+        duration_days = None
+
+    base.update({
+        "achieved_weight_kg": achieved_weight_kg,
+        "achieved_pct": achieved_pct,
+        "duration_days": duration_days,
+    })
+    return base
+
+
+@app.post("/api/weight-targets", status_code=201)
+def create_weight_target(body: WeightTargetCreateIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    if not (20 <= body.start_weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="start_weight_kg must be between 20 and 300")
+    if not (20 <= body.target_weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+
+    try:
+        start_date = _date.fromisoformat(body.start_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid start_date; use YYYY-MM-DD")
+    if start_date > _date.today():
+        raise HTTPException(status_code=422, detail="start_date cannot be in the future")
+
+    try:
+        target_date = _date.fromisoformat(body.target_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid target_date; use YYYY-MM-DD")
+    if target_date <= start_date:
+        raise HTTPException(status_code=422, detail="target_date must be after start_date")
+    max_target = start_date.replace(year=start_date.year + 5)
+    if target_date > max_target:
+        raise HTTPException(status_code=422, detail="target_date cannot be more than 5 years after start_date")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        existing_active = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+        if existing_active is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "active_target_exists",
+                    "active_id": str(existing_active.id),
+                    "message": "End or replace the active target first",
+                },
+            )
+
+        target = WeightTarget(
+            user_id=uid,
+            start_weight_kg=body.start_weight_kg,
+            start_date=start_date,
+            target_weight_kg=body.target_weight_kg,
+            target_date=target_date,
+            notes=body.notes,
+            status="active",
+        )
+        session.add(target)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            existing = (
+                session.query(WeightTarget)
+                .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+                .first()
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "active_target_exists",
+                    "active_id": str(existing.id) if existing else None,
+                    "message": "End or replace the active target first",
+                },
+            )
+        session.refresh(target)
+        return JSONResponse(status_code=201, content=_weight_target_dict(target))
+
+
+@app.get("/api/weight-targets/active")
+def get_active_weight_target(user_id: str = Query(...)):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+        if target is None:
+            return JSONResponse({"target": None})
+
+        return JSONResponse({"target": _compute_weight_target_active(target, session)})
+
+
+@app.get("/api/weight-targets/history")
+def get_weight_target_history(
+    user_id: str = Query(...),
+    status: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightTarget).filter(
+            WeightTarget.user_id == uid,
+            WeightTarget.status != "active",
+        )
+        if status is not None:
+            q = q.filter(WeightTarget.status == status)
+        targets = q.order_by(WeightTarget.ended_at.desc()).all()
+
+        return JSONResponse({"targets": [_weight_target_history_dict(t) for t in targets]})
+
+
+@app.patch("/api/weight-targets/{target_id}")
+def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
+    if "start_weight_kg" in body.model_fields_set or "start_date" in body.model_fields_set:
+        raise HTTPException(status_code=422, detail="start_weight_kg and start_date cannot be changed")
+
+    try:
+        tid = _uuid.UUID(target_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+    with Session(engine) as session:
+        target = session.get(WeightTarget, tid)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Target not found")
+        if target.status != "active":
+            raise HTTPException(status_code=422, detail="Only active targets can be edited")
+
+        if "target_weight_kg" in body.model_fields_set and body.target_weight_kg is not None:
+            if not (20 <= body.target_weight_kg <= 300):
+                raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+            target.target_weight_kg = body.target_weight_kg
+
+        if "target_date" in body.model_fields_set and body.target_date is not None:
+            try:
+                target.target_date = _date.fromisoformat(body.target_date)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid target_date; use YYYY-MM-DD")
+
+        if "notes" in body.model_fields_set:
+            target.notes = body.notes
+
+        target.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(target)
+        return JSONResponse(_weight_target_dict(target))
+
+
+@app.post("/api/weight-targets/{target_id}/end")
+def end_weight_target(target_id: str, body: WeightTargetEndIn):
+    if body.status not in ("achieved", "abandoned"):
+        raise HTTPException(status_code=422, detail="status must be 'achieved' or 'abandoned'")
+
+    try:
+        tid = _uuid.UUID(target_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+    with Session(engine) as session:
+        target = session.get(WeightTarget, tid)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Target not found")
+        if target.status != "active":
+            raise HTTPException(status_code=422, detail="Only active targets can be ended")
+
+        cutoff = _date.today() - _timedelta(days=7)
+        recent_weight = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == target.user_id,
+                WeightEntry.entry_date >= cutoff,
+            )
+            .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
+            .first()
+        )
+        if recent_weight is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Log a recent weight before ending the target",
+            )
+
+        target.status = body.status
+        target.end_weight_kg = recent_weight.weight_kg
+        target.ended_at = _datetime.now(_timezone.utc)
+        target.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(target)
+        return JSONResponse(_weight_target_dict(target))
+
+
+# ── Weight chart endpoint ──────────────────────────────────────────────────────
+
+def _advance_one_month(d: _date) -> _date:
+    """Return same day-of-month in the next calendar month, clamped to month end."""
+    month = d.month + 1
+    year = d.year
+    if month > 12:
+        month = 1
+        year += 1
+    if month == 12:
+        last_day = (_date(year + 1, 1, 1) - _timedelta(days=1)).day
+    else:
+        last_day = (_date(year, month + 1, 1) - _timedelta(days=1)).day
+    return _date(year, month, min(d.day, last_day))
+
+
+@app.get("/api/weight-chart")
+def get_weight_chart(
+    user_id: Optional[str] = Query(default=None),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    include_target: bool = Query(default=True),
+):
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    today = _date.today()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to)
+        fetch_start = min(from_d - _timedelta(days=6), to_d - _timedelta(days=36))
+        all_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_start,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+
+        # Map date → list of weights for MA computation
+        date_weights: dict = {}
+        for e in all_entries:
+            d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+            date_weights.setdefault(d, []).append(float(e.weight_kg))
+
+        def _ma_for_day(day: _date):
+            window_start = day - _timedelta(days=6)
+            vals = []
+            for offset in range(7):
+                di = window_start + _timedelta(days=offset)
+                if di in date_weights:
+                    vals.extend(date_weights[di])
+            if not vals:
+                return None
+            return round(sum(vals) / len(vals), 2)
+
+        # Actuals: one object per real weight_entry row in [from_d, to_d]
+        actuals = []
+        for e in all_entries:
+            d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+            if d < from_d:
+                continue
+            actuals.append({"date": str(d), "weight_kg": float(e.weight_kg)})
+
+        # Trend: dense, one point per day in [from_d, to_d]; null when window is empty
+        num_days = (to_d - from_d).days + 1
+        trend = []
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            trend.append({"date": str(day), "weight_kg": _ma_for_day(day)})
+
+        # Stats
+        in_range = [e for e in all_entries if (
+            (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))) >= from_d
+        )]
+        current_weight_kg = float(in_range[-1].weight_kg) if in_range else None
+
+        current_avg_kg = None
+        for t in reversed(trend):
+            if t["weight_kg"] is not None:
+                current_avg_kg = t["weight_kg"]
+                break
+
+        delta_7d_kg = None
+        if current_avg_kg is not None:
+            ma_7d_ago = _ma_for_day(to_d - _timedelta(days=7))
+            if ma_7d_ago is not None:
+                delta_7d_kg = round(current_avg_kg - ma_7d_ago, 2)
+
+        delta_30d_kg = None
+        if current_avg_kg is not None:
+            ma_30d_ago = _ma_for_day(to_d - _timedelta(days=30))
+            if ma_30d_ago is not None:
+                delta_30d_kg = round(current_avg_kg - ma_30d_ago, 2)
+
+        stats = {
+            "current_weight_kg": current_weight_kg,
+            "current_avg_kg": current_avg_kg,
+            "delta_7d_kg": delta_7d_kg,
+            "delta_30d_kg": delta_30d_kg,
+        }
+
+        # Target block
+        result = {
+            "range": {"from": str(from_d), "to": str(to_d)},
+            "actuals": actuals,
+            "trend": trend,
+            "stats": stats,
+        }
+
+        if include_target:
+            active_target = (
+                session.query(WeightTarget)
+                .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+                .first()
+            )
+            target_block = None
+            if active_target is not None:
+                target_weight = float(active_target.target_weight_kg)
+                target_date = (
+                    active_target.target_date
+                    if isinstance(active_target.target_date, _date)
+                    else _date.fromisoformat(str(active_target.target_date))
+                )
+                proj_start_weight = current_weight_kg if current_weight_kg is not None else float(active_target.start_weight_kg)
+                proj_start = today
+                total_days = (target_date - proj_start).days
+
+                if total_days <= 0:
+                    projected_path = [{"date": str(target_date), "weight_kg": round(target_weight, 2)}]
+                else:
+                    projected_path = []
+                    d = proj_start
+                    while d <= target_date:
+                        frac = (d - proj_start).days / total_days
+                        w = proj_start_weight + (target_weight - proj_start_weight) * frac
+                        projected_path.append({"date": str(d), "weight_kg": round(w, 2)})
+                        d = _advance_one_month(d)
+                    if projected_path[-1]["date"] != str(target_date):
+                        projected_path.append({"date": str(target_date), "weight_kg": round(target_weight, 2)})
+
+                target_block = {
+                    "target_weight_kg": target_weight,
+                    "target_date": str(target_date),
+                    "projected_path": projected_path,
+                }
+            result["target"] = target_block
+
+        return JSONResponse(result)
 
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
@@ -879,6 +1743,12 @@ def _serve_login():
 
 app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
+
+
+def _serve_weight_targets():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "weight-targets.html"))
+
+app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
 
 
 @app.get("/")
@@ -1526,6 +2396,64 @@ def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(reso
     return Response(status_code=204)
 
 
+# ── Workout template endpoints ────────────────────────────────────────────────
+
+class WorkoutTemplateIn(BaseModel):
+    name: str
+    exercises: list
+
+
+def _template_dict(t: WorkoutTemplate) -> dict:
+    return {
+        "id": str(t.id),
+        "user_id": str(t.user_id),
+        "name": t.name,
+        "exercises": t.exercises,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+@app.get("/api/workout-templates")
+def get_workout_templates(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        templates = (
+            session.query(WorkoutTemplate)
+            .filter(WorkoutTemplate.user_id == user.id)
+            .order_by(WorkoutTemplate.created_at.desc())
+            .all()
+        )
+        return JSONResponse([_template_dict(t) for t in templates])
+
+
+@app.post("/api/workout-templates", status_code=201)
+def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_user)):
+    name = body.name.strip() if body.name else ""
+    if not name:
+        raise HTTPException(status_code=422, detail="Template name is required")
+    if not body.exercises:
+        raise HTTPException(status_code=422, detail="Template must have at least one exercise")
+    exercises = [
+        {
+            "name": str(ex.get("name", "")).strip(),
+            "sets": ex.get("sets"),
+            "reps": ex.get("reps"),
+            "weight_kg": ex.get("weight_kg"),
+            "duration": ex.get("duration"),
+            "rpe": ex.get("rpe"),
+        }
+        for ex in body.exercises
+        if isinstance(ex, dict) and str(ex.get("name", "")).strip()
+    ]
+    if not exercises:
+        raise HTTPException(status_code=422, detail="Template must have at least one named exercise")
+    with Session(engine) as session:
+        tmpl = WorkoutTemplate(user_id=user.id, name=name, exercises=exercises)
+        session.add(tmpl)
+        session.commit()
+        session.refresh(tmpl)
+        return JSONResponse(status_code=201, content=_template_dict(tmpl))
+
+
 # ── Workout splits endpoints ──────────────────────────────────────────────────
 
 class SplitIn(BaseModel):
@@ -2075,6 +3003,137 @@ def export_workouts_csv(
         filename = f"workouts-{from_d}-to-{to_d}.csv"
     else:
         filename = "workouts-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/weight-entries")
+def export_weight_entries_csv(
+    user_id: str = Query(...),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    from sqlalchemy import nullslast
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightEntry).filter(WeightEntry.user_id == uid)
+        if from_d is not None:
+            q = q.filter(WeightEntry.entry_date >= from_d)
+        if to_d is not None:
+            q = q.filter(WeightEntry.entry_date <= to_d)
+        rows = q.order_by(
+            WeightEntry.entry_date.asc(),
+            nullslast(WeightEntry.entry_time.asc()),
+        ).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(["entry_date", "entry_time", "weight_kg", "notes", "source"])
+    for r in rows:
+        writer.writerow([
+            str(r.entry_date),
+            str(r.entry_time) if r.entry_time is not None else "",
+            float(r.weight_kg),
+            r.notes if r.notes is not None else "",
+            r.source if r.source is not None else "",
+        ])
+
+    if from_d is not None and to_d is not None:
+        filename = f"weight-entries-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "weight-entries-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/weight-targets")
+def export_weight_targets_csv(
+    user_id: str = Query(...),
+    status: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightTarget).filter(WeightTarget.user_id == uid)
+        if status is not None:
+            q = q.filter(WeightTarget.status == status)
+        rows = q.order_by(WeightTarget.start_date.asc()).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow([
+        "start_date", "target_date", "ended_at", "status",
+        "start_weight_kg", "target_weight_kg", "end_weight_kg",
+        "achieved_pct", "duration_days", "notes",
+    ])
+    for t in rows:
+        start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+        end_weight = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+        total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+        if end_weight is not None and total_kg != 0:
+            achieved_kg = float(t.start_weight_kg) - end_weight
+            achieved_pct = round(min(achieved_kg / total_kg * 100, 100), 2)
+        else:
+            achieved_pct = None
+        if t.ended_at:
+            ended_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+            duration_days = (ended_date - start_date).days
+            ended_at_str = t.ended_at.isoformat()
+        else:
+            duration_days = None
+            ended_at_str = ""
+        writer.writerow([
+            str(t.start_date),
+            str(t.target_date),
+            ended_at_str,
+            t.status,
+            float(t.start_weight_kg),
+            float(t.target_weight_kg),
+            end_weight if end_weight is not None else "",
+            achieved_pct if achieved_pct is not None else "",
+            duration_days if duration_days is not None else "",
+            t.notes if t.notes is not None else "",
+        ])
+
+    filename = f"weight-targets-{status}.csv" if status else "weight-targets-all.csv"
 
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -3222,83 +4281,146 @@ def stryd_configured():
 
 _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
-_STRAVA_SYNC_DAYS = 90
+
+
+def _strava_sync_worker(user_id: str) -> None:
+    """Background daemon thread: pull all-time Strava activities and upsert."""
+    uid = _uuid.UUID(user_id)
+    try:
+        _sync_jobs.set_phase(uid, "pulling_strava")
+
+        access_token = refresh_token_if_needed(user_id)
+        if access_token is None:
+            _sync_jobs.mark_error(uid, "Strava account not connected")
+            return
+
+        page = 1
+        while True:
+            if _sync_jobs.is_cancel_requested(uid):
+                _sync_jobs.mark_error(uid, "cancelled")
+                return
+
+            url = (
+                _STRAVA_ACTIVITIES_URL
+                + "?"
+                + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page})
+            )
+            req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+            try:
+                with _urllib_request.urlopen(req) as resp:
+                    batch = _json.loads(resp.read())
+            except _urllib_error.HTTPError as exc:
+                _sync_jobs.mark_error(uid, f"Strava API error: {exc.code}")
+                return
+
+            if not batch:
+                break
+
+            now = _datetime.now(tz=_timezone.utc)
+            rows = []
+            for act in batch:
+                if _sync_jobs.is_cancel_requested(uid):
+                    _sync_jobs.mark_error(uid, "cancelled")
+                    return
+                start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=_timezone.utc
+                )
+                rows.append({
+                    "user_id": user_id,
+                    "strava_activity_id": int(act["id"]),
+                    "start_time": start_dt,
+                    "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
+                    "name": act.get("name") or "Untitled",
+                    "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
+                    "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
+                    "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
+                    "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+                    "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
+                    "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
+                    "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
+                    "device_name": act.get("device_name"),
+                    "external_id": act.get("external_id"),
+                    "is_stryd_synced": False,
+                    "raw_payload": act,
+                    "synced_at": now,
+                })
+
+            with Session(engine) as session:
+                ins = _pg_insert(StravaActivity).values(rows)
+                stmt = ins.on_conflict_do_update(
+                    index_elements=["strava_activity_id"],
+                    set_={
+                        "name": ins.excluded.name,
+                        "activity_type": ins.excluded.activity_type,
+                        "raw_payload": ins.excluded.raw_payload,
+                        "synced_at": now,
+                    },
+                )
+                session.execute(stmt)
+                session.commit()
+
+            _sync_jobs.increment(uid, current=len(rows), items_synced=len(rows))
+
+            if len(batch) < _STRAVA_SYNC_PER_PAGE:
+                break
+            page += 1
+
+        _reconcile.reconcile_workouts(uid, uid)
+        _sync_jobs.mark_success(uid)
+    except Exception as exc:  # noqa: BLE001
+        _sync_jobs.mark_error(uid, str(exc))
 
 
 @app.post("/api/strava/sync")
 def strava_sync(user: User = Depends(resolve_user)):
-    """Fetch recent Strava activities (last 90 days) and upsert into strava_activities."""
-    user_id = str(user.id)
+    """Start an async Strava full-history pull; returns 202 immediately."""
+    uid = user.id
+    try:
+        _sync_jobs.start(uid, "strava")
+    except _sync_jobs.SyncInProgress:
+        raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    access_token = refresh_token_if_needed(user_id)
-    if access_token is None:
-        raise HTTPException(status_code=400, detail="Strava account not connected")
+    t = _threading.Thread(target=_strava_sync_worker, args=(str(uid),), daemon=True)
+    t.start()
+    return JSONResponse({"started": True}, status_code=202)
 
-    after_ts = int((_datetime.now(tz=_timezone.utc) - _timedelta(days=_STRAVA_SYNC_DAYS)).timestamp())
 
-    activities: list[dict] = []
-    page = 1
-    while True:
-        url = (
-            _STRAVA_ACTIVITIES_URL
-            + "?"
-            + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page, "after": after_ts})
-        )
-        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
-        try:
-            with _urllib_request.urlopen(req) as resp:
-                batch = _json.loads(resp.read())
-        except _urllib_error.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Strava API error: {exc.code}")
-        if not batch:
-            break
-        activities.extend(batch)
-        if len(batch) < _STRAVA_SYNC_PER_PAGE:
-            break
-        page += 1
+# ── App config (persistent key-value settings) ────────────────────────────────
 
-    if not activities:
-        return JSONResponse({"synced": 0})
+_APP_CONFIG_GOOGLE_LOGIN = "google_login_enabled"
 
-    now = _datetime.now(tz=_timezone.utc)
-    rows = []
-    for act in activities:
-        start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_timezone.utc)
-        rows.append({
-            "user_id": user_id,
-            "strava_activity_id": int(act["id"]),
-            "start_time": start_dt,
-            "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
-            "name": act.get("name") or "Untitled",
-            "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
-            "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
-            "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
-            "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
-            "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
-            "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
-            "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
-            "device_name": act.get("device_name"),
-            "external_id": act.get("external_id"),
-            "is_stryd_synced": False,
-            "raw_payload": act,
-            "synced_at": now,
-        })
 
+def _get_app_config(key: str, default: str = "") -> str:
     with Session(engine) as session:
-        ins = _pg_insert(StravaActivity).values(rows)
-        stmt = ins.on_conflict_do_update(
-            index_elements=["strava_activity_id"],
-            set_={
-                "name": ins.excluded.name,
-                "activity_type": ins.excluded.activity_type,
-                "raw_payload": ins.excluded.raw_payload,
-                "synced_at": now,
-            },
+        row = session.get(AppConfig, key)
+        return row.value if row else default
+
+
+def _set_app_config(key: str, value: str) -> None:
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(AppConfig)
+            .values(key=key, value=value, updated_at=_datetime.now(tz=_timezone.utc))
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": value, "updated_at": _datetime.now(tz=_timezone.utc)},
+            )
         )
         session.execute(stmt)
         session.commit()
 
-    return JSONResponse({"synced": len(activities)})
+
+def _google_credentials_present() -> bool:
+    return bool(os.getenv("GOOGLE_CLIENT_ID")) and bool(os.getenv("GOOGLE_CLIENT_SECRET"))
+
+
+def _google_login_active() -> bool:
+    """True when env flag is set, DB toggle is not disabled, and credentials are present."""
+    if os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() != "true":
+        return False
+    if _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() == "false":
+        return False
+    return _google_credentials_present()
 
 
 # ── Google OAuth ───────────────────────────────────────────────────────────────
@@ -3333,6 +4455,107 @@ def _verify_google_state_token(token: str, secret: str, max_age: int = _STATE_TO
     if time.time() - payload["ts"] > max_age:
         raise ValueError("Token expired")
     return payload
+
+
+_GOOGLE_SIGNIN_ERROR_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Sign-in failed</title></head>
+<body>
+<p>Google sign-in failed: {reason}. <a href="/login">Return to login</a>.</p>
+</body>
+</html>"""
+
+
+@app.get("/auth/google")
+def google_signin_initiate():
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    state = _make_google_state_token("signin", state_secret)
+    authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": _GOOGLE_SCOPE_DEFAULT,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@app.get("/auth/google/callback")
+def google_signin_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+):
+    if not _google_login_active():
+        raise HTTPException(status_code=404, detail="Not Found")
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+    try:
+        state_payload = _verify_google_state_token(state, state_secret)
+    except ValueError:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="state expired or invalid"),
+            media_type="text/html",
+            status_code=400,
+        )
+    if state_payload.get("user_id") != "signin":
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="invalid state"),
+            media_type="text/html",
+            status_code=400,
+        )
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("GOOGLE_SIGNIN_REDIRECT_URI", "http://localhost:9001/auth/google/callback")
+    token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
+    id_token = token_resp.get("id_token", "")
+    id_token_payload = _decode_id_token_payload(id_token)
+    google_sub = id_token_payload.get("sub", "")
+    if not google_sub:
+        return Response(
+            content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="could not read Google account"),
+            media_type="text/html",
+            status_code=502,
+        )
+    with Session(engine) as session:
+        creds = session.query(GoogleOAuthCredentials).filter(
+            GoogleOAuthCredentials.google_sub == google_sub
+        ).first()
+        if creds is None:
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="no account linked to this Google identity"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user = session.get(User, creds.user_id)
+        if user is None or not getattr(user, "is_active", True):
+            return Response(
+                content=_GOOGLE_SIGNIN_ERROR_HTML.format(reason="account not found or disabled"),
+                media_type="text/html",
+                status_code=403,
+            )
+        user_id = str(user.id)
+    resp = RedirectResponse(url="/home", status_code=302)
+    set_session(resp, user_id)
+    return resp
+
+
+@app.get("/api/auth/google-status")
+def google_status():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_ok = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    return JSONResponse({
+        "enabled": env_enabled and creds_ok and toggle_enabled,
+    })
 
 
 @app.get("/api/google/connect")
@@ -4481,3 +5704,273 @@ def backfill_training_load(
         "from": from_d.isoformat(),
         "to": today.isoformat(),
     })
+
+
+# ── Admin gate ────────────────────────────────────────────────────────────────
+
+class AdminLoginIn(BaseModel):
+    secret: str
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_entry(request: Request):
+    """Entry point for the admin area.
+
+    - No ADMIN_SECRET_* env var set → 403 (admin disabled).
+    - No valid admin cookie → serve login form.
+    - Valid admin cookie → serve admin dashboard.
+    """
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return FileResponse(str(_static_root / "frontend" / "pages" / "admin.html"))
+        except ValueError:
+            pass
+    return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
+
+
+@app.post("/api/admin/login")
+def admin_login(body: AdminLoginIn, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    admin_lockout_check(ip)
+
+    admin_secret = get_admin_secret()
+    if not admin_secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled")
+
+    if not _hmac.compare_digest(body.secret.encode(), admin_secret.encode()):
+        admin_lockout_record(ip)
+        raise HTTPException(status_code=401, detail="Invalid admin secret")
+
+    admin_lockout_clear(ip)
+    resp = JSONResponse({"ok": True})
+    set_admin_cookie(resp)
+    return resp
+
+
+@app.post("/api/admin/logout", status_code=204)
+def admin_logout():
+    resp = Response(status_code=204)
+    clear_admin_cookie(resp)
+    return resp
+
+
+# ── Admin user management endpoints ──────────────────────────────────────────
+
+class AdminUserCreateIn(BaseModel):
+    username: str
+    password: str
+    is_admin: bool = False
+
+
+@app.post("/api/admin/users", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_user(body: AdminUserCreateIn):
+    username = body.username.strip()
+    if not (1 <= len(username) <= 100):
+        raise HTTPException(status_code=422, detail="username must be 1–100 characters")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    pw_hash = hash_password(body.password)
+    with Session(engine) as session:
+        user = User(name=username, password_hash=pw_hash, is_admin=body.is_admin)
+        session.add(user)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=f"Username '{username}' already exists")
+        session.refresh(user)
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(user.id),
+                "username": user.name,
+                "is_admin": bool(user.is_admin),
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            },
+        )
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require_admin)])
+def admin_list_users():
+    from sqlalchemy import func, select
+    with Session(engine) as session:
+        strava_sub = select(StravaToken.user_id).subquery()
+        google_sub = select(GoogleOAuthCredentials.user_id).subquery()
+        stryd_sub = select(StrydCredentials.user_id).subquery()
+
+        rows = (
+            session.query(
+                User,
+                strava_sub.c.user_id.isnot(None).label("has_strava"),
+                google_sub.c.user_id.isnot(None).label("has_google"),
+                stryd_sub.c.user_id.isnot(None).label("has_stryd"),
+            )
+            .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
+            .outerjoin(google_sub, User.id == google_sub.c.user_id)
+            .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+            .order_by(User.name)
+            .all()
+        )
+        return JSONResponse([
+            {
+                "id": str(u.id),
+                "username": u.name,
+                "is_admin": bool(u.is_admin),
+                "is_active": bool(getattr(u, "is_active", True)),
+                "integration_count": int(bool(has_strava)) + int(bool(has_google)) + int(bool(has_stryd)),
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            }
+            for u, has_strava, has_google, has_stryd in rows
+        ])
+
+
+class AdminResetPasswordIn(BaseModel):
+    new_password: str
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", dependencies=[Depends(require_admin)])
+def admin_reset_password(user_id: str, body: AdminResetPasswordIn):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.password_hash = hash_password(body.new_password)
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/users/{user_id}/toggle-admin", dependencies=[Depends(require_admin)])
+def admin_toggle_admin(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove admin: at least one admin must remain",
+                )
+        user.is_admin = not user.is_admin
+        session.commit()
+        session.refresh(user)
+    return JSONResponse({"id": str(user.id), "is_admin": bool(user.is_admin)})
+
+
+@app.post("/api/admin/users/{user_id}/disable", dependencies=[Depends(require_admin)])
+def admin_disable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = False
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": False})
+
+
+@app.post("/api/admin/users/{user_id}/enable", dependencies=[Depends(require_admin)])
+def admin_enable_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = True
+        session.commit()
+    return JSONResponse({"id": str(uid), "is_active": True})
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_user(user_id: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            admin_count = session.query(User).filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot delete the last admin account",
+                )
+        session.delete(user)
+        session.commit()
+    return Response(status_code=204)
+
+
+# ── Admin: Google login config ────────────────────────────────────────────────
+
+class AdminGoogleLoginToggleIn(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_get_google_login_config():
+    env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
+    creds_present = _google_credentials_present()
+    toggle_enabled = _get_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true").lower() != "false"
+    active = env_enabled and creds_present and toggle_enabled
+    warning = None
+    if env_enabled and not creds_present:
+        warning = "GOOGLE_LOGIN_ENABLED is true but GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing"
+    return JSONResponse({
+        "env_enabled": env_enabled,
+        "credentials_present": creds_present,
+        "toggle_enabled": toggle_enabled,
+        "active": active,
+        "warning": warning,
+    })
+
+
+@app.post("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
+def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
+    _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
+    return JSONResponse({"toggle_enabled": body.enabled})
+
+
+# ── Sync status endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/sync/status")
+async def get_sync_status(user: User = Depends(resolve_user)):
+    job = _sync_jobs.snapshot(user.id)
+    if job is None:
+        return JSONResponse({"status": "idle"})
+    serialized = {
+        **job,
+        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+    }
+    return JSONResponse(serialized)
