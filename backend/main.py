@@ -1602,6 +1602,122 @@ def get_home_recent_workouts(
     })
 
 
+# ── Home personal-records endpoint ────────────────────────────────────────────
+
+_PR_TRACK_META = {
+    "half_marathon": {"name": "Half Marathon", "track_type": "time"},
+    "10k": {"name": "10K", "track_type": "time"},
+    "squat_1rm": {"name": "Squat 1RM", "track_type": "weight"},
+}
+_PR_DEFAULT_TRACKS = ["half_marathon", "10k", "squat_1rm"]
+
+
+def _format_pr_time(seconds: float) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def _format_pr_weight(kg: float) -> str:
+    if kg == int(kg):
+        return f"{int(kg)} kg"
+    return f"{kg} kg"
+
+
+def _pr_trend(records, track_type: str) -> str:
+    if len(records) < 2:
+        return "no_data"
+    latest = float(records[0].value_numeric)
+    previous = float(records[1].value_numeric)
+    if previous == 0:
+        return "no_data"
+    diff_pct = abs(latest - previous) / previous
+    if diff_pct <= 0.01:
+        return "stable"
+    if track_type == "time":
+        return "improving" if latest < previous else "declining"
+    return "improving" if latest > previous else "declining"
+
+
+@app.get("/api/home/personal-records")
+def get_home_personal_records(
+    user_id: str = Query(...),
+    tracks: str = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    track_list = [t.strip() for t in tracks.split(",")] if tracks else _PR_DEFAULT_TRACKS
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        try:
+            all_records = (
+                session.query(PersonalRecord)
+                .filter(
+                    PersonalRecord.user_id == uid,
+                    PersonalRecord.track_key.in_(track_list),
+                )
+                .order_by(PersonalRecord.track_key, PersonalRecord.achieved_on.desc())
+                .all()
+            )
+        except Exception:
+            return JSONResponse({"tracks": []})
+
+    grouped: dict = {}
+    for r in all_records:
+        grouped.setdefault(r.track_key, []).append(r)
+
+    result = []
+    for tk in track_list:
+        meta = _PR_TRACK_META.get(tk, {})
+        recs = grouped.get(tk, [])
+
+        if not recs:
+            result.append({
+                "track_key": tk,
+                "track_name": meta.get("name", tk),
+                "track_type": meta.get("track_type", None),
+                "current_value": None,
+                "current_value_formatted": None,
+                "achieved_on": None,
+                "predicted_value": None,
+                "predicted_value_formatted": None,
+                "predicted_method": None,
+                "trend": "no_data",
+            })
+            continue
+
+        latest = recs[0]
+        track_type = latest.track_type
+        current_value = float(latest.value_numeric)
+        formatted = _format_pr_time(current_value) if track_type == "time" else _format_pr_weight(current_value)
+
+        result.append({
+            "track_key": tk,
+            "track_name": latest.track_name,
+            "track_type": track_type,
+            "current_value": current_value,
+            "current_value_formatted": formatted,
+            "achieved_on": latest.achieved_on.isoformat() if latest.achieved_on else None,
+            "predicted_value": None,
+            "predicted_value_formatted": None,
+            "predicted_method": None,
+            "trend": _pr_trend(recs, track_type),
+        })
+
+    return JSONResponse({"tracks": result})
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
