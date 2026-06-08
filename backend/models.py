@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
+from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, Time, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -23,12 +23,59 @@ class WeightEntry(Base):
     __tablename__ = "weight_entries"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entry_date = Column(Date, nullable=False)
+    entry_time = Column(Time, nullable=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
-    recorded_date = Column(Date, nullable=False)
+    notes = Column(Text, nullable=True)
+    source = Column(String(20), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
-    __table_args__ = (UniqueConstraint("user_id", "recorded_date", name="uq_weight_entries_user_date"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "entry_date", "entry_time",
+            name="uq_weight_entries_user_date_time",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_weight_entries_user_entry_date", "user_id", "entry_date"),
+        CheckConstraint(
+            "source IN ('manual', 'imported', 'backfill')",
+            name="ck_weight_entries_source_values",
+        ),
+    )
+
+
+class WeightTarget(Base):
+    __tablename__ = "weight_targets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_weight_kg = Column(Numeric(5, 2), nullable=False)
+    start_date = Column(Date, nullable=False)
+    target_weight_kg = Column(Numeric(5, 2), nullable=False)
+    target_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    end_weight_kg = Column(Numeric(5, 2), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'achieved', 'abandoned', 'replaced')",
+            name="ck_weight_targets_status_values",
+        ),
+        Index("ix_weight_targets_user_status", "user_id", "status"),
+        # Partial unique index — one active target per user; enforced at DB level
+        Index(
+            "uix_weight_targets_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
 
 class Habit(Base):

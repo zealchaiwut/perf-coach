@@ -1484,7 +1484,7 @@
       latest.weight_kg.toFixed(1), 'kg', pillHTML,
       _trendAreaSpark(sparkVals, '#2b4ca8', '#2b4ca8', null),
       '30d trend',
-      'Latest: ' + latest.weight_kg.toFixed(1) + ' kg',
+      '<a href="/weight" style="color:#2b4ca8;text-decoration:none;font-size:11px;">View all →</a>',
       quickInput);
     _wireWeightSave(el, userId);
   }
