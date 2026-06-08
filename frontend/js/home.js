@@ -1,4 +1,17 @@
 (function () {
+  /* ---- Centralized fetch helper ---- */
+
+  async function _homeFetch(url) {
+    try {
+      var r = await fetch(url);
+      if (!r.ok) return { ok: false, data: null, status: r.status };
+      var data = await r.json();
+      return { ok: true, data: data, status: r.status };
+    } catch (_) {
+      return { ok: false, data: null, status: 0 };
+    }
+  }
+
   /* ---- Greeting ---- */
 
   function getGreetingPrefix() {
@@ -185,24 +198,13 @@
 
     card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ + UIStates.loadingHTML();
 
-    var data = null;
-    var failed = false;
-    try {
-      var res = await fetch(‘/api/home/readiness?user_id=’ + encodeURIComponent(userId));
-      if (res.ok) {
-        data = await res.json();
-      } else {
-        failed = true;
-      }
-    } catch (_) {
-      failed = true;
-    }
-
-    if (failed) {
+    var _rdResult = await _homeFetch(‘/api/home/readiness?user_id=’ + encodeURIComponent(userId));
+    if (!_rdResult.ok) {
       card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ +
         UIStates.errorHTML(‘Could not load readiness data’);
       return;
     }
+    var data = _rdResult.data;
 
     /* Null score → no metrics logged today */
     if (data.score === null) {
@@ -597,27 +599,15 @@
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
-    var tracks = [];
-    var failed = false;
-    try {
-      var r = await fetch(
-        '/api/home/personal-records?user_id=' + encodeURIComponent(userId) +
-        '&tracks=half_marathon,10k,squat_1rm'
-      );
-      if (r.ok) {
-        var data = await r.json();
-        tracks = data.tracks || [];
-      } else {
-        failed = true;
-      }
-    } catch (_) {
-      failed = true;
-    }
-
-    if (failed) {
+    var _prResult = await _homeFetch(
+      '/api/home/personal-records?user_id=' + encodeURIComponent(userId) +
+      '&tracks=half_marathon,10k,squat_1rm'
+    );
+    if (!_prResult.ok) {
       card.innerHTML = perfHeader + UIStates.errorHTML('Could not load performance data');
       return;
     }
+    var tracks = (_prResult.data.tracks || []);
 
     var allNoData = tracks.length > 0 && tracks.every(function (t) {
       return t.trend === 'no_data';
@@ -738,23 +728,10 @@
 
     card.innerHTML = UIStates.loadingHTML();
 
-    var today = new Date();
-    var from14 = new Date(today);
-    from14.setDate(from14.getDate() - 14);
-
-    var workouts = [];
-    try {
-      var res = await fetch(
-        '/api/workouts?from=' + isoDate(from14) + '&to=' + isoDate(today)
-      );
-      if (res.ok) workouts = await res.json();
-    } catch (_) { workouts = []; }
-
-    workouts.sort(function (a, b) {
-      if (b.workout_date > a.workout_date) return 1;
-      if (b.workout_date < a.workout_date) return -1;
-      return 0;
-    });
+    var _rwResult = await _homeFetch(
+      '/api/home/recent-workouts?user_id=' + encodeURIComponent(userId) + '&limit=4'
+    );
+    var workouts = _rwResult.ok ? (_rwResult.data.workouts || []) : [];
 
     var header =
       '<div class="card-head">' +
@@ -1592,20 +1569,8 @@
         '<div class="trend-skeleton-line" style="height:40px"></div>' +
       '</div>';
 
-    var summary = null;
-    var failed = false;
-    try {
-      var res = await fetch('/api/home/weight-summary');
-      if (res.ok) {
-        summary = await res.json();
-      } else {
-        failed = true;
-      }
-    } catch (_) {
-      failed = true;
-    }
-
-    if (failed) {
+    var _wwResult = await _homeFetch('/api/home/weight-summary');
+    if (!_wwResult.ok) {
       el.innerHTML = header +
         '<div class="ww-error">' +
           'Could not load weight data' +
@@ -1617,6 +1582,7 @@
       }
       return;
     }
+    var summary = _wwResult.data;
 
     renderWeightWidget(el, summary);
 
@@ -1717,7 +1683,134 @@
     renderHRVTrendCard(document.getElementById('trend-card-hrv'), passedSummary);
     renderWeeklyTSSTrendCard(document.getElementById('trend-card-tss'), passedSummary);
     renderRHRTrendCard(document.getElementById('trend-card-rhr'), passedSummary);
-    loadWeightWidget(document.getElementById('trend-card-weight'));
+    // Weight widget is fired separately from init() as part of the parallel home fetches
+  }
+
+  /* ---- Weekly Summary card ---- */
+
+  var _WKS_TYPE_ICONS = {
+    run:  { icon: 'ti-run',     label: 'Run' },
+    lift: { icon: 'ti-barbell', label: 'Lift' },
+    wod:  { icon: 'ti-flame',   label: 'WOD' },
+    bike: { icon: 'ti-bike',    label: 'Bike' },
+  };
+
+  function _wksDeltaPill(value, unit) {
+    var num = Number(value);
+    var cls = num > 0 ? 'wks-pill--green' : (num < 0 ? 'wks-pill--red' : 'wks-pill--flat');
+    var sign = num > 0 ? '+' : '';
+    return '<span class="wks-pill ' + cls + '">' + sign + value + ' ' + unit + '</span>';
+  }
+
+  function _wksTssBarChart(dailyLoad) {
+    var W = 280, H = 90, LABEL_H = 16, GAP = 4;
+    var chartH = H - LABEL_H;
+    var n = dailyLoad.length;
+    var barW = Math.max(8, Math.floor((W - GAP * (n - 1)) / n));
+    var step = barW + GAP;
+    var startX = (W - (barW * n + GAP * (n - 1))) / 2;
+    var today = isoDate(new Date());
+
+    var maxTss = 1;
+    dailyLoad.forEach(function (d) { if (d.tss && d.tss > maxTss) maxTss = d.tss; });
+
+    var DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    var out = '<svg class="wks-bar-chart" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+
+    dailyLoad.forEach(function (d, i) {
+      var x = startX + i * step;
+      var isToday = d.date === today;
+      var isRest = d.is_rest;
+
+      var barColor = isToday ? 'var(--accent)' : (isRest ? 'var(--chip-bg)' : '#5a8dee');
+      var tssVal = d.tss || 0;
+      var barH = isRest ? 4 : Math.max(4, (tssVal / maxTss) * (chartH - 8));
+      var y = chartH - barH;
+
+      out += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + barH.toFixed(1) + '" rx="3" fill="' + barColor + '"/>';
+      out += '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="10" fill="#8b95ad" font-family="Inter Tight, sans-serif">' + DAY_LABELS[i] + '</text>';
+    });
+
+    out += '</svg>';
+    return out;
+  }
+
+  async function loadWeeklySummaryCard(userId) {
+    var row5 = document.getElementById('row-5');
+    if (!row5) return;
+
+    var card = document.getElementById('weekly-summary-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'weekly-summary-card';
+      card.className = 'card wks-card';
+      row5.appendChild(card);
+    }
+
+    var header = '<div class="card-head"><div class="ttl"><i class="ti ti-calendar-week"></i>This week</div></div>';
+    card.innerHTML = header + UIStates.loadingHTML();
+
+    var result = await _homeFetch('/api/home/weekly-summary?user_id=' + encodeURIComponent(userId));
+    if (!result.ok) {
+      card.innerHTML = header + UIStates.errorHTML('Could not load weekly summary');
+      return;
+    }
+
+    var data = result.data;
+    var total = data.workouts.total;
+
+    if (total === 0) {
+      card.innerHTML = header +
+        UIStates.emptyHTML('No workouts this week', '<a href="/log">Log a workout →</a>');
+      return;
+    }
+
+    // Type breakdown icons
+    var typeHTML = '';
+    Object.keys(_WKS_TYPE_ICONS).forEach(function (t) {
+      var n = data.workouts.by_type[t] || 0;
+      if (n > 0) {
+        var ic = _WKS_TYPE_ICONS[t];
+        typeHTML += '<span class="wks-type"><i class="ti ' + ic.icon + '"></i>' + n + '</span>';
+      }
+    });
+    if (!typeHTML) typeHTML = '<span class="wks-type-none">—</span>';
+
+    // Totals
+    var durStr = '—';
+    if (data.duration_minutes != null) {
+      var h = Math.floor(data.duration_minutes / 60);
+      var m = Math.round(data.duration_minutes % 60);
+      durStr = h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+    }
+    var distStr = data.distance_km != null ? data.distance_km.toFixed(1) + ' km' : null;
+    var tssStr  = data.total_tss   != null ? Math.round(data.total_tss) + ' TSS' : null;
+
+    // Delta pills (vs previous week)
+    var vp = data.vs_prev_week;
+    var deltaHTML =
+      _wksDeltaPill(vp.total_delta, 'wk') +
+      _wksDeltaPill(Number(vp.distance_km_delta).toFixed(1), 'km') +
+      _wksDeltaPill(Math.round(vp.tss_delta), 'TSS');
+
+    card.innerHTML = header +
+      '<div class="wks-body">' +
+        '<div class="wks-stats">' +
+          '<div class="wks-count-row">' +
+            '<span class="wks-count">' + total + '</span>' +
+            '<span class="wks-count-lbl">workouts</span>' +
+            '<span class="wks-rest">' + data.rest_days + ' rest days</span>' +
+          '</div>' +
+          '<div class="wks-types">' + typeHTML + '</div>' +
+          '<div class="wks-totals">' +
+            (distStr ? '<span class="wks-total-item"><span class="wks-v">' + distStr + '</span></span>' : '') +
+            '<span class="wks-total-item"><span class="wks-v">' + durStr + '</span></span>' +
+            (tssStr  ? '<span class="wks-total-item"><span class="wks-v">' + tssStr + '</span></span>' : '') +
+          '</div>' +
+          '<div class="wks-deltas">' + deltaHTML + '</div>' +
+        '</div>' +
+        '<div class="wks-chart">' + _wksTssBarChart(data.daily_load) + '</div>' +
+      '</div>';
   }
 
   /* ---- Log Today card ---- */
@@ -1943,12 +2036,21 @@
     }
 
     if (userId) {
-      loadReadinessCard(userId);
-      loadSleepCard(userId);
-      loadPerformanceCard(userId);
-      loadRecentWorkoutsCard(userId);
-      loadLogTodayCard(userId);
+      // Set up row-3 containers synchronously (weight widget fired below)
       loadRow3(userId);
+
+      // Fire all 5 /api/home/* widget fetches simultaneously
+      var weightEl = document.getElementById('trend-card-weight');
+      Promise.all([
+        loadReadinessCard(userId),
+        loadPerformanceCard(userId),
+        loadRecentWorkoutsCard(userId),
+        loadWeeklySummaryCard(userId),
+        loadWeightWidget(weightEl),
+      ]);
+
+      loadSleepCard(userId);
+      loadLogTodayCard(userId);
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);
     }

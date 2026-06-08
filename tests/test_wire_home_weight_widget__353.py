@@ -163,11 +163,12 @@ def test_home_js_calls_weight_summary_endpoint():
 
 
 def test_home_js_weight_summary_fetch_direct():
-    """AC-1: Fetch must pass /api/home/weight-summary directly (no user_id param)."""
+    """AC-1: home.js must call /api/home/weight-summary (no user_id param).
+    May use raw fetch() or the shared _homeFetch helper."""
     assert (
-        "fetch('/api/home/weight-summary')" in _HOME_JS
-        or 'fetch("/api/home/weight-summary")' in _HOME_JS
-    ), "home.js must call fetch('/api/home/weight-summary') — no user_id query param"
+        "'/api/home/weight-summary'" in _HOME_JS
+        or '"/api/home/weight-summary"' in _HOME_JS
+    ), "home.js must call /api/home/weight-summary — no user_id query param"
 
 
 # AC-2: Current weight rendered large

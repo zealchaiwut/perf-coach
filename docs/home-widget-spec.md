@@ -468,3 +468,27 @@ All endpoints currently consumed by the home page **exist**. The following gaps 
 | 4 | Weekly training summary | `GET /api/home/weekly-summary` | NEEDS BUILDING (optional) — no dedicated weekly summary endpoint; `trends/summary` covers it but is general-purpose |
 
 No `dashboard`-prefixed routes exist or are needed at this time.
+
+---
+
+## Final State (post sprint-47)
+
+All 5 primary home widgets are wired to `/api/home/*` endpoints and fire simultaneously via `Promise.all` on page load. A centralized `_homeFetch` helper in `home.js` handles fetch, JSON parsing, and error normalization for every widget.
+
+| # | Widget | Endpoint | Status |
+|---|--------|----------|--------|
+| 1 | Recent Workouts | `GET /api/home/recent-workouts` | **LIVE** — wired sprint-47 (#355) |
+| 2 | Weight | `GET /api/home/weight-summary` | **LIVE** — wired sprint-47 (#353) |
+| 3 | Personal Records | `GET /api/home/personal-records` | **LIVE** — wired sprint-47 (#354) |
+| 4 | Readiness | `GET /api/home/readiness` | **LIVE** — wired sprint-47 (#354) |
+| 5 | Weekly Summary | `GET /api/home/weekly-summary` | **LIVE** — wired sprint-47 (#355) |
+
+**Parallel fetch:** `Promise.all([loadReadinessCard, loadPerformanceCard, loadRecentWorkoutsCard, loadWeeklySummaryCard, loadWeightWidget])` — all 5 fetches start simultaneously, verified via DevTools Network tab.
+
+**Independent failure:** each widget catches its own errors and renders an error state; a failing widget does not affect the other 4.
+
+**Weekly Summary widget details:**
+- Location: `#row-5` (full-width card below habits row)
+- Shows: workout count, type breakdown with icons, total distance / duration / TSS, rest day count
+- Delta pills: `vs_prev_week` totals, distance, TSS — green for positive, red for negative, neutral for zero
+- 7-day TSS bar chart: pure SVG, Mon–Sun labels, rest days gray (`var(--chip-bg)`), today in accent color (`var(--accent)`)

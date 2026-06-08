@@ -886,6 +886,44 @@
       background: #2b4ca8; border-radius: 3px;
     }
 
+    /* ---- ROW 5: WEEKLY SUMMARY ---- */
+    #row-5 { margin-bottom: 16px; }
+
+    .wks-card { padding: 22px; }
+    .wks-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .wks-stats { display: flex; flex-direction: column; gap: 12px; }
+    .wks-count-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .wks-count { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+    .wks-count-lbl { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+    .wks-rest { font-size: 12px; color: var(--text-tertiary); margin-left: auto; }
+    .wks-types { display: flex; gap: 8px; flex-wrap: wrap; }
+    .wks-type {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--chip-bg); border-radius: 8px;
+      padding: 4px 10px; font-size: 12px; font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .wks-type i { font-size: 14px; }
+    .wks-type-none { font-size: 13px; color: var(--text-tertiary); }
+    .wks-totals { display: flex; gap: 12px; flex-wrap: wrap; }
+    .wks-total-item { display: flex; align-items: baseline; gap: 3px; }
+    .wks-v { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+    .wks-deltas { display: flex; gap: 6px; flex-wrap: wrap; }
+    .wks-pill {
+      font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+    }
+    .wks-pill--green { background: var(--green-soft); color: var(--green); }
+    .wks-pill--red   { background: var(--red-soft);   color: var(--red); }
+    .wks-pill--flat  { background: var(--chip-bg);    color: var(--text-tertiary); }
+    .wks-chart { display: flex; align-items: center; justify-content: center; }
+    .wks-bar-chart { width: 100%; height: 90px; display: block; overflow: visible; }
+
     /* ---- RESPONSIVE: <= 880px ---- */
     @media (max-width: 880px) {
       .page { padding: 16px 14px 8px; }
@@ -971,6 +1009,9 @@
       /* Habits grid: mobile — single column, bigger cells, streak footer */
       #row-4 { grid-template-columns: 1fr; }
 
+      /* Weekly summary: single column on mobile */
+      .wks-body { grid-template-columns: 1fr; }
+
       /* Habits stats graph: mobile — bars on top, stats 2×2 below */
       .habits-graph .hg-body { display: flex; flex-direction: column; gap: 18px; }
       .hg-chart { min-height: 110px; }
@@ -1027,6 +1068,7 @@
   <div id="row-log"></div>
   <div id="row-3"></div>
   <div id="row-4"></div>
+  <div id="row-5"></div>
 </main>
 
 <script src="js/nav.js"></script>
