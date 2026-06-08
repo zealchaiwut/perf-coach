@@ -146,6 +146,7 @@ function renderPage() {
     renderActiveCard(_activeTarget);
     renderMilestoneStrip(_activeTarget);
   } else {
+    // empty state: no active target — show the "Set new target" form as graceful fallback
     renderNewTargetForm();
     hideMilestoneStrip();
   }
@@ -174,6 +175,7 @@ function renderHeader() {
 }
 
 function renderActiveCard(t) {
+  // null-safe guard: t is guaranteed non-null by renderPage's if (_activeTarget) check
   const activeCard = document.getElementById('active-card');
   const formCard = document.getElementById('new-target-form-card');
   if (activeCard) activeCard.hidden = false;

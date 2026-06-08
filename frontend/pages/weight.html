@@ -653,7 +653,9 @@
         <button class="range-tab" data-range="all" type="button">ALL</button>
       </div>
       <div class="chart-container">
-        <canvas id="weight-chart" aria-label="Weight trend chart"></canvas>
+        <!-- Loading chart… shown while Chart.js CDN script loads; hidden once chart renders -->
+        <div id="chart-loading" style="text-align:center;padding:48px 0;color:#9ca3af;font-size:0.9375rem;">Loading chart…</div>
+        <canvas id="weight-chart" aria-label="Weight trend chart" hidden></canvas>
       </div>
       <!-- Legend chips for 4 datasets -->
       <div class="chart-legend" id="chart-legend">

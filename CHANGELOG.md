@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 44
+
+- #339: Build weight page frontend with hero strip, chart, progress, milestones, and recent entries
+- #340: Build weight target management page at /weight/targets with active target card, milestone timeline, history, and export
+- #341: Add CSV export endpoints for weight entries and targets
+- #342: Weight tracking feature polish — docs, empty states, loading placeholder, date validation, home page link, and CHANGELOG
+
 ## Sprint 36
 
 - #262: Add load_context to training-log endpoint and load docs
