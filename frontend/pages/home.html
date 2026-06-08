@@ -233,6 +233,40 @@
     .readiness-cta-btn:disabled { opacity: 0.6; cursor: default; }
     .readiness-cta-btn i { font-size: 16px; }
 
+    /* ---- Readiness contributor list ---- */
+    .rd-contributors {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 60%;
+    }
+    .rd-contributor {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+    }
+    .rd-factor-name {
+      font-weight: 600;
+      min-width: 50px;
+    }
+    .rd-arrow { font-size: 14px; font-weight: 700; }
+    .rd-arrow--positive { color: var(--green); }
+    .rd-arrow--negative { color: var(--red); }
+    .rd-arrow--neutral  { color: var(--text-tertiary); }
+    .rd-factor-val {
+      font-size: 13px;
+      color: rgba(11, 21, 48, 0.75);
+    }
+
+    /* ---- PR trend icon ---- */
+    .pr-trend { display: inline-flex; align-items: center; font-weight: 600; font-size: 14px; }
+    .pr-trend--green { color: var(--green); }
+    .pr-trend--red   { color: var(--red); }
+    .pr-trend--flat  { color: var(--text-tertiary); }
+    .pr-dash { color: var(--text-tertiary); }
+
     /* ---- SLEEP HERO CARD ---- */
     .sleep-card {
       background: linear-gradient(160deg, var(--sleep-1) 0%, var(--sleep-2) 100%);
