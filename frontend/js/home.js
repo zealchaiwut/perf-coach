@@ -1443,6 +1443,201 @@
     });
   }
 
+  /* ---- Weight widget sparkline (40px height, blue accent) ---- */
+
+  function _weightSparkline(ma30) {
+    var W = 200, H = 40, PAD = 3;
+    if (!ma30 || !ma30.length) {
+      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
+    }
+    var vals = ma30.map(function (d) { return d.value; }).filter(function (v) { return v != null; });
+    if (!vals.length) {
+      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
+    }
+    var minV = Math.min.apply(null, vals);
+    var maxV = Math.max.apply(null, vals);
+    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
+
+    function normY(v) {
+      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
+    }
+
+    var pts = ma30.filter(function (d) { return d.value != null; }).map(function (d, i) {
+      var x = ma30.length > 1 ? (i / (ma30.length - 1)) * W : W / 2;
+      return { x: x, y: normY(d.value) };
+    });
+
+    if (!pts.length) {
+      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
+    }
+
+    var linePath = pts.map(function (p, idx) {
+      return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+    var last = pts[pts.length - 1];
+    var areaPath = linePath + ' L' + last.x.toFixed(1) + ',' + H + ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
+    var uid = 'wwg' + Math.random().toString(36).slice(2, 7);
+
+    return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none">' +
+      '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.3"/>' +
+        '<stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>' +
+      '<path d="' + linePath + '" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="' + last.x.toFixed(1) + '" cy="' + last.y.toFixed(1) + '" r="3" fill="#2b4ca8"/>' +
+    '</svg>';
+  }
+
+  /* ---- Delta pill color logic (direction-aware) ---- */
+
+  function _weightDeltaPillClass(delta, direction) {
+    if (delta == null || Math.abs(delta) < 0.05) return 'ww-pill--flat';
+    var isLoss = delta < 0;
+    if (direction === 'down') {
+      return isLoss ? 'ww-pill--green' : 'ww-pill--red';
+    }
+    if (direction === 'up') {
+      return isLoss ? 'ww-pill--red' : 'ww-pill--green';
+    }
+    // No target: neutral
+    return isLoss ? 'ww-pill--green' : 'ww-pill--red';
+  }
+
+  function _weightDeltaPillText(delta) {
+    if (delta == null || Math.abs(delta) < 0.05) return '—';
+    var sign = delta > 0 ? '+' : '−';
+    return sign + Math.abs(delta).toFixed(1) + ' kg';
+  }
+
+  function _wwStatusPillClass(statusLabel) {
+    if (statusLabel === 'on_track') return 'ww-status--green';
+    if (statusLabel === 'behind')   return 'ww-status--amber';
+    if (statusLabel === 'ahead')    return 'ww-status--blue';
+    return 'ww-status--amber';
+  }
+
+  function _wwStatusLabel(statusLabel) {
+    if (statusLabel === 'on_track') return 'On track';
+    if (statusLabel === 'behind')   return 'Behind';
+    if (statusLabel === 'ahead')    return 'Ahead';
+    return statusLabel;
+  }
+
+  /* ---- Weight widget renderer (wires to /api/home/weight-summary) ---- */
+
+  function renderWeightWidget(el, summary) {
+    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
+    var header =
+      '<div class="trend-card-header">' +
+        iconHTML +
+        '<span class="trend-card-title">Weight</span>' +
+        '<span class="trend-card-period">30d</span>' +
+      '</div>';
+
+    if (!summary || summary.current_weight == null) {
+      // Empty state
+      el.innerHTML = header +
+        '<div class="ww-empty">' +
+          'No weight logged yet — log your first weigh-in on the ' +
+          '<a href="/weight" style="color:#2b4ca8;text-decoration:none;">Weight page</a>' +
+        '</div>';
+      el.style.cursor = 'default';
+      return;
+    }
+
+    var direction = summary.target ? summary.target.direction : null;
+    var weekPillCls = _weightDeltaPillClass(summary.delta_week, direction);
+    var monthPillCls = _weightDeltaPillClass(summary.delta_month, direction);
+
+    var targetBlock = '';
+    if (summary.target) {
+      var pct = Math.max(0, Math.min(100, summary.target.progress_pct || 0));
+      var statusCls = _wwStatusPillClass(summary.target.status_label);
+      var statusTxt = _wwStatusLabel(summary.target.status_label);
+      targetBlock =
+        '<div class="ww-progress-row">' +
+          '<div class="ww-progress-bar"><div class="ww-progress-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+          '<span class="ww-status-pill ' + statusCls + '">' + statusTxt + '</span>' +
+        '</div>';
+    } else {
+      targetBlock =
+        '<div class="ww-set-target">' +
+          '<a href="/weight/targets" style="color:#2b4ca8;text-decoration:none;font-size:12px;">' +
+            'Set a target →' +
+          '</a>' +
+        '</div>';
+    }
+
+    el.innerHTML = header +
+      '<div class="ww-stat">' +
+        '<span class="ww-current">' + summary.current_weight.toFixed(1) + '</span>' +
+        '<span class="ww-unit">kg</span>' +
+      '</div>' +
+      '<div class="ww-avg">' + (summary.avg_7d != null ? summary.avg_7d.toFixed(1) + ' kg avg' : '—') + '</div>' +
+      '<div class="ww-pills">' +
+        '<span class="ww-pill ' + weekPillCls + '">' + _weightDeltaPillText(summary.delta_week) + ' wk</span>' +
+        '<span class="ww-pill ' + monthPillCls + '">' + _weightDeltaPillText(summary.delta_month) + ' mo</span>' +
+      '</div>' +
+      _weightSparkline(summary.ma30) +
+      targetBlock;
+
+    el.style.cursor = 'pointer';
+  }
+
+  async function loadWeightWidget(el) {
+    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
+    var header =
+      '<div class="trend-card-header">' +
+        iconHTML +
+        '<span class="trend-card-title">Weight</span>' +
+        '<span class="trend-card-period">30d</span>' +
+      '</div>';
+
+    // Skeleton loading state
+    el.innerHTML = header +
+      '<div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">' +
+        '<div class="trend-skeleton-line" style="height:28px;width:55%"></div>' +
+        '<div class="trend-skeleton-line" style="height:12px;width:40%"></div>' +
+        '<div class="trend-skeleton-line" style="height:12px;width:70%"></div>' +
+        '<div class="trend-skeleton-line" style="height:40px"></div>' +
+      '</div>';
+
+    var summary = null;
+    var failed = false;
+    try {
+      var res = await fetch('/api/home/weight-summary');
+      if (res.ok) {
+        summary = await res.json();
+      } else {
+        failed = true;
+      }
+    } catch (_) {
+      failed = true;
+    }
+
+    if (failed) {
+      el.innerHTML = header +
+        '<div class="ww-error">' +
+          'Could not load weight data' +
+          '<button type="button" class="ww-retry-btn" style="margin-left:10px;padding:3px 10px;font-size:11px;font-family:inherit;border:1px solid var(--card-border);border-radius:6px;background:var(--chip-bg);cursor:pointer;">Retry</button>' +
+        '</div>';
+      var retryBtn = el.querySelector('.ww-retry-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function () { loadWeightWidget(el); });
+      }
+      return;
+    }
+
+    renderWeightWidget(el, summary);
+
+    // Click navigates to /weight (but not if clicking the "Set a target" or "Weight page" links)
+    el.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A' || e.target.closest('a')) return;
+      window.location.href = '/weight';
+    });
+  }
+
   function renderWeightTrendCard(el, weightEntries, userId) {
     var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
 
@@ -1517,11 +1712,9 @@
 
     var summary = null;
     var summaryFailed = false;
-    var weightEntries = null;
 
     var results = await Promise.allSettled([
       fetch('/trends/summary?range=30d'),
-      fetch('/api/weight')
     ]);
 
     var tResult = results[0];
@@ -1531,16 +1724,11 @@
       summaryFailed = true;
     }
 
-    var wResult = results[1];
-    if (wResult.status === 'fulfilled' && wResult.value.ok) {
-      try { weightEntries = await wResult.value.json(); } catch (_) {}
-    }
-
     var passedSummary = summaryFailed ? null : summary;
     renderHRVTrendCard(document.getElementById('trend-card-hrv'), passedSummary);
     renderWeeklyTSSTrendCard(document.getElementById('trend-card-tss'), passedSummary);
     renderRHRTrendCard(document.getElementById('trend-card-rhr'), passedSummary);
-    renderWeightTrendCard(document.getElementById('trend-card-weight'), weightEntries, userId);
+    loadWeightWidget(document.getElementById('trend-card-weight'));
   }
 
   /* ---- Log Today card ---- */
