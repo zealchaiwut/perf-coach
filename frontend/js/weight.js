@@ -802,5 +802,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initQuickLog();
   _initRangeTabs();
 
+  const exportBtn = document.getElementById('export-csv-btn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      let url;
+      if (_currentRange === 'all') {
+        url = `/api/exports/weight-entries?user_id=${encodeURIComponent(_userId)}`;
+      } else {
+        const from = rangeFromDate(_currentRange);
+        const to = todayISO();
+        url = `/api/exports/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}`;
+      }
+      window.location.href = url;
+    });
+  }
+
   await _reload();
 });

@@ -3011,6 +3011,137 @@ def export_workouts_csv(
     )
 
 
+@app.get("/api/exports/weight-entries")
+def export_weight_entries_csv(
+    user_id: str = Query(...),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    from sqlalchemy import nullslast
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightEntry).filter(WeightEntry.user_id == uid)
+        if from_d is not None:
+            q = q.filter(WeightEntry.entry_date >= from_d)
+        if to_d is not None:
+            q = q.filter(WeightEntry.entry_date <= to_d)
+        rows = q.order_by(
+            WeightEntry.entry_date.asc(),
+            nullslast(WeightEntry.entry_time.asc()),
+        ).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(["entry_date", "entry_time", "weight_kg", "notes", "source"])
+    for r in rows:
+        writer.writerow([
+            str(r.entry_date),
+            str(r.entry_time) if r.entry_time is not None else "",
+            float(r.weight_kg),
+            r.notes if r.notes is not None else "",
+            r.source if r.source is not None else "",
+        ])
+
+    if from_d is not None and to_d is not None:
+        filename = f"weight-entries-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "weight-entries-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/exports/weight-targets")
+def export_weight_targets_csv(
+    user_id: str = Query(...),
+    status: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightTarget).filter(WeightTarget.user_id == uid)
+        if status is not None:
+            q = q.filter(WeightTarget.status == status)
+        rows = q.order_by(WeightTarget.start_date.asc()).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow([
+        "start_date", "target_date", "ended_at", "status",
+        "start_weight_kg", "target_weight_kg", "end_weight_kg",
+        "achieved_pct", "duration_days", "notes",
+    ])
+    for t in rows:
+        start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+        end_weight = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+        total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+        if end_weight is not None and total_kg != 0:
+            achieved_kg = float(t.start_weight_kg) - end_weight
+            achieved_pct = round(min(achieved_kg / total_kg * 100, 100), 2)
+        else:
+            achieved_pct = None
+        if t.ended_at:
+            ended_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+            duration_days = (ended_date - start_date).days
+            ended_at_str = t.ended_at.isoformat()
+        else:
+            duration_days = None
+            ended_at_str = ""
+        writer.writerow([
+            str(t.start_date),
+            str(t.target_date),
+            ended_at_str,
+            t.status,
+            float(t.start_weight_kg),
+            float(t.target_weight_kg),
+            end_weight if end_weight is not None else "",
+            achieved_pct if achieved_pct is not None else "",
+            duration_days if duration_days is not None else "",
+            t.notes if t.notes is not None else "",
+        ])
+
+    filename = f"weight-targets-{status}.csv" if status else "weight-targets-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Trends summary endpoint ────────────────────────────────────────────────────
 
 def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):

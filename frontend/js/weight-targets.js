@@ -567,6 +567,17 @@ function bindFilterPills() {
       renderHistoryTable();
     });
   });
+
+  const exportTargetsBtn = document.getElementById('export-targets-btn');
+  if (exportTargetsBtn) {
+    exportTargetsBtn.addEventListener('click', () => {
+      let url = `/api/exports/weight-targets?user_id=${encodeURIComponent(_userId)}`;
+      if (_activeFilter !== 'all') {
+        url += `&status=${encodeURIComponent(_activeFilter)}`;
+      }
+      window.location.href = url;
+    });
+  }
 }
 
 // ── Edit Modal ─────────────────────────────────────────────────────────────
