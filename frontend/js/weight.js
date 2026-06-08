@@ -316,6 +316,12 @@ function renderChart(chartData, range) {
     return d.getDate() === 1 ? fmtDateForRange(date, range) : '';
   };
 
+  // hide loading placeholder and reveal canvas on first render
+  const loadingEl = document.getElementById('chart-loading');
+  const canvasEl = document.getElementById('weight-chart');
+  if (loadingEl) loadingEl.hidden = true;
+  if (canvasEl) canvasEl.hidden = false;
+
   if (_chartInstance) {
     _chartInstance.data.labels = labels;
     _chartInstance.data.datasets = datasets;
@@ -531,13 +537,21 @@ function renderRecentEntries(entries) {
     prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
   });
 
+  // empty state: if no entries exist at all, show prompt instead of 14 blank rows
+  if (!entries.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:#9ca3af;font-size:0.9375rem;">
+      No weight entries yet — log your first weigh-in above
+    </td></tr>`;
+    return;
+  }
+
   tbody.innerHTML = days.map(date => {
     const isToday = date === today;
     const rowClass = isToday ? 'entry-row-today' : '';
     const dayEntries = byDate[date];
 
     if (!dayEntries || !dayEntries.length) {
-      // No entry: show placeholder with backfill + button
+      // empty state: no entry for this day — show backfill prompt
       return `
         <tr class="${rowClass}">
           <td data-label="Date">${fmtDisplayDate(date)}</td>
@@ -662,6 +676,11 @@ function _openBackfill(btn, date) {
     if (isNaN(raw) || raw < 20 || raw > 300) {
       errEl.textContent = 'Enter a valid weight (20–300 kg).';
       input.focus();
+      return;
+    }
+    // reject future date: allow today and up to 1 day ahead, reject beyond that
+    if (date > addDays(todayISO(), 1)) {
+      errEl.textContent = 'Cannot log a weight entry for a future date.';
       return;
     }
 
