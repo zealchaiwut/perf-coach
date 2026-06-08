@@ -847,6 +847,365 @@ def delete_weight_entry(entry_id: str):
     return JSONResponse({"deleted": True})
 
 
+# ── Weight target endpoints ───────────────────────────────────────────────────
+
+class WeightTargetCreateIn(BaseModel):
+    user_id: str
+    start_weight_kg: float
+    start_date: str        # YYYY-MM-DD
+    target_weight_kg: float
+    target_date: str       # YYYY-MM-DD
+    notes: Optional[str] = None
+
+
+class WeightTargetPatchIn(BaseModel):
+    start_weight_kg: Optional[float] = None   # forbidden — 422 if present
+    start_date: Optional[str] = None          # forbidden — 422 if present
+    target_weight_kg: Optional[float] = None
+    target_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class WeightTargetEndIn(BaseModel):
+    status: str   # "achieved" | "abandoned"
+
+
+def _weight_target_dict(t: WeightTarget) -> dict:
+    return {
+        "id": str(t.id),
+        "user_id": str(t.user_id),
+        "start_weight_kg": float(t.start_weight_kg),
+        "start_date": str(t.start_date),
+        "target_weight_kg": float(t.target_weight_kg),
+        "target_date": str(t.target_date),
+        "status": t.status,
+        "notes": t.notes,
+        "end_weight_kg": float(t.end_weight_kg) if t.end_weight_kg is not None else None,
+        "ended_at": t.ended_at.isoformat() if t.ended_at else None,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+def _compute_weight_target_active(t: WeightTarget, session) -> dict:
+    """Return _weight_target_dict augmented with computed fields for the active target view."""
+    base = _weight_target_dict(t)
+
+    today = _date.today()
+    target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
+    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+
+    days_remaining = (target_date - today).days
+    total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+
+    # Most recent weight entry for this user
+    recent_entry = (
+        session.query(WeightEntry)
+        .filter(WeightEntry.user_id == t.user_id)
+        .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
+        .first()
+    )
+    current_weight = float(recent_entry.weight_kg) if recent_entry else float(t.start_weight_kg)
+
+    kg_lost = float(t.start_weight_kg) - current_weight
+    kg_to_go = current_weight - float(t.target_weight_kg)
+
+    if total_kg != 0:
+        progress_pct = round(min(max(kg_lost / total_kg * 100, 0), 100), 2)
+    else:
+        progress_pct = 100.0
+
+    weeks_remaining = days_remaining / 7.0
+    required_pace = round(kg_to_go / weeks_remaining, 4) if weeks_remaining > 0 else None
+
+    # Current pace from last 14 days of weight entries (linear regression or avg)
+    cutoff_14 = today - _timedelta(days=14)
+    entries_14 = (
+        session.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == t.user_id,
+            WeightEntry.entry_date >= cutoff_14,
+        )
+        .order_by(WeightEntry.entry_date.asc())
+        .all()
+    )
+
+    current_pace = None
+    projected_end_date = None
+    if len(entries_14) >= 2:
+        first_e = entries_14[0]
+        last_e = entries_14[-1]
+        days_span = (last_e.entry_date - first_e.entry_date).days
+        if days_span > 0:
+            kg_change = float(first_e.weight_kg) - float(last_e.weight_kg)
+            current_pace = round(kg_change / days_span * 7, 4)
+    elif len(entries_14) == 1:
+        days_elapsed = (today - start_date).days
+        if days_elapsed > 0:
+            kg_change = float(t.start_weight_kg) - float(entries_14[0].weight_kg)
+            current_pace = round(kg_change / days_elapsed * 7, 4)
+
+    if current_pace is not None and current_pace > 0 and kg_to_go > 0:
+        weeks_to_go = kg_to_go / current_pace
+        projected_end_date = (today + _timedelta(weeks=weeks_to_go)).isoformat()
+
+    # status_label
+    if current_pace is None or required_pace is None or required_pace <= 0:
+        status_label = "behind"
+    elif current_pace >= required_pace:
+        status_label = "ahead"
+    elif current_pace >= required_pace * 0.9:
+        status_label = "on_track"
+    else:
+        status_label = "behind"
+
+    base.update({
+        "progress_pct": progress_pct,
+        "kg_to_go": round(kg_to_go, 2),
+        "days_remaining": days_remaining,
+        "required_pace_kg_per_week": required_pace,
+        "current_pace_kg_per_week": current_pace,
+        "projected_end_date": projected_end_date,
+        "status_label": status_label,
+    })
+    return base
+
+
+def _weight_target_history_dict(t: WeightTarget) -> dict:
+    """Return _weight_target_dict augmented with history computed fields."""
+    base = _weight_target_dict(t)
+    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+
+    achieved_weight_kg = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+    total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
+    if achieved_weight_kg is not None and total_kg != 0:
+        achieved_kg = float(t.start_weight_kg) - achieved_weight_kg
+        achieved_pct = round(min(achieved_kg / total_kg * 100, 100), 2)
+    else:
+        achieved_pct = None
+
+    if t.ended_at:
+        ended_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+        duration_days = (ended_date - start_date).days
+    else:
+        duration_days = None
+
+    base.update({
+        "achieved_weight_kg": achieved_weight_kg,
+        "achieved_pct": achieved_pct,
+        "duration_days": duration_days,
+    })
+    return base
+
+
+@app.post("/api/weight-targets", status_code=201)
+def create_weight_target(body: WeightTargetCreateIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    if not (20 <= body.start_weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="start_weight_kg must be between 20 and 300")
+    if not (20 <= body.target_weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+
+    try:
+        start_date = _date.fromisoformat(body.start_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid start_date; use YYYY-MM-DD")
+    if start_date > _date.today():
+        raise HTTPException(status_code=422, detail="start_date cannot be in the future")
+
+    try:
+        target_date = _date.fromisoformat(body.target_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid target_date; use YYYY-MM-DD")
+    if target_date <= start_date:
+        raise HTTPException(status_code=422, detail="target_date must be after start_date")
+    max_target = start_date.replace(year=start_date.year + 5)
+    if target_date > max_target:
+        raise HTTPException(status_code=422, detail="target_date cannot be more than 5 years after start_date")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        existing_active = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+        if existing_active is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "active_target_exists",
+                    "active_id": str(existing_active.id),
+                    "message": "End or replace the active target first",
+                },
+            )
+
+        target = WeightTarget(
+            user_id=uid,
+            start_weight_kg=body.start_weight_kg,
+            start_date=start_date,
+            target_weight_kg=body.target_weight_kg,
+            target_date=target_date,
+            notes=body.notes,
+            status="active",
+        )
+        session.add(target)
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            existing = (
+                session.query(WeightTarget)
+                .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+                .first()
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error_code": "active_target_exists",
+                    "active_id": str(existing.id) if existing else None,
+                    "message": "End or replace the active target first",
+                },
+            )
+        session.refresh(target)
+        return JSONResponse(status_code=201, content=_weight_target_dict(target))
+
+
+@app.get("/api/weight-targets/active")
+def get_active_weight_target(user_id: str = Query(...)):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+        if target is None:
+            return JSONResponse({"target": None})
+
+        return JSONResponse({"target": _compute_weight_target_active(target, session)})
+
+
+@app.get("/api/weight-targets/history")
+def get_weight_target_history(
+    user_id: str = Query(...),
+    status: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        q = session.query(WeightTarget).filter(
+            WeightTarget.user_id == uid,
+            WeightTarget.status != "active",
+        )
+        if status is not None:
+            q = q.filter(WeightTarget.status == status)
+        targets = q.order_by(WeightTarget.ended_at.desc()).all()
+
+        return JSONResponse({"targets": [_weight_target_history_dict(t) for t in targets]})
+
+
+@app.patch("/api/weight-targets/{target_id}")
+def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
+    if "start_weight_kg" in body.model_fields_set or "start_date" in body.model_fields_set:
+        raise HTTPException(status_code=422, detail="start_weight_kg and start_date cannot be changed")
+
+    try:
+        tid = _uuid.UUID(target_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+    with Session(engine) as session:
+        target = session.get(WeightTarget, tid)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Target not found")
+        if target.status != "active":
+            raise HTTPException(status_code=422, detail="Only active targets can be edited")
+
+        if "target_weight_kg" in body.model_fields_set and body.target_weight_kg is not None:
+            if not (20 <= body.target_weight_kg <= 300):
+                raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+            target.target_weight_kg = body.target_weight_kg
+
+        if "target_date" in body.model_fields_set and body.target_date is not None:
+            try:
+                target.target_date = _date.fromisoformat(body.target_date)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid target_date; use YYYY-MM-DD")
+
+        if "notes" in body.model_fields_set:
+            target.notes = body.notes
+
+        target.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(target)
+        return JSONResponse(_weight_target_dict(target))
+
+
+@app.post("/api/weight-targets/{target_id}/end")
+def end_weight_target(target_id: str, body: WeightTargetEndIn):
+    if body.status not in ("achieved", "abandoned"):
+        raise HTTPException(status_code=422, detail="status must be 'achieved' or 'abandoned'")
+
+    try:
+        tid = _uuid.UUID(target_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+    with Session(engine) as session:
+        target = session.get(WeightTarget, tid)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Target not found")
+        if target.status != "active":
+            raise HTTPException(status_code=422, detail="Only active targets can be ended")
+
+        cutoff = _date.today() - _timedelta(days=7)
+        recent_weight = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == target.user_id,
+                WeightEntry.entry_date >= cutoff,
+            )
+            .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
+            .first()
+        )
+        if recent_weight is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Log a recent weight before ending the target",
+            )
+
+        target.status = body.status
+        target.end_weight_kg = recent_weight.weight_kg
+        target.ended_at = _datetime.now(_timezone.utc)
+        target.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(target)
+        return JSONResponse(_weight_target_dict(target))
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
