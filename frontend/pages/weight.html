@@ -5,412 +5,725 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weight – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    :root {
-      --color-text-success: #16a34a;
-      --color-text-danger: #dc2626;
-    }
-
-    .summary-cards {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .weight-page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
       gap: 1rem;
       margin-bottom: 1.5rem;
+      flex-wrap: wrap;
     }
 
-    @media (max-width: 699px) {
-      .summary-cards {
-        grid-template-columns: 1fr;
-      }
+    .weight-page-header h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.5rem;
+      font-weight: 700;
     }
 
-    .summary-card {
+    .page-subtitle {
+      margin: 0;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .btn-secondary {
+      padding: 0.4rem 0.9rem;
       background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      min-height: 110px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+    }
+    .btn-secondary:hover { background: #f9fafb; }
+
+    .btn-primary {
+      padding: 0.4rem 0.9rem;
+      background: #1a1a1a;
+      border: 1px solid #1a1a1a;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #fff;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn-primary:hover { background: #333; }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .card h2 {
+      margin: 0 0 1rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .card-subtitle {
+      font-size: 0.75rem;
+      font-weight: 400;
+      color: #9ca3af;
+    }
+
+    /* ── Hero strip ───────────────────────────────────────────────────────── */
+    .hero-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.875rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .hero-cell {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 1rem 1.125rem;
       display: flex;
       flex-direction: column;
-      gap: 0.2rem;
+      gap: 0.3rem;
     }
 
-    .card-label {
+    .hero-label {
       font-size: 0.6875rem;
       font-weight: 600;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
-      color: #888;
-      margin-bottom: 0.2rem;
+      color: #9ca3af;
     }
 
-    .card-value {
+    .hero-value {
       font-size: 1.75rem;
       font-weight: 700;
       line-height: 1.1;
+      color: #111827;
     }
 
-    .card-meta {
-      font-size: 0.875rem;
-      color: #555;
+    .hero-value.mono {
+      font-variant-numeric: tabular-nums;
     }
 
-    .card-sublabel {
-      font-size: 0.75rem;
-      color: #999;
-      margin-top: auto;
-      padding-top: 0.25rem;
+    .hero-value.small {
+      font-size: 1.375rem;
     }
 
-    .card-need-data {
-      font-size: 1rem;
-      color: #aaa;
-      font-weight: 400;
-    }
-
-    .card-dots {
-      display: flex;
-      gap: 0.3rem;
-      align-items: center;
-      margin: 0.2rem 0;
-    }
-
-    .day-dot {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.7rem;
-      flex-shrink: 0;
-    }
-
-    .day-dot.logged {
-      background: #dcfce7;
-      color: var(--color-text-success);
-    }
-
-    .day-dot.missed {
-      background: #f3f4f6;
-      color: #d1d5db;
-    }
-
-    .day-dot.today-pending {
-      border: 2px dashed #9ca3af;
-      background: transparent;
-    }
-
-    .chart-wrapper {
-      position: relative;
-      width: 100%;
-      max-width: 720px;
-      margin-bottom: 2rem;
-    }
-
-    .weight-form {
+    /* Delta pills */
+    .delta-pills {
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
-      max-width: 360px;
-      margin-bottom: 2rem;
+      gap: 0.35rem;
+      margin-top: 0.2rem;
     }
 
-    .form-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .weight-form label {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #444;
-    }
-
-    .weight-form input {
-      padding: 0.5rem 0.75rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 1rem;
-      width: 100%;
-    }
-
-    .weight-form input:focus {
-      outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
-    }
-
-    .error-msg {
-      font-size: 0.8125rem;
-      color: #c0392b;
-      min-height: 1.2em;
-    }
-
-    .weight-form button {
-      align-self: flex-start;
-      padding: 0.5rem 1.25rem;
-      background: #1a1a1a;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 0.9375rem;
-      cursor: pointer;
-    }
-
-    .weight-form button:hover {
-      background: #333;
-    }
-
-    h2 {
-      font-size: 1rem;
-      margin: 0 0 0.75rem;
-      color: #444;
-    }
-
-    #entry-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    #entry-list li {
-      display: flex;
-      justify-content: space-between;
-      padding: 0.6rem 0;
-      border-bottom: 1px solid #e5e5e5;
-      font-size: 0.9375rem;
-    }
-
-    #entry-list li.empty {
-      color: #888;
-      border-bottom: none;
-    }
-
-    .entry-weight {
-      font-weight: 600;
-    }
-
-    .entry-actions {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      flex-shrink: 0;
-    }
-
-    .entry-edit {
-      background: none;
-      border: none;
-      color: #0070f3;
-      cursor: pointer;
-      font-size: 0.8125rem;
-      padding: 0;
-    }
-    .entry-edit:hover { text-decoration: underline; }
-
-    .entry-delete {
-      background: none;
-      border: none;
-      color: #c0392b;
-      cursor: pointer;
-      font-size: 0.8125rem;
-      padding: 0;
-    }
-    .entry-delete:hover { text-decoration: underline; }
-
-    .inline-edit-form {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      width: 100%;
-    }
-
-    .inline-weight-input,
-    .inline-date-input {
-      padding: 0.25rem 0.5rem;
-      border: 1px solid #0070f3;
-      border-radius: 4px;
-      font-size: 0.9rem;
-    }
-
-    .inline-weight-input { width: 6rem; }
-    .inline-date-input { width: 8.5rem; }
-
-    .inline-edit-error {
-      font-size: 0.8rem;
-      color: #c0392b;
-      flex-basis: 100%;
-      min-height: 1em;
-    }
-
-    .inline-save-btn {
-      padding: 0.25rem 0.75rem;
-      background: #1a1a1a;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 0.8125rem;
-      cursor: pointer;
-    }
-    .inline-save-btn:hover { background: #333; }
-
-    .inline-cancel-btn {
-      background: none;
-      border: none;
-      color: #888;
-      cursor: pointer;
-      font-size: 0.8125rem;
-      padding: 0;
-    }
-    .inline-cancel-btn:hover { text-decoration: underline; }
-
-    .user-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      max-width: 360px;
-      margin-bottom: 1.5rem;
-    }
-    .user-row label {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #444;
-    }
-    .user-row select {
-      padding: 0.5rem 0.75rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 1rem;
-    }
-
-    #api-error {
-      color: #c0392b;
-      font-size: 0.875rem;
-      margin-bottom: 1rem;
-      min-height: 1.2em;
-    }
-
-    .range-filter {
+    .delta-pill {
       display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      width: fit-content;
+    }
+
+    .delta-pill.loss {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .delta-pill.gain {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .delta-pill.neutral {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    /* Quick-log */
+    .quicklog-form {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.35rem;
+    }
+
+    .quicklog-input {
+      width: 5.5rem;
+      padding: 0.4rem 0.6rem;
       border: 1px solid #d1d5db;
       border-radius: 6px;
-      overflow: hidden;
-      margin-bottom: 0.75rem;
+      font-size: 0.9375rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .quicklog-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
     }
 
-    .range-btn {
-      padding: 0.375rem 0.875rem;
+    .quicklog-btn {
+      padding: 0.4rem 0.7rem;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .quicklog-btn:hover { background: #333; }
+    .quicklog-btn:disabled { opacity: 0.55; cursor: default; }
+
+    .quicklog-error {
+      font-size: 0.75rem;
+      color: #dc2626;
+      min-height: 1em;
+      margin-top: 0.2rem;
+    }
+
+    /* ── Chart card ───────────────────────────────────────────────────────── */
+    .range-tabs {
+      display: inline-flex;
+      border: 1px solid #e5e7eb;
+      border-radius: 7px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+
+    .range-tab {
+      padding: 0.35rem 0.85rem;
       background: #fff;
       border: none;
-      border-right: 1px solid #d1d5db;
+      border-right: 1px solid #e5e7eb;
       font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
       color: #6b7280;
       line-height: 1.5;
     }
-
-    .range-btn:last-child {
-      border-right: none;
-    }
-
-    .range-btn:hover:not(.active) {
-      background: #f3f4f6;
-    }
-
-    .range-btn.active {
+    .range-tab:last-child { border-right: none; }
+    .range-tab:hover:not(.active) { background: #f9fafb; }
+    .range-tab.active {
       background: #1a1a1a;
       color: #fff;
     }
 
-    .ma-toggle {
-      margin-top: 0.5rem;
-      margin-bottom: 1.5rem;
-      font-size: 0.875rem;
-      color: #444;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+    .chart-container {
+      position: relative;
+      width: 100%;
     }
 
-    .ma-toggle input[type="checkbox"] {
+    /* Legend chips */
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 0.875rem;
+    }
+
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78125rem;
+      color: #6b7280;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-line {
+      width: 22px;
+      height: 2px;
+      flex-shrink: 0;
+    }
+
+    .legend-dashed {
+      width: 22px;
+      height: 0;
+      border-top: 2px dashed;
+      flex-shrink: 0;
+    }
+
+    /* ── Progress card ────────────────────────────────────────────────────── */
+    .progress-bar-wrap {
+      margin-bottom: 1.25rem;
+    }
+
+    .progress-bar-track {
+      position: relative;
+      height: 10px;
+      background: #f3f4f6;
+      border-radius: 999px;
+      overflow: visible;
+    }
+
+    .progress-bar-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      background: #2563eb;
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    .progress-marker {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      background: #1a1a1a;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+      z-index: 2;
+    }
+
+    .progress-labels {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0.75rem;
+    }
+
+    .progress-label {
+      font-size: 0.75rem;
+      color: #6b7280;
+      text-align: center;
+    }
+
+    .progress-label strong {
+      display: block;
+      font-size: 0.875rem;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-stats {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .progress-pct {
+      font-size: 2rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-pct-label {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      margin-left: 0.2rem;
+    }
+
+    .kg-to-go {
+      font-size: 0.875rem;
+      color: #374151;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 0.2rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+
+    .status-pill.on-track { background: #dcfce7; color: #15803d; }
+    .status-pill.behind   { background: #fef3c7; color: #b45309; }
+    .status-pill.ahead    { background: #dbeafe; color: #1d4ed8; }
+
+    /* ── Milestones ───────────────────────────────────────────────────────── */
+    .milestones-list {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+    }
+
+    .milestone-item {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 0.875rem 1rem;
+    }
+
+    .milestone-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      margin-bottom: 0.35rem;
+    }
+
+    .milestone-weight {
+      font-size: 1.125rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #111827;
+    }
+
+    .milestone-date {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-top: 0.2rem;
+    }
+
+    /* ── Recent entries ───────────────────────────────────────────────────── */
+    .entries-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .entries-table th {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      text-align: left;
+      padding: 0 0 0.5rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .entries-table td {
+      padding: 0.6rem 0;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 0.9375rem;
+      vertical-align: middle;
+    }
+
+    .entries-table tr:last-child td { border-bottom: none; }
+
+    .entry-row-today td { background: #eff6ff; }
+
+    .entry-weight {
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .entry-delta { font-size: 0.8125rem; }
+    .entry-delta.loss { color: #15803d; }
+    .entry-delta.gain { color: #dc2626; }
+    .entry-delta.neutral { color: #9ca3af; }
+
+    .entry-no-data {
+      color: #9ca3af;
+      font-size: 0.875rem;
+    }
+
+    /* Actions dropdown */
+    .entry-actions-wrap {
+      position: relative;
+    }
+
+    .entry-menu-btn {
+      background: none;
+      border: none;
+      color: #9ca3af;
       cursor: pointer;
-      width: 1rem;
-      height: 1rem;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-size: 1.125rem;
+      line-height: 1;
+    }
+    .entry-menu-btn:hover { background: #f3f4f6; color: #374151; }
+
+    .entry-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 7px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      z-index: 50;
+      min-width: 120px;
+      overflow: hidden;
+    }
+
+    .entry-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.5rem 0.875rem;
+      background: none;
+      border: none;
+      font-size: 0.875rem;
+      cursor: pointer;
+      color: #374151;
+    }
+    .entry-menu button:hover { background: #f9fafb; }
+    .entry-menu .menu-delete { color: #dc2626; }
+    .entry-menu .menu-delete:hover { background: #fef2f2; }
+
+    /* Backfill + button */
+    .backfill-add-btn {
+      background: none;
+      border: 1px dashed #d1d5db;
+      border-radius: 6px;
+      color: #9ca3af;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0.2rem 0.55rem;
+    }
+    .backfill-add-btn:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+
+    /* Inline backfill form */
+    .backfill-inline {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .backfill-input {
+      width: 5rem;
+      padding: 0.25rem 0.5rem;
+      border: 1px solid #2563eb;
+      border-radius: 5px;
+      font-size: 0.875rem;
+    }
+
+    .backfill-save-btn {
+      padding: 0.25rem 0.65rem;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 0.8125rem;
+      cursor: pointer;
+    }
+
+    .backfill-cancel-btn {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      cursor: pointer;
+      font-size: 0.8125rem;
+    }
+
+    .backfill-error {
+      font-size: 0.75rem;
+      color: #dc2626;
+    }
+
+    /* ── Responsive < 880px ───────────────────────────────────────────────── */
+    @media (max-width: 880px) {
+      /* Hero: 4-col → 2-col */
+      .hero-strip {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* Milestones: rows → horizontal-scroll cards */
+      .milestones-list {
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        gap: 0.6rem;
+        padding-bottom: 0.4rem;
+        scroll-snap-type: x mandatory;
+      }
+      .milestone-item {
+        flex: 0 0 140px;
+        scroll-snap-align: start;
+      }
+
+      /* Recent entries: table → card-rows */
+      .entries-table thead { display: none; }
+      .entries-table,
+      .entries-table tbody { display: block; }
+      .entries-table tr {
+        display: block;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      .entries-table tr.entry-row-today { background: #eff6ff; }
+      .entries-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.2rem 0;
+        border-bottom: none;
+        font-size: 0.875rem;
+      }
+      .entries-table td::before {
+        content: attr(data-label);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #9ca3af;
+        letter-spacing: 0.04em;
+      }
+      .entry-card-row { }
+    }
+
+    /* Error banner */
+    #page-error {
+      color: #dc2626;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+      min-height: 1.2em;
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>perf-coach</h1>
-    <span id="env-label" class="env-label"></span>
-  </header>
   <main>
-    <p id="api-error" role="alert"></p>
+    <p id="page-error" role="alert"></p>
 
-    <div class="summary-cards" id="summary-cards">
-      <div class="summary-card">
-        <div class="card-label">This week avg</div>
-        <div class="card-value" id="card-week-avg-value">--</div>
-        <div class="card-meta" id="card-week-avg-meta"></div>
-        <div class="card-sublabel" id="card-week-avg-sub"></div>
+    <!-- Page header -->
+    <div class="weight-page-header">
+      <div>
+        <h1>Weight</h1>
+        <p class="page-subtitle" id="page-subtitle">Loading…</p>
       </div>
-      <div class="summary-card">
-        <div class="card-label">30-day trend</div>
-        <div class="card-value" id="card-trend-value">--</div>
-        <div class="card-meta" id="card-trend-meta"></div>
-        <div class="card-sublabel" id="card-trend-sub"></div>
-      </div>
-      <div class="summary-card">
-        <div class="card-label">Days logged</div>
-        <div class="card-value" id="card-days-value">--</div>
-        <div class="card-dots" id="card-days-dots"></div>
-        <div class="card-sublabel" id="card-days-sub"></div>
+      <div class="header-actions">
+        <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
+        <a href="/weight/targets" class="btn-primary manage-target-btn">Manage target</a>
       </div>
     </div>
 
-    <div class="range-filter" role="group" aria-label="Chart date range">
-      <button class="range-btn" data-range="7d" type="button">7d</button>
-      <button class="range-btn" data-range="30d" type="button">30d</button>
-      <button class="range-btn" data-range="90d" type="button">90d</button>
-      <button class="range-btn" data-range="all" type="button">All</button>
-    </div>
-
-    <div class="chart-wrapper">
-      <canvas id="weight-chart"></canvas>
-    </div>
-
-    <div class="ma-toggle">
-      <input type="checkbox" id="avg-toggle" checked>
-      <label for="avg-toggle">Show moving average</label>
-    </div>
-
-    <form id="weight-form" class="weight-form" novalidate>
-      <div class="form-row">
-        <label for="weight-input">Weight (kg)</label>
-        <input id="weight-input" type="number" step="0.1" min="0" placeholder="e.g. 72.5">
-        <span id="weight-error" class="error-msg" role="alert"></span>
+    <!-- Hero strip (4 cells) -->
+    <div class="hero-strip" id="hero-strip">
+      <div class="hero-cell" id="cell-current-weight">
+        <div class="hero-label">Current weight</div>
+        <div class="hero-value mono" id="current-weight-value">--</div>
       </div>
-      <div class="form-row">
-        <label for="date-input">Date</label>
-        <input id="date-input" type="date">
+      <div class="hero-cell" id="cell-7day-avg">
+        <div class="hero-label">7-day avg</div>
+        <div class="hero-value mono small" id="avg-7d-value">--</div>
       </div>
-      <button type="submit">Add entry</button>
-    </form>
+      <div class="hero-cell" id="cell-deltas">
+        <div class="hero-label">Change</div>
+        <div class="delta-pills">
+          <span class="delta-pill neutral" id="delta-week">This wk: --</span>
+          <span class="delta-pill neutral" id="delta-month">This mo: --</span>
+        </div>
+      </div>
+      <div class="hero-cell" id="cell-quicklog">
+        <div class="hero-label">Log weight</div>
+        <form class="quicklog-form" id="quicklog-form" novalidate>
+          <input
+            type="number" step="0.1" min="20" max="300"
+            id="quicklog-input" class="quicklog-input"
+            placeholder="kg" aria-label="Weight in kg"
+          >
+          <button type="submit" class="quicklog-btn">Log</button>
+        </form>
+        <div class="quicklog-error" id="quicklog-error" role="alert"></div>
+      </div>
+    </div>
 
-    <h2>Entries</h2>
-    <ul id="entry-list"></ul>
+    <!-- Chart card -->
+    <div class="card chart-card">
+      <div class="range-tabs" role="group" aria-label="Chart date range">
+        <button class="range-tab active" data-range="30d" type="button">30D</button>
+        <button class="range-tab" data-range="90d" type="button">90D</button>
+        <button class="range-tab" data-range="6m" type="button">6M</button>
+        <button class="range-tab" data-range="1y" type="button">1Y</button>
+        <button class="range-tab" data-range="all" type="button">ALL</button>
+      </div>
+      <div class="chart-container">
+        <canvas id="weight-chart" aria-label="Weight trend chart"></canvas>
+      </div>
+      <!-- Legend chips for 4 datasets -->
+      <div class="chart-legend" id="chart-legend">
+        <span class="legend-chip">
+          <span class="legend-dot" style="background:#9ca3af"></span>Daily weigh-in
+        </span>
+        <span class="legend-chip">
+          <span class="legend-line" style="background:#2563eb"></span>7-day moving avg
+        </span>
+        <span class="legend-chip" id="legend-target" hidden>
+          <span class="legend-dashed" style="border-color:#16a34a"></span>Target
+        </span>
+        <span class="legend-chip" id="legend-projected" hidden>
+          <span class="legend-dashed" style="border-color:#60a5fa"></span>Projected
+        </span>
+      </div>
+    </div>
 
-    <p style="margin-top:2rem"><a href="/users">Manage users</a></p>
+    <!-- Progress card (shown only if active target) -->
+    <div class="card" id="progress-card" hidden>
+      <h2>Progress toward goal</h2>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-track" id="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-bar-fill"></div>
+          <div class="progress-marker" id="progress-marker"></div>
+        </div>
+        <div class="progress-labels" id="progress-labels">
+          <div class="progress-label" id="label-start"></div>
+          <div class="progress-label" id="label-current"></div>
+          <div class="progress-label" id="label-target"></div>
+        </div>
+      </div>
+      <div class="progress-stats">
+        <div>
+          <span class="progress-pct" id="progress-pct">--</span>
+          <span class="progress-pct-label">% complete</span>
+        </div>
+        <div class="kg-to-go" id="kg-to-go"></div>
+        <span class="status-pill" id="status-pill"></span>
+      </div>
+    </div>
+
+    <!-- Milestones panel (shown only if active target) -->
+    <div class="card" id="milestones-panel" hidden>
+      <h2>Milestones</h2>
+      <div class="milestones-list" id="milestones-list"></div>
+    </div>
+
+    <!-- Recent entries (last 14 days) -->
+    <div class="card">
+      <h2>Recent entries <span class="card-subtitle">(last 14 days)</span></h2>
+      <div id="recent-entries">
+        <table class="entries-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Weight</th>
+              <th>Delta</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="entries-tbody"></tbody>
+        </table>
+      </div>
+    </div>
   </main>
+
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>
-  <script src="js/mock-data.js"></script>
   <script src="js/weight.js"></script>
-  <script src="js/user.js"></script>
-  <script src="js/env.js"></script>
 </body>
 </html>
