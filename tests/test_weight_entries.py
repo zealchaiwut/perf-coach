@@ -198,11 +198,11 @@ def _we_post(client, user_id, entry_date, weight_kg, **kw):
 
 def test_api_a_post_creates_entry(http_client, api_user_id):
     """AC (a): POST returns 201 with full row including source='manual'."""
-    res = _we_post(http_client, api_user_id, "2099-11-01", 75.0, notes="morning")
+    res = _we_post(http_client, api_user_id, "2020-11-01", 75.0, notes="morning")
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["user_id"] == api_user_id
-    assert body["entry_date"] == "2099-11-01"
+    assert body["entry_date"] == "2020-11-01"
     assert body["weight_kg"] == 75.0
     assert body["source"] == "manual"
     assert "id" in body and "created_at" in body
@@ -213,11 +213,11 @@ def test_api_a_post_creates_entry(http_client, api_user_id):
 
 def test_api_b_duplicate_post_returns_409(http_client, api_user_id):
     """AC (b): Duplicate (user_id+entry_date+entry_time) returns 409 with error_code and existing_id."""
-    r1 = _we_post(http_client, api_user_id, "2099-11-02", 75.0)
+    r1 = _we_post(http_client, api_user_id, "2020-11-02", 75.0)
     assert r1.status_code == 201, r1.text
     existing_id = r1.json()["id"]
 
-    r2 = _we_post(http_client, api_user_id, "2099-11-02", 76.0)
+    r2 = _we_post(http_client, api_user_id, "2020-11-02", 76.0)
     assert r2.status_code == 409, r2.text
     body = r2.json()
     assert body["error_code"] == "duplicate"
@@ -248,15 +248,15 @@ def test_api_d_weight_kg_out_of_range_returns_422(http_client, api_user_id):
 
 def test_api_e_get_filters_by_date_range(http_client, api_user_id):
     """AC (e): GET returns only entries within the specified from/to date range."""
-    r_in = _we_post(http_client, api_user_id, "2099-11-10", 72.0)
-    r_out = _we_post(http_client, api_user_id, "2099-12-01", 73.0)
+    r_in = _we_post(http_client, api_user_id, "2020-11-10", 72.0)
+    r_out = _we_post(http_client, api_user_id, "2020-12-01", 73.0)
     assert r_in.status_code == 201 and r_out.status_code == 201
     id_in, id_out = r_in.json()["id"], r_out.json()["id"]
 
     res = http_client.get(_WE_ENDPOINT, params={
         "user_id": api_user_id,
-        "from": "2099-11-01",
-        "to": "2099-11-30",
+        "from": "2020-11-01",
+        "to": "2020-11-30",
     })
     assert res.status_code == 200, res.text
     entry_ids = [e["id"] for e in res.json()["entries"]]
@@ -271,7 +271,7 @@ def test_api_e_get_filters_by_date_range(http_client, api_user_id):
 
 def test_api_f_get_summary_statistics(http_client, api_user_id):
     """AC (f): GET summary contains accurate aggregates."""
-    data = [("2099-11-15", 70.0), ("2099-11-16", 72.0), ("2099-11-17", 68.0)]
+    data = [("2020-11-15", 70.0), ("2020-11-16", 72.0), ("2020-11-17", 68.0)]
     ids = []
     for d, w in data:
         r = _we_post(http_client, api_user_id, d, w)
@@ -280,14 +280,14 @@ def test_api_f_get_summary_statistics(http_client, api_user_id):
 
     res = http_client.get(_WE_ENDPOINT, params={
         "user_id": api_user_id,
-        "from": "2099-11-15",
-        "to": "2099-11-17",
+        "from": "2020-11-15",
+        "to": "2020-11-17",
     })
     assert res.status_code == 200, res.text
     body = res.json()
     s = body["summary"]
-    assert s["first_date"] == "2099-11-15"
-    assert s["last_date"] == "2099-11-17"
+    assert s["first_date"] == "2020-11-15"
+    assert s["last_date"] == "2020-11-17"
     assert s["min_kg"] == 68.0
     assert s["max_kg"] == 72.0
     assert round(s["avg_kg"], 4) == round((70.0 + 72.0 + 68.0) / 3, 4)
@@ -303,7 +303,7 @@ def test_api_f_get_summary_statistics(http_client, api_user_id):
 
 def test_api_g_patch_updates_weight_kg(http_client, api_user_id):
     """AC (g): PATCH weight_kg returns 200 with updated entry."""
-    r = _we_post(http_client, api_user_id, "2099-11-20", 80.0)
+    r = _we_post(http_client, api_user_id, "2020-11-20", 80.0)
     assert r.status_code == 201, r.text
     eid = r.json()["id"]
 
@@ -318,11 +318,11 @@ def test_api_g_patch_updates_weight_kg(http_client, api_user_id):
 
 def test_api_h_patch_with_entry_date_returns_422(http_client, api_user_id):
     """AC (h): PATCH returns 422 when entry_date is present in the request body."""
-    r = _we_post(http_client, api_user_id, "2099-11-21", 80.0)
+    r = _we_post(http_client, api_user_id, "2020-11-21", 80.0)
     assert r.status_code == 201, r.text
     eid = r.json()["id"]
 
-    res = http_client.patch(f"{_WE_ENDPOINT}/{eid}", json={"entry_date": "2099-11-22"})
+    res = http_client.patch(f"{_WE_ENDPOINT}/{eid}", json={"entry_date": "2020-11-22"})
     assert res.status_code == 422, res.text
 
     http_client.delete(f"{_WE_ENDPOINT}/{eid}")
@@ -332,7 +332,7 @@ def test_api_h_patch_with_entry_date_returns_422(http_client, api_user_id):
 
 def test_api_i_delete_removes_entry(http_client, api_user_id):
     """AC (i): DELETE returns 200 with {"deleted": true} and entry is gone after."""
-    r = _we_post(http_client, api_user_id, "2099-11-25", 75.0)
+    r = _we_post(http_client, api_user_id, "2020-11-25", 75.0)
     assert r.status_code == 201, r.text
     eid = r.json()["id"]
 
