@@ -248,3 +248,122 @@ def test_unknown_user_returns_404():
 def test_invalid_user_id_returns_404():
     res = client.get("/api/home/recent-workouts?user_id=not-a-uuid")
     assert res.status_code == 404
+
+
+# ── Personal Records widget tests (issue #350) ────────────────────────────────
+
+_PR_UID = str(uuid.uuid4())
+_PR_TODAY = datetime.date.today()
+
+
+def _make_pr(track_key="half_marathon", track_name="Half Marathon", track_type="time",
+             value_numeric=6871.0, achieved_on=None):
+    r = MagicMock()
+    r.id = uuid.uuid4()
+    r.track_key = track_key
+    r.track_name = track_name
+    r.track_type = track_type
+    r.value_numeric = value_numeric
+    r.achieved_on = achieved_on or _PR_TODAY
+    return r
+
+
+def _patch_pr_session(records, user_found=True, raise_on_all=None):
+    mock_user = MagicMock()
+    mock_user.id = uuid.UUID(_PR_UID)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = mock_user if user_found else None
+
+    pr_query = MagicMock()
+    pr_query.filter.return_value = pr_query
+    pr_query.order_by.return_value = pr_query
+    if raise_on_all is not None:
+        pr_query.all.side_effect = raise_on_all
+    else:
+        pr_query.all.return_value = records
+    mock_session.query.return_value = pr_query
+
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+
+    return patch("backend.main.Session", return_value=mock_cm)
+
+
+# (a) response shape matches spec
+def test_pr_response_shape():
+    r = _make_pr(value_numeric=6871.0)
+    with _patch_pr_session([r]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
+    assert res.status_code == 200
+    body = res.json()
+    assert "tracks" in body
+    track = body["tracks"][0]
+    for key in ("track_key", "track_name", "track_type", "current_value",
+                "current_value_formatted", "achieved_on",
+                "predicted_value", "predicted_value_formatted", "predicted_method", "trend"):
+        assert key in track, f"missing key: {key}"
+    assert track["predicted_value"] is None
+    assert track["predicted_value_formatted"] is None
+    assert track["predicted_method"] is None
+    assert track["track_key"] == "half_marathon"
+    assert track["track_type"] == "time"
+
+
+# (b) tracks filter returns only requested tracks
+def test_pr_tracks_filter():
+    r_10k = _make_pr(track_key="10k", track_name="10K", track_type="time", value_numeric=2400.0)
+    with _patch_pr_session([r_10k]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=10k")
+    assert res.status_code == 200
+    tracks = res.json()["tracks"]
+    assert len(tracks) == 1
+    assert tracks[0]["track_key"] == "10k"
+
+
+# (c) time formatting: 6871 → "1:54:31"
+def test_pr_time_formatting():
+    r = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0)
+    with _patch_pr_session([r]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
+    assert res.json()["tracks"][0]["current_value_formatted"] == "1:54:31"
+
+
+# (d) trend "improving" for a faster time record
+def test_pr_trend_improving_time():
+    r_latest = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6000.0,
+                        achieved_on=_PR_TODAY)
+    r_prev = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0,
+                      achieved_on=_PR_TODAY - datetime.timedelta(days=30))
+    with _patch_pr_session([r_latest, r_prev]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
+    assert res.json()["tracks"][0]["trend"] == "improving"
+
+
+# (e) trend "stable" when values are within 1% threshold
+def test_pr_trend_stable():
+    r_latest = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0)
+    r_prev = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6870.0)
+    with _patch_pr_session([r_latest, r_prev]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
+    assert res.json()["tracks"][0]["trend"] == "stable"
+
+
+# (f) graceful empty response when personal_records table is absent
+def test_pr_table_absent():
+    with _patch_pr_session([], raise_on_all=Exception("relation 'personal_records' does not exist")):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}")
+    assert res.status_code == 200
+    assert res.json() == {"tracks": []}
+
+
+# (g) graceful empty response when user has no records
+def test_pr_no_records_for_user():
+    with _patch_pr_session([]):
+        res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
+    assert res.status_code == 200
+    track = res.json()["tracks"][0]
+    assert track["current_value"] is None
+    assert track["current_value_formatted"] is None
+    assert track["trend"] == "no_data"
