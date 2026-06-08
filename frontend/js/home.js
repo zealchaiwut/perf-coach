@@ -108,185 +108,137 @@
     return              { icon: 'ti-x',               label: 'Red · rest',      cls: 'pill-red'   };
   }
 
-  /* ---- Readiness card state renderers ---- */
+  /* ---- Readiness card ---- */
 
-  function renderScored(card, todayData, rangeData, metrics) {
-    var score = Math.round(todayData.score);
+  var _RD_FACTOR_META = {
+    sleep_hours: {
+      name: ‘Sleep’,
+      fmt: function (v) { return v != null ? Number(v).toFixed(1) + ‘h’ : ‘—‘; },
+      baseline_key: ‘sleep_7d_avg_hours’,
+    },
+    hrv: {
+      name: ‘HRV’,
+      fmt: function (v) { return v != null ? Math.round(v) + ‘ ms’ : ‘—‘; },
+      baseline_key: ‘hrv_7d_avg’,
+    },
+    rhr: {
+      name: ‘RHR’,
+      fmt: function (v) { return v != null ? Math.round(v) + ‘ bpm’ : ‘—‘; },
+      baseline_key: ‘rhr_7d_avg’,
+    },
+    mood: {
+      name: ‘Mood’,
+      fmt: function (v) { return v != null ? v + ‘/5’ : ‘—‘; },
+      baseline_key: null,
+    },
+    energy: {
+      name: ‘Energy’,
+      fmt: function (v) { return v != null ? v + ‘/5’ : ‘—‘; },
+      baseline_key: null,
+    },
+  };
 
-    var scores = rangeData.filter(function (r) { return r != null; }).map(function (r) { return r.score; });
-    var avgScore = avgOf(scores);
-    var avgRounded = avgScore != null ? Math.round(avgScore) : null;
+  var _RD_LABEL_COLOR = {
+    ‘Excellent’: ‘var(--green)’,
+    ‘Good’:      ‘var(--blue-text)’,
+    ‘OK’:        ‘var(--text-secondary)’,
+    ‘Caution’:   ‘var(--amber)’,
+    ‘Recovery’:  ‘var(--red)’,
+  };
 
-    var trending = 'flat';
-    if (avgScore != null) {
-      if (score > avgScore + 2) trending = 'up';
-      else if (score < avgScore - 2) trending = 'down';
-    }
-    var trendLabel = { up: 'trending up', down: 'trending down', flat: 'flat' }[trending];
-
-    /* most-recent metric entry = today's chip values */
-    var sorted = metrics.slice().sort(function (a, b) {
-      return b.metric_date < a.metric_date ? -1 : 1;
-    });
-    var tm = sorted[0] || {};
-
-    var avgs = {
-      hrv:    avgOf(metrics.map(function (m) { return m.hrv; })),
-      rhr:    avgOf(metrics.map(function (m) { return m.resting_hr; })),
-      sleep:  avgOf(metrics.map(function (m) { return m.sleep_hours; })),
-      energy: avgOf(metrics.map(function (m) { return m.energy; }))
-    };
-
-    var dHrv = (tm.hrv != null && avgs.hrv != null) ? tm.hrv - avgs.hrv : null;
-    var dRhr = (tm.resting_hr != null && avgs.rhr != null) ? tm.resting_hr - avgs.rhr : null;
-    var dSlp = (tm.sleep_hours != null && avgs.sleep != null) ? tm.sleep_hours - avgs.sleep : null;
-    var dEng = (tm.energy != null && avgs.energy != null) ? tm.energy - avgs.energy : null;
-
-    var pill     = pillInfo(score);
-    var headline = readinessHeadline(score);
-    var sub      = readinessSub(score, tm, avgs);
-
-    var avgLine = avgRounded != null
-      ? '<div class="score-avg">7d avg ' + avgRounded + ' · ' + trendLabel + '</div>'
-      : '';
-
-    function chip(label, val, delta, higherIsBetter, useDecimal) {
-      var valStr = val != null ? (useDecimal ? Number(val).toFixed(1) + 'h' : String(Math.round(val))) : '—';
-      var dc  = deltaClass(delta, higherIsBetter);
-      var df  = fmtDelta(delta, useDecimal);
-      var dEl = delta != null ? ' <span class="delta ' + dc + '">' + df + '</span>' : '';
-      return '<div class="component"><div class="l">' + label + '</div><div class="v">' + valStr + dEl + '</div></div>';
-    }
-
-    var engVal = tm.energy != null
-      ? String(tm.energy) + '<span style="font-size:11px;opacity:0.5;">/5</span>'
-      : '—';
-    var engDelta = dEng != null
-      ? ' <span class="delta ' + deltaClass(dEng, true) + '">' + fmtDelta(dEng, false) + '</span>'
-      : '';
-
-    card.innerHTML =
-      '<div class="lbl">Readiness · today</div>' +
-      '<h2>' + headline + '</h2>' +
-      '<p class="sub">' + sub + '</p>' +
-      '<span class="status-pill ' + pill.cls + '"><i class="ti ' + pill.icon + '"></i>' + pill.label + '</span>' +
-      '<div class="score-block">' +
-        '<div class="score-label">SCORE</div>' +
-        '<div class="score">' + score + '<small>/100</small></div>' +
-        avgLine +
-      '</div>' +
-      '<div class="components">' +
-        chip('HRV',   tm.hrv,         dHrv, true,  false) +
-        chip('RHR',   tm.resting_hr,  dRhr, false, false) +
-        chip('Sleep', tm.sleep_hours, dSlp, true,  true)  +
-        '<div class="component"><div class="l">Energy</div><div class="v">' + engVal + engDelta + '</div></div>' +
-      '</div>';
+  function _rdImpactNumeric(impact) {
+    return (impact === ‘positive’ || impact === ‘negative’) ? 1 : 0;
   }
 
-  function renderCTA(card, userId, onSuccess) {
-    card.innerHTML =
-      '<div class="lbl">Readiness · today</div>' +
-      '<div class="readiness-cta-body">' +
-        '<p class="readiness-cta-msg">No readiness score has been computed for today yet.</p>' +
-        '<button class="readiness-cta-btn" id="readiness-compute-btn" type="button">' +
-          '<i class="ti ti-calculator"></i>Compute today’s readiness' +
-        '</button>' +
-      '</div>';
+  function _rdContributorRow(c, baseline) {
+    var meta = _RD_FACTOR_META[c.factor] ||
+      { name: c.factor, fmt: function (v) { return String(v != null ? v : ‘—‘); }, baseline_key: null };
+    var valStr = meta.fmt(c.value);
+    var arrow = c.impact === ‘positive’ ? ‘↑’ : (c.impact === ‘negative’ ? ‘↓’ : ‘→’);
+    var arrowCls = c.impact === ‘positive’ ? ‘rd-arrow--positive’ :
+      (c.impact === ‘negative’ ? ‘rd-arrow--negative’ : ‘rd-arrow--neutral’);
 
-    var btn = document.getElementById('readiness-compute-btn');
-    btn.addEventListener('click', async function () {
-      btn.disabled = true;
-      btn.innerHTML = '<i class="ti ti-loader-2"></i>Computing…';
-      try {
-        var res = await fetch('/api/readiness/compute', { method: 'POST' });
-        if (res.ok) {
-          await onSuccess();
-        } else if (res.status === 404) {
-          renderEmpty(card);
-        } else {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="ti ti-calculator"></i>Compute today’s readiness';
-        }
-      } catch (_) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="ti ti-calculator"></i>Compute today’s readiness';
-      }
-    });
-  }
+    var avgCmp = ‘’;
+    if (meta.baseline_key && baseline && baseline[meta.baseline_key] != null && c.value != null) {
+      avgCmp = parseFloat(c.value) > parseFloat(baseline[meta.baseline_key])
+        ? ‘ (above avg)’ : ‘ (below avg)’;
+    }
 
-  function renderEmpty(card) {
-    card.innerHTML =
-      '<div class="lbl">Readiness · today</div>' +
-      '<div class="readiness-empty-body">' +
-        '<p class="readiness-empty-msg">No metrics yet — log your first day to see readiness</p>' +
-      '</div>';
+    return ‘<div class="rd-contributor">’ +
+      ‘<span class="rd-factor-name">’ + meta.name + ‘</span>’ +
+      ‘<span class="rd-arrow ‘ + arrowCls + ‘">’ + arrow + ‘</span>’ +
+      ‘<span class="rd-factor-val">’ + valStr + avgCmp + ‘</span>’ +
+    ‘</div>’;
   }
 
   async function loadReadinessCard(userId) {
-    var row1 = document.getElementById('row-1');
+    var row1 = document.getElementById(‘row-1’);
     if (!row1) return;
 
-    var card = document.getElementById('readiness-hero-card');
+    var card = document.getElementById(‘readiness-hero-card’);
     if (!card) {
-      card = document.createElement('div');
-      card.id = 'readiness-hero-card';
-      card.className = 'card readiness';
+      card = document.createElement(‘div’);
+      card.id = ‘readiness-hero-card’;
+      card.className = ‘card readiness’;
       row1.insertBefore(card, row1.firstChild);
     }
 
-    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
+    card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ + UIStates.loadingHTML();
 
-    var today = new Date();
-    var from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    var todayStr = isoDate(today);
-    var fromStr  = isoDate(from);
-
-    var todayRes;
+    var data = null;
+    var failed = false;
     try {
-      todayRes = await fetch('/api/readiness/today');
+      var res = await fetch(‘/api/home/readiness?user_id=’ + encodeURIComponent(userId));
+      if (res.ok) {
+        data = await res.json();
+      } else {
+        failed = true;
+      }
     } catch (_) {
-      renderEmpty(card);
+      failed = true;
+    }
+
+    if (failed) {
+      card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ +
+        UIStates.errorHTML(‘Could not load readiness data’);
       return;
     }
 
-    if (todayRes.status === 404) {
-      renderCTA(card, userId, function () { return loadReadinessCard(userId); });
+    /* Null score → no metrics logged today */
+    if (data.score === null) {
+      card.innerHTML =
+        ‘<div class="lbl">Readiness · today</div>’ +
+        UIStates.emptyHTML(
+          ‘No metrics logged for today.’,
+          ‘<a href="/home#log-today">Log today\’s metrics →</a>’
+        );
       return;
     }
 
-    if (!todayRes.ok) {
-      renderEmpty(card);
-      return;
-    }
+    /* Sort contributors by |weight × impact| descending, take top 3 */
+    var sortedContributors = (data.contributors || []).slice().sort(function (a, b) {
+      var ka = a.weight * _rdImpactNumeric(a.impact);
+      var kb = b.weight * _rdImpactNumeric(b.impact);
+      return kb - ka;
+    });
+    var top3 = sortedContributors.slice(0, 3);
+    var baseline = data.rolling_baseline || {};
 
-    var todayData;
-    try {
-      todayData = await todayRes.json();
-    } catch (_) {
-      renderEmpty(card);
-      return;
-    }
+    var labelColor = _RD_LABEL_COLOR[data.score_label] || ‘var(--text-secondary)’;
+    var contributorsHTML = top3.map(function (c) {
+      return _rdContributorRow(c, baseline);
+    }).join(‘’);
 
-    var rangeData = [];
-    var metricsData = [];
-    try {
-      var pair = await Promise.all([
-        fetch('/api/readiness?from=' + fromStr + '&to=' + todayStr),
-        fetch('/api/daily-metrics?from=' + fromStr + '&to=' + todayStr)
-      ]);
-      if (pair[0].ok) rangeData   = await pair[0].json();
-      if (pair[1].ok) metricsData = await pair[1].json();
-    } catch (_) {
-      /* continue with whatever we have */
-    }
-
-    if (!metricsData.length) {
-      renderEmpty(card);
-      return;
-    }
-
-    renderScored(card, todayData, rangeData, metricsData);
+    card.innerHTML =
+      ‘<div class="lbl">Readiness · today</div>’ +
+      ‘<div class="score-block">’ +
+        ‘<div class="score-label">Score</div>’ +
+        ‘<div class="score">’ + data.score + ‘<small>/100</small></div>’ +
+        ‘<div class="rd-score-label" style="color:’ + labelColor + ‘;font-size:13px;font-weight:600;margin-top:6px;">’ +
+          data.score_label +
+        ‘</div>’ +
+      ‘</div>’ +
+      ‘<div class="rd-contributors">’ + contributorsHTML + ‘</div>’;
   }
 
   /* ---- Sleep card helpers ---- */
@@ -575,6 +527,58 @@
     '</div>';
   }
 
+  /* ── PR track icon map ── */
+  var _PR_TRACK_ICON = {
+    'half_marathon': { cls: 'run',   icon: 'ti-run',     sub: '21.1 km' },
+    '10k':           { cls: 'run',   icon: 'ti-run',     sub: '10.0 km' },
+    'squat_1rm':     { cls: 'lift',  icon: 'ti-barbell', sub: '1-rep max' },
+  };
+
+  function _prTrendIcon(trend) {
+    if (trend === 'improving') {
+      return '<span class="pr-trend pr-trend--green"><i class="ti ti-arrow-up"></i></span>';
+    }
+    if (trend === 'declining') {
+      return '<span class="pr-trend pr-trend--red"><i class="ti ti-arrow-down"></i></span>';
+    }
+    /* stable or no_data */
+    return '<span class="pr-trend pr-trend--flat" data-trend="' + (trend === 'stable' ? 'stable' : trend) + '">—</span>';
+  }
+
+  function _prFmtAchievedOn(isoStr) {
+    if (!isoStr) return '';
+    var parts = isoStr.split('-');
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
+  }
+
+  function _buildPrRow(track, isLast) {
+    var ic = _PR_TRACK_ICON[track.track_key] || { cls: 'run', icon: 'ti-run', sub: '' };
+    var predictedHTML = track.predicted_value_formatted
+      ? track.predicted_value_formatted
+      : '<span class="pr-dash">—</span>';
+
+    return '<div class="perf-row' + (isLast ? ' perf-row-last' : '') + '" data-pr-row>' +
+      '<div class="perf-track">' +
+        '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
+        '<div>' +
+          '<div class="trk-name">' + track.track_name + '</div>' +
+          '<div class="trk-sub">' + ic.sub + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div>' +
+        '<span class="pc-value">' + (track.current_value_formatted || '—') + '</span>' +
+        (track.achieved_on
+          ? '<div class="pc-trophy"><i class="ti ti-trophy-filled"></i>' +
+            _prFmtAchievedOn(track.achieved_on) + '</div>'
+          : '') +
+      '</div>' +
+      '<div>' + predictedHTML + '</div>' +
+      '<div>' + _prTrendIcon(track.trend) + '</div>' +
+    '</div>';
+  }
+
   async function loadPerformanceCard(userId) {
     var row2 = document.getElementById('row-2');
     if (!row2) return;
@@ -590,81 +594,66 @@
     var perfHeader =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
-        '<a href="#">All tracks</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
-    var prs = [];
+    var tracks = [];
+    var failed = false;
     try {
-      var r = await fetch('/api/personal-records');
-      if (r.ok) prs = await r.json();
-    } catch (_) { prs = []; }
+      var r = await fetch(
+        '/api/home/personal-records?user_id=' + encodeURIComponent(userId) +
+        '&tracks=half_marathon,10k,squat_1rm'
+      );
+      if (r.ok) {
+        var data = await r.json();
+        tracks = data.tracks || [];
+      } else {
+        failed = true;
+      }
+    } catch (_) {
+      failed = true;
+    }
 
-    var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
-
-    if (configuredPrs.length === 0) {
-      var emptyLoading = card.querySelector('.ui-loading');
-      if (emptyLoading) emptyLoading.remove();
-      var emptyEl = document.createElement('div');
-      emptyEl.className = 'perf-empty';
-      emptyEl.innerHTML =
-        'No tracked performances yet — add one from the <a href="#">Performance page</a>';
-      card.appendChild(emptyEl);
+    if (failed) {
+      card.innerHTML = perfHeader + UIStates.errorHTML('Could not load performance data');
       return;
     }
 
-    /* Fetch 6 months of workouts once */
-    var today = new Date();
-    var from6m = new Date(today);
-    from6m.setMonth(from6m.getMonth() - 6);
-    var allWorkouts = [];
-    try {
-      var wr = await fetch(
-        '/api/workouts?from=' + isoDate(from6m) + '&to=' + isoDate(today)
-      );
-      if (wr.ok) allWorkouts = await wr.json();
-    } catch (_) { allWorkouts = []; }
-
-    allWorkouts.sort(function (a, b) {
-      return a.workout_date < b.workout_date ? 1 : -1;
+    var allNoData = tracks.length > 0 && tracks.every(function (t) {
+      return t.trend === 'no_data';
     });
 
-    /* Resolve most-recent values (may involve detail fetches for weight tracks) */
-    var recentValues = [];
-    for (var i = 0; i < configuredPrs.length; i++) {
-      var cfg = TRACK_CONFIGS[configuredPrs[i].track_key];
-      var rv = await resolveRecentValue(cfg, allWorkouts);
-      recentValues.push(rv);
+    if (allNoData || tracks.length === 0) {
+      card.innerHTML = perfHeader +
+        UIStates.emptyHTML(
+          'No personal records yet',
+          '<a href="/settings">Set your PRs →</a>'
+        );
+      return;
     }
 
-    /* Build HTML */
-    var desktopRows = '';
-    var mobileBlocks = '';
-    for (var j = 0; j < configuredPrs.length; j++) {
-      var pr  = configuredPrs[j];
-      var cfgJ = TRACK_CONFIGS[pr.track_key];
-      var rv2  = recentValues[j];
-      var last = j === configuredPrs.length - 1;
-      desktopRows  += buildDesktopRow(pr, cfgJ, rv2, last);
-      mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
+    var rows = '';
+    for (var i = 0; i < tracks.length; i++) {
+      rows += _buildPrRow(tracks[i], i === tracks.length - 1);
     }
 
-    var loadingEl = card.querySelector('.ui-loading');
-    if (loadingEl) loadingEl.remove();
-
-    var contentEl = document.createElement('div');
-    contentEl.innerHTML =
+    card.innerHTML = perfHeader +
       '<div class="perf-grid">' +
         '<div class="perf-hdr">' +
-          '<div>Track</div><div>Personal best</div>' +
-          '<div>Most recent</div><div>Predicted next</div>' +
+          '<div>Track</div>' +
+          '<div>Personal best</div>' +
+          '<div>Predicted</div>' +
+          '<div>Trend</div>' +
         '</div>' +
-        desktopRows +
-      '</div>' +
-      '<div class="perf-mobile">' + mobileBlocks + '</div>';
+        rows +
+      '</div>';
 
-    card.appendChild(contentEl.firstChild);
-    card.appendChild(contentEl.firstChild);
+    card.querySelectorAll('[data-pr-row]').forEach(function (row) {
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', function () {
+        window.location.href = '/settings#personal-records';
+      });
+    });
   }
 
   /* ---- Recent Workouts card helpers ---- */
