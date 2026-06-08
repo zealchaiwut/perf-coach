@@ -1497,6 +1497,106 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         })
 
 
+# ── Home recent-workouts endpoint ─────────────────────────────────────────────
+
+@app.get("/api/home/recent-workouts")
+def get_home_recent_workouts(
+    user_id: str = Query(...),
+    limit: int = Query(default=5, ge=1, le=10),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        rows = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .limit(limit + 1)
+            .all()
+        )
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    today = _date.today()
+
+    def _rel(d):
+        delta = (today - d).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        if delta < 7:
+            return f"{delta} days ago"
+        return d.isoformat()
+
+    def _to_dict(w):
+        d = {}
+        try:
+            d["id"] = str(w.id)
+        except Exception:
+            pass
+        try:
+            d["workout_date"] = w.workout_date.isoformat()
+        except Exception:
+            pass
+        try:
+            d["workout_type"] = w.workout_type
+        except Exception:
+            pass
+        try:
+            d["name"] = w.name
+        except Exception:
+            pass
+        try:
+            if w.distance_km is not None:
+                d["distance_km"] = float(w.distance_km)
+        except Exception:
+            pass
+        try:
+            if w.duration_seconds is not None:
+                d["duration_seconds"] = int(w.duration_seconds)
+        except Exception:
+            pass
+        try:
+            if w.avg_hr is not None:
+                d["avg_hr"] = int(w.avg_hr)
+        except Exception:
+            pass
+        try:
+            if w.tss is not None:
+                d["tss"] = float(w.tss)
+        except Exception:
+            pass
+        try:
+            if w.source is not None:
+                d["source"] = w.source
+        except Exception:
+            pass
+        try:
+            d["is_stryd_synced"] = w.stryd_activity_pk is not None
+        except Exception:
+            pass
+        try:
+            d["relative_date"] = _rel(w.workout_date)
+        except Exception:
+            pass
+        return d
+
+    return JSONResponse({
+        "workouts": [_to_dict(w) for w in rows],
+        "count": len(rows),
+        "has_more": has_more,
+    })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
