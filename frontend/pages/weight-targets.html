@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weight targets – perf-coach</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .wt-page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .wt-breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-bottom: 0.25rem;
+    }
+
+    .wt-breadcrumb a {
+      color: #6b7280;
+      text-decoration: none;
+    }
+    .wt-breadcrumb a:hover { color: #1a1a1a; text-decoration: underline; }
+
+    .wt-page-title {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .header-actions { display: flex; gap: 0.75rem; align-items: center; flex-shrink: 0; }
+
+    .btn-primary {
+      padding: 0.4rem 0.9rem;
+      background: #1a1a1a;
+      border: 1px solid #1a1a1a;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #fff;
+      cursor: pointer;
+    }
+    .btn-primary:hover:not(:disabled) { background: #333; }
+    .btn-primary:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .btn-secondary {
+      padding: 0.4rem 0.9rem;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+    }
+    .btn-secondary:hover { background: #f9fafb; }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .card h2 {
+      margin: 0 0 1rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    /* ── Active Target Card ──────────────────────────────────────────────── */
+    .active-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .active-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      background: #dcfce7;
+      color: #15803d;
+      border-radius: 999px;
+      padding: 0.2rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .active-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+
+    .active-card-header-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+    .icon-btn:hover { background: #f3f4f6; color: #111827; }
+
+    .active-card-body {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .weight-range-display {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.25rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .weight-dates-row {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      margin-bottom: 0.125rem;
+    }
+
+    .weight-months-sub {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+    }
+
+    /* 3-up pace stats */
+    .pace-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .pace-stat {
+      background: #f9fafb;
+      border: 1px solid #f3f4f6;
+      border-radius: 8px;
+      padding: 0.625rem 0.75rem;
+    }
+
+    .pace-stat-label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin-bottom: 0.25rem;
+    }
+
+    .pace-stat-value {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pace-arrow {
+      font-size: 0.875rem;
+      margin-left: 0.25rem;
+    }
+    .pace-arrow.green { color: #16a34a; }
+    .pace-arrow.amber { color: #d97706; }
+
+    /* Right side mini-cards */
+    .active-card-right {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-width: 160px;
+    }
+
+    .mini-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 0.875rem;
+      text-align: center;
+    }
+
+    .mini-card-label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin-bottom: 0.375rem;
+    }
+
+    .progress-pct-large {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #111827;
+      line-height: 1;
+      margin-bottom: 0.25rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kg-lost-label {
+      font-size: 0.8125rem;
+      color: #6b7280;
+      margin-bottom: 0.5rem;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 0.125rem 0.625rem;
+      border-radius: 999px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .status-pill.on-track { background: #dcfce7; color: #15803d; }
+    .status-pill.ahead    { background: #dbeafe; color: #1d4ed8; }
+    .status-pill.behind   { background: #fef9c3; color: #92400e; }
+    .status-pill.at-risk  { background: #fee2e2; color: #b91c1c; }
+    .status-pill.complete { background: #dcfce7; color: #15803d; }
+
+    .projected-date-value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.25rem;
+    }
+
+    .projected-pace-label {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-bottom: 0.25rem;
+    }
+
+    .days-delta {
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .days-delta.ahead  { color: #16a34a; }
+    .days-delta.behind { color: #d97706; }
+
+    /* ── Inline "Set new target" form ────────────────────────────────────── */
+    .new-target-form-card .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+    }
+
+    .form-field.full-width { grid-column: 1 / -1; }
+
+    .form-field label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .form-field input,
+    .form-field textarea {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      color: #111827;
+      background: #fff;
+      font-family: inherit;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .form-field input:focus,
+    .form-field textarea:focus {
+      outline: 2px solid #3b82f6;
+      outline-offset: 1px;
+      border-color: #3b82f6;
+    }
+
+    .form-field textarea { resize: vertical; min-height: 64px; }
+
+    .form-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 1rem;
+    }
+
+    .form-error {
+      font-size: 0.8125rem;
+      color: #dc2626;
+      margin-top: 0.25rem;
+    }
+
+    /* ── Milestone Timeline Strip (Section C) ────────────────────────────── */
+    .milestone-strip {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .milestone-rail {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      min-width: 520px;
+      position: relative;
+      padding: 1.5rem 0 1rem;
+    }
+
+    .milestone-track {
+      position: absolute;
+      top: calc(1.5rem + 12px);
+      left: 16px;
+      right: 16px;
+      height: 6px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .milestone-track-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #16a34a, #22c55e);
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    .milestone-point {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .milestone-marker {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #e5e7eb;
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 2px #e5e7eb;
+      margin-bottom: 0.5rem;
+      flex-shrink: 0;
+    }
+    .milestone-marker.done { background: #16a34a; box-shadow: 0 0 0 2px #16a34a; }
+    .milestone-marker.current { background: #3b82f6; box-shadow: 0 0 0 2px #3b82f6; }
+    .milestone-marker.goal { background: #f59e0b; box-shadow: 0 0 0 2px #f59e0b; }
+
+    .milestone-label {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6b7280;
+      margin-bottom: 0.125rem;
+    }
+
+    .milestone-date {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 0.125rem;
+      white-space: nowrap;
+    }
+
+    .milestone-weight {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Stats Summary Card (Section D) ──────────────────────────────────── */
+    .stats-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    .stat-box {
+      text-align: center;
+    }
+
+    .stat-box-label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin-bottom: 0.375rem;
+    }
+
+    .stat-box-value {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .success-rate {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #16a34a;
+      margin-top: 0.25rem;
+    }
+
+    /* ── Filter Pills ─────────────────────────────────────────────────────── */
+    .filter-pills {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .filter-pill {
+      padding: 0.3rem 0.875rem;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #6b7280;
+      cursor: pointer;
+    }
+    .filter-pill:hover { background: #f9fafb; }
+    .filter-pill.active {
+      background: #1a1a1a;
+      border-color: #1a1a1a;
+      color: #fff;
+    }
+
+    /* ── History Table ────────────────────────────────────────────────────── */
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    .history-table th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .history-table td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #f3f4f6;
+      color: #374151;
+      vertical-align: middle;
+    }
+
+    .history-table tbody tr:last-child td { border-bottom: none; }
+    .history-table tbody tr:hover { background: #fafafa; }
+
+    .history-empty {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: #9ca3af;
+      font-size: 0.875rem;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-block;
+      padding: 0.125rem 0.625rem;
+      border-radius: 999px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-done      { background: #dcfce7; color: #15803d; }
+    .badge-replaced  { background: #dbeafe; color: #1d4ed8; }
+    .badge-abandoned { background: #fef3c7; color: #92400e; }
+
+    .delta-positive { color: #16a34a; font-weight: 600; }
+    .delta-amber    { color: #d97706; font-weight: 600; }
+    .delta-neutral  { color: #9ca3af; }
+
+    /* Actions menu */
+    .actions-menu {
+      position: relative;
+      display: inline-block;
+    }
+
+    .actions-btn {
+      padding: 0.25rem 0.5rem;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+    .actions-btn:hover { background: #f9fafb; }
+
+    /* ── Modals ───────────────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+    }
+    .modal-overlay[hidden] { display: none; }
+
+    .modal {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+    }
+
+    .modal h2 {
+      margin: 0 0 1.25rem;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .modal-form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+      margin-bottom: 1rem;
+    }
+
+    .modal-form-field label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .modal-form-field input,
+    .modal-form-field textarea {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      color: #111827;
+      font-family: inherit;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    .modal-form-field textarea { resize: vertical; min-height: 60px; }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+    }
+
+    .modal-error {
+      font-size: 0.8125rem;
+      color: #dc2626;
+      margin-top: 0.5rem;
+    }
+
+    /* End modal */
+    .end-weight-display {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+      color: #374151;
+      text-align: center;
+    }
+
+    .end-weight-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .end-no-weight-msg {
+      background: #fef9c3;
+      border: 1px solid #fde047;
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-size: 0.875rem;
+      color: #92400e;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .end-action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+    }
+
+    .btn-end-achieved {
+      padding: 0.625rem 1rem;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-end-achieved:hover:not(:disabled) { background: #15803d; }
+    .btn-end-achieved:disabled { opacity: 0.4; cursor: default; }
+
+    .btn-end-abandoned {
+      padding: 0.625rem 1rem;
+      background: #fff;
+      color: #374151;
+      border: 1px solid #d1d5db;
+      border-radius: 7px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-end-abandoned:hover:not(:disabled) { background: #f9fafb; }
+    .btn-end-abandoned:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Responsive ───────────────────────────────────────────────────────── */
+    @media (max-width: 880px) {
+      .active-card-body {
+        grid-template-columns: 1fr;
+      }
+
+      .active-card-right {
+        flex-direction: row;
+        min-width: unset;
+      }
+
+      .active-card-right .mini-card {
+        flex: 1;
+      }
+
+      .pace-stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stats-grid-4 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .new-target-form-card .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      /* History table → card list at 880px */
+      .history-table thead {
+        display: none;
+      }
+
+      .history-table tbody tr {
+        display: block;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.875rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .history-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.375rem 0;
+        border: none;
+        font-size: 0.875rem;
+      }
+
+      .history-table td::before {
+        content: attr(data-label);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9ca3af;
+        flex-shrink: 0;
+        margin-right: 0.75rem;
+      }
+    }
+
+    /* ── Page error ───────────────────────────────────────────────────────── */
+    #page-error:not(:empty) {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p id="page-error" role="alert"></p>
+
+    <!-- Section A — Header -->
+    <div class="wt-page-header">
+      <div>
+        <div class="wt-breadcrumb">
+          <a href="/weight">← Weight</a>
+          <span>/</span>
+          <span>Weight targets</span>
+        </div>
+        <h1 class="wt-page-title">Weight targets</h1>
+      </div>
+      <div class="header-actions">
+        <button
+          class="btn-primary"
+          id="set-target-btn"
+          type="button"
+          disabled
+          title="End or replace the current target first"
+        >Set new target</button>
+      </div>
+    </div>
+
+    <!-- Section B — Active target card (hidden until data loads) -->
+    <div class="card" id="active-card" hidden>
+      <div class="active-banner">
+        <span class="active-pill">
+          <i class="ti ti-flag-3"></i>
+          ACTIVE TARGET
+        </span>
+      </div>
+      <div class="active-card-header">
+        <div class="active-card-header-title" id="active-card-title"></div>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="icon-btn" id="edit-target-btn" title="Edit target" type="button">
+            <i class="ti ti-pencil"></i>
+          </button>
+          <button class="icon-btn" id="end-target-btn" title="End target" type="button">
+            <i class="ti ti-x"></i>
+          </button>
+        </div>
+      </div>
+      <div class="active-card-body">
+        <div class="active-card-left">
+          <div class="weight-range-display" id="weight-range-display"></div>
+          <div class="weight-dates-row" id="weight-dates-row"></div>
+          <div class="weight-months-sub" id="weight-months-sub"></div>
+          <!-- 3-up pace stats -->
+          <div class="pace-stats-grid">
+            <div class="pace-stat">
+              <div class="pace-stat-label">Remaining kg</div>
+              <div class="pace-stat-value" id="remaining-kg">--</div>
+            </div>
+            <div class="pace-stat">
+              <div class="pace-stat-label">Pace needed kg/wk</div>
+              <div class="pace-stat-value" id="required-pace">--</div>
+            </div>
+            <div class="pace-stat">
+              <div class="pace-stat-label">Your current pace kg/wk</div>
+              <div class="pace-stat-value" id="current-pace">
+                <span id="current-pace-value">--</span>
+                <span class="pace-arrow" id="current-pace-arrow" aria-hidden="true"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Right: progress + projected mini-cards -->
+        <div class="active-card-right">
+          <div class="mini-card" id="progress-mini">
+            <div class="mini-card-label">Progress</div>
+            <div class="progress-pct-large" id="progress-pct-large">--</div>
+            <div class="kg-lost-label" id="kg-lost-label"></div>
+            <span class="status-pill" id="status-pill"></span>
+          </div>
+          <div class="mini-card" id="projected-mini">
+            <div class="mini-card-label">Projected</div>
+            <div class="projected-date-value" id="projected-date">--</div>
+            <div class="projected-pace-label" id="projected-pace-label"></div>
+            <div class="days-delta" id="days-delta"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section B — Inline form (shown when no active target) -->
+    <div class="card new-target-form-card" id="new-target-form-card" hidden>
+      <h2>Set new target</h2>
+      <p id="new-target-form-error" class="form-error" hidden></p>
+      <form id="new-target-form" novalidate>
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="form-start-weight">Start weight (kg)</label>
+            <input
+              type="number" step="0.1" min="20" max="300"
+              id="form-start-weight"
+              placeholder="e.g. 85.5"
+              required
+            >
+          </div>
+          <div class="form-field">
+            <label for="form-start-date">Start date</label>
+            <input type="date" id="form-start-date" required>
+          </div>
+          <div class="form-field">
+            <label for="form-target-weight">Target weight (kg)</label>
+            <input
+              type="number" step="0.1" min="20" max="300"
+              id="form-target-weight"
+              placeholder="e.g. 75.0"
+              required
+            >
+          </div>
+          <div class="form-field">
+            <label for="form-target-date">Target date</label>
+            <input type="date" id="form-target-date" required>
+          </div>
+          <div class="form-field full-width">
+            <label for="form-notes">Notes (optional)</label>
+            <textarea id="form-notes" placeholder="e.g. Summer cut goal"></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Create target</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Section C — Milestone Timeline Strip -->
+    <div class="card" id="milestone-strip" hidden>
+      <h2>Milestones</h2>
+      <div class="milestone-strip">
+        <div class="milestone-rail" id="milestone-rail">
+          <div class="milestone-track" id="milestone-track">
+            <div class="milestone-track-fill" id="milestone-track-fill"></div>
+          </div>
+          <!-- Points injected by JS: Start · Current · 3mo · 6mo · Goal -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Section D — Stats Summary Card -->
+    <div class="card">
+      <h2>All-time stats</h2>
+      <div class="stats-grid-4">
+        <div class="stat-box">
+          <div class="stat-box-label">Targets set</div>
+          <div class="stat-box-value" id="stat-targets-set">--</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">Targets achieved</div>
+          <div class="stat-box-value" id="stat-targets-achieved">--</div>
+          <div class="success-rate" id="success-rate"></div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">Total weight lost</div>
+          <div class="stat-box-value" id="stat-total-lost">--</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">Avg pace kg/wk</div>
+          <div class="stat-box-value" id="stat-avg-pace">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section E — Target History -->
+    <div class="card">
+      <h2>History</h2>
+      <!-- Filter pills -->
+      <div class="filter-pills" role="group" aria-label="Filter targets">
+        <button class="filter-pill active" data-filter="all" type="button">All</button>
+        <button class="filter-pill" data-filter="achieved" type="button">Achieved</button>
+        <button class="filter-pill" data-filter="replaced" type="button">Replaced</button>
+        <button class="filter-pill" data-filter="abandoned" type="button">Abandoned</button>
+      </div>
+      <div id="history-table-wrap">
+        <table class="history-table" id="history-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Pace kg/wk</th>
+              <th>Result weight</th>
+              <th>Delta</th>
+              <th>Duration days</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+        <p class="history-empty" id="history-empty" hidden>No completed targets yet.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="edit-modal" hidden role="dialog" aria-modal="true" aria-label="Edit target">
+    <div class="modal">
+      <h2>Edit target</h2>
+      <p id="edit-modal-error" class="modal-error" hidden></p>
+      <form id="edit-form" novalidate>
+        <div class="modal-form-field">
+          <label for="edit-target-weight">Target weight (kg)</label>
+          <input type="number" step="0.1" min="20" max="300" id="edit-target-weight" required>
+        </div>
+        <div class="modal-form-field">
+          <label for="edit-target-date">Target date</label>
+          <input type="date" id="edit-target-date" required>
+        </div>
+        <div class="modal-form-field">
+          <label for="edit-notes">Notes</label>
+          <textarea id="edit-notes" placeholder="Optional notes"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn-primary">Save changes</button>
+          <button type="button" class="btn-secondary" id="edit-cancel-btn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- End Modal -->
+  <div class="modal-overlay" id="end-modal" hidden role="dialog" aria-modal="true" aria-label="End target">
+    <div class="modal">
+      <h2>End this target</h2>
+      <div class="end-weight-display" id="end-weight-display" hidden>
+        <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.25rem;">End weight (latest entry)</div>
+        <div class="end-weight-value" id="end-weight-value">--</div>
+      </div>
+      <p class="end-no-weight-msg" id="end-no-weight-msg" hidden>
+        Log a recent weight first (within the last 7 days) to end this target.
+      </p>
+      <div class="end-action-buttons">
+        <button class="btn-end-achieved" id="end-achieved-btn" type="button" disabled>
+          Mark as achieved
+        </button>
+        <button class="btn-end-abandoned" id="end-abandoned-btn" type="button" disabled>
+          Mark as abandoned
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="end-cancel-btn" style="width:100%;">Cancel</button>
+      </div>
+      <p id="end-modal-error" class="modal-error" hidden></p>
+    </div>
+  </div>
+
+  <script src="/js/nav.js"></script>
+  <script src="/js/weight-targets.js"></script>
+</body>
+</html>

@@ -1745,6 +1745,12 @@ app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
 
 
+def _serve_weight_targets():
+    return FileResponse(str(_static_root / "frontend" / "pages" / "weight-targets.html"))
+
+app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
+
+
 @app.get("/")
 def index():
     # Bare domain → the home dashboard (clean URL).
