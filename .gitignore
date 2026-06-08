@@ -9,3 +9,6 @@ venv/
 .DS_Store
 codedb.snapshot
 snapshots/
+
+# Local sprint-management tooling state (estimates, sprint plans) — not shared
+.commander/
