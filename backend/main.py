@@ -1718,6 +1718,176 @@ def get_home_personal_records(
     return JSONResponse({"tracks": result})
 
 
+# ── Home readiness endpoint ───────────────────────────────────────────────────
+
+
+def _readiness_score_label(score: Optional[int]) -> str:
+    """Score label thresholds: ≥80 Excellent, 60-79 Good, 40-59 OK, 20-39 Caution, <20 Recovery."""
+    if score is None:
+        return "No data"
+    if score >= 80:
+        return "Excellent"
+    if score >= 60:
+        return "Good"
+    if score >= 40:
+        return "OK"
+    if score >= 20:
+        return "Caution"
+    return "Recovery"
+
+
+@app.get("/api/home/readiness")
+def get_home_readiness(
+    user_id: Optional[str] = Query(default=None),
+    date: Optional[str] = Query(default=None),
+):
+    # Score formula: sleep_hours 30%, hrv 25%, rhr 20%, mood 15%, energy 10%
+    # Per-factor: sleep/HRV/RHR compare vs 7d rolling avg; mood/energy: raw value × 20
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        query_date = _date.fromisoformat(date) if date else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format")
+
+    baseline_end = query_date - _timedelta(days=1)
+    baseline_start = query_date - _timedelta(days=7)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date == query_date,
+            )
+            .first()
+        )
+
+        baseline_rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date <= baseline_end,
+            )
+            .all()
+        )
+
+    def _avg(vals):
+        non_null = [v for v in vals if v is not None]
+        return round(sum(non_null) / len(non_null), 2) if non_null else None
+
+    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
+    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+
+    rolling_baseline = {
+        "hrv_7d_avg": hrv_7d_avg,
+        "rhr_7d_avg": rhr_7d_avg,
+        "sleep_7d_avg_hours": sleep_7d_avg_hours,
+    }
+
+    if metrics is None:
+        contributors = [
+            {"factor": "sleep_hours", "value": None, "weight": 0.30, "impact": "neutral"},
+            {"factor": "hrv", "value": None, "weight": 0.25, "impact": "neutral"},
+            {"factor": "rhr", "value": None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "mood", "value": None, "weight": 0.15, "impact": "neutral"},
+            {"factor": "energy", "value": None, "weight": 0.10, "impact": "neutral"},
+        ]
+        return JSONResponse({
+            "date": query_date.isoformat(),
+            "score": None,
+            "score_label": "No data",
+            "contributors": contributors,
+            "rolling_baseline": rolling_baseline,
+        })
+
+    def _bscore(value, baseline, higher_is_better: bool) -> float:
+        """Score 0-100; returns 50 when value equals baseline or baseline unavailable."""
+        if value is None:
+            return 50.0
+        v = float(value)
+        if baseline is None or baseline == 0:
+            return 50.0
+        b = float(baseline)
+        delta_pct = (v - b) / b * 100.0
+        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
+        return min(100.0, max(0.0, raw))
+
+    def _impact(factor_score: float) -> str:
+        if factor_score > 50:
+            return "positive"
+        if factor_score < 50:
+            return "negative"
+        return "neutral"
+
+    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg_hours, higher_is_better=True)
+    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, higher_is_better=True)
+    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, higher_is_better=False)
+    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
+    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+
+    contributors = [
+        {
+            "factor": "sleep_hours",
+            "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+            "weight": 0.30,
+            "impact": _impact(sleep_score),
+        },
+        {
+            "factor": "hrv",
+            "value": float(metrics.hrv) if metrics.hrv is not None else None,
+            "weight": 0.25,
+            "impact": _impact(hrv_score),
+        },
+        {
+            "factor": "rhr",
+            "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+            "weight": 0.20,
+            "impact": _impact(rhr_score),
+        },
+        {
+            "factor": "mood",
+            "value": float(metrics.mood) if metrics.mood is not None else None,
+            "weight": 0.15,
+            "impact": _impact(mood_score),
+        },
+        {
+            "factor": "energy",
+            "value": float(metrics.energy) if metrics.energy is not None else None,
+            "weight": 0.10,
+            "impact": _impact(energy_score),
+        },
+    ]
+
+    total = (
+        sleep_score * 0.30
+        + hrv_score * 0.25
+        + rhr_score * 0.20
+        + mood_score * 0.15
+        + energy_score * 0.10
+    )
+    score = int(round(min(100.0, max(0.0, total))))
+
+    return JSONResponse({
+        "date": query_date.isoformat(),
+        "score": score,
+        "score_label": _readiness_score_label(score),
+        "contributors": contributors,
+        "rolling_baseline": rolling_baseline,
+    })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):
