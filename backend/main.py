@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -5974,3 +5974,136 @@ async def get_sync_status(user: User = Depends(resolve_user)):
         "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
     }
     return JSONResponse(serialized)
+
+
+# ── User Preferences endpoints ─────────────────────────────────────────────────
+
+_PREFS_DEFAULTS = {
+    "ftp_w": 280,
+    "threshold_hr": 170,
+    "threshold_pace_seconds_per_km": 270,
+}
+
+_PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
+_PREFS_NON_EDITABLE = {"preferred_units", "date_format"}
+
+
+def _prefs_row_dict(prefs: UserPreferences) -> dict:
+    return {
+        "user_id": str(prefs.user_id),
+        "ftp_w": prefs.ftp_w,
+        "threshold_hr": prefs.threshold_hr,
+        "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
+        "display_name": prefs.display_name,
+        "week_start_day": prefs.week_start_day,
+        "timezone": prefs.timezone,
+    }
+
+
+@app.get("/api/user-preferences")
+def get_user_preferences(user_id: str = Query(...)):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        if prefs is None:
+            prefs = UserPreferences(user_id=uid)
+            session.add(prefs)
+            session.commit()
+            session.refresh(prefs)
+        return JSONResponse({
+            "row": _prefs_row_dict(prefs),
+            "defaults": _PREFS_DEFAULTS,
+        })
+
+
+_PREFS_SENTINEL = object()
+
+
+@app.patch("/api/user-preferences")
+async def patch_user_preferences(request: Request):
+    import zoneinfo as _zoneinfo
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+    # Reject non-editable fields
+    non_editable_sent = _PREFS_NON_EDITABLE & set(body.keys())
+    if non_editable_sent:
+        field = next(iter(non_editable_sent))
+        raise HTTPException(status_code=422, detail=f"Field '{field}' is not editable")
+
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=422, detail="user_id is required")
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    # Validate fields
+    ftp_w = body.get("ftp_w", _PREFS_SENTINEL)
+    threshold_hr = body.get("threshold_hr", _PREFS_SENTINEL)
+    threshold_pace = body.get("threshold_pace_seconds_per_km", _PREFS_SENTINEL)
+    display_name = body.get("display_name", _PREFS_SENTINEL)
+    week_start_day = body.get("week_start_day", _PREFS_SENTINEL)
+    timezone = body.get("timezone", _PREFS_SENTINEL)
+
+    errors = []
+    if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
+        if not isinstance(ftp_w, int) or not (50 <= ftp_w <= 600):
+            errors.append({"field": "ftp_w", "msg": "ftp_w must be between 50 and 600"})
+    if threshold_hr is not _PREFS_SENTINEL and threshold_hr is not None:
+        if not isinstance(threshold_hr, int) or not (100 <= threshold_hr <= 220):
+            errors.append({"field": "threshold_hr", "msg": "threshold_hr must be between 100 and 220"})
+    if threshold_pace is not _PREFS_SENTINEL and threshold_pace is not None:
+        if not isinstance(threshold_pace, int) or not (180 <= threshold_pace <= 540):
+            errors.append({"field": "threshold_pace_seconds_per_km", "msg": "threshold_pace_seconds_per_km must be between 180 and 540"})
+    if display_name is not _PREFS_SENTINEL and display_name is not None:
+        if not isinstance(display_name, str) or len(display_name) > 100:
+            errors.append({"field": "display_name", "msg": "display_name must be ≤ 100 characters"})
+    if week_start_day is not _PREFS_SENTINEL and week_start_day is not None:
+        if not isinstance(week_start_day, int) or not (1 <= week_start_day <= 7):
+            errors.append({"field": "week_start_day", "msg": "week_start_day must be between 1 and 7"})
+    if timezone is not _PREFS_SENTINEL and timezone is not None:
+        try:
+            _zoneinfo.ZoneInfo(timezone)
+        except (KeyError, _zoneinfo.ZoneInfoNotFoundError):
+            errors.append({"field": "timezone", "msg": f"Unknown IANA timezone: {timezone}"})
+
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        if prefs is None:
+            prefs = UserPreferences(user_id=uid)
+            session.add(prefs)
+
+        if ftp_w is not _PREFS_SENTINEL:
+            prefs.ftp_w = ftp_w
+        if threshold_hr is not _PREFS_SENTINEL:
+            prefs.threshold_hr = threshold_hr
+        if threshold_pace is not _PREFS_SENTINEL:
+            prefs.threshold_pace_seconds_per_km = threshold_pace
+        if display_name is not _PREFS_SENTINEL:
+            prefs.display_name = display_name
+        if week_start_day is not _PREFS_SENTINEL:
+            prefs.week_start_day = week_start_day
+        if timezone is not _PREFS_SENTINEL:
+            prefs.timezone = timezone
+
+        prefs.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(prefs)
+        return JSONResponse(_prefs_row_dict(prefs))
