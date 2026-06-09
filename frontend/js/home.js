@@ -590,7 +590,7 @@
     var perfHeader =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
-        '<a href="#">All tracks</a>' +
+        '<a href="/settings#personal-records">All tracks</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
@@ -608,7 +608,7 @@
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
       emptyEl.innerHTML =
-        'No tracked performances yet — add one from the <a href="#">Performance page</a>';
+        'No tracked performances yet — <a href="/settings#personal-records">add your first PR in Settings</a>';
       card.appendChild(emptyEl);
       return;
     }

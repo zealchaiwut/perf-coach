@@ -395,6 +395,157 @@
     }
     .stryd-form input:focus { border-color: #0b1530; }
     .stryd-form input:disabled { background: #f8f9fb; color: #adb5c4; }
+
+    /* ── Personal Records section ── */
+    .pr-action-bar { margin-bottom: 16px; }
+
+    .pr-empty-state {
+      padding: 24px;
+      border: 1px dashed #e5e5e5;
+      border-radius: 10px;
+      background: #fafafa;
+      text-align: center;
+    }
+    .pr-empty-state p {
+      font-size: 13.5px;
+      color: #64748b;
+      margin: 0 0 16px;
+      line-height: 1.6;
+    }
+
+    .pr-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .pr-table th {
+      text-align: left;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #8b95ad;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0 10px 10px 0;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    .pr-table td {
+      padding: 12px 10px 12px 0;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+    .pr-table tr:last-child td { border-bottom: none; }
+    .pr-td-track { font-weight: 600; color: #1a1a1a; }
+    .pr-td-best  { color: #0b1530; }
+    .pr-td-date  { color: #8b95ad; font-size: 12.5px; }
+    .pr-td-trend { font-size: 16px; }
+    .pr-trend-up   { color: #15803d; }
+    .pr-trend-down { color: #b91c1c; }
+    .pr-trend-flat { color: #8b95ad; }
+    .pr-td-actions { white-space: nowrap; }
+    .pr-action-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 5px 7px;
+      border-radius: 6px;
+      color: #8b95ad;
+      font-size: 15px;
+      transition: background 0.1s, color 0.1s;
+      margin-right: 2px;
+    }
+    .pr-action-btn:hover { background: #f1f5f9; color: #0b1530; }
+
+    .pr-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .pr-modal {
+      background: #fff;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 440px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    }
+    .pr-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .pr-modal-title { font-size: 16px; font-weight: 700; color: #1a1a1a; margin: 0; }
+    .pr-modal-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      color: #8b95ad;
+      padding: 2px 6px;
+      border-radius: 5px;
+      line-height: 1;
+      transition: color 0.1s, background 0.1s;
+    }
+    .pr-modal-close:hover { background: #f1f5f9; color: #1a1a1a; }
+    .pr-modal-body { padding: 16px 20px 20px; }
+
+    .pr-value-row { display: flex; align-items: center; gap: 8px; }
+    .pr-value-row .profile-input { flex: 1; }
+    .pr-value-suffix { font-size: 13px; color: #8b95ad; flex-shrink: 0; }
+
+    .pr-form-actions {
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pr-delete-btn {
+      padding: 9px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      background: none;
+      color: #b91c1c;
+      border: 1.5px solid rgba(185,28,28,0.3);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .pr-delete-btn:hover { background: rgba(185,28,28,0.05); }
+    .pr-delete-confirm {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fff5f5;
+      border: 1px solid rgba(185,28,28,0.2);
+    }
+    .pr-delete-confirm p { font-size: 13px; color: #1a1a1a; margin: 0 0 10px; }
+    .pr-delete-confirm-actions { display: flex; gap: 8px; }
+
+    .pr-notes-input { resize: vertical; min-height: 56px; }
+
+    .pr-history-list { display: flex; flex-direction: column; gap: 10px; }
+    .pr-hist-row {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f8f9fb;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 12px;
+      align-items: center;
+    }
+    .pr-hist-date { font-size: 12px; color: #8b95ad; grid-column: 1; }
+    .pr-hist-val  { font-size: 14px; font-weight: 600; color: #0b1530; grid-column: 2; grid-row: 1 / 3; text-align: right; }
+    .pr-hist-source { font-size: 12px; color: #a0aab8; grid-column: 1; }
+    .pr-hist-imp { grid-column: 1; }
+    .pr-hist-improvement { font-size: 12px; color: #64748b; font-style: italic; }
   </style>
 </head>
 <body>
@@ -516,7 +667,112 @@
 
       <div id="section-personal-records" class="settings-section">
         <h1>Personal Records</h1>
-        <p class="settings-placeholder">Coming up in this sprint</p>
+
+        <div class="pr-action-bar">
+          <button id="pr-add-btn" type="button" class="settings-save-btn">Add a record</button>
+        </div>
+
+        <div id="pr-empty-state" class="pr-empty-state" style="display:none">
+          <p>Set your personal records to track progress over time. Start with your half marathon time, 10K time, and 1RM lifts.</p>
+          <button id="pr-empty-add-btn" type="button" class="settings-save-btn">Add a record</button>
+        </div>
+
+        <table id="pr-table" class="pr-table" style="display:none">
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Current best</th>
+              <th>Achieved on</th>
+              <th>Trend</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pr-tbody"></tbody>
+        </table>
+
+        <!-- Add / Edit modal -->
+        <div id="pr-form-overlay" class="pr-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pr-form-title">
+          <div class="pr-modal">
+            <div class="pr-modal-header">
+              <h2 id="pr-form-title" class="pr-modal-title">Add a record</h2>
+              <button type="button" class="pr-modal-close" id="pr-form-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pr-modal-body">
+              <input type="hidden" id="pr-edit-id">
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-track-select">Track</label>
+                <select id="pr-track-select" class="profile-select">
+                  <option value="">Select a track…</option>
+                  <option value="__other__">Other (custom)</option>
+                </select>
+                <div class="profile-field-error" id="pr-track-error"></div>
+              </div>
+
+              <div class="profile-form-group" id="pr-custom-track-group" style="display:none">
+                <label class="profile-label" for="pr-custom-track-key">Custom track key</label>
+                <input type="text" id="pr-custom-track-key" class="profile-input" placeholder="e.g. mile_run">
+                <div class="profile-field-error" id="pr-custom-track-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-value-input">Value</label>
+                <div class="pr-value-row">
+                  <input type="text" id="pr-value-input" class="profile-input" placeholder="H:MM:SS or MM:SS">
+                  <span class="pr-value-suffix" id="pr-value-suffix" style="display:none">kg</span>
+                </div>
+                <div class="profile-field-error" id="pr-value-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-achieved-on">Achieved on</label>
+                <input type="date" id="pr-achieved-on" class="profile-input">
+                <div class="profile-field-error" id="pr-achieved-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-source">Source</label>
+                <select id="pr-source" class="profile-select">
+                  <option value="">Select source…</option>
+                  <option value="Manual">Manual</option>
+                  <option value="Race">Race</option>
+                  <option value="Test">Test</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-notes">Notes <span style="font-weight:400;color:#8b95ad">(optional)</span></label>
+                <textarea id="pr-notes" class="profile-input pr-notes-input" rows="2" placeholder="Optional notes…"></textarea>
+              </div>
+
+              <div class="pr-form-actions">
+                <button type="button" id="pr-form-submit" class="settings-save-btn">Save</button>
+                <button type="button" id="pr-form-delete" class="pr-delete-btn" style="display:none">Delete</button>
+                <div id="pr-form-feedback" class="settings-feedback" aria-live="polite"></div>
+              </div>
+
+              <div id="pr-delete-confirm" class="pr-delete-confirm" style="display:none">
+                <p>Delete this record? This cannot be undone.</p>
+                <div class="pr-delete-confirm-actions">
+                  <button type="button" id="pr-delete-yes" class="integration-btn integration-btn--danger">Delete</button>
+                  <button type="button" id="pr-delete-no" class="integration-btn integration-btn--secondary">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- History modal -->
+        <div id="pr-history-overlay" class="pr-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pr-history-title">
+          <div class="pr-modal">
+            <div class="pr-modal-header">
+              <h2 id="pr-history-title" class="pr-modal-title">History</h2>
+              <button type="button" class="pr-modal-close" id="pr-history-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pr-modal-body" id="pr-history-body"></div>
+          </div>
+        </div>
       </div>
 
       <div id="section-integrations" class="settings-section">
@@ -1186,6 +1442,459 @@
         loadStrydStatus();
       });
     }());
+  </script>
+  <script>
+    (function () {
+      var _prUserId = null;
+      var _prTracks = [];
+      var _prRecords = [];
+      var _prEditMode = false;
+      var _prCurrentTrackType = null;
+
+      function _prFmtTime(secs) {
+        var s = Math.round(secs);
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var ss = s % 60;
+        if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+        return m + ':' + String(ss).padStart(2, '0');
+      }
+
+      function _prFmtValue(numeric, trackType) {
+        if (trackType === 'time') return _prFmtTime(parseFloat(numeric));
+        var v = parseFloat(numeric);
+        var disp = (v === Math.floor(v)) ? Math.floor(v) : v;
+        return disp + ' kg';
+      }
+
+      function _prFmtDate(iso) {
+        if (!iso) return '';
+        var p = iso.split('-');
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(p[1], 10) - 1] + ' ' + parseInt(p[2], 10) + ', ' + p[0];
+      }
+
+      function _prTodayISO() {
+        var d = new Date();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + mm + '-' + dd;
+      }
+
+      function _prParseTimeInput(str) {
+        var s = (str || '').trim();
+        var parts = s.split(':');
+        if (parts.length === 3) {
+          var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10), sec = parseInt(parts[2], 10);
+          if (isNaN(h) || isNaN(m) || isNaN(sec) || m >= 60 || sec >= 60) return null;
+          return h * 3600 + m * 60 + sec;
+        }
+        if (parts.length === 2) {
+          var m2 = parseInt(parts[0], 10), sec2 = parseInt(parts[1], 10);
+          if (isNaN(m2) || isNaN(sec2) || sec2 >= 60) return null;
+          return m2 * 60 + sec2;
+        }
+        return null;
+      }
+
+      function _prTrend(current, prev, trackType) {
+        if (prev == null) return '→';
+        var c = parseFloat(current), p = parseFloat(prev);
+        if (trackType === 'time') {
+          if (c < p) return '↗';
+          if (c > p) return '↘';
+        } else {
+          if (c > p) return '↗';
+          if (c < p) return '↘';
+        }
+        return '→';
+      }
+
+      function _prGroupByTrack(records) {
+        var groups = {}, order = [];
+        records.forEach(function (r) {
+          if (!groups[r.track_key]) { groups[r.track_key] = []; order.push(r.track_key); }
+          groups[r.track_key].push(r);
+        });
+        return { groups: groups, order: order };
+      }
+
+      function _esc(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function _prFeedback(msg, type) {
+        var el = document.getElementById('pr-form-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
+      }
+
+      function _prClearErrors() {
+        ['pr-track-error', 'pr-custom-track-error', 'pr-value-error', 'pr-achieved-error'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.textContent = '';
+        });
+        _prFeedback('', '');
+      }
+
+      function _prLoad() {
+        if (!_prUserId) return;
+        fetch('/api/personal-records')
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function (data) { _prRecords = data; _prRender(); })
+          .catch(function () {
+            var empty = document.getElementById('pr-empty-state');
+            var addBtn = document.getElementById('pr-add-btn');
+            if (empty) empty.style.display = 'block';
+            if (addBtn) addBtn.style.display = 'none';
+          });
+      }
+
+      function _prRender() {
+        var result = _prGroupByTrack(_prRecords);
+        var groups = result.groups, order = result.order;
+        var empty = document.getElementById('pr-empty-state');
+        var table = document.getElementById('pr-table');
+        var tbody = document.getElementById('pr-tbody');
+        var addBtn = document.getElementById('pr-add-btn');
+
+        if (order.length === 0) {
+          if (empty) empty.style.display = 'block';
+          if (table) table.style.display = 'none';
+          if (addBtn) addBtn.style.display = 'none';
+        } else {
+          if (empty) empty.style.display = 'none';
+          if (table) table.style.display = 'table';
+          if (addBtn) addBtn.style.display = '';
+        }
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        order.forEach(function (key) {
+          var recs = groups[key];
+          var current = recs[0], prev = recs[1] || null;
+          var trend = _prTrend(current.value_numeric, prev ? prev.value_numeric : null, current.track_type);
+          var trendClass = trend === '↗' ? 'pr-trend-up'
+            : trend === '↘' ? 'pr-trend-down' : 'pr-trend-flat';
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td class="pr-td-track">' + _esc(current.track_name) + '</td>' +
+            '<td class="pr-td-best">' + _esc(_prFmtValue(current.value_numeric, current.track_type)) + '</td>' +
+            '<td class="pr-td-date">' + _esc(_prFmtDate(current.achieved_on)) + '</td>' +
+            '<td class="pr-td-trend"><span class="pr-trend ' + trendClass + '">' + trend + '</span></td>' +
+            '<td class="pr-td-actions">' +
+              '<button type="button" class="pr-action-btn pr-edit-btn" data-id="' + _esc(current.id) + '" title="Edit" aria-label="Edit record">' +
+                '<i class="ti ti-pencil"></i></button>' +
+              '<button type="button" class="pr-action-btn pr-history-btn" data-track="' + _esc(key) + '" title="History" aria-label="View history">' +
+                '<i class="ti ti-history"></i></button>' +
+            '</td>';
+          tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('.pr-edit-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-id');
+            var rec = null;
+            for (var i = 0; i < _prRecords.length; i++) {
+              if (_prRecords[i].id === id) { rec = _prRecords[i]; break; }
+            }
+            if (rec) _prOpenEdit(rec);
+          });
+        });
+        tbody.querySelectorAll('.pr-history-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () { _prOpenHistory(btn.getAttribute('data-track')); });
+        });
+      }
+
+      function _prLoadTracks() {
+        fetch('/api/personal-records/tracks')
+          .then(function (r) { return r.json(); })
+          .then(function (data) { _prTracks = data.tracks || []; })
+          .catch(function () { _prTracks = []; });
+      }
+
+      function _prPopulateTrackDropdown(selectedKey) {
+        var sel = document.getElementById('pr-track-select');
+        if (!sel) return;
+        var lastOpt = sel.options[sel.options.length - 1];
+        while (sel.options.length > 1) sel.remove(1);
+        _prTracks.forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t.track_key;
+          opt.textContent = t.track_name;
+          sel.insertBefore(opt, lastOpt);
+        });
+        if (selectedKey) {
+          var found = false;
+          for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === selectedKey) { found = true; break; }
+          }
+          sel.value = found ? selectedKey : '__other__';
+          if (!found) {
+            var ck = document.getElementById('pr-custom-track-key');
+            if (ck) ck.value = selectedKey;
+          }
+        } else {
+          sel.value = '';
+        }
+      }
+
+      function _prAdaptValueInput(trackType) {
+        _prCurrentTrackType = trackType;
+        var inp = document.getElementById('pr-value-input');
+        var suffix = document.getElementById('pr-value-suffix');
+        if (!inp) return;
+        if (trackType === 'time') {
+          inp.type = 'text'; inp.placeholder = 'H:MM:SS or MM:SS';
+          inp.removeAttribute('min'); inp.removeAttribute('step');
+          if (suffix) suffix.style.display = 'none';
+        } else if (trackType === 'weight') {
+          inp.type = 'number'; inp.placeholder = 'e.g. 120'; inp.min = '0.1'; inp.step = '0.5';
+          if (suffix) suffix.style.display = 'inline';
+        } else {
+          inp.type = 'text'; inp.placeholder = 'Value';
+          inp.removeAttribute('min'); inp.removeAttribute('step');
+          if (suffix) suffix.style.display = 'none';
+        }
+      }
+
+      function _prOnTrackChange() {
+        var sel = document.getElementById('pr-track-select');
+        var customGroup = document.getElementById('pr-custom-track-group');
+        var val = sel ? sel.value : '';
+        if (val === '__other__') {
+          if (customGroup) customGroup.style.display = 'block';
+          _prAdaptValueInput('weight');
+        } else {
+          if (customGroup) customGroup.style.display = 'none';
+          var found = null;
+          for (var i = 0; i < _prTracks.length; i++) {
+            if (_prTracks[i].track_key === val) { found = _prTracks[i]; break; }
+          }
+          _prAdaptValueInput(found ? found.track_type : '');
+        }
+      }
+
+      function _prOpenAdd() {
+        _prEditMode = false;
+        _prClearErrors();
+        document.getElementById('pr-form-title').textContent = 'Add a record';
+        document.getElementById('pr-edit-id').value = '';
+        document.getElementById('pr-achieved-on').value = _prTodayISO();
+        document.getElementById('pr-value-input').value = '';
+        document.getElementById('pr-source').value = '';
+        var notesEl = document.getElementById('pr-notes');
+        if (notesEl) notesEl.value = '';
+        var cg = document.getElementById('pr-custom-track-group');
+        if (cg) cg.style.display = 'none';
+        document.getElementById('pr-form-delete').style.display = 'none';
+        document.getElementById('pr-delete-confirm').style.display = 'none';
+        document.getElementById('pr-form-submit').disabled = false;
+        _prPopulateTrackDropdown('');
+        _prAdaptValueInput('');
+        document.getElementById('pr-form-overlay').style.display = 'flex';
+      }
+
+      function _prOpenEdit(rec) {
+        _prEditMode = true;
+        _prClearErrors();
+        document.getElementById('pr-form-title').textContent = 'Edit record';
+        document.getElementById('pr-edit-id').value = rec.id;
+        document.getElementById('pr-achieved-on').value = rec.achieved_on;
+        document.getElementById('pr-source').value = rec.source || '';
+        var notesEl = document.getElementById('pr-notes');
+        if (notesEl) notesEl.value = '';
+        document.getElementById('pr-form-delete').style.display = 'inline-block';
+        document.getElementById('pr-delete-confirm').style.display = 'none';
+        document.getElementById('pr-form-submit').disabled = false;
+        _prPopulateTrackDropdown(rec.track_key);
+        _prAdaptValueInput(rec.track_type);
+        var inp = document.getElementById('pr-value-input');
+        if (inp) inp.value = rec.track_type === 'time' ? _prFmtTime(parseFloat(rec.value_numeric)) : parseFloat(rec.value_numeric);
+        document.getElementById('pr-form-overlay').style.display = 'flex';
+      }
+
+      function _prCloseForm() {
+        document.getElementById('pr-form-overlay').style.display = 'none';
+      }
+
+      function _prSubmit() {
+        _prClearErrors();
+        var sel = document.getElementById('pr-track-select');
+        var trackVal = sel ? sel.value : '';
+        if (!trackVal) { document.getElementById('pr-track-error').textContent = 'Select a track'; return; }
+
+        var trackKey, trackName, trackType;
+        if (trackVal === '__other__') {
+          var ckEl = document.getElementById('pr-custom-track-key');
+          var ck = ckEl ? ckEl.value.trim() : '';
+          if (!ck) { document.getElementById('pr-custom-track-error').textContent = 'Enter a custom track key'; return; }
+          trackKey = ck; trackName = ck; trackType = 'weight';
+        } else {
+          var found = null;
+          for (var i = 0; i < _prTracks.length; i++) {
+            if (_prTracks[i].track_key === trackVal) { found = _prTracks[i]; break; }
+          }
+          trackKey = trackVal;
+          trackName = found ? found.track_name : trackVal;
+          trackType = found ? found.track_type : 'weight';
+        }
+
+        var valueEl = document.getElementById('pr-value-input');
+        var valueRaw = valueEl ? valueEl.value.trim() : '';
+        var valueNumeric;
+        if (trackType === 'time') {
+          valueNumeric = _prParseTimeInput(valueRaw);
+          if (!valueNumeric || valueNumeric <= 0) {
+            document.getElementById('pr-value-error').textContent = 'Enter time as H:MM:SS or MM:SS';
+            return;
+          }
+        } else {
+          valueNumeric = parseFloat(valueRaw);
+          if (isNaN(valueNumeric) || valueNumeric <= 0) {
+            document.getElementById('pr-value-error').textContent = 'Enter a positive number';
+            return;
+          }
+        }
+
+        var achievedOn = document.getElementById('pr-achieved-on').value;
+        if (!achievedOn) { document.getElementById('pr-achieved-error').textContent = 'Date required'; return; }
+        if (achievedOn > _prTodayISO()) {
+          document.getElementById('pr-achieved-error').textContent = 'Date cannot be in the future';
+          return;
+        }
+
+        var source = document.getElementById('pr-source').value || null;
+        var submitBtn = document.getElementById('pr-form-submit');
+        if (submitBtn) submitBtn.disabled = true;
+
+        var url, method, payload;
+        if (_prEditMode) {
+          var editId = document.getElementById('pr-edit-id').value;
+          url = '/api/personal-records/' + editId;
+          method = 'PATCH';
+          payload = { track_key: trackKey, track_name: trackName, track_type: trackType,
+            value_numeric: valueNumeric, achieved_on: achievedOn, source: source };
+        } else {
+          url = '/api/personal-records';
+          method = 'POST';
+          payload = { user_id: _prUserId, track_key: trackKey, track_name: trackName,
+            track_type: trackType, value_numeric: valueNumeric, achieved_on: achievedOn, source: source };
+        }
+
+        fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function () { _prCloseForm(); _prLoad(); })
+          .catch(function (err) {
+            if (submitBtn) submitBtn.disabled = false;
+            _prFeedback((err && err.detail) || 'Save failed.', 'error');
+          });
+      }
+
+      function _prShowDeleteConfirm() {
+        document.getElementById('pr-delete-confirm').style.display = 'block';
+        document.getElementById('pr-form-delete').style.display = 'none';
+      }
+
+      function _prDoDelete() {
+        var id = document.getElementById('pr-edit-id').value;
+        if (!id) return;
+        fetch('/api/personal-records/' + id, { method: 'DELETE' })
+          .then(function (r) {
+            if (r.status === 204 || r.ok) { _prCloseForm(); _prLoad(); }
+            else return r.json().then(function (d) { return Promise.reject(d); });
+          })
+          .catch(function (err) { _prFeedback((err && err.detail) || 'Delete failed.', 'error'); });
+      }
+
+      function _prOpenHistory(trackKey) {
+        var overlay = document.getElementById('pr-history-overlay');
+        var body = document.getElementById('pr-history-body');
+        var title = document.getElementById('pr-history-title');
+        if (!overlay || !body) return;
+        if (title) title.textContent = 'History';
+        body.innerHTML = '<p style="color:#8b95ad">Loading…</p>';
+        overlay.style.display = 'flex';
+
+        fetch('/api/personal-records/history?user_id=' + encodeURIComponent(_prUserId) +
+          '&track_key=' + encodeURIComponent(trackKey))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var hist = data.history || [];
+            var trackName = trackKey;
+            for (var i = 0; i < _prRecords.length; i++) {
+              if (_prRecords[i].track_key === trackKey) { trackName = _prRecords[i].track_name; break; }
+            }
+            if (title) title.textContent = trackName + ' — History';
+            if (!hist.length) { body.innerHTML = '<p style="color:#8b95ad">No history available.</p>'; return; }
+            var sorted = hist.slice().reverse();
+            var html = '<div class="pr-history-list">';
+            sorted.forEach(function (entry) {
+              var impHtml = entry.improvement_from_prev
+                ? '<div class="pr-hist-imp"><span class="pr-hist-improvement">' +
+                  _esc(entry.improvement_from_prev.formatted) + '</span></div>' : '';
+              var srcHtml = entry.source ? '<div class="pr-hist-source">' + _esc(entry.source) + '</div>' : '';
+              html +=
+                '<div class="pr-hist-row">' +
+                  '<div class="pr-hist-date">' + _esc(_prFmtDate(entry.achieved_on)) + '</div>' +
+                  '<div class="pr-hist-val">' + _esc(entry.value_formatted || String(entry.value_numeric)) + '</div>' +
+                  srcHtml + impHtml +
+                '</div>';
+            });
+            html += '</div>';
+            body.innerHTML = html;
+          })
+          .catch(function () { body.innerHTML = '<p style="color:#b91c1c">Failed to load history.</p>'; });
+      }
+
+      function _prCloseHistory() {
+        var overlay = document.getElementById('pr-history-overlay');
+        if (overlay) overlay.style.display = 'none';
+      }
+
+      function _prWireEvents() {
+        var addBtn = document.getElementById('pr-add-btn');
+        if (addBtn) addBtn.addEventListener('click', _prOpenAdd);
+        var emptyAddBtn = document.getElementById('pr-empty-add-btn');
+        if (emptyAddBtn) emptyAddBtn.addEventListener('click', _prOpenAdd);
+        var formClose = document.getElementById('pr-form-close');
+        if (formClose) formClose.addEventListener('click', _prCloseForm);
+        var formOverlay = document.getElementById('pr-form-overlay');
+        if (formOverlay) formOverlay.addEventListener('click', function (e) { if (e.target === formOverlay) _prCloseForm(); });
+        var trackSel = document.getElementById('pr-track-select');
+        if (trackSel) trackSel.addEventListener('change', _prOnTrackChange);
+        var submitBtn = document.getElementById('pr-form-submit');
+        if (submitBtn) submitBtn.addEventListener('click', _prSubmit);
+        var deleteBtn = document.getElementById('pr-form-delete');
+        if (deleteBtn) deleteBtn.addEventListener('click', _prShowDeleteConfirm);
+        var deleteYes = document.getElementById('pr-delete-yes');
+        if (deleteYes) deleteYes.addEventListener('click', _prDoDelete);
+        var deleteNo = document.getElementById('pr-delete-no');
+        if (deleteNo) deleteNo.addEventListener('click', function () {
+          document.getElementById('pr-delete-confirm').style.display = 'none';
+          document.getElementById('pr-form-delete').style.display = 'inline-block';
+        });
+        var histClose = document.getElementById('pr-history-close');
+        if (histClose) histClose.addEventListener('click', _prCloseHistory);
+        var histOverlay = document.getElementById('pr-history-overlay');
+        if (histOverlay) histOverlay.addEventListener('click', function (e) { if (e.target === histOverlay) _prCloseHistory(); });
+      }
+
+      _prWireEvents();
+      _prLoadTracks();
+
+      window.addEventListener('userReady', function (e) {
+        _prUserId = e.detail && e.detail.userId;
+        _prLoad();
+      });
+    }());
+  </script>
   <script src="/js/settings.js"></script>
 </body>
 </html>
