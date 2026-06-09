@@ -5230,6 +5230,33 @@ def strava_reconcile(user_id: _uuid.UUID = Query(...)):
     return JSONResponse(result)
 
 
+@app.get("/api/sync/strava/dry-run")
+def strava_sync_dry_run(
+    user_id: Optional[_uuid.UUID] = Query(None),
+    since_date: Optional[str] = Query(None),
+    limit: int = Query(20),
+):
+    """Read-only preview of what a Strava reconcile would produce. No DB writes."""
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    if limit > 50:
+        raise HTTPException(status_code=400, detail="limit cannot exceed 50")
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="limit must be at least 1")
+    parsed_since: Optional[_date] = None
+    if since_date is not None:
+        try:
+            parsed_since = _date.fromisoformat(since_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="since_date must be ISO format YYYY-MM-DD")
+    result = _workout_reconcile.strava_activities_dry_run(
+        user_id=user_id,
+        since_date=parsed_since,
+        limit=limit,
+    )
+    return JSONResponse(result)
+
+
 # ── App config (persistent key-value settings) ────────────────────────────────
 
 _APP_CONFIG_GOOGLE_LOGIN = "google_login_enabled"
