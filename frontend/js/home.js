@@ -2102,6 +2102,52 @@
     } catch (_) {}
   }
 
+  /* ---- Strava stale sync banner ---- */
+
+  function _showStravaStaleBanner(hoursAgo) {
+    var container = document.getElementById('strava-stale-banner');
+    if (!container) return;
+    var h = Math.round(hoursAgo);
+    container.innerHTML =
+      '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +
+        '<span class="strava-stale-msg">Last Strava sync was ' + h + ' hours ago — ' +
+          '<a href="#" id="strava-stale-refresh">refresh?</a>' +
+        '</span>' +
+      '</div>';
+    var link = document.getElementById('strava-stale-refresh');
+    if (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        link.textContent = 'Syncing…';
+        link.style.pointerEvents = 'none';
+        fetch('/api/strava/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+          .then(function () {
+            container.innerHTML = '<div class="strava-stale-banner strava-stale-banner--syncing">Sync started…</div>';
+          })
+          .catch(function () { container.innerHTML = ''; });
+      });
+    }
+  }
+
+  async function _checkStravaStaleBanner() {
+    try {
+      var statusRes = await fetch('/api/strava/status');
+      if (!statusRes.ok) return;
+      var status = await statusRes.json();
+      if (!status.connected) return;
+      var latestRes = await fetch('/api/sync/strava/latest');
+      if (!latestRes.ok) return;
+      var latest = await latestRes.json();
+      if (!latest.synced_at) return;
+      var diffMs = Date.now() - new Date(latest.synced_at).getTime();
+      var hoursAgo = diffMs / 3600000;
+      if (hoursAgo > 24) {
+        _showStravaStaleBanner(hoursAgo);
+      }
+    } catch (_) {}
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -2122,6 +2168,7 @@
 
     if (userId) {
       _checkThresholdBanner();
+      _checkStravaStaleBanner();
 
       // Set up row-3 containers synchronously (weight widget fired below)
       loadRow3(userId);
