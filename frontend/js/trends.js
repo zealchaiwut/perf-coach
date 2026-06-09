@@ -9,7 +9,7 @@
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
   const confirmBtn = document.getElementById('range-confirm');
-  const cancelBtn = document.getElementById('range-cancel');
+  const rangeCancelBtn = document.getElementById('range-cancel');
   const emptyBanner = document.getElementById('trends-empty-banner');
 
   // Track the last non-custom state so Cancel can revert to it
