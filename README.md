@@ -76,6 +76,12 @@ Each script:
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |
 | `POST /api/readiness/compute` | Computes and stores today's readiness score |
+| `GET /api/user-preferences` | Returns per-user preferences (FTP, thresholds, timezone, display name, etc.) |
+| `PATCH /api/user-preferences` | Updates editable preference fields (ftp_w, threshold_hr, threshold_pace_seconds_per_km, display_name, week_start_day, timezone) |
+| `GET /api/personal-records/tracks` | Lists canonical PR tracks (running times and strength 1RMs) |
+| `GET /api/personal-records/history` | Returns history for a single track with improvement deltas; params: `user_id`, `track_key` |
+| `POST /api/personal-records/bulk` | Bulk-inserts multiple PR entries in one request; returns created count and IDs |
+| `GET /api/about` | Returns app version, git SHA, environment, and changelog availability |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 
