@@ -461,6 +461,28 @@ class WorkoutTemplate(Base):
     )
 
 
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_user_preferences_user_id"),
+        nullable=False,
+        unique=True,
+    )
+    ftp_w = Column(Integer, nullable=True)
+    threshold_hr = Column(Integer, nullable=True)
+    threshold_pace_seconds_per_km = Column(Integer, nullable=True)
+    preferred_units = Column(String(20), nullable=False, server_default=text("'metric'"))
+    timezone = Column(String(100), nullable=False, server_default=text("'Asia/Bangkok'"))
+    week_start_day = Column(Integer, nullable=False, server_default=text("1"))
+    display_name = Column(String(100), nullable=True)
+    date_format = Column(String(20), nullable=False, server_default=text("'YYYY-MM-DD'"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class TrainingLoadSnapshot(Base):
     __tablename__ = "training_load_snapshots"
 
