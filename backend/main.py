@@ -3738,6 +3738,50 @@ def get_training_log(
 
 VALID_TRACK_TYPES = {"time", "weight"}
 
+CANONICAL_TRACKS = [
+    {"track_key": "half_marathon", "track_name": "Half Marathon", "track_type": "time", "category": "running"},
+    {"track_key": "10k", "track_name": "10K", "track_type": "time", "category": "running"},
+    {"track_key": "5k", "track_name": "5K", "track_type": "time", "category": "running"},
+    {"track_key": "marathon", "track_name": "Marathon", "track_type": "time", "category": "running"},
+    {"track_key": "squat_1rm", "track_name": "Squat 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "deadlift_1rm", "track_name": "Deadlift 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "bench_1rm", "track_name": "Bench Press 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "ohp_1rm", "track_name": "Overhead Press 1RM", "track_type": "weight", "category": "strength"},
+]
+_CANONICAL_TRACK_MAP = {t["track_key"]: t for t in CANONICAL_TRACKS}
+
+
+def _format_time_seconds(seconds: float) -> str:
+    total = int(abs(seconds))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _improvement_time(current_seconds: float, prev_seconds: float) -> dict:
+    delta = current_seconds - prev_seconds  # positive = slower, negative = faster
+    sign = "+" if delta >= 0 else "−"
+    return {"seconds": delta, "formatted": f"{sign}{_format_time_seconds(delta)}"}
+
+
+def _improvement_weight(current_kg: float, prev_kg: float) -> dict:
+    delta = current_kg - prev_kg
+    sign = "+" if delta >= 0 else "−"
+    abs_delta = abs(delta)
+    formatted_val = int(abs_delta) if abs_delta == int(abs_delta) else abs_delta
+    return {"kg": delta, "formatted": f"{sign}{formatted_val} kg"}
+
+
+def _format_value(value: float, track_type: str) -> str:
+    if track_type == "time":
+        return _format_time_seconds(value)
+    abs_v = abs(value)
+    formatted_val = int(abs_v) if abs_v == int(abs_v) else abs_v
+    return f"{formatted_val} kg"
+
 
 class PersonalRecordIn(BaseModel):
     user_id: str
@@ -3872,6 +3916,129 @@ def delete_personal_record(record_id: str):
         session.delete(pr)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Personal Records — Tracks / History / Bulk (issue #359) ──────────────────
+
+@app.get("/api/personal-records/tracks")
+def list_personal_record_tracks():
+    return JSONResponse({"tracks": CANONICAL_TRACKS})
+
+
+class _BulkRecordItem(BaseModel):
+    track_key: str
+    value_numeric: float
+    achieved_on: str  # YYYY-MM-DD
+    source: Optional[str] = None
+
+
+class _BulkInsertIn(BaseModel):
+    user_id: str
+    records: list[_BulkRecordItem]
+
+
+@app.get("/api/personal-records/history")
+def personal_record_history(user_id: str, track_key: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid user_id")
+    with Session(engine) as session:
+        rows = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.track_key == track_key,
+            )
+            .order_by(PersonalRecord.achieved_on.desc())
+            .all()
+        )
+        if not rows:
+            return JSONResponse({"track_key": track_key, "history": []})
+
+        track_type = rows[0].track_type
+
+        history = []
+        for i, pr in enumerate(rows):
+            if i == 0:
+                improvement = None
+            else:
+                prev = rows[i - 1]  # newer record (DESC order)
+                cur_val = float(pr.value_numeric)
+                prev_val = float(prev.value_numeric)
+                if track_type == "time":
+                    improvement = _improvement_time(cur_val, prev_val)
+                else:
+                    improvement = _improvement_weight(cur_val, prev_val)
+
+            history.append({
+                "id": str(pr.id),
+                "value_numeric": float(pr.value_numeric),
+                "value_formatted": _format_value(float(pr.value_numeric), track_type),
+                "achieved_on": str(pr.achieved_on),
+                "source": pr.source,
+                "improvement_from_prev": improvement,
+            })
+
+        return JSONResponse({"track_key": track_key, "history": history})
+
+
+@app.post("/api/personal-records/bulk", status_code=201)
+def bulk_create_personal_records(body: _BulkInsertIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid user_id")
+    if not body.records:
+        raise HTTPException(status_code=422, detail="records must contain at least 1 item")
+
+    errors = []
+    validated = []
+    for idx, item in enumerate(body.records):
+        rec_errors = []
+        if item.value_numeric <= 0:
+            rec_errors.append("value_numeric must be > 0")
+        try:
+            achieved = _date.fromisoformat(item.achieved_on)
+        except ValueError:
+            rec_errors.append("Invalid achieved_on; use YYYY-MM-DD")
+            achieved = None
+        if achieved and achieved > _date.today():
+            rec_errors.append("achieved_on cannot be in the future")
+        if not item.track_key or not item.track_key.strip():
+            rec_errors.append("track_key is required")
+        if rec_errors:
+            errors.append({"index": idx, "track_key": item.track_key, "errors": rec_errors})
+        else:
+            track_info = _CANONICAL_TRACK_MAP.get(item.track_key.strip())
+            track_type = track_info["track_type"] if track_info else "weight"
+            track_name = track_info["track_name"] if track_info else item.track_key.strip()
+            validated.append((item, achieved, track_type, track_name))
+
+    if errors:
+        raise HTTPException(status_code=422, detail={"message": "Validation failed", "errors": errors})
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        created_ids = []
+        for item, achieved, track_type, track_name in validated:
+            pr = PersonalRecord(
+                user_id=uid,
+                track_key=item.track_key.strip(),
+                track_name=track_name,
+                track_type=track_type,
+                value_numeric=item.value_numeric,
+                achieved_on=achieved,
+                source=item.source,
+            )
+            session.add(pr)
+            session.flush()
+            created_ids.append(str(pr.id))
+        session.commit()
+
+    return JSONResponse(status_code=201, content={"created": len(created_ids), "ids": created_ids})
 
 
 # ── Strava OAuth ──────────────────────────────────────────────────────────────
