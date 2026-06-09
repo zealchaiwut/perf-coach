@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session as _Session
 
@@ -128,4 +128,86 @@ def reconcile_strava_to_workouts(
         "matched_to_existing": matched,
         "created_new": created,
         "total_processed": matched + created,
+    }
+
+
+def strava_activities_dry_run(
+    user_id,
+    since_date: date | None = None,
+    limit: int = 20,
+) -> dict:
+    """Read-only preview of what reconcile_strava_to_workouts would produce.
+
+    Queries strava_activities (already cached), applies since_date filter,
+    runs match logic against workouts in read-only mode — no DB writes.
+
+    Returns:
+      {
+        "would_fetch_estimate": "N+" | "N",
+        "preview": [
+          {
+            "strava_activity_id": int,
+            "name": str,
+            "activity_type": str,
+            "start_time": ISO str,
+            "distance_km": float | None,
+            "would_match_existing_workout_id": str | None,
+            "would_match_workout_date": str | None,
+            "would_create_new": bool,
+            "is_stryd_synced": bool,
+          }
+        ]
+      }
+    """
+    from backend.db import engine
+    from backend.models import StravaActivity, Workout
+
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+
+    since_ts: datetime | None = None
+    if since_date is not None:
+        if isinstance(since_date, str):
+            since_date = date.fromisoformat(since_date)
+        since_ts = datetime(since_date.year, since_date.month, since_date.day, tzinfo=timezone.utc)
+
+    with _Session(engine) as session:
+        q = session.query(StravaActivity).filter(StravaActivity.user_id == uid)
+        if since_ts is not None:
+            q = q.filter(StravaActivity.start_time >= since_ts)
+        rows = q.order_by(StravaActivity.start_time.desc()).limit(limit + 1).all()
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        would_fetch_estimate = f"{limit}+" if has_more else str(len(rows))
+
+        existing_workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .all()
+        )
+
+        preview = []
+        for act in rows:
+            hit = _find_match(act, existing_workouts, _TOLERANCE)
+            start_iso = (
+                act.start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                if act.start_time
+                else None
+            )
+            dist = float(act.distance_km) if act.distance_km is not None else None
+            preview.append({
+                "strava_activity_id": act.strava_activity_id,
+                "name": act.name,
+                "activity_type": act.activity_type,
+                "start_time": start_iso,
+                "distance_km": dist,
+                "would_match_existing_workout_id": str(hit.id) if hit else None,
+                "would_match_workout_date": hit.workout_date.isoformat() if hit else None,
+                "would_create_new": hit is None,
+                "is_stryd_synced": bool(act.is_stryd_synced),
+            })
+
+    return {
+        "would_fetch_estimate": would_fetch_estimate,
+        "preview": preview,
     }
