@@ -70,6 +70,13 @@ python scripts/run_strava_sync.py --user_id <UUID> --env uat
 
 Omit `--user_id` to fall back to the first user with a connected Strava token. See `scripts/run_strava_sync.py --help` for full usage.
 
+## Known Limitations
+
+- **Polling only.** Sync is manual (triggered from Settings) or via CLI. Webhook / real-time push is not implemented.
+- **Single athlete.** One Strava account per user. Multi-account and athlete-team scenarios are not supported.
+- **Activity types.** Only standard Strava activity types (Run, Ride, etc.) are reconciled. Uncommon sport types may map to a generic workout type.
+- **Scheduled sync.** Automatic background syncs are planned but not yet active. The Settings page shows a placeholder.
+
 ## Notes
 
 - Tokens are refreshed automatically when less than 5 minutes remain on the access token.

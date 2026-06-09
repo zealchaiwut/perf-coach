@@ -612,23 +612,27 @@
 
     var sourcesWrap = document.createElement('div');
     sourcesWrap.className = 'source-badges-wrap';
-    var srcStr = (w.source || 'manual');
-    srcStr.split(',').forEach(function (s) {
-      s = s.trim().toLowerCase();
+    var isStrava = (w.source === 'strava');
+    var isStryd = !!w.is_stryd_synced;
+    if (isStrava) {
       var sbadge = document.createElement('span');
-      if (s === 'strava') {
-        sbadge.className = 'source-badge source-badge--strava';
-        sbadge.textContent = 'St';
-      } else if (s === 'stryd') {
-        sbadge.className = 'source-badge source-badge--stryd';
-        sbadge.textContent = 'S';
-      } else {
-        sbadge.className = 'source-badge source-badge--manual';
-        sbadge.setAttribute('aria-label', 'Manual');
-        sbadge.innerHTML = '&#9998;';
-      }
+      sbadge.className = 'source-badge source-badge--strava';
+      sbadge.textContent = 'St';
       sourcesWrap.appendChild(sbadge);
-    });
+    }
+    if (isStryd) {
+      var sbadge2 = document.createElement('span');
+      sbadge2.className = 'source-badge source-badge--stryd';
+      sbadge2.textContent = 'S';
+      sourcesWrap.appendChild(sbadge2);
+    }
+    if (!isStrava && !isStryd) {
+      var sbadgeM = document.createElement('span');
+      sbadgeM.className = 'source-badge source-badge--manual';
+      sbadgeM.setAttribute('aria-label', 'Manual');
+      sbadgeM.innerHTML = '&#9998;';
+      sourcesWrap.appendChild(sbadgeM);
+    }
 
     row.appendChild(dateCol);
     row.appendChild(badge);
@@ -857,15 +861,17 @@
     var typeLabel = typeLabels[typeKey] || (workout.workout_type || 'Workout').toUpperCase();
 
     var sourceHtml = '';
-    var srcStr = (workout.source || 'manual');
-    srcStr.split(',').forEach(function (s) {
-      s = s.trim().toLowerCase();
-      var cls, lbl;
-      if (s === 'strava')      { cls = 'dp-src-badge--strava'; lbl = 'St'; }
-      else if (s === 'stryd')  { cls = 'dp-src-badge--stryd';  lbl = 'S';  }
-      else                     { cls = 'dp-src-badge--manual';  lbl = '✎'; }
-      sourceHtml += '<span class="dp-src-badge ' + esc(cls) + '" title="' + esc(s) + '">' + esc(lbl) + '</span>';
-    });
+    var dpIsStrava = (workout.source === 'strava');
+    var dpIsStryd  = !!workout.is_stryd_synced;
+    if (dpIsStrava) {
+      sourceHtml += '<span class="dp-src-badge dp-src-badge--strava" title="strava">St</span>';
+    }
+    if (dpIsStryd) {
+      sourceHtml += '<span class="dp-src-badge dp-src-badge--stryd" title="stryd">S</span>';
+    }
+    if (!dpIsStrava && !dpIsStryd) {
+      sourceHtml += '<span class="dp-src-badge dp-src-badge--manual" title="manual">&#10002;</span>';
+    }
 
     var heroHtml =
       '<div class="dp-hero">' +

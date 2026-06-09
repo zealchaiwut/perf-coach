@@ -4337,6 +4337,7 @@ def get_training_log(
             "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
+            "is_stryd_synced": w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
             "weight_context": w.remarks,
         }
@@ -5321,6 +5322,58 @@ def strava_sync_latest(user: User = Depends(resolve_user)):
             "activities_synced": batch_count,
             "new_workouts": new_workouts,
         })
+
+
+@app.get("/api/sync/strava/data-quality")
+def strava_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
+    """Return data quality counts for a user's Strava/workout sync state."""
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    uid = user_id
+    with Session(engine) as session:
+        from sqlalchemy import func as _func, select as _sel, text as _text
+        strava_count = session.execute(
+            _sel(_func.count(StravaActivity.id)).where(StravaActivity.user_id == uid)
+        ).scalar() or 0
+
+        w_strava_count = session.execute(
+            _sel(_func.count(Workout.id))
+            .where(Workout.user_id == uid)
+            .where(Workout.source.in_(["strava", "both", "strava,stryd", "stryd,strava"]))
+        ).scalar() or 0
+
+        w_no_source_count = session.execute(
+            _sel(_func.count(Workout.id))
+            .where(Workout.user_id == uid)
+            .where((Workout.source == None) | (Workout.source == ""))
+        ).scalar() or 0
+
+        stryd_synced_count = session.execute(
+            _sel(_func.count(Workout.id))
+            .where(Workout.user_id == uid)
+            .where(Workout.stryd_activity_pk != None)
+        ).scalar() or 0
+
+        # Count workouts whose start_time is within 5 minutes of another workout for the same user
+        dupe_sql = _text("""
+            SELECT COUNT(DISTINCT w1.id)
+            FROM workouts w1
+            JOIN workouts w2 ON w2.user_id = w1.user_id
+              AND w2.id <> w1.id
+              AND w1.start_time IS NOT NULL
+              AND w2.start_time IS NOT NULL
+              AND ABS(EXTRACT(EPOCH FROM (w1.start_time - w2.start_time))) < 300
+            WHERE w1.user_id = :uid
+        """)
+        potential_dupes = session.execute(dupe_sql, {"uid": str(uid)}).scalar() or 0
+
+    return JSONResponse({
+        "strava_activities_count": int(strava_count),
+        "workouts_with_strava_source_count": int(w_strava_count),
+        "workouts_without_source_count": int(w_no_source_count),
+        "is_stryd_synced_count": int(stryd_synced_count),
+        "potential_dupes_count": int(potential_dupes),
+    })
 
 
 # ── App config (persistent key-value settings) ────────────────────────────────

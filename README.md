@@ -2,6 +2,18 @@
 
 Personal performance dashboard. Tracks weight, habits, readiness, training log, and performance trends.
 
+## Features
+
+- **Weight tracking** — daily log, trend chart, and goal targets
+- **Habit tracking** — configurable habits with streak and calendar views
+- **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
+- **Readiness score** — computed from wellness metrics with contextual interpretation
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace
+- **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
+- **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
+- **Performance trends** — CTL/ATL/TSB (training load) and personal records
+- **Multi-user** — session-based auth, per-user data isolation
+
 ## Canonical working directory
 
 **Use a single clone of this repository.** Environment selection is branch-based:
