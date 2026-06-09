@@ -233,6 +233,40 @@
     .readiness-cta-btn:disabled { opacity: 0.6; cursor: default; }
     .readiness-cta-btn i { font-size: 16px; }
 
+    /* ---- Readiness contributor list ---- */
+    .rd-contributors {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 60%;
+    }
+    .rd-contributor {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+    }
+    .rd-factor-name {
+      font-weight: 600;
+      min-width: 50px;
+    }
+    .rd-arrow { font-size: 14px; font-weight: 700; }
+    .rd-arrow--positive { color: var(--green); }
+    .rd-arrow--negative { color: var(--red); }
+    .rd-arrow--neutral  { color: var(--text-tertiary); }
+    .rd-factor-val {
+      font-size: 13px;
+      color: rgba(11, 21, 48, 0.75);
+    }
+
+    /* ---- PR trend icon ---- */
+    .pr-trend { display: inline-flex; align-items: center; font-weight: 600; font-size: 14px; }
+    .pr-trend--green { color: var(--green); }
+    .pr-trend--red   { color: var(--red); }
+    .pr-trend--flat  { color: var(--text-tertiary); }
+    .pr-dash { color: var(--text-tertiary); }
+
     /* ---- SLEEP HERO CARD ---- */
     .sleep-card {
       background: linear-gradient(160deg, var(--sleep-1) 0%, var(--sleep-2) 100%);
@@ -617,6 +651,37 @@
       100% { background-position: -200% 0; }
     }
 
+    /* ---- WEIGHT WIDGET ---- */
+    .ww-stat { display: flex; align-items: baseline; gap: 5px; margin-top: 4px; }
+    .ww-current { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
+    .ww-unit { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
+    .ww-avg { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+    .ww-pills { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .ww-pill {
+      font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+    }
+    .ww-pill--green { background: var(--green-soft); color: var(--green); }
+    .ww-pill--red   { background: var(--red-soft);   color: var(--red); }
+    .ww-pill--flat  { background: var(--chip-bg);    color: var(--text-tertiary); }
+    .ww-sparkline { width: 100%; height: 40px; display: block; overflow: visible; flex-shrink: 0; margin-top: 8px; }
+    .ww-progress-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .ww-progress-bar {
+      flex: 1; height: 5px; border-radius: 3px;
+      background: var(--chip-bg); overflow: hidden;
+    }
+    .ww-progress-fill { height: 100%; border-radius: 3px; background: #2b4ca8; }
+    .ww-status-pill {
+      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+    }
+    .ww-status--green { background: var(--green-soft); color: var(--green); }
+    .ww-status--amber { background: var(--amber-soft); color: var(--amber); }
+    .ww-status--blue  { background: var(--blue-soft);  color: var(--blue-text); }
+    .ww-set-target { margin-top: 8px; font-size: 12px; }
+    .ww-empty { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px; }
+    .ww-error { font-size: 13px; color: var(--text-secondary); margin-top: 8px; display: flex; align-items: center; }
+    .ww-on_track { background: var(--green-soft); color: var(--green); }
+
     /* ---- LOG TODAY CARD ---- */
     #row-log { margin-bottom: 16px; }
     .log-today { padding: 18px 22px; border-left: 3px solid #2b4ca8; }
@@ -821,6 +886,44 @@
       background: #2b4ca8; border-radius: 3px;
     }
 
+    /* ---- ROW 5: WEEKLY SUMMARY ---- */
+    #row-5 { margin-bottom: 16px; }
+
+    .wks-card { padding: 22px; }
+    .wks-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .wks-stats { display: flex; flex-direction: column; gap: 12px; }
+    .wks-count-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .wks-count { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+    .wks-count-lbl { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+    .wks-rest { font-size: 12px; color: var(--text-tertiary); margin-left: auto; }
+    .wks-types { display: flex; gap: 8px; flex-wrap: wrap; }
+    .wks-type {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--chip-bg); border-radius: 8px;
+      padding: 4px 10px; font-size: 12px; font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .wks-type i { font-size: 14px; }
+    .wks-type-none { font-size: 13px; color: var(--text-tertiary); }
+    .wks-totals { display: flex; gap: 12px; flex-wrap: wrap; }
+    .wks-total-item { display: flex; align-items: baseline; gap: 3px; }
+    .wks-v { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+    .wks-deltas { display: flex; gap: 6px; flex-wrap: wrap; }
+    .wks-pill {
+      font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+    }
+    .wks-pill--green { background: var(--green-soft); color: var(--green); }
+    .wks-pill--red   { background: var(--red-soft);   color: var(--red); }
+    .wks-pill--flat  { background: var(--chip-bg);    color: var(--text-tertiary); }
+    .wks-chart { display: flex; align-items: center; justify-content: center; }
+    .wks-bar-chart { width: 100%; height: 90px; display: block; overflow: visible; }
+
     /* ---- RESPONSIVE: <= 880px ---- */
     @media (max-width: 880px) {
       .page { padding: 16px 14px 8px; }
@@ -906,6 +1009,9 @@
       /* Habits grid: mobile — single column, bigger cells, streak footer */
       #row-4 { grid-template-columns: 1fr; }
 
+      /* Weekly summary: single column on mobile */
+      .wks-body { grid-template-columns: 1fr; }
+
       /* Habits stats graph: mobile — bars on top, stats 2×2 below */
       .habits-graph .hg-body { display: flex; flex-direction: column; gap: 18px; }
       .hg-chart { min-height: 110px; }
@@ -962,6 +1068,7 @@
   <div id="row-log"></div>
   <div id="row-3"></div>
   <div id="row-4"></div>
+  <div id="row-5"></div>
 </main>
 
 <script src="js/nav.js"></script>

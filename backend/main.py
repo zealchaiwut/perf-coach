@@ -1374,6 +1374,647 @@ def get_weight_chart(
         return JSONResponse(result)
 
 
+# ── Home weight-summary endpoint ──────────────────────────────────────────────
+
+_WEIGHT_SUMMARY_EMPTY = {
+    "current_weight": None,
+    "avg_7d": None,
+    "delta_week": None,
+    "delta_month": None,
+    "target": None,
+    "ma30": [],
+}
+
+
+@app.get("/api/home/weight-summary")
+def get_home_weight_summary(user: User = Depends(resolve_user)):
+    uid = user.id
+    today = _date.today()
+    # today-36 covers 7-day MA windows for all 30 sparkline days and delta_month
+    fetch_from = today - _timedelta(days=36)
+
+    try:
+        with Session(engine) as session:
+            entries = (
+                session.query(WeightEntry)
+                .filter(
+                    WeightEntry.user_id == uid,
+                    WeightEntry.entry_date >= fetch_from,
+                )
+                .order_by(WeightEntry.entry_date.asc())
+                .all()
+            )
+
+            active_target = (
+                session.query(WeightTarget)
+                .filter(
+                    WeightTarget.user_id == uid,
+                    WeightTarget.status == "active",
+                )
+                .first()
+            )
+    except sa_exc.OperationalError:
+        return JSONResponse(_WEIGHT_SUMMARY_EMPTY)
+
+    # Build date → [weights] map for moving-average computation
+    date_weights: dict = {}
+    for e in entries:
+        d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+        date_weights.setdefault(d, []).append(float(e.weight_kg))
+
+    def _ma(day: _date):
+        """7-day moving average ending on day (inclusive window [day-6, day])."""
+        vals = []
+        for offset in range(7):
+            di = day - _timedelta(days=6 - offset)
+            if di in date_weights:
+                vals.extend(date_weights[di])
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    # ma30: 30-day window of {date, value} items, nulls filtered out, oldest first
+    ma30 = []
+    for i in range(30):
+        day = today - _timedelta(days=29 - i)
+        v = _ma(day)
+        if v is not None:
+            ma30.append({"date": str(day), "value": v})
+
+    # Current weight from most recent entry
+    if entries:
+        last = entries[-1]
+        current_weight: Optional[float] = round(float(last.weight_kg), 2)
+    else:
+        current_weight = None
+
+    avg_7d = _ma(today)
+
+    delta_week = None
+    if avg_7d is not None:
+        ma_7d_ago = _ma(today - _timedelta(days=7))
+        if ma_7d_ago is not None:
+            delta_week = round(avg_7d - ma_7d_ago, 2)
+
+    delta_month = None
+    if avg_7d is not None:
+        ma_30d_ago = _ma(today - _timedelta(days=30))
+        if ma_30d_ago is not None:
+            delta_month = round(avg_7d - ma_30d_ago, 2)
+
+    target_info = None
+    if active_target:
+        status_label = _compute_status_label(active_target, avg_7d, today)
+        target_w = float(active_target.target_weight_kg)
+        start_w = float(active_target.start_weight_kg)
+        direction = "down" if target_w < start_w else "up"
+        total_kg = abs(start_w - target_w)
+        if total_kg != 0:
+            kg_changed = abs(start_w - (current_weight if current_weight is not None else start_w))
+            progress_pct = round(min(max(kg_changed / total_kg * 100, 0), 100), 2)
+        else:
+            progress_pct = 100.0
+        td = active_target.target_date if isinstance(active_target.target_date, _date) else _date.fromisoformat(str(active_target.target_date))
+        target_info = {
+            "direction": direction,
+            "target_weight_kg": target_w,
+            "target_date": str(td),
+            "progress_pct": progress_pct,
+            "status_label": status_label,
+        }
+
+    return JSONResponse({
+        "current_weight": current_weight,
+        "avg_7d": avg_7d,
+        "delta_week": delta_week,
+        "delta_month": delta_month,
+        "target": target_info,
+        "ma30": ma30,
+    })
+
+
+# ── Home recent-workouts endpoint ─────────────────────────────────────────────
+
+@app.get("/api/home/recent-workouts")
+def get_home_recent_workouts(
+    user_id: str = Query(...),
+    limit: int = Query(default=5, ge=1, le=10),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        rows = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .limit(limit + 1)
+            .all()
+        )
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    today = _date.today()
+
+    def _rel(d):
+        delta = (today - d).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        if delta < 7:
+            return f"{delta} days ago"
+        return d.isoformat()
+
+    def _to_dict(w):
+        d = {}
+        try:
+            d["id"] = str(w.id)
+        except Exception:
+            pass
+        try:
+            d["workout_date"] = w.workout_date.isoformat()
+        except Exception:
+            pass
+        try:
+            d["workout_type"] = w.workout_type
+        except Exception:
+            pass
+        try:
+            d["name"] = w.name
+        except Exception:
+            pass
+        try:
+            if w.distance_km is not None:
+                d["distance_km"] = float(w.distance_km)
+        except Exception:
+            pass
+        try:
+            if w.duration_seconds is not None:
+                d["duration_seconds"] = int(w.duration_seconds)
+        except Exception:
+            pass
+        try:
+            if w.avg_hr is not None:
+                d["avg_hr"] = int(w.avg_hr)
+        except Exception:
+            pass
+        try:
+            if w.tss is not None:
+                d["tss"] = float(w.tss)
+        except Exception:
+            pass
+        try:
+            if w.source is not None:
+                d["source"] = w.source
+        except Exception:
+            pass
+        try:
+            d["is_stryd_synced"] = w.stryd_activity_pk is not None
+        except Exception:
+            pass
+        try:
+            d["relative_date"] = _rel(w.workout_date)
+        except Exception:
+            pass
+        return d
+
+    return JSONResponse({
+        "workouts": [_to_dict(w) for w in rows],
+        "count": len(rows),
+        "has_more": has_more,
+    })
+
+
+# ── Home personal-records endpoint ────────────────────────────────────────────
+
+_PR_TRACK_META = {
+    "half_marathon": {"name": "Half Marathon", "track_type": "time"},
+    "10k": {"name": "10K", "track_type": "time"},
+    "squat_1rm": {"name": "Squat 1RM", "track_type": "weight"},
+}
+_PR_DEFAULT_TRACKS = ["half_marathon", "10k", "squat_1rm"]
+
+
+def _format_pr_time(seconds: float) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def _format_pr_weight(kg: float) -> str:
+    if kg == int(kg):
+        return f"{int(kg)} kg"
+    return f"{kg} kg"
+
+
+def _pr_trend(records, track_type: str) -> str:
+    if len(records) < 2:
+        return "no_data"
+    latest = float(records[0].value_numeric)
+    previous = float(records[1].value_numeric)
+    if previous == 0:
+        return "no_data"
+    diff_pct = abs(latest - previous) / previous
+    if diff_pct <= 0.01:
+        return "stable"
+    if track_type == "time":
+        return "improving" if latest < previous else "declining"
+    return "improving" if latest > previous else "declining"
+
+
+@app.get("/api/home/personal-records")
+def get_home_personal_records(
+    user_id: str = Query(...),
+    tracks: str = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    track_list = [t.strip() for t in tracks.split(",")] if tracks else _PR_DEFAULT_TRACKS
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        try:
+            all_records = (
+                session.query(PersonalRecord)
+                .filter(
+                    PersonalRecord.user_id == uid,
+                    PersonalRecord.track_key.in_(track_list),
+                )
+                .order_by(PersonalRecord.track_key, PersonalRecord.achieved_on.desc())
+                .all()
+            )
+        except Exception:
+            return JSONResponse({"tracks": []})
+
+    grouped: dict = {}
+    for r in all_records:
+        grouped.setdefault(r.track_key, []).append(r)
+
+    result = []
+    for tk in track_list:
+        meta = _PR_TRACK_META.get(tk, {})
+        recs = grouped.get(tk, [])
+
+        if not recs:
+            result.append({
+                "track_key": tk,
+                "track_name": meta.get("name", tk),
+                "track_type": meta.get("track_type", None),
+                "current_value": None,
+                "current_value_formatted": None,
+                "achieved_on": None,
+                "predicted_value": None,
+                "predicted_value_formatted": None,
+                "predicted_method": None,
+                "trend": "no_data",
+            })
+            continue
+
+        latest = recs[0]
+        track_type = latest.track_type
+        current_value = float(latest.value_numeric)
+        formatted = _format_pr_time(current_value) if track_type == "time" else _format_pr_weight(current_value)
+
+        result.append({
+            "track_key": tk,
+            "track_name": latest.track_name,
+            "track_type": track_type,
+            "current_value": current_value,
+            "current_value_formatted": formatted,
+            "achieved_on": latest.achieved_on.isoformat() if latest.achieved_on else None,
+            "predicted_value": None,
+            "predicted_value_formatted": None,
+            "predicted_method": None,
+            "trend": _pr_trend(recs, track_type),
+        })
+
+    return JSONResponse({"tracks": result})
+
+
+# ── Home readiness endpoint ───────────────────────────────────────────────────
+
+
+def _readiness_score_label(score: Optional[int]) -> str:
+    """Score label thresholds: ≥80 Excellent, 60-79 Good, 40-59 OK, 20-39 Caution, <20 Recovery."""
+    if score is None:
+        return "No data"
+    if score >= 80:
+        return "Excellent"
+    if score >= 60:
+        return "Good"
+    if score >= 40:
+        return "OK"
+    if score >= 20:
+        return "Caution"
+    return "Recovery"
+
+
+@app.get("/api/home/readiness")
+def get_home_readiness(
+    user_id: Optional[str] = Query(default=None),
+    date: Optional[str] = Query(default=None),
+):
+    # Score formula: sleep_hours 30%, hrv 25%, rhr 20%, mood 15%, energy 10%
+    # Per-factor: sleep/HRV/RHR compare vs 7d rolling avg; mood/energy: raw value × 20
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        query_date = _date.fromisoformat(date) if date else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format")
+
+    baseline_end = query_date - _timedelta(days=1)
+    baseline_start = query_date - _timedelta(days=7)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        metrics = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date == query_date,
+            )
+            .first()
+        )
+
+        baseline_rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date <= baseline_end,
+            )
+            .all()
+        )
+
+    def _avg(vals):
+        non_null = [v for v in vals if v is not None]
+        return round(sum(non_null) / len(non_null), 2) if non_null else None
+
+    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
+    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+
+    rolling_baseline = {
+        "hrv_7d_avg": hrv_7d_avg,
+        "rhr_7d_avg": rhr_7d_avg,
+        "sleep_7d_avg_hours": sleep_7d_avg_hours,
+    }
+
+    if metrics is None:
+        contributors = [
+            {"factor": "sleep_hours", "value": None, "weight": 0.30, "impact": "neutral"},
+            {"factor": "hrv", "value": None, "weight": 0.25, "impact": "neutral"},
+            {"factor": "rhr", "value": None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "mood", "value": None, "weight": 0.15, "impact": "neutral"},
+            {"factor": "energy", "value": None, "weight": 0.10, "impact": "neutral"},
+        ]
+        return JSONResponse({
+            "date": query_date.isoformat(),
+            "score": None,
+            "score_label": "No data",
+            "contributors": contributors,
+            "rolling_baseline": rolling_baseline,
+        })
+
+    def _bscore(value, baseline, higher_is_better: bool) -> float:
+        """Score 0-100; returns 50 when value equals baseline or baseline unavailable."""
+        if value is None:
+            return 50.0
+        v = float(value)
+        if baseline is None or baseline == 0:
+            return 50.0
+        b = float(baseline)
+        delta_pct = (v - b) / b * 100.0
+        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
+        return min(100.0, max(0.0, raw))
+
+    def _impact(factor_score: float) -> str:
+        if factor_score > 50:
+            return "positive"
+        if factor_score < 50:
+            return "negative"
+        return "neutral"
+
+    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg_hours, higher_is_better=True)
+    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, higher_is_better=True)
+    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, higher_is_better=False)
+    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
+    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+
+    contributors = [
+        {
+            "factor": "sleep_hours",
+            "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+            "weight": 0.30,
+            "impact": _impact(sleep_score),
+        },
+        {
+            "factor": "hrv",
+            "value": float(metrics.hrv) if metrics.hrv is not None else None,
+            "weight": 0.25,
+            "impact": _impact(hrv_score),
+        },
+        {
+            "factor": "rhr",
+            "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+            "weight": 0.20,
+            "impact": _impact(rhr_score),
+        },
+        {
+            "factor": "mood",
+            "value": float(metrics.mood) if metrics.mood is not None else None,
+            "weight": 0.15,
+            "impact": _impact(mood_score),
+        },
+        {
+            "factor": "energy",
+            "value": float(metrics.energy) if metrics.energy is not None else None,
+            "weight": 0.10,
+            "impact": _impact(energy_score),
+        },
+    ]
+
+    total = (
+        sleep_score * 0.30
+        + hrv_score * 0.25
+        + rhr_score * 0.20
+        + mood_score * 0.15
+        + energy_score * 0.10
+    )
+    score = int(round(min(100.0, max(0.0, total))))
+
+    return JSONResponse({
+        "date": query_date.isoformat(),
+        "score": score,
+        "score_label": _readiness_score_label(score),
+        "contributors": contributors,
+        "rolling_baseline": rolling_baseline,
+    })
+
+
+# ── Home weekly-summary endpoint ──────────────────────────────────────────────
+
+_WK_TYPE_BUCKETS = ("run", "lift", "wod", "bike")
+
+
+@app.get("/api/home/weekly-summary")
+def get_home_weekly_summary(
+    user_id: Optional[str] = Query(default=None),
+    week_start: Optional[str] = Query(default=None),
+):
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if week_start is None:
+        from zoneinfo import ZoneInfo
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        ws = today_bkk - _timedelta(days=today_bkk.weekday())
+    else:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week_start format")
+
+    we = ws + _timedelta(days=6)
+    prev_ws = ws - _timedelta(days=7)
+    prev_we = ws - _timedelta(days=1)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        all_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_ws,
+                Workout.workout_date <= we,
+            )
+            .all()
+        )
+
+    current_week = [w for w in all_workouts if ws <= w.workout_date <= we]
+    prev_week = [w for w in all_workouts if prev_ws <= w.workout_date <= prev_we]
+
+    by_type = {k: 0 for k in _WK_TYPE_BUCKETS}
+    for w in current_week:
+        try:
+            wt = (w.workout_type or "").lower()
+            if wt in by_type:
+                by_type[wt] += 1
+        except Exception:
+            pass
+
+    def _safe_float(val):
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _safe_int(val):
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _sum_attr(workouts, attr, cast):
+        try:
+            vals = [cast(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+            return sum(vals) if vals else None
+        except Exception:
+            return None
+
+    distance_km = _sum_attr(current_week, "distance_km", _safe_float)
+    if distance_km is not None:
+        distance_km = round(distance_km, 3)
+
+    dur_sec = _sum_attr(current_week, "duration_seconds", _safe_int)
+    duration_minutes = round(dur_sec / 60.0, 1) if dur_sec is not None else None
+
+    total_tss = _sum_attr(current_week, "tss", _safe_float)
+    if total_tss is not None:
+        total_tss = round(total_tss, 2)
+
+    elevation_m = _sum_attr(current_week, "elevation_m", _safe_int)
+
+    workout_dates_current = set(w.workout_date for w in current_week)
+    rest_days = sum(
+        1 for i in range(7)
+        if (ws + _timedelta(days=i)) not in workout_dates_current
+    )
+
+    prev_distance = _sum_attr(prev_week, "distance_km", _safe_float) or 0.0
+    prev_tss = _sum_attr(prev_week, "tss", _safe_float) or 0.0
+    curr_distance_for_delta = distance_km if distance_km is not None else 0.0
+    curr_tss_for_delta = total_tss if total_tss is not None else 0.0
+
+    vs_prev_week = {
+        "total_delta": len(current_week) - len(prev_week),
+        "distance_km_delta": round(curr_distance_for_delta - prev_distance, 3),
+        "tss_delta": round(curr_tss_for_delta - prev_tss, 2),
+    }
+
+    daily_load = []
+    for i in range(7):
+        day = ws + _timedelta(days=i)
+        day_workouts = [w for w in current_week if w.workout_date == day]
+        day_tss = _sum_attr(day_workouts, "tss", _safe_float)
+        if day_tss is not None:
+            day_tss = round(day_tss, 2)
+        daily_load.append({
+            "date": day.isoformat(),
+            "tss": day_tss,
+            "is_rest": day not in workout_dates_current,
+        })
+
+    return JSONResponse({
+        "week_start": ws.isoformat(),
+        "week_end": we.isoformat(),
+        "workouts": {
+            "total": len(current_week),
+            "by_type": by_type,
+        },
+        "distance_km": distance_km,
+        "duration_minutes": duration_minutes,
+        "total_tss": total_tss,
+        "elevation_m": elevation_m,
+        "rest_days": rest_days,
+        "vs_prev_week": vs_prev_week,
+        "daily_load": daily_load,
+    })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 class HabitIn(BaseModel):

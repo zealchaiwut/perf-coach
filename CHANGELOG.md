@@ -1,5 +1,17 @@
 # Changelog
 
+## Sprint 47
+
+- #347: Audit home page widgets and document data dependencies
+- #348: Add GET /api/home/recent-workouts endpoint
+- #349: Add GET /api/home/weight-summary endpoint
+- #350: Add GET /api/home/personal-records endpoint for PR widget
+- #351: Add GET /api/home/readiness daily readiness endpoint
+- #352: Add GET /api/home/weekly-summary endpoint
+- #353: Wire Home Page Weight Widget to Real API
+- #354: Wire PR and Readiness widgets to real API endpoints
+- #355: Wire weekly summary widget and polish home page
+
 ## Sprint 44
 
 - #339: Build weight page frontend with hero strip, chart, progress, milestones, and recent entries
