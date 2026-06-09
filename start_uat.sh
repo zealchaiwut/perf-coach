@@ -12,15 +12,21 @@ set -a
 source .env
 set +a
 
-if [ "${ENVIRONMENT:-}" != "uat" ]; then
+# Accept ENVIRONMENT case-insensitively (e.g. "uat" or "UAT")
+if [ "$(printf '%s' "${ENVIRONMENT:-}" | tr '[:upper:]' '[:lower:]')" != "uat" ]; then
   echo "ERROR: ENVIRONMENT must be 'uat' in .env to run this script." >&2
   exit 1
 fi
 
 CONFIGURED_PORT=9001
 
+# Render injects a single DATABASE_URL; locally fall back to the UAT-specific var.
+if [ -z "${DATABASE_URL:-}" ] && [ -n "${DATABASE_URL_UAT:-}" ]; then
+  export DATABASE_URL="$DATABASE_URL_UAT"
+fi
+
 if [ -z "${DATABASE_URL:-}" ]; then
-  echo "ERROR: DATABASE_URL is not set in .env." >&2
+  echo "ERROR: DATABASE_URL (or DATABASE_URL_UAT) is not set in .env." >&2
   exit 1
 fi
 
