@@ -20,7 +20,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -5241,6 +5241,90 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     return JSONResponse({"started": True}, status_code=202)
 
 
+class _SyncStravaTriggerBody(BaseModel):
+    since_date: Optional[str] = None
+    force_full: bool = False
+
+
+@app.post("/api/sync/strava")
+async def post_sync_strava(
+    background_tasks: BackgroundTasks,
+    body: _SyncStravaTriggerBody = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Trigger a Strava sync; returns 202 immediately. Sync runs via BackgroundTasks.
+    Falls back to synchronous execution if BackgroundTasks is unavailable.
+    """
+    from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
+
+    uid = user.id
+
+    with Session(engine) as session:
+        token = session.execute(
+            select(StravaToken).where(StravaToken.user_id == uid)
+        ).scalar_one_or_none()
+    if token is None:
+        raise HTTPException(status_code=422, detail="Connect Strava first")
+
+    with Session(engine) as session:
+        active_job = session.execute(
+            select(SyncJob)
+            .where(SyncJob.user_id == uid)
+            .where(SyncJob.source == "strava")
+            .where(SyncJob.status.in_(["pending", "running"]))
+            .order_by(SyncJob.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    if active_job is not None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "A sync is already in progress; wait for it to complete",
+                "job_id": str(active_job.id),
+            },
+        )
+
+    parsed_since: Optional[_date] = None
+    if body is not None and body.since_date is not None:
+        try:
+            parsed_since = _date.fromisoformat(body.since_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="since_date must be ISO format YYYY-MM-DD")
+        cutoff = _date.today() - _timedelta(days=365)
+        if parsed_since < cutoff:
+            raise HTTPException(status_code=422, detail="since_date cannot be more than 1 year in the past")
+
+    with Session(engine) as session:
+        has_activities = session.execute(
+            select(StravaActivity.id).where(StravaActivity.user_id == uid).limit(1)
+        ).scalar_one_or_none()
+    job_type = "initial_backfill" if has_activities is None else "manual_trigger"
+
+    with Session(engine) as session:
+        job = SyncJob(
+            user_id=uid,
+            source="strava",
+            job_type=job_type,
+            status="pending",
+            since_date=parsed_since,
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = str(job.id)
+
+    background_tasks.add_task(_strava_bg_sync, user_id=str(uid), since_date=parsed_since, job_id=job_id)
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job_id,
+            "status": "running",
+            "polling_url": f"/api/sync/strava/status?job_id={job_id}",
+        },
+    )
+
+
 @app.post("/api/sync/strava/reconcile")
 def strava_reconcile(user_id: _uuid.UUID = Query(...)):
     """Reconcile unlinked strava_activities into workouts. Returns counts."""
@@ -5275,10 +5359,74 @@ def strava_sync_dry_run(
     return JSONResponse(result)
 
 
+@app.get("/api/sync/strava/status")
+def get_strava_sync_status(
+    job_id: _uuid.UUID = Query(...),
+    user: User = Depends(resolve_user),
+):
+    """Return full SyncJob row for the given job_id."""
+    with Session(engine) as session:
+        job = session.get(SyncJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JSONResponse({
+        "id": str(job.id),
+        "user_id": str(job.user_id),
+        "source": job.source,
+        "job_type": job.job_type,
+        "status": job.status,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "activities_fetched": job.activities_fetched,
+        "activities_created": job.activities_created,
+        "activities_updated": job.activities_updated,
+        "activities_skipped": job.activities_skipped,
+        "error_message": job.error_message,
+        "since_date": job.since_date.isoformat() if job.since_date else None,
+    })
+
+
 @app.get("/api/sync/strava/latest")
-def strava_sync_latest(user: User = Depends(resolve_user)):
-    """Return info about the most recent completed Strava sync for the session user."""
+def strava_sync_latest(
+    user: User = Depends(resolve_user),
+    user_id: Optional[_uuid.UUID] = Query(None),
+):
+    """Return info about the most recent Strava sync.
+
+    With user_id query param: returns full SyncJob dict (any status) for that user; 404 if none.
+    Without user_id: returns legacy summary dict for session user (backwards-compatible).
+    """
     from sqlalchemy import func, select
+
+    if user_id is not None:
+        # New path: full SyncJob dict, any status
+        with Session(engine) as session:
+            job = session.execute(
+                select(SyncJob)
+                .where(SyncJob.user_id == user_id)
+                .where(SyncJob.source == "strava")
+                .order_by(SyncJob.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if job is None:
+            raise HTTPException(status_code=404, detail="No sync jobs found for this user")
+        return JSONResponse({
+            "id": str(job.id),
+            "user_id": str(job.user_id),
+            "source": job.source,
+            "job_type": job.job_type,
+            "status": job.status,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "activities_fetched": job.activities_fetched,
+            "activities_created": job.activities_created,
+            "activities_updated": job.activities_updated,
+            "activities_skipped": job.activities_skipped,
+            "error_message": job.error_message,
+            "since_date": job.since_date.isoformat() if job.since_date else None,
+        })
+
+    # Legacy path: session user, completed-only summary
     uid = user.id
     with Session(engine) as session:
         # Prefer SyncJob table (written by strava_sync service)
@@ -5304,7 +5452,6 @@ def strava_sync_latest(user: User = Depends(resolve_user)):
         if latest_synced is None:
             return JSONResponse({"synced_at": None, "activities_synced": 0, "new_workouts": 0})
         # Count activities synced in that batch (within 1 minute of max synced_at)
-        from datetime import timedelta as _timedelta
         window = latest_synced - _timedelta(minutes=1)
         batch_count = session.execute(
             select(func.count(StravaActivity.id))
