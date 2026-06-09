@@ -291,6 +291,219 @@
       gap: 0.5rem;
     }
 
+    /* ── Run details ── */
+    .run-section {
+      margin-bottom: 1.5rem;
+      max-width: 680px;
+    }
+
+    .run-primary {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+
+    .run-secondary {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.25rem;
+    }
+
+    .run-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .run-field label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #444;
+    }
+
+    .run-section input[type="number"] {
+      padding: 0.45rem 0.6rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9375rem;
+      font-family: inherit;
+      background: #fff;
+      box-sizing: border-box;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .run-section input[type="number"]:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    /* Hide native number spinners for a cleaner numeric field */
+    .run-section input[type="number"]::-webkit-outer-spin-button,
+    .run-section input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .run-section input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+    .run-input-affix {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+    }
+
+    .run-input-affix .affix {
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+
+    /* Distance + duration are the loud inputs */
+    #run-distance { width: 6rem; font-size: 1.05rem; }
+
+    .run-duration {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .run-duration .dur-box {
+      width: 3.1rem;
+      text-align: center;
+      font-size: 1.05rem;
+    }
+
+    .run-duration .dur-sep {
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+
+    .run-pace-field { min-width: 6rem; }
+
+    .run-pace {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #111827;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.6;
+    }
+
+    .run-pace.is-empty { color: #9ca3af; font-weight: 600; }
+
+    .run-secondary .run-input-affix input { width: 4.5rem; }
+
+    /* Splits */
+    .splits-block { margin-top: 0.75rem; }
+
+    .splits-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #444;
+      padding: 0.3rem 0;
+    }
+
+    .splits-caret {
+      font-size: 0.7rem;
+      color: #888;
+      transition: transform 0.15s ease-out;
+    }
+
+    .splits-toggle[aria-expanded="true"] .splits-caret { transform: rotate(90deg); }
+
+    .splits-optional {
+      font-weight: 400;
+      color: #9ca3af;
+      font-size: 0.8125rem;
+    }
+
+    .splits-body { margin-top: 0.5rem; }
+
+    #splits-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 460px;
+    }
+
+    #splits-table th {
+      text-align: left;
+      font-size: 0.8125rem;
+      color: #666;
+      font-weight: 600;
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid #e5e5e5;
+      white-space: nowrap;
+      background: #fafafa;
+    }
+
+    #splits-table td {
+      padding: 0.3rem 0.4rem;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+
+    #splits-table tbody tr:last-child td { border-bottom: none; }
+
+    .splits-idx { width: 2rem; text-align: center; color: #9ca3af; }
+
+    .split-input {
+      padding: 0.35rem 0.5rem;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: transparent;
+      width: 100%;
+      box-sizing: border-box;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .split-input:hover { border-color: #ddd; }
+
+    .split-input:focus {
+      outline: none;
+      border-color: #0070f3;
+      background: #fff;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
+    }
+
+    .split-dist { width: 5rem; }
+    .split-time { width: 5rem; }
+    .split-hr { width: 4.5rem; }
+    .split-pace { color: #374151; font-size: 0.9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    .splits-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .splits-actions { display: flex; gap: 0.5rem; }
+
+    .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
+
+    .splits-sum { font-size: 0.8125rem; color: #6b7280; margin: 0; }
+    .splits-sum.is-mismatch { color: #b45309; }
+
+    @media (max-width: 640px) {
+      .run-primary, .run-secondary { gap: 1rem; }
+      #run-distance, .run-duration .dur-box { font-size: 1rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .splits-caret { transition: none; }
+    }
+
     /* ── History view ── */
     .history-row {
       display: flex;
@@ -507,6 +720,98 @@
         <div class="meta-field">
           <label for="workout-tss">TSS <span style="font-weight:400;color:#999">(optional)</span></label>
           <input id="workout-tss" type="number" min="0" step="1" placeholder="e.g. 85">
+        </div>
+      </div>
+
+      <!-- ── Run details (shown only when workout type is a run) ── -->
+      <div id="run-section" class="run-section" style="display:none">
+        <p class="section-label">Run details</p>
+
+        <div class="run-primary">
+          <div class="run-field">
+            <label for="run-distance">Distance</label>
+            <div class="run-input-affix">
+              <input id="run-distance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.0">
+              <span class="affix">km</span>
+            </div>
+          </div>
+
+          <div class="run-field">
+            <label for="run-dur-h">Duration</label>
+            <div class="run-duration">
+              <input id="run-dur-h" class="dur-box" type="number" inputmode="numeric" min="0" max="99" placeholder="0">
+              <span class="dur-sep">h</span>
+              <input id="run-dur-m" class="dur-box" type="number" inputmode="numeric" min="0" max="59" placeholder="0">
+              <span class="dur-sep">m</span>
+              <input id="run-dur-s" class="dur-box" type="number" inputmode="numeric" min="0" max="59" placeholder="0">
+              <span class="dur-sep">s</span>
+            </div>
+          </div>
+
+          <div class="run-field run-pace-field">
+            <label>Avg pace</label>
+            <output id="run-pace" class="run-pace">—</output>
+          </div>
+        </div>
+
+        <div class="run-secondary">
+          <div class="run-field">
+            <label for="run-avg-hr">Avg HR</label>
+            <div class="run-input-affix">
+              <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+              <span class="affix">bpm</span>
+            </div>
+          </div>
+          <div class="run-field">
+            <label for="run-max-hr">Max HR</label>
+            <div class="run-input-affix">
+              <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+              <span class="affix">bpm</span>
+            </div>
+          </div>
+          <div class="run-field">
+            <label for="run-elevation">Elevation gain</label>
+            <div class="run-input-affix">
+              <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
+              <span class="affix">m</span>
+            </div>
+          </div>
+        </div>
+
+        <p id="run-error" class="field-error"></p>
+
+        <!-- Splits (optional, collapsed) -->
+        <div class="splits-block">
+          <button id="splits-toggle" type="button" class="splits-toggle" aria-expanded="false" aria-controls="splits-body">
+            <span class="splits-caret" aria-hidden="true">▸</span>
+            <span>Splits</span>
+            <span class="splits-optional">optional</span>
+          </button>
+
+          <div id="splits-body" class="splits-body" hidden>
+            <div class="table-scroll">
+              <table id="splits-table">
+                <thead>
+                  <tr>
+                    <th class="splits-idx">#</th>
+                    <th>Distance</th>
+                    <th>Time</th>
+                    <th>HR</th>
+                    <th>Pace</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="splits-tbody"></tbody>
+              </table>
+            </div>
+            <div class="splits-foot">
+              <div class="splits-actions">
+                <button id="add-split-btn" type="button" class="btn-secondary btn-sm">+ Add split</button>
+                <button id="auto-km-btn" type="button" class="btn-secondary btn-sm">Auto km splits</button>
+              </div>
+              <p id="splits-sum" class="splits-sum"></p>
+            </div>
+          </div>
         </div>
       </div>
 
