@@ -589,7 +589,7 @@
 
     var perfHeader =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
+        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</a></div>' +
         '<a href="/settings#personal-records">All tracks</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
@@ -1747,6 +1747,64 @@
     renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
 
+  /* ---- Threshold banner ---- */
+
+  var _THRESHOLD_BANNER_CSS = [
+    '#threshold-banner{display:flex;align-items:center;gap:8px;padding:9px 24px;',
+      "background:#fffbeb;border-bottom:1px solid #fcd34d;font-size:13px;font-weight:500;",
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
+    '#threshold-banner .tbanner-msg{flex:1;}',
+    '#threshold-banner a{color:#b45309;font-weight:600;text-decoration:underline;}',
+    '#threshold-banner .tbanner-dismiss{margin-left:auto;background:none;border:none;',
+      'cursor:pointer;font-size:16px;color:#92400e;padding:0 4px;line-height:1;flex-shrink:0;}',
+    '#threshold-banner .tbanner-dismiss:hover{color:#78350f;}',
+    '@media(max-width:880px){#threshold-banner{padding:9px 14px;}}'
+  ].join('');
+
+  function _showThresholdBanner() {
+    if (document.getElementById('threshold-banner')) return;
+    if (!document.getElementById('threshold-banner-styles')) {
+      var style = document.createElement('style');
+      style.id = 'threshold-banner-styles';
+      style.textContent = _THRESHOLD_BANNER_CSS;
+      document.head.appendChild(style);
+    }
+    var banner = document.createElement('div');
+    banner.id = 'threshold-banner';
+    banner.setAttribute('role', 'alert');
+    banner.innerHTML =
+      '<span class="tbanner-msg">Tip: set your FTP and threshold values in ' +
+        '<a href="/settings#thresholds">Settings</a> for accurate training load</span>' +
+      '<button class="tbanner-dismiss" type="button" aria-label="Dismiss">&#x2715;</button>';
+    var syncBar = document.getElementById('sync-status-bar');
+    var nav = document.querySelector('.global-nav');
+    var ref = syncBar || nav;
+    if (ref && ref.parentNode) {
+      ref.parentNode.insertBefore(banner, ref.nextSibling);
+    } else {
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+    banner.querySelector('.tbanner-dismiss').addEventListener('click', function () {
+      sessionStorage.setItem('threshold-banner-dismissed', '1');
+      banner.remove();
+    });
+  }
+
+  async function _checkThresholdBanner() {
+    if (sessionStorage.getItem('threshold-banner-dismissed')) return;
+    try {
+      var r = await fetch('/api/user-preferences');
+      if (!r.ok) return;
+      var data = await r.json();
+      var row = data.row;
+      var needsBanner = !row
+        || row.ftp_w == null
+        || row.threshold_hr == null
+        || row.threshold_pace_seconds_per_km == null;
+      if (needsBanner) _showThresholdBanner();
+    } catch (_) {}
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -1766,6 +1824,7 @@
     }
 
     if (userId) {
+      _checkThresholdBanner();
       loadReadinessCard(userId);
       loadSleepCard(userId);
       loadPerformanceCard(userId);
