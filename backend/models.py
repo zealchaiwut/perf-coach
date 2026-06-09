@@ -500,3 +500,28 @@ class TrainingLoadSnapshot(Base):
         UniqueConstraint("user_id", "snapshot_date", name="uq_training_load_snapshots_user_date"),
         Index("ix_training_load_snapshots_user_date", "user_id", "snapshot_date"),
     )
+
+
+class SyncJob(Base):
+    __tablename__ = "sync_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(50), nullable=False)
+    job_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'pending'"), default="pending")
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    activities_fetched = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    activities_created = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    activities_updated = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    activities_skipped = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    error_message = Column(Text, nullable=True)
+    since_date = Column(Date, nullable=True)
+    parameters = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_sync_jobs_user_source_started_at", "user_id", "source", "started_at"),
+    )
