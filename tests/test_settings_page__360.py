@@ -38,18 +38,21 @@ def client():
 
 @pytest.fixture(scope="module")
 def authed_client():
-    """Client with authenticated session (Alice)."""
+    """Client with authenticated session (fresh test user)."""
+    username = f"settings360_{uuid.uuid4().hex[:8]}"
     with httpx.Client(base_url=BASE, timeout=10, follow_redirects=True) as c:
-        res = c.get("/api/users")
-        assert res.status_code == 200, f"GET /api/users failed: {res.status_code}"
-        alice = next((u for u in res.json() if u["name"] == "Alice"), None)
-        assert alice is not None, "Alice not found in /api/users"
+        res = c.post("/api/users", json={"name": username})
+        assert res.status_code == 201, f"Failed to create test user: {res.text}"
+        user_id = res.json()["id"]
         with Session(engine) as db:
-            db.get(User, uuid.UUID(alice["id"])).password_hash = hash_password(_TEST_PASSWORD)
+            user = db.get(User, uuid.UUID(user_id))
+            assert user is not None, f"User {user_id} not found in engine DB"
+            user.password_hash = hash_password(_TEST_PASSWORD)
             db.commit()
-        login = c.post("/api/auth/login", json={"username": "Alice", "password": _TEST_PASSWORD})
+        login = c.post("/api/auth/login", json={"username": username, "password": _TEST_PASSWORD})
         assert login.status_code == 200, f"Login failed: {login.text}"
         yield c
+        c.delete(f"/api/users/{user_id}")
 
 
 @pytest.fixture(scope="module")
