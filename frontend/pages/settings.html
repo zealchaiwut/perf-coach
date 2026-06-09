@@ -377,6 +377,94 @@
     .integration-feedback.success { color: #15803d; }
     .integration-feedback.error   { color: #b91c1c; }
 
+    .integration-last-synced {
+      font-size: 12px;
+      color: #8b95ad;
+      margin-bottom: 8px;
+      min-height: 14px;
+    }
+
+    .strava-sync-panel {
+      margin-top: 10px;
+      padding: 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-sync-panel-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .strava-sync-panel-row:last-child { margin-bottom: 0; }
+    .strava-sync-panel label {
+      font-size: 12.5px;
+      color: #3a4361;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .strava-sync-panel input[type="date"] {
+      padding: 5px 8px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #fff;
+    }
+    .strava-sync-preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      margin-top: 8px;
+    }
+    .strava-sync-preview-table th {
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
+    }
+    .strava-sync-preview-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
+      color: #0b1530;
+    }
+    .strava-sync-preview-table tr:last-child td { border-bottom: 0; }
+    .strava-sync-tag--new {
+      background: #dcfce7;
+      color: #15803d;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-weight: 600;
+    }
+    .strava-sync-tag--match {
+      background: #f1f5f9;
+      color: #475569;
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .strava-sync-progress {
+      font-size: 12px;
+      color: #3a4361;
+      padding: 8px 0;
+    }
+    .strava-sync-success {
+      font-size: 12.5px;
+      color: #15803d;
+      font-weight: 500;
+    }
+    .strava-sync-success a { color: #15803d; font-weight: 700; }
+    .strava-sync-error {
+      font-size: 12.5px;
+      color: #b91c1c;
+      font-weight: 500;
+    }
+
     .stryd-form {
       display: flex;
       flex-direction: column;
@@ -881,7 +969,9 @@
             <span class="integration-badge integration-badge--disconnected" id="strava-badge">Loading…</span>
           </div>
           <div class="integration-meta" id="strava-meta"></div>
+          <div class="integration-last-synced" id="strava-last-synced"></div>
           <div class="integration-actions" id="strava-actions"></div>
+          <div id="strava-sync-panel"></div>
           <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
         </div>
 
@@ -1356,10 +1446,246 @@
 
       // ── Strava ─────────────────────────────────────────────────────────────
 
+      var _stravaUserId = null;
+      var _stravaSyncPollTimer = null;
+      var _stravaSyncPanelOpen = false;
+
+      function _stravaRelativeTime(isoStr) {
+        if (!isoStr) return 'Never synced';
+        var diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+        if (diff < 60) return 'Last synced just now';
+        if (diff < 3600) return 'Last synced ' + Math.floor(diff / 60) + ' min ago';
+        if (diff < 86400) return 'Last synced ' + Math.floor(diff / 3600) + ' hours ago';
+        return 'Last synced ' + Math.floor(diff / 86400) + ' days ago';
+      }
+
+      function loadStravaSyncLatest() {
+        var el = document.getElementById('strava-last-synced');
+        if (!el) return;
+        fetch('/api/sync/strava/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d) { el.textContent = ''; return; }
+            if (!d.synced_at) {
+              el.textContent = 'Never synced';
+            } else {
+              el.textContent = _stravaRelativeTime(d.synced_at) +
+                ': synced ' + d.activities_synced + ' activities (' + d.new_workouts + ' new workouts)';
+            }
+          })
+          .catch(function () { el.textContent = ''; });
+      }
+
+      function _stravaSinceDefault(latestSyncedAt) {
+        if (latestSyncedAt) {
+          return new Date(latestSyncedAt).toISOString().slice(0, 10);
+        }
+        var d = new Date();
+        d.setDate(d.getDate() - 90);
+        return d.toISOString().slice(0, 10);
+      }
+
+      function _clearStravaSyncPoll() {
+        if (_stravaSyncPollTimer) {
+          clearTimeout(_stravaSyncPollTimer);
+          _stravaSyncPollTimer = null;
+        }
+      }
+
+      function openStravaSyncPanel() {
+        if (_stravaSyncPanelOpen) { closeStravaSyncPanel(); return; }
+        _stravaSyncPanelOpen = true;
+        var btn = document.getElementById('strava-sync-now-btn');
+        if (btn) btn.textContent = 'Close';
+
+        fetch('/api/sync/strava/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var sinceDefault = _stravaSinceDefault(d && d.synced_at);
+            _renderStravaSyncPanel(sinceDefault);
+          })
+          .catch(function () { _renderStravaSyncPanel(_stravaSinceDefault(null)); });
+      }
+
+      function closeStravaSyncPanel() {
+        _stravaSyncPanelOpen = false;
+        _clearStravaSyncPoll();
+        var panel = document.getElementById('strava-sync-panel');
+        if (panel) panel.innerHTML = '';
+        var btn = document.getElementById('strava-sync-now-btn');
+        if (btn) btn.textContent = 'Sync now';
+      }
+
+      function _renderStravaSyncPanel(sinceDefault) {
+        var panel = document.getElementById('strava-sync-panel');
+        if (!panel) return;
+        panel.innerHTML =
+          '<div class="strava-sync-panel">' +
+            '<div class="strava-sync-panel-row">' +
+              '<label>Since <input type="date" id="strava-since-date" value="' + sinceDefault + '"></label>' +
+              '<label><input type="checkbox" id="strava-preview-toggle" checked> Show preview first</label>' +
+            '</div>' +
+            '<div class="strava-sync-panel-row">' +
+              '<button class="integration-btn integration-btn--secondary" id="strava-preview-btn">Preview</button>' +
+              '<button class="integration-btn integration-btn--primary" id="strava-run-sync-btn">Run sync</button>' +
+            '</div>' +
+            '<div id="strava-panel-result"></div>' +
+          '</div>';
+        document.getElementById('strava-preview-btn').addEventListener('click', stravaPreview);
+        document.getElementById('strava-run-sync-btn').addEventListener('click', stravaRunSync);
+      }
+
+      function _sinceDate() {
+        var el = document.getElementById('strava-since-date');
+        return el ? el.value : null;
+      }
+
+      function stravaPreview() {
+        if (!_stravaUserId) return;
+        var resultEl = document.getElementById('strava-panel-result');
+        if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Loading preview…</div>';
+        var params = 'user_id=' + encodeURIComponent(_stravaUserId);
+        var since = _sinceDate();
+        if (since) params += '&since_date=' + encodeURIComponent(since);
+        params += '&limit=20';
+        fetch('/api/sync/strava/dry-run?' + params)
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Preview failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            if (!resultEl) return;
+            var rows = d.preview || [];
+            if (!rows.length) {
+              resultEl.innerHTML = '<div class="strava-sync-progress">No activities to preview for this date range.</div>';
+              return;
+            }
+            var tbl =
+              '<table class="strava-sync-preview-table">' +
+                '<thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Action</th></tr></thead>' +
+                '<tbody>';
+            rows.forEach(function (a) {
+              var date = a.start_time ? a.start_time.slice(0, 10) : '—';
+              var action = a.would_create_new
+                ? '<span class="strava-sync-tag--new">New workout</span>'
+                : '<span class="strava-sync-tag--match">Match existing</span>';
+              tbl += '<tr><td>' + date + '</td><td>' + (a.name || '—') + '</td><td>' + (a.activity_type || '—') + '</td><td>' + action + '</td></tr>';
+            });
+            tbl += '</tbody></table>';
+            resultEl.innerHTML = tbl;
+          })
+          .catch(function (err) {
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + (err.message || 'Preview failed') + '</div>';
+          });
+      }
+
+      function stravaRunSync() {
+        _clearStravaSyncPoll();
+        var resultEl = document.getElementById('strava-panel-result');
+        if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Starting sync…</div>';
+        var since = _sinceDate();
+        var body = since ? JSON.stringify({ since_date: since }) : '{}';
+        fetch('/api/strava/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+        })
+          .then(function (r) {
+            if (r.status === 409) { throw new Error('Sync already in progress'); }
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
+            return r.json();
+          })
+          .then(function () {
+            _pollStravaSync(0);
+          })
+          .catch(function (err) {
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + (err.message || 'Sync failed') + '</div>';
+          });
+      }
+
+      function _pollStravaSync(attempt) {
+        var resultEl = document.getElementById('strava-panel-result');
+        fetch('/api/sync/status')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (job) {
+            if (!job || !resultEl) return;
+            var status = job.status || 'idle';
+            if (status === 'running') {
+              var phase = job.phase || '';
+              var fetched = job.current || 0;
+              var msg = phase === 'reconciling'
+                ? 'Reconciling activities…'
+                : 'Fetching activities… ' + fetched + ' fetched';
+              resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
+              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+            } else if (status === 'success') {
+              loadStravaSyncLatest();
+              fetch('/api/sync/strava/latest')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                  var n = d && d.new_workouts ? d.new_workouts : 0;
+                  if (resultEl) {
+                    resultEl.innerHTML =
+                      '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
+                      '<a href="/log">View them →</a></div>';
+                  }
+                });
+            } else if (status === 'error') {
+              var errMsg = job.error || 'Sync failed';
+              if (resultEl) {
+                resultEl.innerHTML =
+                  '<div class="strava-sync-error">' + errMsg + '</div>' +
+                  '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
+                var retryBtn = document.getElementById('strava-retry-btn');
+                if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+              }
+            } else {
+              // idle - maybe just finished, poll once more briefly
+              if (attempt < 3) {
+                _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+              }
+            }
+          })
+          .catch(function () {
+            if (attempt < 10) {
+              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+            }
+          });
+      }
+
+      function stravaReconcile() {
+        if (!_stravaUserId) return;
+        var reconcileBtn = document.getElementById('strava-reconcile-btn');
+        if (reconcileBtn) reconcileBtn.disabled = true;
+        intFeedback('strava-feedback', '', '');
+        fetch('/api/sync/strava/reconcile?user_id=' + encodeURIComponent(_stravaUserId), { method: 'POST' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Reconcile failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            intFeedback('strava-feedback',
+              'Matched ' + (d.matched_to_existing || 0) + ', created ' + (d.created_new || 0) + '.',
+              'success');
+            loadStravaSyncLatest();
+          })
+          .catch(function (err) {
+            intFeedback('strava-feedback', typeof err === 'string' ? err : (err.message || 'Reconcile failed'), 'error');
+          })
+          .finally(function () {
+            if (reconcileBtn) reconcileBtn.disabled = false;
+          });
+      }
+
       function renderStravaDisconnected() {
         document.getElementById('strava-badge').textContent = 'Disconnected';
         document.getElementById('strava-badge').className = 'integration-badge integration-badge--disconnected';
         document.getElementById('strava-meta').textContent = '';
+        var lastSynced = document.getElementById('strava-last-synced');
+        if (lastSynced) lastSynced.textContent = '';
+        var panel = document.getElementById('strava-sync-panel');
+        if (panel) panel.innerHTML = '';
+        _stravaSyncPanelOpen = false;
         var actions = document.getElementById('strava-actions');
         actions.innerHTML = '';
         var btn = document.createElement('button');
@@ -1380,14 +1706,22 @@
         }
         document.getElementById('strava-meta').textContent = meta;
 
+        loadStravaSyncLatest();
+
         var actions = document.getElementById('strava-actions');
         actions.innerHTML = '';
 
-        var syncBtn = document.createElement('button');
-        syncBtn.className = 'integration-btn integration-btn--secondary';
-        syncBtn.id = 'strava-sync-btn';
-        syncBtn.textContent = 'Sync';
-        syncBtn.addEventListener('click', stravaSync);
+        var syncNowBtn = document.createElement('button');
+        syncNowBtn.className = 'integration-btn integration-btn--secondary';
+        syncNowBtn.id = 'strava-sync-now-btn';
+        syncNowBtn.textContent = 'Sync now';
+        syncNowBtn.addEventListener('click', openStravaSyncPanel);
+
+        var reconcileBtn = document.createElement('button');
+        reconcileBtn.className = 'integration-btn integration-btn--secondary';
+        reconcileBtn.id = 'strava-reconcile-btn';
+        reconcileBtn.textContent = 'Reconcile only';
+        reconcileBtn.addEventListener('click', stravaReconcile);
 
         var discBtn = document.createElement('button');
         discBtn.className = 'integration-btn integration-btn--danger';
@@ -1395,7 +1729,8 @@
         discBtn.textContent = 'Disconnect';
         discBtn.addEventListener('click', stravaDisconnect);
 
-        actions.appendChild(syncBtn);
+        actions.appendChild(syncNowBtn);
+        actions.appendChild(reconcileBtn);
         actions.appendChild(discBtn);
       }
 
@@ -1436,36 +1771,15 @@
           });
       }
 
-      function stravaSync() {
-        var btn = document.getElementById('strava-sync-btn');
-        var discBtn = document.getElementById('strava-disconnect-btn');
-        intFeedback('strava-feedback', '', '');
-        if (btn) btn.disabled = true;
-        if (discBtn) discBtn.disabled = true;
-        if (btn) btn.textContent = 'Syncing…';
-        fetch('/api/strava/sync', { method: 'POST' })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Sync failed'); });
-            return r.json();
-          })
-          .then(function (d) {
-            intFeedback('strava-feedback', 'Synced ' + d.synced + ' activities.', 'success');
-          })
-          .catch(function (err) {
-            intFeedback('strava-feedback', typeof err === 'string' ? err : 'Sync failed', 'error');
-          })
-          .finally(function () {
-            if (btn) { btn.disabled = false; btn.textContent = 'Sync'; }
-            if (discBtn) discBtn.disabled = false;
-          });
-      }
-
       function stravaDisconnect() {
         var discBtn = document.getElementById('strava-disconnect-btn');
-        var syncBtn = document.getElementById('strava-sync-btn');
+        var syncNowBtn = document.getElementById('strava-sync-now-btn');
+        var reconcileBtn = document.getElementById('strava-reconcile-btn');
         intFeedback('strava-feedback', '', '');
+        _clearStravaSyncPoll();
         if (discBtn) discBtn.disabled = true;
-        if (syncBtn) syncBtn.disabled = true;
+        if (syncNowBtn) syncNowBtn.disabled = true;
+        if (reconcileBtn) reconcileBtn.disabled = true;
         fetch('/api/strava/disconnect', { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
@@ -1477,7 +1791,8 @@
           })
           .catch(function (err) {
             if (discBtn) discBtn.disabled = false;
-            if (syncBtn) syncBtn.disabled = false;
+            if (syncNowBtn) syncNowBtn.disabled = false;
+            if (reconcileBtn) reconcileBtn.disabled = false;
             intFeedback('strava-feedback', typeof err === 'string' ? err : 'Disconnect failed', 'error');
           });
       }
@@ -1596,7 +1911,8 @@
           });
       }
 
-      window.addEventListener('userReady', function () {
+      window.addEventListener('userReady', function (e) {
+        _stravaUserId = e.detail && e.detail.userId;
         loadStravaStatus();
         loadStrydStatus();
       });

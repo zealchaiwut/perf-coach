@@ -20,7 +20,7 @@ import urllib.error as _urllib_error
 
 _start_time = time.monotonic()
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -5123,9 +5123,18 @@ _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
 
 
-def _strava_sync_worker(user_id: str) -> None:
-    """Background daemon thread: pull all-time Strava activities and upsert."""
+def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
+    """Background daemon thread: pull Strava activities (optionally since since_date) and upsert."""
+    import calendar as _calendar
+    from datetime import date as _date_cls
     uid = _uuid.UUID(user_id)
+    since_epoch: Optional[int] = None
+    if since_date:
+        try:
+            d = _date_cls.fromisoformat(since_date)
+            since_epoch = int(_calendar.timegm(_datetime(d.year, d.month, d.day, tzinfo=_timezone.utc).timetuple()))
+        except ValueError:
+            pass
     try:
         _sync_jobs.set_phase(uid, "pulling_strava")
 
@@ -5140,11 +5149,10 @@ def _strava_sync_worker(user_id: str) -> None:
                 _sync_jobs.mark_error(uid, "cancelled")
                 return
 
-            url = (
-                _STRAVA_ACTIVITIES_URL
-                + "?"
-                + _urlencode({"per_page": _STRAVA_SYNC_PER_PAGE, "page": page})
-            )
+            params: dict = {"per_page": _STRAVA_SYNC_PER_PAGE, "page": page}
+            if since_epoch is not None:
+                params["after"] = since_epoch
+            url = _STRAVA_ACTIVITIES_URL + "?" + _urlencode(params)
             req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
             try:
                 with _urllib_request.urlopen(req) as resp:
@@ -5211,16 +5219,23 @@ def _strava_sync_worker(user_id: str) -> None:
         _sync_jobs.mark_error(uid, str(exc))
 
 
+class _StravaSyncBody(BaseModel):
+    since_date: Optional[str] = None
+
+
 @app.post("/api/strava/sync")
-def strava_sync(user: User = Depends(resolve_user)):
-    """Start an async Strava full-history pull; returns 202 immediately."""
+def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):
+    """Start an async Strava pull; returns 202 immediately. Optional since_date (YYYY-MM-DD)."""
     uid = user.id
+    since = None
+    if body is not None:
+        since = body.since_date
     try:
         _sync_jobs.start(uid, "strava")
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    t = _threading.Thread(target=_strava_sync_worker, args=(str(uid),), daemon=True)
+    t = _threading.Thread(target=_strava_sync_worker, args=(str(uid), since), daemon=True)
     t.start()
     return JSONResponse({"started": True}, status_code=202)
 
@@ -5257,6 +5272,55 @@ def strava_sync_dry_run(
         limit=limit,
     )
     return JSONResponse(result)
+
+
+@app.get("/api/sync/strava/latest")
+def strava_sync_latest(user: User = Depends(resolve_user)):
+    """Return info about the most recent completed Strava sync for the session user."""
+    from sqlalchemy import func, select
+    uid = user.id
+    with Session(engine) as session:
+        # Prefer SyncJob table (written by strava_sync service)
+        job = session.execute(
+            select(SyncJob)
+            .where(SyncJob.user_id == uid)
+            .where(SyncJob.source == "strava")
+            .where(SyncJob.status == "completed")
+            .order_by(SyncJob.completed_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if job is not None:
+            return JSONResponse({
+                "synced_at": job.completed_at.isoformat() if job.completed_at else None,
+                "activities_synced": (job.activities_created or 0) + (job.activities_updated or 0),
+                "new_workouts": job.activities_created or 0,
+            })
+        # Fall back to strava_activities table (written by old sync worker)
+        latest_synced = session.execute(
+            select(func.max(StravaActivity.synced_at))
+            .where(StravaActivity.user_id == uid)
+        ).scalar()
+        if latest_synced is None:
+            return JSONResponse({"synced_at": None, "activities_synced": 0, "new_workouts": 0})
+        # Count activities synced in that batch (within 1 minute of max synced_at)
+        from datetime import timedelta as _timedelta
+        window = latest_synced - _timedelta(minutes=1)
+        batch_count = session.execute(
+            select(func.count(StravaActivity.id))
+            .where(StravaActivity.user_id == uid)
+            .where(StravaActivity.synced_at >= window)
+        ).scalar() or 0
+        # Count strava-sourced workouts as a proxy for new_workouts
+        new_workouts = session.execute(
+            select(func.count(Workout.id))
+            .where(Workout.user_id == uid)
+            .where(Workout.source.in_(["strava", "both", "strava,stryd", "stryd,strava"]))
+        ).scalar() or 0
+        return JSONResponse({
+            "synced_at": latest_synced.isoformat(),
+            "activities_synced": batch_count,
+            "new_workouts": new_workouts,
+        })
 
 
 # ── App config (persistent key-value settings) ────────────────────────────────
