@@ -130,6 +130,11 @@ def _anon_bulk_post(alice_id, records):
 @pytest.fixture(scope="module")
 def history_time_records(client, alice_id):
     """Insert 3 half_marathon records with different dates; yield ids; cleanup after."""
+    test_dates = {"2025-01-10", "2025-06-15", "2026-01-20"}
+    hist = client.get("/api/personal-records/history", params={"user_id": alice_id, "track_key": "half_marathon"})
+    for r in hist.json().get("history", []):
+        if r["achieved_on"] in test_dates and r.get("source") == "manual":
+            client.delete(f"/api/personal-records/{r['id']}")
     records = [
         {"track_key": "half_marathon", "value_numeric": 5400.0, "achieved_on": "2025-01-10", "source": "manual"},
         {"track_key": "half_marathon", "value_numeric": 5100.0, "achieved_on": "2025-06-15", "source": "manual"},
@@ -146,6 +151,11 @@ def history_time_records(client, alice_id):
 @pytest.fixture(scope="module")
 def history_weight_records(client, alice_id):
     """Insert 3 squat_1rm records with different dates; yield ids; cleanup after."""
+    test_dates = {"2025-02-01", "2025-08-01", "2026-02-01"}
+    hist = client.get("/api/personal-records/history", params={"user_id": alice_id, "track_key": "squat_1rm"})
+    for r in hist.json().get("history", []):
+        if r["achieved_on"] in test_dates and r.get("source") == "manual":
+            client.delete(f"/api/personal-records/{r['id']}")
     records = [
         {"track_key": "squat_1rm", "value_numeric": 100.0, "achieved_on": "2025-02-01", "source": "manual"},
         {"track_key": "squat_1rm", "value_numeric": 110.0, "achieved_on": "2025-08-01", "source": "manual"},
