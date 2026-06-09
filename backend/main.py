@@ -36,6 +36,7 @@ from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
+from backend.services import workout_reconcile as _workout_reconcile
 
 app = FastAPI()
 
@@ -5220,6 +5221,13 @@ def strava_sync(user: User = Depends(resolve_user)):
     t = _threading.Thread(target=_strava_sync_worker, args=(str(uid),), daemon=True)
     t.start()
     return JSONResponse({"started": True}, status_code=202)
+
+
+@app.post("/api/sync/strava/reconcile")
+def strava_reconcile(user_id: _uuid.UUID = Query(...)):
+    """Reconcile unlinked strava_activities into workouts. Returns counts."""
+    result = _workout_reconcile.reconcile_strava_to_workouts(user_id)
+    return JSONResponse(result)
 
 
 # ── App config (persistent key-value settings) ────────────────────────────────
