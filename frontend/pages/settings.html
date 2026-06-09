@@ -511,6 +511,112 @@
       font-style: italic;
     }
 
+    /* ── Sync history panel ── */
+    .strava-history-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 12.5px;
+      font-family: inherit;
+      color: #3a4361;
+      font-weight: 500;
+      margin-top: 8px;
+      user-select: none;
+    }
+    .strava-history-toggle .toggle-arrow {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    .strava-history-toggle.open .toggle-arrow { transform: rotate(90deg); }
+    #strava-history-panel {
+      margin-top: 8px;
+      display: none;
+    }
+    #strava-history-panel.open { display: block; }
+    .strava-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .strava-history-table th {
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
+      background: #f1f5f9;
+    }
+    .strava-history-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
+      color: #0b1530;
+      vertical-align: top;
+    }
+    .strava-history-table tr:last-child td { border-bottom: 0; }
+    .sync-status-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .sync-status-badge--completed { background: #dcfce7; color: #15803d; }
+    .sync-status-badge--failed    { background: #fee2e2; color: #b91c1c; }
+    .sync-status-badge--running   { background: #dbeafe; color: #1d4ed8; }
+    .sync-status-badge--pending   { background: #f1f5f9; color: #64748b; }
+    .sync-history-error-msg {
+      font-size: 11px;
+      color: #b91c1c;
+      margin-top: 2px;
+    }
+    .sync-history-empty {
+      font-size: 12px;
+      color: #8b95ad;
+      padding: 10px 0;
+      text-align: center;
+    }
+
+    /* ── Scheduled sync placeholder ── */
+    .strava-scheduled-sync {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-scheduled-sync-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .strava-scheduled-sync-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #3a4361;
+    }
+    .coming-soon-tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .strava-scheduled-sync-copy {
+      font-size: 12px;
+      color: #8b95ad;
+    }
+
     /* ── About section ── */
     .about-grid {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -972,6 +1078,22 @@
           <div class="integration-last-synced" id="strava-last-synced"></div>
           <div class="integration-actions" id="strava-actions"></div>
           <div id="strava-sync-panel"></div>
+
+          <!-- Sync history (AC B) -->
+          <button class="strava-history-toggle" id="strava-history-toggle" type="button" aria-expanded="false">
+            <span class="toggle-arrow">&#9654;</span> Sync history
+          </button>
+          <div id="strava-history-panel" role="region" aria-label="Sync history"></div>
+
+          <!-- Scheduled sync placeholder (AC C) -->
+          <div class="strava-scheduled-sync" id="strava-scheduled-sync">
+            <div class="strava-scheduled-sync-header">
+              <span class="strava-scheduled-sync-title">Scheduled sync</span>
+              <span class="coming-soon-tag">Coming soon</span>
+            </div>
+            <p class="strava-scheduled-sync-copy">Automatic background syncs every hour are planned. For now, manual sync only.</p>
+          </div>
+
           <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
         </div>
 
@@ -1676,6 +1798,84 @@
             if (reconcileBtn) reconcileBtn.disabled = false;
           });
       }
+
+      // ── Sync history (AC B) ───────────────────────────────────────────────────
+
+      function _syncStatusBadge(status) {
+        var cls = 'sync-status-badge sync-status-badge--' + (status || 'pending');
+        return '<span class="' + cls + '">' + (status || 'unknown') + '</span>';
+      }
+
+      function _formatDuration(seconds) {
+        if (seconds == null) return '—';
+        if (seconds < 60) return Math.round(seconds) + 's';
+        return Math.round(seconds / 60) + 'm ' + Math.round(seconds % 60) + 's';
+      }
+
+      function _formatHistoryTimestamp(iso) {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+      }
+
+      function loadStravaHistory() {
+        var panel = document.getElementById('strava-history-panel');
+        if (!panel) return;
+        panel.innerHTML = '<div class="strava-sync-progress">Loading…</div>';
+        fetch('/api/sync/history?source=strava&limit=5')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (jobs) {
+            if (!panel) return;
+            if (!Array.isArray(jobs) || !jobs.length) {
+              panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+              return;
+            }
+            var tbl =
+              '<table class="strava-history-table">' +
+                '<thead><tr>' +
+                  '<th>Time</th><th>Type</th><th>Status</th><th>Duration</th><th>Counters</th>' +
+                '</tr></thead><tbody>';
+            jobs.forEach(function (job) {
+              var counters = '+' + (job.activities_created || 0) +
+                ' updated:' + (job.activities_updated || 0) +
+                ' skip:' + (job.activities_skipped || 0);
+              var errRow = job.status === 'failed' && job.error_message
+                ? '<br><span class="sync-history-error-msg">' + job.error_message + '</span>'
+                : '';
+              tbl +=
+                '<tr>' +
+                  '<td>' + _formatHistoryTimestamp(job.started_at) + '</td>' +
+                  '<td>' + (job.job_type || '—') + '</td>' +
+                  '<td>' + _syncStatusBadge(job.status) + '</td>' +
+                  '<td>' + _formatDuration(job.duration_seconds) + '</td>' +
+                  '<td>' + counters + errRow + '</td>' +
+                '</tr>';
+            });
+            tbl += '</tbody></table>';
+            panel.innerHTML = tbl;
+          })
+          .catch(function () {
+            if (panel) panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+          });
+      }
+
+      (function _initStravaHistoryToggle() {
+        var toggle = document.getElementById('strava-history-toggle');
+        var panel = document.getElementById('strava-history-panel');
+        if (!toggle || !panel) return;
+        toggle.addEventListener('click', function () {
+          var isOpen = panel.classList.contains('open');
+          if (isOpen) {
+            panel.classList.remove('open');
+            toggle.classList.remove('open');
+            toggle.setAttribute('aria-expanded', 'false');
+          } else {
+            panel.classList.add('open');
+            toggle.classList.add('open');
+            toggle.setAttribute('aria-expanded', 'true');
+            loadStravaHistory();
+          }
+        });
+      })();
 
       function renderStravaDisconnected() {
         document.getElementById('strava-badge').textContent = 'Disconnected';

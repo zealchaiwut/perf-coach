@@ -6914,6 +6914,59 @@ async def get_sync_status(user: User = Depends(resolve_user)):
     return JSONResponse(serialized)
 
 
+@app.get("/api/sync/history")
+def get_sync_history(
+    user: User = Depends(resolve_user),
+    user_id: Optional[_uuid.UUID] = Query(None),
+    source: Optional[str] = Query(None),
+    limit: int = Query(20),
+):
+    """Return paginated SyncJob history. Requires auth; 403 if requesting another user without admin."""
+    from sqlalchemy import select as _sel
+
+    if limit > 100:
+        raise HTTPException(status_code=400, detail="limit cannot exceed 100")
+
+    target_uid = user_id if user_id is not None else user.id
+    if target_uid != user.id and not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    with Session(engine) as session:
+        q = _sel(SyncJob).where(SyncJob.user_id == target_uid)
+        if source is not None:
+            q = q.where(SyncJob.source == source)
+        q = q.order_by(SyncJob.started_at.desc()).limit(limit)
+        rows = session.execute(q).scalars().all()
+
+    def _job_dict(job: SyncJob) -> dict:
+        finished = job.completed_at
+        started = job.started_at
+        duration = (
+            (finished - started).total_seconds()
+            if finished is not None and started is not None
+            else None
+        )
+        return {
+            "id": str(job.id),
+            "user_id": str(job.user_id),
+            "source": job.source,
+            "job_type": job.job_type,
+            "status": job.status,
+            "started_at": started.isoformat() if started else None,
+            "finished_at": finished.isoformat() if finished else None,
+            "completed_at": finished.isoformat() if finished else None,
+            "duration_seconds": duration,
+            "activities_fetched": job.activities_fetched,
+            "activities_created": job.activities_created,
+            "activities_updated": job.activities_updated,
+            "activities_skipped": job.activities_skipped,
+            "error_message": job.error_message,
+            "since_date": job.since_date.isoformat() if job.since_date else None,
+        }
+
+    return JSONResponse([_job_dict(r) for r in rows])
+
+
 # ── User Preferences endpoints ─────────────────────────────────────────────────
 
 _PREFS_DEFAULTS = {

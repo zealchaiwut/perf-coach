@@ -1,5 +1,33 @@
 # Changelog
 
+## Sprint 49
+
+### Strava activity sync
+
+Full Strava sync pipeline delivered across sprint 49:
+
+- #370: Strava OAuth connect / callback / disconnect / token-refresh flow
+- #371: `strava_activities` cache table and pull worker
+- #372: Reconcile Strava activities into `workouts` rows
+- #373: `GET /api/sync/strava/dry-run` preview endpoint
+- #374: `sync_jobs` table and SyncJob model
+- #375: Strava activity sync orchestrator service (`sync_strava_activities`)
+- #376: Background sync job registry and in-memory state machine
+- #377: `GET /api/sync/strava/dry-run` integration (phase 2)
+- #378: Stryd power data — TSS formula routing and workout enrichment
+- #379: Strava sync controls UI — settings panel, preview, polling, home banner
+- #380: Sync-status visibility, history UI, CLI runner, scheduled-sync placeholder, docs
+
+Features included in this sprint:
+- Manual sync from Settings → Integrations → Strava (date picker, preview, run)
+- Real-time sync-progress polling in the settings panel and nav status bar
+- `GET /api/sync/history` endpoint returning paginated SyncJob history with duration
+- Collapsible sync history panel in Settings (last 5 jobs, status badges, counters)
+- Scheduled sync placeholder (coming soon) in Settings
+- `scripts/run_strava_sync.py` CLI runner for cron or ad-hoc use
+- Deduplication via upsert on `strava_activity_id` (idempotent re-runs)
+- Sync history docs at `docs/integrations/strava.md`
+
 ## Sprint 48
 
 - #356: Add user_preferences table with per-user FTP and thresholds
