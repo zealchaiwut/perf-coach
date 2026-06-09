@@ -121,35 +121,34 @@ class TestACLastSyncedDisplay:
             f"Fresh user should have synced_at=null, got: {data['synced_at']}"
         )
 
-    def test_settings_js_calls_sync_latest_endpoint(self, client):
+    def test_settings_js_calls_sync_latest_endpoint(self, authed_client):
         """settings.html JS calls /api/sync/strava/latest."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert res.status_code == 200
         assert "/api/sync/strava/latest" in res.text, (
             "settings.html must call /api/sync/strava/latest"
         )
 
-    def test_settings_html_has_last_synced_element(self, client):
+    def test_settings_html_has_last_synced_element(self, authed_client):
         """settings.html has an element for displaying last sync info."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert res.status_code == 200
         body = res.text
         assert "strava-last-synced" in body, (
             "settings.html must have id='strava-last-synced' element"
         )
 
-    def test_settings_js_renders_never_synced(self, client):
+    def test_settings_js_renders_never_synced(self, authed_client):
         """settings.html JS renders 'Never synced' when synced_at is null."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert "Never synced" in res.text, (
             "settings.html JS must render 'Never synced' when no prior sync"
         )
 
-    def test_settings_js_renders_relative_time(self, client):
+    def test_settings_js_renders_relative_time(self, authed_client):
         """settings.html JS renders relative time (hours ago) from synced_at."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
-        # Check for relative time rendering logic
         assert "hours ago" in body or "hoursAgo" in body or "ago" in body, (
             "settings.html JS must render relative time ('N hours ago')"
         )
@@ -160,47 +159,47 @@ class TestACLastSyncedDisplay:
 class TestACSyncNowPanel:
     """AC: 'Sync now' button opens inline panel with date picker, toggle, Preview/Run buttons."""
 
-    def test_settings_js_has_sync_now_button(self, client):
+    def test_settings_js_has_sync_now_button(self, authed_client):
         """settings.html JS renders a 'Sync now' button."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert "Sync now" in res.text, (
             "settings.html must have 'Sync now' button text"
         )
 
-    def test_settings_html_has_sync_panel_container(self, client):
+    def test_settings_html_has_sync_panel_container(self, authed_client):
         """settings.html has container element for the sync panel."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "strava-sync-panel" in body, (
             "settings.html must have id='strava-sync-panel' container"
         )
 
-    def test_settings_js_has_date_picker(self, client):
+    def test_settings_js_has_date_picker(self, authed_client):
         """settings.html JS renders a date picker (input[type=date]) in the sync panel."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "strava-since-date" in body or ('type="date"' in body and "strava" in body.lower()), (
             "settings.html must have a date picker for sync panel"
         )
 
-    def test_settings_js_has_preview_toggle(self, client):
+    def test_settings_js_has_preview_toggle(self, authed_client):
         """settings.html JS renders a 'Show preview first' toggle."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "preview" in body.lower() and ("toggle" in body.lower() or "checkbox" in body.lower()), (
             "settings.html must have a 'Show preview first' toggle/checkbox"
         )
 
-    def test_settings_js_has_preview_button(self, client):
+    def test_settings_js_has_preview_button(self, authed_client):
         """settings.html JS renders a 'Preview' button."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert "Preview" in res.text, (
             "settings.html JS must have a 'Preview' button"
         )
 
-    def test_settings_js_has_run_sync_button(self, client):
+    def test_settings_js_has_run_sync_button(self, authed_client):
         """settings.html JS renders a 'Run sync' button."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         assert "Run sync" in res.text, (
             "settings.html JS must have a 'Run sync' button"
         )
@@ -211,33 +210,33 @@ class TestACSyncNowPanel:
 class TestACPreviewTable:
     """AC: 'Preview' calls GET /api/sync/strava/dry-run and renders compact table."""
 
-    def test_settings_js_preview_calls_dry_run(self, client):
+    def test_settings_js_preview_calls_dry_run(self, authed_client):
         """settings.html JS calls /api/sync/strava/dry-run for preview."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "sync/strava/dry-run" in body, (
             "settings.html JS must call /api/sync/strava/dry-run for preview"
         )
 
-    def test_settings_js_preview_table_has_date_column(self, client):
+    def test_settings_js_preview_table_has_date_column(self, authed_client):
         """settings.html JS renders date column in preview table."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text.lower()
         assert "start_time" in body or "date" in body, (
             "settings.html preview table must show date column"
         )
 
-    def test_settings_js_preview_table_has_activity_name_column(self, client):
+    def test_settings_js_preview_table_has_activity_name_column(self, authed_client):
         """settings.html JS renders activity name column in preview table."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "activity_type" in body or "name" in body, (
             "settings.html preview table must show activity name/type columns"
         )
 
-    def test_settings_js_preview_table_shows_would_create(self, client):
+    def test_settings_js_preview_table_shows_would_create(self, authed_client):
         """settings.html JS renders would_create_new indicator in preview table."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "would_create_new" in body or "create" in body.lower(), (
             "settings.html preview table must show would_create_new/match_existing"
@@ -249,41 +248,41 @@ class TestACPreviewTable:
 class TestACRunSyncPolling:
     """AC: Run sync calls POST /api/strava/sync, then polls until completed/failed."""
 
-    def test_settings_js_run_sync_calls_post_strava_sync(self, client):
+    def test_settings_js_run_sync_calls_post_strava_sync(self, authed_client):
         """settings.html JS calls POST /api/strava/sync for Run sync."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "api/strava/sync" in body, (
             "settings.html JS must call /api/strava/sync for Run sync"
         )
 
-    def test_settings_js_polls_sync_status(self, client):
+    def test_settings_js_polls_sync_status(self, authed_client):
         """settings.html JS polls sync status endpoint after starting sync."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "api/sync/status" in body or "sync/strava/status" in body, (
             "settings.html JS must poll a sync status endpoint"
         )
 
-    def test_settings_js_polls_every_2_seconds(self, client):
+    def test_settings_js_polls_every_2_seconds(self, authed_client):
         """settings.html JS polls every 2 seconds (setInterval/setTimeout with 2000)."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "2000" in body, (
             "settings.html JS must poll every 2000ms (2 seconds)"
         )
 
-    def test_settings_js_has_progress_indicator(self, client):
+    def test_settings_js_has_progress_indicator(self, authed_client):
         """settings.html JS shows live progress during polling."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text.lower()
         assert "fetching" in body or "progress" in body, (
             "settings.html JS must show progress indicator during sync"
         )
 
-    def test_settings_js_shows_fetched_count(self, client):
+    def test_settings_js_shows_fetched_count(self, authed_client):
         """settings.html JS shows 'fetched' count from sync status."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text.lower()
         assert "fetched" in body or "items_synced" in body or "current" in body, (
             "settings.html JS must show fetched/synced count during polling"
@@ -295,25 +294,25 @@ class TestACRunSyncPolling:
 class TestACOnCompleted:
     """AC: On completed displays 'Synced N new workouts. View them →' with link to /log."""
 
-    def test_settings_js_has_completion_handler(self, client):
+    def test_settings_js_has_completion_handler(self, authed_client):
         """settings.html JS handles sync completion."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "completed" in body or "success" in body, (
             "settings.html JS must handle sync completion state"
         )
 
-    def test_settings_js_completed_shows_new_workouts_message(self, client):
+    def test_settings_js_completed_shows_new_workouts_message(self, authed_client):
         """settings.html JS shows 'new workouts' message on completion."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text.lower()
         assert "new workout" in body or "workouts" in body, (
             "settings.html JS must show new workouts count on completion"
         )
 
-    def test_settings_js_completed_has_link_to_log(self, client):
+    def test_settings_js_completed_has_link_to_log(self, authed_client):
         """settings.html JS includes link to /log on completion."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert '"/log"' in body or "href=\"/log\"" in body or "'/log'" in body, (
             "settings.html JS must link to /log on sync completion"
@@ -325,25 +324,25 @@ class TestACOnCompleted:
 class TestACOnFailed:
     """AC: On failed displays error_message in red with a Retry button."""
 
-    def test_settings_js_has_failure_handler(self, client):
+    def test_settings_js_has_failure_handler(self, authed_client):
         """settings.html JS handles sync failure."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "error" in body.lower() and ("failed" in body.lower() or "failure" in body.lower()), (
             "settings.html JS must handle sync failure state"
         )
 
-    def test_settings_js_shows_error_message(self, client):
+    def test_settings_js_shows_error_message(self, authed_client):
         """settings.html JS shows error_message from failed sync."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "error_message" in body or "error" in body.lower(), (
             "settings.html JS must display error_message on failure"
         )
 
-    def test_settings_js_has_retry_button(self, client):
+    def test_settings_js_has_retry_button(self, authed_client):
         """settings.html JS renders a Retry button on failure."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "Retry" in body, (
             "settings.html JS must have a 'Retry' button on sync failure"
@@ -355,25 +354,25 @@ class TestACOnFailed:
 class TestACReconcileOnly:
     """AC: 'Reconcile only' button calls POST /api/sync/strava/reconcile."""
 
-    def test_settings_js_has_reconcile_only_button(self, client):
+    def test_settings_js_has_reconcile_only_button(self, authed_client):
         """settings.html JS has a 'Reconcile only' button."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "Reconcile only" in body or "Reconcile" in body, (
             "settings.html JS must have a 'Reconcile only' button"
         )
 
-    def test_settings_js_reconcile_calls_correct_endpoint(self, client):
+    def test_settings_js_reconcile_calls_correct_endpoint(self, authed_client):
         """settings.html JS calls POST /api/sync/strava/reconcile for reconcile."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "sync/strava/reconcile" in body, (
             "settings.html JS must call /api/sync/strava/reconcile"
         )
 
-    def test_settings_js_reconcile_shows_result(self, client):
+    def test_settings_js_reconcile_shows_result(self, authed_client):
         """settings.html JS shows matched/created counts after reconcile."""
-        res = client.get("/settings")
+        res = authed_client.get("/settings")
         body = res.text
         assert "matched" in body.lower() or "created" in body.lower(), (
             "settings.html JS must show matched/created result after reconcile"
@@ -442,9 +441,9 @@ class TestACHomePageBanner:
             "home.js must call /api/sync/strava/latest to check staleness"
         )
 
-    def test_home_html_has_banner_container(self, client):
+    def test_home_html_has_banner_container(self, authed_client):
         """home.html has a container element for the stale sync banner."""
-        res = client.get("/home")
+        res = authed_client.get("/home")
         assert res.status_code == 200
         body = res.text
         assert "strava-stale-banner" in body or "strava-sync-banner" in body, (
