@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid as _uuid
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session as _Session
 
@@ -80,7 +81,18 @@ def reconcile_strava_to_workouts(
         unlinked = [a for a in all_strava if a.id not in linked_ids]
 
         for act in unlinked:
-            tss_val, tss_src = estimate_tss_for_workout(act, uid, session)
+            # TSS formula priority: power > pace > HR > duration_only.
+            # Only route to power formula when Stryd-synced AND raw_payload confirms power data.
+            raw = act.raw_payload or {}
+            use_power = bool(act.is_stryd_synced) and bool(raw.get("average_watts"))
+            tss_proxy = SimpleNamespace(
+                avg_power_w=act.avg_power_w if use_power else None,
+                avg_hr=act.avg_hr,
+                duration_seconds=act.duration_seconds,
+                distance_km=float(act.distance_km) if act.distance_km is not None else None,
+                avg_pace_seconds_per_km=None,
+            )
+            tss_val, tss_src = estimate_tss_for_workout(tss_proxy, uid, session)
             hit = _find_match(act, existing_workouts, tolerance)
 
             if hit:

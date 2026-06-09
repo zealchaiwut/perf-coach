@@ -79,3 +79,25 @@ def detect_stryd_origin(strava_activity_dict: dict) -> bool:
         return True
 
     return False
+
+
+def get_strava_power_data(activity_dict: dict) -> dict | None:
+    """Extract power fields from a Strava activity dict (raw API payload or raw_payload column).
+
+    # TSS formula priority: power > pace > HR > duration_only
+    Returns None if no power data present (average_watts absent or falsy).
+    """
+    avg_watts = activity_dict.get("average_watts")
+    if not avg_watts:
+        return None
+
+    max_w = activity_dict.get("max_watts")
+    np_w = activity_dict.get("weighted_average_watts")
+    kj = activity_dict.get("kilojoules")
+
+    return {
+        "avg_power_w": int(avg_watts),
+        "max_power_w": int(max_w) if max_w is not None else None,
+        "normalized_power_w": int(np_w) if np_w is not None else None,
+        "kilojoules": float(kj) if kj is not None else None,
+    }
