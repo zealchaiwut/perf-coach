@@ -148,6 +148,35 @@ def get_environment():
     return JSONResponse({"environment": environment})
 
 
+@app.get("/api/about")
+def get_about():
+    """Return app metadata for the Settings About section.
+
+    Response schema:
+        {
+            "app_version":        str  — contents of VERSION file; fallback "v0.0.1-dev"
+            "git_sha":            str  — GIT_SHA env var; fallback "local-dev"
+            "environment":        str  — current environment ("uat"/"prd"/"local")
+            "changelog_available": bool — True when CHANGELOG.md exists in repo root
+        }
+    """
+    version_file = _static_root / "VERSION"
+    try:
+        app_version = version_file.read_text().strip() if version_file.exists() else "v0.0.1-dev"
+    except OSError:
+        app_version = "v0.0.1-dev"
+
+    changelog_file = _static_root / "CHANGELOG.md"
+    changelog_available = changelog_file.exists()
+
+    return JSONResponse({
+        "app_version": app_version,
+        "git_sha": os.getenv("GIT_SHA", "local-dev"),
+        "environment": environment,
+        "changelog_available": changelog_available,
+    })
+
+
 @app.get("/api/users")
 def get_users():
     try:
