@@ -105,28 +105,62 @@
       position: relative;
     }
 
-    .avatar-actions {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+    .profile-form-group {
+      margin-bottom: 14px;
     }
 
-    #avatar-file-input { display: none; }
+    .profile-label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #0b1530;
+      margin-bottom: 5px;
+      letter-spacing: 0.01em;
+    }
 
-    .avatar-remove-btn {
-      padding: 7px 16px;
+    .profile-input,
+    .profile-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 11px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
       border-radius: 8px;
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 13.5px;
       font-family: inherit;
-      color: #b91c1c;
-      background: none;
-      border: 1.5px solid rgba(185, 28, 28, 0.25);
-      cursor: pointer;
-      display: none;
+      color: #0b1530;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s;
     }
-    .avatar-remove-btn:hover { background: rgba(185, 28, 28, 0.05); }
-    .avatar-remove-btn:disabled { opacity: 0.5; cursor: default; }
+    .profile-input:focus,
+    .profile-select:focus { border-color: #0b1530; }
+    .profile-input[readonly] {
+      background: #f8f9fb;
+      color: #8b95ad;
+      cursor: default;
+    }
+
+    .profile-field-error {
+      font-size: 12px;
+      color: #b91c1c;
+      margin-top: 4px;
+      min-height: 16px;
+    }
+
+    .profile-actions-row {
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 480px) {
+      .profile-input,
+      .profile-select { font-size: 16px; }
+      .profile-actions-row { flex-direction: column; align-items: stretch; }
+      .profile-actions-row .settings-save-btn { width: 100%; text-align: center; }
+    }
 
     .integration-card {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -246,20 +280,56 @@
   <div class="settings-page">
     <h1>Settings</h1>
 
-    <div class="settings-section">
+    <div class="settings-section" id="profile-section">
       <h2>Profile</h2>
+      <!-- Avatar upload deferred to future sprint. -->
       <div class="avatar-row">
         <div class="settings-avatar-circle" id="settings-avatar-circle" aria-label="Your avatar">
-          <img id="settings-avatar-img" alt="Your avatar">
           <span id="settings-avatar-initials">U</span>
         </div>
-        <div class="avatar-actions">
-          <label class="settings-save-btn" for="avatar-file-input">Upload Photo</label>
-          <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/webp">
-          <button class="avatar-remove-btn" id="avatar-remove-btn" type="button">Remove</button>
-        </div>
       </div>
-      <div class="settings-feedback" id="avatar-feedback" aria-live="polite"></div>
+
+      <div class="profile-form-group">
+        <label class="profile-label" for="profile-display-name">Display name</label>
+        <input type="text" id="profile-display-name" class="profile-input" placeholder="Loading…" autocomplete="name" maxlength="100">
+        <div class="profile-field-error" id="profile-display-name-error" aria-live="polite"></div>
+      </div>
+
+      <div class="profile-form-group">
+        <label class="profile-label" for="profile-email">Email</label>
+        <input type="email" id="profile-email" class="profile-input" readonly>
+        <div class="profile-field-error" id="profile-email-error" aria-live="polite"></div>
+      </div>
+
+      <div class="profile-form-group">
+        <label class="profile-label" for="profile-timezone">Timezone</label>
+        <select id="profile-timezone" class="profile-select">
+          <option value="Asia/Bangkok">Asia/Bangkok</option>
+          <option value="Asia/Singapore">Asia/Singapore</option>
+          <option value="Asia/Tokyo">Asia/Tokyo</option>
+          <option value="UTC">UTC</option>
+          <option value="America/Los_Angeles">America/Los_Angeles</option>
+          <option value="America/New_York">America/New_York</option>
+          <option value="Europe/London">Europe/London</option>
+          <option value="Europe/Berlin">Europe/Berlin</option>
+          <option value="Australia/Sydney">Australia/Sydney</option>
+        </select>
+        <div class="profile-field-error" id="profile-timezone-error" aria-live="polite"></div>
+      </div>
+
+      <div class="profile-form-group">
+        <label class="profile-label" for="profile-week-start">Week starts on</label>
+        <select id="profile-week-start" class="profile-select">
+          <option value="1">Monday</option>
+          <option value="7">Sunday</option>
+        </select>
+        <div class="profile-field-error" id="profile-week-start-error" aria-live="polite"></div>
+      </div>
+
+      <div class="profile-actions-row">
+        <button class="settings-save-btn" id="profile-save-btn" type="button" disabled>Save</button>
+        <div class="settings-feedback" id="profile-feedback" aria-live="polite"></div>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -297,90 +367,157 @@
   <script src="/js/user.js"></script>
   <script>
     (function () {
-      var _userId = null;
+      // Profile section: display_name, email, timezone, week_start_day
+      var _baseline = {};
 
-      function showFeedback(id, msg, type) {
-        var el = document.getElementById(id);
+      function _initials(displayName, email) {
+        var src = (displayName || email || '').trim();
+        if (!src) return 'U';
+        var words = src.split(/\s+/).filter(Boolean);
+        if (words.length >= 2) {
+          return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+        }
+        return src[0].toUpperCase();
+      }
+
+      function _currentValues() {
+        return {
+          display_name: document.getElementById('profile-display-name').value,
+          timezone: document.getElementById('profile-timezone').value,
+          week_start_day: parseInt(document.getElementById('profile-week-start').value, 10),
+        };
+      }
+
+      function _isDirty() {
+        var cur = _currentValues();
+        return cur.display_name !== (_baseline.display_name || '')
+          || cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')
+          || cur.week_start_day !== (_baseline.week_start_day || 1);
+      }
+
+      function _updateSaveBtn() {
+        var btn = document.getElementById('profile-save-btn');
+        if (btn) btn.disabled = !_isDirty();
+      }
+
+      function _clearFieldErrors() {
+        ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '';
+          });
+      }
+
+      function _setFeedback(msg, type) {
+        var el = document.getElementById('profile-feedback');
         if (!el) return;
         el.textContent = msg;
-        el.className = 'settings-feedback ' + type;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
       }
 
-      function clearFeedback(id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.textContent = '';
-        el.className = 'settings-feedback';
-      }
+      function _loadPrefs() {
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = data.row || {};
+            _baseline = {
+              display_name: row.display_name || '',
+              timezone: row.timezone || 'Asia/Bangkok',
+              week_start_day: row.week_start_day || 1,
+            };
 
-      function loadAvatarDisplay(bust) {
-        var img = document.getElementById('settings-avatar-img');
-        var initials = document.getElementById('settings-avatar-initials');
-        var removeBtn = document.getElementById('avatar-remove-btn');
-        if (!img || !_userId) return;
-        var src = '/api/users/' + _userId + '/avatar' + (bust ? '?_t=' + Date.now() : '');
-        img.onload = function () {
-          img.style.display = 'block';
-          if (initials) initials.style.display = 'none';
-          if (removeBtn) removeBtn.style.display = '';
-        };
-        img.onerror = function () {
-          img.style.display = 'none';
-          if (initials) initials.style.display = '';
-          if (removeBtn) removeBtn.style.display = 'none';
-        };
-        img.src = src;
-      }
-
-      window.addEventListener('userReady', function (e) {
-        _userId = e.detail.userId;
-        var initialsEl = document.getElementById('settings-avatar-initials');
-        if (initialsEl && e.detail.userName) {
-          initialsEl.textContent = (e.detail.userName.trim().charAt(0) || 'U').toUpperCase();
-        }
-        loadAvatarDisplay(false);
-      });
-
-      document.getElementById('avatar-file-input').addEventListener('change', function () {
-        var file = this.files[0];
-        if (!file) return;
-        clearFeedback('avatar-feedback');
-        var fd = new FormData();
-        fd.append('file', file);
-        this.value = '';
-        fetch('/api/users/me/avatar', { method: 'POST', body: fd })
-          .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { return Promise.reject(d.detail || 'Upload failed'); });
-            loadAvatarDisplay(true);
-            if (window.navRefreshAvatar) window.navRefreshAvatar();
-          })
-          .catch(function (err) {
-            showFeedback('avatar-feedback', typeof err === 'string' ? err : 'Upload failed', 'error');
-          });
-      });
-
-      document.getElementById('avatar-remove-btn').addEventListener('click', function () {
-        var btn = this;
-        clearFeedback('avatar-feedback');
-        btn.disabled = true;
-        fetch('/api/users/me/avatar', { method: 'DELETE' })
-          .then(function (res) {
-            btn.disabled = false;
-            if (res.ok || res.status === 204) {
-              var img = document.getElementById('settings-avatar-img');
-              var initials = document.getElementById('settings-avatar-initials');
-              if (img) img.style.display = 'none';
-              if (initials) initials.style.display = '';
-              btn.style.display = 'none';
-              if (window.navRefreshAvatar) window.navRefreshAvatar();
-            } else {
-              showFeedback('avatar-feedback', 'Failed to remove avatar', 'error');
+            var dnEl = document.getElementById('profile-display-name');
+            if (dnEl) {
+              dnEl.value = _baseline.display_name;
+              dnEl.placeholder = row.user_name || 'Display name';
             }
+
+            var emailEl = document.getElementById('profile-email');
+            if (emailEl) emailEl.value = row.user_email || '';
+
+            var tzEl = document.getElementById('profile-timezone');
+            if (tzEl) tzEl.value = _baseline.timezone;
+
+            var wsEl = document.getElementById('profile-week-start');
+            if (wsEl) wsEl.value = String(_baseline.week_start_day);
+
+            var initialsEl = document.getElementById('settings-avatar-initials');
+            if (initialsEl) {
+              initialsEl.textContent = _initials(_baseline.display_name || row.user_name, row.user_email);
+            }
+
+            _updateSaveBtn();
           })
           .catch(function () {
-            btn.disabled = false;
-            showFeedback('avatar-feedback', 'Network error — try again', 'error');
+            _setFeedback('Failed to load profile.', 'error');
           });
+      }
+
+      function _handleSave() {
+        var btn = document.getElementById('profile-save-btn');
+        _clearFieldErrors();
+        _setFeedback('', '');
+
+        var cur = _currentValues();
+        var patch = {};
+        if (cur.display_name !== (_baseline.display_name || '')) patch.display_name = cur.display_name;
+        if (cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')) patch.timezone = cur.timezone;
+        if (cur.week_start_day !== (_baseline.week_start_day || 1)) patch.week_start_day = cur.week_start_day;
+
+        if (!Object.keys(patch).length) return;
+
+        if (btn) btn.disabled = true;
+        fetch('/api/user-preferences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+          .then(function (r) {
+            if (!r.ok) {
+              return r.json().then(function (d) { return Promise.reject(d); });
+            }
+            return r.json();
+          })
+          .then(function (saved) {
+            _baseline = {
+              display_name: saved.display_name || '',
+              timezone: saved.timezone || 'Asia/Bangkok',
+              week_start_day: saved.week_start_day || 1,
+            };
+            var initialsEl = document.getElementById('settings-avatar-initials');
+            if (initialsEl) {
+              var emailEl = document.getElementById('profile-email');
+              initialsEl.textContent = _initials(_baseline.display_name, emailEl ? emailEl.value : '');
+            }
+            _setFeedback('Saved.', 'success');
+            _updateSaveBtn();
+          })
+          .catch(function (errData) {
+            if (btn) btn.disabled = false;
+            var detail = errData && errData.detail;
+            if (Array.isArray(detail)) {
+              detail.forEach(function (e) {
+                var errEl = document.getElementById('profile-' + (e.field || '').replace(/_/g, '-') + '-error');
+                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+              });
+              _setFeedback('Fix the errors above and try again.', 'error');
+            } else {
+              _setFeedback(typeof detail === 'string' ? detail : 'Save failed.', 'error');
+            }
+          });
+      }
+
+      ['profile-display-name', 'profile-timezone', 'profile-week-start'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', _updateSaveBtn);
+        if (el) el.addEventListener('change', _updateSaveBtn);
+      });
+
+      var saveBtn = document.getElementById('profile-save-btn');
+      if (saveBtn) saveBtn.addEventListener('click', _handleSave);
+
+      window.addEventListener('userReady', function () {
+        _loadPrefs();
       });
     }());
   </script>

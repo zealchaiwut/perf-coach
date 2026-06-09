@@ -6168,14 +6168,11 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
 
 
 @app.get("/api/user-preferences")
-def get_user_preferences(user_id: str = Query(...)):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def get_user_preferences(user: User = Depends(resolve_user)):
+    uid = user.id
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
+        db_user = session.get(User, uid)
+        if db_user is None:
             raise HTTPException(status_code=404, detail="User not found")
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         if prefs is None:
@@ -6183,8 +6180,11 @@ def get_user_preferences(user_id: str = Query(...)):
             session.add(prefs)
             session.commit()
             session.refresh(prefs)
+        row = _prefs_row_dict(prefs)
+        row["user_name"] = db_user.name
+        row["user_email"] = db_user.email
         return JSONResponse({
-            "row": _prefs_row_dict(prefs),
+            "row": row,
             "defaults": _PREFS_DEFAULTS,
         })
 
@@ -6193,8 +6193,10 @@ _PREFS_SENTINEL = object()
 
 
 @app.patch("/api/user-preferences")
-async def patch_user_preferences(request: Request):
+async def patch_user_preferences(request: Request, user: User = Depends(resolve_user)):
     import zoneinfo as _zoneinfo
+
+    uid = user.id
 
     try:
         body = await request.json()
@@ -6206,14 +6208,6 @@ async def patch_user_preferences(request: Request):
     if non_editable_sent:
         field = next(iter(non_editable_sent))
         raise HTTPException(status_code=422, detail=f"Field '{field}' is not editable")
-
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=422, detail="user_id is required")
-    try:
-        uid = _uuid.UUID(str(user_id))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
 
     # Validate fields
     ftp_w = body.get("ftp_w", _PREFS_SENTINEL)
@@ -6249,9 +6243,6 @@ async def patch_user_preferences(request: Request):
         raise HTTPException(status_code=422, detail=errors)
 
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         if prefs is None:
             prefs = UserPreferences(user_id=uid)
