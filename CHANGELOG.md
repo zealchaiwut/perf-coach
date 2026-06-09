@@ -17,6 +17,8 @@ Full Strava sync pipeline delivered across sprint 49:
 - #378: Stryd power data — TSS formula routing and workout enrichment
 - #379: Strava sync controls UI — settings panel, preview, polling, home banner
 - #380: Sync-status visibility, history UI, CLI runner, scheduled-sync placeholder, docs
+- #381: Strava E2E polish — training-log `is_stryd_synced`, data-quality endpoint, settings panel docs
+- #382: `POST /api/sync/strava` trigger endpoint with job tracking and polling URL
 
 Features included in this sprint:
 - Manual sync from Settings → Integrations → Strava (date picker, preview, run)

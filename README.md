@@ -99,6 +99,13 @@ Each script:
 | `GET /api/personal-records/history` | Returns history for a single track with improvement deltas; params: `user_id`, `track_key` |
 | `POST /api/personal-records/bulk` | Bulk-inserts multiple PR entries in one request; returns created count and IDs |
 | `GET /api/about` | Returns app version, git SHA, environment, and changelog availability |
+| `POST /api/sync/strava` | Trigger a Strava activity sync; returns 202 with `job_id` and `polling_url`; 409 if already running |
+| `GET /api/sync/strava/status` | Poll status of a sync job by `job_id`; returns full SyncJob record |
+| `GET /api/sync/strava/latest` | Return info about the most recent completed Strava sync |
+| `GET /api/sync/strava/dry-run` | Read-only preview of what a Strava reconcile would produce; no DB writes |
+| `GET /api/sync/strava/data-quality` | Return data quality counts for a user's Strava/workout sync state |
+| `POST /api/sync/strava/reconcile` | Reconcile unlinked `strava_activities` into `workouts` rows; returns counts |
+| `GET /api/sync/history` | Return paginated SyncJob history for the session user (last 5 by default) |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 

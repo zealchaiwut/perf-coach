@@ -63,6 +63,13 @@
 | POST | `/api/stryd/connect` | Connect Stryd with email/password |
 | GET | `/api/stryd/status` | Get Stryd connection status |
 | DELETE | `/api/stryd/disconnect` | Disconnect Stryd |
+| POST | `/api/sync/strava` | Trigger Strava sync job; 202 with job_id; 409 if already running |
+| GET | `/api/sync/strava/status` | Poll SyncJob by job_id |
+| GET | `/api/sync/strava/latest` | Most recent Strava sync info |
+| GET | `/api/sync/strava/dry-run` | Read-only reconcile preview |
+| GET | `/api/sync/strava/data-quality` | Data quality counts for Strava/workout sync state |
+| POST | `/api/sync/strava/reconcile` | Reconcile strava_activities → workouts |
+| GET | `/api/sync/history` | Paginated SyncJob history for session user |
 
 ---
 
@@ -1653,6 +1660,183 @@ Delete stored Stryd credentials for the default user.
 ```
 
 **Status codes:** 200 (always)
+
+---
+
+## Sync
+
+### POST `/api/sync/strava`
+
+Trigger a Strava activity sync for the session user. Creates a `SyncJob` record and runs the sync via `BackgroundTasks`. Returns 202 immediately; poll `/api/sync/strava/status?job_id=<id>` for progress.
+
+**Request body (optional):**
+```json
+{"since_date": "2024-01-01"}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `since_date` | string | no | `YYYY-MM-DD`; cannot be more than 1 year in the past |
+
+**Response (202):**
+```json
+{
+  "job_id": "...",
+  "status": "running",
+  "polling_url": "/api/sync/strava/status?job_id=..."
+}
+```
+
+**Status codes:**
+- 202 — sync started
+- 409 — another sync is already running for this user (`job_id` of active job returned)
+- 422 — Strava not connected, or `since_date` invalid/too old
+
+---
+
+### GET `/api/sync/strava/status`
+
+Return the full `SyncJob` record for a given `job_id`. Auth required (session user must match job owner).
+
+**Query parameters:**
+
+| Name | Type | Required |
+|------|------|----------|
+| `job_id` | UUID | yes |
+
+**Response (200):**
+```json
+{
+  "id": "...",
+  "user_id": "...",
+  "source": "strava",
+  "job_type": "manual_trigger",
+  "status": "completed",
+  "started_at": "2024-06-01T08:00:00+00:00",
+  "completed_at": "2024-06-01T08:01:30+00:00",
+  "activities_fetched": 12,
+  "activities_created": 8,
+  "activities_updated": 4,
+  "activities_skipped": 0,
+  "error_message": null,
+  "since_date": "2024-01-01"
+}
+```
+
+`status` values: `pending`, `running`, `completed`, `failed`, `cancelled`.
+
+**Status codes:** 200, 404
+
+---
+
+### GET `/api/sync/strava/latest`
+
+Return info about the most recent Strava sync for the session user.
+
+**Query parameters:** none (optional `user_id` UUID returns full SyncJob for that user; requires auth)
+
+**Response (200) — session user (legacy summary):**
+```json
+{
+  "synced_at": "2024-06-01T08:01:30+00:00",
+  "activities_synced": 12,
+  "new_workouts": 8
+}
+```
+
+**Response (200) — with `user_id` param (full SyncJob):** same shape as `/api/sync/strava/status`.
+
+**Status codes:** 200, 404
+
+---
+
+### GET `/api/sync/strava/dry-run`
+
+Read-only preview of what reconciling the current `strava_activities` into `workouts` would produce. No DB writes.
+
+**Query parameters:**
+
+| Name | Type | Required | Default |
+|------|------|----------|---------|
+| `user_id` | UUID | yes | — |
+| `since_date` | string | no | all time |
+| `limit` | integer | no | 20 (max 50) |
+
+**Status codes:** 200, 400
+
+---
+
+### GET `/api/sync/strava/data-quality`
+
+Return data quality counts describing the sync state between `strava_activities` and `workouts`.
+
+**Query parameters:**
+
+| Name | Type | Required |
+|------|------|----------|
+| `user_id` | UUID | yes |
+
+**Response (200):**
+```json
+{
+  "strava_activities_total": 100,
+  "workouts_from_strava": 95,
+  "workouts_no_source": 3,
+  "workouts_stryd_linked": 20
+}
+```
+
+**Status codes:** 200, 400
+
+---
+
+### POST `/api/sync/strava/reconcile`
+
+Reconcile unlinked `strava_activities` into `workouts` rows. Idempotent upsert.
+
+**Query parameters:**
+
+| Name | Type | Required |
+|------|------|----------|
+| `user_id` | UUID | yes |
+
+**Response (200):** Reconcile result counts (created, updated, skipped).
+
+---
+
+### GET `/api/sync/history`
+
+Return paginated SyncJob history for the session user.
+
+**Query parameters:**
+
+| Name | Type | Required | Default |
+|------|------|----------|---------|
+| `limit` | integer | no | 5 |
+
+**Response (200):**
+```json
+{
+  "jobs": [
+    {
+      "id": "...",
+      "source": "strava",
+      "job_type": "manual_trigger",
+      "status": "completed",
+      "started_at": "2024-06-01T08:00:00+00:00",
+      "completed_at": "2024-06-01T08:01:30+00:00",
+      "duration_seconds": 90,
+      "activities_fetched": 12,
+      "activities_created": 8,
+      "activities_updated": 4,
+      "activities_skipped": 0,
+      "error_message": null
+    }
+  ]
+}
+```
+
+**Status codes:** 200
 
 ---
 
