@@ -617,6 +617,44 @@
       color: #8b95ad;
     }
 
+    /* ── Data quality panel ── */
+    .strava-data-quality {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-data-quality-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .strava-data-quality-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a2540;
+    }
+    .strava-data-quality-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+    }
+    .strava-data-quality-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #5c6886;
+    }
+    .strava-data-quality-val {
+      font-weight: 600;
+      color: #1a2540;
+      min-width: 24px;
+      text-align: right;
+    }
+    .strava-data-quality-val--warn { color: #e05c2a; }
+
     /* ── About section ── */
     .about-grid {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -1092,6 +1130,35 @@
               <span class="coming-soon-tag">Coming soon</span>
             </div>
             <p class="strava-scheduled-sync-copy">Automatic background syncs every hour are planned. For now, manual sync only.</p>
+          </div>
+
+          <!-- Data quality panel -->
+          <div class="strava-data-quality" id="strava-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid" id="strava-data-quality-grid">
+              <div class="strava-data-quality-row">
+                <span>Strava activities</span>
+                <span class="strava-data-quality-val" id="dq-strava-activities">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (Strava source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-strava">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (no source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-no-source">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Stryd-matched</span>
+                <span class="strava-data-quality-val" id="dq-stryd-synced">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Potential duplicates</span>
+                <span class="strava-data-quality-val" id="dq-potential-dupes">—</span>
+              </div>
+            </div>
           </div>
 
           <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
@@ -1907,6 +1974,7 @@
         document.getElementById('strava-meta').textContent = meta;
 
         loadStravaSyncLatest();
+        loadStravaDataQuality();
 
         var actions = document.getElementById('strava-actions');
         actions.innerHTML = '';
@@ -1932,6 +2000,31 @@
         actions.appendChild(syncNowBtn);
         actions.appendChild(reconcileBtn);
         actions.appendChild(discBtn);
+      }
+
+      function loadStravaDataQuality() {
+        if (!_stravaUserId) return;
+        fetch('/api/sync/strava/data-quality?user_id=' + encodeURIComponent(_stravaUserId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (dq) {
+            if (!dq) return;
+            var panel = document.getElementById('strava-data-quality');
+            if (panel) panel.style.display = '';
+            function _set(id, val) {
+              var el = document.getElementById(id);
+              if (!el) return;
+              el.textContent = val;
+              if (id === 'dq-potential-dupes' && val > 0) {
+                el.classList.add('strava-data-quality-val--warn');
+              }
+            }
+            _set('dq-strava-activities', dq.strava_activities_count);
+            _set('dq-workouts-strava', dq.workouts_with_strava_source_count);
+            _set('dq-workouts-no-source', dq.workouts_without_source_count);
+            _set('dq-stryd-synced', dq.is_stryd_synced_count);
+            _set('dq-potential-dupes', dq.potential_dupes_count);
+          })
+          .catch(function () {});
       }
 
       function loadStravaStatus() {
