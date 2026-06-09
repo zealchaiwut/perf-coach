@@ -1,5 +1,18 @@
 # Changelog
 
+## Sprint 48
+
+- #356: Add user_preferences table with per-user FTP and thresholds
+- #357: Add GET and PATCH user preferences endpoints
+- #358: Verify and remediate personal_records table and endpoints
+- #359: Add bulk insert and history endpoints for personal records
+- #360: Build settings page shell with section navigation
+- #361: Build profile section in settings page
+- #362: Build performance thresholds settings section
+- #363: Build personal records section in settings page
+- #364: Settings Integrations and About sections
+- #365: Cross-link settings, polish nav, and add integration tests
+
 ## Sprint 47
 
 - #347: Audit home page widgets and document data dependencies

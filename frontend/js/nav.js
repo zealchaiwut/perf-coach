@@ -74,10 +74,19 @@
       'text-transform:uppercase;flex-shrink:0;line-height:1.5;}',
     '.global-nav .gn-env:empty{display:none;}',
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
-    // Avatar doubles as the Settings link.
     '.global-nav a.gn-avatar{cursor:pointer;text-decoration:none;transition:box-shadow 0.12s ease;}',
     '.global-nav a.gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}',
     '.global-nav a.gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}',
+    // Gear icon: Settings link with hover label reveal.
+    '.global-nav .gn-settings{position:relative;display:inline-flex;align-items:center;gap:5px;',
+      'padding:7px 10px;border-radius:999px;font-size:13px;font-weight:500;color:#5c6886;',
+      'text-decoration:none;cursor:pointer;flex-shrink:0;transition:background 0.12s ease,color 0.12s ease;}',
+    '.global-nav .gn-settings i{font-size:16px;}',
+    '.global-nav .gn-settings:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
+    '.global-nav .gn-settings.active{background:#0b1530;color:#fff;}',
+    '.global-nav .gn-settings .gn-settings-label{font-size:13px;max-width:0;overflow:hidden;',
+      'white-space:nowrap;transition:max-width 0.2s ease,opacity 0.2s ease;opacity:0;}',
+    '.global-nav .gn-settings:hover .gn-settings-label{max-width:60px;opacity:1;}',
     '.global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;',
       'color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;',
       "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
@@ -153,9 +162,13 @@
       '<div class="gn-links">' + linksHtml + '</div>' +
       '<div class="gn-right">' +
         '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
-        '<a class="gn-avatar' + (path === '/settings' ? ' active' : '') + '" id="nav-avatar"' +
-          ' href="/settings" aria-label="Settings" title="Settings"' +
-          (path === '/settings' ? ' aria-current="page"' : '') + '>U</a>' +
+        '<a class="gn-avatar" id="nav-avatar" href="/settings" aria-label="Profile">U</a>' +
+        '<a class="gn-settings' + (path === '/settings' ? ' active' : '') + '"' +
+          ' href="/settings" title="Settings" aria-label="Settings"' +
+          (path === '/settings' ? ' aria-current="page"' : '') + '>' +
+          '<i class="ti ti-settings" aria-hidden="true"></i>' +
+          '<span class="gn-settings-label">Settings</span>' +
+        '</a>' +
         '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
           '<i class="ti ti-logout" aria-hidden="true"></i>' +
           '<span class="gn-logout-label">Log out</span>' +

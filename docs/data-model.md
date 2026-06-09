@@ -16,7 +16,32 @@ Identity record for each dashboard user.
 |--------|------|-------------|
 | `id` | `UUID` | PK, `DEFAULT gen_random_uuid()` |
 | `name` | `VARCHAR(100)` | NOT NULL, UNIQUE |
+| `email` | `VARCHAR(255)` | nullable |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+
+---
+
+### `user_preferences`
+
+Per-user performance and display preferences. One row per user; auto-created on
+first `GET /api/user-preferences` if absent. Defaults: `ftp_w=280`,
+`threshold_hr=170`, `threshold_pace_seconds_per_km=270`, `preferred_units=metric`,
+`timezone=Asia/Bangkok`, `week_start_day=1`, `date_format=YYYY-MM-DD`.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `UUID` | PK, `DEFAULT gen_random_uuid()` |
+| `user_id` | `UUID` | NOT NULL, UNIQUE, FK → `users.id` CASCADE |
+| `ftp_w` | `INTEGER` | nullable; functional threshold power (watts) |
+| `threshold_hr` | `INTEGER` | nullable; threshold heart rate (bpm) |
+| `threshold_pace_seconds_per_km` | `INTEGER` | nullable; threshold pace |
+| `preferred_units` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'metric'` |
+| `timezone` | `VARCHAR(100)` | NOT NULL, `DEFAULT 'Asia/Bangkok'` |
+| `week_start_day` | `INTEGER` | NOT NULL, `DEFAULT 1`; 1=Monday … 7=Sunday |
+| `display_name` | `VARCHAR(100)` | nullable |
+| `date_format` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'YYYY-MM-DD'` |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+| `updated_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
 
 ---
 

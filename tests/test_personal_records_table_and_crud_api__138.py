@@ -1,8 +1,13 @@
 """Tests for issue #138: Add personal_records table and CRUD API endpoints"""
 import datetime
 import os
+import uuid
 import httpx
 import pytest
+from backend.auth import hash_password
+from backend.db import engine
+from backend.models import User
+from sqlalchemy.orm import Session
 
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:9001")
@@ -10,6 +15,7 @@ BASE_URL = os.environ.get("BASE_URL", "http://localhost:9001")
 TODAY = datetime.date.today().isoformat()
 TOMORROW = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
 VALID_DATE = "2026-03-04"
+_TEST_PASSWORD = "pr-crud-138-pw"
 
 
 @pytest.fixture(scope="module")
@@ -20,11 +26,16 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    """Fetch Alice's user ID from the seeded users."""
+    """Fetch Alice's user ID, set a known password, and log the shared client in as Alice."""
     res = client.get("/api/users")
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
+    with Session(engine) as db:
+        db.get(User, uuid.UUID(alice["id"])).password_hash = hash_password(_TEST_PASSWORD)
+        db.commit()
+    login = client.post("/api/auth/login", json={"username": "Alice", "password": _TEST_PASSWORD})
+    assert login.status_code == 200, login.text
     return alice["id"]
 
 
@@ -75,9 +86,9 @@ def test_personalrecord_model_exists(client, alice_id):
 
 
 def test_get_personal_records_returns_all_user_records(client, alice_id):
-    """AC: GET /api/personal-records?user_id=<id> returns all records for the given user."""
+    """AC: GET /api/personal-records returns all records for the authenticated user."""
     # First, ensure we start clean (or at least know the count)
-    initial_res = client.get(f"/api/personal-records?user_id={alice_id}")
+    initial_res = client.get("/api/personal-records")
     assert initial_res.status_code == 200
     initial_count = len(initial_res.json())
 
@@ -95,7 +106,7 @@ def test_get_personal_records_returns_all_user_records(client, alice_id):
     record_id = create_res.json()["id"]
 
     # Now fetch all records
-    list_res = client.get(f"/api/personal-records?user_id={alice_id}")
+    list_res = client.get("/api/personal-records")
     assert list_res.status_code == 200
     records = list_res.json()
 
@@ -191,7 +202,7 @@ def test_delete_personal_records_removes_record(client, alice_id):
     assert delete_res.status_code == 204
 
     # Verify it's gone (404 on GET)
-    get_res = client.get(f"/api/personal-records?user_id={alice_id}")
+    get_res = client.get("/api/personal-records")
     records = get_res.json()
     assert not any(r["id"] == record_id for r in records)
 
@@ -256,7 +267,7 @@ def test_seed_script_populates_three_records(client, alice_id):
     """AC: backend/seed.py populates exactly three records for the default user."""
     # This test assumes the seed was already run in the test environment
     # We check that Alice has at least the three seeded records
-    res = client.get(f"/api/personal-records?user_id={alice_id}")
+    res = client.get("/api/personal-records")
     assert res.status_code == 200
     records = res.json()
 
@@ -288,7 +299,7 @@ def test_seed_script_populates_three_records(client, alice_id):
 def test_seed_script_idempotent(client, alice_id):
     """AC: Running the seed script a second time does not duplicate records or error."""
     # Get initial count
-    initial_res = client.get(f"/api/personal-records?user_id={alice_id}")
+    initial_res = client.get("/api/personal-records")
     initial_count = len(initial_res.json())
 
     # Run seed script again (in real scenario; here we assume it was run)
