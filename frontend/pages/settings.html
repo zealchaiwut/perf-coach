@@ -239,6 +239,51 @@
       .profile-actions-row .settings-save-btn { width: 100%; text-align: center; }
     }
 
+    /* ── Thresholds section ── */
+    .thresholds-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .thresholds-input {
+      flex: 1;
+    }
+    .thresholds-default-btn {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #f1f5f9;
+      color: #0b1530;
+      border: 1px solid rgba(13, 30, 67, 0.12);
+      transition: opacity 0.15s;
+    }
+    .thresholds-default-btn:hover { opacity: 0.82; }
+    .thresholds-desc {
+      font-size: 12px;
+      color: #8b95ad;
+      margin: 4px 0 0;
+    }
+    .thresholds-desc code {
+      background: #f1f5f9;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-size: 11.5px;
+    }
+    .thresholds-info-card {
+      margin-top: 20px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      font-size: 12.5px;
+      color: #78350f;
+      line-height: 1.5;
+    }
+
     /* ── Integration cards ── */
     .integration-card {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -422,7 +467,51 @@
 
       <div id="section-thresholds" class="settings-section">
         <h1>Performance Thresholds</h1>
-        <p class="settings-placeholder">Coming up in this sprint</p>
+
+        <!-- FTP -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-ftp">FTP (Functional Threshold Power)</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
+              min="50" max="600" placeholder="(default: 280W)">
+            <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
+          </div>
+          <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
+          <div class="profile-field-error" id="thresholds-ftp-error"></div>
+        </div>
+
+        <!-- Threshold HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-hr">Threshold Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
+              min="100" max="220" placeholder="(default: 170 bpm)">
+            <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
+          </div>
+          <p class="thresholds-desc">Heart rate at lactate threshold (bpm). Used when power data is unavailable. Estimate as ~88–92% of max HR, or from a race/hard effort.</p>
+          <div class="profile-field-error" id="thresholds-hr-error"></div>
+        </div>
+
+        <!-- Threshold Pace -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-pace">Threshold Pace</label>
+          <div class="thresholds-input-row">
+            <input type="text" id="thresholds-pace" class="profile-input thresholds-input"
+              placeholder="(default: 4:30/km)">
+            <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
+          </div>
+          <p class="thresholds-desc">Running pace you can sustain for ~1 hour (M:SS/km). Used to compute running TSS. Enter as <code>4:30</code>, <code>4:30/km</code>, or <code>4:30 /km</code>.</p>
+          <div class="profile-field-error" id="thresholds-pace-error"></div>
+        </div>
+
+        <div class="profile-actions-row">
+          <button type="button" id="thresholds-save-btn" class="settings-save-btn">Save</button>
+          <span id="thresholds-feedback" class="settings-feedback" aria-live="polite"></span>
+        </div>
+
+        <div class="thresholds-info-card">
+          Changing these will recompute TSS for new workouts only. Past workouts keep their original TSS values (no retro recompute in this sprint).
+        </div>
       </div>
 
       <div id="section-personal-records" class="settings-section">
@@ -618,6 +707,205 @@
 
       window.addEventListener('userReady', function () {
         _loadPrefs();
+      });
+    }());
+  </script>
+  <script>
+    (function () {
+      // Performance Thresholds section
+
+      // Stored server values (null = use default)
+      var _tBaseline = { ftp_w: null, threshold_hr: null, threshold_pace_seconds_per_km: null };
+
+      function _secsToMMSS(secs) {
+        if (secs == null) return '';
+        var m = Math.floor(secs / 60);
+        var s = secs % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+      }
+
+      function _parsePace(str) {
+        // Accepts "4:30", "4:30/km", "4:30 /km" — returns integer seconds or null on failure
+        if (!str || !str.trim()) return null;
+        var clean = str.trim().replace(/\s*\/\s*km\s*$/i, '').trim();
+        var match = clean.match(/^(\d{1,2}):(\d{2})$/);
+        if (!match) return null;
+        var mins = parseInt(match[1], 10);
+        var secs = parseInt(match[2], 10);
+        if (secs >= 60) return null;
+        return mins * 60 + secs;
+      }
+
+      function _tClearErrors() {
+        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-pace-error']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '';
+          });
+      }
+
+      function _tSetFeedback(msg, type) {
+        var el = document.getElementById('thresholds-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
+      }
+
+      function _tLoadPrefs() {
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = data.row || {};
+            _tBaseline = {
+              ftp_w: row.ftp_w != null ? row.ftp_w : null,
+              threshold_hr: row.threshold_hr != null ? row.threshold_hr : null,
+              threshold_pace_seconds_per_km: row.threshold_pace_seconds_per_km != null
+                ? row.threshold_pace_seconds_per_km : null,
+            };
+
+            var ftpEl = document.getElementById('thresholds-ftp');
+            if (ftpEl) ftpEl.value = _tBaseline.ftp_w != null ? String(_tBaseline.ftp_w) : '';
+
+            var hrEl = document.getElementById('thresholds-hr');
+            if (hrEl) hrEl.value = _tBaseline.threshold_hr != null ? String(_tBaseline.threshold_hr) : '';
+
+            var paceEl = document.getElementById('thresholds-pace');
+            if (paceEl) {
+              paceEl.value = _tBaseline.threshold_pace_seconds_per_km != null
+                ? _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km'
+                : '';
+            }
+          })
+          .catch(function () {
+            _tSetFeedback('Failed to load thresholds.', 'error');
+          });
+      }
+
+      function _tValidateAndBuildPatch() {
+        _tClearErrors();
+        var patch = {};
+        var valid = true;
+
+        var ftpEl = document.getElementById('thresholds-ftp');
+        var ftpVal = ftpEl ? ftpEl.value.trim() : '';
+        if (ftpVal === '') {
+          patch.ftp_w = null;
+        } else {
+          var ftpNum = parseInt(ftpVal, 10);
+          if (isNaN(ftpNum) || ftpNum < 50 || ftpNum > 600) {
+            var errEl = document.getElementById('thresholds-ftp-error');
+            if (errEl) errEl.textContent = 'FTP must be between 50 and 600 W';
+            valid = false;
+          } else {
+            patch.ftp_w = ftpNum;
+          }
+        }
+
+        var hrEl = document.getElementById('thresholds-hr');
+        var hrVal = hrEl ? hrEl.value.trim() : '';
+        if (hrVal === '') {
+          patch.threshold_hr = null;
+        } else {
+          var hrNum = parseInt(hrVal, 10);
+          if (isNaN(hrNum) || hrNum < 100 || hrNum > 220) {
+            var hrErrEl = document.getElementById('thresholds-hr-error');
+            if (hrErrEl) hrErrEl.textContent = 'Threshold HR must be between 100 and 220 bpm';
+            valid = false;
+          } else {
+            patch.threshold_hr = hrNum;
+          }
+        }
+
+        var paceEl = document.getElementById('thresholds-pace');
+        var paceVal = paceEl ? paceEl.value.trim() : '';
+        if (paceVal === '') {
+          patch.threshold_pace_seconds_per_km = null;
+        } else {
+          var paceSecs = _parsePace(paceVal);
+          if (paceSecs === null || paceSecs < 180 || paceSecs > 540) {
+            var paceErrEl = document.getElementById('thresholds-pace-error');
+            if (paceErrEl) paceErrEl.textContent = 'Enter pace as M:SS/km (e.g. 4:30/km), range 3:00–9:00/km';
+            valid = false;
+          } else {
+            patch.threshold_pace_seconds_per_km = paceSecs;
+          }
+        }
+
+        return valid ? patch : null;
+      }
+
+      function _tHandleSave() {
+        var btn = document.getElementById('thresholds-save-btn');
+        _tSetFeedback('', '');
+
+        var patch = _tValidateAndBuildPatch();
+        if (patch === null) {
+          _tSetFeedback('Fix the errors above and try again.', 'error');
+          return;
+        }
+
+        if (btn) btn.disabled = true;
+        fetch('/api/user-preferences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function (saved) {
+            _tBaseline = {
+              ftp_w: saved.ftp_w != null ? saved.ftp_w : null,
+              threshold_hr: saved.threshold_hr != null ? saved.threshold_hr : null,
+              threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km != null
+                ? saved.threshold_pace_seconds_per_km : null,
+            };
+            // Normalise pace display to M:SS/km after save
+            var paceEl = document.getElementById('thresholds-pace');
+            if (paceEl) {
+              paceEl.value = _tBaseline.threshold_pace_seconds_per_km != null
+                ? _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km'
+                : '';
+            }
+            _tSetFeedback('Saved.', 'success');
+          })
+          .catch(function (errData) {
+            var detail = errData && errData.detail;
+            if (Array.isArray(detail)) {
+              detail.forEach(function (e) {
+                var fieldId = 'thresholds-' + (e.field || '').replace(/_/g, '-').replace('threshold-', '') + '-error';
+                var errEl = document.getElementById(fieldId);
+                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+              });
+              _tSetFeedback('Fix the errors above and try again.', 'error');
+            } else {
+              _tSetFeedback(typeof detail === 'string' ? detail : 'Save failed.', 'error');
+            }
+          })
+          .finally(function () {
+            if (btn) btn.disabled = false;
+          });
+      }
+
+      // "Use default" buttons clear their field
+      document.querySelectorAll('.thresholds-default-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var field = btn.getAttribute('data-field');
+          var inputId = 'thresholds-' + field;
+          var el = document.getElementById(inputId);
+          if (el) el.value = '';
+          var errEl = document.getElementById(inputId + '-error');
+          if (errEl) errEl.textContent = '';
+          _tSetFeedback('', '');
+        });
+      });
+
+      var tSaveBtn = document.getElementById('thresholds-save-btn');
+      if (tSaveBtn) tSaveBtn.addEventListener('click', _tHandleSave);
+
+      window.addEventListener('userReady', function () {
+        _tLoadPrefs();
       });
     }());
   </script>
