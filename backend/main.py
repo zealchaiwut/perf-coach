@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -146,6 +146,35 @@ def get_env():
 @app.get("/api/environment")
 def get_environment():
     return JSONResponse({"environment": environment})
+
+
+@app.get("/api/about")
+def get_about():
+    """Return app metadata for the Settings About section.
+
+    Response schema:
+        {
+            "app_version":        str  — contents of VERSION file; fallback "v0.0.1-dev"
+            "git_sha":            str  — GIT_SHA env var; fallback "local-dev"
+            "environment":        str  — current environment ("uat"/"prd"/"local")
+            "changelog_available": bool — True when CHANGELOG.md exists in repo root
+        }
+    """
+    version_file = _static_root / "VERSION"
+    try:
+        app_version = version_file.read_text().strip() if version_file.exists() else "v0.0.1-dev"
+    except OSError:
+        app_version = "v0.0.1-dev"
+
+    changelog_file = _static_root / "CHANGELOG.md"
+    changelog_available = changelog_file.exists()
+
+    return JSONResponse({
+        "app_version": app_version,
+        "git_sha": os.getenv("GIT_SHA", "local-dev"),
+        "environment": environment,
+        "changelog_available": changelog_available,
+    })
 
 
 @app.get("/api/users")
@@ -4379,6 +4408,50 @@ def get_training_log(
 
 VALID_TRACK_TYPES = {"time", "weight"}
 
+CANONICAL_TRACKS = [
+    {"track_key": "half_marathon", "track_name": "Half Marathon", "track_type": "time", "category": "running"},
+    {"track_key": "10k", "track_name": "10K", "track_type": "time", "category": "running"},
+    {"track_key": "5k", "track_name": "5K", "track_type": "time", "category": "running"},
+    {"track_key": "marathon", "track_name": "Marathon", "track_type": "time", "category": "running"},
+    {"track_key": "squat_1rm", "track_name": "Squat 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "deadlift_1rm", "track_name": "Deadlift 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "bench_1rm", "track_name": "Bench Press 1RM", "track_type": "weight", "category": "strength"},
+    {"track_key": "ohp_1rm", "track_name": "Overhead Press 1RM", "track_type": "weight", "category": "strength"},
+]
+_CANONICAL_TRACK_MAP = {t["track_key"]: t for t in CANONICAL_TRACKS}
+
+
+def _format_time_seconds(seconds: float) -> str:
+    total = int(abs(seconds))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _improvement_time(current_seconds: float, prev_seconds: float) -> dict:
+    delta = current_seconds - prev_seconds  # positive = slower, negative = faster
+    sign = "+" if delta >= 0 else "−"
+    return {"seconds": delta, "formatted": f"{sign}{_format_time_seconds(delta)}"}
+
+
+def _improvement_weight(current_kg: float, prev_kg: float) -> dict:
+    delta = current_kg - prev_kg
+    sign = "+" if delta >= 0 else "−"
+    abs_delta = abs(delta)
+    formatted_val = int(abs_delta) if abs_delta == int(abs_delta) else abs_delta
+    return {"kg": delta, "formatted": f"{sign}{formatted_val} kg"}
+
+
+def _format_value(value: float, track_type: str) -> str:
+    if track_type == "time":
+        return _format_time_seconds(value)
+    abs_v = abs(value)
+    formatted_val = int(abs_v) if abs_v == int(abs_v) else abs_v
+    return f"{formatted_val} kg"
+
 
 class PersonalRecordIn(BaseModel):
     user_id: str
@@ -4513,6 +4586,129 @@ def delete_personal_record(record_id: str):
         session.delete(pr)
         session.commit()
     return Response(status_code=204)
+
+
+# ── Personal Records — Tracks / History / Bulk (issue #359) ──────────────────
+
+@app.get("/api/personal-records/tracks")
+def list_personal_record_tracks():
+    return JSONResponse({"tracks": CANONICAL_TRACKS})
+
+
+class _BulkRecordItem(BaseModel):
+    track_key: str
+    value_numeric: float
+    achieved_on: str  # YYYY-MM-DD
+    source: Optional[str] = None
+
+
+class _BulkInsertIn(BaseModel):
+    user_id: str
+    records: list[_BulkRecordItem]
+
+
+@app.get("/api/personal-records/history")
+def personal_record_history(user_id: str, track_key: str):
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid user_id")
+    with Session(engine) as session:
+        rows = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.track_key == track_key,
+            )
+            .order_by(PersonalRecord.achieved_on.desc())
+            .all()
+        )
+        if not rows:
+            return JSONResponse({"track_key": track_key, "history": []})
+
+        track_type = rows[0].track_type
+
+        history = []
+        for i, pr in enumerate(rows):
+            if i == 0:
+                improvement = None
+            else:
+                prev = rows[i - 1]  # newer record (DESC order)
+                cur_val = float(pr.value_numeric)
+                prev_val = float(prev.value_numeric)
+                if track_type == "time":
+                    improvement = _improvement_time(cur_val, prev_val)
+                else:
+                    improvement = _improvement_weight(cur_val, prev_val)
+
+            history.append({
+                "id": str(pr.id),
+                "value_numeric": float(pr.value_numeric),
+                "value_formatted": _format_value(float(pr.value_numeric), track_type),
+                "achieved_on": str(pr.achieved_on),
+                "source": pr.source,
+                "improvement_from_prev": improvement,
+            })
+
+        return JSONResponse({"track_key": track_key, "history": history})
+
+
+@app.post("/api/personal-records/bulk", status_code=201)
+def bulk_create_personal_records(body: _BulkInsertIn):
+    try:
+        uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid user_id")
+    if not body.records:
+        raise HTTPException(status_code=422, detail="records must contain at least 1 item")
+
+    errors = []
+    validated = []
+    for idx, item in enumerate(body.records):
+        rec_errors = []
+        if item.value_numeric <= 0:
+            rec_errors.append("value_numeric must be > 0")
+        try:
+            achieved = _date.fromisoformat(item.achieved_on)
+        except ValueError:
+            rec_errors.append("Invalid achieved_on; use YYYY-MM-DD")
+            achieved = None
+        if achieved and achieved > _date.today():
+            rec_errors.append("achieved_on cannot be in the future")
+        if not item.track_key or not item.track_key.strip():
+            rec_errors.append("track_key is required")
+        if rec_errors:
+            errors.append({"index": idx, "track_key": item.track_key, "errors": rec_errors})
+        else:
+            track_info = _CANONICAL_TRACK_MAP.get(item.track_key.strip())
+            track_type = track_info["track_type"] if track_info else "weight"
+            track_name = track_info["track_name"] if track_info else item.track_key.strip()
+            validated.append((item, achieved, track_type, track_name))
+
+    if errors:
+        raise HTTPException(status_code=422, detail={"message": "Validation failed", "errors": errors})
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        created_ids = []
+        for item, achieved, track_type, track_name in validated:
+            pr = PersonalRecord(
+                user_id=uid,
+                track_key=item.track_key.strip(),
+                track_name=track_name,
+                track_type=track_type,
+                value_numeric=item.value_numeric,
+                achieved_on=achieved,
+                source=item.source,
+            )
+            session.add(pr)
+            session.flush()
+            created_ids.append(str(pr.id))
+        session.commit()
+
+    return JSONResponse(status_code=201, content={"created": len(created_ids), "ids": created_ids})
 
 
 # ── Strava OAuth ──────────────────────────────────────────────────────────────
@@ -6615,3 +6811,127 @@ async def get_sync_status(user: User = Depends(resolve_user)):
         "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
     }
     return JSONResponse(serialized)
+
+
+# ── User Preferences endpoints ─────────────────────────────────────────────────
+
+_PREFS_DEFAULTS = {
+    "ftp_w": 280,
+    "threshold_hr": 170,
+    "threshold_pace_seconds_per_km": 270,
+}
+
+_PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
+_PREFS_NON_EDITABLE = {"preferred_units", "date_format"}
+
+
+def _prefs_row_dict(prefs: UserPreferences) -> dict:
+    return {
+        "user_id": str(prefs.user_id),
+        "ftp_w": prefs.ftp_w,
+        "threshold_hr": prefs.threshold_hr,
+        "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
+        "display_name": prefs.display_name,
+        "week_start_day": prefs.week_start_day,
+        "timezone": prefs.timezone,
+    }
+
+
+@app.get("/api/user-preferences")
+def get_user_preferences(user: User = Depends(resolve_user)):
+    uid = user.id
+    with Session(engine) as session:
+        db_user = session.get(User, uid)
+        if db_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        if prefs is None:
+            prefs = UserPreferences(user_id=uid)
+            session.add(prefs)
+            session.commit()
+            session.refresh(prefs)
+        row = _prefs_row_dict(prefs)
+        row["user_name"] = db_user.name
+        row["user_email"] = db_user.email
+        return JSONResponse({
+            "row": row,
+            "defaults": _PREFS_DEFAULTS,
+        })
+
+
+_PREFS_SENTINEL = object()
+
+
+@app.patch("/api/user-preferences")
+async def patch_user_preferences(request: Request, user: User = Depends(resolve_user)):
+    import zoneinfo as _zoneinfo
+
+    uid = user.id
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+    # Reject non-editable fields
+    non_editable_sent = _PREFS_NON_EDITABLE & set(body.keys())
+    if non_editable_sent:
+        field = next(iter(non_editable_sent))
+        raise HTTPException(status_code=422, detail=f"Field '{field}' is not editable")
+
+    # Validate fields
+    ftp_w = body.get("ftp_w", _PREFS_SENTINEL)
+    threshold_hr = body.get("threshold_hr", _PREFS_SENTINEL)
+    threshold_pace = body.get("threshold_pace_seconds_per_km", _PREFS_SENTINEL)
+    display_name = body.get("display_name", _PREFS_SENTINEL)
+    week_start_day = body.get("week_start_day", _PREFS_SENTINEL)
+    timezone = body.get("timezone", _PREFS_SENTINEL)
+
+    errors = []
+    if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
+        if not isinstance(ftp_w, int) or not (50 <= ftp_w <= 600):
+            errors.append({"field": "ftp_w", "msg": "ftp_w must be between 50 and 600"})
+    if threshold_hr is not _PREFS_SENTINEL and threshold_hr is not None:
+        if not isinstance(threshold_hr, int) or not (100 <= threshold_hr <= 220):
+            errors.append({"field": "threshold_hr", "msg": "threshold_hr must be between 100 and 220"})
+    if threshold_pace is not _PREFS_SENTINEL and threshold_pace is not None:
+        if not isinstance(threshold_pace, int) or not (180 <= threshold_pace <= 540):
+            errors.append({"field": "threshold_pace_seconds_per_km", "msg": "threshold_pace_seconds_per_km must be between 180 and 540"})
+    if display_name is not _PREFS_SENTINEL and display_name is not None:
+        if not isinstance(display_name, str) or len(display_name) > 100:
+            errors.append({"field": "display_name", "msg": "display_name must be ≤ 100 characters"})
+    if week_start_day is not _PREFS_SENTINEL and week_start_day is not None:
+        if not isinstance(week_start_day, int) or not (1 <= week_start_day <= 7):
+            errors.append({"field": "week_start_day", "msg": "week_start_day must be between 1 and 7"})
+    if timezone is not _PREFS_SENTINEL and timezone is not None:
+        try:
+            _zoneinfo.ZoneInfo(timezone)
+        except (KeyError, _zoneinfo.ZoneInfoNotFoundError):
+            errors.append({"field": "timezone", "msg": f"Unknown IANA timezone: {timezone}"})
+
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
+    with Session(engine) as session:
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        if prefs is None:
+            prefs = UserPreferences(user_id=uid)
+            session.add(prefs)
+
+        if ftp_w is not _PREFS_SENTINEL:
+            prefs.ftp_w = ftp_w
+        if threshold_hr is not _PREFS_SENTINEL:
+            prefs.threshold_hr = threshold_hr
+        if threshold_pace is not _PREFS_SENTINEL:
+            prefs.threshold_pace_seconds_per_km = threshold_pace
+        if display_name is not _PREFS_SENTINEL:
+            prefs.display_name = display_name
+        if week_start_day is not _PREFS_SENTINEL:
+            prefs.week_start_day = week_start_day
+        if timezone is not _PREFS_SENTINEL:
+            prefs.timezone = timezone
+
+        prefs.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(prefs)
+        return JSONResponse(_prefs_row_dict(prefs))

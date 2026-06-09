@@ -125,83 +125,83 @@
 
   var _RD_FACTOR_META = {
     sleep_hours: {
-      name: ‘Sleep’,
-      fmt: function (v) { return v != null ? Number(v).toFixed(1) + ‘h’ : ‘—‘; },
-      baseline_key: ‘sleep_7d_avg_hours’,
+      name: 'Sleep',
+      fmt: function (v) { return v != null ? Number(v).toFixed(1) + 'h' : '—'; },
+      baseline_key: 'sleep_7d_avg_hours',
     },
     hrv: {
-      name: ‘HRV’,
-      fmt: function (v) { return v != null ? Math.round(v) + ‘ ms’ : ‘—‘; },
-      baseline_key: ‘hrv_7d_avg’,
+      name: 'HRV',
+      fmt: function (v) { return v != null ? Math.round(v) + ' ms' : '—'; },
+      baseline_key: 'hrv_7d_avg',
     },
     rhr: {
-      name: ‘RHR’,
-      fmt: function (v) { return v != null ? Math.round(v) + ‘ bpm’ : ‘—‘; },
-      baseline_key: ‘rhr_7d_avg’,
+      name: 'RHR',
+      fmt: function (v) { return v != null ? Math.round(v) + ' bpm' : '—'; },
+      baseline_key: 'rhr_7d_avg',
     },
     mood: {
-      name: ‘Mood’,
-      fmt: function (v) { return v != null ? v + ‘/5’ : ‘—‘; },
+      name: 'Mood',
+      fmt: function (v) { return v != null ? v + '/5' : '—'; },
       baseline_key: null,
     },
     energy: {
-      name: ‘Energy’,
-      fmt: function (v) { return v != null ? v + ‘/5’ : ‘—‘; },
+      name: 'Energy',
+      fmt: function (v) { return v != null ? v + '/5' : '—'; },
       baseline_key: null,
     },
   };
 
   var _RD_LABEL_COLOR = {
-    ‘Excellent’: ‘var(--green)’,
-    ‘Good’:      ‘var(--blue-text)’,
-    ‘OK’:        ‘var(--text-secondary)’,
-    ‘Caution’:   ‘var(--amber)’,
-    ‘Recovery’:  ‘var(--red)’,
+    'Excellent': 'var(--green)',
+    'Good':      'var(--blue-text)',
+    'OK':        'var(--text-secondary)',
+    'Caution':   'var(--amber)',
+    'Recovery':  'var(--red)',
   };
 
   function _rdImpactNumeric(impact) {
-    return (impact === ‘positive’ || impact === ‘negative’) ? 1 : 0;
+    return (impact === 'positive' || impact === 'negative') ? 1 : 0;
   }
 
   function _rdContributorRow(c, baseline) {
     var meta = _RD_FACTOR_META[c.factor] ||
-      { name: c.factor, fmt: function (v) { return String(v != null ? v : ‘—‘); }, baseline_key: null };
+      { name: c.factor, fmt: function (v) { return String(v != null ? v : '—'); }, baseline_key: null };
     var valStr = meta.fmt(c.value);
-    var arrow = c.impact === ‘positive’ ? ‘↑’ : (c.impact === ‘negative’ ? ‘↓’ : ‘→’);
-    var arrowCls = c.impact === ‘positive’ ? ‘rd-arrow--positive’ :
-      (c.impact === ‘negative’ ? ‘rd-arrow--negative’ : ‘rd-arrow--neutral’);
+    var arrow = c.impact === 'positive' ? '↑' : (c.impact === 'negative' ? '↓' : '→');
+    var arrowCls = c.impact === 'positive' ? 'rd-arrow--positive' :
+      (c.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
 
-    var avgCmp = ‘’;
+    var avgCmp = '';
     if (meta.baseline_key && baseline && baseline[meta.baseline_key] != null && c.value != null) {
       avgCmp = parseFloat(c.value) > parseFloat(baseline[meta.baseline_key])
-        ? ‘ (above avg)’ : ‘ (below avg)’;
+        ? ' (above avg)' : ' (below avg)';
     }
 
-    return ‘<div class="rd-contributor">’ +
-      ‘<span class="rd-factor-name">’ + meta.name + ‘</span>’ +
-      ‘<span class="rd-arrow ‘ + arrowCls + ‘">’ + arrow + ‘</span>’ +
-      ‘<span class="rd-factor-val">’ + valStr + avgCmp + ‘</span>’ +
-    ‘</div>’;
+    return '<div class="rd-contributor">' +
+      '<span class="rd-factor-name">' + meta.name + '</span>' +
+      '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
+      '<span class="rd-factor-val">' + valStr + avgCmp + '</span>' +
+    '</div>';
   }
 
   async function loadReadinessCard(userId) {
-    var row1 = document.getElementById(‘row-1’);
+    var row1 = document.getElementById('row-1');
     if (!row1) return;
 
-    var card = document.getElementById(‘readiness-hero-card’);
+    var card = document.getElementById('readiness-hero-card');
     if (!card) {
-      card = document.createElement(‘div’);
-      card.id = ‘readiness-hero-card’;
-      card.className = ‘card readiness’;
+      card = document.createElement('div');
+      card.id = 'readiness-hero-card';
+      card.className = 'card readiness';
       row1.insertBefore(card, row1.firstChild);
     }
 
-    card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ + UIStates.loadingHTML();
+    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
 
-    var _rdResult = await _homeFetch(‘/api/home/readiness?user_id=’ + encodeURIComponent(userId));
+    var _rdResult = await _homeFetch('/api/home/readiness?user_id=' + encodeURIComponent(userId));
     if (!_rdResult.ok) {
-      card.innerHTML = ‘<div class="lbl">Readiness · today</div>’ +
-        UIStates.errorHTML(‘Could not load readiness data’);
+      card.innerHTML = '<div class="lbl">Readiness · today</div>' +
+        UIStates.errorHTML('Could not load readiness data');
       return;
     }
     var data = _rdResult.data;
@@ -209,10 +209,10 @@
     /* Null score → no metrics logged today */
     if (data.score === null) {
       card.innerHTML =
-        ‘<div class="lbl">Readiness · today</div>’ +
+        '<div class="lbl">Readiness · today</div>' +
         UIStates.emptyHTML(
-          ‘No metrics logged for today.’,
-          ‘<a href="/home#log-today">Log today\’s metrics →</a>’
+          'No metrics logged for today.',
+          '<a href="/home#log-today">Log today\'s metrics →</a>'
         );
       return;
     }
@@ -226,21 +226,21 @@
     var top3 = sortedContributors.slice(0, 3);
     var baseline = data.rolling_baseline || {};
 
-    var labelColor = _RD_LABEL_COLOR[data.score_label] || ‘var(--text-secondary)’;
+    var labelColor = _RD_LABEL_COLOR[data.score_label] || 'var(--text-secondary)';
     var contributorsHTML = top3.map(function (c) {
       return _rdContributorRow(c, baseline);
-    }).join(‘’);
+    }).join('');
 
     card.innerHTML =
-      ‘<div class="lbl">Readiness · today</div>’ +
-      ‘<div class="score-block">’ +
-        ‘<div class="score-label">Score</div>’ +
-        ‘<div class="score">’ + data.score + ‘<small>/100</small></div>’ +
-        ‘<div class="rd-score-label" style="color:’ + labelColor + ‘;font-size:13px;font-weight:600;margin-top:6px;">’ +
+      '<div class="lbl">Readiness · today</div>' +
+      '<div class="score-block">' +
+        '<div class="score-label">Score</div>' +
+        '<div class="score">' + data.score + '<small>/100</small></div>' +
+        '<div class="rd-score-label" style="color:' + labelColor + ';font-size:13px;font-weight:600;margin-top:6px;">' +
           data.score_label +
-        ‘</div>’ +
-      ‘</div>’ +
-      ‘<div class="rd-contributors">’ + contributorsHTML + ‘</div>’;
+        '</div>' +
+      '</div>' +
+      '<div class="rd-contributors">' + contributorsHTML + '</div>';
   }
 
   /* ---- Sleep card helpers ---- */
@@ -595,55 +595,82 @@
 
     var perfHeader =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</div>' +
+        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</a></div>' +
+        '<a href="/settings#personal-records">All tracks</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
-    var _prResult = await _homeFetch(
-      '/api/home/personal-records?user_id=' + encodeURIComponent(userId) +
-      '&tracks=half_marathon,10k,squat_1rm'
-    );
-    if (!_prResult.ok) {
-      card.innerHTML = perfHeader + UIStates.errorHTML('Could not load performance data');
+    var prs = [];
+    try {
+      var r = await fetch('/api/personal-records');
+      if (r.ok) prs = await r.json();
+    } catch (_) { prs = []; }
+
+    var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
+
+    if (configuredPrs.length === 0) {
+      var emptyLoading = card.querySelector('.ui-loading');
+      if (emptyLoading) emptyLoading.remove();
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'perf-empty';
+      emptyEl.innerHTML =
+        'No tracked performances yet — <a href="/settings#personal-records">add your first PR in Settings</a>';
+      card.appendChild(emptyEl);
       return;
     }
-    var tracks = (_prResult.data.tracks || []);
 
-    var allNoData = tracks.length > 0 && tracks.every(function (t) {
-      return t.trend === 'no_data';
+    /* Fetch 6 months of workouts once */
+    var today = new Date();
+    var from6m = new Date(today);
+    from6m.setMonth(from6m.getMonth() - 6);
+    var allWorkouts = [];
+    try {
+      var wr = await fetch(
+        '/api/workouts?from=' + isoDate(from6m) + '&to=' + isoDate(today)
+      );
+      if (wr.ok) allWorkouts = await wr.json();
+    } catch (_) { allWorkouts = []; }
+
+    allWorkouts.sort(function (a, b) {
+      return a.workout_date < b.workout_date ? 1 : -1;
     });
 
-    if (allNoData || tracks.length === 0) {
-      card.innerHTML = perfHeader +
-        UIStates.emptyHTML(
-          'No personal records yet',
-          '<a href="/settings">Set your PRs →</a>'
-        );
-      return;
+    /* Resolve most-recent values (may involve detail fetches for weight tracks) */
+    var recentValues = [];
+    for (var i = 0; i < configuredPrs.length; i++) {
+      var cfg = TRACK_CONFIGS[configuredPrs[i].track_key];
+      var rv = await resolveRecentValue(cfg, allWorkouts);
+      recentValues.push(rv);
     }
 
-    var rows = '';
-    for (var i = 0; i < tracks.length; i++) {
-      rows += _buildPrRow(tracks[i], i === tracks.length - 1);
+    /* Build HTML */
+    var desktopRows = '';
+    var mobileBlocks = '';
+    for (var j = 0; j < configuredPrs.length; j++) {
+      var pr  = configuredPrs[j];
+      var cfgJ = TRACK_CONFIGS[pr.track_key];
+      var rv2  = recentValues[j];
+      var last = j === configuredPrs.length - 1;
+      desktopRows  += buildDesktopRow(pr, cfgJ, rv2, last);
+      mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
     }
 
-    card.innerHTML = perfHeader +
+    var loadingEl = card.querySelector('.ui-loading');
+    if (loadingEl) loadingEl.remove();
+
+    var contentEl = document.createElement('div');
+    contentEl.innerHTML =
       '<div class="perf-grid">' +
         '<div class="perf-hdr">' +
-          '<div>Track</div>' +
-          '<div>Personal best</div>' +
-          '<div>Predicted</div>' +
-          '<div>Trend</div>' +
+          '<div>Track</div><div>Personal best</div>' +
+          '<div>Most recent</div><div>Predicted next</div>' +
         '</div>' +
-        rows +
-      '</div>';
+        desktopRows +
+      '</div>' +
+      '<div class="perf-mobile">' + mobileBlocks + '</div>';
 
-    card.querySelectorAll('[data-pr-row]').forEach(function (row) {
-      row.style.cursor = 'pointer';
-      row.addEventListener('click', function () {
-        window.location.href = '/settings#personal-records';
-      });
-    });
+    card.appendChild(contentEl.firstChild);
+    card.appendChild(contentEl.firstChild);
   }
 
   /* ---- Recent Workouts card helpers ---- */
@@ -2017,6 +2044,64 @@
     renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
 
+  /* ---- Threshold banner ---- */
+
+  var _THRESHOLD_BANNER_CSS = [
+    '#threshold-banner{display:flex;align-items:center;gap:8px;padding:9px 24px;',
+      "background:#fffbeb;border-bottom:1px solid #fcd34d;font-size:13px;font-weight:500;",
+      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
+    '#threshold-banner .tbanner-msg{flex:1;}',
+    '#threshold-banner a{color:#b45309;font-weight:600;text-decoration:underline;}',
+    '#threshold-banner .tbanner-dismiss{margin-left:auto;background:none;border:none;',
+      'cursor:pointer;font-size:16px;color:#92400e;padding:0 4px;line-height:1;flex-shrink:0;}',
+    '#threshold-banner .tbanner-dismiss:hover{color:#78350f;}',
+    '@media(max-width:880px){#threshold-banner{padding:9px 14px;}}'
+  ].join('');
+
+  function _showThresholdBanner() {
+    if (document.getElementById('threshold-banner')) return;
+    if (!document.getElementById('threshold-banner-styles')) {
+      var style = document.createElement('style');
+      style.id = 'threshold-banner-styles';
+      style.textContent = _THRESHOLD_BANNER_CSS;
+      document.head.appendChild(style);
+    }
+    var banner = document.createElement('div');
+    banner.id = 'threshold-banner';
+    banner.setAttribute('role', 'alert');
+    banner.innerHTML =
+      '<span class="tbanner-msg">Tip: set your FTP and threshold values in ' +
+        '<a href="/settings#thresholds">Settings</a> for accurate training load</span>' +
+      '<button class="tbanner-dismiss" type="button" aria-label="Dismiss">&#x2715;</button>';
+    var syncBar = document.getElementById('sync-status-bar');
+    var nav = document.querySelector('.global-nav');
+    var ref = syncBar || nav;
+    if (ref && ref.parentNode) {
+      ref.parentNode.insertBefore(banner, ref.nextSibling);
+    } else {
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+    banner.querySelector('.tbanner-dismiss').addEventListener('click', function () {
+      sessionStorage.setItem('threshold-banner-dismissed', '1');
+      banner.remove();
+    });
+  }
+
+  async function _checkThresholdBanner() {
+    if (sessionStorage.getItem('threshold-banner-dismissed')) return;
+    try {
+      var r = await fetch('/api/user-preferences');
+      if (!r.ok) return;
+      var data = await r.json();
+      var row = data.row;
+      var needsBanner = !row
+        || row.ftp_w == null
+        || row.threshold_hr == null
+        || row.threshold_pace_seconds_per_km == null;
+      if (needsBanner) _showThresholdBanner();
+    } catch (_) {}
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -2036,6 +2121,8 @@
     }
 
     if (userId) {
+      _checkThresholdBanner();
+
       // Set up row-3 containers synchronously (weight widget fired below)
       loadRow3(userId);
 

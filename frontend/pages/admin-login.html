@@ -212,11 +212,22 @@
 
     setLoading(true);
 
-    fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: secret }),
-    })
+    // The global CSRF fetch-patch (nav.js/user.js) is not loaded on this
+    // standalone page, so attach the token manually. Fetch /api/csrf-token
+    // first to ensure the csrf-token cookie exists, then send it as a header —
+    // required when the visitor already has an app session cookie.
+    fetch('/api/csrf-token', { method: 'GET' })
+      .then(function (r) { return r.ok ? r.json() : { csrf_token: '' }; })
+      .catch(function () { return { csrf_token: '' }; })
+      .then(function (tok) {
+        var headers = { 'Content-Type': 'application/json' };
+        if (tok && tok.csrf_token) { headers['X-CSRF-Token'] = tok.csrf_token; }
+        return fetch('/api/admin/login', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ secret: secret }),
+        });
+      })
       .then(function (res) {
         if (res.ok) {
           window.location.href = '/admin';
