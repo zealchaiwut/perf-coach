@@ -11,18 +11,25 @@ AC items covered:
 Server: http://127.0.0.1:9001
 """
 import os
+import pathlib
 import uuid
 
 import httpx
 import pytest
+from dotenv import dotenv_values
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from backend.auth import hash_password
-from backend.db import engine
+from backend.auth import generate_csrf_token, hash_password
 from backend.models import User
 
 BASE = "http://127.0.0.1:9001"
 _TEST_PASSWORD = "settings365-int-pw"
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_env_vals = dotenv_values(_REPO_ROOT / ".env")
+_uat_url = _env_vals.get("DATABASE_URL_UAT")
+engine = create_engine(_uat_url, pool_pre_ping=True)
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
@@ -33,24 +40,49 @@ def client():
         yield c
 
 
+def _make_authed_client(username: str, user_id: str) -> httpx.Client:
+    """Login and return an httpx.Client with session + CSRF cookies set for HTTP (no Secure flag)."""
+    # Login to get the session token
+    temp = httpx.Client(base_url=BASE, timeout=10, follow_redirects=True)
+    login = temp.post("/api/auth/login", json={"username": username, "password": _TEST_PASSWORD})
+    assert login.status_code == 200, f"Login failed: {login.text}"
+    session_val = temp.cookies.get("session", "")
+    temp.close()
+    assert session_val, "Login must set session cookie"
+
+    # Generate a fresh CSRF token and create a client with explicit cookies (no Secure flag).
+    # Secure cookies are not sent over HTTP by httpx, so we inject both values manually.
+    csrf = generate_csrf_token()
+    c = httpx.Client(
+        base_url=BASE,
+        timeout=10,
+        follow_redirects=True,
+        cookies={"session": session_val, "csrf-token": csrf},
+        headers={"X-CSRF-Token": csrf},
+    )
+    c._user_id = user_id
+    return c
+
+
 @pytest.fixture(scope="module")
 def authed_client():
-    """Authenticated client with a fresh user (session cookie set)."""
+    """Authenticated client with a fresh user."""
     username = f"si365_{uuid.uuid4().hex[:8]}"
-    with httpx.Client(base_url=BASE, timeout=10, follow_redirects=True) as c:
-        res = c.post("/api/users", json={"name": username})
-        assert res.status_code == 201, f"Failed to create user: {res.text}"
-        user_id = res.json()["id"]
-        with Session(engine) as db:
-            u = db.get(User, uuid.UUID(user_id))
-            assert u is not None
-            u.password_hash = hash_password(_TEST_PASSWORD)
-            db.commit()
-        login = c.post("/api/auth/login", json={"username": username, "password": _TEST_PASSWORD})
-        assert login.status_code == 200, f"Login failed: {login.text}"
-        c._user_id = user_id
-        yield c
-        c.delete(f"/api/users/{user_id}")
+    temp = httpx.Client(base_url=BASE, timeout=10, follow_redirects=True)
+    res = temp.post("/api/users", json={"name": username})
+    assert res.status_code == 201, f"Failed to create user: {res.text}"
+    user_id = res.json()["id"]
+    temp.close()
+    with Session(engine) as db:
+        u = db.get(User, uuid.UUID(user_id))
+        assert u is not None
+        u.password_hash = hash_password(_TEST_PASSWORD)
+        db.commit()
+    c = _make_authed_client(username, user_id)
+    yield c
+    # Cleanup: delete user (need CSRF for DELETE)
+    c.delete(f"/api/users/{user_id}")
+    c.close()
 
 
 # ── AC (A): PR widget deep-link ───────────────────────────────────────────────
@@ -329,19 +361,20 @@ class TestACFPRsCRUD:
     def pr_client(self):
         """Session-authenticated client + user_id for PR tests."""
         username = f"pr365_{uuid.uuid4().hex[:8]}"
-        with httpx.Client(base_url=BASE, timeout=10, follow_redirects=True) as c:
-            res = c.post("/api/users", json={"name": username})
-            assert res.status_code == 201
-            user_id = res.json()["id"]
-            with Session(engine) as db:
-                u = db.get(User, uuid.UUID(user_id))
-                u.password_hash = hash_password(_TEST_PASSWORD)
-                db.commit()
-            login = c.post("/api/auth/login", json={"username": username, "password": _TEST_PASSWORD})
-            assert login.status_code == 200
-            c._user_id = user_id
-            yield c
-            c.delete(f"/api/users/{user_id}")
+        temp = httpx.Client(base_url=BASE, timeout=10, follow_redirects=True)
+        res = temp.post("/api/users", json={"name": username})
+        assert res.status_code == 201
+        user_id = res.json()["id"]
+        temp.close()
+        with Session(engine) as db:
+            u = db.get(User, uuid.UUID(user_id))
+            assert u is not None, f"User {user_id} not found in DB"
+            u.password_hash = hash_password(_TEST_PASSWORD)
+            db.commit()
+        c = _make_authed_client(username, user_id)
+        yield c
+        c.delete(f"/api/users/{user_id}")
+        c.close()
 
     def test_create_personal_record(self, pr_client):
         """POST /api/personal-records creates a new PR and returns 201."""
