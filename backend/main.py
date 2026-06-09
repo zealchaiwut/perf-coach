@@ -2647,6 +2647,7 @@ def _best_values_dict(w: Workout) -> dict:
 
 
 def _workout_dict(w: Workout, exercises: list) -> dict:
+    strava_act = getattr(w, "strava_activity", None)
     return {
         "id": str(w.id),
         "user_id": str(w.user_id),
@@ -2665,6 +2666,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
+        "avg_power_w": strava_act.avg_power_w if strava_act else None,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
