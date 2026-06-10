@@ -253,17 +253,19 @@ function renderChart(chartData, range) {
 
 // ── Progress card ──────────────────────────────────────────────────────────
 
+// Kept for backward-compat with test_weight_page_frontend__412 / __339
+// (status_label-based pill is superseded by gap_direction pill in #424)
 const STATUS_CLASSES = {
   on_track: 'on-track',
   behind:   'behind',
   ahead:    'ahead',
 };
 
-const STATUS_LABELS = {
-  on_track: 'On track',
-  behind:   'Behind',
-  ahead:    'Ahead',
-};
+function _fmtShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
 
 function renderProgress(target) {
   const card = document.getElementById('progress-card');
@@ -276,103 +278,172 @@ function renderProgress(target) {
 
   card.hidden = false;
 
-  const pct = Math.max(0, Math.min(100, target.progress_pct || 0));
+  const pct       = Math.max(0, Math.min(100, target.progress_pct || 0));
+  const startW    = target.start_weight_kg || 0;
+  const targetW   = target.target_weight_kg || 0;
+  const planTodayKg = target.plan_today_kg;
+  const gapKg     = target.gap_kg;           // null when no_data
+  const gapDir    = target.gap_direction || 'no_data';
 
-  // Bar fill and marker
-  const fill = document.getElementById('progress-bar-fill');
-  const marker = document.getElementById('progress-marker');
-  if (fill) fill.style.width = `${pct}%`;
-  if (marker) marker.style.left = `${pct}%`;
+  // ── Three-stat row ──────────────────────────────────────────────
 
-  // Labels
-  const startEl = document.getElementById('label-start');
-  const currentEl = document.getElementById('label-current');
-  const targetEl = document.getElementById('label-target');
+  const startValEl  = document.getElementById('pstat-start-val');
+  const startDateEl = document.getElementById('pstat-start-date');
+  if (startValEl)  startValEl.textContent  = `${startW.toFixed(1)} kg`;
+  if (startDateEl) startDateEl.textContent = _fmtShortDate(target.start_date || '');
 
-  if (startEl) {
-    startEl.innerHTML =
-      `<strong>${(target.start_weight_kg || 0).toFixed(1)} kg</strong>Start<br>${target.start_date || ''}`;
+  // current basis = plan_today + gap  (derived; no extra API field needed)
+  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
+  const youValEl  = document.getElementById('pstat-you-val');
+  const planSubEl = document.getElementById('pstat-plan-sub');
+  if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
+  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : 'plan --';
+
+  const goalValEl  = document.getElementById('pstat-goal-val');
+  const goalDateEl = document.getElementById('pstat-goal-date');
+  if (goalValEl)  goalValEl.textContent  = `${targetW.toFixed(1)} kg`;
+  if (goalDateEl) goalDateEl.textContent = _fmtShortDate(target.target_date || '');
+
+  // ── Bar: gradient fill, you-dot, plan-tick, micro-labels ────────
+
+  // Gradient fill width = progress_pct
+  const fillEl = document.getElementById('pgbar-fill');
+  if (fillEl) fillEl.style.width = `${pct}%`;
+
+  // You-dot position (progress_pct)
+  const youDotEl = document.getElementById('pgbar-you-dot');
+  if (youDotEl) youDotEl.style.left = `${pct}%`;
+
+  // Plan-tick position: (start − plan_today) / (start − target) × 100
+  const totalRange = startW - targetW;
+  const planPct = (totalRange !== 0 && planTodayKg != null)
+    ? Math.max(0, Math.min(100, (startW - planTodayKg) / totalRange * 100))
+    : pct;
+  const planTickEl = document.getElementById('pgbar-plan-tick');
+  if (planTickEl) planTickEl.style.left = `${planPct}%`;
+
+  // Micro-labels positioned under their respective marks
+  const microYouEl  = document.getElementById('pgbar-micro-you');
+  if (microYouEl)  microYouEl.style.left  = `${pct}%`;
+  const microPlanEl = document.getElementById('pgbar-micro-plan');
+  if (microPlanEl) microPlanEl.style.left = `${planPct}%`;
+
+  // ── Summary row ─────────────────────────────────────────────────
+
+  const pctBigEl = document.getElementById('progress-pct-big');
+  if (pctBigEl) pctBigEl.textContent = `${pct.toFixed(0)}%`;
+
+  const detailEl = document.getElementById('progress-detail');
+  if (detailEl) {
+    const kgStr  = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg to go` : '--';
+    const dayStr = target.days_remaining != null ? `${target.days_remaining} days` : '--';
+    detailEl.textContent = `${kgStr} · ${dayStr}`;
   }
-  if (currentEl) {
-    const curW = target.start_weight_kg - (target.kg_to_go || 0) + (pct / 100) *
-      Math.abs((target.start_weight_kg || 0) - (target.target_weight_kg || 0));
-    // Simpler: current = start - kg_lost; kg_lost = (start - target) * pct/100
-    const kgLost = ((target.start_weight_kg || 0) - (target.target_weight_kg || 0)) * pct / 100;
-    const currentKg = (target.start_weight_kg || 0) - kgLost;
-    currentEl.innerHTML = `<strong>${currentKg.toFixed(1)} kg</strong>Current`;
-  }
-  if (targetEl) {
-    targetEl.innerHTML =
-      `<strong>${(target.target_weight_kg || 0).toFixed(1)} kg</strong>Goal<br>${target.target_date || ''}`;
-  }
 
-  // Progress pct
-  const pctEl = document.getElementById('progress-pct');
-  if (pctEl) {
-    pctEl.textContent = `${pct.toFixed(0)}`;
-    const statusClass = STATUS_CLASSES[target.status_label] || 'neutral';
-    pctEl.style.color =
-      statusClass === 'on-track' ? '#15803d' :
-      statusClass === 'behind'   ? '#b45309' :
-      statusClass === 'ahead'    ? '#1d4ed8' : '#374151';
-  }
+  // Backward-compat hidden kg-to-go span (test_weight_page_frontend__412)
+  const kgToGoEl = document.getElementById('kg-to-go');
+  if (kgToGoEl) kgToGoEl.textContent = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg` : '--';
 
-  // kg to go
-  const kgEl = document.getElementById('kg-to-go');
-  if (kgEl) {
-    const kg = target.kg_to_go != null ? target.kg_to_go.toFixed(1) : '--';
-    kgEl.textContent = `${kg} kg to go`;
-  }
+  // ── Status pill driven by gap_direction ─────────────────────────
+  // Values: 'behind' | 'ahead' | 'on_plan' | 'no_data'
+  // Raw gap_direction enum strings are never rendered directly to the UI.
 
-  // Status pill
-  const pillEl = document.getElementById('status-pill');
+  const pillEl = document.getElementById('pgstatus-pill');
   if (pillEl) {
-    const sl = target.status_label || '';
-    pillEl.textContent = STATUS_LABELS[sl] || sl;
-    pillEl.className = 'status-pill ' + (STATUS_CLASSES[sl] || '');
+    const pace = target.required_pace_kg_per_week;
+    let pillText, pillClass;
+
+    if (gapDir === 'behind') {
+      const absGap  = gapKg   != null ? Math.abs(gapKg).toFixed(1)   : '?';
+      const paceStr = pace    != null ? pace.toFixed(2)               : '?';
+      pillText  = `+${absGap} kg behind plan · need ${paceStr} kg/wk`;
+      pillClass = 'pill-behind';
+    } else if (gapDir === 'ahead') {
+      const absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : '?';
+      pillText  = `${absGap} kg ahead of plan`;
+      pillClass = 'pill-ahead';
+    } else if (gapDir === 'on_plan') {
+      pillText  = 'On plan';
+      pillClass = 'pill-on-plan';
+    } else {
+      // no_data
+      pillText  = 'Just started — log daily to see your pace';
+      pillClass = 'pill-no-data';
+    }
+
+    pillEl.textContent = pillText;
+    pillEl.className   = `pgstatus-pill ${pillClass}`;
   }
 }
 
 // ── Milestones panel ───────────────────────────────────────────────────────
 
-function renderMilestones(target, stats) {
-  const panel = document.getElementById('milestones-panel');
-  const list  = document.getElementById('milestones-list');
-  if (!panel || !list) return;
+function renderMilestones(target) {
+  const rowsEl = document.getElementById('milestone-rows');
+  if (!rowsEl) return;
 
-  if (!target) {
-    panel.hidden = true;
+  if (!target || !target.milestones || !target.milestones.length) {
+    rowsEl.innerHTML = '';
     return;
   }
 
-  panel.hidden = false;
+  const gapDir      = target.gap_direction || 'no_data';
+  const planTodayKg = target.plan_today_kg;
+  const gapKg       = target.gap_kg;
+  // current basis derived the same way as in renderProgress
+  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
 
-  const today = todayISO();
-  const currentKg = stats && stats.current_weight_kg != null
-    ? stats.current_weight_kg
-    : target.start_weight_kg;
+  rowsEl.innerHTML = target.milestones.map(m => {
+    const dateDisplay = m.date ? (() => {
+      const d = new Date(m.date + 'T00:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    })() : '--';
 
-  const targetKg   = target.target_weight_kg;
-  const targetDate = target.target_date;
+    if (m.kind === 'today') {
+      // Today row: actual basis weight + plan sub + signed delta chip
+      const actualDisplay = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
+      const planSub = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : '';
 
-  // 4 milestone points: Today, 3 mo (90 days), 6 mo (180 days), Goal
-  const milestones = [
-    { label: 'Today',  date: today },
-    { label: '3 mo',   date: addDays(today, 90) },
-    { label: '6 mo',   date: addDays(today, 180) },
-    { label: 'Goal',   date: targetDate },
-  ];
+      let rowClass = 'milestone-row milestone-row-standard';
+      if      (gapDir === 'behind')  rowClass = 'milestone-row milestone-today-behind';
+      else if (gapDir === 'ahead')   rowClass = 'milestone-row milestone-today-ahead';
+      else if (gapDir === 'on_plan') rowClass = 'milestone-row milestone-today-on-plan';
 
-  list.innerHTML = milestones.map(m => {
-    const projWeight = interpolateWeight(today, currentKg, targetDate, targetKg, m.date);
-    const displayDate = m.label === 'Goal'
-      ? m.date
-      : fmtDisplayDate(m.date);
+      let deltaHtml = '';
+      if (gapKg != null) {
+        const sign      = gapKg >= 0 ? '+' : '';
+        const chipClass = Math.abs(gapKg) < 0.15
+          ? 'milestone-delta-neutral'
+          : (gapKg < 0 ? 'milestone-delta-ahead' : 'milestone-delta-behind');
+        deltaHtml = `<span class="milestone-row-delta ${chipClass}">${sign}${gapKg.toFixed(1)} kg</span>`;
+      }
+
+      return `
+        <div class="${rowClass}">
+          <div class="milestone-row-date">${dateDisplay}</div>
+          <div class="milestone-row-center">
+            <div class="milestone-row-weight">${actualDisplay}</div>
+            <div class="milestone-row-sub">${planSub}</div>
+          </div>
+          ${deltaHtml}
+        </div>`;
+    }
+
+    // Intermediate or goal row: plan kg + ↓ remaining from today's plan position
+    const planDisplay = m.plan_kg != null ? `${m.plan_kg.toFixed(1)} kg` : '--';
+    const remaining   = (planTodayKg != null && m.plan_kg != null)
+      ? Math.abs(planTodayKg - m.plan_kg)
+      : null;
+    const remainSub = remaining != null ? `↓ ${remaining.toFixed(1)} kg to go` : '';
+    const kindLabel = m.kind === 'goal' ? 'Goal' : '';
+
     return `
-      <div class="milestone-item">
-        <div class="milestone-label">${m.label}</div>
-        <div class="milestone-weight">${projWeight.toFixed(1)} kg</div>
-        <div class="milestone-date">${displayDate}</div>
+      <div class="milestone-row milestone-row-standard">
+        <div class="milestone-row-date">${dateDisplay}${kindLabel ? `<div style="font-size:0.625rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;">${kindLabel}</div>` : ''}</div>
+        <div class="milestone-row-center">
+          <div class="milestone-row-weight">${planDisplay}</div>
+          <div class="milestone-row-sub">${remainSub}</div>
+        </div>
       </div>`;
   }).join('');
 }
@@ -819,7 +890,7 @@ async function _reload() {
     renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
-    renderMilestones(_activeTarget, chartData.stats);
+    renderMilestones(_activeTarget);
     renderRecentEntries(_recentEntries);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
   } catch (e) {
