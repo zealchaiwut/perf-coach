@@ -2428,46 +2428,33 @@ class HabitLogCreateIn(BaseModel):
     notes: Optional[str] = None
 
 
-def _get_computed_logs(
-    session,
-    user_id,
-    week_start: _date,
-    week_end: _date,
-    auto_fill_source: str,
-) -> list:
-    """Derive per-date computed log entries from workouts for the given week.
+def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> list:
+    """Compute autofill log entries from a pre-loaded workout list (pure, no DB).
 
-    Each auto_fill_source maps to a different workout aggregation:
-    - zone2_minutes: sum zone2_minutes per date
-    - run_count / lift_count: count qualifying workouts per date (value=1 each)
-    - total_duration_minutes: sum duration_seconds/60 per date
-    - distance_km: sum distance_km per date
+    Used by both the per-habit progress endpoint (after DB query) and the week
+    batch endpoint (after a single bulk workout fetch).
     """
     from collections import defaultdict
-
-    base_q = session.query(Workout).filter(
-        Workout.user_id == user_id,
-        Workout.workout_date >= week_start,
-        Workout.workout_date <= week_end,
-    )
     date_values: dict = defaultdict(float)
 
     if auto_fill_source == "workout.zone2_minutes":
-        for w in base_q.filter(Workout.zone2_minutes > 0).all():
+        for w in workouts:
             if w.zone2_minutes:
                 date_values[w.workout_date.isoformat()] += float(w.zone2_minutes)
     elif auto_fill_source == "workout.run_count":
-        for w in base_q.filter(Workout.workout_type.ilike("%run%")).all():
-            date_values[w.workout_date.isoformat()] += 1.0
+        for w in workouts:
+            if "run" in (w.workout_type or "").lower():
+                date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.lift_count":
-        for w in base_q.filter(Workout.workout_type.ilike("%lift%")).all():
-            date_values[w.workout_date.isoformat()] += 1.0
+        for w in workouts:
+            if "lift" in (w.workout_type or "").lower():
+                date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.total_duration_minutes":
-        for w in base_q.filter(Workout.duration_seconds.isnot(None)).all():
+        for w in workouts:
             if w.duration_seconds:
                 date_values[w.workout_date.isoformat()] += w.duration_seconds / 60.0
     elif auto_fill_source == "workout.distance_km":
-        for w in base_q.filter(Workout.distance_km.isnot(None)).all():
+        for w in workouts:
             if w.distance_km:
                 date_values[w.workout_date.isoformat()] += float(w.distance_km)
 
@@ -2475,6 +2462,82 @@ def _get_computed_logs(
         {"date": d, "value": v, "source": auto_fill_source}
         for d, v in sorted(date_values.items())
     ]
+
+
+def _get_computed_logs(
+    session,
+    user_id,
+    week_start: _date,
+    week_end: _date,
+    auto_fill_source: str,
+) -> list:
+    """Derive per-date computed log entries from workouts for the given week."""
+    base_q = session.query(Workout).filter(
+        Workout.user_id == user_id,
+        Workout.workout_date >= week_start,
+        Workout.workout_date <= week_end,
+    )
+
+    if auto_fill_source == "workout.zone2_minutes":
+        workouts = base_q.filter(Workout.zone2_minutes > 0).all()
+    elif auto_fill_source == "workout.run_count":
+        workouts = base_q.filter(Workout.workout_type.ilike("%run%")).all()
+    elif auto_fill_source == "workout.lift_count":
+        workouts = base_q.filter(Workout.workout_type.ilike("%lift%")).all()
+    elif auto_fill_source == "workout.total_duration_minutes":
+        workouts = base_q.filter(Workout.duration_seconds.isnot(None)).all()
+    elif auto_fill_source == "workout.distance_km":
+        workouts = base_q.filter(Workout.distance_km.isnot(None)).all()
+    else:
+        return []
+
+    return _get_computed_logs_from_workouts(workouts, auto_fill_source)
+
+
+def _aggregate_weekly_progress(manual_log_rows: list, computed_logs: list, weekly_target) -> dict:
+    """Shared math: aggregate weekly progress from pre-loaded log data (no DB).
+
+    Applies manual_override precedence: a log with source='manual_override' on
+    a date that also has computed contributions replaces (not adds to) those
+    computed values for that date only.
+
+    Returns dict with keys: current_value, target, pct, is_complete.
+    """
+    manual_by_date: dict = {}
+    for log in manual_log_rows:
+        d = log.log_date.isoformat()
+        if d not in manual_by_date:
+            manual_by_date[d] = {"value": 0.0, "has_override": False}
+        manual_by_date[d]["value"] += float(log.value)
+        if log.source == "manual_override":
+            manual_by_date[d]["has_override"] = True
+
+    computed_by_date: dict = {}
+    for entry in computed_logs:
+        d = entry["date"]
+        computed_by_date[d] = computed_by_date.get(d, 0.0) + entry["value"]
+
+    current_value = 0.0
+    for d in set(manual_by_date) | set(computed_by_date):
+        m = manual_by_date.get(d, {"value": 0.0, "has_override": False})
+        c = computed_by_date.get(d, 0.0)
+        if m["has_override"]:
+            current_value += m["value"]
+        else:
+            current_value += m["value"] + c
+
+    target = float(weekly_target) if weekly_target is not None else None
+    pct = None
+    if target is not None and target > 0:
+        pct = min(100.0, max(0.0, (current_value / target) * 100.0))
+    is_complete = (current_value >= target) if target is not None else False
+
+    return {
+        "current_value": current_value,
+        "target": target,
+        "pct": pct,
+        "is_complete": is_complete,
+    }
 
 
 @app.post("/api/habits/{habit_id}/log", status_code=201)
@@ -2595,45 +2658,241 @@ def get_habit_progress(
         computed_logs: list = []
         if habit.auto_fill_source:
             computed_logs = _get_computed_logs(session, user.id, ws, we, habit.auto_fill_source)
-        # Aggregate current_value with manual_override logic.
-        # When a manual_log on a date has source == 'manual_override' and a computed_log
-        # exists for the same date, the manual value replaces (not adds to) the computed
-        # value for that date only.
-        manual_by_date: dict = {}
-        for log in manual_log_rows:
-            d = log.log_date.isoformat()
-            if d not in manual_by_date:
-                manual_by_date[d] = {"value": 0.0, "has_override": False}
-            manual_by_date[d]["value"] += float(log.value)
-            if log.source == "manual_override":
-                manual_by_date[d]["has_override"] = True
-        computed_by_date: dict = {}
-        for entry in computed_logs:
-            d = entry["date"]
-            computed_by_date[d] = computed_by_date.get(d, 0.0) + entry["value"]
-        current_value = 0.0
-        for d in set(manual_by_date) | set(computed_by_date):
-            m = manual_by_date.get(d, {"value": 0.0, "has_override": False})
-            c = computed_by_date.get(d, 0.0)
-            if m["has_override"]:
-                current_value += m["value"]
-            else:
-                current_value += m["value"] + c
-        target = float(habit.weekly_target) if habit.weekly_target is not None else None
-        percentage = None
-        if target is not None and target > 0:
-            percentage = min(100.0, max(0.0, (current_value / target) * 100.0))
-        is_complete = (current_value >= target) if target is not None else False
+        progress = _aggregate_weekly_progress(manual_log_rows, computed_logs, habit.weekly_target)
         return JSONResponse({
             "habit": _habit_dict(habit),
             "week_start": ws.isoformat(),
             "week_end": we.isoformat(),
-            "target": target,
-            "current_value": current_value,
-            "percentage": percentage,
+            "target": progress["target"],
+            "current_value": progress["current_value"],
+            "percentage": progress["pct"],
             "manual_logs": manual_logs,
             "computed_logs": computed_logs,
-            "is_complete": is_complete,
+            "is_complete": progress["is_complete"],
+        })
+
+
+# ── Habits week-view batch endpoint (issue #429) ─────────────────────────────
+
+@app.get("/api/habits/week")
+def get_habits_week(
+    week_start: Optional[str] = Query(None),
+    user: User = Depends(resolve_user),
+):
+    """Return a single response covering the full habits week view.
+
+    week_start defaults to the current Monday in Asia/Bangkok timezone.
+    Non-Monday week_start values are rejected with 422.
+    """
+    from zoneinfo import ZoneInfo
+    _BANGKOK = ZoneInfo("Asia/Bangkok")
+    today_bkk: _date = _datetime.now(_BANGKOK).date()
+
+    if week_start is not None:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week_start; use YYYY-MM-DD")
+        if ws.weekday() != 0:  # 0 = Monday
+            raise HTTPException(
+                status_code=422,
+                detail="week_start must be a Monday (ISO weekday 0); received a non-Monday date",
+            )
+    else:
+        ws = _week_start_bangkok(today_bkk)
+
+    we = ws + _timedelta(days=6)
+    is_current_week = (ws == _week_start_bangkok(today_bkk))
+    week_dates = [ws + _timedelta(days=i) for i in range(7)]
+
+    with Session(engine) as session:
+        # Active habits ordered by sort_order
+        active_habits = (
+            session.query(Habit)
+            .filter(Habit.user_id == user.id, Habit.is_archived.is_(False))
+            .order_by(Habit.sort_order)
+            .all()
+        )
+        # Archived habits that still have logs this week (show in history)
+        archived_with_logs = (
+            session.query(Habit)
+            .join(HabitLog, HabitLog.habit_id == Habit.id)
+            .filter(
+                Habit.user_id == user.id,
+                Habit.is_archived.is_(True),
+                HabitLog.log_week_start == ws,
+            )
+            .distinct()
+            .all()
+        )
+        all_habits = active_habits + archived_with_logs
+
+        daily_habits = [h for h in all_habits if h.tracking_type == "daily_checkmark"]
+        weekly_habits_list = [h for h in all_habits if h.tracking_type != "daily_checkmark"]
+
+        # Bulk-load all logs for the week (single query)
+        all_logs = (
+            session.query(HabitLog)
+            .filter(HabitLog.user_id == user.id, HabitLog.log_week_start == ws)
+            .all()
+        )
+        logs_by_habit: dict = {}
+        for log in all_logs:
+            logs_by_habit.setdefault(log.habit_id, []).append(log)
+
+        # Load workouts only when needed for autofill habits (single query)
+        autofill_needed = [h for h in weekly_habits_list if h.auto_fill_source]
+        if autofill_needed:
+            week_workouts = (
+                session.query(Workout)
+                .filter(
+                    Workout.user_id == user.id,
+                    Workout.workout_date >= ws,
+                    Workout.workout_date <= we,
+                )
+                .all()
+            )
+        else:
+            week_workouts = []
+
+        # Build daily_habits data
+        daily_habits_data = []
+        for habit in daily_habits:
+            habit_logs = logs_by_habit.get(habit.id, [])
+            logged_dates = {log.log_date for log in habit_logs}
+            days = []
+            for d in week_dates:
+                if d in logged_dates:
+                    state = "done"
+                elif d > today_bkk:
+                    state = "future"
+                elif d == today_bkk:
+                    state = "today_pending"
+                else:
+                    state = "missed"
+                days.append({"date": d.isoformat(), "state": state})
+            done_count = sum(1 for day in days if day["state"] == "done")
+            target_val = float(habit.weekly_target) if habit.weekly_target is not None else 7.0
+            daily_habits_data.append({
+                "id": str(habit.id),
+                "name": habit.name,
+                "description": habit.description,
+                "icon": habit.icon,
+                "color": habit.color,
+                "sort_order": habit.sort_order,
+                "tracking_type": habit.tracking_type,
+                "days": days,
+                "total": {"done": done_count, "target": target_val},
+            })
+
+        # Build weekly_habits data
+        weekly_habits_data = []
+        for habit in weekly_habits_list:
+            habit_logs = logs_by_habit.get(habit.id, [])
+            computed_logs_w: list = []
+            if habit.auto_fill_source:
+                computed_logs_w = _get_computed_logs_from_workouts(
+                    week_workouts, habit.auto_fill_source
+                )
+            progress = _aggregate_weekly_progress(habit_logs, computed_logs_w, habit.weekly_target)
+
+            # daily_breakdown: dates with any contribution (manual or autofill)
+            breakdown: dict = {}
+            for log in habit_logs:
+                d = log.log_date.isoformat()
+                breakdown.setdefault(d, {"date": d, "value": 0.0})
+                breakdown[d]["value"] += float(log.value)
+            for entry in computed_logs_w:
+                d = entry["date"]
+                breakdown.setdefault(d, {"date": d, "value": 0.0})
+                breakdown[d]["value"] += entry["value"]
+            daily_breakdown = sorted(breakdown.values(), key=lambda x: x["date"])
+
+            tgt = progress["target"]
+            cur = progress["current_value"]
+            remaining = max(0.0, tgt - cur) if tgt is not None else None
+
+            weekly_habits_data.append({
+                "id": str(habit.id),
+                "name": habit.name,
+                "description": habit.description,
+                "icon": habit.icon,
+                "color": habit.color,
+                "sort_order": habit.sort_order,
+                "tracking_type": habit.tracking_type,
+                "unit": habit.unit,
+                "target": tgt,
+                "current_value": cur,
+                "pct": progress["pct"],
+                "remaining": remaining,
+                "is_complete": progress["is_complete"],
+                "daily_breakdown": daily_breakdown,
+            })
+
+        # Build day_scores — denominator uses only daily_checkmark habits
+        num_daily = len(daily_habits)
+        day_scores = []
+        for d in week_dates:
+            done = sum(
+                1 for h in daily_habits
+                if any(log.log_date == d for log in logs_by_habit.get(h.id, []))
+            )
+            day_scores.append({"date": d.isoformat(), "done": done, "of": num_daily})
+
+        # Build week_totals
+        elapsed_days = 0
+        done_in_elapsed = 0
+        done_total = 0
+        for i, d in enumerate(week_dates):
+            ds = day_scores[i]
+            done_total += ds["done"]
+            if d <= today_bkk:
+                elapsed_days += 1
+                done_in_elapsed += ds["done"]
+
+        max_elapsed = num_daily * elapsed_days
+        pct_elapsed = round(
+            (done_in_elapsed / max_elapsed * 100.0) if max_elapsed > 0 else 0.0, 2
+        )
+        max_full = num_daily * 7
+        pct_full_week = round(
+            (done_total / max_full * 100.0) if max_full > 0 else 0.0, 2
+        )
+
+        week_totals = {
+            "daily_done": done_total,
+            "daily_habits_count": num_daily,
+            "elapsed_days": elapsed_days,
+            "pct_elapsed": pct_elapsed,
+            "pct_full_week": pct_full_week,
+        }
+
+        # Build wheel — today is always "today", future always "future"
+        wheel = []
+        for i, d in enumerate(week_dates):
+            if d == today_bkk:
+                state = "today"
+            elif d > today_bkk:
+                state = "future"
+            else:
+                ds = day_scores[i]
+                if num_daily > 0 and ds["done"] == num_daily:
+                    state = "full"
+                elif ds["done"] > 0:
+                    state = "partial"
+                else:
+                    state = "zero"
+            wheel.append({"date": d.isoformat(), "state": state})
+
+        return JSONResponse({
+            "week_start": ws.isoformat(),
+            "week_end": we.isoformat(),
+            "is_current_week": is_current_week,
+            "daily_habits": daily_habits_data,
+            "weekly_habits": weekly_habits_data,
+            "day_scores": day_scores,
+            "week_totals": week_totals,
+            "wheel": wheel,
         })
 
 
