@@ -499,7 +499,7 @@
       white-space: nowrap;
     }
 
-    /* Day cell toggle */
+    /* Day cell base */
     .day-cell-btn {
       width: 34px;
       height: 34px;
@@ -512,17 +512,49 @@
       justify-content: center;
       font-size: 14px;
       color: transparent;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.12s, border-color 0.12s;
+      padding: 0;
     }
-    .day-cell-btn:hover:not(.future):not(.done) { border-color: #93c5fd; background: #eff6ff; }
+
+    /* done: green-soft filled circle with ✓ */
     .day-cell-btn.done {
-      background: #0b1530;
-      border-color: #0b1530;
-      color: #fff;
+      background: var(--green-soft, #dff5d6);
+      border-color: #16a34a;
+      color: var(--green, #2d5e10);
     }
-    .day-cell-btn.today { border-color: #2563eb; }
-    .day-cell-btn.today.done { background: #2563eb; border-color: #2563eb; }
-    .day-cell-btn.future { opacity: 0.3; cursor: default; pointer-events: none; }
+    .day-cell-btn.done:hover { background: #c8efc1; }
+
+    /* missed: hollow grey ring */
+    .day-cell-btn.missed {
+      background: #fff;
+      border: 2px solid #e8eaf0;
+      color: transparent;
+    }
+    .day-cell-btn.missed:hover { border-color: #93c5fd; background: #eff6ff; }
+
+    /* today-pending: white with blue dashed border and + icon */
+    .day-cell-btn.today-pending {
+      background: #fff;
+      border: 2px dashed #2563eb;
+      color: #2563eb;
+    }
+    .day-cell-btn.today-pending:hover { background: #eff6ff; }
+
+    /* future: faint dotted ring, inert */
+    .day-cell-btn.future {
+      background: transparent;
+      border: 2px dotted #d1d9e9;
+      color: transparent;
+      cursor: default;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    /* Today's column header is blue */
+    .day-hdr-today {
+      color: #2563eb !important;
+      font-weight: 700 !important;
+    }
 
     .day-grid-empty {
       text-align: center;
@@ -530,6 +562,149 @@
       font-size: 13.5px;
       color: var(--text-tertiary);
     }
+
+    /* ── Total column ──────────────────────────────────────────────────────── */
+    .day-total-hdr {
+      text-align: right !important;
+      white-space: nowrap;
+      min-width: 80px;
+    }
+
+    .day-total-cell {
+      text-align: right;
+      padding: 4px 8px 4px 4px;
+      min-width: 80px;
+      vertical-align: middle;
+    }
+
+    .day-total-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: block;
+      white-space: nowrap;
+    }
+
+    .day-total-bar-outer {
+      height: 4px;
+      background: #e8eaf0;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 3px 0 2px;
+    }
+
+    .day-total-bar-inner {
+      height: 100%;
+      background: linear-gradient(90deg, #86efac, #16a34a);
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    .day-total-pct {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      display: block;
+      text-align: right;
+    }
+
+    /* ── Day score row ─────────────────────────────────────────────────────── */
+    .day-score-row td {
+      border-top: 2px solid #d1d9e9;
+      padding-top: 8px;
+    }
+
+    .day-score-row {
+      background: #f7f9fc;
+    }
+
+    .day-score-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      text-align: left;
+      padding: 8px 8px 4px 0;
+      white-space: nowrap;
+    }
+
+    .day-score-cell {
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .day-score-val {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .day-score-val.day-score-full { color: #16a34a; }
+    .day-score-val.day-score-today { color: #2563eb; }
+    .day-score-val.day-score-dash { color: var(--text-tertiary); opacity: 0.4; }
+
+    /* ── Streak badge ──────────────────────────────────────────────────────── */
+    .streak-badge {
+      font-size: 10px;
+      background: #fff4e5;
+      color: #92400e;
+      border: 1px solid #fde68a;
+      padding: 1px 6px;
+      border-radius: 999px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Daily grid overflow menu ──────────────────────────────────────────── */
+    .habit-actions-hdr { min-width: 32px; }
+
+    .habit-day-actions {
+      position: relative;
+    }
+
+    .day-actions-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      font-size: 1.1rem;
+      padding: 4px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+    .day-actions-toggle:hover { background: #e8eaf0; color: var(--text-primary); }
+
+    .day-actions-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
+      z-index: 50;
+      min-width: 130px;
+      overflow: hidden;
+    }
+    .day-actions-menu.open { display: block; }
+    .day-actions-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 9px 14px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .day-actions-menu button:hover { background: #f7f9fc; }
+    .day-actions-menu button.danger { color: var(--red); }
+    .day-actions-menu button.danger:hover { background: var(--red-soft); }
 
     /* ── Weekly habits card ────────────────────────────────────────────────── */
     .weekly-habits {

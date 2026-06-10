@@ -83,6 +83,9 @@ let selectedColor = COLORS[0];
 let weekData = null;        // last response from GET /api/habits/week
 let currentWeekStart = null; // ISO date string; null = use server default (current week)
 
+// Debounce handle for hero + grid-totals refresh after cell mutations
+let _gridRefreshTimer = null;
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 function isoDate(d) {
@@ -241,8 +244,16 @@ async function loadAndRender() {
     renderHeroWheel();
     renderHeroStats();
 
-    // ── Daily grid + weekly habits (unchanged, uses current-week data) ──
-    renderDailyGrid(activeHabits, logs, dates, todayStr);
+    // Build log set (habit_id|date → log_id) for current-week done cell log IDs
+    const logSet = {};
+    logs.forEach(l => {
+      if (dates.includes(l.logged_date)) {
+        logSet[l.habit_id + '|' + l.logged_date] = l.id;
+      }
+    });
+
+    // ── Daily grid (uses weekData.daily_habits for 4-state cells) ──
+    renderDailyGrid(logSet);
     renderWeeklyHabits(activeHabits, progressMap);
     renderArchivedList();
 
@@ -492,142 +503,382 @@ function renderHeroStats() {
 
 // ── Daily grid ────────────────────────────────────────────────────────────────
 
-function renderDailyGrid(habits, logs, dates, todayStr) {
+function _formatTarget(target) {
+  if (target == null) return '?';
+  return Number.isInteger(target) ? String(target) : target.toFixed(1);
+}
+
+function _setCellState(btn, state, logId) {
+  btn.dataset.state = state;
+  if (logId !== undefined) btn.dataset.logId = logId || '';
+  btn.className = 'day-cell-btn';
+  if (state === 'done') {
+    btn.classList.add('done');
+    btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i>';
+    btn.tabIndex = 0;
+  } else if (state === 'today-pending') {
+    btn.classList.add('today-pending');
+    btn.innerHTML = '<i class="ti ti-plus" aria-hidden="true"></i>';
+    btn.tabIndex = 0;
+  } else if (state === 'missed') {
+    btn.classList.add('missed');
+    btn.innerHTML = '';
+    btn.tabIndex = weekData && weekData.is_current_week ? 0 : -1;
+  } else {
+    btn.classList.add('future');
+    btn.innerHTML = '';
+    btn.tabIndex = -1;
+  }
+}
+
+function renderDailyGrid(logSet) {
   const container = document.getElementById('day-grid-content');
   const weekEl = document.getElementById('day-grid-week');
   if (!container) return;
 
-  if (weekEl) {
-    const from = dates[0].slice(5).replace('-', '/');
-    const to = dates[6].slice(5).replace('-', '/');
+  const dailyHabits = (weekData && weekData.daily_habits) || [];
+  const dayScores = (weekData && weekData.day_scores) || [];
+  const streaksPerHabit = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
+  const todayStr = bangkokTodayStr();
+
+  if (weekEl && weekData) {
+    const from = weekData.week_start.slice(5).replace('-', '/');
+    const to = weekData.week_end.slice(5).replace('-', '/');
     weekEl.textContent = from + ' – ' + to;
   }
 
-  if (habits.length === 0) {
-    container.innerHTML = '<div class="day-grid-empty">No habits yet.</div>';
+  if (dailyHabits.length === 0) {
+    container.innerHTML = '<div class="day-grid-empty">No daily habits yet.</div>';
     return;
   }
 
-  // Build log set: habit_id + date → log_id
-  const logSet = {};
-  logs.forEach(l => {
-    if (dates.includes(l.logged_date)) {
-      logSet[l.habit_id + '|' + l.logged_date] = l.id;
-    }
-  });
+  // Compute day dates from weekData
+  const weekDatesArr = (weekData && weekData.day_scores)
+    ? weekData.day_scores.map(ds => ds.date)
+    : [];
 
   let html = '<table class="day-grid-table" role="grid">';
   html += '<thead><tr>';
   html += '<th class="habit-name-hdr">Habit</th>';
   for (let i = 0; i < 7; i++) {
-    html += `<th><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span><span class="day-hdr-short">${DAY_LABELS_SHORT[i]}</span></th>`;
+    const dateStr = weekDatesArr[i] || '';
+    const isToday = dateStr === todayStr;
+    const todayCls = isToday ? ' day-hdr-today' : '';
+    html += `<th class="${todayCls}"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span>`;
+    html += `<span class="day-hdr-short">${DAY_LABELS_SHORT[i]}</span></th>`;
   }
+  html += '<th class="day-total-hdr">Total</th>';
+  html += '<th class="habit-actions-hdr"></th>';
   html += '</tr></thead><tbody>';
 
-  habits.forEach(habit => {
+  dailyHabits.forEach(habit => {
     const iconHTML = habitIconHTML(habit.icon, habit.color, 24);
-    const trackingLabel = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
-    const autofillText = habit.auto_fill_source ? 'auto' : '';
-    const autofillBadge = autofillText
-      ? `<span class="habit-autofill-badge" title="Auto-filled from workouts. Visit <a href='/log'>workouts</a>">${autofillText}</span>`
+    const target = habit.total ? habit.total.target : 7;
+    const done = habit.total ? habit.total.done : 0;
+    const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+    const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
+
+    const streak = streaksPerHabit[habit.id] || 0;
+    const streakBadge = streak >= 3
+      ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
       : '';
 
-    html += `<tr data-habit-id="${esc(String(habit.id))}">`;
+    const metaTarget = _formatTarget(target);
+
+    html += `<tr class="habit-row" data-habit-id="${esc(String(habit.id))}">`;
     html += `<td class="habit-name-cell">
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
           <div class="habit-name-text">${esc(habit.name)}</div>
           <div class="habit-meta-line">
-            <span class="habit-type-chip">${esc(trackingLabel)}</span>
-            ${autofillBadge}
+            <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
+            ${streakBadge}
           </div>
         </div>
       </div>
     </td>`;
 
     for (let i = 0; i < 7; i++) {
-      const dateStr = dates[i];
-      const isFuture = dateStr > todayStr;
-      const isToday = dateStr === todayStr;
+      const day = habit.days[i] || { date: weekDatesArr[i] || '', state: 'future' };
+      const dateStr = day.date;
+      // API returns "today_pending" but CSS class uses "today-pending"
+      const stateRaw = day.state;
+      const cssState = stateRaw === 'today_pending' ? 'today-pending' : stateRaw;
       const logKey = habit.id + '|' + dateStr;
-      const logId = logSet[logKey];
-      const isDone = !!logId;
+      const logId = logSet[logKey] || '';
 
-      let cls = 'day-cell-btn';
-      if (isDone) cls += ' done';
-      if (isToday) cls += ' today';
-      if (isFuture) cls += ' future';
+      const isInert = cssState === 'future' || !(weekData && weekData.is_current_week);
+      const tIdx = isInert && cssState !== 'done' ? -1 : 0;
 
-      const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]} ${isDone ? 'done' : 'not done'}`;
+      let cellInner = '';
+      if (cssState === 'done') {
+        cellInner = '<i class="ti ti-check" aria-hidden="true"></i>';
+      } else if (cssState === 'today-pending') {
+        cellInner = '<i class="ti ti-plus" aria-hidden="true"></i>';
+      }
+
+      const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]}: ${stateRaw.replace('_', ' ')}`;
       html += `<td><button
-        class="${cls}"
+        class="day-cell-btn ${esc(cssState)}"
         type="button"
         aria-label="${esc(ariaLabel)}"
         data-habit-id="${esc(String(habit.id))}"
-        data-date="${dateStr}"
-        data-log-id="${isDone ? esc(logId) : ''}"
-      >${isDone ? '<i class="ti ti-check" aria-hidden="true"></i>' : ''}</button></td>`;
+        data-date="${esc(dateStr)}"
+        data-state="${esc(cssState)}"
+        data-log-id="${esc(logId)}"
+        tabindex="${tIdx}"
+      >${cellInner}</button></td>`;
     }
+
+    // Total column
+    html += `<td class="day-total-cell" id="total-cell-${esc(String(habit.id))}">
+      <span class="day-total-val">${esc(String(done))}/${esc(_formatTarget(target))}</span>
+      <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barWidth}%"></div></div>
+      <span class="day-total-pct">${pct}%</span>
+    </td>`;
+
+    // Actions menu column
+    html += `<td class="habit-actions-cell">
+      <div class="habit-day-actions">
+        <button type="button" class="day-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
+        <div class="day-actions-menu" id="day-menu-${esc(String(habit.id))}"></div>
+      </div>
+    </td>`;
 
     html += '</tr>';
   });
 
+  // DAY SCORE row (heavier border separator)
+  const totalDone = weekData ? weekData.week_totals.daily_done : 0;
+  const totalPossible = weekData ? weekData.week_totals.daily_habits_count * 7 : 0;
+  const weekPct = weekData ? Math.round(weekData.week_totals.pct_full_week) : 0;
+  const weekBarW = weekData ? Math.min(100, weekData.week_totals.pct_full_week).toFixed(1) : '0.0';
+
+  html += '<tr class="day-score-row" id="day-score-row">';
+  html += '<td class="day-score-label">Day Score</td>';
+  for (let i = 0; i < 7; i++) {
+    const ds = dayScores[i] || { date: '', done: 0, of: 0 };
+    const dateStr = ds.date;
+    const isFuture = dateStr > todayStr;
+    const isToday = dateStr === todayStr;
+    let valCls = '';
+    let valTxt = '';
+    if (isFuture) {
+      valCls = 'day-score-dash';
+      valTxt = '—';
+    } else {
+      if (ds.of > 0 && ds.done === ds.of) valCls = 'day-score-full';
+      else if (isToday) valCls = 'day-score-today';
+      valTxt = `${ds.done}/${ds.of}`;
+    }
+    html += `<td class="day-score-cell" data-date="${esc(dateStr)}">
+      <span class="day-score-val ${valCls}">${esc(valTxt)}</span>
+    </td>`;
+  }
+  html += `<td class="day-total-cell" id="day-score-total-cell">
+    <span class="day-total-val">${esc(String(totalDone))}/${esc(String(totalPossible))}</span>
+    <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${weekBarW}%"></div></div>
+    <span class="day-total-pct">${weekPct}% of week</span>
+  </td>`;
+  html += '<td></td>';
+  html += '</tr>';
+
   html += '</tbody></table>';
   container.innerHTML = html;
 
-  // Attach click listeners for daily grid toggles
-  container.querySelectorAll('.day-cell-btn:not(.future)').forEach(btn => {
-    btn.addEventListener('click', () => handleDayCellToggle(btn));
+  // Build action menus and attach handlers
+  dailyHabits.forEach(habit => {
+    const fullHabit = activeHabits.find(h => String(h.id) === String(habit.id)) || habit;
+    const menu = document.getElementById(`day-menu-${habit.id}`);
+    if (menu) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
+      menu.appendChild(editBtn);
+
+      const archiveBtn = document.createElement('button');
+      archiveBtn.type = 'button';
+      archiveBtn.textContent = 'Archive';
+      archiveBtn.addEventListener('click', () => { closeAllMenus(); archiveHabit(habit.id); });
+      menu.appendChild(archiveBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => {
+        closeAllMenus();
+        if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
+          deleteHabit(habit.id);
+        }
+      });
+      menu.appendChild(deleteBtn);
+
+      const toggle = menu.previousElementSibling;
+      if (toggle) {
+        toggle.addEventListener('click', e => {
+          e.stopPropagation();
+          closeAllMenus();
+          menu.classList.toggle('open');
+        });
+      }
+    }
+  });
+
+  // Attach click and keyboard handlers on actionable cells
+  container.querySelectorAll('.day-cell-btn').forEach(btn => {
+    const state = btn.dataset.state;
+    const isInert = state === 'future' ||
+      !(weekData && weekData.is_current_week) && state !== 'done';
+
+    if (!isInert) {
+      btn.addEventListener('click', () => handleGridCellAction(btn));
+      btn.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleGridCellAction(btn);
+        }
+      });
+    }
   });
 }
 
-async function handleDayCellToggle(btn) {
+// Update just the totals portion of the grid after a mutation (without rebuilding everything)
+function refreshGridTotals() {
+  if (!weekData) return;
+  const dailyHabits = weekData.daily_habits || [];
+  const dayScores = weekData.day_scores || [];
+  const todayStr = bangkokTodayStr();
+
+  // Per-habit total cells
+  dailyHabits.forEach(habit => {
+    const totalCell = document.getElementById(`total-cell-${habit.id}`);
+    if (!totalCell) return;
+    const done = habit.total ? habit.total.done : 0;
+    const target = habit.total ? habit.total.target : 7;
+    const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+    const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
+    totalCell.innerHTML = `
+      <span class="day-total-val">${done}/${_formatTarget(target)}</span>
+      <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barWidth}%"></div></div>
+      <span class="day-total-pct">${pct}%</span>
+    `;
+  });
+
+  // Day score cells
+  const scoreRow = document.getElementById('day-score-row');
+  if (scoreRow) {
+    dayScores.forEach(ds => {
+      const cell = scoreRow.querySelector(`[data-date="${ds.date}"]`);
+      if (!cell) return;
+      const isFuture = ds.date > todayStr;
+      const isToday = ds.date === todayStr;
+      let valCls = '';
+      let valTxt = '';
+      if (isFuture) {
+        valCls = 'day-score-dash';
+        valTxt = '—';
+      } else {
+        if (ds.of > 0 && ds.done === ds.of) valCls = 'day-score-full';
+        else if (isToday) valCls = 'day-score-today';
+        valTxt = `${ds.done}/${ds.of}`;
+      }
+      cell.innerHTML = `<span class="day-score-val ${valCls}">${valTxt}</span>`;
+    });
+
+    // Grand total
+    const totalCell = document.getElementById('day-score-total-cell');
+    if (totalCell) {
+      const totals = weekData.week_totals;
+      const done = totals.daily_done;
+      const possible = totals.daily_habits_count * 7;
+      const pct = Math.round(totals.pct_full_week);
+      const barW = Math.min(100, totals.pct_full_week).toFixed(1);
+      totalCell.innerHTML = `
+        <span class="day-total-val">${done}/${possible}</span>
+        <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barW}%"></div></div>
+        <span class="day-total-pct">${pct}% of week</span>
+      `;
+    }
+  }
+}
+
+// Debounced 300 ms refetch of /api/habits/week → refresh hero + grid totals
+function scheduleHeroRefresh() {
+  if (_gridRefreshTimer) clearTimeout(_gridRefreshTimer);
+  _gridRefreshTimer = setTimeout(async () => {
+    const weekUrl = currentWeekStart
+      ? `/api/habits/week?week_start=${currentWeekStart}`
+      : '/api/habits/week';
+    try {
+      const res = await fetch(weekUrl);
+      if (!res.ok) return;
+      weekData = await res.json();
+      renderPageHeader();
+      renderHeroWheel();
+      renderHeroStats();
+      refreshGridTotals();
+    } catch (_e) {
+      // non-critical: hero will refresh on next full load
+    }
+  }, 300);
+}
+
+async function handleGridCellAction(btn) {
   const habitId = btn.dataset.habitId;
   const dateStr = btn.dataset.date;
-  const logId = btn.dataset.logId;
-  const isDone = btn.classList.contains('done');
+  const state = btn.dataset.state;  // 'done', 'today-pending', 'missed'
+
+  // Guard: only mutate in current week, never future cells
+  if (!weekData || !weekData.is_current_week) return;
+  if (state === 'future') return;
+
+  const prevState = state;
+  const prevLogId = btn.dataset.logId || '';
+
+  // Optimistic update
+  const todayStr = bangkokTodayStr();
+  if (state === 'done') {
+    const revertState = dateStr === todayStr ? 'today-pending' : 'missed';
+    _setCellState(btn, revertState, '');
+  } else {
+    _setCellState(btn, 'done');
+  }
 
   btn.disabled = true;
 
   try {
-    if (isDone) {
-      // Unlog
-      if (!logId) { btn.disabled = false; return; }
-      const res = await fetch(`/api/habits/logs/${encodeURIComponent(logId)}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
-      btn.classList.remove('done');
-      btn.innerHTML = '';
-      btn.dataset.logId = '';
+    if (prevState === 'done') {
+      if (!prevLogId) { btn.disabled = false; return; }
+      const res = await fetch(`/api/habits/logs/${encodeURIComponent(prevLogId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 404) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${res.status}`);
+      }
     } else {
-      // Log
       const res = await fetch('/api/habits/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ habit_id: habitId, logged_date: dateStr }),
       });
-      if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
-      if (res.ok) {
-        const data = await res.json();
-        btn.classList.add('done');
-        btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i>';
-        btn.dataset.logId = data.id || '';
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${res.status}`);
       }
+      const data = await res.json();
+      btn.dataset.logId = data.id || '';
     }
 
-    // Refresh hero from /api/habits/week to reflect the toggle
-    const weekUrl = currentWeekStart
-      ? `/api/habits/week?week_start=${currentWeekStart}`
-      : '/api/habits/week';
-    const weekRes = await fetch(weekUrl);
-    if (weekRes.ok) {
-      weekData = await weekRes.json();
-      renderPageHeader();
-      renderHeroWheel();
-      renderHeroStats();
-    }
+    scheduleHeroRefresh();
+
   } catch (e) {
-    showError('Failed to update log: ' + e.message);
+    // Rollback to previous state
+    _setCellState(btn, prevState, prevLogId);
+    if (typeof UIStates !== 'undefined') UIStates.showToast(e.message || 'Failed to update', true);
   }
 
   btn.disabled = false;
