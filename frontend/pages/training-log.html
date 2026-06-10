@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Training log – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -1171,6 +1171,34 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
+      }
+    }
+    /* Touch devices: comfortable 44px tap targets (audit P2).
+       Keyed to the input method, so desktop stays dense. */
+    @media (pointer: coarse) {
+      .type-chip, .dr-chip {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+      }
+      .fb-chips-row { gap: 0.4rem; }
+      .ws-chevron, .ws-today-btn {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .dp-nav-btn, .dp-icon-btn {
+        width: 44px;
+        height: 44px;
+      }
+    }
+
+    /* Full-screen detail panel on phones clears the home indicator */
+    @media (max-width: 879px) {
+      .dp-actions-bar {
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
     }
   </style>
