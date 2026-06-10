@@ -96,7 +96,7 @@ One row per log event. For `daily_checkmark` habits, one row per day (value=1). 
 | log_week_start | date | Monday of the week (Asia/Bangkok) |
 | value | numeric(10,4) | default 1 |
 | notes | text | nullable |
-| source | varchar(50) | `manual` / `workout_save` / `auto_fill` |
+| source | varchar(50) | `manual` / `workout_save` / `auto_fill` / `manual_override` |
 | created_at | timestamptz | |
 | updated_at | timestamptz | nullable |
 

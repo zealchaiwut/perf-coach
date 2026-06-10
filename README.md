@@ -5,9 +5,10 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 ## Features
 
 - **Weight tracking** — daily log, trend chart, and goal targets
-- **Habit tracking** — unified habits system with auto-fill sources, weekly targets, archive/restore, and drag-to-reorder
+- **Habit tracking** — redesigned habits page with gradient design language; 7-segment week wheel, tap-to-check daily grid with day-score footer row, weekly habits progress bars with auto-sync badges; auto-fill sources, weekly targets, archive/restore, and drag-to-reorder
 - **Zone 2 tracking** — `zone2_minutes` on workouts auto-fills Zone 2 habit progress
 - **Weekly habits widget** — Mon–Sun progress grid on home page with streak badges; week boundary computed in Bangkok timezone (Asia/Bangkok)
+- **Habits streaks** — per-habit current streak and best-streak counters; today-pending does not break a streak
 - **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
@@ -114,6 +115,8 @@ Each script:
 | `GET /api/personal-records/tracks` | Lists canonical PR tracks (running times and strength 1RMs) |
 | `GET /api/personal-records/history` | Returns history for a single track with improvement deltas; params: `user_id`, `track_key` |
 | `POST /api/personal-records/bulk` | Bulk-inserts multiple PR entries in one request; returns created count and IDs |
+| `GET /api/habits/week` | Single-batch habits week view: `daily_habits` (checkmark grid), `weekly_habits` (progress bars), `day_scores`, `week_totals`, `wheel` (7-segment arc states), `streaks`, and `last_week` summary. Optional `week_start` param (YYYY-MM-DD Monday); defaults to current Bangkok week. |
+| `POST /api/habits/{habit_id}/log` | Log a habit entry; body: optional `log_date`, `value`, `notes`, `mode` (`set` replaces / `add` increments existing value; default `set`). Backfill window enforced: only dates within the current Bangkok week are writable. |
 | `GET /api/about` | Returns app version, git SHA, environment, and changelog availability |
 | `POST /api/sync/strava` | Trigger a Strava activity sync; returns 202 with `job_id` and `polling_url`; 409 if already running |
 | `GET /api/sync/strava/status` | Poll status of a sync job by `job_id`; returns full SyncJob record |
