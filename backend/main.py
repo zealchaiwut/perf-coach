@@ -2426,6 +2426,23 @@ class HabitLogCreateIn(BaseModel):
     log_date: Optional[_date] = None
     value: Optional[float] = None
     notes: Optional[str] = None
+    mode: str = "set"  # "set" or "add"
+
+
+def _validate_backfill_window(log_date: _date) -> None:
+    """Raise 422 if log_date is outside the current Bangkok week (Mon–today)."""
+    today = _bangkok_today()
+    week_monday = _week_start_bangkok(today)
+    if log_date > today:
+        raise HTTPException(
+            status_code=422,
+            detail={"error_code": "future_date"},
+        )
+    if log_date < week_monday:
+        raise HTTPException(
+            status_code=422,
+            detail={"error_code": "past_week_locked", "message": "Past weeks are read-only"},
+        )
 
 
 def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> list:
@@ -2557,7 +2574,9 @@ def post_habit_log_entry(
         if habit.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
         log_date = body.log_date if body.log_date is not None else _bangkok_today()
-        value = body.value if body.value is not None else 1.0
+        _validate_backfill_window(log_date)
+        is_checkmark = habit.tracking_type == "daily_checkmark"
+        submitted_value = body.value if body.value is not None else 1.0
         log_week_start = _week_start_bangkok(log_date)
         existing = (
             session.query(HabitLog)
@@ -2565,25 +2584,52 @@ def post_habit_log_entry(
             .first()
         )
         if existing is not None:
-            existing.value = value
+            if is_checkmark:
+                new_value = 1.0
+            elif body.mode == "add":
+                new_value = float(existing.value or 0) + submitted_value
+            else:
+                new_value = submitted_value
+            if not is_checkmark and not (0 < new_value <= 10000):
+                raise HTTPException(status_code=422, detail={"error_code": "value_out_of_range"})
+            existing.value = new_value
             existing.notes = body.notes
             existing.updated_at = _datetime.now(_timezone.utc)
             session.commit()
             session.refresh(existing)
-            return JSONResponse(status_code=201, content=_habit_log_dict(existing))
-        log = HabitLog(
-            habit_id=hid,
-            user_id=user.id,
-            log_date=log_date,
-            log_week_start=log_week_start,
-            value=value,
-            notes=body.notes,
-            source="manual",
+            saved_log = existing
+        else:
+            value = 1.0 if is_checkmark else submitted_value
+            if not is_checkmark and not (0 < value <= 10000):
+                raise HTTPException(status_code=422, detail={"error_code": "value_out_of_range"})
+            log = HabitLog(
+                habit_id=hid,
+                user_id=user.id,
+                log_date=log_date,
+                log_week_start=log_week_start,
+                value=value,
+                notes=body.notes,
+                source="manual",
+            )
+            session.add(log)
+            session.commit()
+            session.refresh(log)
+            saved_log = log
+        current_week_start = _week_start_bangkok(_bangkok_today())
+        week_logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id == hid,
+                HabitLog.log_week_start == current_week_start,
+            )
+            .all()
         )
-        session.add(log)
-        session.commit()
-        session.refresh(log)
-        return JSONResponse(status_code=201, content=_habit_log_dict(log))
+        week_current_value = sum(
+            float(l.value) for l in week_logs if l.value is not None
+        )
+        result = _habit_log_dict(saved_log)
+        result["week_current_value"] = week_current_value
+        return JSONResponse(status_code=201, content=result)
 
 
 @app.delete("/api/habits/{habit_id}/log", status_code=204)
@@ -2600,6 +2646,7 @@ def delete_habit_log_entry(
         log_date = _date.fromisoformat(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    _validate_backfill_window(log_date)
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
