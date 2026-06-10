@@ -940,10 +940,13 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
 
-    # Most recent weight entry for this user
+    # Most recent weight entry logged since this target was created (excludes pre-target entries)
     recent_entry = (
         session.query(WeightEntry)
-        .filter(WeightEntry.user_id == t.user_id)
+        .filter(
+            WeightEntry.user_id == t.user_id,
+            WeightEntry.created_at >= t.created_at,
+        )
         .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
         .first()
     )
@@ -961,13 +964,14 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     weeks_remaining = days_remaining / 7.0
     required_pace = round(kg_to_go / weeks_remaining, 4) if weeks_remaining > 0 else None
 
-    # Current pace from last 14 days of weight entries (linear regression or avg)
+    # Current pace from last 14 days of weight entries logged since target creation
     cutoff_14 = today - _timedelta(days=14)
     entries_14 = (
         session.query(WeightEntry)
         .filter(
             WeightEntry.user_id == t.user_id,
             WeightEntry.entry_date >= cutoff_14,
+            WeightEntry.created_at >= t.created_at,
         )
         .order_by(WeightEntry.entry_date.asc())
         .all()
