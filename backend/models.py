@@ -102,15 +102,25 @@ class Habit(Base):
 
 
 class HabitLog(Base):
+    """Habit log entries. For daily_checkmark habits, one row per day checked (value=1). For weekly_count/minutes/quantity habits, one row per logged event with the contributed value. Week aggregation done at read time by summing values where log_week_start matches."""
+
     __tablename__ = "habit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    habit_id = Column(UUID(as_uuid=True), ForeignKey("habits.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    logged_date = Column(Date, nullable=False)
+    habit_id = Column(UUID(as_uuid=True), ForeignKey("habits.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    log_date = Column(Date, nullable=False)
+    log_week_start = Column(Date, nullable=False)
+    value = Column(Numeric(10, 4), nullable=False, server_default=text("1"))
+    notes = Column(Text, nullable=True)
+    source = Column(String(50), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (UniqueConstraint("habit_id", "logged_date", name="uq_habit_logs_habit_date"),)
+    __table_args__ = (
+        UniqueConstraint("habit_id", "log_date", name="uq_habit_logs_habit_log_date"),
+        Index("ix_habit_logs_habit_id_log_week_start", "habit_id", "log_week_start"),
+    )
 
 
 class Workout(Base):
