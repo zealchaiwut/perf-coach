@@ -2564,6 +2564,7 @@ class WorkoutIn(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    zone2_minutes: Optional[int] = None
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
@@ -2580,6 +2581,7 @@ class WorkoutPatch(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    zone2_minutes: Optional[int] = None
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
 
@@ -2666,6 +2668,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
+        "zone2_minutes": w.zone2_minutes,
         "avg_power_w": strava_act.avg_power_w if strava_act else None,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
@@ -2688,6 +2691,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
+        "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
@@ -2773,6 +2777,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
     if body.max_hr is not None and not (20 <= body.max_hr <= 250):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+    if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
+        raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     for ex in body.exercises:
@@ -2791,6 +2797,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             avg_hr=body.avg_hr,
             max_hr=body.max_hr,
             elevation_m=body.elevation_m,
+            zone2_minutes=body.zone2_minutes,
             source=body.source,
             strava_activity_url=body.strava_activity_url,
         )
@@ -2885,6 +2892,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.max_hr = body.max_hr
         if 'elevation_m' in body.model_fields_set:
             workout.elevation_m = body.elevation_m
+        if 'zone2_minutes' in body.model_fields_set:
+            if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
+                raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
+            workout.zone2_minutes = body.zone2_minutes
         if 'source' in body.model_fields_set:
             if body.source is not None and body.source not in _VALID_SOURCES:
                 raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
