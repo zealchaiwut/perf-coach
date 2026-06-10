@@ -1208,12 +1208,12 @@
 
     var emptyCta = document.getElementById('log-empty-cta');
     if (emptyCta) emptyCta.addEventListener('click', function () {
-      if (window.WorkoutForm) WorkoutForm.open(); else window.location.href = '/training';
+      window.location.href = '/training?return=/log';
     });
 
     var newBtn = document.getElementById('log-new-btn');
     if (newBtn) newBtn.addEventListener('click', function () {
-      if (window.WorkoutForm) WorkoutForm.open(); else window.location.href = '/training';
+      window.location.href = '/training?return=/log';
     });
 
     document.addEventListener('keydown', function (e) {

@@ -1,8 +1,11 @@
-"""Tests for issue #390: Build mobile-first workout logging form (runs against UAT).
+"""Tests for issue #390 (superseded): workout logging entry points.
 
-Static checks read source files from the UAT repo (feature/390 branch).
+The #390 quick-log modal (workout-form.js) was retired in favor of a single
+logging surface: the full editor at /training with the structured run
+builder. Every "Log workout" entry point navigates there.
+
+Static checks read source files from the UAT repo.
 API tests hit the live UAT server with session auth.
-Risk: MEDIUM → 1-2 tests per criterion.
 """
 import datetime
 import os
@@ -22,12 +25,13 @@ if not BASE_URL.startswith("http"):
         "UAT_BASE_URL / UAT_PORT not set. Run the tester skill's Step 0 to resolve UAT."
     )
 
-# UAT repo root — must be on feature/390-mobile-workout-logging-form
-_UAT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent / "uat"
+_UAT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _HOME_HTML = _UAT_ROOT / "frontend" / "pages" / "home.html"
 _LOG_HTML = _UAT_ROOT / "frontend" / "pages" / "training-log.html"
+_TRAINING_HTML = _UAT_ROOT / "frontend" / "pages" / "training.html"
 _WORKOUT_FORM_JS = _UAT_ROOT / "frontend" / "js" / "workout-form.js"
 _HOME_JS = _UAT_ROOT / "frontend" / "js" / "home.js"
+_TRAINING_JS = _UAT_ROOT / "frontend" / "js" / "training.js"
 _TRAINING_LOG_JS = _UAT_ROOT / "frontend" / "js" / "training-log.js"
 
 _uat_cfg = dotenv_values(str(_UAT_ROOT / ".env"))
@@ -84,120 +88,56 @@ def auth_client():
     _delete_user(uid)
 
 
-# ── Form Access ───────────────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__workout_form_js_exists():
-    # AC: workout-form.js exists at frontend/js/workout-form.js
-    assert _WORKOUT_FORM_JS.exists(), "frontend/js/workout-form.js must exist"
-    assert _WORKOUT_FORM_JS.stat().st_size > 0
+# ── Single logging surface ────────────────────────────────────────────────────
 
 
-def test_mobile_workout_logging_form__home_page_has_cta_and_loads_form():
-    # AC: "Log workout" CTA on home page; all entry points open workout-form.js
-    html = _HOME_HTML.read_text()
+def test_workout_logging__quick_log_modal_removed():
+    # The redundant quick-log modal is gone; /training is the only form.
+    assert not _WORKOUT_FORM_JS.exists(), \
+        "workout-form.js should be deleted (single logging surface)"
+    assert 'src="js/workout-form.js"' not in _HOME_HTML.read_text(), \
+        "home.html must not load workout-form.js"
+    assert 'src="js/workout-form.js"' not in _LOG_HTML.read_text(), \
+        "training-log.html must not load workout-form.js"
+
+
+def test_workout_logging__home_entry_points_open_full_editor():
     js = _HOME_JS.read_text()
-    assert "Log workout" in html, "home.html must contain 'Log workout' text"
-    assert 'src="js/workout-form.js"' in html, "home.html must load workout-form.js"
-    assert "WorkoutForm" in js and "open" in js, "home.js must call WorkoutForm.open()"
-
-
-def test_mobile_workout_logging_form__training_log_has_entry_point():
-    # AC: "Log workout" entry on training-log.html; opens same form
-    html = _LOG_HTML.read_text()
-    js = _TRAINING_LOG_JS.read_text()
-    assert "Log workout" in html, "training-log.html must contain 'Log workout'"
-    assert 'src="js/workout-form.js"' in html, "training-log.html must load workout-form.js"
-    assert "WorkoutForm" in js and "open" in js, "training-log.js must call WorkoutForm.open()"
-
-
-def test_mobile_workout_logging_form__sticky_mobile_button():
-    # AC: sticky "Log workout" button present on mobile (≤500px)
+    assert "WorkoutForm" not in js, "home.js must not reference the removed modal"
+    assert "/training" in js, "home Log-workout buttons must navigate to /training"
     html = _HOME_HTML.read_text()
-    assert "sticky-log-btn" in html or "sticky" in html.lower(), \
-        "home.html must have a sticky Log workout button element"
-    assert "500px" in html, "home.html must scope sticky button to ≤500px media query"
+    assert "sticky" in html.lower(), \
+        "home.html keeps the sticky mobile Log workout button (now navigating to /training)"
 
 
-# ── Workout Type Selector ─────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__type_selector_run_and_strength_only():
-    # AC: form shows exactly Run and Strength options
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "'run'" in js or '"run"' in js, "workout-form.js must have run type"
-    assert "'strength'" in js or '"strength"' in js, "workout-form.js must have strength type"
-    assert "Run" in js and "Strength" in js
+def test_workout_logging__training_log_entry_points_open_full_editor():
+    js = _TRAINING_LOG_JS.read_text()
+    assert "WorkoutForm" not in js, "training-log.js must not reference the removed modal"
+    assert "/training?return=/log" in js, \
+        "training-log Log-workout buttons must navigate to the full editor"
 
 
-def test_mobile_workout_logging_form__type_swap_fields_without_reload():
-    # AC: selecting a type swaps fields without page reload
-    pytest.skip("manual — cannot be HTTP-tested (requires browser interaction)")
+# ── Full editor: structured run builder ──────────────────────────────────────
 
 
-# ── Run Variant Fields ────────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__run_fields_and_defaults():
-    # AC: run form has Bangkok-TZ date default, required distance/duration, optional avg_hr/zone2/notes
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "Asia/Bangkok" in js, "workout-form.js must use Asia/Bangkok for default date"
-    assert '"Run"' in js or "'Run'" in js, "workout-form.js must default run name to 'Run'"
-    assert "distance_km" in js
-    assert "duration_minutes" in js
-    assert "zone2_minutes" in js
-    assert "avg_hr" in js
+def test_workout_logging__training_page_has_segment_builder():
+    html = _TRAINING_HTML.read_text()
+    for el in ("run-section", "segments-list", "add-segment-menu", "seg-tpl-chip"):
+        assert el in html, f"training.html must contain the segment builder element '{el}'"
 
 
-def test_mobile_workout_logging_form__run_field_constraints():
-    # AC: distance_km 0.1–100; duration 1–480; avg_hr 80–220; zone2 0–duration; notes ≤500
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "0.1" in js and '"100"' in js or "max=\"100\"" in js or "max=100" in js or ", 100" in js
-    assert "480" in js, "workout-form.js must set duration_minutes max=480"
-    assert "80" in js and "220" in js, "workout-form.js must set avg_hr range 80–220"
-    assert "500" in js, "workout-form.js must set notes maxlength=500"
+def test_workout_logging__run_builder_segment_types_and_templates():
+    js = _TRAINING_JS.read_text()
+    for fn in ("addSegmentRow", "seedTemplate", "getSegments", "recomputeSegments"):
+        assert fn in js, f"training.js must define {fn}"
+    for tpl in ("easy", "intervals", "tempo"):
+        assert tpl in js, f"training.js must ship the built-in '{tpl}' template"
 
 
-# ── Strength Variant Fields ───────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__strength_fields_and_defaults():
-    # AC: strength form has Bangkok-TZ date, duration (required), exercises textarea, avg_hr, notes
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "Strength training" in js, "workout-form.js must default strength name to 'Strength training'"
-    assert "exercises" in js
-    assert "2000" in js, "workout-form.js must set exercises maxlength=2000"
+# ── API: workout create (unchanged contract) ─────────────────────────────────
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__required_field_validation_and_inline_errors():
-    # AC: required fields validated client-side; out-of-range shows inline error
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "is required" in js, "workout-form.js must show 'is required' error messages"
-    assert "wf-error" in js, "workout-form.js must render inline wf-error elements"
-
-
-def test_mobile_workout_logging_form__zone2_le_duration_validation():
-    # AC: zone2_minutes > duration_minutes shows a validation error
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "Zone 2 minutes cannot exceed duration" in js, \
-        "workout-form.js must validate zone2_minutes <= duration_minutes"
-
-
-def test_mobile_workout_logging_form__char_count_display():
-    # AC: character-limit fields show remaining count or error when exceeded
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "remaining" in js, "workout-form.js must show remaining character count"
-
-
-# ── Save Behaviour ────────────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__posts_to_api_workouts_endpoint():
-    # AC: Submit button POSTs to POST /api/workouts
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "/api/workouts" in js, "workout-form.js must POST to /api/workouts"
-    assert "method: 'POST'" in js or 'method: "POST"' in js
-
-
-def test_mobile_workout_logging_form__post_run_workout_returns_201(auth_client):
-    # AC: on 2xx response, workout is saved; run with blank name sends name="Run"
+def test_workout_logging__post_run_workout_returns_201(auth_client):
     today = datetime.date.today().isoformat()
     r = auth_client.post("/api/workouts", json={
         "name": "Run",
@@ -213,8 +153,29 @@ def test_mobile_workout_logging_form__post_run_workout_returns_201(auth_client):
     assert body["workout_type"] == "run"
 
 
-def test_mobile_workout_logging_form__post_strength_workout_returns_201(auth_client):
-    # AC: strength form with blank name sends "Strength training"; POST returns 201
+def test_workout_logging__post_run_with_segments_returns_201(auth_client):
+    # Segments ride in workout_exercises rows (no migration).
+    today = datetime.date.today().isoformat()
+    r = auth_client.post("/api/workouts", json={
+        "name": "Interval session",
+        "workout_date": today,
+        "workout_type": "Running",
+        "distance_km": 4.4,
+        "duration_seconds": 1800,
+        "exercises": [
+            {"display_order": 0, "name": "Warm-up", "distance_km": 1.0},
+            {"display_order": 1, "name": "Intervals", "sets": 4,
+             "distance_km": 0.4, "duration": "rest 200m"},
+            {"display_order": 2, "name": "Cool-down", "distance_km": 1.0},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    names = [e["name"] for e in body.get("exercises", [])]
+    assert names == ["Warm-up", "Intervals", "Cool-down"], names
+
+
+def test_workout_logging__post_strength_workout_returns_201(auth_client):
     today = datetime.date.today().isoformat()
     r = auth_client.post("/api/workouts", json={
         "name": "Strength training",
@@ -227,8 +188,7 @@ def test_mobile_workout_logging_form__post_strength_workout_returns_201(auth_cli
     assert r.json()["workout_type"] == "strength"
 
 
-def test_mobile_workout_logging_form__blank_name_rejected_by_api(auth_client):
-    # AC: frontend always fills "Run"/"Strength training"; blank name is rejected server-side
+def test_workout_logging__blank_name_rejected_by_api(auth_client):
     today = datetime.date.today().isoformat()
     r = auth_client.post("/api/workouts", json={
         "name": "",
@@ -238,39 +198,4 @@ def test_mobile_workout_logging_form__blank_name_rejected_by_api(auth_client):
         "duration_seconds": 1800,
     })
     assert r.status_code == 422, \
-        "API must reject blank name; frontend must always substitute a default"
-
-
-def test_mobile_workout_logging_form__error_handling_keeps_form_open():
-    # AC: on error response, toast/inline error shown; form stays open
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "submitBtn.disabled = false" in js, \
-        "workout-form.js must re-enable submit button on error"
-    assert "wf-submit-err" in js, "workout-form.js must surface error via wf-submit-err"
-
-
-def test_mobile_workout_logging_form__success_toast_message():
-    # AC: on 2xx, "Workout logged" toast appears
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "Workout logged" in js, "workout-form.js must show 'Workout logged' toast on success"
-
-
-# ── Layout ────────────────────────────────────────────────────────────────────
-
-def test_mobile_workout_logging_form__single_column_touch_targets():
-    # AC: single-column layout, large touch targets (≥44px) at ≤500px
-    js = _WORKOUT_FORM_JS.read_text()
-    assert "flex-direction:column" in js or "flex-direction: column" in js, \
-        "workout-form.js must use flex-direction:column for single-column layout"
-    assert "min-height:44px" in js or "min-height: 44px" in js, \
-        "workout-form.js must set min-height:44px for touch targets"
-
-
-def test_mobile_workout_logging_form__no_horizontal_scroll_375px():
-    # AC: form usable without horizontal scroll on 375px width
-    pytest.skip("manual — cannot be HTTP-tested (requires browser viewport check)")
-
-
-def test_mobile_workout_logging_form__no_console_errors():
-    # AC: zero console errors on open, fill, submit, close
-    pytest.skip("manual — cannot be HTTP-tested (requires browser console)")
+        "API must reject blank name; the form always supplies one"
