@@ -1330,7 +1330,7 @@ def get_weight_chart(
             d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
             if d < from_d:
                 continue
-            actuals.append({"date": str(d), "weight_kg": float(e.weight_kg)})
+            actuals.append({"date": str(d), "weight_kg": float(e.weight_kg), "entry_id": str(e.id)})
 
         # Trend: dense, one point per day in [from_d, to_d]; null when window is empty
         num_days = (to_d - from_d).days + 1
@@ -1351,17 +1351,30 @@ def get_weight_chart(
                 current_avg_kg = t["weight_kg"]
                 break
 
-        delta_7d_kg = None
-        if current_avg_kg is not None:
-            ma_7d_ago = _ma_for_day(to_d - _timedelta(days=7))
-            if ma_7d_ago is not None:
-                delta_7d_kg = round(current_avg_kg - ma_7d_ago, 2)
+        # delta: compare current weight to most recent entry on/before the pivot date
+        pivot_7d = to_d - _timedelta(days=7)
+        pivot_30d = to_d - _timedelta(days=30)
+        entry_at_7d = None
+        entry_at_30d = None
+        for e in reversed(all_entries):
+            ed = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+            if entry_at_7d is None and ed <= pivot_7d:
+                entry_at_7d = e
+            if entry_at_30d is None and ed <= pivot_30d:
+                entry_at_30d = e
+            if entry_at_7d is not None and entry_at_30d is not None:
+                break
 
-        delta_30d_kg = None
-        if current_avg_kg is not None:
-            ma_30d_ago = _ma_for_day(to_d - _timedelta(days=30))
-            if ma_30d_ago is not None:
-                delta_30d_kg = round(current_avg_kg - ma_30d_ago, 2)
+        delta_7d_kg = (
+            round(current_weight_kg - float(entry_at_7d.weight_kg), 2)
+            if current_weight_kg is not None and entry_at_7d is not None
+            else None
+        )
+        delta_30d_kg = (
+            round(current_weight_kg - float(entry_at_30d.weight_kg), 2)
+            if current_weight_kg is not None and entry_at_30d is not None
+            else None
+        )
 
         stats = {
             "current_weight_kg": current_weight_kg,
@@ -1409,9 +1422,16 @@ def get_weight_chart(
                     if projected_path[-1]["date"] != str(target_date):
                         projected_path.append({"date": str(target_date), "weight_kg": round(target_weight, 2)})
 
+                start_date_d = (
+                    active_target.start_date
+                    if isinstance(active_target.start_date, _date)
+                    else _date.fromisoformat(str(active_target.start_date))
+                )
                 target_block = {
                     "target_weight_kg": target_weight,
                     "target_date": str(target_date),
+                    "start_weight_kg": float(active_target.start_weight_kg),
+                    "start_date": str(start_date_d),
                     "projected_path": projected_path,
                 }
             result["target"] = target_block
