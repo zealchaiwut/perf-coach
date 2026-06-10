@@ -5,14 +5,18 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 ## Features
 
 - **Weight tracking** — daily log, trend chart, and goal targets
-- **Habit tracking** — configurable habits with streak and calendar views
+- **Habit tracking** — unified habits system with auto-fill sources, weekly targets, archive/restore, and drag-to-reorder
+- **Zone 2 tracking** — `zone2_minutes` on workouts auto-fills Zone 2 habit progress
+- **Weekly habits widget** — Mon–Sun progress grid on home page with streak badges; week boundary computed in Bangkok timezone (Asia/Bangkok)
+- **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
-- **Training log** — workout log with type badges, TSS, distance, HR, and pace
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace; friendly empty state for new users
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
 - **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
 - **Multi-user** — session-based auth, per-user data isolation
+- **Health check** — `GET /api/healthz` returns `{ok, version, env}` for Render health probes
 
 ## Canonical working directory
 

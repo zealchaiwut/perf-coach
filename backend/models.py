@@ -83,23 +83,44 @@ class Habit(Base):
     __tablename__ = "habits"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    name = Column(String(100), nullable=False)
-    display_order = Column(Integer, server_default=text("0"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    tracking_type = Column(String(50), nullable=False, server_default=text("'daily_checkmark'"))
+    weekly_target = Column(Numeric(10, 2), nullable=True)
+    unit = Column(String(50), nullable=True)
+    auto_fill_source = Column(String(100), nullable=True)
+    icon = Column(String(100), nullable=True)
+    color = Column(String(20), nullable=True)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    # Legacy columns kept for backward-compat with existing API code
+    display_order = Column(Integer, server_default=text("0"), nullable=False)
     archived_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class HabitLog(Base):
+    """Habit log entries. For daily_checkmark habits, one row per day checked (value=1). For weekly_count/minutes/quantity habits, one row per logged event with the contributed value. Week aggregation done at read time by summing values where log_week_start matches."""
+
     __tablename__ = "habit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    habit_id = Column(UUID(as_uuid=True), ForeignKey("habits.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    logged_date = Column(Date, nullable=False)
+    habit_id = Column(UUID(as_uuid=True), ForeignKey("habits.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    log_date = Column(Date, nullable=False)
+    log_week_start = Column(Date, nullable=False)
+    value = Column(Numeric(10, 4), nullable=False, server_default=text("1"))
+    notes = Column(Text, nullable=True)
+    source = Column(String(50), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (UniqueConstraint("habit_id", "logged_date", name="uq_habit_logs_habit_date"),)
+    __table_args__ = (
+        UniqueConstraint("habit_id", "log_date", name="uq_habit_logs_habit_log_date"),
+        Index("ix_habit_logs_habit_id_log_week_start", "habit_id", "log_week_start"),
+    )
 
 
 class Workout(Base):
@@ -124,6 +145,7 @@ class Workout(Base):
     strava_activity_pk = Column(UUID(as_uuid=True), ForeignKey("strava_activities.id", ondelete="SET NULL"), nullable=True)
     stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="SET NULL"), nullable=True)
     manual_overrides = Column(JSONB, nullable=True)
+    zone2_minutes = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (

@@ -52,6 +52,18 @@
       String(d.getDate()).padStart(2, '0');
   }
 
+  // Returns today's date string (YYYY-MM-DD) in Asia/Bangkok timezone.
+  function bangkokTodayStr() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  }
+
+  // Returns a Date object whose local year/month/day matches Bangkok's current date.
+  function bangkokToday() {
+    var s = bangkokTodayStr();
+    var p = s.split('-');
+    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+  }
+
   function addISODays(isoStr, n) {
     var d = new Date(isoStr + 'T00:00:00');
     d.setDate(d.getDate() + n);
@@ -275,7 +287,7 @@
 
     card.innerHTML = UIStates.loadingHTML();
 
-    var today = isoDate(new Date());
+    var today = bangkokTodayStr();
     var data = null;
     try {
       var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
@@ -956,8 +968,8 @@
       return;
     }
 
-    var today = new Date();
-    var todayStr = isoDate(today);
+    var today = bangkokToday();
+    var todayStr = bangkokTodayStr();
     var monday = isoWeekMonday(today);
     var weekDates = [];
     for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
@@ -1018,8 +1030,8 @@
     var row4 = document.getElementById('row-4');
     if (!row4) return;
 
-    var today = new Date();
-    var todayStr = isoDate(today);
+    var today = bangkokToday();
+    var todayStr = bangkokTodayStr();
     var monday = isoWeekMonday(today);
     var weekDates = [];
     for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
@@ -1413,7 +1425,7 @@
       if (val < 20 || val > 300) { showWeightErr('Must be 20–300 kg'); inp.focus(); return; }
       btn.disabled = true;
       try {
-        var todayStr = isoDate(new Date());
+        var todayStr = bangkokTodayStr();
         var res = await fetch('/api/weight', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1736,7 +1748,7 @@
     var barW = Math.max(8, Math.floor((W - GAP * (n - 1)) / n));
     var step = barW + GAP;
     var startX = (W - (barW * n + GAP * (n - 1))) / 2;
-    var today = isoDate(new Date());
+    var today = bangkokTodayStr();
 
     var maxTss = 1;
     dailyLoad.forEach(function (d) { if (d.tss && d.tss > maxTss) maxTss = d.tss; });
@@ -2034,7 +2046,7 @@
       rowLog.appendChild(card);
     }
 
-    var todayStr = isoDate(new Date());
+    var todayStr = bangkokTodayStr();
     var existing = null;
     try {
       var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
@@ -2190,9 +2202,18 @@
     }
   }
 
+  function wireLogWorkoutButtons() {
+    function openForm() { if (window.WorkoutForm) WorkoutForm.open(); }
+    var homeBtn = document.getElementById('home-log-workout-btn');
+    var stickyBtn = document.getElementById('sticky-log-workout-btn');
+    if (homeBtn) homeBtn.addEventListener('click', openForm);
+    if (stickyBtn) stickyBtn.addEventListener('click', openForm);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () { init(); wireLogWorkoutButtons(); });
   } else {
     init();
+    wireLogWorkoutButtons();
   }
 })();

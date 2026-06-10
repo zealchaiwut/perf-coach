@@ -1061,10 +1061,116 @@
     }
   </style>
   <style>
+    /* ---- HABITS PROGRESS WIDGET ---- */
+    #habits-progress-widget { margin-bottom: 16px; }
+    .hp-widget .card-head { margin-bottom: 12px; }
+    .hp-body { display: flex; flex-direction: column; gap: 2px; }
+    .hp-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: 12px;
+      text-decoration: none; color: var(--text-primary);
+      transition: background 0.12s;
+      cursor: pointer;
+    }
+    .hp-row:hover { background: var(--shell-1); }
+    .hp-row--complete { opacity: 0.7; }
+    .hp-icon {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: var(--chip-bg); display: flex; align-items: center;
+      justify-content: center; font-size: 15px; color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .hp-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .hp-name-row { display: flex; align-items: center; gap: 6px; }
+    .hp-name {
+      font-size: 13px; font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+    }
+    .hp-check { color: var(--teal-text); font-size: 13px; flex-shrink: 0; }
+    .hp-days { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
+    .hp-meta { font-size: 11.5px; color: var(--text-secondary); }
+    .hp-bar-outer {
+      height: 5px; border-radius: 3px; background: var(--shell-2); overflow: hidden;
+    }
+    .hp-bar-inner {
+      height: 100%; border-radius: 3px; background: var(--bg-1);
+      transition: width 0.25s;
+    }
+    .hp-row--complete .hp-bar-inner { background: var(--teal-text); }
+    .hp-empty { font-size: 13.5px; color: var(--text-secondary); padding: 12px 4px; }
+    .hp-empty a { color: var(--blue-text); text-decoration: none; }
+    .hp-error { font-size: 13px; color: var(--text-secondary); padding: 12px 4px; }
+    .hp-retry {
+      background: none; border: 1px solid var(--card-border); border-radius: 6px;
+      padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+      color: var(--text-primary); margin-left: 6px;
+    }
+    .hp-retry:hover { background: var(--shell-1); }
+    /* Skeleton rows */
+    .hp-skel-row {
+      display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+    }
+    .hp-skel {
+      background: var(--shell-2); border-radius: 4px; animation: hp-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes hp-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.45; }
+    }
+    .hp-skel--icon { width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0; }
+    .hp-skel-info { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .hp-skel--name { height: 11px; width: 55%; }
+    .hp-skel--bar  { height: 5px;  width: 80%; border-radius: 3px; }
+
     .habit-inline-error {
       font-size: 12px;
       color: #dc2626;
       padding: 6px 4px 2px;
+    }
+    .log-workout-cta-wrap {
+      margin: 12px 0 4px;
+    }
+    .log-workout-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      background: var(--accent, #e4ff52);
+      color: var(--accent-text, #1a2400);
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .sticky-log-btn {
+      display: none;
+    }
+    @media (max-width: 500px) {
+      .sticky-log-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        position: fixed;
+        bottom: 72px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 900;
+        background: var(--accent, #e4ff52);
+        color: var(--accent-text, #1a2400);
+        border: none;
+        border-radius: 28px;
+        padding: 13px 28px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        white-space: nowrap;
+        min-height: 48px;
+      }
     }
   </style>
 </head>
@@ -1077,18 +1183,37 @@
     <p id="greeting-date"></p>
   </div>
 
+  <div id="habits-progress-widget" class="card hp-widget">
+    <div class="card-head">
+      <div class="ttl"><i class="ti ti-target-arrow"></i>This week's progress</div>
+      <a href="/habits">All habits</a>
+    </div>
+    <div class="hp-body"></div>
+  </div>
+
   <div id="row-1"></div>
   <div id="strava-stale-banner"></div>
   <div id="row-2"></div>
+  <div class="log-workout-cta-wrap">
+    <button type="button" class="log-workout-cta-btn" id="home-log-workout-btn">
+      <i class="ti ti-plus"></i> Log workout
+    </button>
+  </div>
   <div id="row-log"></div>
   <div id="row-3"></div>
   <div id="row-4"></div>
   <div id="row-5"></div>
 </main>
 
+<button type="button" class="sticky-log-btn" id="sticky-log-workout-btn" aria-label="Log workout">
+  <i class="ti ti-plus"></i> Log workout
+</button>
+
 <script src="js/nav.js"></script>
 <script src="js/ui-states.js"></script>
+<script src="js/workout-form.js"></script>
 <script src="js/home.js"></script>
+<script src="js/home-habits.js"></script>
 <script src="js/env.js"></script>
 </body>
 </html>

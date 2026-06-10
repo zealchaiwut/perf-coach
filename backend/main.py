@@ -37,6 +37,7 @@ from backend.services.weight_status import compute_status_label as _compute_stat
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
+from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 
 app = FastAPI()
 
@@ -136,6 +137,16 @@ def health():
         "version": os.getenv("GIT_SHA", "unknown"),
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
+    })
+
+
+@app.get("/api/healthz")
+def healthz():
+    """Render health check ping. Returns {ok, version, env}."""
+    return JSONResponse({
+        "ok": True,
+        "version": os.getenv("GIT_SHA", "unset"),
+        "env": environment,
     })
 
 
@@ -2047,14 +2058,89 @@ def get_home_weekly_summary(
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
+_VALID_TRACKING_TYPES = frozenset({
+    "daily_checkmark", "weekly_count", "weekly_minutes", "weekly_quantity",
+})
+_VALID_AUTO_FILL_SOURCES = frozenset({
+    "workout.zone2_minutes", "workout.run_count", "workout.lift_count",
+    "workout.total_duration_minutes", "workout.distance_km",
+})
+
+
+def _habit_dict(h: Habit) -> dict:
+    return {
+        "id": str(h.id),
+        "user_id": str(h.user_id),
+        "name": h.name,
+        "description": h.description,
+        "tracking_type": h.tracking_type,
+        "weekly_target": float(h.weekly_target) if h.weekly_target is not None else None,
+        "unit": h.unit,
+        "auto_fill_source": h.auto_fill_source,
+        "icon": h.icon,
+        "color": h.color,
+        "sort_order": h.sort_order,
+        "is_archived": h.is_archived,
+        "created_at": h.created_at.isoformat() if h.created_at else None,
+        "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+    }
+
+
+def _validate_habit_business_rules(
+    tracking_type: Optional[str],
+    weekly_target: Optional[float],
+    auto_fill_source: Optional[str],
+) -> None:
+    if tracking_type is not None and tracking_type not in _VALID_TRACKING_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"tracking_type must be one of {sorted(_VALID_TRACKING_TYPES)}",
+        )
+    if weekly_target is not None and tracking_type is not None:
+        if tracking_type == "daily_checkmark":
+            if not (1 <= weekly_target <= 7):
+                raise HTTPException(
+                    status_code=422,
+                    detail="weekly_target for daily_checkmark must be between 1 and 7",
+                )
+        elif tracking_type.startswith("weekly_"):
+            if weekly_target <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="weekly_target for weekly_* types must be > 0",
+                )
+    if auto_fill_source is not None and auto_fill_source not in _VALID_AUTO_FILL_SOURCES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"auto_fill_source must be one of {sorted(_VALID_AUTO_FILL_SOURCES)}",
+        )
+
+
 class HabitIn(BaseModel):
-    user_id: Optional[str] = None
-    name: str
+    name: str = Field(..., max_length=100)
+    tracking_type: str
+    description: Optional[str] = None
+    weekly_target: Optional[float] = None
+    unit: Optional[str] = None
+    auto_fill_source: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
 
 
 class HabitPatch(BaseModel):
-    name: Optional[str] = None
-    archived: Optional[bool] = None
+    name: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    weekly_target: Optional[float] = None
+    unit: Optional[str] = None
+    auto_fill_source: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_archived: Optional[bool] = None
+
+
+class HabitReorderIn(BaseModel):
+    sort_order: int
 
 
 class HabitLogIn(BaseModel):
@@ -2064,45 +2150,67 @@ class HabitLogIn(BaseModel):
 
 
 @app.get("/api/habits")
-def get_habits(user: User = Depends(resolve_user)):
+def get_habits(
+    include_archived: bool = False,
+    user: User = Depends(resolve_user),
+):
     with Session(engine) as session:
-        rows = (
-            session.query(Habit)
-            .filter(Habit.user_id == user.id, Habit.archived_at.is_(None))
-            .order_by(Habit.display_order, Habit.created_at)
-            .all()
-        )
-        return JSONResponse([
-            {
-                "id": str(r.id),
-                "name": r.name,
-                "display_order": r.display_order,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ])
+        q = session.query(Habit).filter(Habit.user_id == user.id)
+        if not include_archived:
+            q = q.filter(Habit.is_archived.is_(False))
+        rows = q.order_by(Habit.sort_order).all()
+        return JSONResponse([_habit_dict(r) for r in rows])
 
 
 @app.post("/api/habits", status_code=201)
 def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
+    _validate_habit_business_rules(
+        tracking_type=body.tracking_type,
+        weekly_target=body.weekly_target,
+        auto_fill_source=body.auto_fill_source,
+    )
+    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
-        habit = Habit(user_id=user.id, name=body.name.strip())
+        max_order = (
+            session.query(_sa_func.max(Habit.sort_order))
+            .filter(Habit.user_id == user.id)
+            .scalar()
+        )
+        habit = Habit(
+            user_id=user.id,
+            name=body.name.strip(),
+            tracking_type=body.tracking_type,
+            description=body.description,
+            weekly_target=body.weekly_target,
+            unit=body.unit,
+            auto_fill_source=body.auto_fill_source,
+            icon=body.icon,
+            color=body.color,
+            sort_order=(max_order or 0) + 1,
+            is_archived=False,
+        )
         session.add(habit)
         session.commit()
         session.refresh(habit)
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(habit.id),
-                "name": habit.name,
-                "display_order": habit.display_order,
-                "created_at": habit.created_at.isoformat() if habit.created_at else None,
-            },
-        )
+        return JSONResponse(status_code=201, content=_habit_dict(habit))
 
 
 @app.patch("/api/habits/{habit_id}")
-def patch_habit(habit_id: str, body: HabitPatch, user: User = Depends(resolve_user)):
+async def patch_habit(habit_id: str, request: Request, user: User = Depends(resolve_user)):
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if "user_id" in raw or "tracking_type" in raw:
+        raise HTTPException(status_code=422, detail="user_id and tracking_type cannot be updated")
+    try:
+        body = HabitPatch(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if body.auto_fill_source is not None:
+        _validate_habit_business_rules(
+            tracking_type=None, weekly_target=None, auto_fill_source=body.auto_fill_source
+        )
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
@@ -2115,31 +2223,319 @@ def patch_habit(habit_id: str, body: HabitPatch, user: User = Depends(resolve_us
             raise HTTPException(status_code=403, detail="Forbidden")
         if body.name is not None:
             habit.name = body.name.strip()
+        if body.description is not None:
+            habit.description = body.description
+        if body.weekly_target is not None:
+            habit.weekly_target = body.weekly_target
+        if body.unit is not None:
+            habit.unit = body.unit
+        if body.auto_fill_source is not None:
+            habit.auto_fill_source = body.auto_fill_source
+        if body.icon is not None:
+            habit.icon = body.icon
+        if body.color is not None:
+            habit.color = body.color
+        if body.sort_order is not None:
+            habit.sort_order = body.sort_order
+        if body.is_archived is not None:
+            habit.is_archived = body.is_archived
+        habit.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(habit)
-        return JSONResponse({
-            "id": str(habit.id),
-            "name": habit.name,
-            "display_order": habit.display_order,
-        })
+        return JSONResponse(_habit_dict(habit))
 
 
-@app.delete("/api/habits/{habit_id}", status_code=204)
-def delete_habit(habit_id: str, user: User = Depends(resolve_user)):
+@app.delete("/api/habits/{habit_id}")
+def delete_habit(
+    habit_id: str,
+    hard: bool = False,
+    user: User = Depends(resolve_user),
+):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
-    from datetime import datetime, timezone
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
         if habit.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
-        habit.archived_at = datetime.now(timezone.utc)
+        if hard:
+            session.query(HabitLog).filter(HabitLog.habit_id == hid).delete(
+                synchronize_session=False
+            )
+            session.delete(habit)
+        else:
+            habit.is_archived = True
+            habit.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/habits/{habit_id}/reorder")
+def reorder_habit(
+    habit_id: str,
+    body: HabitReorderIn,
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        habit.sort_order = body.sort_order
+        habit.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(habit)
+        return JSONResponse(_habit_dict(habit))
+
+
+# ── Habit log + progress endpoints (issue #388) ───────────────────────────────
+
+def _bangkok_today() -> _date:
+    from zoneinfo import ZoneInfo
+    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
+
+def _week_start_bangkok(d: _date) -> _date:
+    """Monday of the week containing d."""
+    return d - _timedelta(days=d.weekday())
+
+
+def _habit_log_dict(log: HabitLog) -> dict:
+    return {
+        "id": str(log.id),
+        "habit_id": str(log.habit_id),
+        "user_id": str(log.user_id),
+        "log_date": log.log_date.isoformat(),
+        "log_week_start": log.log_week_start.isoformat(),
+        "value": float(log.value) if log.value is not None else None,
+        "notes": log.notes,
+        "source": log.source,
+        "created_at": log.created_at.isoformat() if log.created_at else None,
+        "updated_at": log.updated_at.isoformat() if log.updated_at else None,
+    }
+
+
+class HabitLogCreateIn(BaseModel):
+    log_date: Optional[_date] = None
+    value: Optional[float] = None
+    notes: Optional[str] = None
+
+
+def _get_computed_logs(
+    session,
+    user_id,
+    week_start: _date,
+    week_end: _date,
+    auto_fill_source: str,
+) -> list:
+    """Derive per-date computed log entries from workouts for the given week.
+
+    Each auto_fill_source maps to a different workout aggregation:
+    - zone2_minutes: sum zone2_minutes per date
+    - run_count / lift_count: count qualifying workouts per date (value=1 each)
+    - total_duration_minutes: sum duration_seconds/60 per date
+    - distance_km: sum distance_km per date
+    """
+    from collections import defaultdict
+
+    base_q = session.query(Workout).filter(
+        Workout.user_id == user_id,
+        Workout.workout_date >= week_start,
+        Workout.workout_date <= week_end,
+    )
+    date_values: dict = defaultdict(float)
+
+    if auto_fill_source == "workout.zone2_minutes":
+        for w in base_q.filter(Workout.zone2_minutes > 0).all():
+            if w.zone2_minutes:
+                date_values[w.workout_date.isoformat()] += float(w.zone2_minutes)
+    elif auto_fill_source == "workout.run_count":
+        for w in base_q.filter(Workout.workout_type.ilike("%run%")).all():
+            date_values[w.workout_date.isoformat()] += 1.0
+    elif auto_fill_source == "workout.lift_count":
+        for w in base_q.filter(Workout.workout_type.ilike("%lift%")).all():
+            date_values[w.workout_date.isoformat()] += 1.0
+    elif auto_fill_source == "workout.total_duration_minutes":
+        for w in base_q.filter(Workout.duration_seconds.isnot(None)).all():
+            if w.duration_seconds:
+                date_values[w.workout_date.isoformat()] += w.duration_seconds / 60.0
+    elif auto_fill_source == "workout.distance_km":
+        for w in base_q.filter(Workout.distance_km.isnot(None)).all():
+            if w.distance_km:
+                date_values[w.workout_date.isoformat()] += float(w.distance_km)
+
+    return [
+        {"date": d, "value": v, "source": auto_fill_source}
+        for d, v in sorted(date_values.items())
+    ]
+
+
+@app.post("/api/habits/{habit_id}/log", status_code=201)
+def post_habit_log_entry(
+    habit_id: str,
+    body: HabitLogCreateIn,
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        log_date = body.log_date if body.log_date is not None else _bangkok_today()
+        value = body.value if body.value is not None else 1.0
+        log_week_start = _week_start_bangkok(log_date)
+        existing = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_date == log_date)
+            .first()
+        )
+        if existing is not None:
+            existing.value = value
+            existing.notes = body.notes
+            existing.updated_at = _datetime.now(_timezone.utc)
+            session.commit()
+            session.refresh(existing)
+            return JSONResponse(status_code=201, content=_habit_log_dict(existing))
+        log = HabitLog(
+            habit_id=hid,
+            user_id=user.id,
+            log_date=log_date,
+            log_week_start=log_week_start,
+            value=value,
+            notes=body.notes,
+            source="manual",
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return JSONResponse(status_code=201, content=_habit_log_dict(log))
+
+
+@app.delete("/api/habits/{habit_id}/log", status_code=204)
+def delete_habit_log_entry(
+    habit_id: str,
+    date: str = Query(...),
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    try:
+        log_date = _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        log = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_date == log_date)
+            .first()
+        )
+        if log is None:
+            raise HTTPException(status_code=404, detail="Log entry not found")
+        session.delete(log)
         session.commit()
     return Response(status_code=204)
+
+
+@app.get("/api/habits/{habit_id}/progress")
+def get_habit_progress(
+    habit_id: str,
+    week_start: Optional[str] = Query(None),
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if week_start is not None:
+            try:
+                ws = _date.fromisoformat(week_start)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid week_start format")
+        else:
+            ws = _week_start_bangkok(_bangkok_today())
+        we = ws + _timedelta(days=6)
+        manual_log_rows = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_week_start == ws)
+            .all()
+        )
+        manual_logs = [
+            {
+                "date": log.log_date.isoformat(),
+                "value": float(log.value),
+                "notes": log.notes or "",
+            }
+            for log in manual_log_rows
+        ]
+        computed_logs: list = []
+        if habit.auto_fill_source:
+            computed_logs = _get_computed_logs(session, user.id, ws, we, habit.auto_fill_source)
+        # Aggregate current_value with manual_override logic.
+        # When a manual_log on a date has source == 'manual_override' and a computed_log
+        # exists for the same date, the manual value replaces (not adds to) the computed
+        # value for that date only.
+        manual_by_date: dict = {}
+        for log in manual_log_rows:
+            d = log.log_date.isoformat()
+            if d not in manual_by_date:
+                manual_by_date[d] = {"value": 0.0, "has_override": False}
+            manual_by_date[d]["value"] += float(log.value)
+            if log.source == "manual_override":
+                manual_by_date[d]["has_override"] = True
+        computed_by_date: dict = {}
+        for entry in computed_logs:
+            d = entry["date"]
+            computed_by_date[d] = computed_by_date.get(d, 0.0) + entry["value"]
+        current_value = 0.0
+        for d in set(manual_by_date) | set(computed_by_date):
+            m = manual_by_date.get(d, {"value": 0.0, "has_override": False})
+            c = computed_by_date.get(d, 0.0)
+            if m["has_override"]:
+                current_value += m["value"]
+            else:
+                current_value += m["value"] + c
+        target = float(habit.weekly_target) if habit.weekly_target is not None else None
+        percentage = None
+        if target is not None and target > 0:
+            percentage = min(100.0, max(0.0, (current_value / target) * 100.0))
+        is_complete = (current_value >= target) if target is not None else False
+        return JSONResponse({
+            "habit": _habit_dict(habit),
+            "week_start": ws.isoformat(),
+            "week_end": we.isoformat(),
+            "target": target,
+            "current_value": current_value,
+            "percentage": percentage,
+            "manual_logs": manual_logs,
+            "computed_logs": computed_logs,
+            "is_complete": is_complete,
+        })
 
 
 @app.get("/api/habits/logs")
@@ -2564,6 +2960,7 @@ class WorkoutIn(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    zone2_minutes: Optional[int] = None
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
@@ -2580,6 +2977,7 @@ class WorkoutPatch(BaseModel):
     avg_hr: Optional[int] = None
     max_hr: Optional[int] = None
     elevation_m: Optional[int] = None
+    zone2_minutes: Optional[int] = None
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
 
@@ -2666,6 +3064,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
+        "zone2_minutes": w.zone2_minutes,
         "avg_power_w": strava_act.avg_power_w if strava_act else None,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
@@ -2688,6 +3087,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
+        "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
@@ -2773,6 +3173,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
     if body.max_hr is not None and not (20 <= body.max_hr <= 250):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
+    if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
+        raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     for ex in body.exercises:
@@ -2791,6 +3193,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             avg_hr=body.avg_hr,
             max_hr=body.max_hr,
             elevation_m=body.elevation_m,
+            zone2_minutes=body.zone2_minutes,
             source=body.source,
             strava_activity_url=body.strava_activity_url,
         )
@@ -2823,6 +3226,12 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
             )
+        try:
+            _recompute_autofill(uid, _week_start_bangkok(workout_date))
+        except Exception as _af_exc:
+            _logging.getLogger(__name__).warning(
+                "autofill recompute failed for user %s week %s: %s", uid, workout_date, _af_exc
+            )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -2838,6 +3247,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
+        _old_workout_date = workout.workout_date
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -2885,6 +3295,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.max_hr = body.max_hr
         if 'elevation_m' in body.model_fields_set:
             workout.elevation_m = body.elevation_m
+        if 'zone2_minutes' in body.model_fields_set:
+            if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
+                raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
+            workout.zone2_minutes = body.zone2_minutes
         if 'source' in body.model_fields_set:
             if body.source is not None and body.source not in _VALID_SOURCES:
                 raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
@@ -2905,6 +3319,13 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
             )
+        try:
+            for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
+                _recompute_autofill(workout.user_id, _ws)
+        except Exception as _af_exc:
+            _logging.getLogger(__name__).warning(
+                "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
+            )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -2920,8 +3341,16 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
+        _del_date = workout.workout_date
+        _del_uid = workout.user_id
         session.delete(workout)
         session.commit()
+    try:
+        _recompute_autofill(_del_uid, _week_start_bangkok(_del_date))
+    except Exception as _af_exc:
+        _logging.getLogger(__name__).warning(
+            "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
+        )
     return Response(status_code=204)
 
 
