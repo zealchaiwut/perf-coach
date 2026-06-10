@@ -3566,9 +3566,10 @@ def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_
             "weight_kg": ex.get("weight_kg"),
             "duration": ex.get("duration"),
             "rpe": ex.get("rpe"),
-            # Run-segment templates carry distance/duration (issue: run builder)
+            # Run-segment templates carry distance/duration/HR (run builder)
             "distance_km": ex.get("distance_km"),
             "duration_seconds": ex.get("duration_seconds"),
+            "avg_hr": ex.get("avg_hr"),
         }
         for ex in body.exercises
         if isinstance(ex, dict) and str(ex.get("name", "")).strip()
