@@ -288,3 +288,145 @@ def test_weight_chart_i_projected_path_is_monotonic(client):
             )
     finally:
         _delete_user(client, uid)
+
+
+# ═══════════════ Issue #421 — Plan series, milestones, today marker ═══════════════
+
+def _create_target_421(client: httpx.Client, user_id: str) -> dict:
+    r = client.post("/api/weight-targets", json={
+        "user_id": user_id,
+        "start_weight_kg": 90.0,
+        "start_date": (TODAY - datetime.timedelta(days=60)).isoformat(),
+        "target_weight_kg": 80.0,
+        "target_date": (TODAY + datetime.timedelta(days=120)).isoformat(),
+    })
+    assert r.status_code == 201, f"Failed to create target: {r.text}"
+    return r.json()
+
+
+# --- (a) plan_series spans exactly the requested date range, one point per day ---
+
+def test_weight_chart_421_a_plan_series_spans_date_range(client):
+    """AC (a): plan_series has exactly one point per day across the requested range."""
+    uid = _create_user(client)
+    try:
+        _create_target_421(client, uid)
+        from_d = (TODAY - datetime.timedelta(days=29)).isoformat()
+        to_d = TODAY_STR
+        r = client.get("/api/weight-chart", params={"user_id": uid, "from": from_d, "to": to_d})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "plan_series" in data, "plan_series missing from response"
+        ps = data["plan_series"]
+        assert ps is not None, "plan_series is null with active target"
+        assert len(ps) == 30, f"Expected 30 plan_series points for 30-day range, got {len(ps)}"
+        for pt in ps:
+            assert "date" in pt and "plan_kg" in pt
+        assert ps[0]["date"] == from_d
+        assert ps[-1]["date"] == to_d
+    finally:
+        _delete_user(client, uid)
+
+
+# --- (b) plan_series absent/null when no active target ---
+
+def test_weight_chart_421_b_plan_series_null_when_no_target(client):
+    """AC (b): plan_series is null or absent when no active target exists."""
+    uid = _create_user(client)
+    try:
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        plan_series = data.get("plan_series", None)
+        assert plan_series is None, f"Expected plan_series null, got {plan_series}"
+    finally:
+        _delete_user(client, uid)
+
+
+# --- (c) future_milestones excludes today, includes goal ---
+
+def test_weight_chart_421_c_future_milestones_excludes_today_includes_goal(client):
+    """AC (c): future_milestones has no 'today' row and includes 'goal' row."""
+    uid = _create_user(client)
+    try:
+        _create_target_421(client, uid)
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "future_milestones" in data, "future_milestones missing"
+        ms = data["future_milestones"]
+        assert ms is not None
+        kinds = [m["kind"] for m in ms]
+        assert "today" not in kinds, f"today row found in future_milestones: {ms}"
+        assert "goal" in kinds, f"goal row missing from future_milestones: {ms}"
+    finally:
+        _delete_user(client, uid)
+
+
+# --- (d) today_marker.gap matches /weight-targets/active gap ---
+
+def test_weight_chart_421_d_today_marker_gap_matches_active_target(client):
+    """AC (d): today_marker.gap_kg and gap_direction match /api/weight-targets/active."""
+    uid = _create_user(client)
+    try:
+        _create_target_421(client, uid)
+        for i in range(3):
+            _log_weight(client, uid, 88.0, (TODAY - datetime.timedelta(days=i)).isoformat())
+
+        r_chart = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r_chart.status_code == 200, r_chart.text
+        chart_data = r_chart.json()
+
+        r_active = client.get("/api/weight-targets/active", params={"user_id": uid})
+        assert r_active.status_code == 200, r_active.text
+        active_data = r_active.json()["target"]
+
+        marker = chart_data.get("today_marker")
+        assert marker is not None, "today_marker missing"
+        assert marker["gap_kg"] == active_data["gap_kg"], (
+            f"gap_kg mismatch: chart={marker['gap_kg']} active={active_data['gap_kg']}"
+        )
+        assert marker["gap_direction"] == active_data["gap_direction"], (
+            f"gap_direction mismatch: chart={marker['gap_direction']} active={active_data['gap_direction']}"
+        )
+    finally:
+        _delete_user(client, uid)
+
+
+# --- (e) logged_today true/false correct ---
+
+def test_weight_chart_421_e_logged_today_correct(client):
+    """AC (e): logged_today is false before logging and true after."""
+    uid = _create_user(client)
+    try:
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        assert "logged_today" in r.json(), "logged_today missing"
+        assert r.json()["logged_today"] is False, "Expected False before logging"
+
+        _log_weight(client, uid, 88.0, TODAY_STR)
+
+        r2 = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["logged_today"] is True, "Expected True after logging"
+    finally:
+        _delete_user(client, uid)
+
+
+# --- (f) today_delta_kg null when yesterday entry missing ---
+
+def test_weight_chart_421_f_today_delta_null_when_no_yesterday(client):
+    """AC (f): today_delta_kg is null when yesterday's entry is missing."""
+    uid = _create_user(client)
+    try:
+        _log_weight(client, uid, 88.0, TODAY_STR)
+
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "today_delta_kg" in data, "today_delta_kg missing"
+        assert data["today_delta_kg"] is None, (
+            f"Expected null when no yesterday entry, got {data['today_delta_kg']}"
+        )
+    finally:
+        _delete_user(client, uid)
