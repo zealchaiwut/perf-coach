@@ -344,28 +344,29 @@
       display: flex;
       align-items: baseline;
       flex-wrap: wrap;
-      gap: 0.3rem 0.75rem;
-      padding: 0.5rem 0.75rem;
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.04);
+      gap: 0.3rem 0.6rem;
+      padding: 0.4rem 0.25rem 0.55rem;
       margin-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
     }
 
     .week-header-title {
       font-weight: 700;
-      font-size: 0.8125rem;
-      letter-spacing: 0.04em;
-      color: var(--text);
+      font-size: 0.6875rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #0b1530;
     }
 
     .week-header-range {
       font-size: 0.8125rem;
-      color: #666;
+      color: #8b95ad;
     }
 
     .week-header-summary {
       font-size: 0.8125rem;
-      color: #888;
+      color: #5c6886;
+      font-variant-numeric: tabular-nums;
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
@@ -429,41 +430,63 @@
     }
 
     .entry-day-num {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
       font-size: 1.125rem;
-      font-weight: 700;
+      font-weight: 600;
       line-height: 1.1;
-      color: var(--text);
+      color: #0b1530;
     }
 
     .entry-day-name {
       font-size: 0.6875rem;
-      color: #888;
+      color: #8b95ad;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
 
-    .entry-badge {
+    /* Type accent: dot + micro-label (instrument style) */
+    .entry-type {
       flex-shrink: 0;
-      font-size: 0.6875rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      background: var(--border);
-      color: #555;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: 4rem;
     }
 
-    .entry-badge--run  { background: #dbeafe; color: #1d4ed8; }
-    .entry-badge--lift { background: #ede9fe; color: #6d28d9; }
-    .entry-badge--wod  { background: #fef3c7; color: #b45309; }
-    .entry-badge--bike { background: #ccfbf1; color: #0f766e; }
+    .entry-type-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      flex-shrink: 0; background: #8b95ad;
+    }
+
+    .entry-type-label {
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: #8b95ad;
+    }
+
+    .entry-type--run  .entry-type-dot { background: #3b82f6; }
+    .entry-type--run  .entry-type-label { color: #1d4ed8; }
+    .entry-type--lift .entry-type-dot { background: #8b5cf6; }
+    .entry-type--lift .entry-type-label { color: #6d28d9; }
+    .entry-type--wod  .entry-type-dot { background: #f59e0b; }
+    .entry-type--wod  .entry-type-label { color: #b45309; }
+    .entry-type--bike .entry-type-dot { background: #14b8a6; }
+    .entry-type--bike .entry-type-label { color: #0f766e; }
+
+    /* Per-type left accent on the row */
+    .entry-row--run.is-active  { border-left-color: #3b82f6; }
+    .entry-row--lift.is-active { border-left-color: #8b5cf6; }
+    .entry-row--wod.is-active  { border-left-color: #f59e0b; }
+    .entry-row--bike.is-active { border-left-color: #14b8a6; }
 
     .entry-body { flex: 1; min-width: 0; }
 
     .entry-title {
       font-size: 0.9375rem;
-      font-weight: 500;
+      font-weight: 600;
+      color: #0b1530;
+      letter-spacing: -0.01em;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -471,11 +494,12 @@
 
     .entry-meta {
       font-size: 0.8125rem;
-      color: #888;
+      color: #5c6886;
       margin-top: 0.1rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
     }
 
     .entry-metric {
@@ -487,14 +511,16 @@
     }
 
     .entry-metric-primary {
-      font-size: 0.875rem;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 0.9375rem;
       font-weight: 600;
-      color: var(--text);
+      color: #0b1530;
     }
 
     .entry-metric-secondary {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
       font-size: 0.75rem;
-      color: #888;
+      color: #8b95ad;
       margin-top: 0.05rem;
     }
 
@@ -677,7 +703,7 @@
     @media (max-width: 380px) {
       .entry-row { flex-wrap: wrap; gap: 0.5rem; }
       .entry-date  { order: 1; }
-      .entry-badge { order: 2; }
+      .entry-type  { order: 2; width: auto; }
       .entry-body  { order: 3; flex-basis: 100%; }
       .entry-metric { order: 4; flex-basis: 100%; }
       .tss-pill, .source-badges-wrap { order: 5; }

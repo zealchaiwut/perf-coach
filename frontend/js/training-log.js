@@ -577,9 +577,17 @@
 
     var typeKey = normalizeTypeKey(w.type);
     var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
+    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
+    row.classList.add('entry-row--' + typeSlug);
     var badge = document.createElement('span');
-    badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
-    badge.textContent = TYPE_LABELS[typeKey] || (w.type || '');
+    badge.className = 'entry-type entry-type--' + typeSlug;
+    var dot = document.createElement('span');
+    dot.className = 'entry-type-dot';
+    badge.appendChild(dot);
+    var typeLbl = document.createElement('span');
+    typeLbl.className = 'entry-type-label';
+    typeLbl.textContent = (TYPE_LABELS[typeKey] || w.type || '').toUpperCase();
+    badge.appendChild(typeLbl);
 
     var body = document.createElement('div');
     body.className = 'entry-body';
