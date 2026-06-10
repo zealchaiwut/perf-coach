@@ -289,7 +289,66 @@
     .form-actions-right {
       display: flex;
       gap: 0.5rem;
+      align-items: center;
     }
+
+    /* Quiet tertiary action (Cancel) */
+    .btn-quiet {
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      font-size: 0.875rem;
+      cursor: pointer;
+      padding: 0.45rem 0.75rem;
+      border-radius: 4px;
+    }
+
+    .btn-quiet:hover { color: var(--text); background: var(--surface-2); }
+
+    /* More menu (native details/summary dropdown) */
+    .more-menu { position: relative; }
+
+    .more-menu summary { list-style: none; }
+    .more-menu summary::-webkit-details-marker { display: none; }
+
+    .more-summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      user-select: none;
+    }
+
+    .more-menu[open] .more-summary {
+      border-color: var(--primary);
+    }
+
+    .more-menu-list {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 0;
+      min-width: 14rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+      padding: 0.3rem;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .more-menu-list button {
+      background: none;
+      border: none;
+      text-align: left;
+      font-size: 0.875rem;
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .more-menu-list button:hover { background: var(--surface-2); }
 
     /* ── Run details ── */
     .run-section {
@@ -337,8 +396,8 @@
 
     .run-section input[type="number"]:focus {
       outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     /* Hide native number spinners for a cleaner numeric field */
@@ -357,7 +416,7 @@
 
     .run-input-affix .affix {
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     /* Distance + duration are the loud inputs */
@@ -377,7 +436,7 @@
 
     .run-duration .dur-sep {
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     .run-pace-field { min-width: 6rem; }
@@ -385,12 +444,12 @@
     .run-pace {
       font-size: 1.25rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
       line-height: 1.6;
     }
 
-    .run-pace.is-empty { color: #9ca3af; font-weight: 600; }
+    .run-pace.is-empty { color: var(--text-sub); font-weight: 600; }
 
     .run-secondary .run-input-affix input { width: 4.5rem; }
 
@@ -420,7 +479,7 @@
 
     .splits-optional {
       font-weight: 400;
-      color: #9ca3af;
+      color: var(--text-sub);
       font-size: 0.8125rem;
     }
 
@@ -451,7 +510,7 @@
 
     #splits-table tbody tr:last-child td { border-bottom: none; }
 
-    .splits-idx { width: 2rem; text-align: center; color: #9ca3af; }
+    .splits-idx { width: 2rem; text-align: center; color: var(--text-sub); }
 
     .split-input {
       padding: 0.35rem 0.5rem;
@@ -469,15 +528,15 @@
 
     .split-input:focus {
       outline: none;
-      border-color: #0070f3;
+      border-color: var(--primary);
       background: #fff;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     .split-dist { width: 5rem; }
     .split-time { width: 5rem; }
     .split-hr { width: 4.5rem; }
-    .split-pace { color: #374151; font-size: 0.9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .split-pace { color: var(--text); font-size: 0.9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
     .splits-foot {
       display: flex;
@@ -492,8 +551,8 @@
 
     .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
 
-    .splits-sum { font-size: 0.8125rem; color: #6b7280; margin: 0; }
-    .splits-sum.is-mismatch { color: #b45309; }
+    .splits-sum { font-size: 0.8125rem; color: var(--text-sub); margin: 0; }
+    .splits-sum.is-mismatch { color: var(--warning); }
 
     @media (max-width: 640px) {
       .run-primary, .run-secondary { gap: 1rem; }
@@ -842,15 +901,18 @@
         </div>
       </div>
 
-      <!-- Form action bar -->
+      <!-- Form action bar: one primary action; utilities live in the More menu -->
       <div class="form-actions">
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button id="repeat-last-btn" type="button" class="btn-secondary">Repeat last workout</button>
-          <button id="template-picker-btn" type="button" class="btn-secondary">Start from template</button>
-          <button id="save-template-btn" type="button" class="btn-secondary">Save as template</button>
-        </div>
+        <details id="more-menu" class="more-menu">
+          <summary class="btn-secondary more-summary">More <span aria-hidden="true">▾</span></summary>
+          <div class="more-menu-list" role="menu">
+            <button id="repeat-last-btn" type="button" role="menuitem">Repeat last workout</button>
+            <button id="template-picker-btn" type="button" role="menuitem">Start from template</button>
+            <button id="save-template-btn" type="button" role="menuitem">Save as template</button>
+          </div>
+        </details>
         <div class="form-actions-right">
-          <button id="cancel-btn" type="button" class="btn-secondary">Cancel</button>
+          <button id="cancel-btn" type="button" class="btn-quiet">Cancel</button>
           <button id="save-workout-btn" type="button" class="btn-primary">Save workout</button>
         </div>
       </div>

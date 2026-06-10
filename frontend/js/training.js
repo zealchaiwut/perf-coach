@@ -983,6 +983,19 @@
 
     document.getElementById('template-picker-btn').addEventListener('click', openTemplatePicker);
 
+    // More menu: close after choosing an item or clicking outside
+    var moreMenu = document.getElementById('more-menu');
+    if (moreMenu) {
+      moreMenu.querySelectorAll('.more-menu-list button').forEach(function (b) {
+        b.addEventListener('click', function () { moreMenu.removeAttribute('open'); });
+      });
+      document.addEventListener('click', function (e) {
+        if (moreMenu.hasAttribute('open') && !moreMenu.contains(e.target)) {
+          moreMenu.removeAttribute('open');
+        }
+      });
+    }
+
     document.getElementById('template-modal-close').addEventListener('click', function () {
       document.getElementById('template-modal').style.display = 'none';
     });
