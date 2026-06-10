@@ -498,6 +498,20 @@
       padding: 16px 4px; line-height: 1.5;
     }
 
+    /* ---- Strava stale sync banner ---- */
+    .strava-stale-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0 9px;
+      font-size: 12.5px;
+      color: #64748b;
+    }
+    .strava-stale-banner--syncing { color: #3a4361; font-style: italic; }
+    .strava-stale-msg { flex: 1; }
+    .strava-stale-banner a { color: #FC4C02; font-weight: 600; text-decoration: none; }
+    .strava-stale-banner a:hover { text-decoration: underline; }
+
     /* ---- ROW 3: TREND CARDS (HRV · Weekly TSS · RHR · Weight) ---- */
     #row-3 {
       display: grid;
@@ -1064,6 +1078,7 @@
   </div>
 
   <div id="row-1"></div>
+  <div id="strava-stale-banner"></div>
   <div id="row-2"></div>
   <div id="row-log"></div>
   <div id="row-3"></div>

@@ -2,6 +2,18 @@
 
 Personal performance dashboard. Tracks weight, habits, readiness, training log, and performance trends.
 
+## Features
+
+- **Weight tracking** — daily log, trend chart, and goal targets
+- **Habit tracking** — configurable habits with streak and calendar views
+- **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
+- **Readiness score** — computed from wellness metrics with contextual interpretation
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace
+- **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
+- **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
+- **Performance trends** — CTL/ATL/TSB (training load) and personal records
+- **Multi-user** — session-based auth, per-user data isolation
+
 ## Canonical working directory
 
 **Use a single clone of this repository.** Environment selection is branch-based:
@@ -87,6 +99,13 @@ Each script:
 | `GET /api/personal-records/history` | Returns history for a single track with improvement deltas; params: `user_id`, `track_key` |
 | `POST /api/personal-records/bulk` | Bulk-inserts multiple PR entries in one request; returns created count and IDs |
 | `GET /api/about` | Returns app version, git SHA, environment, and changelog availability |
+| `POST /api/sync/strava` | Trigger a Strava activity sync; returns 202 with `job_id` and `polling_url`; 409 if already running |
+| `GET /api/sync/strava/status` | Poll status of a sync job by `job_id`; returns full SyncJob record |
+| `GET /api/sync/strava/latest` | Return info about the most recent completed Strava sync |
+| `GET /api/sync/strava/dry-run` | Read-only preview of what a Strava reconcile would produce; no DB writes |
+| `GET /api/sync/strava/data-quality` | Return data quality counts for a user's Strava/workout sync state |
+| `POST /api/sync/strava/reconcile` | Reconcile unlinked `strava_activities` into `workouts` rows; returns counts |
+| `GET /api/sync/history` | Return paginated SyncJob history for the session user (last 5 by default) |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 

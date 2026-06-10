@@ -161,11 +161,14 @@ def test_home_js_calls_weight_summary_endpoint():
 
 def test_home_js_weight_summary_fetch_is_in_load_function():
     """AC-1: The fetch must be inside a load/render function for the weight widget."""
-    # Check that fetch('/api/home/weight-summary') or fetch("/api/home/weight-summary") appears
+    # Accept either a direct fetch() call or a wrapper like _homeFetch() — both
+    # satisfy AC-1 ("widget calls the endpoint on mount").
     assert (
         "fetch('/api/home/weight-summary')" in _HOME_JS
         or 'fetch("/api/home/weight-summary")' in _HOME_JS
-    ), "/api/home/weight-summary must be passed directly to fetch()"
+        or "_homeFetch('/api/home/weight-summary')" in _HOME_JS
+        or '_homeFetch("/api/home/weight-summary")' in _HOME_JS
+    ), "/api/home/weight-summary must be called via fetch() or a fetch wrapper on widget mount"
 
 
 # ── AC-2: Current weight displayed large ─────────────────────────────────────
