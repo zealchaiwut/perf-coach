@@ -91,8 +91,10 @@ def upgrade():
 
     if not index_exists("sync_jobs", "ix_sync_jobs_user_source_started_at"):
         op.execute(
-            "CREATE INDEX ix_sync_jobs_user_source_started_at "
-            "ON sync_jobs (user_id, source, started_at DESC)"
+            sa.text(
+                "CREATE INDEX ix_sync_jobs_user_source_started_at "
+                "ON sync_jobs (user_id, source, started_at DESC)"
+            )
         )
 
 
