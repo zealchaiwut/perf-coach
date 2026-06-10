@@ -3641,6 +3641,10 @@ def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_
             "weight_kg": ex.get("weight_kg"),
             "duration": ex.get("duration"),
             "rpe": ex.get("rpe"),
+            # Run-segment templates carry distance/duration/HR (run builder)
+            "distance_km": ex.get("distance_km"),
+            "duration_seconds": ex.get("duration_seconds"),
+            "avg_hr": ex.get("avg_hr"),
         }
         for ex in body.exercises
         if isinstance(ex, dict) and str(ex.get("name", "")).strip()
@@ -3653,6 +3657,23 @@ def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_
         session.commit()
         session.refresh(tmpl)
         return JSONResponse(status_code=201, content=_template_dict(tmpl))
+
+
+@app.delete("/api/workout-templates/{template_id}", status_code=204)
+def delete_workout_template(template_id: str, user: User = Depends(resolve_user)):
+    try:
+        tid = _uuid.UUID(template_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid template_id")
+    with Session(engine) as session:
+        tmpl = session.get(WorkoutTemplate, tid)
+        if tmpl is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        if tmpl.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        session.delete(tmpl)
+        session.commit()
+    return Response(status_code=204)
 
 
 # ── Workout splits endpoints ──────────────────────────────────────────────────
@@ -4757,8 +4778,13 @@ def _metric_has_data(m: DailyMetric) -> bool:
 
 
 def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
-    """Return seconds-per-km pace for run/bike workouts; None otherwise."""
-    if workout_type not in ("run", "bike"):
+    """Return seconds-per-km pace for run/bike workouts; None otherwise.
+
+    Accepts the editor's free-text type values ("Running", "Race") as well as
+    the canonical sync values ("run", "bike").
+    """
+    t = (workout_type or "").lower().strip()
+    if not (t in ("run", "running", "race") or t.startswith(("bike", "ride", "cycl"))):
         return None
     if duration_seconds is None or distance_km is None or float(distance_km) == 0:
         return None
