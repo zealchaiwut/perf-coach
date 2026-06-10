@@ -135,42 +135,106 @@ function renderSubtitle(summary, stats) {
   el.textContent = `${count} entries · ${daysRange} days tracked${trendStr}`;
 }
 
-// ── Hero strip ─────────────────────────────────────────────────────────────
+// ── Hero: Card A (Current Weight) ─────────────────────────────────────────
 
-function renderHero(stats) {
-  const curEl = document.getElementById('current-weight-value');
-  if (curEl) {
-    curEl.textContent = stats && stats.current_weight_kg != null
-      ? `${stats.current_weight_kg.toFixed(1)} kg`
-      : '--';
+function _relativeLoggedDate(actuals) {
+  if (!actuals || !actuals.length) return '';
+  const lastDate = actuals[actuals.length - 1].date;
+  const today = todayISO();
+  if (lastDate === today) return 'Today';
+  const yesterday = addDays(today, -1);
+  if (lastDate === yesterday) {
+    const d = new Date(lastDate + 'T00:00:00');
+    const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `Logged yesterday · ${mo}`;
   }
+  const diffMs = new Date(today + 'T00:00:00') - new Date(lastDate + 'T00:00:00');
+  const diffDays = Math.round(diffMs / 86400000);
+  const d = new Date(lastDate + 'T00:00:00');
+  const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `Logged ${diffDays} days ago · ${mo}`;
+}
 
-  const avgEl = document.getElementById('avg-7d-value');
+function _pillClass(delta, activeTarget) {
+  if (delta == null || Math.abs(delta) < 0.05) return 'neutral';
+  if (!activeTarget) return delta < 0 ? 'toward' : 'away';
+  const isLossGoal = activeTarget.target_weight_kg < activeTarget.start_weight_kg;
+  const towardTarget = isLossGoal ? delta < 0 : delta > 0;
+  return towardTarget ? 'toward' : 'away';
+}
+
+function renderHeroCardA(chartData, activeTarget) {
+  const stats   = chartData ? chartData.stats : null;
+  const actuals = chartData ? (chartData.actuals || []) : [];
+
+  const dateSubEl = document.getElementById('hca-date-sub');
+  if (dateSubEl) dateSubEl.textContent = _relativeLoggedDate(actuals);
+
+  const avgEl = document.getElementById('hca-avg');
   if (avgEl) {
     avgEl.textContent = stats && stats.current_avg_kg != null
       ? `${stats.current_avg_kg.toFixed(1)} kg`
       : '--';
   }
 
-  _renderDeltaPill('delta-week', stats ? stats.delta_7d_kg : null, 'This wk');
-  _renderDeltaPill('delta-month', stats ? stats.delta_30d_kg : null, 'This mo');
+  const weightEl = document.getElementById('hca-weight');
+  if (weightEl) {
+    weightEl.textContent = stats && stats.current_weight_kg != null
+      ? `${stats.current_weight_kg.toFixed(1)} kg`
+      : '--';
+  }
+
+  _renderHcaPill('hca-pill-week',  stats ? stats.delta_7d_kg  : null, 'This wk', activeTarget);
+  _renderHcaPill('hca-pill-month', stats ? stats.delta_30d_kg : null, 'This mo', activeTarget);
 }
 
-function _renderDeltaPill(id, delta, label) {
+function _renderHcaPill(id, delta, label, activeTarget) {
   const el = document.getElementById(id);
   if (!el) return;
-
   if (delta == null) {
     el.textContent = `${label}: --`;
     el.className = 'delta-pill neutral';
     return;
   }
-
   const isFlat = Math.abs(delta) < 0.05;
-  const isLoss = delta < 0;
-  const arrow = isFlat ? '→' : (isLoss ? '↓' : '↑');
+  const arrow = isFlat ? '→' : (delta < 0 ? '↓' : '↑');
   el.textContent = `${label}: ${arrow} ${Math.abs(delta).toFixed(1)} kg`;
-  el.className = `delta-pill ${isFlat ? 'neutral' : (isLoss ? 'loss' : 'gain')}`;
+  el.className = `delta-pill ${_pillClass(delta, activeTarget)}`;
+}
+
+// ── Coach strip ────────────────────────────────────────────────────────────
+
+function renderCoachStrip(chartData, activeTarget) {
+  const strip   = document.getElementById('coach-strip');
+  const textEl  = document.getElementById('coach-text');
+  if (!strip || !textEl) return;
+
+  const loggedToday   = chartData && chartData.logged_today;
+  const todayDeltaKg  = chartData ? chartData.today_delta_kg : null;
+
+  if (!loggedToday) {
+    strip.className = 'coach-strip coach-grey';
+    textEl.textContent = '😴 No entry yet today — log your weight to wake me up';
+    return;
+  }
+
+  const isLossGoal = activeTarget
+    ? activeTarget.target_weight_kg < activeTarget.start_weight_kg
+    : true;
+
+  const isFlat = todayDeltaKg == null || Math.abs(todayDeltaKg) < 0.05;
+  const movedToward = isFlat || (isLossGoal ? todayDeltaKg < 0 : todayDeltaKg > 0);
+
+  if (movedToward) {
+    strip.className = 'coach-strip coach-green';
+    textEl.textContent = '🎉 You did well — on pace this week';
+  } else {
+    strip.className = 'coach-strip coach-amber';
+    const awayMsg = isLossGoal
+      ? '💪 Up a little — new day, keep going'
+      : '💪 Down a little — new day, keep going';
+    textEl.textContent = awayMsg;
+  }
 }
 
 // ── Chart ──────────────────────────────────────────────────────────────────
@@ -709,57 +773,182 @@ function _openBackfill(btn, date) {
   });
 }
 
-// ── Quick-log ──────────────────────────────────────────────────────────────
+// ── Card B: Log Today stepper ─────────────────────────────────────────────
 
-function _initQuickLog() {
-  const form   = document.getElementById('quicklog-form');
-  const input  = document.getElementById('quicklog-input');
-  const errEl  = document.getElementById('quicklog-error');
-  const btn    = form ? form.querySelector('button[type="submit"]') : null;
+let _cardBEntryId = null; // id of today's existing entry, null if not yet logged
 
-  if (!form) return;
+function _updateLogBtnLabel() {
+  const input = document.getElementById('stepper-input');
+  const btn   = document.getElementById('log-submit-btn');
+  if (!input || !btn) return;
+  const v = parseFloat(input.value);
+  btn.textContent = isNaN(v) ? 'Log -- kg' : `Log ${v.toFixed(1)} kg`;
+}
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    if (errEl) errEl.textContent = '';
-    showPageError('');
+function _clampStepperValue(v) {
+  if (isNaN(v)) return 20;
+  return Math.max(20, Math.min(300, v));
+}
 
-    const raw = parseFloat(input.value);
-    if (isNaN(raw) || raw < 20 || raw > 300) {
-      if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
-      input.focus();
-      return;
-    }
+function _prefillStepper(weight) {
+  const input = document.getElementById('stepper-input');
+  if (!input) return;
+  input.value = weight != null ? weight.toFixed(1) : '';
+  _updateLogBtnLabel();
+}
 
-    if (btn) btn.disabled = true;
+function _showStepperMode() {
+  const wrap   = document.getElementById('stepper-wrap');
+  const logged = document.getElementById('logged-strip');
+  if (wrap)   wrap.hidden   = false;
+  if (logged) logged.hidden = true;
+}
 
-    try {
-      const res = await fetch('/api/weight-entries', {
+function _showLoggedMode(weightKg) {
+  const wrap      = document.getElementById('stepper-wrap');
+  const logged    = document.getElementById('logged-strip');
+  const loggedTxt = document.getElementById('logged-text');
+  if (wrap)   wrap.hidden   = true;
+  if (logged) logged.hidden = false;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
+}
+
+async function _submitCardB(weightKg) {
+  const errEl = document.getElementById('hcb-error');
+  const btn   = document.getElementById('log-submit-btn');
+  if (errEl) errEl.textContent = '';
+  showPageError('');
+
+  if (isNaN(weightKg) || weightKg < 20 || weightKg > 300) {
+    if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  try {
+    if (_cardBEntryId) {
+      // Edit mode: PATCH the existing entry
+      const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(_cardBEntryId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weight_kg: weightKg }),
+      });
+      if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+    } else {
+      // New log: attempt POST
+      const postRes = await fetch('/api/weight-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: _userId,
           entry_date: todayISO(),
           entry_time: nowHHMM(),
-          weight_kg: raw,
+          weight_kg: weightKg,
         }),
       });
 
-      if (res.status === 409) {
-        if (errEl) errEl.textContent = 'Entry already exists for today — backfill or delete it first.';
-        return;
+      if (postRes.status === 409) {
+        // Race condition: entry already exists — fall back to PATCH using existing_id
+        const conflict = await postRes.json();
+        const existingId = conflict.existing_id;
+        if (!existingId) throw new Error('409 with no existing_id');
+        const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(existingId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: weightKg }),
+        });
+        if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+        _cardBEntryId = existingId;
+      } else if (!postRes.ok) {
+        throw new Error(`HTTP ${postRes.status}`);
+      } else {
+        const created = await postRes.json();
+        _cardBEntryId = created.id;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      UIStates.showToast('Logged!');
-      form.reset();
-      await _reload();
-    } catch (e) {
-      showPageError('Log failed: ' + e.message);
-    } finally {
-      if (btn) btn.disabled = false;
     }
+
+    UIStates.showToast('Logged!');
+    // Update logged strip weight for future Edit clicks
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = weightKg;
+    _showLoggedMode(weightKg);
+    await _reloadHeroAndCoach();
+    await _reloadEntries();
+  } catch (e) {
+    showPageError('Log failed: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _initCardB() {
+  const decBtn  = document.getElementById('stepper-dec');
+  const incBtn  = document.getElementById('stepper-inc');
+  const input   = document.getElementById('stepper-input');
+  const logBtn  = document.getElementById('log-submit-btn');
+  const editBtn = document.getElementById('edit-link');
+  const dateEl  = document.getElementById('hcb-date');
+
+  if (!input || !logBtn) return;
+
+  // Show today's date in Card B label row
+  if (dateEl) {
+    const d = new Date(todayISO() + 'T00:00:00');
+    dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  // Stepper ± buttons
+  if (decBtn) {
+    decBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) - 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+  if (incBtn) {
+    incBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) + 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+
+  // Live-update button label on input change
+  input.addEventListener('input', _updateLogBtnLabel);
+
+  // Submit
+  logBtn.addEventListener('click', async () => {
+    await _submitCardB(parseFloat(input.value));
   });
+
+  // Edit link: restore stepper with logged value
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const logged = document.getElementById('logged-strip');
+      const weight = logged ? parseFloat(logged.dataset.weight) : NaN;
+      _prefillStepper(!isNaN(weight) ? weight : null);
+      _showStepperMode();
+      input.focus();
+    });
+  }
+}
+
+function _cardBSetLoggedState(entries, fallbackWeight) {
+  const today = todayISO();
+  const todayEntry = entries.find(e => e.entry_date === today);
+  if (todayEntry) {
+    _cardBEntryId = todayEntry.id;
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = todayEntry.weight_kg;
+    _prefillStepper(todayEntry.weight_kg);
+    _showLoggedMode(todayEntry.weight_kg);
+  } else {
+    _cardBEntryId = null;
+    // Prefill stepper with most recent entry (fallback from chart stats)
+    if (fallbackWeight != null) _prefillStepper(fallbackWeight);
+    _showStepperMode();
+  }
 }
 
 // ── Range tabs ─────────────────────────────────────────────────────────────
@@ -780,6 +969,29 @@ function _initRangeTabs() {
   });
 }
 
+// ── Partial reloads ───────────────────────────────────────────────────────
+
+async function _reloadHeroAndCoach() {
+  try {
+    const chartData = await fetchChartData(_currentRange);
+    _chartData = chartData;
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Refresh failed: ' + e.message);
+  }
+}
+
+async function _reloadEntries() {
+  try {
+    const entriesRes = await fetchRecentEntries();
+    _recentEntries = entriesRes.entries || [];
+    renderRecentEntries(_recentEntries);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
+  }
+}
+
 // ── Full reload (after mutations) ─────────────────────────────────────────
 
 async function _reload() {
@@ -796,11 +1008,13 @@ async function _reload() {
     _activeTarget = targetRes.target || null;
 
     renderSubtitle(summaryRes.summary, chartData.stats);
-    renderHero(chartData.stats);
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
     renderRecentEntries(_recentEntries);
+    _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -818,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  _initQuickLog();
+  _initCardB();
   _initRangeTabs();
 
   const exportBtn = document.getElementById('export-csv-btn');
