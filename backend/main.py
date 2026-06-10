@@ -37,6 +37,7 @@ from backend.services.weight_status import compute_status_label as _compute_stat
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
+from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 
 app = FastAPI()
 
@@ -3212,6 +3213,12 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
             )
+        try:
+            _recompute_autofill(uid, _week_start_bangkok(workout_date))
+        except Exception as _af_exc:
+            _logging.getLogger(__name__).warning(
+                "autofill recompute failed for user %s week %s: %s", uid, workout_date, _af_exc
+            )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -3227,6 +3234,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
+        _old_workout_date = workout.workout_date
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -3298,6 +3306,13 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
             )
+        try:
+            for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
+                _recompute_autofill(workout.user_id, _ws)
+        except Exception as _af_exc:
+            _logging.getLogger(__name__).warning(
+                "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
+            )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -3313,8 +3328,16 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
+        _del_date = workout.workout_date
+        _del_uid = workout.user_id
         session.delete(workout)
         session.commit()
+    try:
+        _recompute_autofill(_del_uid, _week_start_bangkok(_del_date))
+    except Exception as _af_exc:
+        _logging.getLogger(__name__).warning(
+            "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
+        )
     return Response(status_code=204)
 
 
