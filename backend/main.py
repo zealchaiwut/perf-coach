@@ -1303,14 +1303,16 @@ def get_weight_chart(
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to)
+        # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to).
+        # Always extend upper bound to today so logged_today / today_marker are always accurate.
         fetch_start = min(from_d - _timedelta(days=6), to_d - _timedelta(days=36))
+        fetch_end = max(to_d, today)
         all_entries = (
             session.query(WeightEntry)
             .filter(
                 WeightEntry.user_id == uid,
                 WeightEntry.entry_date >= fetch_start,
-                WeightEntry.entry_date <= to_d,
+                WeightEntry.entry_date <= fetch_end,
             )
             .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
             .all()
@@ -1337,7 +1339,7 @@ def get_weight_chart(
         actuals = []
         for e in all_entries:
             d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
-            if d < from_d:
+            if d < from_d or d > to_d:
                 continue
             actuals.append({"date": str(d), "weight_kg": float(e.weight_kg), "entry_id": str(e.id)})
 
@@ -1350,7 +1352,9 @@ def get_weight_chart(
 
         # Stats
         in_range = [e for e in all_entries if (
-            (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))) >= from_d
+            from_d
+            <= (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date)))
+            <= to_d
         )]
         current_weight_kg = float(in_range[-1].weight_kg) if in_range else None
 
@@ -1392,20 +1396,82 @@ def get_weight_chart(
             "delta_30d_kg": delta_30d_kg,
         }
 
+        # Always fetch active target (needed for plan_series / milestones / today_marker)
+        active_target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+
+        # ── Plan series (one point per day, pure arithmetic from plan_at) ─────
+        if active_target is not None:
+            plan_series = [
+                {
+                    "date": str(from_d + _timedelta(days=i)),
+                    "plan_kg": float(round(_weight_plan_at(active_target, from_d + _timedelta(days=i)), 2)),
+                }
+                for i in range(num_days)
+            ]
+        else:
+            plan_series = None
+
+        # ── Future milestones (exclude today row) ─────────────────────────────
+        if active_target is not None:
+            future_milestones = [
+                m for m in _generate_weight_milestones(active_target, today)
+                if m["kind"] != "today"
+            ]
+        else:
+            future_milestones = None
+
+        # ── Today marker ──────────────────────────────────────────────────────
+        today_vals = date_weights.get(today, [])
+        today_actual_kg = round(sum(today_vals) / len(today_vals), 2) if today_vals else None
+        if active_target is not None:
+            gap_data = _compute_weight_gap(active_target, session, today)
+            today_marker = {
+                "date": str(today),
+                "actual_kg": today_actual_kg,
+                "trend_kg": _ma_for_day(today),
+                "plan_kg": gap_data["plan_today_kg"],
+                "gap_kg": gap_data["gap_kg"],
+                "gap_direction": gap_data["gap_direction"],
+            }
+        else:
+            today_marker = {
+                "date": str(today),
+                "actual_kg": today_actual_kg,
+                "trend_kg": _ma_for_day(today),
+                "plan_kg": None,
+                "gap_kg": None,
+                "gap_direction": None,
+            }
+
+        # ── Logged today / today delta ─────────────────────────────────────────
+        logged_today = today in date_weights
+        yesterday = today - _timedelta(days=1)
+        yesterday_vals = date_weights.get(yesterday, [])
+        if today_vals and yesterday_vals:
+            today_delta_kg = round(
+                sum(today_vals) / len(today_vals) - sum(yesterday_vals) / len(yesterday_vals), 2
+            )
+        else:
+            today_delta_kg = None
+
         # Target block
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
             "trend": trend,
             "stats": stats,
+            "plan_series": plan_series,
+            "future_milestones": future_milestones,
+            "today_marker": today_marker,
+            "logged_today": logged_today,
+            "today_delta_kg": today_delta_kg,
         }
 
         if include_target:
-            active_target = (
-                session.query(WeightTarget)
-                .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
-                .first()
-            )
             target_block = None
             if active_target is not None:
                 target_weight = float(active_target.target_weight_kg)
