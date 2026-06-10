@@ -98,6 +98,23 @@
     return speed.toFixed(1) + ' km/h';
   }
 
+  // Map free-text workout_type values onto the four canonical keys.
+  // The full editor saves "Running"/"Strength"; synced workouts use "run".
+  function normalizeTypeKey(t) {
+    t = (t || '').toLowerCase().trim();
+    if (/^run(ning)?$|^race$/.test(t)) return 'run';
+    if (/^(lift|strength)/.test(t)) return 'lift';
+    if (/^(bike|ride|cycl)/.test(t)) return 'bike';
+    if (/^(wod|crossfit)/.test(t)) return 'wod';
+    return t;
+  }
+
+  // Segment labels written by the run builder (training.js SEG_TYPES).
+  var RUN_SEGMENT_LABELS = {
+    'warm-up': true, 'easy run': true, 'tempo': true,
+    'intervals': true, 'rest': true, 'cool-down': true,
+  };
+
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso + 'T00:00:00');
@@ -557,7 +574,7 @@
     dateCol.appendChild(dayNumEl);
     dateCol.appendChild(dayNameEl);
 
-    var typeKey = (w.type || '').toLowerCase();
+    var typeKey = normalizeTypeKey(w.type);
     var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
     var badge = document.createElement('span');
     badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
@@ -804,8 +821,9 @@
         return res.json();
       })
       .then(function (workout) {
-        var isRun  = workout.workout_type === 'run';
-        var isBike = workout.workout_type === 'bike';
+        var _tk    = normalizeTypeKey(workout.workout_type);
+        var isRun  = _tk === 'run';
+        var isBike = _tk === 'bike';
 
         var returnUrl = '/log?week=' + toISODate(currentMonday);
         if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
@@ -848,7 +866,7 @@
     var contentEl = document.getElementById('dp-content');
     if (!contentEl) return;
 
-    var typeKey  = (workout.workout_type || '').toLowerCase();
+    var typeKey  = normalizeTypeKey(workout.workout_type);
     var isRun    = typeKey === 'run';
     var isBike   = typeKey === 'bike';
     var isCardio = isRun || isBike;
@@ -946,9 +964,76 @@
         '</div>';
     }
 
-    // ── Intervals section (RUN with distance_km exercises) ──────────────────
+    // ── Segments section (structured runs from the run builder) ─────────────
+    var segmentsHtml = '';
+    var segExs = exercises.filter(function (ex) {
+      return RUN_SEGMENT_LABELS[(ex.name || '').toLowerCase()];
+    });
+    var isStructuredRun = isRun && segExs.length > 0 && segExs.length === exercises.length;
+    if (isStructuredRun) {
+      var sgRows = '';
+      var sgKm = 0, sgSec = 0, sgHrs = [], sgHrSum = 0;
+      exercises.forEach(function (ex, i) {
+        var sets   = ex.sets != null ? ex.sets : null;
+        var repKm  = ex.distance_km != null ? parseFloat(ex.distance_km) : null;
+        var repSec = ex.duration_seconds != null ? ex.duration_seconds : null;
+        var hr     = ex.avg_hr;
+        var mult   = sets && sets > 0 ? sets : 1;
+        if (repKm)  sgKm  += repKm * mult;
+        if (repSec) sgSec += repSec * mult;
+        if (hr != null) { sgHrs.push(hr); sgHrSum += hr; }
+
+        var qty;
+        var distFmt = repKm != null
+          ? (repKm >= 1 ? (+repKm).toFixed(1) + ' km' : Math.round(repKm * 1000) + 'm')
+          : null;
+        var timeFmt = repSec != null ? fmtDurationDetail(repSec) : null;
+        if (sets != null) {
+          qty = sets + ' × ' + (distFmt || timeFmt || '—');
+        } else {
+          qty = [distFmt, timeFmt].filter(Boolean).join(' · ') || '—';
+        }
+
+        var paceFmt = (repSec && repKm) ? fmtPaceFromSec(repSec, repKm) : '—';
+        var hrFmt   = hr != null ? hr + ' bpm' : '—';
+
+        sgRows +=
+          '<div class="dp-interval-row">' +
+            '<div class="dp-rep-badge">' + esc(String(i + 1)) + '</div>' +
+            '<div>' +
+              '<div class="dp-interval-name">' + esc(ex.name) + '</div>' +
+              '<div class="dp-interval-sub">' + esc(qty) + '</div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="dp-interval-pace">' + esc(paceFmt) + '</div>' +
+            '</div>' +
+            '<div class="dp-interval-hr">' + esc(hrFmt) + '</div>' +
+          '</div>';
+      });
+
+      var sgParts = [];
+      if (sgKm > 0) sgParts.push(parseFloat(sgKm.toFixed(2)) + ' km');
+      if (sgSec > 0) sgParts.push(fmtDurationDetail(Math.round(sgSec)));
+      var sgPace = (sgSec && sgKm) ? fmtPaceFromSec(sgSec, sgKm) : null;
+      var sgHr = sgHrs.length ? Math.round(sgHrSum / sgHrs.length) + ' bpm' : null;
+      var footRight = [sgPace, sgHr].filter(Boolean).join(' · ') || '—';
+
+      segmentsHtml =
+        '<div class="dp-section">' +
+          '<div class="dp-section-title">Segments' + (sgParts.length ? ' · ' + esc(sgParts.join(' · ')) : '') + '</div>' +
+          '<div class="dp-intervals">' +
+            sgRows +
+            '<div class="dp-interval-footer">' +
+              '<span>Avg pace · avg HR</span>' +
+              '<span><strong>' + footRight + '</strong></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── Intervals section (legacy runs with distance_km exercises) ──────────
     var intervalsHtml = '';
-    if (isRun) {
+    if (isRun && !isStructuredRun) {
       var intervalExs = exercises.filter(function (ex) {
         return ex.distance_km != null;
       });
@@ -1006,7 +1091,7 @@
 
     // ── Per-km splits section (RUN/BIKE, only if no interval exercises) ──────
     var splitsHtml = '';
-    if ((isRun || isBike) && !intervalsHtml && splits && splits.length) {
+    if ((isRun || isBike) && !intervalsHtml && !segmentsHtml && splits && splits.length) {
       var splitRows = '';
       splits.forEach(function (s) {
         var distKm  = parseFloat(s.distance_km);
@@ -1075,7 +1160,7 @@
         '</div>';
     }
 
-    contentEl.innerHTML = heroHtml + statsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
+    contentEl.innerHTML = heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────

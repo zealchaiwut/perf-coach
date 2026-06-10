@@ -4703,8 +4703,13 @@ def _metric_has_data(m: DailyMetric) -> bool:
 
 
 def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
-    """Return seconds-per-km pace for run/bike workouts; None otherwise."""
-    if workout_type not in ("run", "bike"):
+    """Return seconds-per-km pace for run/bike workouts; None otherwise.
+
+    Accepts the editor's free-text type values ("Running", "Race") as well as
+    the canonical sync values ("run", "bike").
+    """
+    t = (workout_type or "").lower().strip()
+    if not (t in ("run", "running", "race") or t.startswith(("bike", "ride", "cycl"))):
         return None
     if duration_seconds is None or distance_km is None or float(distance_km) == 0:
         return None
