@@ -211,21 +211,6 @@ async function loadAndRender() {
     archivedHabits = allHabits.filter(h => h.is_archived);
     const logs = logsRes.ok ? await logsRes.json() : [];
 
-    // Fetch per-habit progress for weekly habits card
-    const progressMap = {};
-    if (activeHabits.length > 0) {
-      const progressResults = await Promise.all(
-        activeHabits.map(h =>
-          fetch(`/api/habits/${encodeURIComponent(h.id)}/progress?week_start=${weekFrom}`)
-            .then(r => r.ok ? r.json() : null)
-            .catch(() => null)
-        )
-      );
-      activeHabits.forEach((h, i) => {
-        if (progressResults[i]) progressMap[h.id] = progressResults[i];
-      });
-    }
-
     // ── Page header (always updated) ──
     renderPageHeader();
 
@@ -254,7 +239,7 @@ async function loadAndRender() {
 
     // ── Daily grid (uses weekData.daily_habits for 4-state cells) ──
     renderDailyGrid(logSet);
-    renderWeeklyHabits(activeHabits, progressMap);
+    renderWeeklyHabits(weekData.weekly_habits || [], weekData, activeHabits);
     renderArchivedList();
 
   } catch (e) {
@@ -886,61 +871,176 @@ async function handleGridCellAction(btn) {
 
 // ── Weekly habits card ────────────────────────────────────────────────────────
 
-function renderWeeklyHabits(habits, progressMap) {
+const _AUTO_FILL_DESCRIPTIONS = {
+  'workout.zone2_minutes':          'synced with zone-2 minutes on your runs',
+  'workout.run_count':              'synced with run workouts',
+  'workout.lift_count':             'synced with strength workouts',
+  'workout.total_duration_minutes': 'synced with total workout duration',
+  'workout.distance_km':            'synced with workout distances',
+};
+
+const _WEEK_DAY_SHORTS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function _formatBreakdown(dailyBreakdown, weekStart) {
+  if (!dailyBreakdown || dailyBreakdown.length === 0) return '';
+  const [wy, wm, wd] = weekStart.split('-').map(Number);
+  const monDate = new Date(wy, wm - 1, wd);
+  return dailyBreakdown
+    .map(entry => {
+      const d = new Date(entry.date + 'T00:00:00');
+      const dow = (d.getDay() + 6) % 7; // 0=Mon
+      const dayName = _WEEK_DAY_SHORTS[dow] || entry.date;
+      const v = entry.value;
+      const vStr = Number.isInteger(v) ? String(v) : v.toFixed(1);
+      return `${dayName} ${vStr}`;
+    })
+    .join(' · ');
+}
+
+function _fmtVal(v) {
+  if (v == null) return '—';
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(1);
+}
+
+function _renderSegmentedBar(current, target, isComplete) {
+  const segCount = Math.max(1, Math.round(target));
+  const filled = Math.min(segCount, Math.round(current));
+  const over = Math.max(0, Math.round(current) - segCount);
+  const completeCls = isComplete ? ' complete' : '';
+
+  let segsHTML = '';
+  for (let i = 0; i < segCount; i++) {
+    const isFilled = i < filled;
+    segsHTML += `<div class="week-seg${isFilled ? ' filled' + completeCls : ''}"></div>`;
+  }
+  const overHTML = over > 0 ? `<span class="week-overflow-label">+${over} over</span>` : '';
+  return `<div class="week-seg-bar">${segsHTML}${overHTML}</div>`;
+}
+
+function _renderSmoothBar(pct, isComplete) {
+  const w = Math.min(100, pct).toFixed(1);
+  const completeCls = isComplete ? ' complete' : '';
+  return `<div class="week-smooth-bar-outer">
+    <div class="week-smooth-bar-fill${completeCls}" style="width:${w}%"></div>
+    <div class="week-smooth-bar-endmark"></div>
+  </div>`;
+}
+
+function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
   const container = document.getElementById('weekly-habits-content');
   if (!container) return;
 
-  if (habits.length === 0) {
-    container.innerHTML = '<div class="weekly-habits-empty">No habits yet.</div>';
+  const isCurrentWeek = wkData && wkData.is_current_week;
+  const elapsedDays = (wkData && wkData.week_totals && wkData.week_totals.elapsed_days) || 0;
+  const weekStart = (wkData && wkData.week_start) || '';
+
+  if (!weeklyHabits || weeklyHabits.length === 0) {
+    container.innerHTML = `
+      <div class="weekly-habits-empty">
+        <p>Track weekly goals like Zone 2 minutes — they can sync automatically from your workouts</p>
+        <button type="button" class="weekly-empty-new-btn" id="weekly-empty-new-btn">＋ New habit</button>
+      </div>`;
+    const emptyBtn = container.querySelector('#weekly-empty-new-btn');
+    if (emptyBtn) {
+      emptyBtn.addEventListener('click', () => {
+        openNewModal();
+        const sel = document.getElementById('modal-tracking-type');
+        if (sel) sel.value = 'weekly_minutes';
+      });
+    }
     return;
   }
 
   container.innerHTML = '';
 
-  habits.forEach(habit => {
-    const prog = progressMap[habit.id] || {};
-    const current = prog.current_value != null ? prog.current_value : 0;
-    const target = prog.target;
-    const pct = Math.min(100, prog.percentage != null ? prog.percentage : 0);
-    const isComplete = !!prog.is_complete;
-    const unit = habit.unit ? ' ' + habit.unit : '';
+  weeklyHabits.forEach(habit => {
+    const current = habit.current_value != null ? habit.current_value : 0;
+    const target = habit.target;
+    const pct = Math.min(100, habit.pct != null ? habit.pct : 0);
+    const isComplete = !!habit.is_complete;
+    const unit = habit.unit || '';
+    const isAutoFill = !!habit.auto_fill_source;
+    const trackingType = habit.tracking_type;
 
+    // Value string
     const valStr = target != null
-      ? (Number.isInteger(current) ? current : current.toFixed(1)) + ' / ' + target + unit
+      ? `${_fmtVal(current)} / ${_fmtVal(target)}${unit ? ' ' + unit : ''}`
       : '—';
 
-    const trackingLabel = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
+    // Progress bar HTML
+    const barHTML = trackingType === 'weekly_count'
+      ? _renderSegmentedBar(current, target || 1, isComplete)
+      : _renderSmoothBar(pct, isComplete);
+
+    // Daily breakdown label
+    const breakdownStr = _formatBreakdown(habit.daily_breakdown, weekStart);
+
+    // Pace sub-line
+    let paceHTML = '';
+    if (target != null && target > 0) {
+      const onPace = elapsedDays === 0 || (current / target) >= (elapsedDays / 7);
+      if (onPace) {
+        paceHTML = `<div class="week-pace-line"><span class="week-pace-on">on pace</span></div>`;
+      } else {
+        const remaining = habit.remaining != null ? habit.remaining : Math.max(0, target - current);
+        const remStr = _fmtVal(remaining);
+        const unitStr = unit ? ` ${unit}` : '';
+        paceHTML = `<div class="week-pace-line"><span class="week-pace-behind">${esc(remStr)}${esc(unitStr)} to go</span></div>`;
+      }
+    }
+
+    // Meta badge (auto vs manual)
+    let metaHTML = '';
+    if (isAutoFill) {
+      const srcDesc = _AUTO_FILL_DESCRIPTIONS[habit.auto_fill_source] || habit.auto_fill_source;
+      metaHTML = `
+        <span class="week-auto-badge" title="Updates automatically from your workouts">↻ auto · workouts</span>
+        <span class="week-auto-source">${esc(srcDesc)}</span>`;
+    } else {
+      const logChip = isCurrentWeek
+        ? `<button type="button" class="week-log-chip" data-habit-id="${esc(String(habit.id))}" data-tracking-type="${esc(trackingType)}" data-unit="${esc(unit)}">＋ log</button>`
+        : '';
+      metaHTML = `<span class="week-manual-badge">manual</span>${logChip}`;
+    }
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 30);
 
     const row = document.createElement('div');
     row.className = 'week-habit-row';
     row.id = `habit-week-row-${habit.id}`;
 
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 30);
-
     row.innerHTML = `
-      ${iconHTML}
-      <div class="week-habit-info">
-        <div class="week-habit-name-row">
-          <span class="week-habit-name">${esc(habit.name)}</span>
-          <span class="week-habit-val">${esc(valStr)}</span>
-        </div>
-        <div class="week-habit-bar-outer">
-          <div class="week-habit-bar-inner${isComplete ? ' complete' : ''}" style="width:${pct.toFixed(1)}%"></div>
+      <div class="week-habit-left">
+        ${iconHTML}
+        <div class="week-habit-info">
+          <div class="week-habit-name">${esc(habit.name)}</div>
+          <div class="week-habit-meta">${metaHTML}</div>
         </div>
       </div>
-      <span class="week-habit-chip ${isComplete ? 'complete' : 'incomplete'}">${isComplete ? '✓ Done' : Math.round(pct) + '%'}</span>
-      <div class="week-habit-actions">
-        <button type="button" class="week-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
-        <div class="week-actions-menu" id="week-menu-${esc(String(habit.id))}"></div>
+      <div class="week-habit-progress">
+        ${barHTML}
+        <div class="week-bar-labels">
+          <span class="week-breakdown-label">${esc(breakdownStr)}</span>
+          ${target != null ? `<span class="week-target-label">target ${esc(_fmtVal(target))}</span>` : ''}
+        </div>
       </div>
-    `;
+      <div class="week-habit-right">
+        <span class="week-habit-val-main" id="week-val-${esc(String(habit.id))}">${esc(valStr)}</span>
+        ${paceHTML}
+        <div class="week-habit-actions">
+          <button type="button" class="week-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
+          <div class="week-actions-menu" id="week-menu-${esc(String(habit.id))}"></div>
+        </div>
+      </div>`;
 
     // Build action menu
     const menu = row.querySelector('.week-actions-menu');
+    const fullHabit = (fullHabitsList || []).find(h => String(h.id) === String(habit.id)) || habit;
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.textContent = 'Edit';
-    editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(habit); });
+    editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
     menu.appendChild(editBtn);
 
     const archiveBtn = document.createElement('button');
@@ -970,10 +1070,160 @@ function renderWeeklyHabits(habits, progressMap) {
 
     container.appendChild(row);
   });
+
+  // Attach log chip handlers
+  if (isCurrentWeek) {
+    container.querySelectorAll('.week-log-chip').forEach(chip => {
+      chip.addEventListener('click', e => {
+        e.stopPropagation();
+        openLogPopover(chip);
+      });
+    });
+  }
+}
+
+// ── Log popover ───────────────────────────────────────────────────────────────
+
+let _activePopover = null;
+
+function closeLogPopover() {
+  if (_activePopover) {
+    _activePopover.remove();
+    _activePopover = null;
+  }
+}
+
+function openLogPopover(chip) {
+  closeLogPopover();
+
+  const habitId = chip.dataset.habitId;
+  const trackingType = chip.dataset.trackingType;
+  const unit = chip.dataset.unit || '';
+
+  const popover = document.createElement('div');
+  popover.className = 'week-log-popover';
+  _activePopover = popover;
+
+  const isMinutes = trackingType === 'weekly_minutes';
+
+  const quickChipsHTML = isMinutes
+    ? `<div class="week-quick-chips">
+        <button type="button" class="week-quick-chip" data-add="5">+5</button>
+        <button type="button" class="week-quick-chip" data-add="10">+10</button>
+        <button type="button" class="week-quick-chip" data-add="15">+15</button>
+      </div>`
+    : '';
+
+  popover.innerHTML = `
+    <div class="week-popover-title">Log${unit ? ' ' + unit : ''}</div>
+    <input class="week-popover-input" type="number" min="0.1" step="any" placeholder="Amount…">
+    ${quickChipsHTML}
+    <button type="button" class="week-popover-submit">Add</button>
+    <div class="week-popover-error"></div>`;
+
+  const input = popover.querySelector('.week-popover-input');
+  const submitBtn = popover.querySelector('.week-popover-submit');
+  const errorEl = popover.querySelector('.week-popover-error');
+
+  // Quick chips accumulate into the input
+  if (isMinutes) {
+    popover.querySelectorAll('.week-quick-chip').forEach(qc => {
+      qc.addEventListener('click', () => {
+        const current = parseFloat(input.value) || 0;
+        input.value = current + parseInt(qc.dataset.add, 10);
+      });
+    });
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const value = parseFloat(input.value);
+    if (!value || value <= 0) {
+      errorEl.textContent = 'Enter a value greater than 0';
+      return;
+    }
+    submitBtn.disabled = true;
+    errorEl.textContent = '';
+    try {
+      const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value, mode: 'add' }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = (body.detail && body.detail.error_code) || body.detail || `Error ${res.status}`;
+        submitBtn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      closeLogPopover();
+
+      // Update value display from week_current_value without full refetch
+      const weekCurrentValue = data.week_current_value;
+      if (weekCurrentValue != null) {
+        const valEl = document.getElementById(`week-val-${habitId}`);
+        if (valEl) {
+          const wh = (weekData && weekData.weekly_habits || []).find(h => h.id === habitId);
+          const tgt = wh ? wh.target : null;
+          const unit2 = wh ? (wh.unit || '') : '';
+          const newValStr = tgt != null
+            ? `${_fmtVal(weekCurrentValue)} / ${_fmtVal(tgt)}${unit2 ? ' ' + unit2 : ''}`
+            : _fmtVal(weekCurrentValue);
+          valEl.textContent = newValStr;
+        }
+
+        // Update progress bar visually
+        const row = document.getElementById(`habit-week-row-${habitId}`);
+        if (row) {
+          const wh = (weekData && weekData.weekly_habits || []).find(h => h.id === habitId);
+          if (wh && wh.target != null) {
+            wh.current_value = weekCurrentValue;
+            wh.pct = Math.min(100, (weekCurrentValue / wh.target) * 100);
+            wh.is_complete = weekCurrentValue >= wh.target;
+            wh.remaining = Math.max(0, wh.target - weekCurrentValue);
+
+            const progDiv = row.querySelector('.week-habit-progress');
+            if (progDiv) {
+              const newBarHTML = wh.tracking_type === 'weekly_count'
+                ? _renderSegmentedBar(weekCurrentValue, wh.target, wh.is_complete)
+                : _renderSmoothBar(wh.pct, wh.is_complete);
+              const existing = progDiv.querySelector('.week-seg-bar, .week-smooth-bar-outer');
+              if (existing) existing.outerHTML = newBarHTML;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      errorEl.textContent = err.message || 'Failed to log';
+      submitBtn.disabled = false;
+    }
+  });
+
+  // Position popover relative to chip
+  const chipRect = chip.getBoundingClientRect();
+  popover.style.position = 'fixed';
+  popover.style.top = (chipRect.bottom + 6) + 'px';
+  popover.style.left = Math.max(8, chipRect.left) + 'px';
+
+  document.body.appendChild(popover);
+  input.focus();
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', _closePopoverOnOutside, { once: false, capture: true });
+  }, 0);
+}
+
+function _closePopoverOnOutside(e) {
+  if (_activePopover && !_activePopover.contains(e.target) && !e.target.classList.contains('week-log-chip')) {
+    closeLogPopover();
+    document.removeEventListener('click', _closePopoverOnOutside, true);
+  }
 }
 
 function closeAllMenus() {
-  document.querySelectorAll('.week-actions-menu.open, .actions-menu.open').forEach(m => m.classList.remove('open'));
+  document.querySelectorAll('.week-actions-menu.open, .day-actions-menu.open, .actions-menu.open').forEach(m => m.classList.remove('open'));
+  closeLogPopover();
 }
 
 document.addEventListener('click', closeAllMenus);
