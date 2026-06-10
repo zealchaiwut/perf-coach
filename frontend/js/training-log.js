@@ -188,6 +188,8 @@
     searchInput.type         = 'text';
     searchInput.id           = 'log-search';
     searchInput.placeholder  = 'Search workouts';
+    searchInput.setAttribute('aria-label', 'Search workouts');
+    searchInput.setAttribute('type', 'search');
     searchInput.value        = filters.search;
     searchInput.spellcheck   = false;
     searchInput.autocomplete = 'off';
@@ -500,7 +502,7 @@
     var header = document.createElement('div');
     header.className = 'week-header';
 
-    var titleEl = document.createElement('div');
+    var titleEl = document.createElement('h2');
     titleEl.className = 'week-header-title';
     titleEl.textContent = weekDisplayLabel(week);
 
@@ -550,6 +552,16 @@
 
     if (w.id) {
       row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      // Accessible name: type, title, date, and primary metric.
+      var ariaBits = [];
+      var tk = normalizeTypeKey(w.type);
+      ariaBits.push(({ run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' })[tk] || (w.type || 'Workout'));
+      ariaBits.push(w.title || 'Workout');
+      if (w.date) ariaBits.push(fmtDate(w.date));
+      if (tk === 'run' && w.distance_km != null) ariaBits.push((+w.distance_km).toFixed(1) + ' kilometers');
+      else if (w.duration_seconds) ariaBits.push(Math.round(w.duration_seconds / 60) + ' minutes');
+      row.setAttribute('aria-label', ariaBits.join(', ') + '. Open details');
       row.dataset.workoutId = w.id;
       var rowRef = row;
       row.addEventListener('click', function () {

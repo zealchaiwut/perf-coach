@@ -351,6 +351,7 @@
     }
 
     .week-header-title {
+      margin: 0;
       font-weight: 700;
       font-size: 0.6875rem;
       letter-spacing: 0.07em;
@@ -1162,6 +1163,15 @@
       background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
       background-size: 400px 100%;
       animation: skeleton-shimmer 1.4s ease infinite;
+    }
+    /* Respect reduced-motion: drop the panel slide + hover transitions */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
   </style>
 </head>
