@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weight Page — Redesign v6 Mockup (1040px)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-1: #5a8dee;
+      --bg-2: #1f3b8a;
+      --shell-1: #eaf0fb;
+      --shell-2: #d8e3f5;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 30, 67, 0.06);
+      --card-radius: 14px;
+      --card-shadow: 0 2px 12px rgba(13, 30, 67, 0.10), 0 1px 3px rgba(13, 30, 67, 0.06);
+      --text-primary: #0b1530;
+      --text-secondary: #5c6886;
+      --text-tertiary: #8b95ad;
+      --green: #2d5e10;
+      --green-soft: #dff5d6;
+      --red: #7a1a1a;
+      --red-soft: #ffd9d9;
+      --amber: #6b4408;
+      --amber-soft: #fff0c4;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100vh; }
+
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    /* ── Nav ─────────────────────────────────────────────────────────── */
+    .nav {
+      background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%);
+      border-bottom: 1px solid var(--card-border);
+      height: 56px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 20px;
+    }
+    .nav-brand { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; color: var(--text-primary); }
+    .nav-links { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none; }
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-link {
+      padding: 7px 13px; border-radius: 999px; font-size: 13px; font-weight: 500;
+      color: var(--text-secondary); text-decoration: none; white-space: nowrap;
+    }
+    .nav-link.active { background: #0b1530; color: #fff; }
+
+    /* ── Page ────────────────────────────────────────────────────────── */
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 28px;
+    }
+
+    /* ── Page head ───────────────────────────────────────────────────── */
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .page-head h1 {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+      margin: 0 0 4px;
+    }
+    .page-head .subtitle {
+      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+      margin: 0;
+    }
+    .head-actions { display: flex; gap: 8px; align-items: center; }
+    .btn-export {
+      padding: 7px 14px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 8px; font-size: 13px; font-weight: 500; color: #fff;
+      font-family: 'Inter Tight', sans-serif; cursor: pointer; backdrop-filter: blur(8px);
+    }
+    .btn-export:hover { background: rgba(255,255,255,0.22); }
+    .btn-target {
+      padding: 7px 14px; background: rgba(255,255,255,0.92); border: none;
+      border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .btn-target:hover { background: #fff; }
+
+    /* ── Card ────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 20px;
+    }
+    .card-label {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--text-tertiary); margin-bottom: 6px;
+    }
+
+    /* ── Hero row ────────────────────────────────────────────────────── */
+    .hero-row {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .hero-card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Card A: Current weight */
+    .cwa-top { display: flex; align-items: baseline; justify-content: space-between; }
+    .cwa-date { font-size: 12px; color: var(--text-tertiary); }
+    .cwa-mid { display: flex; align-items: center; gap: 12px; }
+    .cwa-weight {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 44px; font-weight: 600; line-height: 1; letter-spacing: -0.04em;
+      color: var(--text-primary); flex: 1; text-align: center;
+    }
+    .cwa-avg {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; font-weight: 500; color: var(--text-secondary); flex-shrink: 0;
+    }
+    .cwa-pills { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+    .delta-pill {
+      display: inline-flex; align-items: center; padding: 3px 10px;
+      border-radius: 999px; font-size: 12px; font-weight: 600;
+    }
+    .delta-pill.loss { background: var(--green-soft); color: var(--green); }
+    .delta-pill.gain { background: var(--red-soft); color: var(--red); }
+    .delta-pill.neutral { background: #f1f4fa; color: var(--text-secondary); }
+
+    /* Card B: Log today */
+    .cwb-top { display: flex; align-items: baseline; justify-content: space-between; }
+    .cwb-date { font-size: 12px; color: var(--text-tertiary); }
+    .stepper {
+      display: flex; align-items: center;
+      border: 1px solid #d1d5db; border-radius: 10px; overflow: hidden;
+    }
+    .stepper-btn {
+      width: 38px; height: 42px; background: #f7f8fb; border: none;
+      font-size: 18px; color: var(--text-secondary); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stepper-btn:hover { background: #eef0f6; }
+    .stepper-input {
+      flex: 1; border: none; border-left: 1px solid #d1d5db; border-right: 1px solid #d1d5db;
+      text-align: center; font-size: 17px; font-family: 'JetBrains Mono', monospace;
+      font-weight: 500; padding: 8px 4px; height: 42px; min-width: 0;
+    }
+    .stepper-input:focus { outline: none; border-color: #2563eb; }
+    .log-btn {
+      width: 100%; margin-top: 10px; padding: 10px; background: #0b1530;
+      color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600;
+      font-family: 'Inter Tight', sans-serif; cursor: pointer;
+    }
+    .log-btn:hover { background: #162444; }
+
+    /* Coach strip */
+    .coach-strip {
+      padding: 11px 16px; border-radius: 10px;
+      font-size: 13.5px; font-weight: 500; line-height: 1.4;
+      margin-bottom: 12px;
+    }
+    .coach-grey { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85);
+                  backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.18); }
+    .coach-green { background: var(--green-soft); color: var(--green); }
+
+    /* ── Chart card ──────────────────────────────────────────────────── */
+    .chart-card { margin-bottom: 12px; }
+    .range-tabs {
+      display: inline-flex; border: 1px solid #e8eaf0;
+      border-radius: 8px; overflow: hidden; margin-bottom: 14px;
+    }
+    .range-tab {
+      padding: 5px 13px; background: #fff; border: none;
+      border-right: 1px solid #e8eaf0; font-size: 12.5px; font-weight: 500;
+      cursor: pointer; color: var(--text-secondary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .range-tab:last-child { border-right: none; }
+    .range-tab.active { background: #0b1530; color: #fff; }
+    .chart-area {
+      height: 200px; background: #f7f9fc; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: var(--text-tertiary);
+    }
+    .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+    .legend-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .legend-line { width: 20px; height: 2px; flex-shrink: 0; }
+    .legend-dashed { width: 20px; height: 0; border-top: 2px dashed; flex-shrink: 0; }
+
+    /* ── Bottom grid ─────────────────────────────────────────────────── */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    /* Progress card */
+    .progress-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .progress-hdr h2 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .edit-pill {
+      padding: 3px 12px; border-radius: 999px; border: 1px solid #d8e3f5;
+      font-size: 12px; font-weight: 500; color: var(--text-secondary);
+      text-decoration: none; background: #f1f4fa;
+    }
+    .stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 16px; text-align: center; }
+    .stat-lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-top: 2px; }
+    .stat-val { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600; color: var(--text-primary); }
+    .stat-val.blue { color: #2563eb; }
+    .stat-val.green { color: #16a34a; }
+    .stat-date { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+    .pgbar-track { height: 8px; background: #eef0f6; border-radius: 999px; position: relative; margin-bottom: 16px; }
+    .pgbar-fill { height: 100%; background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%); border-radius: 999px; width: 62%; }
+    .pgbar-dot { position: absolute; top: 50%; transform: translate(-50%,-50%); width: 14px; height: 14px; background: #2563eb; border: 2px solid #fff; border-radius: 50%; left: 62%; box-shadow: 0 1px 4px rgba(37,99,235,0.35); }
+    .pgbar-tick { position: absolute; top: -3px; left: 58%; width: 3px; height: 14px; background: #16a34a; border-radius: 2px; transform: translateX(-50%); }
+    .summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .summary-pct { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; color: var(--text-primary); }
+    .summary-detail { font-size: 13px; color: var(--text-secondary); }
+    .status-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill-on-plan { background: var(--green-soft); color: var(--green); }
+    .pill-behind { background: var(--red-soft); color: var(--red); }
+
+    /* Milestones */
+    .milestones-hdr { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eef0f6; padding-top: 12px; margin-top: 12px; margin-bottom: 8px; }
+    .milestones-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+    .milestone-row-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px; border-radius: 8px; margin-bottom: 4px;
+      background: #f7f9fc;
+    }
+    .ms-date { font-size: 12px; color: var(--text-secondary); min-width: 4.5rem; }
+    .ms-val { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+    .ms-delta { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+    .ms-delta.ahead { background: var(--green-soft); color: var(--green); }
+    .ms-delta.behind { background: var(--red-soft); color: var(--red); }
+
+    /* Recent entries */
+    .entries-hdr { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+    .entries-hdr h2 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .view-all { font-size: 12.5px; color: #2563eb; text-decoration: none; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); text-align: left; padding: 0 0 8px; border-bottom: 1px solid #eef0f6; }
+    td { padding: 9px 0; border-bottom: 1px solid #f5f6fa; font-size: 14px; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    .td-date { color: var(--text-secondary); font-size: 13px; }
+    .td-weight { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .td-delta { font-size: 12.5px; }
+    .td-delta.loss { color: var(--green); }
+    .td-delta.gain { color: var(--red); }
+    .td-delta.neutral { color: var(--text-tertiary); }
+    .row-today td { background: rgba(37,99,235,0.06); }
+    .entry-menu-btn { background: none; border: none; color: var(--text-tertiary); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 16px; }
+    .entry-menu-btn:hover { background: #eef0f6; color: var(--text-primary); }
+
+    /* ── Note ────────────────────────────────────────────────────────── */
+    .note {
+      margin-top: 28px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <span class="nav-brand">perf-coach</span>
+  <div class="nav-links">
+    <a href="#" class="nav-link">Home</a>
+    <a href="#" class="nav-link">Training Log</a>
+    <a href="#" class="nav-link">Trends</a>
+    <a href="#" class="nav-link">Calendar</a>
+    <a href="#" class="nav-link active">Weight</a>
+    <a href="#" class="nav-link">Habits</a>
+  </div>
+</nav>
+
+<main class="page">
+
+  <!-- Page head (renders on gradient, not on a card) -->
+  <div class="page-head">
+    <div>
+      <h1>Weight</h1>
+      <p class="subtitle">42 entries · 11 of last 14 days · trending ↓0.4 kg/wk</p>
+    </div>
+    <div class="head-actions">
+      <button class="btn-export" type="button">Export CSV</button>
+      <a href="/weight/targets" class="btn-target">⚖ Manage target</a>
+    </div>
+  </div>
+
+  <!-- Hero row -->
+  <div class="hero-row">
+
+    <!-- Card A: Current Weight -->
+    <div class="hero-card">
+      <div class="cwa-top">
+        <span class="card-label">Current Weight</span>
+        <span class="cwa-date">Today</span>
+      </div>
+      <div class="cwa-mid">
+        <span class="cwa-avg">7d avg<br>82.8 kg</span>
+        <span class="cwa-weight">82.4 kg</span>
+        <div class="cwa-pills">
+          <span class="delta-pill loss">↓ 0.6 kg This wk</span>
+          <span class="delta-pill loss">↓ 1.2 kg This mo</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card B: Log Today -->
+    <div class="hero-card">
+      <div class="cwb-top">
+        <span class="card-label">Log Today</span>
+        <span class="cwb-date">Tue, Jun 10</span>
+      </div>
+      <div class="stepper">
+        <button class="stepper-btn" type="button">−</button>
+        <input class="stepper-input" type="number" value="82.4" step="0.1">
+        <button class="stepper-btn" type="button">+</button>
+      </div>
+      <button class="log-btn" type="button">Log 82.4 kg</button>
+    </div>
+
+  </div>
+
+  <!-- Coach strip (full width, on gradient) -->
+  <div class="coach-strip coach-green">
+    ✓ Great consistency — logged 11 of the last 14 days. Keep it up!
+  </div>
+
+  <!-- Chart card -->
+  <div class="card chart-card">
+    <div class="range-tabs">
+      <button class="range-tab active">30D</button>
+      <button class="range-tab">90D</button>
+      <button class="range-tab">6M</button>
+      <button class="range-tab">1Y</button>
+      <button class="range-tab">ALL</button>
+    </div>
+    <div class="chart-area">Chart.js chart — weigh-ins · 7-day avg · plan series</div>
+    <div class="chart-legend">
+      <span class="legend-chip"><span class="legend-dot" style="background:#9ca3af"></span>Weigh-in</span>
+      <span class="legend-chip"><span class="legend-line" style="background:#2563eb"></span>7-day avg</span>
+      <span class="legend-chip"><span class="legend-dashed" style="border-color:#16a34a"></span>Plan</span>
+    </div>
+  </div>
+
+  <!-- Bottom grid: Progress (left) + Recent Entries (right) -->
+  <div class="bottom-grid">
+
+    <!-- Progress card -->
+    <div class="card">
+      <div class="progress-hdr">
+        <h2>Progress toward goal</h2>
+        <a href="/weight/targets" class="edit-pill">Edit target</a>
+      </div>
+      <div class="stat-row">
+        <div>
+          <div class="stat-val">85.0 kg</div>
+          <div class="stat-lbl">Start</div>
+          <div class="stat-date">Jan 1</div>
+        </div>
+        <div>
+          <div class="stat-val blue">82.4 kg</div>
+          <div class="stat-lbl">You</div>
+          <div class="stat-date" style="color:#16a34a">plan 82.6 kg</div>
+        </div>
+        <div>
+          <div class="stat-val green">78.0 kg</div>
+          <div class="stat-lbl">Goal</div>
+          <div class="stat-date" style="color:#16a34a">Sep 30</div>
+        </div>
+      </div>
+      <div class="pgbar-track">
+        <div class="pgbar-fill"></div>
+        <div class="pgbar-dot"></div>
+        <div class="pgbar-tick"></div>
+      </div>
+      <div class="summary-row">
+        <span class="summary-pct">42%</span>
+        <span class="summary-detail">2.4 kg to go · 112 days</span>
+        <span class="status-pill pill-on-plan">On plan</span>
+      </div>
+      <div class="milestones-hdr">
+        <span class="milestones-title">Milestones</span>
+        <span style="font-size:10px;color:#16a34a;font-weight:600;">◆ on chart</span>
+      </div>
+      <div class="milestone-row-item" style="background:rgba(220,252,231,0.5)">
+        <span class="ms-date" style="font-weight:600">Today</span>
+        <span class="ms-val">82.4 kg</span>
+        <span class="ms-delta ahead">↓ 0.2 ahead</span>
+      </div>
+      <div class="milestone-row-item">
+        <span class="ms-date">3 mo</span>
+        <span class="ms-val">80.8 kg</span>
+        <span class="ms-delta" style="background:#f1f4fa;color:var(--text-tertiary)">→ 0.0</span>
+      </div>
+      <div class="milestone-row-item">
+        <span class="ms-date">Goal</span>
+        <span class="ms-val">78.0 kg</span>
+        <span class="ms-delta" style="background:#f1f4fa;color:var(--text-tertiary)">Sep 30</span>
+      </div>
+    </div>
+
+    <!-- Recent entries card -->
+    <div class="card">
+      <div class="entries-hdr">
+        <h2>Recent entries · <span style="font-weight:400;color:var(--text-tertiary);font-size:13px">last 14 days</span></h2>
+        <a href="/weight/entries" class="view-all">View all →</a>
+      </div>
+      <table>
+        <thead><tr><th>Date</th><th>Weight</th><th>Delta</th><th></th></tr></thead>
+        <tbody>
+          <tr class="row-today">
+            <td class="td-date">Today, Jun 10</td>
+            <td class="td-weight">82.4 kg</td>
+            <td class="td-delta loss">↓ 0.3</td>
+            <td><button class="entry-menu-btn">⋯</button></td>
+          </tr>
+          <tr>
+            <td class="td-date">Mon, Jun 9</td>
+            <td class="td-weight">82.7 kg</td>
+            <td class="td-delta loss">↓ 0.1</td>
+            <td><button class="entry-menu-btn">⋯</button></td>
+          </tr>
+          <tr>
+            <td class="td-date">Sun, Jun 8</td>
+            <td class="td-weight">82.8 kg</td>
+            <td class="td-delta gain">↑ 0.2</td>
+            <td><button class="entry-menu-btn">⋯</button></td>
+          </tr>
+          <tr>
+            <td class="td-date">Sat, Jun 7</td>
+            <td class="td-weight">82.6 kg</td>
+            <td class="td-delta loss">↓ 0.3</td>
+            <td><button class="entry-menu-btn">⋯</button></td>
+          </tr>
+          <tr>
+            <td class="td-date">Fri, Jun 6</td>
+            <td class="td-weight">82.9 kg</td>
+            <td class="td-delta neutral">—</td>
+            <td><button class="entry-menu-btn">⋯</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /.bottom-grid -->
+
+  <p class="note">Static mockup · 1040px reference · does not run app JS</p>
+</main>
+
+</body>
+</html>
