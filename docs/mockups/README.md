@@ -2,4 +2,5 @@ These HTML files are visual references for page layouts. The mockups are not edi
 
 - Home page layout — live page at /home.html
 - Training Log redesign — see training-log-desktop.html and training-log-mobile.html; live page at /log
-- Weight tracking — see weight-tracking-desktop.html, weight-tracking-mobile.html, and weight-target-management-desktop.html for visual reference. Live pages at /weight and /weight/targets.
+- Weight tracking (pre-v6, superseded) — weight-tracking-desktop.html, weight-tracking-mobile.html, and weight-target-management-desktop.html are superseded by weight-redesign-v6. These files are kept for historical reference only.
+- Weight tracking v6 (current) — see weight-redesign-v6.html for the current design (plan-vs-actual, milestone chart, stepper quick-log, coach strip). Live pages at /weight and /weight/targets.

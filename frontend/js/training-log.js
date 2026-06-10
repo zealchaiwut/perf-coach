@@ -912,7 +912,7 @@
         '<div class="dp-section">' +
           '<div class="dp-section-title">Stats</div>' +
           '<div class="dp-stats-grid">' +
-            '<div class="dp-stat highlight"><div class="dp-stat-label">' + (isBike ? 'Distance' : 'Distance') + '</div><div class="dp-stat-value">' + distStr + '</div></div>' +
+            '<div class="dp-stat"><div class="dp-stat-label">' + (isBike ? 'Distance' : 'Distance') + '</div><div class="dp-stat-value">' + distStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Avg ' + (isBike ? 'speed' : 'pace') + '</div><div class="dp-stat-value">' + paceStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Avg HR</div><div class="dp-stat-value">' + hrStr + '</div></div>' +
@@ -936,7 +936,7 @@
         '<div class="dp-section">' +
           '<div class="dp-section-title">Stats</div>' +
           '<div class="dp-stats-grid">' +
-            '<div class="dp-stat highlight"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr2 + '</div></div>' +
+            '<div class="dp-stat"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr2 + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Exercises</div><div class="dp-stat-value">' + esc(String(exCount)) + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Total reps</div><div class="dp-stat-value">' + (totalReps > 0 ? esc(String(totalReps)) : '—') + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Avg RPE</div><div class="dp-stat-value">' + (avgRpe != null ? esc(avgRpe) : '—') + '</div></div>' +
