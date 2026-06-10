@@ -119,19 +119,17 @@ function renderSubtitle(summary, stats) {
   if (!el) return;
 
   const count = summary ? summary.entries_logged : 0;
-  const daysRange = summary && summary.first_date && summary.last_date
-    ? Math.round((new Date(summary.last_date + 'T00:00:00') - new Date(summary.first_date + 'T00:00:00')) / 86400000) + 1
-    : 0;
+  const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
 
   let trendStr = '';
   if (stats && stats.delta_7d_kg != null) {
     const d = stats.delta_7d_kg;
     const isFlat = Math.abs(d) < 0.05;
     const arrow = isFlat ? '→' : (d < 0 ? '↓' : '↑');
-    trendStr = ` · ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
+    trendStr = ` · trending ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
   }
 
-  el.textContent = `${count} entries · ${daysRange} days tracked${trendStr}`;
+  el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
 }
 
 // ── Hero: Card A (Current Weight) ─────────────────────────────────────────
