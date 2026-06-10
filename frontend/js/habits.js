@@ -24,6 +24,11 @@ const TRACKING_TYPE_LABELS = {
   weekly_quantity: 'Weekly quantity',
 };
 
+const DAY_LABELS_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+const WHEEL_CIRCUMFERENCE = 289.03; // 2 * π * r=46
+
 const STARTER_HABITS = [
   {
     name: 'Zone 2 cardio',
@@ -69,13 +74,49 @@ const STARTER_HABITS = [
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let currentUserId = null;
 let activeHabits = [];
 let archivedHabits = [];
 let editingHabitId = null;
 let selectedIcon = ICONS[0];
 let selectedColor = COLORS[0];
-let dragSrcIndex = null;
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function isoDate(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function bangkokToday() {
+  const bk = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const [y, m, d] = bk.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function bangkokTodayStr() {
+  return isoDate(bangkokToday());
+}
+
+function isoWeekMonday(date) {
+  const d = new Date(date);
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function weekDates() {
+  const today = bangkokToday();
+  const monday = isoWeekMonday(today);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(isoDate(d));
+  }
+  return dates;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,88 +131,128 @@ function iconLabel(code) {
   return code ? code.replace('ti-', '').replace(/-/g, ' ') : '?';
 }
 
-function habitIconEl(icon, color) {
-  const el = document.createElement('div');
-  el.className = 'habit-icon';
-  el.style.background = color || '#999';
-  el.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
-  el.title = icon || '';
-  return el;
-}
-
-function goalText(habit) {
-  if (!habit.weekly_target) return '';
-  const unit = habit.unit || '';
-  return `Goal: ${habit.weekly_target} ${unit}/week`.trim();
-}
-
-function autofillPill(source) {
-  const span = document.createElement('span');
-  if (source) {
-    span.className = 'habit-autofill-pill';
-    span.textContent = 'auto from workouts';
-    span.title = source;
-  } else {
-    span.className = 'habit-autofill-pill manual';
-    span.textContent = 'manual';
+function habitIconHTML(icon, color, size) {
+  const bg = color || '#9ca3af';
+  const s = size || 26;
+  if (icon) {
+    return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.5)}px"><i class="ti ${icon}" aria-hidden="true"></i></span>`;
   }
-  return span;
+  // Fallback ? when icon data is missing
+  return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.45)}px;font-weight:700">?</span>`;
 }
 
-// ── Load ──────────────────────────────────────────────────────────────────────
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Load & Render (main entry) ────────────────────────────────────────────────
 
 async function loadAndRender() {
   clearError();
-  const list = document.getElementById('habit-list');
-  if (list && typeof UIStates !== 'undefined') UIStates.setLoading(list);
+
+  const todayStr = bangkokTodayStr();
+  const dates = weekDates();
+  const weekFrom = dates[0];
+  const weekTo = dates[6];
 
   try {
-    const [activeRes, archivedRes] = await Promise.all([
+    const [activeRes, archivedRes, logsRes, statsRes] = await Promise.all([
       fetch('/api/habits'),
       fetch('/api/habits?include_archived=true'),
+      fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
+      fetch('/api/habits/stats?days=30'),
     ]);
+
     if (!activeRes.ok) throw new Error(`Server error ${activeRes.status}`);
     if (!archivedRes.ok) throw new Error(`Server error ${archivedRes.status}`);
 
-    const allWithArchived = await archivedRes.json();
-    activeHabits = (await activeRes.json());
-    archivedHabits = allWithArchived.filter(h => h.is_archived);
+    activeHabits = await activeRes.json();
+    const allHabits = await archivedRes.json();
+    archivedHabits = allHabits.filter(h => h.is_archived);
+    const logs = logsRes.ok ? await logsRes.json() : [];
+    const stats = statsRes.ok ? await statsRes.json() : [];
 
-    renderActiveList();
+    // Fetch per-habit progress for weekly habits card
+    const progressMap = {};
+    if (activeHabits.length > 0) {
+      const progressResults = await Promise.all(
+        activeHabits.map(h =>
+          fetch(`/api/habits/${encodeURIComponent(h.id)}/progress?week_start=${weekFrom}`)
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+        )
+      );
+      activeHabits.forEach((h, i) => {
+        if (progressResults[i]) progressMap[h.id] = progressResults[i];
+      });
+    }
+
+    // ── Subtitle ──
+    const subtitleEl = document.getElementById('habits-subtitle');
+    if (subtitleEl) {
+      if (activeHabits.length === 0) {
+        subtitleEl.textContent = 'No habits yet — add one to start tracking';
+      } else {
+        subtitleEl.textContent = `${activeHabits.length} habit${activeHabits.length !== 1 ? 's' : ''} · this week`;
+      }
+    }
+
+    // ── Starter or dashboard ──
+    if (activeHabits.length === 0 && archivedHabits.length === 0) {
+      renderEmptyState();
+      return;
+    }
+
+    document.getElementById('starter-section').style.display = 'none';
+    document.getElementById('hero-row').style.display = '';
+    document.getElementById('habits-day-grid-card').style.display = '';
+    document.getElementById('weekly-habits-card').style.display = '';
+
+    // ── Dashboard cards ──
+    renderWheel(activeHabits, logs, dates, todayStr);
+    renderStatsCard(activeHabits, stats);
+    renderDailyGrid(activeHabits, logs, dates, todayStr);
+    renderWeeklyHabits(activeHabits, progressMap);
     renderArchivedList();
-    renderStarterOrList();
+
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
-    if (list && typeof UIStates !== 'undefined') UIStates.setError(list, 'Something went wrong. Please try again.');
   }
 }
 
-// ── Render active list ────────────────────────────────────────────────────────
+// ── Empty state ───────────────────────────────────────────────────────────────
 
-function renderStarterOrList() {
-  const starterSection = document.getElementById('starter-section');
-  const habitList = document.getElementById('habit-list');
+function renderEmptyState() {
+  document.getElementById('starter-section').style.display = '';
+  document.getElementById('hero-row').style.display = 'none';
+  document.getElementById('habits-day-grid-card').style.display = 'none';
+  document.getElementById('weekly-habits-card').style.display = 'none';
 
-  if (activeHabits.length === 0 && archivedHabits.length === 0) {
-    starterSection.style.display = '';
-    renderStarterGrid();
-  } else {
-    starterSection.style.display = 'none';
-  }
+  renderStarterGrid();
+  renderWheelEmpty();
 }
 
 function renderStarterGrid() {
   const grid = document.getElementById('starter-grid');
+  if (!grid) return;
   grid.innerHTML = '';
   STARTER_HABITS.forEach(s => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'starter-btn';
 
-    const iconEl = document.createElement('div');
+    const iconEl = document.createElement('span');
     iconEl.className = 'starter-icon';
     iconEl.style.background = s.color;
-    iconEl.textContent = iconLabel(s.icon).slice(0, 2).toUpperCase();
+    if (s.icon) {
+      iconEl.innerHTML = `<i class="ti ${s.icon}" aria-hidden="true"></i>`;
+    } else {
+      iconEl.textContent = '?';
+    }
 
     const labelEl = document.createElement('span');
     labelEl.textContent = s.name;
@@ -198,91 +279,273 @@ async function createStarterHabit(starter) {
   }
 }
 
-function renderActiveList() {
-  const list = document.getElementById('habit-list');
-  list.innerHTML = '';
+// ── Wheel ─────────────────────────────────────────────────────────────────────
 
-  if (activeHabits.length === 0) return;
+function renderWheelEmpty() {
+  const arc = document.getElementById('wheel-arc');
+  const pctEl = document.getElementById('wheel-pct');
+  const labelEl = document.getElementById('wheel-label');
+  if (!arc) return;
+  arc.classList.add('wheel-empty');
+  arc.style.strokeDashoffset = '0';
+  if (pctEl) {
+    pctEl.style.fontSize = '13px';
+    pctEl.style.color = 'var(--text-tertiary)';
+    pctEl.textContent = 'Add habits to start tracking';
+  }
+  if (labelEl) labelEl.textContent = '';
+}
 
-  activeHabits.forEach((habit, index) => {
-    list.appendChild(buildHabitRow(habit, index, false));
+function renderWheel(habits, logs, dates, todayStr) {
+  const arc = document.getElementById('wheel-arc');
+  const pctEl = document.getElementById('wheel-pct');
+  const labelEl = document.getElementById('wheel-label');
+  if (!arc) return;
+
+  arc.classList.remove('wheel-empty');
+  arc.style.stroke = '';
+
+  const total = habits.length * 7;
+  if (total === 0) { renderWheelEmpty(); return; }
+
+  // Count distinct (habit_id, date) pairs this week up to today
+  const seen = new Set();
+  logs.forEach(l => {
+    if (l.logged_date >= dates[0] && l.logged_date <= todayStr) {
+      seen.add(l.habit_id + '|' + l.logged_date);
+    }
+  });
+  const daysElapsed = dates.filter(d => d <= todayStr).length;
+  const possibleSoFar = habits.length * Math.max(1, daysElapsed);
+  const completed = seen.size;
+  const pct = Math.round(Math.min(100, (completed / possibleSoFar) * 100));
+
+  const offset = WHEEL_CIRCUMFERENCE * (1 - pct / 100);
+  arc.style.strokeDashoffset = offset;
+
+  if (pctEl) {
+    pctEl.style.fontSize = '';
+    pctEl.style.color = '';
+    pctEl.textContent = pct + '%';
+  }
+  if (labelEl) labelEl.textContent = 'this week';
+}
+
+// ── Stats card ────────────────────────────────────────────────────────────────
+
+function renderStatsCard(habits, stats) {
+  const streakEl = document.getElementById('stat-streak');
+  const rateEl = document.getElementById('stat-rate');
+  const countEl = document.getElementById('stat-count');
+
+  if (countEl) countEl.textContent = String(habits.length);
+
+  let bestStreak = 0;
+  let avgRate = 0;
+  if (Array.isArray(stats) && stats.length > 0) {
+    stats.forEach(s => {
+      if (s.streak > bestStreak) bestStreak = s.streak;
+    });
+    const totalRate = stats.reduce((acc, s) => acc + (s.completion_rate || 0), 0);
+    avgRate = Math.round((totalRate / stats.length) * 100);
+  }
+
+  if (streakEl) streakEl.textContent = bestStreak + (bestStreak === 1 ? ' day' : ' days');
+  if (rateEl) rateEl.textContent = avgRate + '%';
+}
+
+// ── Daily grid ────────────────────────────────────────────────────────────────
+
+function renderDailyGrid(habits, logs, dates, todayStr) {
+  const container = document.getElementById('day-grid-content');
+  const weekEl = document.getElementById('day-grid-week');
+  if (!container) return;
+
+  if (weekEl) {
+    const from = dates[0].slice(5).replace('-', '/');
+    const to = dates[6].slice(5).replace('-', '/');
+    weekEl.textContent = from + ' – ' + to;
+  }
+
+  if (habits.length === 0) {
+    container.innerHTML = '<div class="day-grid-empty">No habits yet.</div>';
+    return;
+  }
+
+  // Build log set: habit_id + date → log_id
+  const logSet = {};
+  logs.forEach(l => {
+    if (dates.includes(l.logged_date)) {
+      logSet[l.habit_id + '|' + l.logged_date] = l.id;
+    }
+  });
+
+  let html = '<table class="day-grid-table" role="grid">';
+  html += '<thead><tr>';
+  html += '<th class="habit-name-hdr">Habit</th>';
+  for (let i = 0; i < 7; i++) {
+    html += `<th><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span><span class="day-hdr-short">${DAY_LABELS_SHORT[i]}</span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  habits.forEach(habit => {
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 24);
+    const trackingLabel = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
+    const autofillText = habit.auto_fill_source ? 'auto' : '';
+    const autofillBadge = autofillText
+      ? `<span class="habit-autofill-badge" title="Auto-filled from workouts. Visit <a href='/log'>workouts</a>">${autofillText}</span>`
+      : '';
+
+    html += `<tr data-habit-id="${esc(String(habit.id))}">`;
+    html += `<td class="habit-name-cell">
+      <div class="habit-name-inner">
+        ${iconHTML}
+        <div>
+          <div class="habit-name-text">${esc(habit.name)}</div>
+          <div class="habit-meta-line">
+            <span class="habit-type-chip">${esc(trackingLabel)}</span>
+            ${autofillBadge}
+          </div>
+        </div>
+      </div>
+    </td>`;
+
+    for (let i = 0; i < 7; i++) {
+      const dateStr = dates[i];
+      const isFuture = dateStr > todayStr;
+      const isToday = dateStr === todayStr;
+      const logKey = habit.id + '|' + dateStr;
+      const logId = logSet[logKey];
+      const isDone = !!logId;
+
+      let cls = 'day-cell-btn';
+      if (isDone) cls += ' done';
+      if (isToday) cls += ' today';
+      if (isFuture) cls += ' future';
+
+      const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]} ${isDone ? 'done' : 'not done'}`;
+      html += `<td><button
+        class="${cls}"
+        type="button"
+        aria-label="${esc(ariaLabel)}"
+        data-habit-id="${esc(String(habit.id))}"
+        data-date="${dateStr}"
+        data-log-id="${isDone ? esc(logId) : ''}"
+      >${isDone ? '<i class="ti ti-check" aria-hidden="true"></i>' : ''}</button></td>`;
+    }
+
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Attach click listeners for daily grid toggles
+  container.querySelectorAll('.day-cell-btn:not(.future)').forEach(btn => {
+    btn.addEventListener('click', () => handleDayCellToggle(btn));
   });
 }
 
-function buildHabitRow(habit, index, isArchived) {
-  const li = document.createElement('li');
-  li.className = 'habit-row';
-  li.dataset.id = habit.id;
-  li.dataset.index = index;
+async function handleDayCellToggle(btn) {
+  const habitId = btn.dataset.habitId;
+  const dateStr = btn.dataset.date;
+  const logId = btn.dataset.logId;
+  const isDone = btn.classList.contains('done');
 
-  // Drag handle (active only)
-  if (!isArchived) {
-    const handle = document.createElement('span');
-    handle.className = 'drag-handle';
-    handle.textContent = '⠿';
-    handle.draggable = true;
-    handle.setAttribute('aria-label', 'Drag to reorder');
-    li.appendChild(handle);
+  btn.disabled = true;
 
-    li.setAttribute('draggable', 'true');
-    li.addEventListener('dragstart', onDragStart);
-    li.addEventListener('dragover', onDragOver);
-    li.addEventListener('dragleave', onDragLeave);
-    li.addEventListener('drop', onDrop);
-    li.addEventListener('dragend', onDragEnd);
+  try {
+    if (isDone) {
+      // Unlog
+      if (!logId) { btn.disabled = false; return; }
+      const res = await fetch(`/api/habits/logs/${encodeURIComponent(logId)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
+      btn.classList.remove('done');
+      btn.innerHTML = '';
+      btn.dataset.logId = '';
+    } else {
+      // Log
+      const res = await fetch('/api/habits/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit_id: habitId, logged_date: dateStr }),
+      });
+      if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
+      if (res.ok) {
+        const data = await res.json();
+        btn.classList.add('done');
+        btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i>';
+        btn.dataset.logId = data.id || '';
+      }
+    }
+
+    // Re-render wheel with updated logs (lightweight)
+    const dates = weekDates();
+    const logsRes = await fetch(`/api/habits/logs?from=${dates[0]}&to=${dates[6]}`);
+    if (logsRes.ok) {
+      const logs = await logsRes.json();
+      renderWheel(activeHabits, logs, dates, bangkokTodayStr());
+    }
+  } catch (e) {
+    showError('Failed to update log: ' + e.message);
   }
 
-  // Icon
-  li.appendChild(habitIconEl(habit.icon, habit.color));
+  btn.disabled = false;
+}
 
-  // Info block
-  const info = document.createElement('div');
-  info.className = 'habit-info';
+// ── Weekly habits card ────────────────────────────────────────────────────────
 
-  const nameEl = document.createElement('div');
-  nameEl.className = 'habit-name';
-  nameEl.textContent = habit.name;
-  info.appendChild(nameEl);
+function renderWeeklyHabits(habits, progressMap) {
+  const container = document.getElementById('weekly-habits-content');
+  if (!container) return;
 
-  const meta = document.createElement('div');
-  meta.className = 'habit-meta';
-
-  const typeLabel = document.createElement('span');
-  typeLabel.className = 'habit-tracking-type';
-  typeLabel.textContent = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
-  meta.appendChild(typeLabel);
-
-  const goal = goalText(habit);
-  if (goal) {
-    const goalEl = document.createElement('span');
-    goalEl.className = 'habit-goal';
-    goalEl.textContent = goal;
-    meta.appendChild(goalEl);
+  if (habits.length === 0) {
+    container.innerHTML = '<div class="weekly-habits-empty">No habits yet.</div>';
+    return;
   }
 
-  meta.appendChild(autofillPill(habit.auto_fill_source));
-  info.appendChild(meta);
-  li.appendChild(info);
+  container.innerHTML = '';
 
-  // Actions menu
-  const actionsDiv = document.createElement('div');
-  actionsDiv.className = 'habit-actions';
+  habits.forEach(habit => {
+    const prog = progressMap[habit.id] || {};
+    const current = prog.current_value != null ? prog.current_value : 0;
+    const target = prog.target;
+    const pct = Math.min(100, prog.percentage != null ? prog.percentage : 0);
+    const isComplete = !!prog.is_complete;
+    const unit = habit.unit ? ' ' + habit.unit : '';
 
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'actions-toggle';
-  toggle.textContent = '⋯';
-  toggle.setAttribute('aria-label', 'Habit actions');
-  toggle.addEventListener('click', e => {
-    e.stopPropagation();
-    closeAllMenus();
-    menu.classList.toggle('open');
-  });
+    const valStr = target != null
+      ? (Number.isInteger(current) ? current : current.toFixed(1)) + ' / ' + target + unit
+      : '—';
 
-  const menu = document.createElement('div');
-  menu.className = 'actions-menu';
+    const trackingLabel = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
 
-  if (!isArchived) {
+    const row = document.createElement('div');
+    row.className = 'week-habit-row';
+    row.id = `habit-week-row-${habit.id}`;
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 30);
+
+    row.innerHTML = `
+      ${iconHTML}
+      <div class="week-habit-info">
+        <div class="week-habit-name-row">
+          <span class="week-habit-name">${esc(habit.name)}</span>
+          <span class="week-habit-val">${esc(valStr)}</span>
+        </div>
+        <div class="week-habit-bar-outer">
+          <div class="week-habit-bar-inner${isComplete ? ' complete' : ''}" style="width:${pct.toFixed(1)}%"></div>
+        </div>
+      </div>
+      <span class="week-habit-chip ${isComplete ? 'complete' : 'incomplete'}">${isComplete ? '✓ Done' : Math.round(pct) + '%'}</span>
+      <div class="week-habit-actions">
+        <button type="button" class="week-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
+        <div class="week-actions-menu" id="week-menu-${esc(String(habit.id))}"></div>
+      </div>
+    `;
+
+    // Build action menu
+    const menu = row.querySelector('.week-actions-menu');
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.textContent = 'Edit';
@@ -294,45 +557,44 @@ function buildHabitRow(habit, index, isArchived) {
     archiveBtn.textContent = 'Archive';
     archiveBtn.addEventListener('click', () => { closeAllMenus(); archiveHabit(habit.id); });
     menu.appendChild(archiveBtn);
-  } else {
-    const unarchiveBtn = document.createElement('button');
-    unarchiveBtn.type = 'button';
-    unarchiveBtn.textContent = 'Unarchive';
-    unarchiveBtn.addEventListener('click', () => { closeAllMenus(); unarchiveHabit(habit.id); });
-    menu.appendChild(unarchiveBtn);
-  }
 
-  const deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'danger';
-  deleteBtn.textContent = 'Delete';
-  deleteBtn.addEventListener('click', () => {
-    closeAllMenus();
-    if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
-      deleteHabit(habit.id);
-    }
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      closeAllMenus();
+      if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
+        deleteHabit(habit.id);
+      }
+    });
+    menu.appendChild(deleteBtn);
+
+    const toggle = row.querySelector('.week-actions-toggle');
+    toggle.addEventListener('click', e => {
+      e.stopPropagation();
+      closeAllMenus();
+      menu.classList.toggle('open');
+    });
+
+    container.appendChild(row);
   });
-  menu.appendChild(deleteBtn);
-
-  actionsDiv.appendChild(toggle);
-  actionsDiv.appendChild(menu);
-  li.appendChild(actionsDiv);
-
-  return li;
 }
 
 function closeAllMenus() {
-  document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+  document.querySelectorAll('.week-actions-menu.open, .actions-menu.open').forEach(m => m.classList.remove('open'));
 }
 
 document.addEventListener('click', closeAllMenus);
 
-// ── Render archived list ──────────────────────────────────────────────────────
+// ── Archived list ─────────────────────────────────────────────────────────────
 
 function renderArchivedList() {
   const section = document.getElementById('archived-section');
   const list = document.getElementById('archived-list');
   const countEl = document.getElementById('archived-count');
+
+  if (!section || !list) return;
 
   if (archivedHabits.length === 0) {
     section.style.display = 'none';
@@ -340,10 +602,37 @@ function renderArchivedList() {
   }
 
   section.style.display = '';
-  countEl.textContent = ` (${archivedHabits.length})`;
+  if (countEl) countEl.textContent = ` (${archivedHabits.length})`;
   list.innerHTML = '';
-  archivedHabits.forEach((habit, index) => {
-    list.appendChild(buildHabitRow(habit, index, true));
+
+  archivedHabits.forEach(habit => {
+    const li = document.createElement('li');
+    li.className = 'archived-habit-row';
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 22);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'archived-habit-name';
+    nameEl.innerHTML = iconHTML + ' ' + esc(habit.name);
+
+    const unarchiveBtn = document.createElement('button');
+    unarchiveBtn.type = 'button';
+    unarchiveBtn.className = 'archived-btn';
+    unarchiveBtn.textContent = 'Restore';
+    unarchiveBtn.addEventListener('click', () => unarchiveHabit(habit.id));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'archived-delete-btn';
+    deleteBtn.title = 'Delete permanently';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', () => {
+      if (confirm(`Delete "${habit.name}" permanently?`)) deleteHabit(habit.id);
+    });
+
+    li.appendChild(nameEl);
+    li.appendChild(unarchiveBtn);
+    li.appendChild(deleteBtn);
+    list.appendChild(li);
   });
 }
 
@@ -371,7 +660,7 @@ async function unarchiveHabit(habitId) {
     if (typeof UIStates !== 'undefined') UIStates.showToast('Habit restored');
     await loadAndRender();
   } catch (e) {
-    showError('Failed to unarchive habit: ' + e.message);
+    showError('Failed to restore habit: ' + e.message);
   }
 }
 
@@ -386,58 +675,6 @@ async function deleteHabit(habitId) {
   }
 }
 
-// ── Drag & drop reorder ───────────────────────────────────────────────────────
-
-function onDragStart(e) {
-  dragSrcIndex = parseInt(this.dataset.index, 10);
-  this.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-}
-
-function onDragOver(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  this.classList.add('drag-over');
-}
-
-function onDragLeave() {
-  this.classList.remove('drag-over');
-}
-
-async function onDrop(e) {
-  e.preventDefault();
-  this.classList.remove('drag-over');
-  const destIndex = parseInt(this.dataset.index, 10);
-  if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
-
-  const reordered = [...activeHabits];
-  const [moved] = reordered.splice(dragSrcIndex, 1);
-  reordered.splice(destIndex, 0, moved);
-
-  activeHabits = reordered;
-  renderActiveList();
-
-  // Persist new sort_order for the moved habit
-  try {
-    const res = await fetch(`/api/habits/${encodeURIComponent(moved.id)}/reorder`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sort_order: destIndex }),
-    });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-  } catch (e) {
-    showError('Failed to save order: ' + e.message);
-    await loadAndRender();
-  }
-}
-
-function onDragEnd() {
-  document.querySelectorAll('.habit-row').forEach(r => {
-    r.classList.remove('dragging', 'drag-over');
-  });
-  dragSrcIndex = null;
-}
-
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 function buildIconPicker() {
@@ -447,8 +684,8 @@ function buildIconPicker() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'icon-option' + (icon === selectedIcon ? ' selected' : '');
-    btn.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
-    btn.title = icon;
+    btn.innerHTML = `<i class="ti ${icon}" aria-hidden="true"></i>`;
+    btn.title = iconLabel(icon);
     btn.dataset.icon = icon;
     btn.addEventListener('click', () => {
       selectedIcon = icon;
@@ -469,6 +706,7 @@ function buildColorPicker() {
     btn.style.background = color;
     btn.title = color;
     btn.dataset.color = color;
+    btn.setAttribute('aria-label', `Color ${color}`);
     btn.addEventListener('click', () => {
       selectedColor = color;
       container.querySelectorAll('.color-swatch').forEach(b => b.classList.remove('selected'));
@@ -541,13 +779,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
-  document.getElementById('archived-toggle').addEventListener('click', () => {
-    const toggle = document.getElementById('archived-toggle');
-    const list = document.getElementById('archived-list');
-    const isOpen = toggle.classList.contains('open');
-    toggle.classList.toggle('open', !isOpen);
-    list.style.display = isOpen ? 'none' : '';
-  });
+  const archivedToggle = document.getElementById('archived-toggle');
+  if (archivedToggle) {
+    archivedToggle.addEventListener('click', () => {
+      const list = document.getElementById('archived-list');
+      const isOpen = archivedToggle.classList.contains('open');
+      archivedToggle.classList.toggle('open', !isOpen);
+      if (list) list.style.display = isOpen ? 'none' : '';
+    });
+  }
 
   document.getElementById('modal-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -605,12 +845,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-window.addEventListener('userReady', e => {
-  currentUserId = e.detail.userId;
+window.addEventListener('userReady', () => {
   loadAndRender();
 });
 
-window.addEventListener('userChanged', e => {
-  currentUserId = e.detail.userId;
+window.addEventListener('userChanged', () => {
   loadAndRender();
 });

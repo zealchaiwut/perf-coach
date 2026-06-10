@@ -4,75 +4,266 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Habits – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
   <style>
-    .page-header {
+    /* ── Base ──────────────────────────────────────────────────────────────── */
+    html, body { margin: 0; padding: 0; overflow-x: hidden; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    /* ── Page wrapper ──────────────────────────────────────────────────────── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 24px 24px;
+    }
+
+    /* ── Floating card ─────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 18px 20px;
+      margin-bottom: 10px;
+    }
+
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Page header (on gradient) ─────────────────────────────────────────── */
+    .habits-page-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
-      max-width: 720px;
-      margin-bottom: 1.5rem;
+      gap: 1rem;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
     }
 
-    .page-header h1 {
-      font-size: 1.25rem;
-      font-weight: 700;
-      margin: 0;
-    }
-
-    .btn-primary {
-      padding: 0.5rem 1.25rem;
-      background: #1a1a1a;
+    .habits-page-header h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
       color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+
+    .page-subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+    }
+
+    .btn-new-habit {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.92);
       border: none;
-      border-radius: 6px;
-      font-size: 0.9375rem;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
     }
-
-    .btn-primary:hover { background: #333; }
+    .btn-new-habit:hover { background: #fff; }
 
     .error-msg {
-      font-size: 0.8125rem;
-      color: #c0392b;
+      font-size: 13px;
+      color: #fff;
       min-height: 1.2em;
-      margin-bottom: 0.75rem;
+      margin-bottom: 8px;
+      background: rgba(122,26,26,0.55);
+      border-radius: 8px;
+      padding: 0;
+    }
+    .error-msg:not(:empty) { padding: 10px 14px; }
+
+    /* ── Hero 2-col row ────────────────────────────────────────────────────── */
+    .hero-row {
+      display: grid;
+      grid-template-columns: 0.85fr 1.15fr;
+      gap: 10px;
+      margin-bottom: 10px;
     }
 
-    /* ── Starter suggestions ── */
-    .starter-section {
-      max-width: 720px;
-      margin-bottom: 2rem;
+    /* ── Wheel card ────────────────────────────────────────────────────────── */
+    .wheel-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 20px;
+      min-height: 200px;
     }
 
-    .starter-section p {
-      font-size: 0.9375rem;
-      color: #555;
-      margin-bottom: 0.75rem;
+    .wheel-wrap {
+      position: relative;
+      width: 140px;
+      height: 140px;
+      flex-shrink: 0;
+    }
+
+    .habits-wheel-svg {
+      width: 140px;
+      height: 140px;
+      overflow: visible;
+    }
+
+    .wheel-track {
+      fill: none;
+      stroke: #eef0f6;
+      stroke-width: 16;
+    }
+
+    .wheel-arc {
+      fill: none;
+      stroke: url(#wheel-gradient);
+      stroke-width: 16;
+      stroke-linecap: round;
+      transform-origin: 60px 60px;
+      transform: rotate(-90deg);
+      stroke-dasharray: 289.03;
+      stroke-dashoffset: 289.03;
+      transition: stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .wheel-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 10px;
+    }
+
+    .wheel-pct {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .wheel-label {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+      margin-top: 2px;
+      line-height: 1.2;
+    }
+
+    /* Empty wheel: grey arc, full ring */
+    .wheel-arc.wheel-empty {
+      stroke: #eef0f6;
+      stroke-dashoffset: 0;
+    }
+
+    /* ── Stats card ────────────────────────────────────────────────────────── */
+    .habits-stats-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+    }
+
+    .hstat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .hstat-val {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.15;
+    }
+
+    .hstat-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
+    .hstat-divider {
+      height: 1px;
+      background: #eef0f6;
+    }
+
+    /* ── Starter suggestions ───────────────────────────────────────────────── */
+    #starter-section {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 20px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .starter-heading {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 6px;
+    }
+
+    .starter-sub {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin: 0 0 16px;
     }
 
     .starter-grid {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem;
+      gap: 8px;
+      justify-content: center;
     }
 
     .starter-btn {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.6rem 1rem;
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      font-size: 0.9375rem;
+      gap: 8px;
+      padding: 8px 14px;
+      background: #f7f9fc;
+      border: 1px solid #e8eaf0;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-family: 'Inter Tight', sans-serif;
       cursor: pointer;
-      color: #1a1a1a;
-      transition: background 0.15s;
+      color: var(--text-primary);
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s;
     }
-
-    .starter-btn:hover { background: #eef0f2; }
+    .starter-btn:hover { background: #eef0f6; border-color: #d8e3f5; }
 
     .starter-icon {
       width: 28px;
@@ -81,204 +272,384 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.75rem;
-      font-weight: 700;
+      font-size: 14px;
       color: #fff;
       flex-shrink: 0;
     }
 
-    /* ── Habit list ── */
-    #habit-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      max-width: 720px;
+    /* ── Daily grid card ───────────────────────────────────────────────────── */
+    .habits-day-grid {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
-    .habit-row {
+    .day-grid-hdr {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 0.25rem;
-      border-bottom: 1px solid #e8e8e8;
-      cursor: default;
-      user-select: none;
+      justify-content: space-between;
+      margin-bottom: 14px;
     }
 
-    .habit-row.drag-over {
-      background: #f0f7ff;
-      border-radius: 4px;
+    .day-grid-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
     }
 
-    .habit-row.dragging {
-      opacity: 0.4;
+    .day-grid-week {
+      font-size: 12px;
+      color: var(--text-tertiary);
     }
 
-    .drag-handle {
-      color: #bbb;
-      cursor: grab;
-      font-size: 1rem;
-      padding: 0 0.125rem;
-      flex-shrink: 0;
-      line-height: 1;
+    .day-grid-table {
+      width: 100%;
+      min-width: 400px;
+      border-collapse: collapse;
     }
 
-    .drag-handle:active { cursor: grabbing; }
+    .day-grid-table th {
+      padding: 0 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      text-align: center;
+      min-width: 36px;
+    }
 
-    .habit-icon {
-      width: 34px;
-      height: 34px;
+    .day-grid-table th.day-hdr-full { display: table-cell; }
+    .day-grid-table th.day-hdr-short { display: none; }
+
+    .day-grid-table th.habit-name-hdr {
+      text-align: left;
+      min-width: 120px;
+      padding-left: 0;
+    }
+
+    .day-grid-table td {
+      padding: 4px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .day-grid-table td.habit-name-cell {
+      text-align: left;
+      padding: 6px 8px 6px 0;
+      max-width: 160px;
+    }
+
+    .habit-name-inner {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .habit-icon-chip {
+      width: 26px;
+      height: 26px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 700;
+      font-size: 12px;
       color: #fff;
       flex-shrink: 0;
     }
 
-    .habit-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .habit-name {
-      font-size: 0.9375rem;
-      font-weight: 600;
-      color: #1a1a1a;
+    .habit-name-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .habit-meta {
+    .habit-meta-line {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-top: 0.2rem;
-      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
     }
 
-    .habit-tracking-type {
-      font-size: 0.75rem;
-      color: #777;
-      background: #f3f4f6;
-      padding: 0.1rem 0.4rem;
+    .habit-type-chip {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      background: #f3f6fb;
+      padding: 1px 5px;
       border-radius: 4px;
     }
 
-    .habit-goal {
-      font-size: 0.8125rem;
-      color: #555;
-    }
-
-    .habit-autofill-pill {
-      font-size: 0.75rem;
-      padding: 0.15rem 0.5rem;
+    .habit-autofill-badge {
+      font-size: 10.5px;
+      padding: 1px 6px;
       border-radius: 999px;
       background: #dbeafe;
       color: #1d4ed8;
       white-space: nowrap;
     }
 
-    .habit-autofill-pill.manual {
-      background: #f3f4f6;
-      color: #6b7280;
+    /* Day cell toggle */
+    .day-cell-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid #e8eaf0;
+      background: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: transparent;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .day-cell-btn:hover:not(.future):not(.done) { border-color: #93c5fd; background: #eff6ff; }
+    .day-cell-btn.done {
+      background: #0b1530;
+      border-color: #0b1530;
+      color: #fff;
+    }
+    .day-cell-btn.today { border-color: #2563eb; }
+    .day-cell-btn.today.done { background: #2563eb; border-color: #2563eb; }
+    .day-cell-btn.future { opacity: 0.3; cursor: default; pointer-events: none; }
+
+    .day-grid-empty {
+      text-align: center;
+      padding: 24px 0;
+      font-size: 13.5px;
+      color: var(--text-tertiary);
     }
 
-    /* ── Actions menu ── */
-    .habit-actions {
+    /* ── Weekly habits card ────────────────────────────────────────────────── */
+    .weekly-habits {
+      padding-bottom: 20px;
+    }
+
+    .weekly-habits-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .weekly-habits-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
+    .weekly-habits-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .week-habit-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #f7f9fc;
+      transition: background 0.15s;
+    }
+    .week-habit-row:hover { background: #eef0f6; }
+
+    .week-habit-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .week-habit-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .week-habit-name-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 5px;
+      flex-wrap: wrap;
+    }
+
+    .week-habit-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .week-habit-val {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .week-habit-bar-outer {
+      height: 6px;
+      background: #e8eaf0;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .week-habit-bar-inner {
+      height: 100%;
+      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+      border-radius: 999px;
+      transition: width 0.5s ease;
+    }
+    .week-habit-bar-inner.complete {
+      background: linear-gradient(90deg, #86efac 0%, #16a34a 100%);
+    }
+
+    .week-habit-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .week-habit-chip.complete { background: var(--green-soft); color: var(--green); }
+    .week-habit-chip.incomplete { background: #f1f4fa; color: var(--text-secondary); }
+
+    .week-habit-actions {
       position: relative;
       flex-shrink: 0;
     }
 
-    .actions-toggle {
+    .week-actions-toggle {
       background: none;
       border: none;
       cursor: pointer;
-      color: #999;
+      color: var(--text-tertiary);
       font-size: 1.1rem;
-      padding: 0.25rem 0.5rem;
+      padding: 4px 6px;
       border-radius: 4px;
       line-height: 1;
     }
+    .week-actions-toggle:hover { background: #e8eaf0; color: var(--text-primary); }
 
-    .actions-toggle:hover { background: #f3f4f6; color: #444; }
-
-    .actions-menu {
+    .week-actions-menu {
       display: none;
       position: absolute;
       right: 0;
       top: calc(100% + 4px);
       background: #fff;
       border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
       z-index: 50;
       min-width: 130px;
       overflow: hidden;
     }
-
-    .actions-menu.open { display: block; }
-
-    .actions-menu button {
+    .week-actions-menu.open { display: block; }
+    .week-actions-menu button {
       display: block;
       width: 100%;
       text-align: left;
-      padding: 0.6rem 1rem;
+      padding: 9px 14px;
       background: none;
       border: none;
       cursor: pointer;
-      font-size: 0.9rem;
-      color: #1a1a1a;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-actions-menu button:hover { background: #f7f9fc; }
+    .week-actions-menu button.danger { color: var(--red); }
+    .week-actions-menu button.danger:hover { background: var(--red-soft); }
+
+    .weekly-habits-empty {
+      text-align: center;
+      padding: 20px 0;
+      font-size: 13.5px;
+      color: var(--text-tertiary);
     }
 
-    .actions-menu button:hover { background: #f8f9fa; }
-
-    .actions-menu button.danger {
-      color: #c0392b;
-    }
-
-    .actions-menu button.danger:hover { background: #fee2e2; }
-
-    /* ── Archived section ── */
+    /* ── Management (archived section) ────────────────────────────────────── */
     .archived-section {
-      max-width: 720px;
-      margin-top: 1.5rem;
+      margin-top: 8px;
     }
 
     .archived-toggle {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 6px;
       background: none;
       border: none;
       cursor: pointer;
-      font-size: 0.9375rem;
-      color: #555;
-      padding: 0.5rem 0;
+      font-size: 12.5px;
       font-weight: 600;
+      color: var(--text-tertiary);
+      padding: 6px 0;
+      font-family: 'Inter Tight', sans-serif;
     }
-
-    .archived-toggle .arrow {
-      transition: transform 0.2s;
-      font-size: 0.75rem;
-    }
-
+    .archived-toggle .arrow { transition: transform 0.2s; font-size: 0.75rem; }
     .archived-toggle.open .arrow { transform: rotate(90deg); }
 
-    .archived-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    .archived-list .habit-row {
+    .archived-list { list-style: none; padding: 0; margin: 8px 0 0; }
+    .archived-habit-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #f7f9fc;
+      margin-bottom: 6px;
       opacity: 0.7;
     }
 
-    /* ── Modal ── */
+    .archived-habit-name {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .archived-btn {
+      background: none;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .archived-btn:hover { background: #eef0f6; }
+    .archived-delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .archived-delete-btn:hover { color: var(--red); background: var(--red-soft); }
+
+    /* ── Modal ─────────────────────────────────────────────────────────────── */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -288,12 +659,11 @@
       justify-content: center;
       z-index: 200;
     }
-
     .modal-overlay.open { display: flex; }
 
     .modal-box {
       background: #fff;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 1.75rem;
       width: 90%;
       max-width: 480px;
@@ -306,26 +676,13 @@
       font-size: 1.1rem;
       font-weight: 700;
       margin: 0 0 1.25rem;
+      color: var(--text-primary);
     }
 
-    .modal-form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
+    .modal-form { display: flex; flex-direction: column; gap: 1rem; }
 
-    .form-field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-
-    .form-field label {
-      font-size: 0.8125rem;
-      font-weight: 600;
-      color: #444;
-    }
-
+    .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-field label { font-size: 0.8125rem; font-weight: 600; color: #444; }
     .form-field input[type="text"],
     .form-field input[type="number"],
     .form-field select,
@@ -335,93 +692,49 @@
       border-radius: 6px;
       font-size: 0.9375rem;
       background: #fff;
+      font-family: 'Inter Tight', sans-serif;
     }
-
     .form-field input:focus,
     .form-field select:focus,
     .form-field textarea:focus {
       outline: none;
-      border-color: #1a1a1a;
-      box-shadow: 0 0 0 2px rgba(26,26,26,0.1);
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
     }
-
-    .form-field textarea {
-      resize: vertical;
-      min-height: 64px;
-    }
-
+    .form-field textarea { resize: vertical; min-height: 64px; }
     .form-field .hint {
       font-size: 0.75rem;
-      color: #888;
+      color: var(--text-tertiary);
     }
+    .form-field .hint a { color: #2563eb; text-decoration: none; }
+    .form-field .hint a:hover { text-decoration: underline; }
 
-    .tracking-type-option { font-size: 0.8125rem; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.75rem;
-    }
-
-    /* ── Icon picker ── */
-    .icon-picker {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-
+    /* Icon picker */
+    .icon-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .icon-option {
-      width: 40px;
-      height: 40px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      background: #f8f9fa;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: #555;
+      width: 40px; height: 40px;
+      border: 2px solid #e0e0e0; border-radius: 8px;
+      background: #f8f9fa; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #555;
       transition: border-color 0.15s, background 0.15s;
     }
-
     .icon-option:hover { border-color: #999; background: #eee; }
+    .icon-option.selected { border-color: #0b1530; background: #0b1530; color: #fff; }
 
-    .icon-option.selected {
-      border-color: #1a1a1a;
-      background: #1a1a1a;
-      color: #fff;
-    }
-
-    /* ── Color picker ── */
-    .color-picker {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
+    /* Color picker */
+    .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .color-swatch {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      cursor: pointer;
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid transparent; cursor: pointer;
       transition: border-color 0.15s, transform 0.1s;
     }
-
     .color-swatch:hover { transform: scale(1.12); }
+    .color-swatch.selected { border-color: #0b1530; }
 
-    .color-swatch.selected { border-color: #1a1a1a; }
-
-    /* ── Modal actions ── */
-    .modal-actions {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-end;
-      margin-top: 0.5rem;
-    }
-
+    .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem; }
     .btn-cancel {
       padding: 0.5rem 1.25rem;
       background: transparent;
@@ -430,54 +743,150 @@
       font-size: 0.9375rem;
       cursor: pointer;
       color: #444;
+      font-family: 'Inter Tight', sans-serif;
     }
-
     .btn-cancel:hover { background: #f5f5f5; }
+    .btn-primary {
+      padding: 0.5rem 1.25rem;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9375rem;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .btn-primary:hover { background: #162444; }
+    .modal-error { font-size: 0.8125rem; color: var(--red); min-height: 1.2em; }
 
-    .modal-error {
-      font-size: 0.8125rem;
-      color: #c0392b;
-      min-height: 1.2em;
+    /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
+    @media (max-width: 820px) {
+      .hero-row {
+        grid-template-columns: 1fr;
+      }
+
+      .habit-meta-line { display: none; }
+
+      .week-habit-row { flex-wrap: wrap; gap: 8px; }
+      .week-habit-name-row { margin-bottom: 4px; }
+      .week-habit-bar-outer { width: 100%; }
     }
 
-    /* ── Mobile ── */
-    @media (max-width: 600px) {
-      .page-header h1 { font-size: 1.05rem; }
-      .habit-row { gap: 0.5rem; }
-      .habit-meta { gap: 0.3rem; }
-      .form-row { grid-template-columns: 1fr; }
-      .modal-box { padding: 1.25rem; }
+    /* ── Responsive ≤768px ─────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      main { padding: 16px 16px 20px; }
+      .habits-page-header h1 { font-size: 22px; }
+    }
+
+    /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
+    @media (max-width: 480px) {
+      main { padding: 12px 12px 16px; }
+      .habits-page-header h1 { font-size: 20px; }
+
+      .day-grid-table th.day-hdr-full { display: none; }
+      .day-grid-table th.day-hdr-short { display: table-cell; }
+
+      .day-cell-btn { width: 40px; height: 40px; }
+      .day-grid-table { min-width: 0; }
+
       .starter-grid { flex-direction: column; }
       .starter-btn { width: 100%; }
+
+      .form-row { grid-template-columns: 1fr; }
+      .modal-box { padding: 1.25rem; }
     }
   </style>
 </head>
 <body>
   <main>
-    <div class="page-header">
-      <h1>Habits — Weekly tracking</h1>
-      <button id="add-habit-btn" type="button" class="btn-primary">+ New habit</button>
+    <!-- Page header (renders on gradient) -->
+    <div class="habits-page-header">
+      <div>
+        <h1>Habits</h1>
+        <p class="page-subtitle" id="habits-subtitle">Loading…</p>
+      </div>
+      <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
     </div>
 
     <p id="api-error" class="error-msg" role="alert"></p>
 
-    <!-- Starter suggestions (shown only when 0 habits) -->
-    <div id="starter-section" class="starter-section" style="display:none">
-      <p>Get started with these habits:</p>
+    <!-- Empty state: starter suggestions (shown only when 0 habits) -->
+    <div id="starter-section" style="display:none">
+      <p class="starter-heading">Welcome to Habits!</p>
+      <p class="starter-sub">Start tracking your weekly goals:</p>
       <div class="starter-grid" id="starter-grid"></div>
     </div>
 
-    <!-- Active habit list -->
-    <ul id="habit-list"></ul>
+    <!-- Hero row: wheel card (left) | stats card (right) -->
+    <div class="hero-row" id="hero-row">
+      <!-- Wheel card -->
+      <div class="card wheel-card" id="wheel-card">
+        <div class="wheel-wrap">
+          <svg class="habits-wheel-svg" viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="wheel-gradient" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#93c5fd"/>
+                <stop offset="100%" stop-color="#2563eb"/>
+              </linearGradient>
+            </defs>
+            <circle class="wheel-track" cx="60" cy="60" r="46"/>
+            <circle class="wheel-arc" id="wheel-arc" cx="60" cy="60" r="46"/>
+          </svg>
+          <div class="wheel-center">
+            <span class="wheel-pct" id="wheel-pct">--%</span>
+            <span class="wheel-label" id="wheel-label">this week</span>
+          </div>
+        </div>
+      </div>
 
-    <!-- Archived section -->
-    <div class="archived-section" id="archived-section" style="display:none">
-      <button type="button" class="archived-toggle" id="archived-toggle">
-        <span class="arrow">▶</span>
-        <span>Archived habits</span>
-        <span id="archived-count" style="color:#aaa;font-weight:400"></span>
-      </button>
-      <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      <!-- Stats card -->
+      <div class="card habits-stats-card" id="habits-stats-card">
+        <div class="hstat-item">
+          <span class="hstat-val" id="stat-streak">--</span>
+          <span class="hstat-label">Best streak</span>
+        </div>
+        <div class="hstat-divider"></div>
+        <div class="hstat-item">
+          <span class="hstat-val" id="stat-rate">--%</span>
+          <span class="hstat-label">30-day completion</span>
+        </div>
+        <div class="hstat-divider"></div>
+        <div class="hstat-item">
+          <span class="hstat-val" id="stat-count">--</span>
+          <span class="hstat-label">Habits tracked</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily grid card -->
+    <div class="card habits-day-grid" id="habits-day-grid-card">
+      <div class="day-grid-hdr">
+        <span class="day-grid-title">Daily grid</span>
+        <span class="day-grid-week" id="day-grid-week"></span>
+      </div>
+      <div id="day-grid-content">
+        <div class="day-grid-empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Weekly habits card -->
+    <div class="card weekly-habits" id="weekly-habits-card">
+      <div class="weekly-habits-hdr">
+        <span class="weekly-habits-title">This week's progress</span>
+      </div>
+      <div class="weekly-habits-list" id="weekly-habits-content">
+        <div class="weekly-habits-empty">Loading…</div>
+      </div>
+
+      <!-- Archived section (inside weekly card) -->
+      <div class="archived-section" id="archived-section" style="display:none">
+        <button type="button" class="archived-toggle" id="archived-toggle">
+          <span class="arrow">▶</span>
+          <span>Archived habits</span>
+          <span id="archived-count" style="color:var(--text-tertiary);font-weight:400;font-size:12px"></span>
+        </button>
+        <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      </div>
     </div>
   </main>
 
@@ -488,7 +897,7 @@
       <form id="modal-form" class="modal-form" novalidate>
 
         <div class="form-field">
-          <label for="modal-name">Name <span style="color:#c0392b">*</span></label>
+          <label for="modal-name">Name <span style="color:var(--red)">*</span></label>
           <input id="modal-name" type="text" placeholder="e.g. Zone 2 cardio" maxlength="100" autocomplete="off">
         </div>
 
@@ -528,7 +937,7 @@
             <option value="workout.total_duration_minutes">Total duration — sum of all workout minutes</option>
             <option value="workout.distance_km">Distance — sum of workout distances (km)</option>
           </select>
-          <span class="hint">Auto-fill populates progress automatically from workout data.</span>
+          <span class="hint">Auto fills from workout data. <a href="/log" target="_blank">View workouts →</a></span>
         </div>
 
         <div class="form-field">
