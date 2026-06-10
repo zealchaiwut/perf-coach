@@ -62,7 +62,6 @@ function interpolateWeight(fromDate, fromWeight, toDate, toWeight, atDate) {
 // ── State ──────────────────────────────────────────────────────────────────
 
 let _userId = null;
-let _chartInstance = null;
 let _currentRange = '30d';
 let _chartData = null;       // last /api/weight-chart response
 let _activeTarget = null;    // last /api/weight-targets/active target object
@@ -239,209 +238,17 @@ function renderCoachStrip(chartData, activeTarget) {
 
 // ── Chart ──────────────────────────────────────────────────────────────────
 
-const CHART_COLORS = {
-  actuals:   '#9ca3af',
-  trend:     '#2563eb',
-  target:    '#16a34a',
-  projected: '#60a5fa',
-};
-
-function _buildChartDatasets(chartData, range) {
-  const actuals = chartData.actuals || [];
-  const trend   = chartData.trend   || [];
-  const target  = chartData.target  || null;
-
-  // Labels come from the dense trend series (one point per day in range)
-  const labels = trend.map(p => p.date);
-
-  // Actuals: map by date; last value per date wins (API sorts by time asc)
-  const actualsMap = {};
-  actuals.forEach(p => { actualsMap[p.date] = p.weight_kg; });
-  const actualsData = labels.map(d => actualsMap[d] != null ? actualsMap[d] : null);
-
-  // Trend: direct mapping, nulls kept for spanGaps
-  const trendData = trend.map(p => p.weight_kg);
-
-  const datasets = [
-    {
-      label: 'Daily weigh-in',
-      data: actualsData,
-      showLine: false,
-      pointBackgroundColor: CHART_COLORS.actuals,
-      pointBorderColor: CHART_COLORS.actuals,
-      pointRadius: actualsData.map(v => v != null ? 4 : 0),
-      pointHoverRadius: 6,
-      spanGaps: false,
-      order: 1,
-    },
-    {
-      label: '7-day moving avg',
-      data: trendData,
-      borderColor: CHART_COLORS.trend,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      tension: 0.3,
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: false,
-      order: 2,
-    },
-  ];
-
-  // Target: horizontal dashed line at target_weight_kg
-  const hasTarget = target && target.target_weight_kg != null;
-  if (hasTarget) {
-    const tw = target.target_weight_kg;
-    datasets.push({
-      label: 'Target',
-      data: labels.map(() => tw),
-      borderColor: CHART_COLORS.target,
-      backgroundColor: 'transparent',
-      borderWidth: 1.5,
-      borderDash: [6, 4],
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: true,
-      order: 3,
-    });
-  } else {
-    datasets.push({ label: 'Target', data: [], hidden: true, order: 3 });
-  }
-
-  // Projected: dashed line from today → target_date (sparse points from API)
-  const hasProjected = hasTarget && Array.isArray(target.projected_path) && target.projected_path.length;
-  if (hasProjected) {
-    const projMap = {};
-    target.projected_path.forEach(p => { projMap[p.date] = p.weight_kg; });
-    datasets.push({
-      label: 'Projected',
-      data: labels.map(d => projMap[d] != null ? projMap[d] : null),
-      borderColor: CHART_COLORS.projected,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      borderDash: [4, 4],
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: false,
-      order: 4,
-    });
-  } else {
-    datasets.push({ label: 'Projected', data: [], hidden: true, order: 4 });
-  }
-
-  // Show/hide legend chips for target and projected
-  const legendTarget = document.getElementById('legend-target');
-  const legendProjected = document.getElementById('legend-projected');
-  if (legendTarget) legendTarget.hidden = !hasTarget;
-  if (legendProjected) legendProjected.hidden = !hasProjected;
-
-  return { labels, datasets };
-}
-
-function _buildYBounds(chartData) {
-  const vals = [];
-  (chartData.actuals || []).forEach(p => vals.push(p.weight_kg));
-  (chartData.trend || []).forEach(p => { if (p.weight_kg != null) vals.push(p.weight_kg); });
-  if (chartData.target) {
-    vals.push(chartData.target.target_weight_kg);
-    (chartData.target.projected_path || []).forEach(p => vals.push(p.weight_kg));
-  }
-  if (!vals.length) return { min: undefined, max: undefined };
-
-  const lo = Math.min(...vals);
-  const hi = Math.max(...vals);
-  const pad = Math.max(1, Math.min(2, (hi - lo) * 0.12));
-  return {
-    min: Math.floor((lo - pad) / 2) * 2,
-    max: Math.ceil((hi + pad) / 2) * 2,
-  };
-}
-
 function renderChart(chartData, range) {
   _chartData = chartData;
-  const { labels, datasets } = _buildChartDatasets(chartData, range);
-  const { min: yMin, max: yMax } = _buildYBounds(chartData);
+  WeightChart.render(chartData, range);
 
-  // X-axis tick callback: show formatted date, thinned by range
-  const tickCallback = function (val, idx) {
-    const date = labels[idx];
-    if (!date) return '';
-    const d = new Date(date + 'T00:00:00');
-
-    if (range === '30d') {
-      // Every 5th day
-      return d.getDate() % 5 === 1 ? fmtDateForRange(date, range) : '';
-    }
-    if (range === '90d') {
-      // 1st of each month
-      return d.getDate() === 1 ? fmtDateForRange(date, range) : '';
-    }
-    // 6m / 1y / all: 1st of each month
-    return d.getDate() === 1 ? fmtDateForRange(date, range) : '';
-  };
-
-  // hide loading placeholder and reveal canvas on first render
-  const loadingEl = document.getElementById('chart-loading');
-  const canvasEl = document.getElementById('weight-chart');
-  if (loadingEl) loadingEl.hidden = true;
-  if (canvasEl) canvasEl.hidden = false;
-
-  if (_chartInstance) {
-    _chartInstance.data.labels = labels;
-    _chartInstance.data.datasets = datasets;
-    _chartInstance.options.scales.y.min = yMin;
-    _chartInstance.options.scales.y.max = yMax;
-    _chartInstance.options.scales.x.ticks.callback = tickCallback;
-    _chartInstance.update();
-    return;
-  }
-
-  const ctx = document.getElementById('weight-chart').getContext('2d');
-  _chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          mode: 'index',
-          intersect: false,
-          filter: (item) => item.parsed.y != null,
-          callbacks: {
-            title: (items) => {
-              const date = labels[items[0]?.dataIndex];
-              return date ? fmtDisplayDate(date) : '';
-            },
-            label: (item) => {
-              if (item.parsed.y == null) return null;
-              return `${item.dataset.label}: ${item.parsed.y.toFixed(1)} kg`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: {
-          type: 'category',
-          ticks: {
-            callback: tickCallback,
-            maxRotation: 0,
-            autoSkip: false,
-          },
-          grid: { display: false },
-        },
-        y: {
-          title: { display: true, text: 'kg' },
-          min: yMin,
-          max: yMax,
-          ticks: {
-            stepSize: 2,
-          },
-        },
-      },
-    },
-  });
+  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+  const legendPlan      = document.getElementById('legend-plan');
+  const legendGap       = document.getElementById('legend-gap');
+  const legendMilestone = document.getElementById('legend-milestone');
+  if (legendPlan)      legendPlan.hidden      = !hasTarget;
+  if (legendGap)       legendGap.hidden       = !hasTarget;
+  if (legendMilestone) legendMilestone.hidden = !hasTarget;
 }
 
 // ── Progress card ──────────────────────────────────────────────────────────

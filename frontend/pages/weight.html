@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weight – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     /* ── Layout ───────────────────────────────────────────────────────────── */
     .weight-page-header {
@@ -788,23 +787,27 @@
         <button class="range-tab" data-range="all" type="button">ALL</button>
       </div>
       <div class="chart-container">
-        <!-- Loading chart… shown while Chart.js CDN script loads; hidden once chart renders -->
         <div id="chart-loading" style="text-align:center;padding:48px 0;color:#9ca3af;font-size:0.9375rem;">Loading chart…</div>
-        <canvas id="weight-chart" aria-label="Weight trend chart" hidden></canvas>
+        <div id="weight-chart" hidden></div>
       </div>
-      <!-- Legend chips for 4 datasets -->
+      <!-- Legend chips -->
       <div class="chart-legend" id="chart-legend">
         <span class="legend-chip">
-          <span class="legend-dot" style="background:#9ca3af"></span>Daily weigh-in
+          <span class="legend-dot" style="background:#9ca3af"></span>Weigh-in
         </span>
         <span class="legend-chip">
-          <span class="legend-line" style="background:#2563eb"></span>7-day moving avg
+          <span class="legend-line" style="background:#2563eb"></span>7-day avg
         </span>
-        <span class="legend-chip" id="legend-target" hidden>
-          <span class="legend-dashed" style="border-color:#16a34a"></span>Target
+        <span class="legend-chip" id="legend-plan" hidden>
+          <span class="legend-dashed" style="border-color:#16a34a"></span>Plan
         </span>
-        <span class="legend-chip" id="legend-projected" hidden>
-          <span class="legend-dashed" style="border-color:#60a5fa"></span>Projected
+        <span class="legend-chip" id="legend-gap" hidden>
+          <span style="display:inline-block;width:18px;height:14px;background:#fee2e2;border-radius:7px;flex-shrink:0"></span>Gap vs plan
+        </span>
+        <span class="legend-chip" id="legend-milestone" hidden>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="flex-shrink:0" aria-hidden="true">
+            <polygon points="6,0 12,6 6,12 0,6" fill="#fff" stroke="#16a34a" stroke-width="2"/>
+          </svg>Milestone
         </span>
       </div>
     </div>
@@ -861,6 +864,7 @@
 
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>
+  <script src="js/weight-chart.js"></script>
   <script src="js/weight.js"></script>
 </body>
 </html>
