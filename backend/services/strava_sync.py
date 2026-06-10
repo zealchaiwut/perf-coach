@@ -175,6 +175,10 @@ def sync_strava_activities(
             session.refresh(job_row)
             return _job_summary(job_row)
 
+    # Intentionally broad: this orchestrator must mark the job failed for ANY
+    # failure (urllib HTTP/network errors, RateLimited, SQLAlchemyError, token
+    # errors, etc.).  Narrowing to specific types would risk leaving jobs stuck
+    # in "running" state forever if an unexpected exception type slips through.
     except Exception as exc:
         with Session(engine) as session:
             job_row = session.get(SyncJob, job_db_id)
