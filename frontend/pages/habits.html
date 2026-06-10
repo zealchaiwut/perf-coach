@@ -98,51 +98,45 @@
     /* ── Hero 2-col row ────────────────────────────────────────────────────── */
     .hero-row {
       display: grid;
-      grid-template-columns: 0.85fr 1.15fr;
+      grid-template-columns: minmax(280px, 350px) 1fr;
       gap: 10px;
       margin-bottom: 10px;
     }
 
-    /* ── Wheel card ────────────────────────────────────────────────────────── */
-    .wheel-card {
+    /* ── Wheel card (Card A) ───────────────────────────────────────────────── */
+    .hero-wheel-card {
       display: flex;
       flex-direction: column;
+      gap: 10px;
+      padding: 16px 18px;
+    }
+
+    .hero-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin: 0;
+    }
+
+    .wheel-and-info {
+      display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 20px;
-      min-height: 200px;
+      gap: 14px;
     }
 
     .wheel-wrap {
       position: relative;
-      width: 140px;
-      height: 140px;
+      width: 148px;
+      height: 148px;
       flex-shrink: 0;
     }
 
-    .habits-wheel-svg {
-      width: 140px;
-      height: 140px;
+    .week-wheel-svg {
+      width: 148px;
+      height: 148px;
       overflow: visible;
-    }
-
-    .wheel-track {
-      fill: none;
-      stroke: #eef0f6;
-      stroke-width: 16;
-    }
-
-    .wheel-arc {
-      fill: none;
-      stroke: url(#wheel-gradient);
-      stroke-width: 16;
-      stroke-linecap: round;
-      transform-origin: 60px 60px;
-      transform: rotate(-90deg);
-      stroke-dasharray: 289.03;
-      stroke-dashoffset: 289.03;
-      transition: stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1);
     }
 
     .wheel-center {
@@ -153,7 +147,6 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 0 10px;
     }
 
     .wheel-pct {
@@ -166,36 +159,95 @@
       line-height: 1.1;
     }
 
-    .wheel-label {
-      font-size: 11px;
+    .wheel-sublabel {
+      font-size: 7.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
       color: var(--text-tertiary);
-      font-weight: 500;
-      margin-top: 2px;
+      margin-top: 3px;
+    }
+
+    .wheel-side {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .wheel-side-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
       line-height: 1.2;
     }
 
-    /* Empty wheel: grey arc, full ring */
-    .wheel-arc.wheel-empty {
-      stroke: #eef0f6;
-      stroke-dashoffset: 0;
+    .wheel-checks-line {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
     }
 
-    /* ── Stats card ────────────────────────────────────────────────────────── */
-    .habits-stats-card {
+    .wheel-legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-dot-full    { background: #16a34a; }
+    .legend-dot-partial { background: #f59e0b; }
+    .legend-dot-zero    { background: #9ca3af; }
+    .legend-dot-future  { background: #d1d9e9; border: 1px solid #b8c4d8; }
+
+    /* ── Stats card (Card B) ───────────────────────────────────────────────── */
+    .hero-stats-card {
+      display: flex;
+      flex-direction: row;
+      gap: 1px;
+      background: var(--card-border);
+      border-radius: var(--card-radius);
+      overflow: hidden;
+      /* Card border/shadow applied via .card class on the element */
+    }
+
+    .stat-tile {
+      flex: 1;
+      background: var(--card-bg);
+      padding: 16px 14px 14px;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      gap: 14px;
+      gap: 4px;
+      min-width: 0;
     }
 
-    .hstat-item {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
+    .stat-tile-today { background: #f0f6ff; }
+
+    .stat-tile-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
     }
 
-    .hstat-val {
-      font-size: 22px;
+    .stat-tile-val {
+      font-size: 20px;
       font-weight: 600;
       letter-spacing: -0.03em;
       font-variant-numeric: tabular-nums;
@@ -204,18 +256,73 @@
       line-height: 1.15;
     }
 
-    .hstat-label {
+    .stat-tile-sub {
       font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
+      line-height: 1.35;
     }
 
-    .hstat-divider {
-      height: 1px;
-      background: #eef0f6;
+    .stat-sub-green {
+      color: #16a34a;
+      font-weight: 500;
     }
+
+    /* ── Week-nav pill ─────────────────────────────────────────────────────── */
+    .habits-header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .week-nav-pill {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.32);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+
+    .week-nav-btn {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 5px;
+      line-height: 1;
+      opacity: 0.85;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-nav-btn:hover:not(:disabled) { opacity: 1; }
+    .week-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .week-nav-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #fff;
+      white-space: nowrap;
+      min-width: 82px;
+      text-align: center;
+    }
+
+    /* ── Back-to-current chip ──────────────────────────────────────────────── */
+    .back-current-wrap { margin-bottom: 10px; }
+
+    .back-current-btn {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: #fff;
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .back-current-btn:hover { background: rgba(255,255,255,0.28); }
 
     /* ── Starter suggestions ───────────────────────────────────────────────── */
     #starter-section {
@@ -761,12 +868,9 @@
 
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
     @media (max-width: 820px) {
-      .hero-row {
-        grid-template-columns: 1fr;
-      }
-
+      .hero-row { grid-template-columns: 1fr; }
+      .habits-header-right { flex-wrap: wrap; gap: 6px; }
       .habit-meta-line { display: none; }
-
       .week-habit-row { flex-wrap: wrap; gap: 8px; }
       .week-habit-name-row { margin-bottom: 4px; }
       .week-habit-bar-outer { width: 100%; }
@@ -805,7 +909,20 @@
         <h1>Habits</h1>
         <p class="page-subtitle" id="habits-subtitle">Loading…</p>
       </div>
-      <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
+      <div class="habits-header-right">
+        <!-- Week navigation pill -->
+        <div class="week-nav-pill" id="week-nav-pill">
+          <button type="button" class="week-nav-btn" id="week-prev-btn" aria-label="Previous week">‹</button>
+          <span class="week-nav-label" id="week-nav-label">—</span>
+          <button type="button" class="week-nav-btn" id="week-next-btn" aria-label="Next week" disabled>›</button>
+        </div>
+        <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
+      </div>
+    </div>
+
+    <!-- Back-to-current-week chip (shown only in past-week mode) -->
+    <div class="back-current-wrap" id="back-current-wrap" style="display:none">
+      <button type="button" class="back-current-btn" id="back-current-btn">← back to this week</button>
     </div>
 
     <p id="api-error" class="error-msg" role="alert"></p>
@@ -817,43 +934,56 @@
       <div class="starter-grid" id="starter-grid"></div>
     </div>
 
-    <!-- Hero row: wheel card (left) | stats card (right) -->
+    <!-- Hero row: Card A (week wheel) | Card B (3-up stats) -->
     <div class="hero-row" id="hero-row">
-      <!-- Wheel card -->
-      <div class="card wheel-card" id="wheel-card">
-        <div class="wheel-wrap">
-          <svg class="habits-wheel-svg" viewBox="0 0 120 120" aria-hidden="true">
-            <defs>
-              <linearGradient id="wheel-gradient" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stop-color="#93c5fd"/>
-                <stop offset="100%" stop-color="#2563eb"/>
-              </linearGradient>
-            </defs>
-            <circle class="wheel-track" cx="60" cy="60" r="46"/>
-            <circle class="wheel-arc" id="wheel-arc" cx="60" cy="60" r="46"/>
-          </svg>
-          <div class="wheel-center">
-            <span class="wheel-pct" id="wheel-pct">--%</span>
-            <span class="wheel-label" id="wheel-label">this week</span>
+
+      <!-- Card A: Week Wheel -->
+      <div class="card hero-wheel-card" id="wheel-card">
+        <p class="hero-card-title">This week</p>
+        <div class="wheel-and-info">
+          <!-- SVG wheel — 7 arc segments drawn by JS -->
+          <div class="wheel-wrap" id="wheel-wrap">
+            <svg id="week-wheel-svg" class="week-wheel-svg" viewBox="0 0 148 148" aria-hidden="true">
+              <!-- arcs and day labels injected by habits.js -->
+            </svg>
+            <div class="wheel-center">
+              <span class="wheel-pct" id="wheel-pct">--%</span>
+              <span class="wheel-sublabel">WEEK SO FAR</span>
+            </div>
+          </div>
+          <!-- Right of wheel: stat + legend -->
+          <div class="wheel-side" id="wheel-side">
+            <span class="wheel-side-title">This week</span>
+            <span class="wheel-checks-line" id="wheel-checks-line">loading…</span>
+            <div class="wheel-legend">
+              <div class="legend-item"><span class="legend-dot legend-dot-full"></span>Full</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-partial"></span>Partial</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-zero"></span>None</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-future"></span>Future</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Stats card -->
-      <div class="card habits-stats-card" id="habits-stats-card">
-        <div class="hstat-item">
-          <span class="hstat-val" id="stat-streak">--</span>
-          <span class="hstat-label">Best streak</span>
+      <!-- Card B: 3-up Stats -->
+      <div class="card hero-stats-card" id="hero-stats-card">
+        <!-- Today tile (highlighted) -->
+        <div class="stat-tile stat-tile-today" id="stat-today-tile">
+          <div class="stat-tile-label" id="stat-today-label">Today</div>
+          <div class="stat-tile-val" id="stat-today-val">--/--</div>
+          <div class="stat-tile-sub" id="stat-today-sub">—</div>
         </div>
-        <div class="hstat-divider"></div>
-        <div class="hstat-item">
-          <span class="hstat-val" id="stat-rate">--%</span>
-          <span class="hstat-label">30-day completion</span>
+        <!-- Best streak tile (hidden when streaks.best is null) -->
+        <div class="stat-tile" id="stat-streak-tile" style="display:none">
+          <div class="stat-tile-label">Best streak</div>
+          <div class="stat-tile-val" id="stat-streak-val">-- days</div>
+          <div class="stat-tile-sub" id="stat-streak-sub">—</div>
         </div>
-        <div class="hstat-divider"></div>
-        <div class="hstat-item">
-          <span class="hstat-val" id="stat-count">--</span>
-          <span class="hstat-label">Habits tracked</span>
+        <!-- Last week tile -->
+        <div class="stat-tile" id="stat-lastweek-tile">
+          <div class="stat-tile-label">Last week</div>
+          <div class="stat-tile-val" id="stat-lastweek-val">—</div>
+          <div class="stat-tile-sub" id="stat-lastweek-sub">no data</div>
         </div>
       </div>
     </div>
