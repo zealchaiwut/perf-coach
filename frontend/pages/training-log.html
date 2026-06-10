@@ -892,9 +892,52 @@
       padding: 10px 11px;
     }
 
-    .dp-stat.highlight {
-      background: linear-gradient(135deg, #dde6f8 0%, #c2d2f3 100%);
+    /* ── Run hero metrics (distance + pace lead) ── */
+    .dp-hero-metrics {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      margin-bottom: 10px;
     }
+    .dp-hm { background: #f7f9fd; border-radius: 10px; padding: 13px 14px; }
+    .dp-hm-val {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 1.65rem; font-weight: 600; color: #0b1530;
+      line-height: 1.05; letter-spacing: -0.02em;
+    }
+    .dp-hm-unit { font-size: 0.8125rem; color: #8b95ad; font-weight: 500; margin-left: 3px; }
+    .dp-hm-label {
+      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      text-transform: uppercase; letter-spacing: 0.07em; margin-top: 5px;
+    }
+    .dp-stat-strip {
+      display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 2px 2px 0;
+      font-size: 0.8125rem; color: #5c6886;
+    }
+    .dp-strip-item { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+    .dp-strip-k {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+
+    /* ── Session intensity timeline ── */
+    .dp-timeline { display: flex; gap: 3px; height: 30px; border-radius: 7px; overflow: hidden; }
+    .dp-tl-seg {
+      display: flex; align-items: center; justify-content: center;
+      min-width: 8px; overflow: hidden; border-radius: 4px;
+    }
+    .dp-tl-label {
+      font-size: 0.625rem; font-weight: 600; letter-spacing: -0.01em;
+      white-space: nowrap; padding: 0 5px; overflow: hidden;
+      text-overflow: ellipsis; color: rgba(11,21,48,0.78);
+    }
+    /* Intensity palette: low = cool, high = warm */
+    .dp-tl-seg--warmup,   .dp-seg-dot--warmup   { background: #bfdbfe; }
+    .dp-tl-seg--easy,     .dp-seg-dot--easy     { background: #bbf7d0; }
+    .dp-tl-seg--tempo,    .dp-seg-dot--tempo    { background: #fde68a; }
+    .dp-tl-seg--intervals,.dp-seg-dot--intervals{ background: #fca5a5; }
+    .dp-tl-seg--rest,     .dp-seg-dot--rest     { background: #e2e8f0; }
+    .dp-tl-seg--cooldown, .dp-seg-dot--cooldown { background: #a5f3fc; }
+    .dp-seg-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; justify-self: center; }
 
     .dp-stat-label {
       font-size: 0.625rem; font-weight: 600; color: #8b95ad;
