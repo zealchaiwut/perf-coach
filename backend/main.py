@@ -2884,6 +2884,29 @@ def get_habits_week(
                     state = "zero"
             wheel.append({"date": d.isoformat(), "state": state})
 
+        # ── Streaks (batch: one extra query for all daily habits) ────────────
+        from backend.services.habit_stats import compute_habit_streaks, week_summary as _week_summary
+        streak_logs_by_habit: dict = {}
+        if daily_habits:
+            streak_lookback = today_bkk - _timedelta(days=365)
+            streak_log_rows = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.user_id == user.id,
+                    HabitLog.habit_id.in_([h.id for h in daily_habits]),
+                    HabitLog.log_date >= streak_lookback,
+                    HabitLog.log_date <= today_bkk,
+                )
+                .all()
+            )
+            for lg in streak_log_rows:
+                streak_logs_by_habit.setdefault(lg.habit_id, set()).add(lg.log_date)
+        streaks = compute_habit_streaks(daily_habits, streak_logs_by_habit, today_bkk)
+
+        # ── Last-week summary ─────────────────────────────────────────────────
+        last_week_ws = ws - _timedelta(days=7)
+        last_week = _week_summary(user.id, last_week_ws, session=session)
+
         return JSONResponse({
             "week_start": ws.isoformat(),
             "week_end": we.isoformat(),
@@ -2893,6 +2916,8 @@ def get_habits_week(
             "day_scores": day_scores,
             "week_totals": week_totals,
             "wheel": wheel,
+            "streaks": streaks,
+            "last_week": last_week,
         })
 
 
