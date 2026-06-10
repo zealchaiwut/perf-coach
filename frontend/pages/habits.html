@@ -713,7 +713,7 @@
 
     .weekly-habits-hdr {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       margin-bottom: 14px;
     }
@@ -726,15 +726,23 @@
       color: var(--text-tertiary);
     }
 
+    .weekly-habits-hint {
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+
     .weekly-habits-list {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
     }
 
+    /* ── Weekly habit row ────────── */
     .week-habit-row {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: start;
       gap: 10px;
       padding: 10px 12px;
       border-radius: 10px;
@@ -742,6 +750,14 @@
       transition: background 0.15s;
     }
     .week-habit-row:hover { background: #eef0f6; }
+
+    /* Left: icon + name + badge */
+    .week-habit-left {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 0;
+    }
 
     .week-habit-icon {
       width: 32px;
@@ -753,19 +769,12 @@
       font-size: 14px;
       color: #fff;
       flex-shrink: 0;
+      margin-top: 1px;
     }
 
     .week-habit-info {
       flex: 1;
       min-width: 0;
-    }
-
-    .week-habit-name-row {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      margin-bottom: 5px;
-      flex-wrap: wrap;
     }
 
     .week-habit-name {
@@ -777,44 +786,191 @@
       text-overflow: ellipsis;
     }
 
-    .week-habit-val {
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-secondary);
-      white-space: nowrap;
-      flex-shrink: 0;
+    .week-habit-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      flex-wrap: wrap;
     }
 
-    .week-habit-bar-outer {
+    .week-auto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #15803d;
+      white-space: nowrap;
+      cursor: default;
+    }
+
+    .week-auto-source {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 180px;
+    }
+
+    .week-manual-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10.5px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #f1f4fa;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+
+    .week-log-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: #ecfccb;
+      color: #4d7c0f;
+      border: 1px solid #bef264;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: 'Inter Tight', sans-serif;
+      line-height: 1.6;
+      transition: background 0.12s;
+    }
+    .week-log-chip:hover { background: #d9f99d; }
+
+    /* Middle: bar + labels */
+    .week-habit-progress {
+      min-width: 0;
+    }
+
+    /* Smooth gradient bar (weekly_minutes / weekly_quantity) */
+    .week-smooth-bar-outer {
+      position: relative;
       height: 6px;
       background: #e8eaf0;
       border-radius: 999px;
-      overflow: hidden;
+      overflow: visible;
+      margin-bottom: 5px;
     }
 
-    .week-habit-bar-inner {
+    .week-smooth-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
       border-radius: 999px;
-      transition: width 0.5s ease;
+      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+      transition: width 0.4s ease;
+      max-width: 100%;
     }
-    .week-habit-bar-inner.complete {
+    .week-smooth-bar-fill.complete {
       background: linear-gradient(90deg, #86efac 0%, #16a34a 100%);
     }
 
-    .week-habit-chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 3px 10px;
+    .week-smooth-bar-endmark {
+      position: absolute;
+      right: 0;
+      top: -3px;
+      width: 2px;
+      height: 12px;
+      background: #9ca3af;
       border-radius: 999px;
-      font-size: 11.5px;
+    }
+
+    /* Segmented bar (weekly_count) */
+    .week-seg-bar {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      margin-bottom: 5px;
+      flex-wrap: wrap;
+    }
+
+    .week-seg {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: #e8eaf0;
+      min-width: 12px;
+      transition: background 0.2s;
+    }
+    .week-seg.filled {
+      background: #2563eb;
+    }
+    .week-seg.filled.complete {
+      background: #16a34a;
+    }
+
+    .week-overflow-label {
+      font-size: 10.5px;
       font-weight: 600;
+      color: #9333ea;
       white-space: nowrap;
       flex-shrink: 0;
     }
-    .week-habit-chip.complete { background: var(--green-soft); color: var(--green); }
-    .week-habit-chip.incomplete { background: #f1f4fa; color: var(--text-secondary); }
+
+    .week-bar-labels {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 4px;
+    }
+
+    .week-breakdown-label {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .week-target-label {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* Right: value + pace */
+    .week-habit-right {
+      text-align: right;
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    .week-habit-val-main {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      font-weight: 600;
+      white-space: nowrap;
+      display: block;
+    }
+
+    .week-pace-line {
+      margin-top: 3px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .week-pace-on {
+      color: #16a34a;
+      font-weight: 600;
+    }
+
+    .week-pace-behind {
+      color: #d97706;
+      font-weight: 500;
+    }
 
     .week-habit-actions {
       position: relative;
@@ -865,9 +1021,111 @@
 
     .weekly-habits-empty {
       text-align: center;
-      padding: 20px 0;
+      padding: 20px 16px;
       font-size: 13.5px;
       color: var(--text-tertiary);
+    }
+
+    .weekly-habits-empty p {
+      margin: 0 0 12px;
+      line-height: 1.5;
+    }
+
+    .weekly-empty-new-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 16px;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .weekly-empty-new-btn:hover { background: #162444; }
+
+    /* Log popover */
+    .week-log-popover {
+      position: absolute;
+      z-index: 100;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(13,30,67,0.14);
+      padding: 14px 16px;
+      min-width: 200px;
+      max-width: 240px;
+    }
+
+    .week-popover-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    .week-popover-input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid #d1d9e9;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      box-sizing: border-box;
+      margin-bottom: 8px;
+    }
+    .week-popover-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
+    }
+
+    .week-quick-chips {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .week-quick-chip {
+      flex: 1;
+      padding: 5px 0;
+      background: #f7f9fc;
+      border: 1px solid #e8eaf0;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-family: 'Inter Tight', sans-serif;
+      text-align: center;
+    }
+    .week-quick-chip:hover { background: #eef0f6; border-color: #d1d9e9; }
+
+    .week-popover-submit {
+      width: 100%;
+      padding: 7px 0;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-popover-submit:hover { background: #162444; }
+    .week-popover-submit:disabled { opacity: 0.5; cursor: default; }
+
+    .week-popover-error {
+      font-size: 11px;
+      color: var(--red, #ef4444);
+      margin-top: 6px;
+      min-height: 1em;
     }
 
     /* ── Management (archived section) ────────────────────────────────────── */
@@ -1177,7 +1435,10 @@
     <!-- Weekly habits card -->
     <div class="card weekly-habits" id="weekly-habits-card">
       <div class="weekly-habits-hdr">
-        <span class="weekly-habits-title">This week's progress</span>
+        <div>
+          <span class="weekly-habits-title">Weekly habits · progress accumulates across the week</span>
+          <div class="weekly-habits-hint">auto rows update when you log workouts</div>
+        </div>
       </div>
       <div class="weekly-habits-list" id="weekly-habits-content">
         <div class="weekly-habits-empty">Loading…</div>

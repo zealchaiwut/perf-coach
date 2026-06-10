@@ -2868,6 +2868,7 @@ def get_habits_week(
                 "sort_order": habit.sort_order,
                 "tracking_type": habit.tracking_type,
                 "unit": habit.unit,
+                "auto_fill_source": habit.auto_fill_source,
                 "target": tgt,
                 "current_value": cur,
                 "pct": progress["pct"],
