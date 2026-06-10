@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Training – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <style>
+    /* Instrument tokens shared with the log + detail panel */
+    .num-mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-variant-numeric: tabular-nums; }
+
     /* ── Tabs ── */
     .tab-bar {
       display: flex;
@@ -57,7 +61,7 @@
     .meta-field label {
       font-size: 0.8125rem;
       font-weight: 600;
-      color: #444;
+      color: #5c6886;
     }
 
     .meta-field input[type="text"],
@@ -140,10 +144,12 @@
     }
 
     .section-label {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #444;
-      margin: 0 0 0.5rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      color: #8b95ad;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin: 0 0 0.6rem;
     }
 
     .table-scroll {
@@ -160,9 +166,11 @@
 
     #exercises-table th {
       text-align: left;
-      font-size: 0.8125rem;
-      color: #666;
-      font-weight: 600;
+      font-size: 0.625rem;
+      color: #8b95ad;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
       padding: 0.5rem 0.6rem;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
@@ -380,7 +388,7 @@
     .run-field label {
       font-size: 0.8125rem;
       font-weight: 600;
-      color: #444;
+      color: #5c6886;
     }
 
     .run-section input[type="number"] {
@@ -792,6 +800,38 @@
       .form-actions-right {
         justify-content: flex-end;
       }
+    }
+    /* ── Instrument numerals on numeric fields ── */
+    .run-section input[type="number"],
+    .run-duration .dur-box,
+    #run-distance,
+    .seg-val, .seg-sets, .seg-pace, .seg-hr,
+    #exercises-table .ex-sets,
+    #exercises-table .ex-reps,
+    #exercises-table .ex-weight,
+    #exercises-table .ex-rpe,
+    #workout-tss {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-variant-numeric: tabular-nums;
+      color: #0b1530;
+    }
+
+    /* ── Segment type labels colored by intensity (ties to detail-panel timeline) ── */
+    .seg-row[data-seg-type="warmup"]   .seg-type { color: #1d4ed8; }
+    .seg-row[data-seg-type="easy"]     .seg-type { color: #15803d; }
+    .seg-row[data-seg-type="tempo"]    .seg-type { color: #b45309; }
+    .seg-row[data-seg-type="intervals"].seg-type { color: #b91c1c; }
+    .seg-row[data-seg-type="rest"]     .seg-type { color: #5c6886; }
+    .seg-row[data-seg-type="cooldown"] .seg-type { color: #0e7490; }
+
+    /* small leading intensity dot on each segment */
+    .seg-type::before {
+      content: '';
+      display: inline-block;
+      width: 8px; height: 8px; border-radius: 50%;
+      margin-right: 7px;
+      background: currentColor;
+      vertical-align: 1px;
     }
   </style>
 </head>
