@@ -140,6 +140,16 @@ def health():
     })
 
 
+@app.get("/api/healthz")
+def healthz():
+    """Render health check ping. Returns {ok, version, env}."""
+    return JSONResponse({
+        "ok": True,
+        "version": os.getenv("GIT_SHA", "unset"),
+        "env": environment,
+    })
+
+
 @app.get("/api/env")
 def get_env():
     return JSONResponse({"environment": environment})

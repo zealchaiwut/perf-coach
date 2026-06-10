@@ -1,5 +1,27 @@
 # Changelog
 
+## Sprint 50 — MVP daily-use foundation
+
+- #383: MVP investigation and root-cause analysis of daily-use friction
+- #384: zone2_minutes tracking on workouts
+- #385: Unified habits schema (auto-fill sources, weekly targets, archive)
+- #386: Habit logs table and API
+- #387: Habits CRUD API
+- #388: Habit log progress API
+- #390: Mobile workout logging form (390px, touch-friendly)
+- #391: Weekly habits-and-targets progress widget on home page
+- #392: Habits management page with CRUD, reorder, archive, and starter habits
+- #393: MVP polish — Bangkok time, /api/healthz, docs
+
+Features shipped in Sprint 50:
+- Habits unified system: auto-fill from zone2_minutes and workouts, weekly targets, archive/restore
+- zone2_minutes tracking: workout field, API, auto-fill to Zone 2 habit
+- Mobile workout logging form: full 390px flow for runs, lifts, and other workouts
+- Mobile daily metrics: quick-entry card on home, mobile-optimised form
+- Weekly habits home widget: Mon–Sun grid, streak badges, Bangkok-timezone week boundary
+- Bangkok timezone: all day-boundary and week-start calculations use Asia/Bangkok
+- `/api/healthz` endpoint for Render health checks
+
 ## Sprint 49
 
 ### Strava activity sync
