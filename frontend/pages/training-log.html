@@ -414,14 +414,20 @@
       margin-bottom: 0.4rem;
       cursor: pointer;
       transition: background 0.1s;
-      border-left: 3px solid transparent;
     }
 
     .entry-row:hover { background: var(--surface-2); }
 
+    /* Selected row: background tint (no side-stripe) */
     .entry-row.is-active {
       background: #eff6ff;
-      border-left-color: var(--primary);
+      box-shadow: inset 0 0 0 1px var(--primary);
+    }
+
+    /* Keyboard focus ring on the (button-role) rows */
+    .entry-row:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
     }
 
     .entry-date {
@@ -474,12 +480,6 @@
     .entry-type--wod  .entry-type-label { color: #b45309; }
     .entry-type--bike .entry-type-dot { background: #14b8a6; }
     .entry-type--bike .entry-type-label { color: #0f766e; }
-
-    /* Per-type left accent on the row */
-    .entry-row--run.is-active  { border-left-color: #3b82f6; }
-    .entry-row--lift.is-active { border-left-color: #8b5cf6; }
-    .entry-row--wod.is-active  { border-left-color: #f59e0b; }
-    .entry-row--bike.is-active { border-left-color: #14b8a6; }
 
     .entry-body { flex: 1; min-width: 0; }
 
@@ -1200,6 +1200,16 @@
       .dp-actions-bar {
         padding-bottom: max(10px, env(safe-area-inset-bottom));
       }
+    }
+    /* Visible keyboard focus on remaining interactive controls (WCAG 2.4.7) */
+    .dp-nav-btn:focus-visible,
+    .dp-icon-btn:focus-visible,
+    .type-chip:focus-visible,
+    .dr-chip:focus-visible,
+    .ws-chevron:focus-visible,
+    .ws-today-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
     }
   </style>
 </head>
