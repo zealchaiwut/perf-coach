@@ -621,10 +621,10 @@
       sourcesWrap.appendChild(sbadge);
     }
     if (isStryd) {
-      var sbadge2 = document.createElement('span');
-      sbadge2.className = 'source-badge source-badge--stryd';
-      sbadge2.textContent = 'S';
-      sourcesWrap.appendChild(sbadge2);
+      var sbadgeStryd = document.createElement('span');
+      sbadgeStryd.className = 'source-badge source-badge--stryd';
+      sbadgeStryd.textContent = 'S';
+      sourcesWrap.appendChild(sbadgeStryd);
     }
     if (!isStrava && !isStryd) {
       var sbadgeM = document.createElement('span');

@@ -1638,6 +1638,9 @@
       var _stravaUserId = null;
       var _stravaSyncPollTimer = null;
       var _stravaSyncPanelOpen = false;
+      var _stravaHistoryOpen = false;
+      var _stravaSinceDateValue = null;
+      var _stravaShowPreview = true;
 
       function _stravaRelativeTime(isoStr) {
         if (!isoStr) return 'Never synced';
@@ -1708,11 +1711,12 @@
       function _renderStravaSyncPanel(sinceDefault) {
         var panel = document.getElementById('strava-sync-panel');
         if (!panel) return;
+        _stravaSinceDateValue = sinceDefault;
         panel.innerHTML =
           '<div class="strava-sync-panel">' +
             '<div class="strava-sync-panel-row">' +
               '<label>Since <input type="date" id="strava-since-date" value="' + sinceDefault + '"></label>' +
-              '<label><input type="checkbox" id="strava-preview-toggle" checked> Show preview first</label>' +
+              '<label><input type="checkbox" id="strava-preview-toggle"' + (_stravaShowPreview ? ' checked' : '') + '> Show preview first</label>' +
             '</div>' +
             '<div class="strava-sync-panel-row">' +
               '<button class="integration-btn integration-btn--secondary" id="strava-preview-btn">Preview</button>' +
@@ -1720,13 +1724,18 @@
             '</div>' +
             '<div id="strava-panel-result"></div>' +
           '</div>';
+        document.getElementById('strava-since-date').addEventListener('change', function () {
+          _stravaSinceDateValue = this.value;
+        });
+        document.getElementById('strava-preview-toggle').addEventListener('change', function () {
+          _stravaShowPreview = this.checked;
+        });
         document.getElementById('strava-preview-btn').addEventListener('click', stravaPreview);
         document.getElementById('strava-run-sync-btn').addEventListener('click', stravaRunSync);
       }
 
       function _sinceDate() {
-        var el = document.getElementById('strava-since-date');
-        return el ? el.value : null;
+        return _stravaSinceDateValue;
       }
 
       function stravaPreview() {
@@ -1930,8 +1939,8 @@
         var panel = document.getElementById('strava-history-panel');
         if (!toggle || !panel) return;
         toggle.addEventListener('click', function () {
-          var isOpen = panel.classList.contains('open');
-          if (isOpen) {
+          _stravaHistoryOpen = !_stravaHistoryOpen;
+          if (!_stravaHistoryOpen) {
             panel.classList.remove('open');
             toggle.classList.remove('open');
             toggle.setAttribute('aria-expanded', 'false');

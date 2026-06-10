@@ -8,10 +8,14 @@
   }
 
   function currentMonday() {
-    var today = new Date();
-    var day = today.getDay();
-    var diff = (day === 0) ? -6 : 1 - day;
-    return new Date(today.getFullYear(), today.getMonth(), today.getDate() + diff);
+    var bangkokDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    var parts = bangkokDate.split('-');
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    var d = parseInt(parts[2], 10);
+    var dow = new Date(y, m, d).getDay();
+    var diff = (dow === 0) ? -6 : 1 - dow;
+    return new Date(y, m, d + diff);
   }
 
   function daysRemainingInWeek() {

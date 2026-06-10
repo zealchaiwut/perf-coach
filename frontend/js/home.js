@@ -834,7 +834,7 @@
     try {
       var lr = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr.ok) logs = await lr.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave logs empty */ }
 
     var logsForHabit = {};
     logs.forEach(function (l) {
@@ -845,7 +845,7 @@
     try {
       var sr = await fetch('/api/habits/stats?habit_id=' + habit.id + '&days=30');
       if (sr.ok) { var sd = await sr.json(); streakNum = sd.streak || 0; }
-    } catch (_) {}
+    } catch (_) { /* network error, streak stays 0 */ }
 
     var tmp = document.createElement('div');
     tmp.innerHTML = buildHabitRow(habit, weekDates, todayStr, { [habit.id]: logsForHabit }, userId, streakNum);
@@ -931,7 +931,7 @@
             var streakCell = card.querySelector('[data-habit-row="' + hid + '"] .streak-col .num');
             if (streakCell) streakCell.textContent = sd.streak || 0;
           }
-        } catch (_) {}
+        } catch (_) { /* network error, badge stays stale */ }
       });
     });
   }
@@ -960,7 +960,7 @@
     try {
       var hr = await fetch('/api/habits');
       if (hr.ok) habits = await hr.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave habits empty */ }
 
     if (!habits.length) {
       card.innerHTML = header +
@@ -978,7 +978,7 @@
     try {
       var lr2 = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr2.ok) allLogs = await lr2.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave logs empty */ }
 
     var logsByHabit = {};
     allLogs.forEach(function (l) {
@@ -1049,7 +1049,7 @@
       if (results[0].ok) habits = await results[0].json();
       if (results[1].ok) logs = await results[1].json();
       if (results[2].ok) allStats = await results[2].json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave collections empty */ }
 
     var activeCount = habits.length;
 
@@ -1914,7 +1914,7 @@
       try {
         var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
         if (r.ok) newExisting = await r.json();
-      } catch (_) {}
+      } catch (_) { /* network error, render with no existing data */ }
       renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
     }
 
@@ -2020,7 +2020,7 @@
           }
         } else {
           var errData = null;
-          try { errData = await res.json(); } catch (_) {}
+          try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
           feedback.className = 'lt-feedback lt-feedback--err';
           feedback.textContent = (errData && errData.detail) ? String(errData.detail) : 'Save failed (' + res.status + ')';
         }
@@ -2032,6 +2032,209 @@
       btn.disabled = false;
       btn.textContent = 'Save';
     });
+  }
+
+  /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */
+
+  var _fastLogUserId = null;
+  var _autoSaveTimer = null;
+
+  var _FM_STEPPERS = [
+    { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120, step: 1   },
+    { inputId: 'fm-hrv',    minusId: 'fm-hrv-minus',    plusId: 'fm-hrv-plus',    min: 0,   max: 200, step: 1   },
+    { inputId: 'fm-sleep',  minusId: 'fm-sleep-minus',  plusId: 'fm-sleep-plus',  min: 0,   max: 12,  step: 0.5 },
+    { inputId: 'fm-weight', minusId: 'fm-weight-minus', plusId: 'fm-weight-plus', min: 30,  max: 200, step: 1   },
+  ];
+
+  function _fmBuildPayload() {
+    var rhr    = document.getElementById('fm-rhr')   ? document.getElementById('fm-rhr').value.trim()   : '';
+    var hrv    = document.getElementById('fm-hrv')   ? document.getElementById('fm-hrv').value.trim()   : '';
+    var sleep  = document.getElementById('fm-sleep') ? document.getElementById('fm-sleep').value.trim() : '';
+    var energy = document.getElementById('fm-energy-val') ? document.getElementById('fm-energy-val').value : '';
+    var mood   = document.getElementById('fm-mood-val')   ? document.getElementById('fm-mood-val').value   : '';
+    var notes  = document.getElementById('fm-notes') ? document.getElementById('fm-notes').value.trim()  : '';
+
+    var payload = {};
+    if (rhr    !== '') payload.resting_hr  = parseInt(rhr, 10);
+    if (hrv    !== '') payload.hrv         = parseInt(hrv, 10);
+    if (sleep  !== '') payload.sleep_hours = parseFloat(sleep);
+    if (energy !== '') payload.energy      = parseInt(energy, 10);
+    if (mood   !== '') payload.mood        = parseInt(mood, 10);
+    if (notes  !== '') payload.notes       = notes;
+    return payload;
+  }
+
+  async function _fmDoSave(userId, todayStr, silent) {
+    var btn      = document.getElementById('fm-save');
+    var feedback = document.getElementById('fm-feedback');
+    var payload  = _fmBuildPayload();
+
+    if (!silent && btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (feedback)       { feedback.className = 'fm-feedback'; feedback.textContent = ''; }
+
+    try {
+      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        var banner = document.getElementById('log-today-banner');
+        if (banner) banner.style.display = 'none';
+        if (window.UIStates) UIStates.showToast('Saved');
+        if (feedback) {
+          feedback.className = 'fm-feedback';
+          feedback.textContent = 'Saved';
+          setTimeout(function () { if (feedback) feedback.textContent = ''; }, 2000);
+        }
+        if (todayStr === bangkokTodayStr()) {
+          loadSleepCard(userId);
+          loadReadinessCard(userId);
+          loadRow3(userId);
+        }
+      } else {
+        var errData = null;
+        try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
+        if (feedback) {
+          feedback.className = 'fm-feedback fm-feedback--err';
+          feedback.textContent = (errData && errData.detail)
+            ? (typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail))
+            : 'Save failed (' + res.status + ')';
+        }
+      }
+    } catch (_) {
+      if (feedback) {
+        feedback.className = 'fm-feedback fm-feedback--err';
+        feedback.textContent = 'Network error — try again';
+      }
+    }
+
+    if (!silent && btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+
+  function _fmScheduleAutoSave(userId, todayStr) {
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = setTimeout(function () {
+      _fmDoSave(userId, todayStr, true);
+    }, 800);
+  }
+
+  function _fmSelectPill(groupEl, val) {
+    groupEl.querySelectorAll('.fm-pill').forEach(function (pill) {
+      pill.classList.toggle('active', pill.dataset.val === String(val));
+    });
+  }
+
+  function _fmInitPills(groupId, hiddenId, userId, todayStr) {
+    var group  = document.getElementById(groupId);
+    var hidden = document.getElementById(hiddenId);
+    if (!group || !hidden) return;
+    group.querySelectorAll('.fm-pill').forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        hidden.value = pill.dataset.val;
+        _fmSelectPill(group, pill.dataset.val);
+        _fmScheduleAutoSave(userId, todayStr);
+      });
+    });
+  }
+
+  function _fmInitStepper(cfg, userId, todayStr) {
+    var input    = document.getElementById(cfg.inputId);
+    var minusBtn = document.getElementById(cfg.minusId);
+    var plusBtn  = document.getElementById(cfg.plusId);
+    if (!input || !minusBtn || !plusBtn) return;
+
+    function _step(delta) {
+      var cur  = input.value === '' ? NaN : parseFloat(input.value);
+      var next;
+      if (isNaN(cur)) {
+        next = delta > 0 ? cfg.min : cfg.max;
+      } else {
+        next = Math.min(cfg.max, Math.max(cfg.min, cur + delta));
+        next = Math.round(next / cfg.step) * cfg.step;
+        next = parseFloat(next.toFixed(2));
+      }
+      input.value = next;
+      _fmScheduleAutoSave(userId, todayStr);
+    }
+
+    minusBtn.addEventListener('click', function () { _step(-cfg.step); });
+    plusBtn.addEventListener('click',  function () { _step( cfg.step); });
+    input.addEventListener('blur', function () { _fmScheduleAutoSave(userId, todayStr); });
+  }
+
+  function _fmPrefill(existing) {
+    if (!existing) return;
+    if (existing.resting_hr  != null) { var el = document.getElementById('fm-rhr');   if (el) el.value = existing.resting_hr; }
+    if (existing.hrv         != null) { var el = document.getElementById('fm-hrv');   if (el) el.value = existing.hrv; }
+    if (existing.sleep_hours != null) { var el = document.getElementById('fm-sleep'); if (el) el.value = existing.sleep_hours; }
+    if (existing.energy != null) {
+      var hidden = document.getElementById('fm-energy-val'); if (hidden) hidden.value = existing.energy;
+      var group  = document.getElementById('fm-energy-pills'); if (group) _fmSelectPill(group, existing.energy);
+    }
+    if (existing.mood != null) {
+      var hidden = document.getElementById('fm-mood-val'); if (hidden) hidden.value = existing.mood;
+      var group  = document.getElementById('fm-mood-pills'); if (group) _fmSelectPill(group, existing.mood);
+    }
+    if (existing.notes) { var el = document.getElementById('fm-notes'); if (el) el.value = existing.notes; }
+  }
+
+  async function initFastLogForm(userId) {
+    _fastLogUserId = userId;
+    var todayStr = bangkokTodayStr();
+
+    var label = document.getElementById('fast-log-date-label');
+    if (label) label.textContent = todayStr;
+
+    var existing = null;
+    try {
+      var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
+      if (r.ok) existing = await r.json();
+    } catch (_) { /* network error, prefill with empty state */ }
+    _fmPrefill(existing);
+
+    _FM_STEPPERS.forEach(function (cfg) { _fmInitStepper(cfg, userId, todayStr); });
+    _fmInitPills('fm-energy-pills', 'fm-energy-val', userId, todayStr);
+    _fmInitPills('fm-mood-pills',   'fm-mood-val',   userId, todayStr);
+
+    var notesEl = document.getElementById('fm-notes');
+    if (notesEl) notesEl.addEventListener('blur', function () { _fmScheduleAutoSave(userId, todayStr); });
+
+    var form = document.getElementById('fast-log-form');
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        clearTimeout(_autoSaveTimer);
+        _fmDoSave(userId, todayStr, false);
+      });
+    }
+  }
+
+  /* ---- Log today banner (issue #394) ---- */
+
+  async function loadLogTodayBanner(userId) {
+    var banner = document.getElementById('log-today-banner');
+    if (!banner) return;
+    var todayStr = bangkokTodayStr();
+    var hasRow = false;
+    try {
+      var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
+      hasRow = r.ok;
+    } catch (_) { /* network error, hasRow stays false */ }
+    banner.style.display = hasRow ? 'none' : 'block';
+
+    var ctaBtn = document.getElementById('log-today-cta-btn');
+    if (ctaBtn) {
+      ctaBtn.addEventListener('click', function () {
+        var section = document.getElementById('fast-log-section');
+        if (section) {
+          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          var firstInput = section.querySelector('.fm-input, .fm-textarea');
+          if (firstInput) setTimeout(function () { firstInput.focus(); }, 400);
+        }
+        banner.style.display = 'none';
+      });
+    }
   }
 
   async function loadLogTodayCard(userId) {
@@ -2051,7 +2254,7 @@
     try {
       var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
       if (res.ok) existing = await res.json();
-    } catch (_) {}
+    } catch (_) { /* network error, render with no existing data */ }
 
     renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
@@ -2111,7 +2314,7 @@
         || row.threshold_hr == null
         || row.threshold_pace_seconds_per_km == null;
       if (needsBanner) _showThresholdBanner();
-    } catch (_) {}
+    } catch (_) { /* network error, skip banner check */ }
   }
 
   /* ---- Strava stale sync banner ---- */
@@ -2157,7 +2360,7 @@
       if (hoursAgo > 24) {
         _showStravaStaleBanner(hoursAgo);
       }
-    } catch (_) {}
+    } catch (_) { /* network error, skip stale banner check */ }
   }
 
   /* ---- Init ---- */
@@ -2197,6 +2400,8 @@
 
       loadSleepCard(userId);
       loadLogTodayCard(userId);
+      initFastLogForm(userId);
+      loadLogTodayBanner(userId);
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);
     }

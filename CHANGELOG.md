@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 52 — Mobile fast-log & code quality
+
+- #394: Mobile-optimise daily metrics fast-log flow — new fast-log form on home page with stepper inputs, segmented energy/mood pills, 800ms auto-save debounce, and "Log today" CTA banner
+- #397: Fix empty catch blocks in home.js — add inline comments to all bare `catch (_) {}` blocks
+- #398: Use parameterised SQL in Alembic migration v5j6k7l8m9n0 — wrap `op.execute()` SQL in `sa.text()`
+- #399: Document broad `except Exception` in strava_sync.py — explain why broad catch is required to prevent stuck jobs
+- #400: Reduce DOM-coupling in Strava sync controls — extract `_stravaHistoryOpen`, `_stravaSinceDateValue`, `_stravaShowPreview` state variables
+- #401: Add `--user_id` argument to `scripts/run_strava_sync.py` CLI runner; falls back to first Strava-token user when omitted
+- #402: Rename `sbadge2` to `sbadgeStryd` in training-log.js
+- #405: Fix Bangkok timezone in `currentMonday()` in home-habits widget — derive week boundary from Asia/Bangkok date, not browser local timezone
+
 ## Sprint 51 — Weight tracking shipping polish
 
 - #407: Add weight_targets table and WeightTarget model
