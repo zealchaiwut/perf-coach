@@ -188,3 +188,20 @@ loadData()
 ### Performance Problem Being Solved
 
 The N separate `progress` calls are sequential per habit (JavaScript `Promise.all` makes them concurrent, but still N round-trips). On a user with 8 habits, this is 8 additional HTTP requests after the initial 4 parallel calls. The `/api/habits/week` endpoint collapses this into a single call, returning `daily_habits`, `weekly_habits`, `day_scores`, `wheel`, and `week_totals` in one response.
+
+---
+
+## Post-ship verification
+
+_Sprint 54, issue #435 — manual smoke suite executed on UAT, 2026-06-11_
+
+| # | Flow | Result | Notes |
+|---|---|---|---|
+| 1 | **Fresh user — starter suggestions** | PASS | Created net-new account; wheel and grid render without errors; starter habit suggestions shown; no JS console exceptions |
+| 2 | **Check today's habit via the grid** | PASS | Tapped today's cell on a daily habit; wheel arc updated percentage; streak and day-score row updated; stats tile refreshed |
+| 3 | **Backfill Monday** | PASS | Clicked Monday's cell on a daily habit mid-week; cell marked done; wheel and totals recalculated; state persisted after navigating away and back |
+| 4 | **Log a workout with `zone2_minutes` → Zone 2 bar moves** | PASS | Logged a run with zone2_minutes > 0 via the training log; Strava/zone2 auto-sync reflected in Zone 2 weekly habit bar after sync; wheel updated on next load |
+| 5 | **Manually log 15 min on a weekly habit → accumulates** | PASS | Opened `+ log` chip on a manual weekly_minutes habit; added 15 min twice in same week; total showed 30 min accumulated; percentage updated correctly; no reset between logs |
+| 6 | **Navigate to last week → read-only** | PASS | Used week navigator `‹` to go to previous week; grid showed past data; all day cells were non-interactive; no write calls fired on click attempts; no error toast |
+
+Tester: zealchaiwut · Environment: UAT (develop branch)
