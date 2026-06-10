@@ -8,6 +8,7 @@
 - #386: Habit logs table and API
 - #387: Habits CRUD API
 - #388: Habit log progress API
+- #389: Auto-fill linked habits on workout save
 - #390: Mobile workout logging form (390px, touch-friendly)
 - #391: Weekly habits-and-targets progress widget on home page
 - #392: Habits management page with CRUD, reorder, archive, and starter habits
