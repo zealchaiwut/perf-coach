@@ -834,7 +834,7 @@
     try {
       var lr = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr.ok) logs = await lr.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave logs empty */ }
 
     var logsForHabit = {};
     logs.forEach(function (l) {
@@ -845,7 +845,7 @@
     try {
       var sr = await fetch('/api/habits/stats?habit_id=' + habit.id + '&days=30');
       if (sr.ok) { var sd = await sr.json(); streakNum = sd.streak || 0; }
-    } catch (_) {}
+    } catch (_) { /* network error, streak stays 0 */ }
 
     var tmp = document.createElement('div');
     tmp.innerHTML = buildHabitRow(habit, weekDates, todayStr, { [habit.id]: logsForHabit }, userId, streakNum);
@@ -931,7 +931,7 @@
             var streakCell = card.querySelector('[data-habit-row="' + hid + '"] .streak-col .num');
             if (streakCell) streakCell.textContent = sd.streak || 0;
           }
-        } catch (_) {}
+        } catch (_) { /* network error, badge stays stale */ }
       });
     });
   }
@@ -960,7 +960,7 @@
     try {
       var hr = await fetch('/api/habits');
       if (hr.ok) habits = await hr.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave habits empty */ }
 
     if (!habits.length) {
       card.innerHTML = header +
@@ -978,7 +978,7 @@
     try {
       var lr2 = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
       if (lr2.ok) allLogs = await lr2.json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave logs empty */ }
 
     var logsByHabit = {};
     allLogs.forEach(function (l) {
@@ -1049,7 +1049,7 @@
       if (results[0].ok) habits = await results[0].json();
       if (results[1].ok) logs = await results[1].json();
       if (results[2].ok) allStats = await results[2].json();
-    } catch (_) {}
+    } catch (_) { /* network error, leave collections empty */ }
 
     var activeCount = habits.length;
 
@@ -1914,7 +1914,7 @@
       try {
         var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
         if (r.ok) newExisting = await r.json();
-      } catch (_) {}
+      } catch (_) { /* network error, render with no existing data */ }
       renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
     }
 
@@ -2020,7 +2020,7 @@
           }
         } else {
           var errData = null;
-          try { errData = await res.json(); } catch (_) {}
+          try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
           feedback.className = 'lt-feedback lt-feedback--err';
           feedback.textContent = (errData && errData.detail) ? String(errData.detail) : 'Save failed (' + res.status + ')';
         }
@@ -2094,7 +2094,7 @@
         }
       } else {
         var errData = null;
-        try { errData = await res.json(); } catch (_) {}
+        try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
         if (feedback) {
           feedback.className = 'fm-feedback fm-feedback--err';
           feedback.textContent = (errData && errData.detail)
@@ -2190,7 +2190,7 @@
     try {
       var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
       if (r.ok) existing = await r.json();
-    } catch (_) {}
+    } catch (_) { /* network error, prefill with empty state */ }
     _fmPrefill(existing);
 
     _FM_STEPPERS.forEach(function (cfg) { _fmInitStepper(cfg, userId, todayStr); });
@@ -2220,7 +2220,7 @@
     try {
       var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
       hasRow = r.ok;
-    } catch (_) {}
+    } catch (_) { /* network error, hasRow stays false */ }
     banner.style.display = hasRow ? 'none' : 'block';
 
     var ctaBtn = document.getElementById('log-today-cta-btn');
@@ -2254,7 +2254,7 @@
     try {
       var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
       if (res.ok) existing = await res.json();
-    } catch (_) {}
+    } catch (_) { /* network error, render with no existing data */ }
 
     renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
@@ -2314,7 +2314,7 @@
         || row.threshold_hr == null
         || row.threshold_pace_seconds_per_km == null;
       if (needsBanner) _showThresholdBanner();
-    } catch (_) {}
+    } catch (_) { /* network error, skip banner check */ }
   }
 
   /* ---- Strava stale sync banner ---- */
@@ -2360,7 +2360,7 @@
       if (hoursAgo > 24) {
         _showStravaStaleBanner(hoursAgo);
       }
-    } catch (_) {}
+    } catch (_) { /* network error, skip stale banner check */ }
   }
 
   /* ---- Init ---- */
