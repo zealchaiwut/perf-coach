@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Habits – v1 Mockup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    /* ── Design tokens (mirrors shared stylesheet) ──────────────────────────── */
+    :root {
+      --bg-1: #5a8dee;
+      --bg-2: #1f3b8a;
+      --page-bg: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 30, 67, 0.06);
+      --card-radius: 14px;
+      --card-shadow: 0 2px 12px rgba(13,30,67,0.10), 0 1px 3px rgba(13,30,67,0.06);
+      --text-primary: #0b1530;
+      --text-secondary: #5c6886;
+      --text-tertiary: #8b95ad;
+      --green: #2d5e10;
+      --green-soft: #dff5d6;
+      --red: #7a1a1a;
+      --red-soft: #ffd9d9;
+    }
+
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      min-height: 100vh;
+      color: var(--text-primary);
+    }
+
+    .mockup-badge {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: 0.04em;
+      z-index: 10;
+    }
+
+    /* ── Simulated nav bar ──────────────────────────────────────────────────── */
+    .mock-nav {
+      background: linear-gradient(#eaf0fb, #d8e3f5);
+      border-bottom: 1px solid rgba(13,30,67,0.08);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      height: 46px;
+    }
+    .mock-nav-link {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: default;
+    }
+    .mock-nav-link.active {
+      background: #0b1530;
+      color: #fff;
+    }
+    .mock-nav-brand {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-right: 12px;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Page layout ────────────────────────────────────────────────────────── */
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 20px 24px 40px;
+    }
+
+    /* ── Page header ────────────────────────────────────────────────────────── */
+    .habits-page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 16px;
+    }
+    .habits-page-header h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+    .page-subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+    }
+    .btn-new-habit {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.92);
+      border: none;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+      cursor: pointer;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 18px 20px;
+      margin-bottom: 10px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin: 0 0 14px;
+    }
+
+    /* ── Hero row ───────────────────────────────────────────────────────────── */
+    .hero-row {
+      display: grid;
+      grid-template-columns: 0.85fr 1.15fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Wheel card ─────────────────────────────────────────────────────────── */
+    .wheel-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      min-height: 210px;
+    }
+    .wheel-wrap {
+      position: relative;
+      width: 148px;
+      height: 148px;
+    }
+    .wheel-wrap svg {
+      width: 148px;
+      height: 148px;
+    }
+    .wheel-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .wheel-pct {
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+    .wheel-sublabel {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    /* ── Stats card ─────────────────────────────────────────────────────────── */
+    .habits-stats-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 16px;
+    }
+    .hstat-item { display: flex; flex-direction: column; gap: 2px; }
+    .hstat-val {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.15;
+    }
+    .hstat-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+    .hstat-divider { height: 1px; background: #eef0f6; }
+
+    /* ── Daily grid ─────────────────────────────────────────────────────────── */
+    .day-grid-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .day-grid-table { width: 100%; border-collapse: collapse; }
+    .day-grid-table th {
+      padding: 0 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      text-align: center;
+      min-width: 38px;
+    }
+    .day-grid-table th.habit-hdr { text-align: left; min-width: 140px; }
+    .day-grid-table td { padding: 4px; text-align: center; vertical-align: middle; }
+    .day-grid-table td.habit-cell { text-align: left; padding: 6px 8px 6px 0; }
+    .habit-name-row { display: flex; align-items: center; gap: 8px; }
+    .habit-icon-chip {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 13px; color: #fff; flex-shrink: 0;
+    }
+    .habit-name-text { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .habit-meta-row {
+      display: flex; align-items: center; gap: 6px; margin-top: 2px;
+    }
+    .habit-type-tag {
+      font-size: 10px; background: #f3f6fb; color: var(--text-tertiary);
+      padding: 1px 5px; border-radius: 4px;
+    }
+    .auto-tag {
+      font-size: 10px; background: #dbeafe; color: #1d4ed8;
+      padding: 1px 6px; border-radius: 999px;
+    }
+    .day-cell {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2px solid #e8eaf0; background: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 14px; color: transparent; cursor: pointer;
+    }
+    .day-cell.done { background: #0b1530; border-color: #0b1530; color: #fff; }
+    .day-cell.today { border-color: #2563eb; }
+    .day-cell.today.done { background: #2563eb; border-color: #2563eb; }
+    .day-cell.future { opacity: 0.3; cursor: default; }
+
+    /* ── Weekly habits ──────────────────────────────────────────────────────── */
+    .weekly-habits-list { display: flex; flex-direction: column; gap: 10px; }
+    .week-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 10px; background: #f7f9fc;
+    }
+    .week-icon {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; color: #fff; flex-shrink: 0;
+    }
+    .week-info { flex: 1; min-width: 0; }
+    .week-name-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+    .week-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+    .week-val {
+      font-size: 12px; font-family: 'JetBrains Mono', monospace;
+      font-weight: 500; color: var(--text-secondary); white-space: nowrap;
+    }
+    .week-bar-outer { height: 6px; background: #e8eaf0; border-radius: 999px; overflow: hidden; }
+    .week-bar-inner {
+      height: 100%;
+      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+      border-radius: 999px;
+    }
+    .week-bar-inner.done { background: linear-gradient(90deg, #86efac 0%, #16a34a 100%); }
+    .week-chip {
+      padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .week-chip.done { background: var(--green-soft); color: var(--green); }
+    .week-chip.pct { background: #f1f4fa; color: var(--text-secondary); }
+    .week-menu-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-tertiary); font-size: 1rem; padding: 4px 6px; border-radius: 4px;
+    }
+
+    /* ── Responsive ≤820px ──────────────────────────────────────────────────── */
+    @media (max-width: 820px) {
+      .hero-row { grid-template-columns: 1fr; }
+      .habit-meta-row { display: none; }
+      .week-row { flex-wrap: wrap; }
+    }
+
+    /* ── Responsive ≤480px (360px) ──────────────────────────────────────────── */
+    @media (max-width: 480px) {
+      main { padding: 12px 12px 24px; }
+      .day-grid-table th.day-full { display: none; }
+      .day-grid-table th.day-short { display: table-cell; }
+      .day-cell { width: 40px; height: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-badge">MOCKUP v1</div>
+
+  <!-- Simulated nav -->
+  <nav class="mock-nav">
+    <span class="mock-nav-brand">perf-coach</span>
+    <a class="mock-nav-link" href="#">Home</a>
+    <a class="mock-nav-link" href="#">Training</a>
+    <a class="mock-nav-link active" href="#">Habits</a>
+    <a class="mock-nav-link" href="#">Trends</a>
+    <a class="mock-nav-link" href="#">Weight</a>
+  </nav>
+
+  <main>
+    <!-- Page header (on gradient) -->
+    <div class="habits-page-header">
+      <div>
+        <h1>Habits</h1>
+        <p class="page-subtitle">4 habits · this week</p>
+      </div>
+      <button class="btn-new-habit">+ New habit</button>
+    </div>
+
+    <!-- Hero row: wheel (left) | stats (right) -->
+    <div class="hero-row">
+
+      <!-- Wheel card -->
+      <div class="card wheel-card">
+        <div class="wheel-wrap">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="wg" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#93c5fd"/>
+                <stop offset="100%" stop-color="#2563eb"/>
+              </linearGradient>
+            </defs>
+            <!-- Track -->
+            <circle cx="60" cy="60" r="46" fill="none" stroke="#eef0f6" stroke-width="16"/>
+            <!-- Arc: 68% completion — dashoffset = 289.03 * (1 - 0.68) = ~92.5 -->
+            <circle cx="60" cy="60" r="46" fill="none"
+              stroke="url(#wg)" stroke-width="16" stroke-linecap="round"
+              transform="rotate(-90 60 60)"
+              stroke-dasharray="289.03" stroke-dashoffset="92.5"/>
+          </svg>
+          <div class="wheel-center">
+            <span class="wheel-pct">68%</span>
+            <span class="wheel-sublabel">this week</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats card -->
+      <div class="card habits-stats-card">
+        <div class="hstat-item">
+          <span class="hstat-val">12 days</span>
+          <span class="hstat-label">Best streak</span>
+        </div>
+        <div class="hstat-divider"></div>
+        <div class="hstat-item">
+          <span class="hstat-val">74%</span>
+          <span class="hstat-label">30-day completion</span>
+        </div>
+        <div class="hstat-divider"></div>
+        <div class="hstat-item">
+          <span class="hstat-val">4</span>
+          <span class="hstat-label">Habits tracked</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily grid card -->
+    <div class="card">
+      <div class="day-grid-hdr">
+        <span class="card-title">Daily grid</span>
+        <span style="font-size:12px;color:var(--text-tertiary)">09/06 – 15/06</span>
+      </div>
+      <table class="day-grid-table">
+        <thead>
+          <tr>
+            <th class="habit-hdr">Habit</th>
+            <th class="day-full">Mon</th>
+            <th class="day-full">Tue</th>
+            <th class="day-full">Wed</th>
+            <th class="day-full">Thu</th>
+            <th class="day-full">Fri</th>
+            <th class="day-full">Sat</th>
+            <th class="day-full">Sun</th>
+            <!-- Short headers for ≤480px -->
+            <th class="day-short" style="display:none">M</th>
+            <th class="day-short" style="display:none">T</th>
+            <th class="day-short" style="display:none">W</th>
+            <th class="day-short" style="display:none">T</th>
+            <th class="day-short" style="display:none">F</th>
+            <th class="day-short" style="display:none">S</th>
+            <th class="day-short" style="display:none">S</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Zone 2 cardio -->
+          <tr>
+            <td class="habit-cell">
+              <div class="habit-name-row">
+                <span class="habit-icon-chip" style="background:#3b82f6"><i class="ti ti-run"></i></span>
+                <div>
+                  <div class="habit-name-text">Zone 2 cardio</div>
+                  <div class="habit-meta-row">
+                    <span class="habit-type-tag">Weekly minutes</span>
+                    <span class="auto-tag">auto</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell"></div></td>
+            <td><div class="day-cell today done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+          </tr>
+          <!-- Running sessions -->
+          <tr>
+            <td class="habit-cell">
+              <div class="habit-name-row">
+                <span class="habit-icon-chip" style="background:#3b82f6"><i class="ti ti-shoe"></i></span>
+                <div>
+                  <div class="habit-name-text">Running sessions</div>
+                  <div class="habit-meta-row">
+                    <span class="habit-type-tag">Weekly count</span>
+                    <span class="auto-tag">auto</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell"></div></td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell today"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+          </tr>
+          <!-- Strength sessions -->
+          <tr>
+            <td class="habit-cell">
+              <div class="habit-name-row">
+                <span class="habit-icon-chip" style="background:#8b5cf6"><i class="ti ti-barbell"></i></span>
+                <div>
+                  <div class="habit-name-text">Strength sessions</div>
+                  <div class="habit-meta-row">
+                    <span class="habit-type-tag">Weekly count</span>
+                    <span class="auto-tag">auto</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td><div class="day-cell"></div></td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell"></div></td>
+            <td><div class="day-cell today"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+          </tr>
+          <!-- Daily metrics -->
+          <tr>
+            <td class="habit-cell">
+              <div class="habit-name-row">
+                <span class="habit-icon-chip" style="background:#10b981"><i class="ti ti-clipboard"></i></span>
+                <div>
+                  <div class="habit-name-text">Daily metrics logged</div>
+                  <div class="habit-meta-row">
+                    <span class="habit-type-tag">Daily checkmark</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell today done"><i class="ti ti-check"></i></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+            <td><div class="day-cell future"></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Weekly habits card -->
+    <div class="card">
+      <div class="day-grid-hdr" style="margin-bottom:14px">
+        <span class="card-title">This week's progress</span>
+      </div>
+      <div class="weekly-habits-list">
+
+        <!-- Zone 2 cardio — 180/210 min -->
+        <div class="week-row">
+          <span class="week-icon" style="background:#3b82f6"><i class="ti ti-run"></i></span>
+          <div class="week-info">
+            <div class="week-name-row">
+              <span class="week-name">Zone 2 cardio</span>
+              <span class="week-val">180 / 210 min</span>
+            </div>
+            <div class="week-bar-outer">
+              <div class="week-bar-inner" style="width:85.7%"></div>
+            </div>
+          </div>
+          <span class="week-chip pct">86%</span>
+          <button class="week-menu-btn">⋯</button>
+        </div>
+
+        <!-- Running sessions — 2/3 -->
+        <div class="week-row">
+          <span class="week-icon" style="background:#3b82f6"><i class="ti ti-shoe"></i></span>
+          <div class="week-info">
+            <div class="week-name-row">
+              <span class="week-name">Running sessions</span>
+              <span class="week-val">2 / 3 sessions</span>
+            </div>
+            <div class="week-bar-outer">
+              <div class="week-bar-inner" style="width:66.7%"></div>
+            </div>
+          </div>
+          <span class="week-chip pct">67%</span>
+          <button class="week-menu-btn">⋯</button>
+        </div>
+
+        <!-- Strength sessions — 1/2 -->
+        <div class="week-row">
+          <span class="week-icon" style="background:#8b5cf6"><i class="ti ti-barbell"></i></span>
+          <div class="week-info">
+            <div class="week-name-row">
+              <span class="week-name">Strength sessions</span>
+              <span class="week-val">1 / 2 sessions</span>
+            </div>
+            <div class="week-bar-outer">
+              <div class="week-bar-inner" style="width:50%"></div>
+            </div>
+          </div>
+          <span class="week-chip pct">50%</span>
+          <button class="week-menu-btn">⋯</button>
+        </div>
+
+        <!-- Daily metrics — 4/7 done -->
+        <div class="week-row">
+          <span class="week-icon" style="background:#10b981"><i class="ti ti-clipboard"></i></span>
+          <div class="week-info">
+            <div class="week-name-row">
+              <span class="week-name">Daily metrics logged</span>
+              <span class="week-val">4 / 7 days</span>
+            </div>
+            <div class="week-bar-outer">
+              <div class="week-bar-inner" style="width:57.1%"></div>
+            </div>
+          </div>
+          <span class="week-chip pct">57%</span>
+          <button class="week-menu-btn">⋯</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</body>
+</html>
