@@ -351,3 +351,70 @@ def test_api_j_delete_unknown_id_returns_404(http_client, api_user_id):
     fake_id = str(uuid.uuid4())
     res = http_client.delete(f"{_WE_ENDPOINT}/{fake_id}")
     assert res.status_code == 404, res.text
+
+
+# ── Additional AC coverage ────────────────────────────────────────────────────
+
+def test_api_post_unknown_user_returns_404(http_client):
+    """AC: POST returns 404 when user_id does not exist."""
+    fake_uid = str(uuid.uuid4())
+    res = http_client.post(_WE_ENDPOINT, json={
+        "user_id": fake_uid,
+        "entry_date": "2020-11-05",
+        "weight_kg": 75.0,
+    })
+    assert res.status_code == 404, res.text
+
+
+def test_api_get_from_after_to_returns_422(http_client, api_user_id):
+    """AC: GET returns 422 when from > to."""
+    res = http_client.get(_WE_ENDPOINT, params={
+        "user_id": api_user_id,
+        "from": "2020-12-01",
+        "to": "2020-11-01",
+    })
+    assert res.status_code == 422, res.text
+
+
+def test_api_get_range_exceeds_365_returns_422(http_client, api_user_id):
+    """AC: GET returns 422 when date range exceeds 365 days."""
+    res = http_client.get(_WE_ENDPOINT, params={
+        "user_id": api_user_id,
+        "from": "2020-01-01",
+        "to": "2021-06-01",
+    })
+    assert res.status_code == 422, res.text
+
+
+def test_api_patch_unknown_id_returns_404(http_client):
+    """AC: PATCH returns 404 when entry_id does not exist."""
+    fake_id = str(uuid.uuid4())
+    res = http_client.patch(f"{_WE_ENDPOINT}/{fake_id}", json={"weight_kg": 70.0})
+    assert res.status_code == 404, res.text
+
+
+def test_api_patch_with_user_id_returns_422(http_client, api_user_id):
+    """AC: PATCH returns 422 when user_id is present in body."""
+    r = http_client.post(_WE_ENDPOINT, json={
+        "user_id": api_user_id,
+        "entry_date": "2020-11-28",
+        "weight_kg": 77.0,
+    })
+    assert r.status_code == 201, r.text
+    eid = r.json()["id"]
+
+    res = http_client.patch(f"{_WE_ENDPOINT}/{eid}", json={"user_id": str(uuid.uuid4())})
+    assert res.status_code == 422, res.text
+
+    http_client.delete(f"{_WE_ENDPOINT}/{eid}")
+
+
+def test_api_post_notes_too_long_returns_422(http_client, api_user_id):
+    """AC: POST returns 422 when notes exceeds 500 characters."""
+    res = http_client.post(_WE_ENDPOINT, json={
+        "user_id": api_user_id,
+        "entry_date": "2020-11-29",
+        "weight_kg": 75.0,
+        "notes": "x" * 501,
+    })
+    assert res.status_code == 422, res.text
