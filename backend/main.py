@@ -2282,6 +2282,248 @@ def reorder_habit(
         return JSONResponse(_habit_dict(habit))
 
 
+# ── Habit log + progress endpoints (issue #388) ───────────────────────────────
+
+def _bangkok_today() -> _date:
+    from zoneinfo import ZoneInfo
+    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
+
+def _week_start_bangkok(d: _date) -> _date:
+    """Monday of the week containing d."""
+    return d - _timedelta(days=d.weekday())
+
+
+def _habit_log_dict(log: HabitLog) -> dict:
+    return {
+        "id": str(log.id),
+        "habit_id": str(log.habit_id),
+        "user_id": str(log.user_id),
+        "log_date": log.log_date.isoformat(),
+        "log_week_start": log.log_week_start.isoformat(),
+        "value": float(log.value) if log.value is not None else None,
+        "notes": log.notes,
+        "source": log.source,
+        "created_at": log.created_at.isoformat() if log.created_at else None,
+        "updated_at": log.updated_at.isoformat() if log.updated_at else None,
+    }
+
+
+class HabitLogCreateIn(BaseModel):
+    log_date: Optional[_date] = None
+    value: Optional[float] = None
+    notes: Optional[str] = None
+
+
+def _get_computed_logs(
+    session,
+    user_id,
+    week_start: _date,
+    week_end: _date,
+    auto_fill_source: str,
+) -> list:
+    """Derive per-date computed log entries from workouts for the given week.
+
+    Each auto_fill_source maps to a different workout aggregation:
+    - zone2_minutes: sum zone2_minutes per date
+    - run_count / lift_count: count qualifying workouts per date (value=1 each)
+    - total_duration_minutes: sum duration_seconds/60 per date
+    - distance_km: sum distance_km per date
+    """
+    from collections import defaultdict
+
+    base_q = session.query(Workout).filter(
+        Workout.user_id == user_id,
+        Workout.workout_date >= week_start,
+        Workout.workout_date <= week_end,
+    )
+    date_values: dict = defaultdict(float)
+
+    if auto_fill_source == "workout.zone2_minutes":
+        for w in base_q.filter(Workout.zone2_minutes > 0).all():
+            if w.zone2_minutes:
+                date_values[w.workout_date.isoformat()] += float(w.zone2_minutes)
+    elif auto_fill_source == "workout.run_count":
+        for w in base_q.filter(Workout.workout_type.ilike("%run%")).all():
+            date_values[w.workout_date.isoformat()] += 1.0
+    elif auto_fill_source == "workout.lift_count":
+        for w in base_q.filter(Workout.workout_type.ilike("%lift%")).all():
+            date_values[w.workout_date.isoformat()] += 1.0
+    elif auto_fill_source == "workout.total_duration_minutes":
+        for w in base_q.filter(Workout.duration_seconds.isnot(None)).all():
+            if w.duration_seconds:
+                date_values[w.workout_date.isoformat()] += w.duration_seconds / 60.0
+    elif auto_fill_source == "workout.distance_km":
+        for w in base_q.filter(Workout.distance_km.isnot(None)).all():
+            if w.distance_km:
+                date_values[w.workout_date.isoformat()] += float(w.distance_km)
+
+    return [
+        {"date": d, "value": v, "source": auto_fill_source}
+        for d, v in sorted(date_values.items())
+    ]
+
+
+@app.post("/api/habits/{habit_id}/log", status_code=201)
+def post_habit_log_entry(
+    habit_id: str,
+    body: HabitLogCreateIn,
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        log_date = body.log_date if body.log_date is not None else _bangkok_today()
+        value = body.value if body.value is not None else 1.0
+        log_week_start = _week_start_bangkok(log_date)
+        existing = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_date == log_date)
+            .first()
+        )
+        if existing is not None:
+            existing.value = value
+            existing.notes = body.notes
+            existing.updated_at = _datetime.now(_timezone.utc)
+            session.commit()
+            session.refresh(existing)
+            return JSONResponse(status_code=201, content=_habit_log_dict(existing))
+        log = HabitLog(
+            habit_id=hid,
+            user_id=user.id,
+            log_date=log_date,
+            log_week_start=log_week_start,
+            value=value,
+            notes=body.notes,
+            source="manual",
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return JSONResponse(status_code=201, content=_habit_log_dict(log))
+
+
+@app.delete("/api/habits/{habit_id}/log", status_code=204)
+def delete_habit_log_entry(
+    habit_id: str,
+    date: str = Query(...),
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    try:
+        log_date = _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        log = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_date == log_date)
+            .first()
+        )
+        if log is None:
+            raise HTTPException(status_code=404, detail="Log entry not found")
+        session.delete(log)
+        session.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/habits/{habit_id}/progress")
+def get_habit_progress(
+    habit_id: str,
+    week_start: Optional[str] = Query(None),
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if week_start is not None:
+            try:
+                ws = _date.fromisoformat(week_start)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid week_start format")
+        else:
+            ws = _week_start_bangkok(_bangkok_today())
+        we = ws + _timedelta(days=6)
+        manual_log_rows = (
+            session.query(HabitLog)
+            .filter(HabitLog.habit_id == hid, HabitLog.log_week_start == ws)
+            .all()
+        )
+        manual_logs = [
+            {
+                "date": log.log_date.isoformat(),
+                "value": float(log.value),
+                "notes": log.notes or "",
+            }
+            for log in manual_log_rows
+        ]
+        computed_logs: list = []
+        if habit.auto_fill_source:
+            computed_logs = _get_computed_logs(session, user.id, ws, we, habit.auto_fill_source)
+        # Aggregate current_value with manual_override logic.
+        # When a manual_log on a date has source == 'manual_override' and a computed_log
+        # exists for the same date, the manual value replaces (not adds to) the computed
+        # value for that date only.
+        manual_by_date: dict = {}
+        for log in manual_log_rows:
+            d = log.log_date.isoformat()
+            if d not in manual_by_date:
+                manual_by_date[d] = {"value": 0.0, "has_override": False}
+            manual_by_date[d]["value"] += float(log.value)
+            if log.source == "manual_override":
+                manual_by_date[d]["has_override"] = True
+        computed_by_date: dict = {}
+        for entry in computed_logs:
+            d = entry["date"]
+            computed_by_date[d] = computed_by_date.get(d, 0.0) + entry["value"]
+        current_value = 0.0
+        for d in set(manual_by_date) | set(computed_by_date):
+            m = manual_by_date.get(d, {"value": 0.0, "has_override": False})
+            c = computed_by_date.get(d, 0.0)
+            if m["has_override"]:
+                current_value += m["value"]
+            else:
+                current_value += m["value"] + c
+        target = float(habit.weekly_target) if habit.weekly_target is not None else None
+        percentage = None
+        if target is not None and target > 0:
+            percentage = min(100.0, max(0.0, (current_value / target) * 100.0))
+        is_complete = (current_value >= target) if target is not None else False
+        return JSONResponse({
+            "habit": _habit_dict(habit),
+            "week_start": ws.isoformat(),
+            "week_end": we.isoformat(),
+            "target": target,
+            "current_value": current_value,
+            "percentage": percentage,
+            "manual_logs": manual_logs,
+            "computed_logs": computed_logs,
+            "is_complete": is_complete,
+        })
+
+
 @app.get("/api/habits/logs")
 def get_habit_logs(
     from_date: str = Query(alias="from"),
