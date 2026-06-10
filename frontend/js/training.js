@@ -196,7 +196,7 @@
     return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // ── Run details ────────────────────────────────────────────────────────────────
+  // ── Run details: structured segment builder ───────────────────────────────────
 
   function isRunType(t) {
     return /^run(ning)?$/i.test((t || '').trim());
@@ -210,7 +210,7 @@
     var exSec = document.querySelector('.exercises-section');
     if (runSec) runSec.style.display = run ? '' : 'none';
     if (exSec) exSec.style.display = run ? 'none' : '';
-    if (run) recomputeRunPace();
+    if (run) { recomputeRunPace(); recomputeSegments(); }
   }
 
   function intFieldVal(id) {
@@ -259,157 +259,247 @@
     }
   }
 
-  // Returns seconds for "m:ss", a bare integer of seconds, null for empty, NaN for invalid.
-  function parseMmss(str) {
-    str = (str || '').trim();
-    if (str === '') return null;
-    if (/^\d+$/.test(str)) return parseInt(str, 10);
-    var parts = str.split(':');
-    if (parts.length !== 2) return NaN;
-    var m = parseInt(parts[0], 10);
-    var s = parseInt(parts[1], 10);
-    if (isNaN(m) || isNaN(s) || m < 0 || s < 0 || s >= 60) return NaN;
-    return m * 60 + s;
-  }
-
-  function fmtMmss(sec) {
-    if (sec == null) return '';
-    var m = Math.floor(sec / 60);
-    var s = Math.round(sec % 60);
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
-  function fmtDurShort(sec) {
-    var h = Math.floor(sec / 3600);
-    var m = Math.floor((sec % 3600) / 60);
-    var s = Math.round(sec % 60);
-    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
   function trimNum(n) {
     return parseFloat(n.toFixed(2)).toString();
   }
 
-  function addSplitRow(data) {
-    var tbody = document.getElementById('splits-tbody');
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td class="splits-idx">' + (tbody.children.length + 1) + '</td>' +
-      '<td><input type="number" inputmode="decimal" min="0" step="0.01" class="split-input split-dist" placeholder="1.0" value="' + (data && data.distance_km != null ? data.distance_km : '') + '"></td>' +
-      '<td><input type="text" inputmode="numeric" class="split-input split-time" placeholder="5:20" value="' + (data && data.duration_seconds != null ? fmtMmss(data.duration_seconds) : '') + '"></td>' +
-      '<td><input type="number" inputmode="numeric" min="20" max="250" class="split-input split-hr" placeholder="—" value="' + (data && data.avg_hr != null ? data.avg_hr : '') + '"></td>' +
-      '<td class="split-pace">—</td>' +
-      '<td><button type="button" class="remove-row-btn" title="Remove split">✕</button></td>';
-    tbody.appendChild(tr);
+  // Segment types: label + which inputs the row shows.
+  // mode 'span'  = distance (km) OR duration (min)
+  // mode 'block' = sets × rep distance (m) + rest (m)
+  var SEG_TYPES = {
+    warmup:    { label: 'Warm-up',   mode: 'span'  },
+    easy:      { label: 'Easy run',  mode: 'span'  },
+    tempo:     { label: 'Tempo',     mode: 'span'  },
+    intervals: { label: 'Intervals', mode: 'block' },
+    rest:      { label: 'Rest',      mode: 'span'  },
+    cooldown:  { label: 'Cool-down', mode: 'span'  },
+  };
 
-    function onEdit() { updateSplitRowPace(tr); updateSplitsSum(); }
-    tr.querySelector('.split-dist').addEventListener('input', onEdit);
-    tr.querySelector('.split-time').addEventListener('input', onEdit);
-    tr.querySelector('.remove-row-btn').addEventListener('click', function () {
-      tr.remove();
-      renumberSplits();
-      updateSplitsSum();
+  // Built-in starting points; users tweak then "Save as template" for their own.
+  var RUN_TEMPLATES = {
+    easy: [
+      { type: 'warmup',   minutes: 10 },
+      { type: 'easy',     km: 5 },
+      { type: 'cooldown', minutes: 5 },
+    ],
+    intervals: [
+      { type: 'warmup',    km: 1 },
+      { type: 'intervals', sets: 4, repM: 400, restM: 200 },
+      { type: 'cooldown',  km: 1 },
+    ],
+    tempo: [
+      { type: 'warmup',   minutes: 10 },
+      { type: 'tempo',    minutes: 20 },
+      { type: 'cooldown', minutes: 10 },
+    ],
+  };
+
+  // When the user types totals directly, segment sums stop overwriting them.
+  var _totalsTouched = false;
+  var _segDragSrc = null;
+
+  function addSegmentRow(type, data) {
+    var cfg = SEG_TYPES[type];
+    if (!cfg) return;
+    data = data || {};
+    var list = document.getElementById('segments-list');
+    var row = document.createElement('div');
+    row.className = 'seg-row';
+    row.draggable = true;
+    row.dataset.segType = type;
+
+    var inputs;
+    if (cfg.mode === 'block') {
+      inputs =
+        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" value="' + (data.sets != null ? data.sets : '') + '"> ×' +
+        ' <input type="number" class="seg-repm" inputmode="numeric" min="50" step="50" placeholder="400" value="' + (data.repM != null ? data.repM : '') + '"> m' +
+        ' <span class="seg-or">·</span> rest' +
+        ' <input type="number" class="seg-restm" inputmode="numeric" min="0" step="50" placeholder="200" value="' + (data.restM != null ? data.restM : '') + '"> m';
+    } else {
+      inputs =
+        '<input type="number" class="seg-dist" inputmode="decimal" min="0" step="0.1" placeholder="—" value="' + (data.km != null ? data.km : '') + '"> km' +
+        ' <span class="seg-or">or</span> ' +
+        '<input type="number" class="seg-min" inputmode="numeric" min="0" step="1" placeholder="—" value="' + (data.minutes != null ? data.minutes : '') + '"> min';
+    }
+
+    row.innerHTML =
+      '<span class="seg-handle" title="Drag to reorder">⠿</span>' +
+      '<span class="seg-type">' + cfg.label + '</span>' +
+      '<span class="seg-inputs">' + inputs + '</span>' +
+      '<button type="button" class="remove-row-btn" title="Remove segment">✕</button>';
+
+    row.querySelector('.remove-row-btn').addEventListener('click', function () {
+      row.remove();
+      recomputeSegments();
     });
-    updateSplitRowPace(tr);
-  }
-
-  function updateSplitRowPace(tr) {
-    var dist = parseFloat(tr.querySelector('.split-dist').value);
-    var sec = parseMmss(tr.querySelector('.split-time').value);
-    var pace = (sec && sec > 0 && dist > 0) ? fmtPace(dist, sec) : null;
-    tr.querySelector('.split-pace').textContent = pace ? pace + ' /km' : '—';
-  }
-
-  function renumberSplits() {
-    document.querySelectorAll('#splits-tbody tr').forEach(function (r, i) {
-      r.querySelector('.splits-idx').textContent = i + 1;
+    row.querySelectorAll('input').forEach(function (inp) {
+      inp.addEventListener('input', recomputeSegments);
     });
+
+    // Drag-and-drop reordering (same affordance as the exercise table)
+    row.addEventListener('dragstart', function (e) {
+      _segDragSrc = row;
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', function () {
+      row.classList.remove('dragging');
+      document.querySelectorAll('.seg-row').forEach(function (r) { r.classList.remove('drag-over'); });
+      _segDragSrc = null;
+    });
+    row.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.seg-row').forEach(function (r) { r.classList.remove('drag-over'); });
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (!_segDragSrc || _segDragSrc === row) return;
+      var rect = row.getBoundingClientRect();
+      var after = e.clientY > rect.top + rect.height / 2;
+      row.parentNode.insertBefore(_segDragSrc, after ? row.nextSibling : row);
+      recomputeSegments();
+    });
+
+    list.appendChild(row);
+    return row;
   }
 
-  function getSplits() {
+  function seedTemplate(key) {
+    var tpl = RUN_TEMPLATES[key];
+    if (!tpl) return;
+    var list = document.getElementById('segments-list');
+    if (list.children.length &&
+        !confirm('Replace the current segments with the ' + key + ' template?')) {
+      return;
+    }
+    list.innerHTML = '';
+    tpl.forEach(function (seg) { addSegmentRow(seg.type, seg); });
+    recomputeSegments();
+  }
+
+  // Read one segment row back into a plain object.
+  function readSegmentRow(row) {
+    var type = row.dataset.segType;
+    var cfg = SEG_TYPES[type];
+    function num(sel, float) {
+      var el = row.querySelector(sel);
+      if (!el || el.value.trim() === '') return null;
+      var n = float ? parseFloat(el.value) : parseInt(el.value, 10);
+      return isNaN(n) ? null : n;
+    }
+    if (cfg.mode === 'block') {
+      return { type: type, sets: num('.seg-sets'), repM: num('.seg-repm'), restM: num('.seg-restm') };
+    }
+    return { type: type, km: num('.seg-dist', true), minutes: num('.seg-min') };
+  }
+
+  function getSegmentObjects() {
     var out = [];
-    document.querySelectorAll('#splits-tbody tr').forEach(function (r, i) {
-      var distRaw = r.querySelector('.split-dist').value.trim();
-      var timeRaw = r.querySelector('.split-time').value.trim();
-      var hrRaw = r.querySelector('.split-hr').value.trim();
-      if (distRaw === '' && timeRaw === '' && hrRaw === '') return; // skip blank rows
-      var dist = parseFloat(distRaw);
-      var sec = parseMmss(timeRaw);
-      var hr = hrRaw === '' ? null : parseInt(hrRaw, 10);
-      out.push({
-        split_index: i,
-        distance_km: isNaN(dist) ? 0 : dist,
-        duration_seconds: (sec && sec > 0) ? sec : 0,
-        avg_hr: (hr != null && !isNaN(hr)) ? hr : null,
-      });
+    document.querySelectorAll('#segments-list .seg-row').forEach(function (row) {
+      out.push(readSegmentRow(row));
     });
     return out;
   }
 
-  function updateSplitsSum() {
-    var el = document.getElementById('splits-sum');
-    if (!el) return;
-    var rows = document.querySelectorAll('#splits-tbody tr');
-    if (!rows.length) { el.textContent = ''; el.classList.remove('is-mismatch'); return; }
-    var sumDist = 0, sumDur = 0;
-    rows.forEach(function (r) {
-      var d = parseFloat(r.querySelector('.split-dist').value);
-      if (!isNaN(d)) sumDist += d;
-      var s = parseMmss(r.querySelector('.split-time').value);
-      if (s && s > 0) sumDur += s;
+  // Segment sums: distance (km) + duration (s) from whatever is specified.
+  function segmentTotals() {
+    var km = 0, sec = 0;
+    getSegmentObjects().forEach(function (s) {
+      if (s.type && SEG_TYPES[s.type].mode === 'block') {
+        if (s.sets && s.repM) km += s.sets * (s.repM + (s.restM || 0)) / 1000;
+      } else {
+        if (s.km) km += s.km;
+        if (s.minutes) sec += s.minutes * 60;
+      }
     });
-    var total = getRunDistanceKm();
-    var mismatch = total != null && Math.abs(sumDist - total) > 0.05;
-    var txt;
-    if (mismatch) {
-      txt = 'Splits cover ' + trimNum(sumDist) + ' of ' + trimNum(total) + ' km';
-    } else {
-      txt = 'Splits cover ' + trimNum(sumDist) + ' km';
-      if (sumDur > 0) txt += ' · ' + fmtDurShort(sumDur);
-    }
-    el.textContent = txt;
-    el.classList.toggle('is-mismatch', mismatch);
+    return { km: km, sec: sec };
   }
 
-  function autoKmSplits() {
+  function recomputeSegments() {
+    var sumEl = document.getElementById('segments-sum');
+    if (!sumEl) return;
+    var rows = document.querySelectorAll('#segments-list .seg-row');
+    if (!rows.length) { sumEl.textContent = ''; sumEl.classList.remove('is-mismatch'); return; }
+
+    var t = segmentTotals();
+
+    // Auto-fill totals while the user hasn't taken them over.
+    if (!_totalsTouched) {
+      if (t.km > 0) document.getElementById('run-distance').value = trimNum(t.km);
+      if (t.sec > 0) {
+        document.getElementById('run-dur-h').value = Math.floor(t.sec / 3600) || '';
+        document.getElementById('run-dur-m').value = Math.floor((t.sec % 3600) / 60) || '';
+        document.getElementById('run-dur-s').value = Math.round(t.sec % 60) || '';
+      }
+      recomputeRunPace();
+    }
+
+    var parts = [];
+    if (t.km > 0) parts.push(trimNum(t.km) + ' km');
+    if (t.sec > 0) parts.push(Math.round(t.sec / 60) + ' min');
+    var txt = 'Σ segments: ' + (parts.length ? parts.join(' · ') : '—');
+
     var total = getRunDistanceKm();
-    if (!total || total <= 0) { showToast('Enter distance first.', true); return; }
-    var tbody = document.getElementById('splits-tbody');
-    tbody.innerHTML = '';
-    var full = Math.floor(total);
-    var rem = parseFloat((total - full).toFixed(3));
-    for (var i = 0; i < full; i++) addSplitRow({ distance_km: 1 });
-    if (rem >= 0.01) addSplitRow({ distance_km: rem });
-    if (!tbody.children.length) addSplitRow(null);
-    updateSplitsSum();
+    var mismatch = _totalsTouched && total != null && t.km > 0 && Math.abs(t.km - total) > 0.05;
+    if (mismatch) txt = 'Σ segments: ' + trimNum(t.km) + ' of ' + trimNum(total) + ' km total';
+    sumEl.textContent = txt;
+    sumEl.classList.toggle('is-mismatch', mismatch);
   }
 
-  function toggleSplits() {
-    var body = document.getElementById('splits-body');
-    var btn = document.getElementById('splits-toggle');
-    var willOpen = body.hidden;
-    body.hidden = !willOpen;
-    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    if (willOpen && document.getElementById('splits-tbody').children.length === 0) {
-      addSplitRow(null);
-      updateSplitsSum();
+  // Serialize segments into workout_exercises payload rows.
+  function getSegments() {
+    var out = [];
+    getSegmentObjects().forEach(function (s, i) {
+      var cfg = SEG_TYPES[s.type];
+      var row = { display_order: i, name: cfg.label, sets: null, reps: null, weight_kg: null, duration: null, rpe: null, distance_km: null, duration_seconds: null };
+      if (cfg.mode === 'block') {
+        if (!s.sets && !s.repM) return; // empty row, skip
+        row.sets = s.sets;
+        row.distance_km = s.repM != null ? s.repM / 1000 : null;
+        if (s.restM != null) row.duration = 'rest ' + s.restM + 'm';
+      } else {
+        if (s.km == null && s.minutes == null) return; // empty row, skip
+        row.distance_km = s.km;
+        row.duration_seconds = s.minutes != null ? s.minutes * 60 : null;
+      }
+      out.push(row);
+    });
+    return out;
+  }
+
+  // Map a stored exercise row back to a segment descriptor (for edit/repeat).
+  function exerciseToSegment(ex) {
+    var name = (ex.name || '').toLowerCase();
+    var type = null;
+    Object.keys(SEG_TYPES).forEach(function (k) {
+      if (SEG_TYPES[k].label.toLowerCase() === name) type = k;
+    });
+    if (!type) return null; // not a run segment row (e.g. legacy strength exercise)
+    if (SEG_TYPES[type].mode === 'block') {
+      var rest = null;
+      var m = /rest\s+(\d+)\s*m/i.exec(ex.duration || '');
+      if (m) rest = parseInt(m[1], 10);
+      return { type: type, sets: ex.sets, repM: ex.distance_km != null ? Math.round(ex.distance_km * 1000) : null, restM: rest };
     }
+    return {
+      type: type,
+      km: ex.distance_km != null ? parseFloat(ex.distance_km) : null,
+      minutes: ex.duration_seconds != null ? Math.round(ex.duration_seconds / 60) : null,
+    };
   }
 
   function resetRunFields() {
     ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s', 'run-avg-hr', 'run-max-hr', 'run-elevation']
       .forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
-    var tbody = document.getElementById('splits-tbody');
-    if (tbody) tbody.innerHTML = '';
-    var body = document.getElementById('splits-body');
-    if (body) body.hidden = true;
-    var toggle = document.getElementById('splits-toggle');
-    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    var list = document.getElementById('segments-list');
+    if (list) list.innerHTML = '';
+    _totalsTouched = false;
     var runErr = document.getElementById('run-error');
     if (runErr) runErr.textContent = '';
     recomputeRunPace();
-    updateSplitsSum();
+    recomputeSegments();
   }
 
   function fillRunFields(workout) {
@@ -426,18 +516,16 @@
     document.getElementById('run-avg-hr').value = workout.avg_hr != null ? workout.avg_hr : '';
     document.getElementById('run-max-hr').value = workout.max_hr != null ? workout.max_hr : '';
     document.getElementById('run-elevation').value = workout.elevation_m != null ? workout.elevation_m : '';
+    // Stored totals win over segment sums when editing.
+    _totalsTouched = true;
+    var list = document.getElementById('segments-list');
+    list.innerHTML = '';
+    (workout.exercises || []).forEach(function (ex) {
+      var seg = exerciseToSegment(ex);
+      if (seg) addSegmentRow(seg.type, seg);
+    });
     recomputeRunPace();
-    fetch('/api/workouts/' + workout.id + '/splits')
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (splits) {
-        if (!splits || !splits.length) return;
-        document.getElementById('splits-body').hidden = false;
-        document.getElementById('splits-toggle').setAttribute('aria-expanded', 'true');
-        document.getElementById('splits-tbody').innerHTML = '';
-        splits.forEach(function (s) { addSplitRow(s); });
-        updateSplitsSum();
-      })
-      .catch(function () { /* leave splits empty */ });
+    recomputeSegments();
   }
 
   // ── Form reset / fill ─────────────────────────────────────────────────────────
@@ -520,18 +608,21 @@
       }
     });
 
-    var splitIssue = false;
-    document.querySelectorAll('#splits-tbody tr').forEach(function (r) {
-      var raw = r.querySelector('.split-time').value.trim();
-      if (raw !== '' && isNaN(parseMmss(raw))) splitIssue = true;
-      var hv = r.querySelector('.split-hr').value.trim();
-      if (hv !== '') {
-        var hn = parseInt(hv, 10);
-        if (isNaN(hn) || hn < 20 || hn > 250) splitIssue = true;
+    var segIssue = null;
+    getSegmentObjects().forEach(function (s) {
+      var cfg = SEG_TYPES[s.type];
+      if (cfg.mode === 'block') {
+        var empty = s.sets == null && s.repM == null && s.restM == null;
+        if (!empty && (!s.sets || s.sets < 1 || !s.repM || s.repM <= 0)) {
+          segIssue = 'Intervals need sets ≥ 1 and a rep distance.';
+        }
+      } else {
+        if (s.km != null && s.km < 0) segIssue = 'Segment distance must be ≥ 0.';
+        if (s.minutes != null && s.minutes < 0) segIssue = 'Segment minutes must be ≥ 0.';
       }
     });
-    if (splitIssue) {
-      runErr.textContent = (runErr.textContent ? runErr.textContent + ' ' : '') + 'Check split times (use m:ss) and HR (20–250).';
+    if (segIssue) {
+      runErr.textContent = (runErr.textContent ? runErr.textContent + ' ' : '') + segIssue;
       valid = false;
     }
 
@@ -768,7 +859,9 @@
       payload.avg_hr = intFieldVal('run-avg-hr');
       payload.max_hr = intFieldVal('run-max-hr');
       payload.elevation_m = intFieldVal('run-elevation');
-      payload.exercises = [];
+      // Run structure (segments) rides in exercises rows; the training-log
+      // detail panel renders distance-bearing exercises as intervals.
+      payload.exercises = getSegments();
     } else {
       payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
     }
@@ -796,25 +889,6 @@
         var err = await res.json().catch(function () { return {}; });
         showToast('Save failed: ' + (err.detail || res.status), true);
         return;
-      }
-
-      // Run workouts may carry per-km splits, saved via a second call (replace semantics).
-      if (run) {
-        var saved = await res.clone().json().catch(function () { return null; });
-        var wid = editingWorkoutId || (saved && saved.id);
-        if (wid) {
-          var splits = getSplits();
-          if (splits.length) {
-            await fetch('/api/workouts/' + wid + '/splits', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ splits: splits }),
-            }).catch(function () { /* workout already saved; splits are best-effort */ });
-          } else if (editingWorkoutId) {
-            await fetch('/api/workouts/' + wid + '/splits', { method: 'DELETE' })
-              .catch(function () { /* no-op */ });
-          }
-        }
       }
 
       showToast(editingWorkoutId ? 'Workout updated!' : 'Workout saved!');
@@ -964,17 +1038,37 @@
       addExerciseRow(null);
     });
 
-    // Run details: live pace + splits controls
+    // Run details: live pace; typing totals directly stops segment auto-fill
     ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s'].forEach(function (id) {
       var e = document.getElementById(id);
-      if (e) e.addEventListener('input', function () { recomputeRunPace(); updateSplitsSum(); });
+      if (e) e.addEventListener('input', function () {
+        _totalsTouched = true;
+        recomputeRunPace();
+        recomputeSegments();
+      });
     });
-    document.getElementById('splits-toggle').addEventListener('click', toggleSplits);
-    document.getElementById('add-split-btn').addEventListener('click', function () {
-      addSplitRow(null);
-      updateSplitsSum();
+
+    // Segment builder: template chips + add-segment menu
+    document.querySelectorAll('.seg-tpl-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () { seedTemplate(chip.dataset.tpl); });
     });
-    document.getElementById('auto-km-btn').addEventListener('click', autoKmSplits);
+    var addSegMenu = document.getElementById('add-segment-menu');
+    if (addSegMenu) {
+      addSegMenu.querySelectorAll('[data-seg]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          addSegMenu.removeAttribute('open');
+          var row = addSegmentRow(b.dataset.seg, null);
+          recomputeSegments();
+          if (row) { var first = row.querySelector('input'); if (first) first.focus(); }
+        });
+      });
+      document.addEventListener('click', function (e) {
+        if (addSegMenu.hasAttribute('open') && !addSegMenu.contains(e.target)) {
+          addSegMenu.removeAttribute('open');
+        }
+      });
+    }
+
     document.getElementById('custom-type-input').addEventListener('input', updateRunVisibility);
 
     document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);

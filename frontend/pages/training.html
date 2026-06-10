@@ -453,114 +453,146 @@
 
     .run-secondary .run-input-affix input { width: 4.5rem; }
 
-    /* Splits */
-    .splits-block { margin-top: 0.75rem; }
-
-    .splits-toggle {
-      display: inline-flex;
+    /* ── Segment builder ── */
+    .seg-templates {
+      display: flex;
       align-items: center;
-      gap: 0.45rem;
-      background: none;
-      border: none;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+
+    .seg-tpl-label {
+      font-size: 0.8125rem;
+      color: var(--text-sub);
+    }
+
+    .seg-tpl-chip {
+      padding: 0.25rem 0.75rem;
+      border: 1px dashed var(--border-input);
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 0.8125rem;
+      color: var(--text);
       cursor: pointer;
+    }
+
+    .seg-tpl-chip:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .segments-list {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      margin-bottom: 0.6rem;
+    }
+
+    .segments-list:empty { display: none; }
+
+    .seg-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .seg-row:last-child { border-bottom: none; }
+
+    .seg-row.dragging { opacity: 0.4; }
+    .seg-row.drag-over { background: #eff6ff; }
+
+    .seg-handle {
+      cursor: grab;
+      color: #bbb;
+      font-size: 1rem;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .seg-handle:active { cursor: grabbing; }
+
+    .seg-type {
       font-size: 0.875rem;
       font-weight: 600;
-      color: #444;
-      padding: 0.3rem 0;
+      color: var(--text);
+      width: 6.5rem;
+      flex-shrink: 0;
     }
 
-    .splits-caret {
-      font-size: 0.7rem;
-      color: #888;
-      transition: transform 0.15s ease-out;
-    }
-
-    .splits-toggle[aria-expanded="true"] .splits-caret { transform: rotate(90deg); }
-
-    .splits-optional {
-      font-weight: 400;
-      color: var(--text-sub);
-      font-size: 0.8125rem;
-    }
-
-    .splits-body { margin-top: 0.5rem; }
-
-    #splits-table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 460px;
-    }
-
-    #splits-table th {
-      text-align: left;
-      font-size: 0.8125rem;
-      color: #666;
+    .seg-type .seg-type-tag {
+      display: inline-block;
+      font-size: 0.6875rem;
       font-weight: 600;
-      padding: 0.5rem 0.6rem;
-      border-bottom: 1px solid #e5e5e5;
-      white-space: nowrap;
-      background: #fafafa;
+      letter-spacing: 0.02em;
+      color: var(--text-sub);
+      display: block;
     }
 
-    #splits-table td {
-      padding: 0.3rem 0.4rem;
-      border-bottom: 1px solid #f0f0f0;
-      vertical-align: middle;
+    .seg-inputs {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      flex: 1;
+      font-size: 0.8125rem;
+      color: var(--text-sub);
     }
 
-    #splits-table tbody tr:last-child td { border-bottom: none; }
-
-    .splits-idx { width: 2rem; text-align: center; color: var(--text-sub); }
-
-    .split-input {
-      padding: 0.35rem 0.5rem;
+    .seg-inputs input {
+      padding: 0.3rem 0.45rem;
       border: 1px solid transparent;
       border-radius: 4px;
       font-size: 0.9rem;
       font-family: inherit;
-      background: transparent;
-      width: 100%;
-      box-sizing: border-box;
+      background: var(--surface-2);
       font-variant-numeric: tabular-nums;
+      text-align: center;
     }
 
-    .split-input:hover { border-color: #ddd; }
+    .seg-inputs input:hover { border-color: #ddd; }
 
-    .split-input:focus {
+    .seg-inputs input:focus {
       outline: none;
       border-color: var(--primary);
       background: #fff;
       box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
-    .split-dist { width: 5rem; }
-    .split-time { width: 5rem; }
-    .split-hr { width: 4.5rem; }
-    .split-pace { color: var(--text); font-size: 0.9rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .seg-dist { width: 4.2rem; }
+    .seg-min  { width: 3.6rem; }
+    .seg-sets { width: 2.8rem; }
+    .seg-repm { width: 4rem; }
+    .seg-restm { width: 4rem; }
 
-    .splits-foot {
+    .seg-or { color: var(--border-input); }
+
+    .seg-foot {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 1rem;
-      margin-top: 0.6rem;
+      margin-bottom: 1rem;
       flex-wrap: wrap;
     }
 
-    .splits-actions { display: flex; gap: 0.5rem; }
+    .seg-add-menu .more-menu-list {
+      bottom: auto;
+      top: calc(100% + 4px);
+    }
 
     .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
 
-    .splits-sum { font-size: 0.8125rem; color: var(--text-sub); margin: 0; }
-    .splits-sum.is-mismatch { color: var(--warning); }
+    .segments-sum { font-size: 0.8125rem; color: var(--text-sub); margin: 0; }
+    .segments-sum.is-mismatch { color: var(--warning); }
 
     @media (max-width: 640px) {
       .run-primary, .run-secondary { gap: 1rem; }
       #run-distance, .run-duration .dur-box { font-size: 1rem; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .splits-caret { transition: none; }
+      .seg-row { flex-wrap: wrap; }
+      .seg-type { width: auto; }
+      .seg-inputs { width: 100%; padding-left: 1.5rem; }
     }
 
     /* ── History view ── */
@@ -786,6 +818,31 @@
       <div id="run-section" class="run-section" style="display:none">
         <p class="section-label">Run details</p>
 
+        <!-- Structure: templates seed editable segment rows -->
+        <div class="seg-templates">
+          <span class="seg-tpl-label">Start from:</span>
+          <button type="button" class="seg-tpl-chip" data-tpl="easy">Easy run</button>
+          <button type="button" class="seg-tpl-chip" data-tpl="intervals">Intervals</button>
+          <button type="button" class="seg-tpl-chip" data-tpl="tempo">Tempo</button>
+        </div>
+
+        <div id="segments-list" class="segments-list" aria-label="Run segments"></div>
+
+        <div class="seg-foot">
+          <details id="add-segment-menu" class="more-menu seg-add-menu">
+            <summary class="btn-secondary btn-sm more-summary">+ Add segment <span aria-hidden="true">▾</span></summary>
+            <div class="more-menu-list" role="menu">
+              <button type="button" role="menuitem" data-seg="warmup">Warm-up</button>
+              <button type="button" role="menuitem" data-seg="easy">Easy run</button>
+              <button type="button" role="menuitem" data-seg="tempo">Tempo</button>
+              <button type="button" role="menuitem" data-seg="intervals">Intervals</button>
+              <button type="button" role="menuitem" data-seg="rest">Rest</button>
+              <button type="button" role="menuitem" data-seg="cooldown">Cool-down</button>
+            </div>
+          </details>
+          <p id="segments-sum" class="segments-sum"></p>
+        </div>
+
         <div class="run-primary">
           <div class="run-field">
             <label for="run-distance">Distance</label>
@@ -838,40 +895,6 @@
         </div>
 
         <p id="run-error" class="field-error"></p>
-
-        <!-- Splits (optional, collapsed) -->
-        <div class="splits-block">
-          <button id="splits-toggle" type="button" class="splits-toggle" aria-expanded="false" aria-controls="splits-body">
-            <span class="splits-caret" aria-hidden="true">▸</span>
-            <span>Splits</span>
-            <span class="splits-optional">optional</span>
-          </button>
-
-          <div id="splits-body" class="splits-body" hidden>
-            <div class="table-scroll">
-              <table id="splits-table">
-                <thead>
-                  <tr>
-                    <th class="splits-idx">#</th>
-                    <th>Distance</th>
-                    <th>Time</th>
-                    <th>HR</th>
-                    <th>Pace</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="splits-tbody"></tbody>
-              </table>
-            </div>
-            <div class="splits-foot">
-              <div class="splits-actions">
-                <button id="add-split-btn" type="button" class="btn-secondary btn-sm">+ Add split</button>
-                <button id="auto-km-btn" type="button" class="btn-secondary btn-sm">Auto km splits</button>
-              </div>
-              <p id="splits-sum" class="splits-sum"></p>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Exercise table -->
