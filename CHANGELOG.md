@@ -1,5 +1,24 @@
 # Changelog
 
+## Sprint 51 — Weight tracking shipping polish
+
+- #407: Add weight_targets table and WeightTarget model
+- #408: Add CRUD endpoints for weight entries
+- #409: Add weight target management endpoints with state transitions
+- #410: Add /api/weight-chart endpoint with 7-day moving average
+- #412: Build weight page frontend (desktop + mobile)
+- #413: Build weight target management page (/weight/targets)
+- #414: Add CSV export endpoints and wire Export buttons
+- #415: Final polish — weight tracking docs, links, empty states
+
+Features shipped in Sprint 51:
+- Weight tracking end-to-end: log weigh-ins, 7-day moving average chart, progress toward goal target, milestone timeline, CSV export
+- Weight target management: set/edit/end targets, pace tracking, projected completion date, history with filter pills
+- `docs/features/weight-tracking.md` reference — data model, all API endpoints, moving-average math, status_label thresholds, projection math, known limitations
+- Visual mockups committed at `docs/mockups/weight-tracking-*.html` and `docs/mockups/weight-target-management-desktop.html`
+- Empty-state hardening: no NaN/undefined on zero entries; graceful no-history state on /weight/targets
+- Chart.js CDN loading placeholder; date validation rejects future dates >1 day ahead
+
 ## Sprint 50 — MVP daily-use foundation
 
 - #383: MVP investigation and root-cause analysis of daily-use friction

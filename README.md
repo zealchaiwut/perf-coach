@@ -92,6 +92,18 @@ Each script:
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |
 | `POST /api/readiness/compute` | Computes and stores today's readiness score |
+| `POST /api/weight-entries` | Create a weight entry; body: `user_id`, `entry_date`, `weight_kg`, optional `entry_time`, `notes`, `source` |
+| `GET /api/weight-entries` | List weight entries; `user_id` required; `from`/`to` (YYYY-MM-DD) range (default last 90 days, max 365) |
+| `PATCH /api/weight-entries/{entry_id}` | Update `weight_kg`, `entry_date`, `entry_time`, or `notes` on a single entry |
+| `DELETE /api/weight-entries/{entry_id}` | Delete a single weight entry (204) |
+| `POST /api/weight-targets` | Create a new weight target; sets any existing active target to `replaced`; body: `user_id`, `start_weight_kg`, `start_date`, `target_weight_kg`, `target_date` |
+| `GET /api/weight-targets/active` | Get the active weight target with computed fields: `progress_pct`, `kg_to_go`, `days_remaining`, `required_pace_kg_per_week`, `current_pace_kg_per_week`, `projected_end_date`, `status_label` |
+| `GET /api/weight-targets/history` | List all weight targets for a user; optional `status` filter (`active`/`achieved`/`abandoned`/`replaced`) |
+| `PATCH /api/weight-targets/{target_id}` | Update `target_weight_kg`, `target_date`, or `notes` on the active target |
+| `POST /api/weight-targets/{target_id}/end` | End the active target; body: `status` (`achieved`/`abandoned`), optional `end_weight_kg` and `notes` |
+| `GET /api/weight-chart` | Weight entries and 7-day moving average trend; `user_id`, `from`/`to` params; response includes `actuals` (with `entry_id`), `trend` (daily MA), `stats` (current, delta_7d, delta_30d), and `target` block (projected path, `start_weight_kg`, `start_date`) when active target exists |
+| `GET /api/exports/weight-entries` | Download weight entries as CSV; `user_id`, optional `from`/`to` date range |
+| `GET /api/exports/weight-targets` | Download weight target history as CSV; `user_id`, optional `status` filter |
 | `GET /api/home/weight-summary` | Returns current weight, 7-day moving average, week/month deltas, 30-day sparkline, and active target progress for the home dashboard weight widget |
 | `GET /api/home/recent-workouts` | Returns up to 10 recent workouts with relative dates and a `has_more` flag for the home dashboard training-log preview widget; `limit` param (default 5, max 10) |
 | `GET /api/home/personal-records` | Returns current PR values, formatted display strings, and trend signal for configurable tracks (default: `half_marathon,10k,squat_1rm`) |
