@@ -2,10 +2,13 @@
 
 ## Sprint 51 — Weight tracking shipping polish
 
-- #411: Add weight entries and weight targets CSV export endpoints
+- #407: Add weight_targets table and WeightTarget model
+- #408: Add CRUD endpoints for weight entries
+- #409: Add weight target management endpoints with state transitions
+- #410: Add /api/weight-chart endpoint with 7-day moving average
 - #412: Build weight page frontend (desktop + mobile)
 - #413: Build weight target management page (/weight/targets)
-- #414: Wire CSV export buttons on weight and weight-targets pages
+- #414: Add CSV export endpoints and wire Export buttons
 - #415: Final polish — weight tracking docs, links, empty states
 
 Features shipped in Sprint 51:
