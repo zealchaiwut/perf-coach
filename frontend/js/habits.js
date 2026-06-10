@@ -1,33 +1,83 @@
-function getLocalDateString() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-function getLocalTimeString() {
-  const d = new Date();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return `${hh}:${min} (${tz})`;
-}
+const ICONS = [
+  'ti-run', 'ti-barbell', 'ti-droplet', 'ti-book',
+  'ti-bed', 'ti-flame', 'ti-walk', 'ti-bike',
+  'ti-meditation', 'ti-shoe', 'ti-clipboard',
+];
 
-function scheduleMidnightRefresh() {
-  const now = new Date();
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const msUntilMidnight = tomorrow - now;
-  const timer = setTimeout(() => {
-    if (currentUserId) loadAndRender(currentUserId);
-  }, msUntilMidnight);
-  window.addEventListener('pagehide', () => clearTimeout(timer), { once: true });
-}
+const COLORS = [
+  '#3b82f6', // blue
+  '#8b5cf6', // purple
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+];
+
+const TRACKING_TYPE_LABELS = {
+  daily_checkmark: 'Daily checkmark',
+  weekly_count: 'Weekly count',
+  weekly_minutes: 'Weekly minutes',
+  weekly_quantity: 'Weekly quantity',
+};
+
+const STARTER_HABITS = [
+  {
+    name: 'Zone 2 cardio',
+    tracking_type: 'weekly_minutes',
+    weekly_target: 210,
+    unit: 'min',
+    auto_fill_source: 'workout.zone2_minutes',
+    icon: 'ti-run',
+    color: '#3b82f6',
+    description: 'Low-intensity aerobic training in Zone 2 heart rate',
+  },
+  {
+    name: 'Running sessions',
+    tracking_type: 'weekly_count',
+    weekly_target: 3,
+    unit: 'sessions',
+    auto_fill_source: 'workout.run_count',
+    icon: 'ti-shoe',
+    color: '#3b82f6',
+    description: 'Weekly run sessions',
+  },
+  {
+    name: 'Strength sessions',
+    tracking_type: 'weekly_count',
+    weekly_target: 2,
+    unit: 'sessions',
+    auto_fill_source: 'workout.lift_count',
+    icon: 'ti-barbell',
+    color: '#8b5cf6',
+    description: 'Weekly strength/lifting sessions',
+  },
+  {
+    name: 'Daily metrics logged',
+    tracking_type: 'daily_checkmark',
+    weekly_target: 7,
+    unit: 'days',
+    auto_fill_source: null,
+    icon: 'ti-clipboard',
+    color: '#10b981',
+    description: 'Log HRV, RHR, sleep, mood, and energy daily',
+  },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
 
 let currentUserId = null;
-let todayLogs = [];
-let lastFetchedDate = null;
-let lastFetchedAt = null;
+let activeHabits = [];
+let archivedHabits = [];
+let editingHabitId = null;
+let selectedIcon = ICONS[0];
+let selectedColor = COLORS[0];
+let dragSrcIndex = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function showError(msg) {
   const el = document.getElementById('api-error');
@@ -36,287 +86,531 @@ function showError(msg) {
 
 function clearError() { showError(''); }
 
-async function loadAndRender(userId) {
-  currentUserId = userId;
-  const today = getLocalDateString();
+function iconLabel(code) {
+  return code ? code.replace('ti-', '').replace(/-/g, ' ') : '?';
+}
+
+function habitIconEl(icon, color) {
+  const el = document.createElement('div');
+  el.className = 'habit-icon';
+  el.style.background = color || '#999';
+  el.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
+  el.title = icon || '';
+  return el;
+}
+
+function goalText(habit) {
+  if (!habit.weekly_target) return '';
+  const unit = habit.unit || '';
+  return `Goal: ${habit.weekly_target} ${unit}/week`.trim();
+}
+
+function autofillPill(source) {
+  const span = document.createElement('span');
+  if (source) {
+    span.className = 'habit-autofill-pill';
+    span.textContent = 'auto from workouts';
+    span.title = source;
+  } else {
+    span.className = 'habit-autofill-pill manual';
+    span.textContent = 'manual';
+  }
+  return span;
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+
+async function loadAndRender() {
   clearError();
   const list = document.getElementById('habit-list');
-  if (list) UIStates.setLoading(list);
+  if (list && typeof UIStates !== 'undefined') UIStates.setLoading(list);
+
   try {
-    const [habitsRes, logsRes] = await Promise.all([
+    const [activeRes, archivedRes] = await Promise.all([
       fetch('/api/habits'),
-      fetch(`/api/habits/logs?from=${today}&to=${today}`),
+      fetch('/api/habits?include_archived=true'),
     ]);
-    if (!habitsRes.ok) throw new Error(`Server error ${habitsRes.status}`);
-    if (!logsRes.ok) throw new Error(`Server error ${logsRes.status}`);
-    const habits = await habitsRes.json();
-    todayLogs = await logsRes.json();
-    lastFetchedDate = today;
-    lastFetchedAt = Date.now();
-    render(habits);
-    fetchAllStats(habits, userId);
-    updateRefreshTimestamp();
+    if (!activeRes.ok) throw new Error(`Server error ${activeRes.status}`);
+    if (!archivedRes.ok) throw new Error(`Server error ${archivedRes.status}`);
+
+    const allWithArchived = await archivedRes.json();
+    activeHabits = (await activeRes.json());
+    archivedHabits = allWithArchived.filter(h => h.is_archived);
+
+    renderActiveList();
+    renderArchivedList();
+    renderStarterOrList();
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
-    if (list) UIStates.setError(list, 'Something went wrong. Please try again.');
+    if (list && typeof UIStates !== 'undefined') UIStates.setError(list, 'Something went wrong. Please try again.');
   }
 }
 
-function updateRefreshTimestamp() {
-  const el = document.getElementById('habits-last-refreshed');
-  if (el) el.textContent = `Last refreshed: ${getLocalTimeString()}`;
-}
+// ── Render active list ────────────────────────────────────────────────────────
 
-function checkDayRollover() {
-  if (!currentUserId) return;
-  const today = getLocalDateString();
-  const staleFetch = lastFetchedAt && (Date.now() - lastFetchedAt) > 5 * 60 * 1000;
-  if (today !== lastFetchedDate || staleFetch) {
-    loadAndRender(currentUserId);
-  }
-}
+function renderStarterOrList() {
+  const starterSection = document.getElementById('starter-section');
+  const habitList = document.getElementById('habit-list');
 
-function streakIcon(streak) {
-  if (streak >= 100) return '🔥🔥🔥';
-  if (streak >= 30) return '🔥🔥';
-  if (streak >= 7) return '🔥';
-  return '🔥';
-}
-
-function renderStreakEl(el, data) {
-  if (!data || data.streak === 0) {
-    if (data && data.days_completed === 0) {
-      el.textContent = 'No streak yet';
-      el.className = 'habit-streak streak-none';
-    } else {
-      el.textContent = '—';
-      el.className = 'habit-streak streak-zero';
-    }
-    return;
-  }
-  el.textContent = `${streakIcon(data.streak)} ${data.streak}`;
-  el.className = 'habit-streak';
-}
-
-function renderRateEl(el, data) {
-  if (!data || data.days_completed === 0) {
-    el.textContent = '—';
-    el.className = 'habit-rate rate-grey';
-    return;
-  }
-  const pct = Math.round(data.completion_rate * 100);
-  el.textContent = `${pct}% (${data.days_completed}/${data.days_total})`;
-  if (pct >= 80) {
-    el.className = 'habit-rate rate-green';
-  } else if (pct >= 50) {
-    el.className = 'habit-rate rate-yellow';
+  if (activeHabits.length === 0 && archivedHabits.length === 0) {
+    starterSection.style.display = '';
+    renderStarterGrid();
   } else {
-    el.className = 'habit-rate rate-grey';
+    starterSection.style.display = 'none';
   }
 }
 
-async function fetchStats(habitId, userId) {
-  try {
-    const res = await fetch(
-      `/api/habits/stats?habit_id=${encodeURIComponent(habitId)}&days=30`
-    );
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-async function fetchAllStats(habits, userId) {
-  await Promise.all(habits.map(async habit => {
-    const data = await fetchStats(habit.id, userId);
-    const row = document.getElementById(`habit-row-${habit.id}`);
-    if (!row) return;
-    renderStreakEl(row.querySelector('.habit-streak'), data);
-    renderRateEl(row.querySelector('.habit-rate'), data);
-  }));
-}
-
-async function refreshStatsForHabit(habitId) {
-  const data = await fetchStats(habitId, currentUserId);
-  const row = document.getElementById(`habit-row-${habitId}`);
-  if (!row) return;
-  renderStreakEl(row.querySelector('.habit-streak'), data);
-  renderRateEl(row.querySelector('.habit-rate'), data);
-}
-
-function render(habits) {
-  const list = document.getElementById('habit-list');
-  list.innerHTML = '';
-
-  if (habits.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'habit-empty';
-    const text = document.createTextNode('No habits yet. ');
+function renderStarterGrid() {
+  const grid = document.getElementById('starter-grid');
+  grid.innerHTML = '';
+  STARTER_HABITS.forEach(s => {
     const btn = document.createElement('button');
-    btn.className = 'link-btn';
-    btn.textContent = '+ Add habit';
-    btn.addEventListener('click', openModal);
-    empty.appendChild(text);
-    empty.appendChild(btn);
-    list.appendChild(empty);
-    return;
-  }
+    btn.type = 'button';
+    btn.className = 'starter-btn';
 
-  habits.forEach(habit => {
-    const log = todayLogs.find(l => l.habit_id === habit.id);
-    const done = !!log;
+    const iconEl = document.createElement('div');
+    iconEl.className = 'starter-icon';
+    iconEl.style.background = s.color;
+    iconEl.textContent = iconLabel(s.icon).slice(0, 2).toUpperCase();
 
-    const li = document.createElement('li');
-    li.className = 'habit-row' + (done ? ' habit-done' : '');
-    li.id = `habit-row-${habit.id}`;
+    const labelEl = document.createElement('span');
+    labelEl.textContent = s.name;
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = done;
-    checkbox.setAttribute('aria-label', 'Mark ' + habit.name + ' as done');
-    checkbox.addEventListener('change', () => toggleLog(habit.id, log ? log.id : null, checkbox));
-
-    const name = document.createElement('span');
-    name.className = 'habit-name';
-    name.textContent = habit.name;
-
-    const streak = document.createElement('span');
-    streak.className = 'habit-streak streak-loading';
-    streak.textContent = '…';
-
-    const rate = document.createElement('span');
-    rate.className = 'habit-rate rate-loading';
-    rate.textContent = '…';
-
-    const del = document.createElement('button');
-    del.className = 'habit-delete';
-    del.textContent = 'Delete';
-    del.setAttribute('aria-label', 'Delete ' + habit.name);
-    del.addEventListener('click', () => deleteHabit(habit.id));
-
-    li.appendChild(checkbox);
-    li.appendChild(name);
-    li.appendChild(streak);
-    li.appendChild(rate);
-    li.appendChild(del);
-    list.appendChild(li);
+    btn.appendChild(iconEl);
+    btn.appendChild(labelEl);
+    btn.addEventListener('click', () => createStarterHabit(s));
+    grid.appendChild(btn);
   });
 }
 
-async function toggleLog(habitId, logId, checkbox) {
-  const today = getLocalDateString();
-  clearError();
-  if (checkbox.checked) {
-    try {
-      const res = await fetch('/api/habits/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ habit_id: habitId, logged_date: today }),
-      });
-      if (!res.ok && res.status !== 409) throw new Error(`Server error ${res.status}`);
-      UIStates.showToast('Habit logged');
-    } catch (e) {
-      showError('Failed to log habit: ' + e.message);
-      checkbox.checked = false;
-      return;
-    }
-  } else {
-    if (!logId) return;
-    try {
-      const res = await fetch(`/api/habits/logs/${encodeURIComponent(logId)}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
-    } catch (e) {
-      showError('Failed to remove log: ' + e.message);
-      checkbox.checked = true;
-      return;
-    }
-  }
+async function createStarterHabit(starter) {
   try {
-    const logsRes = await fetch(
-      `/api/habits/logs?from=${today}&to=${today}`
-    );
-    if (logsRes.ok) todayLogs = await logsRes.json();
-  } catch { /* keep stale logs */ }
-
-  const row = document.getElementById(`habit-row-${habitId}`);
-  if (row) {
-    const newLog = todayLogs.find(l => l.habit_id === habitId);
-    if (newLog) {
-      row.classList.add('habit-done');
-      checkbox.checked = true;
-    } else {
-      row.classList.remove('habit-done');
-      checkbox.checked = false;
-    }
+    const res = await fetch('/api/habits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(starter),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    if (typeof UIStates !== 'undefined') UIStates.showToast('Habit added');
+    await loadAndRender();
+  } catch (e) {
+    showError('Failed to add habit: ' + e.message);
   }
-  refreshStatsForHabit(habitId);
 }
 
-async function deleteHabit(habitId) {
-  clearError();
+function renderActiveList() {
+  const list = document.getElementById('habit-list');
+  list.innerHTML = '';
+
+  if (activeHabits.length === 0) return;
+
+  activeHabits.forEach((habit, index) => {
+    list.appendChild(buildHabitRow(habit, index, false));
+  });
+}
+
+function buildHabitRow(habit, index, isArchived) {
+  const li = document.createElement('li');
+  li.className = 'habit-row';
+  li.dataset.id = habit.id;
+  li.dataset.index = index;
+
+  // Drag handle (active only)
+  if (!isArchived) {
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.textContent = '⠿';
+    handle.draggable = true;
+    handle.setAttribute('aria-label', 'Drag to reorder');
+    li.appendChild(handle);
+
+    li.setAttribute('draggable', 'true');
+    li.addEventListener('dragstart', onDragStart);
+    li.addEventListener('dragover', onDragOver);
+    li.addEventListener('dragleave', onDragLeave);
+    li.addEventListener('drop', onDrop);
+    li.addEventListener('dragend', onDragEnd);
+  }
+
+  // Icon
+  li.appendChild(habitIconEl(habit.icon, habit.color));
+
+  // Info block
+  const info = document.createElement('div');
+  info.className = 'habit-info';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'habit-name';
+  nameEl.textContent = habit.name;
+  info.appendChild(nameEl);
+
+  const meta = document.createElement('div');
+  meta.className = 'habit-meta';
+
+  const typeLabel = document.createElement('span');
+  typeLabel.className = 'habit-tracking-type';
+  typeLabel.textContent = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
+  meta.appendChild(typeLabel);
+
+  const goal = goalText(habit);
+  if (goal) {
+    const goalEl = document.createElement('span');
+    goalEl.className = 'habit-goal';
+    goalEl.textContent = goal;
+    meta.appendChild(goalEl);
+  }
+
+  meta.appendChild(autofillPill(habit.auto_fill_source));
+  info.appendChild(meta);
+  li.appendChild(info);
+
+  // Actions menu
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'habit-actions';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'actions-toggle';
+  toggle.textContent = '⋯';
+  toggle.setAttribute('aria-label', 'Habit actions');
+  toggle.addEventListener('click', e => {
+    e.stopPropagation();
+    closeAllMenus();
+    menu.classList.toggle('open');
+  });
+
+  const menu = document.createElement('div');
+  menu.className = 'actions-menu';
+
+  if (!isArchived) {
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(habit); });
+    menu.appendChild(editBtn);
+
+    const archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.textContent = 'Archive';
+    archiveBtn.addEventListener('click', () => { closeAllMenus(); archiveHabit(habit.id); });
+    menu.appendChild(archiveBtn);
+  } else {
+    const unarchiveBtn = document.createElement('button');
+    unarchiveBtn.type = 'button';
+    unarchiveBtn.textContent = 'Unarchive';
+    unarchiveBtn.addEventListener('click', () => { closeAllMenus(); unarchiveHabit(habit.id); });
+    menu.appendChild(unarchiveBtn);
+  }
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'danger';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', () => {
+    closeAllMenus();
+    if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
+      deleteHabit(habit.id);
+    }
+  });
+  menu.appendChild(deleteBtn);
+
+  actionsDiv.appendChild(toggle);
+  actionsDiv.appendChild(menu);
+  li.appendChild(actionsDiv);
+
+  return li;
+}
+
+function closeAllMenus() {
+  document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+}
+
+document.addEventListener('click', closeAllMenus);
+
+// ── Render archived list ──────────────────────────────────────────────────────
+
+function renderArchivedList() {
+  const section = document.getElementById('archived-section');
+  const list = document.getElementById('archived-list');
+  const countEl = document.getElementById('archived-count');
+
+  if (archivedHabits.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = '';
+  countEl.textContent = ` (${archivedHabits.length})`;
+  list.innerHTML = '';
+  archivedHabits.forEach((habit, index) => {
+    list.appendChild(buildHabitRow(habit, index, true));
+  });
+}
+
+// ── Archive / Unarchive / Delete ──────────────────────────────────────────────
+
+async function archiveHabit(habitId) {
   try {
     const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
-    UIStates.showToast('Habit deleted');
-    await loadAndRender(currentUserId);
+    if (typeof UIStates !== 'undefined') UIStates.showToast('Habit archived');
+    await loadAndRender();
+  } catch (e) {
+    showError('Failed to archive habit: ' + e.message);
+  }
+}
+
+async function unarchiveHabit(habitId) {
+  try {
+    const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_archived: false }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    if (typeof UIStates !== 'undefined') UIStates.showToast('Habit restored');
+    await loadAndRender();
+  } catch (e) {
+    showError('Failed to unarchive habit: ' + e.message);
+  }
+}
+
+async function deleteHabit(habitId) {
+  try {
+    const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}?hard=true`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error(`Server error ${res.status}`);
+    if (typeof UIStates !== 'undefined') UIStates.showToast('Habit deleted');
+    await loadAndRender();
   } catch (e) {
     showError('Failed to delete habit: ' + e.message);
   }
 }
 
-function openModal() {
-  document.getElementById('habit-modal').style.display = 'flex';
-  document.getElementById('modal-habit-name').value = '';
+// ── Drag & drop reorder ───────────────────────────────────────────────────────
+
+function onDragStart(e) {
+  dragSrcIndex = parseInt(this.dataset.index, 10);
+  this.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  this.classList.add('drag-over');
+}
+
+function onDragLeave() {
+  this.classList.remove('drag-over');
+}
+
+async function onDrop(e) {
+  e.preventDefault();
+  this.classList.remove('drag-over');
+  const destIndex = parseInt(this.dataset.index, 10);
+  if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
+
+  const reordered = [...activeHabits];
+  const [moved] = reordered.splice(dragSrcIndex, 1);
+  reordered.splice(destIndex, 0, moved);
+
+  activeHabits = reordered;
+  renderActiveList();
+
+  // Persist new sort_order for the moved habit
+  try {
+    const res = await fetch(`/api/habits/${encodeURIComponent(moved.id)}/reorder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sort_order: destIndex }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+  } catch (e) {
+    showError('Failed to save order: ' + e.message);
+    await loadAndRender();
+  }
+}
+
+function onDragEnd() {
+  document.querySelectorAll('.habit-row').forEach(r => {
+    r.classList.remove('dragging', 'drag-over');
+  });
+  dragSrcIndex = null;
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+function buildIconPicker() {
+  const container = document.getElementById('icon-picker');
+  container.innerHTML = '';
+  ICONS.forEach(icon => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-option' + (icon === selectedIcon ? ' selected' : '');
+    btn.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
+    btn.title = icon;
+    btn.dataset.icon = icon;
+    btn.addEventListener('click', () => {
+      selectedIcon = icon;
+      container.querySelectorAll('.icon-option').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+    container.appendChild(btn);
+  });
+}
+
+function buildColorPicker() {
+  const container = document.getElementById('color-picker');
+  container.innerHTML = '';
+  COLORS.forEach(color => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'color-swatch' + (color === selectedColor ? ' selected' : '');
+    btn.style.background = color;
+    btn.title = color;
+    btn.dataset.color = color;
+    btn.addEventListener('click', () => {
+      selectedColor = color;
+      container.querySelectorAll('.color-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+    container.appendChild(btn);
+  });
+}
+
+function openNewModal() {
+  editingHabitId = null;
+  selectedIcon = ICONS[0];
+  selectedColor = COLORS[0];
+
+  document.getElementById('modal-title').textContent = 'New habit';
+  document.getElementById('modal-submit').textContent = 'Add habit';
+  document.getElementById('modal-name').value = '';
+  document.getElementById('modal-description').value = '';
+  document.getElementById('modal-tracking-type').value = 'daily_checkmark';
+  document.getElementById('modal-weekly-target').value = '';
+  document.getElementById('modal-unit').value = '';
+  document.getElementById('modal-auto-fill').value = '';
   document.getElementById('modal-error').textContent = '';
-  document.getElementById('modal-habit-name').focus();
+
+  buildIconPicker();
+  buildColorPicker();
+
+  document.getElementById('habit-modal').classList.add('open');
+  document.getElementById('modal-name').focus();
+}
+
+function openEditModal(habit) {
+  editingHabitId = habit.id;
+  selectedIcon = habit.icon || ICONS[0];
+  selectedColor = habit.color || COLORS[0];
+
+  document.getElementById('modal-title').textContent = 'Edit habit';
+  document.getElementById('modal-submit').textContent = 'Save changes';
+  document.getElementById('modal-name').value = habit.name || '';
+  document.getElementById('modal-description').value = habit.description || '';
+  document.getElementById('modal-tracking-type').value = habit.tracking_type || 'daily_checkmark';
+  document.getElementById('modal-weekly-target').value = habit.weekly_target != null ? habit.weekly_target : '';
+  document.getElementById('modal-unit').value = habit.unit || '';
+  document.getElementById('modal-auto-fill').value = habit.auto_fill_source || '';
+  document.getElementById('modal-error').textContent = '';
+
+  buildIconPicker();
+  buildColorPicker();
+
+  document.getElementById('habit-modal').classList.add('open');
+  document.getElementById('modal-name').focus();
 }
 
 function closeModal() {
-  document.getElementById('habit-modal').style.display = 'none';
+  document.getElementById('habit-modal').classList.remove('open');
+  editingHabitId = null;
 }
 
+// ── Form submit ───────────────────────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('add-habit-btn').addEventListener('click', openModal);
+  document.getElementById('add-habit-btn').addEventListener('click', openNewModal);
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
 
   document.getElementById('habit-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('habit-modal')) closeModal();
   });
 
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  document.getElementById('archived-toggle').addEventListener('click', () => {
+    const toggle = document.getElementById('archived-toggle');
+    const list = document.getElementById('archived-list');
+    const isOpen = toggle.classList.contains('open');
+    toggle.classList.toggle('open', !isOpen);
+    list.style.display = isOpen ? 'none' : '';
+  });
+
   document.getElementById('modal-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const input = document.getElementById('modal-habit-name');
     const errorEl = document.getElementById('modal-error');
-    const name = input.value.trim();
+    errorEl.textContent = '';
+
+    const name = document.getElementById('modal-name').value.trim();
     if (!name) {
-      errorEl.textContent = 'Habit name cannot be empty.';
-      input.focus();
+      errorEl.textContent = 'Name is required.';
+      document.getElementById('modal-name').focus();
       return;
     }
-    errorEl.textContent = '';
+
+    const payload = {
+      name,
+      description: document.getElementById('modal-description').value.trim() || null,
+      tracking_type: document.getElementById('modal-tracking-type').value,
+      weekly_target: document.getElementById('modal-weekly-target').value
+        ? parseFloat(document.getElementById('modal-weekly-target').value)
+        : null,
+      unit: document.getElementById('modal-unit').value.trim() || null,
+      auto_fill_source: document.getElementById('modal-auto-fill').value || null,
+      icon: selectedIcon || null,
+      color: selectedColor || null,
+    };
+
     try {
-      const res = await fetch('/api/habits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      let res;
+      if (editingHabitId) {
+        res = await fetch(`/api/habits/${encodeURIComponent(editingHabitId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch('/api/habits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.detail || `Server error ${res.status}`;
+        return;
+      }
       closeModal();
-      UIStates.showToast('Habit added');
-      await loadAndRender(currentUserId);
-    } catch (e) {
-      errorEl.textContent = 'Failed to add habit: ' + e.message;
+      if (typeof UIStates !== 'undefined') UIStates.showToast(editingHabitId ? 'Habit updated' : 'Habit added');
+      await loadAndRender();
+    } catch (err) {
+      errorEl.textContent = 'Failed to save: ' + err.message;
     }
   });
 });
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') checkDayRollover();
-});
+// ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', e => {
-  loadAndRender(e.detail.userId);
-  scheduleMidnightRefresh();
+  currentUserId = e.detail.userId;
+  loadAndRender();
 });
-window.addEventListener('userChanged', e => loadAndRender(e.detail.userId));
+
+window.addEventListener('userChanged', e => {
+  currentUserId = e.detail.userId;
+  loadAndRender();
+});

@@ -2126,6 +2126,7 @@ class HabitPatch(BaseModel):
     icon: Optional[str] = None
     color: Optional[str] = None
     sort_order: Optional[int] = None
+    is_archived: Optional[bool] = None
 
 
 class HabitReorderIn(BaseModel):
@@ -2226,6 +2227,8 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
             habit.color = body.color
         if body.sort_order is not None:
             habit.sort_order = body.sort_order
+        if body.is_archived is not None:
+            habit.is_archived = body.is_archived
         habit.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(habit)
