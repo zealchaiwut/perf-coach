@@ -269,6 +269,135 @@ where `days_in = date - start_date` and `total_days = target_date - start_date`.
 
 ---
 
+## Plan-vs-Actual Tracking (Redesign v6)
+
+The weight page redesign (sprint 53) introduced plan-vs-actual tracking: a daily
+expected weight (`plan_today_kg`), a gap analysis showing how far ahead/behind the
+user is, a milestone chart, and a coach strip.
+
+### `plan_at` Formula
+
+`plan_at(target, date)` linearly interpolates between `start_weight_kg` on
+`start_date` and `target_weight_kg` on `target_date`.
+
+```
+t = (date - start_date).days / (target_date - start_date).days
+plan_at = start_weight_kg + (target_weight_kg - start_weight_kg) * t
+```
+
+The result is clamped: if `date <= start_date` it returns `start_weight_kg`; if
+`date >= target_date` it returns `target_weight_kg`.
+
+**Worked numeric example:**
+
+- `start_weight_kg = 85.0 kg` on `2025-01-01`
+- `target_weight_kg = 75.0 kg` on `2025-09-01` (= 243 days later)
+- Today = `2025-04-01` (= 90 days in)
+
+```
+t = 90 / 243 = 0.3704
+plan_at = 85.0 + (75.0 - 85.0) × 0.3704
+        = 85.0 + (-10.0) × 0.3704
+        = 85.0 - 3.7
+        = 81.3 kg
+```
+
+So on 2025-04-01 the plan expects the user to be at **81.3 kg**.
+
+---
+
+### Gap Basis Selection
+
+To compare the user's actual progress against the plan, `compute_gap` selects a
+"current basis" weight using this priority order:
+
+1. **`avg_7d`** — if the user has ≥ 3 entries in the last 7 days, use their
+   rolling average over those entries.
+2. **`latest_entry`** — if fewer than 3 entries exist in 7 days but at least 1
+   entry exists in the last 14 days, use the single most recent entry.
+3. **`no_data`** — if no entry exists within 14 days, the gap cannot be computed
+   and `gap_direction` is set to `"no_data"`.
+
+The `basis` field in the API response reflects which rule was applied
+(`"avg_7d"`, `"latest_entry"`, or `null` for no_data).
+
+---
+
+### `gap_direction` Thresholds
+
+`gap_kg = current_basis_kg - plan_today_kg`
+
+A positive `gap_kg` means the user is heavier than plan (bad for a weight-loss
+goal); negative means lighter (good for weight loss, bad for a weight-gain goal).
+
+The `gap_direction` field is determined by the **±0.2 kg on_plan band**:
+
+| Condition | `gap_direction` |
+|---|---|
+| `abs(gap_kg) <= 0.2 kg` | `on_plan` |
+| weight-loss goal AND `gap_kg > 0.2` | `behind` (heavier than plan) |
+| weight-loss goal AND `gap_kg < -0.2` | `ahead` (lighter than plan) |
+| weight-gain goal AND `gap_kg < -0.2` | `behind` (lighter than plan) |
+| weight-gain goal AND `gap_kg > 0.2` | `ahead` (heavier than plan) |
+| No qualifying entries | `no_data` |
+
+---
+
+### Milestone Generation
+
+Milestones mark key waypoints on the chart between today and the goal date.
+`generate_milestones` produces up to 4 stones: **today**, up to 2 intermediates,
+and the **goal**.
+
+**Placement:** intermediate stones are placed at 1/3 and 2/3 of remaining days:
+
+```
+remaining_days = (target_date - today).days
+d1 = today + remaining_days // 3
+d2 = today + remaining_days * 2 // 3
+```
+
+**Month-start rounding:** each intermediate date is snapped to the nearest 1st of
+month (`_snap_to_month_start`). If `d1` is closer to the 1st of the current month
+it snaps back; otherwise it snaps to the 1st of the next month.
+
+**Deduplication:** if two intermediate stones snap to the same date, or a stone
+collides with today or the goal date, the duplicate is dropped. Each stone appears
+at most once.
+
+---
+
+### Coach Strip
+
+The coach strip is a single contextual message below the hero cards that reacts to
+the user's daily log status and goal direction.
+
+| State | Trigger | Copy |
+|---|---|---|
+| **No entry** | `logged_today = false` | "😴 No entry yet today — log your weight to wake me up" |
+| **On pace** | Logged today; delta toward goal or < 0.05 kg change | "🎉 You did well — on pace this week" |
+| **Off pace (loss goal)** | Logged today; moved away from goal | "💪 Up a little — new day, keep going" |
+| **Off pace (gain goal)** | Logged today; moved away from goal | "💪 Down a little — new day, keep going" |
+
+The strip background is grey (no entry), green (on pace), or amber (off pace).
+
+---
+
+### Chart Implementation
+
+The weight chart is rendered as a **custom SVG** element, built entirely in
+`frontend/js/weight-chart.js`. **Chart.js was dropped for this page** — the CDN
+script (`chart.js@4.4.0`) is not loaded. The SVG approach was chosen to support
+the split-zone layout (historical actuals zone / future milestones zone with a
+visual break), custom gap shading between plan and actual series, and milestone
+annotation pins — none of which were straightforward with Chart.js without heavy
+custom plugins.
+
+The `WeightChart.render(data, range)` function manages the entire SVG DOM tree
+directly, replacing it on each re-render.
+
+---
+
 ## Known Limitations
 
 - **Single active target:** Only one active target per user is supported at a time.
@@ -279,3 +408,43 @@ where `days_in = date - start_date` and `total_days = target_date - start_date`.
   integration is not planned.
 - **No retroactive moving average back-fill:** The 7-day MA is computed from actual
   entries; gap days reduce the sample count rather than being interpolated.
+
+---
+
+## Data Maintenance
+
+### Purging Low-Weight / Historical Entries
+
+The script `scripts/purge_weight_entries.py` removes weight entries that match both
+a date ceiling and a weight ceiling. Use this to clean up erroneous entries or
+outliers that skew trend stats.
+
+**Usage:**
+
+```bash
+# Preview which rows would be deleted (no changes made)
+python scripts/purge_weight_entries.py \
+  --before 2025-01-01 \
+  --below 79 \
+  --dry-run
+
+# Delete matching rows (will prompt for confirmation before any deletion)
+python scripts/purge_weight_entries.py \
+  --before 2025-01-01 \
+  --below 79
+```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `--before DATE` | Delete entries with `entry_date < DATE` (ISO YYYY-MM-DD) |
+| `--below KG` | Delete entries with `weight_kg < KG` |
+| `--dry-run` | Print count of affected rows without modifying data |
+
+Both `--before` and `--below` are required. Running without `--dry-run` shows the
+affected row count and prompts `Confirm deletion? [y/N]` before proceeding.
+
+**Environment:** the script reads `DATABASE_URL` (or `DATABASE_URL_UAT` /
+`DATABASE_URL_PRD`) and `ENVIRONMENT` from the environment, matching the same
+detection logic as `backend/db.py`.

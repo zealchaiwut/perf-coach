@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 53.1 — Weight redesign cleanup
+
+- #427: Weight page redesign: plan-vs-actual tracking, milestone chart, stepper quick-log, coach strip — docs updated, Chart.js dead code removed, purge script added
+
 ## Sprint 52 — Mobile fast-log & code quality
 
 - #394: Mobile-optimise daily metrics fast-log flow — new fast-log form on home page with stepper inputs, segmented energy/mood pills, 800ms auto-save debounce, and "Log today" CTA banner
