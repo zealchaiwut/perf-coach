@@ -62,7 +62,6 @@ function interpolateWeight(fromDate, fromWeight, toDate, toWeight, atDate) {
 // ── State ──────────────────────────────────────────────────────────────────
 
 let _userId = null;
-let _chartInstance = null;
 let _currentRange = '30d';
 let _chartData = null;       // last /api/weight-chart response
 let _activeTarget = null;    // last /api/weight-targets/active target object
@@ -120,279 +119,151 @@ function renderSubtitle(summary, stats) {
   if (!el) return;
 
   const count = summary ? summary.entries_logged : 0;
-  const daysRange = summary && summary.first_date && summary.last_date
-    ? Math.round((new Date(summary.last_date + 'T00:00:00') - new Date(summary.first_date + 'T00:00:00')) / 86400000) + 1
-    : 0;
+  const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
 
   let trendStr = '';
   if (stats && stats.delta_7d_kg != null) {
     const d = stats.delta_7d_kg;
     const isFlat = Math.abs(d) < 0.05;
     const arrow = isFlat ? '→' : (d < 0 ? '↓' : '↑');
-    trendStr = ` · ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
+    trendStr = ` · trending ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
   }
 
-  el.textContent = `${count} entries · ${daysRange} days tracked${trendStr}`;
+  el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
 }
 
-// ── Hero strip ─────────────────────────────────────────────────────────────
+// ── Hero: Card A (Current Weight) ─────────────────────────────────────────
 
-function renderHero(stats) {
-  const curEl = document.getElementById('current-weight-value');
-  if (curEl) {
-    curEl.textContent = stats && stats.current_weight_kg != null
-      ? `${stats.current_weight_kg.toFixed(1)} kg`
-      : '--';
+function _relativeLoggedDate(actuals) {
+  if (!actuals || !actuals.length) return '';
+  const lastDate = actuals[actuals.length - 1].date;
+  const today = todayISO();
+  if (lastDate === today) return 'Today';
+  const yesterday = addDays(today, -1);
+  if (lastDate === yesterday) {
+    const d = new Date(lastDate + 'T00:00:00');
+    const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `Logged yesterday · ${mo}`;
   }
+  const diffMs = new Date(today + 'T00:00:00') - new Date(lastDate + 'T00:00:00');
+  const diffDays = Math.round(diffMs / 86400000);
+  const d = new Date(lastDate + 'T00:00:00');
+  const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `Logged ${diffDays} days ago · ${mo}`;
+}
 
-  const avgEl = document.getElementById('avg-7d-value');
+function _pillClass(delta, activeTarget) {
+  if (delta == null || Math.abs(delta) < 0.05) return 'neutral';
+  if (!activeTarget) return delta < 0 ? 'toward' : 'away';
+  const isLossGoal = activeTarget.target_weight_kg < activeTarget.start_weight_kg;
+  const towardTarget = isLossGoal ? delta < 0 : delta > 0;
+  return towardTarget ? 'toward' : 'away';
+}
+
+function renderHeroCardA(chartData, activeTarget) {
+  const stats   = chartData ? chartData.stats : null;
+  const actuals = chartData ? (chartData.actuals || []) : [];
+
+  const dateSubEl = document.getElementById('hca-date-sub');
+  if (dateSubEl) dateSubEl.textContent = _relativeLoggedDate(actuals);
+
+  const avgEl = document.getElementById('hca-avg');
   if (avgEl) {
     avgEl.textContent = stats && stats.current_avg_kg != null
       ? `${stats.current_avg_kg.toFixed(1)} kg`
       : '--';
   }
 
-  _renderDeltaPill('delta-week', stats ? stats.delta_7d_kg : null, 'This wk');
-  _renderDeltaPill('delta-month', stats ? stats.delta_30d_kg : null, 'This mo');
+  const weightEl = document.getElementById('hca-weight');
+  if (weightEl) {
+    weightEl.textContent = stats && stats.current_weight_kg != null
+      ? `${stats.current_weight_kg.toFixed(1)} kg`
+      : '--';
+  }
+
+  _renderHcaPill('hca-pill-week',  stats ? stats.delta_7d_kg  : null, 'This wk', activeTarget);
+  _renderHcaPill('hca-pill-month', stats ? stats.delta_30d_kg : null, 'This mo', activeTarget);
 }
 
-function _renderDeltaPill(id, delta, label) {
+function _renderHcaPill(id, delta, label, activeTarget) {
   const el = document.getElementById(id);
   if (!el) return;
-
   if (delta == null) {
     el.textContent = `${label}: --`;
     el.className = 'delta-pill neutral';
     return;
   }
-
   const isFlat = Math.abs(delta) < 0.05;
-  const isLoss = delta < 0;
-  const arrow = isFlat ? '→' : (isLoss ? '↓' : '↑');
+  const arrow = isFlat ? '→' : (delta < 0 ? '↓' : '↑');
   el.textContent = `${label}: ${arrow} ${Math.abs(delta).toFixed(1)} kg`;
-  el.className = `delta-pill ${isFlat ? 'neutral' : (isLoss ? 'loss' : 'gain')}`;
+  el.className = `delta-pill ${_pillClass(delta, activeTarget)}`;
+}
+
+// ── Coach strip ────────────────────────────────────────────────────────────
+
+function renderCoachStrip(chartData, activeTarget) {
+  const strip   = document.getElementById('coach-strip');
+  const textEl  = document.getElementById('coach-text');
+  if (!strip || !textEl) return;
+
+  const loggedToday   = chartData && chartData.logged_today;
+  const todayDeltaKg  = chartData ? chartData.today_delta_kg : null;
+
+  if (!loggedToday) {
+    strip.className = 'coach-strip coach-grey';
+    textEl.textContent = '😴 No entry yet today — log your weight to wake me up';
+    return;
+  }
+
+  const isLossGoal = activeTarget
+    ? activeTarget.target_weight_kg < activeTarget.start_weight_kg
+    : true;
+
+  const isFlat = todayDeltaKg == null || Math.abs(todayDeltaKg) < 0.05;
+  const movedToward = isFlat || (isLossGoal ? todayDeltaKg < 0 : todayDeltaKg > 0);
+
+  if (movedToward) {
+    strip.className = 'coach-strip coach-green';
+    textEl.textContent = '🎉 You did well — on pace this week';
+  } else {
+    strip.className = 'coach-strip coach-amber';
+    const awayMsg = isLossGoal
+      ? '💪 Up a little — new day, keep going'
+      : '💪 Down a little — new day, keep going';
+    textEl.textContent = awayMsg;
+  }
 }
 
 // ── Chart ──────────────────────────────────────────────────────────────────
 
-const CHART_COLORS = {
-  actuals:   '#9ca3af',
-  trend:     '#2563eb',
-  target:    '#16a34a',
-  projected: '#60a5fa',
-};
-
-function _buildChartDatasets(chartData, range) {
-  const actuals = chartData.actuals || [];
-  const trend   = chartData.trend   || [];
-  const target  = chartData.target  || null;
-
-  // Labels come from the dense trend series (one point per day in range)
-  const labels = trend.map(p => p.date);
-
-  // Actuals: map by date; last value per date wins (API sorts by time asc)
-  const actualsMap = {};
-  actuals.forEach(p => { actualsMap[p.date] = p.weight_kg; });
-  const actualsData = labels.map(d => actualsMap[d] != null ? actualsMap[d] : null);
-
-  // Trend: direct mapping, nulls kept for spanGaps
-  const trendData = trend.map(p => p.weight_kg);
-
-  const datasets = [
-    {
-      label: 'Daily weigh-in',
-      data: actualsData,
-      showLine: false,
-      pointBackgroundColor: CHART_COLORS.actuals,
-      pointBorderColor: CHART_COLORS.actuals,
-      pointRadius: actualsData.map(v => v != null ? 4 : 0),
-      pointHoverRadius: 6,
-      spanGaps: false,
-      order: 1,
-    },
-    {
-      label: '7-day moving avg',
-      data: trendData,
-      borderColor: CHART_COLORS.trend,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      tension: 0.3,
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: false,
-      order: 2,
-    },
-  ];
-
-  // Target: horizontal dashed line at target_weight_kg
-  const hasTarget = target && target.target_weight_kg != null;
-  if (hasTarget) {
-    const tw = target.target_weight_kg;
-    datasets.push({
-      label: 'Target',
-      data: labels.map(() => tw),
-      borderColor: CHART_COLORS.target,
-      backgroundColor: 'transparent',
-      borderWidth: 1.5,
-      borderDash: [6, 4],
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: true,
-      order: 3,
-    });
-  } else {
-    datasets.push({ label: 'Target', data: [], hidden: true, order: 3 });
-  }
-
-  // Projected: dashed line from today → target_date (sparse points from API)
-  const hasProjected = hasTarget && Array.isArray(target.projected_path) && target.projected_path.length;
-  if (hasProjected) {
-    const projMap = {};
-    target.projected_path.forEach(p => { projMap[p.date] = p.weight_kg; });
-    datasets.push({
-      label: 'Projected',
-      data: labels.map(d => projMap[d] != null ? projMap[d] : null),
-      borderColor: CHART_COLORS.projected,
-      backgroundColor: 'transparent',
-      borderWidth: 2,
-      borderDash: [4, 4],
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: false,
-      order: 4,
-    });
-  } else {
-    datasets.push({ label: 'Projected', data: [], hidden: true, order: 4 });
-  }
-
-  // Show/hide legend chips for target and projected
-  const legendTarget = document.getElementById('legend-target');
-  const legendProjected = document.getElementById('legend-projected');
-  if (legendTarget) legendTarget.hidden = !hasTarget;
-  if (legendProjected) legendProjected.hidden = !hasProjected;
-
-  return { labels, datasets };
-}
-
-function _buildYBounds(chartData) {
-  const vals = [];
-  (chartData.actuals || []).forEach(p => vals.push(p.weight_kg));
-  (chartData.trend || []).forEach(p => { if (p.weight_kg != null) vals.push(p.weight_kg); });
-  if (chartData.target) {
-    vals.push(chartData.target.target_weight_kg);
-    (chartData.target.projected_path || []).forEach(p => vals.push(p.weight_kg));
-  }
-  if (!vals.length) return { min: undefined, max: undefined };
-
-  const lo = Math.min(...vals);
-  const hi = Math.max(...vals);
-  const pad = Math.max(1, Math.min(2, (hi - lo) * 0.12));
-  return {
-    min: Math.floor((lo - pad) / 2) * 2,
-    max: Math.ceil((hi + pad) / 2) * 2,
-  };
-}
-
 function renderChart(chartData, range) {
   _chartData = chartData;
-  const { labels, datasets } = _buildChartDatasets(chartData, range);
-  const { min: yMin, max: yMax } = _buildYBounds(chartData);
+  WeightChart.render(chartData, range);
 
-  // X-axis tick callback: show formatted date, thinned by range
-  const tickCallback = function (val, idx) {
-    const date = labels[idx];
-    if (!date) return '';
-    const d = new Date(date + 'T00:00:00');
-
-    if (range === '30d') {
-      // Every 5th day
-      return d.getDate() % 5 === 1 ? fmtDateForRange(date, range) : '';
-    }
-    if (range === '90d') {
-      // 1st of each month
-      return d.getDate() === 1 ? fmtDateForRange(date, range) : '';
-    }
-    // 6m / 1y / all: 1st of each month
-    return d.getDate() === 1 ? fmtDateForRange(date, range) : '';
-  };
-
-  // hide loading placeholder and reveal canvas on first render
-  const loadingEl = document.getElementById('chart-loading');
-  const canvasEl = document.getElementById('weight-chart');
-  if (loadingEl) loadingEl.hidden = true;
-  if (canvasEl) canvasEl.hidden = false;
-
-  if (_chartInstance) {
-    _chartInstance.data.labels = labels;
-    _chartInstance.data.datasets = datasets;
-    _chartInstance.options.scales.y.min = yMin;
-    _chartInstance.options.scales.y.max = yMax;
-    _chartInstance.options.scales.x.ticks.callback = tickCallback;
-    _chartInstance.update();
-    return;
-  }
-
-  const ctx = document.getElementById('weight-chart').getContext('2d');
-  _chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          mode: 'index',
-          intersect: false,
-          filter: (item) => item.parsed.y != null,
-          callbacks: {
-            title: (items) => {
-              const date = labels[items[0]?.dataIndex];
-              return date ? fmtDisplayDate(date) : '';
-            },
-            label: (item) => {
-              if (item.parsed.y == null) return null;
-              return `${item.dataset.label}: ${item.parsed.y.toFixed(1)} kg`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: {
-          type: 'category',
-          ticks: {
-            callback: tickCallback,
-            maxRotation: 0,
-            autoSkip: false,
-          },
-          grid: { display: false },
-        },
-        y: {
-          title: { display: true, text: 'kg' },
-          min: yMin,
-          max: yMax,
-          ticks: {
-            stepSize: 2,
-          },
-        },
-      },
-    },
-  });
+  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+  const legendPlan      = document.getElementById('legend-plan');
+  const legendGap       = document.getElementById('legend-gap');
+  const legendMilestone = document.getElementById('legend-milestone');
+  if (legendPlan)      legendPlan.hidden      = !hasTarget;
+  if (legendGap)       legendGap.hidden       = !hasTarget;
+  if (legendMilestone) legendMilestone.hidden = !hasTarget;
 }
 
 // ── Progress card ──────────────────────────────────────────────────────────
 
+// Kept for backward-compat with test_weight_page_frontend__412 / __339
+// (status_label-based pill is superseded by gap_direction pill in #424)
 const STATUS_CLASSES = {
   on_track: 'on-track',
   behind:   'behind',
   ahead:    'ahead',
 };
 
-const STATUS_LABELS = {
-  on_track: 'On track',
-  behind:   'Behind',
-  ahead:    'Ahead',
-};
+function _fmtShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
 
 function renderProgress(target) {
   const card = document.getElementById('progress-card');
@@ -405,112 +276,197 @@ function renderProgress(target) {
 
   card.hidden = false;
 
-  const pct = Math.max(0, Math.min(100, target.progress_pct || 0));
+  const pct       = Math.max(0, Math.min(100, target.progress_pct || 0));
+  const startW    = target.start_weight_kg || 0;
+  const targetW   = target.target_weight_kg || 0;
+  const planTodayKg = target.plan_today_kg;
+  const gapKg     = target.gap_kg;           // null when no_data
+  const gapDir    = target.gap_direction || 'no_data';
 
-  // Bar fill and marker
-  const fill = document.getElementById('progress-bar-fill');
-  const marker = document.getElementById('progress-marker');
-  if (fill) fill.style.width = `${pct}%`;
-  if (marker) marker.style.left = `${pct}%`;
+  // ── Three-stat row ──────────────────────────────────────────────
 
-  // Labels
-  const startEl = document.getElementById('label-start');
-  const currentEl = document.getElementById('label-current');
-  const targetEl = document.getElementById('label-target');
+  const startValEl  = document.getElementById('pstat-start-val');
+  const startDateEl = document.getElementById('pstat-start-date');
+  if (startValEl)  startValEl.textContent  = `${startW.toFixed(1)} kg`;
+  if (startDateEl) startDateEl.textContent = _fmtShortDate(target.start_date || '');
 
-  if (startEl) {
-    startEl.innerHTML =
-      `<strong>${(target.start_weight_kg || 0).toFixed(1)} kg</strong>Start<br>${target.start_date || ''}`;
+  // current basis = plan_today + gap  (derived; no extra API field needed)
+  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
+  const youValEl  = document.getElementById('pstat-you-val');
+  const planSubEl = document.getElementById('pstat-plan-sub');
+  if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
+  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : 'plan --';
+
+  const goalValEl  = document.getElementById('pstat-goal-val');
+  const goalDateEl = document.getElementById('pstat-goal-date');
+  if (goalValEl)  goalValEl.textContent  = `${targetW.toFixed(1)} kg`;
+  if (goalDateEl) goalDateEl.textContent = _fmtShortDate(target.target_date || '');
+
+  // ── Bar: gradient fill, you-dot, plan-tick, micro-labels ────────
+
+  // Gradient fill width = progress_pct
+  const fillEl = document.getElementById('pgbar-fill');
+  if (fillEl) fillEl.style.width = `${pct}%`;
+
+  // You-dot position (progress_pct)
+  const youDotEl = document.getElementById('pgbar-you-dot');
+  if (youDotEl) youDotEl.style.left = `${pct}%`;
+
+  // Plan-tick position: (start − plan_today) / (start − target) × 100
+  const totalRange = startW - targetW;
+  const planPct = (totalRange !== 0 && planTodayKg != null)
+    ? Math.max(0, Math.min(100, (startW - planTodayKg) / totalRange * 100))
+    : pct;
+  const planTickEl = document.getElementById('pgbar-plan-tick');
+  if (planTickEl) planTickEl.style.left = `${planPct}%`;
+
+  // Micro-labels positioned under their respective marks
+  const microYouEl  = document.getElementById('pgbar-micro-you');
+  if (microYouEl)  microYouEl.style.left  = `${pct}%`;
+  const microPlanEl = document.getElementById('pgbar-micro-plan');
+  if (microPlanEl) microPlanEl.style.left = `${planPct}%`;
+
+  // ── Summary row ─────────────────────────────────────────────────
+
+  const pctBigEl = document.getElementById('progress-pct-big');
+  if (pctBigEl) pctBigEl.textContent = `${pct.toFixed(0)}%`;
+
+  const detailEl = document.getElementById('progress-detail');
+  if (detailEl) {
+    const kgStr  = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg to go` : '--';
+    const dayStr = target.days_remaining != null ? `${target.days_remaining} days` : '--';
+    detailEl.textContent = `${kgStr} · ${dayStr}`;
   }
-  if (currentEl) {
-    const curW = target.start_weight_kg - (target.kg_to_go || 0) + (pct / 100) *
-      Math.abs((target.start_weight_kg || 0) - (target.target_weight_kg || 0));
-    // Simpler: current = start - kg_lost; kg_lost = (start - target) * pct/100
-    const kgLost = ((target.start_weight_kg || 0) - (target.target_weight_kg || 0)) * pct / 100;
-    const currentKg = (target.start_weight_kg || 0) - kgLost;
-    currentEl.innerHTML = `<strong>${currentKg.toFixed(1)} kg</strong>Current`;
-  }
-  if (targetEl) {
-    targetEl.innerHTML =
-      `<strong>${(target.target_weight_kg || 0).toFixed(1)} kg</strong>Goal<br>${target.target_date || ''}`;
-  }
 
-  // Progress pct
-  const pctEl = document.getElementById('progress-pct');
-  if (pctEl) {
-    pctEl.textContent = `${pct.toFixed(0)}`;
-    const statusClass = STATUS_CLASSES[target.status_label] || 'neutral';
-    pctEl.style.color =
-      statusClass === 'on-track' ? '#15803d' :
-      statusClass === 'behind'   ? '#b45309' :
-      statusClass === 'ahead'    ? '#1d4ed8' : '#374151';
-  }
+  // Backward-compat hidden kg-to-go span (test_weight_page_frontend__412)
+  const kgToGoEl = document.getElementById('kg-to-go');
+  if (kgToGoEl) kgToGoEl.textContent = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg` : '--';
 
-  // kg to go
-  const kgEl = document.getElementById('kg-to-go');
-  if (kgEl) {
-    const kg = target.kg_to_go != null ? target.kg_to_go.toFixed(1) : '--';
-    kgEl.textContent = `${kg} kg to go`;
-  }
+  // ── Status pill driven by gap_direction ─────────────────────────
+  // Values: 'behind' | 'ahead' | 'on_plan' | 'no_data'
+  // Raw gap_direction enum strings are never rendered directly to the UI.
 
-  // Status pill
-  const pillEl = document.getElementById('status-pill');
+  const pillEl = document.getElementById('pgstatus-pill');
   if (pillEl) {
-    const sl = target.status_label || '';
-    pillEl.textContent = STATUS_LABELS[sl] || sl;
-    pillEl.className = 'status-pill ' + (STATUS_CLASSES[sl] || '');
+    const pace = target.required_pace_kg_per_week;
+    let pillText, pillClass;
+
+    if (gapDir === 'behind') {
+      const absGap  = gapKg   != null ? Math.abs(gapKg).toFixed(1)   : '?';
+      const paceStr = pace    != null ? pace.toFixed(2)               : '?';
+      pillText  = `+${absGap} kg behind plan · need ${paceStr} kg/wk`;
+      pillClass = 'pill-behind';
+    } else if (gapDir === 'ahead') {
+      const absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : '?';
+      pillText  = `${absGap} kg ahead of plan`;
+      pillClass = 'pill-ahead';
+    } else if (gapDir === 'on_plan') {
+      pillText  = 'On plan';
+      pillClass = 'pill-on-plan';
+    } else {
+      // no_data
+      pillText  = 'Just started — log daily to see your pace';
+      pillClass = 'pill-no-data';
+    }
+
+    pillEl.textContent = pillText;
+    pillEl.className   = `pgstatus-pill ${pillClass}`;
   }
 }
 
 // ── Milestones panel ───────────────────────────────────────────────────────
 
-function renderMilestones(target, stats) {
-  const panel = document.getElementById('milestones-panel');
-  const list  = document.getElementById('milestones-list');
-  if (!panel || !list) return;
+function renderMilestones(target) {
+  const rowsEl = document.getElementById('milestone-rows');
+  if (!rowsEl) return;
 
-  if (!target) {
-    panel.hidden = true;
+  if (!target || !target.milestones || !target.milestones.length) {
+    rowsEl.innerHTML = '';
     return;
   }
 
-  panel.hidden = false;
+  const gapDir      = target.gap_direction || 'no_data';
+  const planTodayKg = target.plan_today_kg;
+  const gapKg       = target.gap_kg;
+  // current basis derived the same way as in renderProgress
+  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
 
-  const today = todayISO();
-  const currentKg = stats && stats.current_weight_kg != null
-    ? stats.current_weight_kg
-    : target.start_weight_kg;
+  rowsEl.innerHTML = target.milestones.map(m => {
+    const dateDisplay = m.date ? (() => {
+      const d = new Date(m.date + 'T00:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    })() : '--';
 
-  const targetKg   = target.target_weight_kg;
-  const targetDate = target.target_date;
+    if (m.kind === 'today') {
+      // Today row: actual basis weight + plan sub + signed delta chip
+      const actualDisplay = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
+      const planSub = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : '';
 
-  // 4 milestone points: Today, 3 mo (90 days), 6 mo (180 days), Goal
-  const milestones = [
-    { label: 'Today',  date: today },
-    { label: '3 mo',   date: addDays(today, 90) },
-    { label: '6 mo',   date: addDays(today, 180) },
-    { label: 'Goal',   date: targetDate },
-  ];
+      let rowClass = 'milestone-row milestone-row-standard';
+      if      (gapDir === 'behind')  rowClass = 'milestone-row milestone-today-behind';
+      else if (gapDir === 'ahead')   rowClass = 'milestone-row milestone-today-ahead';
+      else if (gapDir === 'on_plan') rowClass = 'milestone-row milestone-today-on-plan';
 
-  list.innerHTML = milestones.map(m => {
-    const projWeight = interpolateWeight(today, currentKg, targetDate, targetKg, m.date);
-    const displayDate = m.label === 'Goal'
-      ? m.date
-      : fmtDisplayDate(m.date);
+      let deltaHtml = '';
+      if (gapKg != null) {
+        const sign      = gapKg >= 0 ? '+' : '';
+        const chipClass = Math.abs(gapKg) < 0.15
+          ? 'milestone-delta-neutral'
+          : (gapKg < 0 ? 'milestone-delta-ahead' : 'milestone-delta-behind');
+        deltaHtml = `<span class="milestone-row-delta ${chipClass}">${sign}${gapKg.toFixed(1)} kg</span>`;
+      }
+
+      return `
+        <div class="${rowClass}">
+          <div class="milestone-row-date">${dateDisplay}</div>
+          <div class="milestone-row-center">
+            <div class="milestone-row-weight">${actualDisplay}</div>
+            <div class="milestone-row-sub">${planSub}</div>
+          </div>
+          ${deltaHtml}
+        </div>`;
+    }
+
+    // Intermediate or goal row: plan kg + ↓ remaining from today's plan position
+    const planDisplay = m.plan_kg != null ? `${m.plan_kg.toFixed(1)} kg` : '--';
+    const remaining   = (planTodayKg != null && m.plan_kg != null)
+      ? Math.abs(planTodayKg - m.plan_kg)
+      : null;
+    const remainSub = remaining != null ? `↓ ${remaining.toFixed(1)} kg to go` : '';
+    const kindLabel = m.kind === 'goal' ? 'Goal' : '';
+
     return `
-      <div class="milestone-item">
-        <div class="milestone-label">${m.label}</div>
-        <div class="milestone-weight">${projWeight.toFixed(1)} kg</div>
-        <div class="milestone-date">${displayDate}</div>
+      <div class="milestone-row milestone-row-standard">
+        <div class="milestone-row-date">${dateDisplay}${kindLabel ? `<div style="font-size:0.625rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;">${kindLabel}</div>` : ''}</div>
+        <div class="milestone-row-center">
+          <div class="milestone-row-weight">${planDisplay}</div>
+          <div class="milestone-row-sub">${remainSub}</div>
+        </div>
       </div>`;
   }).join('');
 }
 
 // ── Recent entries (last 14 days) ─────────────────────────────────────────
 
-function renderRecentEntries(entries) {
+function _nearestWeight(entries, targetDate) {
+  if (!entries.length) return null;
+  const sorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  const before = sorted.filter(e => e.entry_date < targetDate);
+  if (before.length) return before[before.length - 1].weight_kg;
+  const after = sorted.filter(e => e.entry_date > targetDate);
+  if (after.length) return after[0].weight_kg;
+  return null;
+}
+
+function renderRecentEntries(entries, activeTarget) {
   const tbody = document.getElementById('entries-tbody');
+  const viewAllLink = document.getElementById('view-all-link');
   if (!tbody) return;
+
+  // Update "View all N →" link count
+  if (viewAllLink) {
+    viewAllLink.textContent = `View all ${entries.length} →`;
+  }
 
   // Build a map: date → sorted entries (newest time first)
   const byDate = {};
@@ -529,7 +485,7 @@ function renderRecentEntries(entries) {
     days.push(addDays(today, -i));
   }
 
-  // Compute deltas: compare each entry to the previous date's last entry
+  // Compute deltas: compare each entry to the previous logged day (across gaps)
   const allSorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
   const prevWeight = {};
   allSorted.forEach((e, idx) => {
@@ -537,9 +493,15 @@ function renderRecentEntries(entries) {
     prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
   });
 
+  // Delta direction: ↓ green when toward target, ↑ red when away from target
+  const losingIsGoal = !activeTarget ||
+    activeTarget.target_weight_kg == null ||
+    activeTarget.start_weight_kg == null ||
+    activeTarget.target_weight_kg < activeTarget.start_weight_kg;
+
   // empty state: if no entries exist at all, show prompt instead of 14 blank rows
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:#9ca3af;font-size:0.9375rem;">
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:#9ca3af;font-size:0.9375rem;">
       No weight entries yet — log your first weigh-in above
     </td></tr>`;
     return;
@@ -551,16 +513,15 @@ function renderRecentEntries(entries) {
     const dayEntries = byDate[date];
 
     if (!dayEntries || !dayEntries.length) {
-      // empty state: no entry for this day — show backfill prompt
+      // No entry: show faded missing-day-row with ＋ Add chip
+      // No entry for this date — render add chip
       return `
-        <tr class="${rowClass}">
+        <tr class="${rowClass} missing-day-row" data-date="${date}">
           <td data-label="Date">${fmtDisplayDate(date)}</td>
-          <td data-label="Time"><span class="entry-no-data">No entry</span></td>
-          <td data-label="Weight">
-            <button class="backfill-add-btn" data-date="${date}" type="button"
-              aria-label="Add entry for ${date}">+</button>
+          <td data-label="Weight" colspan="2">
+            <button class="backfill-add-btn" data-date="${date}" data-is-today="${isToday}" type="button"
+              aria-label="No entry for ${date} — click to add">＋ Add</button>
           </td>
-          <td data-label="Delta"></td>
           <td></td>
         </tr>`;
     }
@@ -568,33 +529,45 @@ function renderRecentEntries(entries) {
     // One or more entries on this day
     return dayEntries.map((e, idx) => {
       const delta = prevWeight[e.id];
-      let deltaHtml = '';
+      let deltaHtml = `<span class="entry-delta neutral">—</span>`;
       if (delta != null) {
         const isFlat = Math.abs(delta) < 0.05;
-        const cls = isFlat ? 'neutral' : (delta < 0 ? 'loss' : 'gain');
-        const arrow = isFlat ? '→' : (delta < 0 ? '↓' : '↑');
+        const isLoss = delta < 0;
+        const isTowardTarget = losingIsGoal ? isLoss : !isLoss;
+        const cls = isFlat ? 'neutral' : (isTowardTarget ? 'loss' : 'gain');
+        const arrow = isFlat ? '→' : (isLoss ? '↓' : '↑');
         deltaHtml = `<span class="entry-delta ${cls}">${arrow} ${Math.abs(delta).toFixed(1)}</span>`;
       }
 
-      const timeStr = e.entry_time ? e.entry_time.slice(0, 5) : '--';
+      const notesHtml = e.notes
+        ? `<div class="entry-notes">${e.notes.replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c]))}</div>`
+        : '';
 
       return `
         <tr class="${rowClass}" data-entry-id="${e.id}">
-          <td data-label="Date">${idx === 0 ? fmtDisplayDate(date) : ''}</td>
-          <td data-label="Time">${timeStr}</td>
+          <td data-label="Date">
+            ${idx === 0 ? fmtDisplayDate(date) : ''}
+            ${notesHtml}
+          </td>
           <td data-label="Weight"><span class="entry-weight">${e.weight_kg.toFixed(1)} kg</span></td>
           <td data-label="Delta">${deltaHtml}</td>
           <td class="entry-actions-wrap">
-            <button class="entry-menu-btn" data-entry-id="${e.id}" type="button"
+            <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
               aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
           </td>
         </tr>`;
     }).join('');
   }).join('');
 
-  // Wire backfill + buttons
+  // Wire backfill ＋ Add chip buttons
   tbody.querySelectorAll('.backfill-add-btn').forEach(btn => {
-    btn.addEventListener('click', () => _openBackfill(btn, btn.dataset.date));
+    const date = btn.dataset.date;
+    const isToday = btn.dataset.isToday === 'true';
+    btn.addEventListener('click', () => _openMiniStepper(btn, date));
+    // Auto-open stepper for today's row if unlogged
+    if (isToday) {
+      _openMiniStepper(btn, date);
+    }
   });
 
   // Wire entry menu buttons
@@ -626,12 +599,22 @@ function _toggleEntryMenu(btn) {
   _closeAllMenus();
 
   const entryId = btn.dataset.entryId;
+  const weight = btn.dataset.weight;
+  const entryDate = btn.dataset.date;
   const menu = document.createElement('div');
   menu.className = 'entry-menu';
   menu.innerHTML = `
+    <button class="entry-edit" data-id="${entryId}" data-weight="${weight}" data-date="${entryDate}" type="button">Edit</button>
     <button class="menu-delete" data-id="${entryId}" type="button">Delete</button>`;
   btn.parentElement.appendChild(menu);
   btn.setAttribute('aria-expanded', 'true');
+
+  menu.querySelector('.entry-edit').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    _closeAllMenus();
+    const row = btn.closest('tr');
+    openInlineEdit(row, entryId, parseFloat(weight), entryDate);
+  });
 
   menu.querySelector('.menu-delete').addEventListener('click', async (ev) => {
     ev.stopPropagation();
@@ -647,25 +630,111 @@ function _toggleEntryMenu(btn) {
   });
 }
 
-// ── Backfill ───────────────────────────────────────────────────────────────
+// ── Inline edit and patch ──────────────────────────────────────────────────
 
-function _openBackfill(btn, date) {
+function openInlineEdit(row, entryId, currentWeight, currentDate) {
+  if (!row) return;
+  row.innerHTML = `
+    <td colspan="4">
+      <form class="inline-edit-form" novalidate>
+        <input type="number" step="0.1" min="20" max="300"
+          class="backfill-input" value="${currentWeight.toFixed(1)}" aria-label="Weight in kg">
+        <button type="submit" class="inline-save-btn">Save</button>
+        <button type="button" class="inline-cancel-btn">Cancel</button>
+        <span class="backfill-error" role="alert"></span>
+      </form>
+    </td>`;
+
+  const form = row.querySelector('form');
+  const weightInput = form.querySelector('input');
+  const errEl = form.querySelector('.backfill-error');
+
+  weightInput.focus();
+
+  row.addEventListener('keydown', function onEscape(ev) {
+    if (ev.key === 'Escape') {
+      row.removeEventListener('keydown', onEscape);
+      _reload();
+    }
+  });
+
+  form.querySelector('.inline-cancel-btn').addEventListener('click', () => _reload());
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    errEl.textContent = '';
+    const val = parseFloat(weightInput.value);
+    if (isNaN(val) || val <= 0) {
+      errEl.textContent = 'Weight must be a positive number.';
+      weightInput.focus();
+      return;
+    }
+    if (val < 20 || val > 300) {
+      errEl.textContent = 'Weight must be between 20 and 300 kg.';
+      weightInput.focus();
+      return;
+    }
+    try {
+      await patchEntry(entryId, { weight_kg: val });
+      UIStates.showToast('Entry updated');
+      await _reload();
+    } catch (e) {
+      if (e.message === 'conflict') {
+        errEl.textContent = 'Date conflict with another entry.';
+      } else {
+        showPageError('Save failed: ' + e.message);
+      }
+    }
+  });
+}
+
+async function patchEntry(entryId, data) {
+  const res = await fetch(`/api/weight-entries/${encodeURIComponent(entryId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (res.status === 409) throw new Error('conflict');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Backfill / mini-stepper ────────────────────────────────────────────────
+
+function _openMiniStepper(btn, date) {
   const td = btn.closest('td');
   if (!td) return;
 
+  const prefill = _nearestWeight(_recentEntries, date) || 70.0;
+  const initVal = (Math.round(prefill * 10) / 10).toFixed(1);
+
   td.innerHTML = `
-    <form class="backfill-inline" novalidate>
+    <form class="mini-stepper backfill-inline" novalidate>
+      <button type="button" class="stepper-btn stepper-dec" aria-label="Decrease">&#x2212;</button>
       <input type="number" step="0.1" min="20" max="300"
-        class="backfill-input" placeholder="kg" aria-label="Weight in kg">
-      <button type="submit" class="backfill-save-btn">Save</button>
-      <button type="button" class="backfill-cancel-btn">✕</button>
-      <span class="backfill-error" role="alert"></span>
+        class="stepper-value backfill-input" value="${initVal}" aria-label="Weight in kg">
+      <button type="button" class="stepper-btn stepper-inc" aria-label="Increase">+</button>
+      <button type="submit" class="stepper-log-btn backfill-save-btn">Log</button>
+      <button type="button" class="backfill-cancel-btn" style="font-size:0.8125rem;background:none;border:none;color:#9ca3af;cursor:pointer">&#x2715;</button>
+      <span class="stepper-error backfill-error" role="alert"></span>
     </form>`;
 
   const form = td.querySelector('form');
-  const input = td.querySelector('.backfill-input');
-  const errEl = td.querySelector('.backfill-error');
+  const input = td.querySelector('.stepper-value');
+  const errEl = td.querySelector('.stepper-error');
+
   input.focus();
+  input.select();
+
+  td.querySelector('.stepper-dec').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.max(20, v - 0.1).toFixed(1);
+  });
+
+  td.querySelector('.stepper-inc').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.min(300, v + 0.1).toFixed(1);
+  });
 
   td.querySelector('.backfill-cancel-btn').addEventListener('click', () => _reload());
 
@@ -709,57 +778,182 @@ function _openBackfill(btn, date) {
   });
 }
 
-// ── Quick-log ──────────────────────────────────────────────────────────────
+// ── Card B: Log Today stepper ─────────────────────────────────────────────
 
-function _initQuickLog() {
-  const form   = document.getElementById('quicklog-form');
-  const input  = document.getElementById('quicklog-input');
-  const errEl  = document.getElementById('quicklog-error');
-  const btn    = form ? form.querySelector('button[type="submit"]') : null;
+let _cardBEntryId = null; // id of today's existing entry, null if not yet logged
 
-  if (!form) return;
+function _updateLogBtnLabel() {
+  const input = document.getElementById('stepper-input');
+  const btn   = document.getElementById('log-submit-btn');
+  if (!input || !btn) return;
+  const v = parseFloat(input.value);
+  btn.textContent = isNaN(v) ? 'Log -- kg' : `Log ${v.toFixed(1)} kg`;
+}
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    if (errEl) errEl.textContent = '';
-    showPageError('');
+function _clampStepperValue(v) {
+  if (isNaN(v)) return 20;
+  return Math.max(20, Math.min(300, v));
+}
 
-    const raw = parseFloat(input.value);
-    if (isNaN(raw) || raw < 20 || raw > 300) {
-      if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
-      input.focus();
-      return;
-    }
+function _prefillStepper(weight) {
+  const input = document.getElementById('stepper-input');
+  if (!input) return;
+  input.value = weight != null ? weight.toFixed(1) : '';
+  _updateLogBtnLabel();
+}
 
-    if (btn) btn.disabled = true;
+function _showStepperMode() {
+  const wrap   = document.getElementById('stepper-wrap');
+  const logged = document.getElementById('logged-strip');
+  if (wrap)   wrap.hidden   = false;
+  if (logged) logged.hidden = true;
+}
 
-    try {
-      const res = await fetch('/api/weight-entries', {
+function _showLoggedMode(weightKg) {
+  const wrap      = document.getElementById('stepper-wrap');
+  const logged    = document.getElementById('logged-strip');
+  const loggedTxt = document.getElementById('logged-text');
+  if (wrap)   wrap.hidden   = true;
+  if (logged) logged.hidden = false;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
+}
+
+async function _submitCardB(weightKg) {
+  const errEl = document.getElementById('hcb-error');
+  const btn   = document.getElementById('log-submit-btn');
+  if (errEl) errEl.textContent = '';
+  showPageError('');
+
+  if (isNaN(weightKg) || weightKg < 20 || weightKg > 300) {
+    if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  try {
+    if (_cardBEntryId) {
+      // Edit mode: PATCH the existing entry
+      const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(_cardBEntryId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weight_kg: weightKg }),
+      });
+      if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+    } else {
+      // New log: attempt POST
+      const postRes = await fetch('/api/weight-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: _userId,
           entry_date: todayISO(),
           entry_time: nowHHMM(),
-          weight_kg: raw,
+          weight_kg: weightKg,
         }),
       });
 
-      if (res.status === 409) {
-        if (errEl) errEl.textContent = 'Entry already exists for today — backfill or delete it first.';
-        return;
+      if (postRes.status === 409) {
+        // Race condition: entry already exists — fall back to PATCH using existing_id
+        const conflict = await postRes.json();
+        const existingId = conflict.existing_id;
+        if (!existingId) throw new Error('409 with no existing_id');
+        const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(existingId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: weightKg }),
+        });
+        if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+        _cardBEntryId = existingId;
+      } else if (!postRes.ok) {
+        throw new Error(`HTTP ${postRes.status}`);
+      } else {
+        const created = await postRes.json();
+        _cardBEntryId = created.id;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      UIStates.showToast('Logged!');
-      form.reset();
-      await _reload();
-    } catch (e) {
-      showPageError('Log failed: ' + e.message);
-    } finally {
-      if (btn) btn.disabled = false;
     }
+
+    UIStates.showToast('Logged!');
+    // Update logged strip weight for future Edit clicks
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = weightKg;
+    _showLoggedMode(weightKg);
+    await _reloadHeroAndCoach();
+    await _reloadEntries();
+  } catch (e) {
+    showPageError('Log failed: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _initCardB() {
+  const decBtn  = document.getElementById('stepper-dec');
+  const incBtn  = document.getElementById('stepper-inc');
+  const input   = document.getElementById('stepper-input');
+  const logBtn  = document.getElementById('log-submit-btn');
+  const editBtn = document.getElementById('edit-link');
+  const dateEl  = document.getElementById('hcb-date');
+
+  if (!input || !logBtn) return;
+
+  // Show today's date in Card B label row
+  if (dateEl) {
+    const d = new Date(todayISO() + 'T00:00:00');
+    dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  // Stepper ± buttons
+  if (decBtn) {
+    decBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) - 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+  if (incBtn) {
+    incBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) + 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+
+  // Live-update button label on input change
+  input.addEventListener('input', _updateLogBtnLabel);
+
+  // Submit
+  logBtn.addEventListener('click', async () => {
+    await _submitCardB(parseFloat(input.value));
   });
+
+  // Edit link: restore stepper with logged value
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const logged = document.getElementById('logged-strip');
+      const weight = logged ? parseFloat(logged.dataset.weight) : NaN;
+      _prefillStepper(!isNaN(weight) ? weight : null);
+      _showStepperMode();
+      input.focus();
+    });
+  }
+}
+
+function _cardBSetLoggedState(entries, fallbackWeight) {
+  const today = todayISO();
+  const todayEntry = entries.find(e => e.entry_date === today);
+  if (todayEntry) {
+    _cardBEntryId = todayEntry.id;
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = todayEntry.weight_kg;
+    _prefillStepper(todayEntry.weight_kg);
+    _showLoggedMode(todayEntry.weight_kg);
+  } else {
+    _cardBEntryId = null;
+    // Prefill stepper with most recent entry (fallback from chart stats)
+    if (fallbackWeight != null) _prefillStepper(fallbackWeight);
+    _showStepperMode();
+  }
 }
 
 // ── Range tabs ─────────────────────────────────────────────────────────────
@@ -780,6 +974,29 @@ function _initRangeTabs() {
   });
 }
 
+// ── Partial reloads ───────────────────────────────────────────────────────
+
+async function _reloadHeroAndCoach() {
+  try {
+    const chartData = await fetchChartData(_currentRange);
+    _chartData = chartData;
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Refresh failed: ' + e.message);
+  }
+}
+
+async function _reloadEntries() {
+  try {
+    const entriesRes = await fetchRecentEntries();
+    _recentEntries = entriesRes.entries || [];
+    renderRecentEntries(_recentEntries);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
+  }
+}
+
 // ── Full reload (after mutations) ─────────────────────────────────────────
 
 async function _reload() {
@@ -796,11 +1013,13 @@ async function _reload() {
     _activeTarget = targetRes.target || null;
 
     renderSubtitle(summaryRes.summary, chartData.stats);
-    renderHero(chartData.stats);
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
-    renderRecentEntries(_recentEntries);
+    renderRecentEntries(_recentEntries, _activeTarget);
+    _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -818,7 +1037,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  _initQuickLog();
+  _initCardB();
   _initRangeTabs();
 
   const exportBtn = document.getElementById('export-csv-btn');

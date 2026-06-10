@@ -508,7 +508,8 @@ def test_o_weight_page_logic_in_weight_js():
 def test_o_no_duplicate_weight_page_js():
     # There must not be a second file implementing the /weight/ page (not counting weight-targets.js
     # which belongs to a different page, or any test-infrastructure JS files).
-    excluded = {"weight.js", "weight-targets.js"}
+    # weight-chart.js is the SVG chart module introduced by issue #423 (intentional split)
+    excluded = {"weight.js", "weight-targets.js", "weight-chart.js"}
     extra = [
         f for f in JS_DIR.iterdir()
         if f.suffix == ".js"

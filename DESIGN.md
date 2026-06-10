@@ -1,6 +1,62 @@
 # Perf Coach — Design Reference
 
-## Color Tokens
+## Gradient Design System (Home, Weight — current standard)
+
+The home page and weight page use a gradient design language. New pages should follow this system.
+
+### Gradient Background Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--bg-1` | `#5a8dee` | Gradient start (top-left, light blue) |
+| `--bg-2` | `#1f3b8a` | Gradient end (bottom-right, deep navy) |
+| `--shell-1` | `#eaf0fb` | Nav bar top |
+| `--shell-2` | `#d8e3f5` | Nav bar bottom |
+| `--page-bg` | `radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%)` | Full-page gradient background |
+
+### Card Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--card-bg` | `#ffffff` | Floating card surface |
+| `--card-border` | `rgba(13, 30, 67, 0.06)` | Subtle card border |
+| `--card-radius` | `14px` | Card border-radius |
+| `--card-shadow` | `0 2px 12px rgba(13,30,67,0.10), 0 1px 3px rgba(13,30,67,0.06)` | Soft card drop shadow |
+
+### Text Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--text-primary` | `#0b1530` | Body text on white cards |
+| `--text-secondary` | `#5c6886` | Secondary / muted text |
+| `--text-tertiary` | `#8b95ad` | Labels, micro-text |
+
+### Typography
+
+- **Body / labels**: `Inter Tight` (Google Fonts) — `font-weight` 400/500/600/700
+- **Numeric values** (weights, scores, metrics): `JetBrains Mono` (Google Fonts) — `font-weight` 500/600
+- **Letter-spacing**: `-0.01em` (body), `-0.025em` (hero headings), `-0.04em` (large numerics)
+- Load via: `https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap`
+
+### Semantic Color Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--green` | `#2d5e10` | Positive delta text |
+| `--green-soft` | `#dff5d6` | Green pill background |
+| `--red` | `#7a1a1a` | Negative delta text |
+| `--red-soft` | `#ffd9d9` | Red pill background |
+| `--amber` | `#6b4408` | Warning text |
+| `--amber-soft` | `#fff0c4` | Amber pill background |
+| `--accent` | `#e4ff52` | Lime accent (CTA on dark) |
+
+---
+
+## Legacy Light Theme Tokens (Admin, Login, Settings)
+
+These pages retain the older light-theme style. Do not mix with gradient-system pages.
+
+## Color Tokens (legacy)
 
 **Implemented as CSS custom properties in `frontend/css/styles.css` `:root`.**
 Page `<style>` blocks must reference these via `var(--token)`; do not invent
@@ -47,7 +103,7 @@ Used where numbers and session structure are the content.
 Muted instrument labels use `--text-sub` (`#6b7280`, AA at 4.9:1). The earlier
 `#8b95ad` failed WCAG AA on small text (3.0:1) and was retired.
 
-## Typography
+## Typography (legacy)
 
 - **Font family**: system-ui, -apple-system, sans-serif
 - **Base size**: 14px
