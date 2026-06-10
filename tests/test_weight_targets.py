@@ -379,7 +379,7 @@ def test_api_j_new_target_after_ending_succeeds(http_client, api_user_id):
     _end_target(http_client, api_user_id, r1.json()["id"])
 
     r2 = _wt_post(http_client, api_user_id)
-    assert r2.status_code == 201, r2.text, "Expected 201 after previous target was ended"
+    assert r2.status_code == 201, f"Expected 201 after previous target was ended: {r2.text}"
     _end_target(http_client, api_user_id, r2.json()["id"])
 
 
