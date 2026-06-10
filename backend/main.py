@@ -2047,14 +2047,88 @@ def get_home_weekly_summary(
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
+_VALID_TRACKING_TYPES = frozenset({
+    "daily_checkmark", "weekly_count", "weekly_minutes", "weekly_quantity",
+})
+_VALID_AUTO_FILL_SOURCES = frozenset({
+    "workout.zone2_minutes", "workout.run_count", "workout.lift_count",
+    "workout.total_duration_minutes", "workout.distance_km",
+})
+
+
+def _habit_dict(h: Habit) -> dict:
+    return {
+        "id": str(h.id),
+        "user_id": str(h.user_id),
+        "name": h.name,
+        "description": h.description,
+        "tracking_type": h.tracking_type,
+        "weekly_target": float(h.weekly_target) if h.weekly_target is not None else None,
+        "unit": h.unit,
+        "auto_fill_source": h.auto_fill_source,
+        "icon": h.icon,
+        "color": h.color,
+        "sort_order": h.sort_order,
+        "is_archived": h.is_archived,
+        "created_at": h.created_at.isoformat() if h.created_at else None,
+        "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+    }
+
+
+def _validate_habit_business_rules(
+    tracking_type: Optional[str],
+    weekly_target: Optional[float],
+    auto_fill_source: Optional[str],
+) -> None:
+    if tracking_type is not None and tracking_type not in _VALID_TRACKING_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"tracking_type must be one of {sorted(_VALID_TRACKING_TYPES)}",
+        )
+    if weekly_target is not None and tracking_type is not None:
+        if tracking_type == "daily_checkmark":
+            if not (1 <= weekly_target <= 7):
+                raise HTTPException(
+                    status_code=422,
+                    detail="weekly_target for daily_checkmark must be between 1 and 7",
+                )
+        elif tracking_type.startswith("weekly_"):
+            if weekly_target <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="weekly_target for weekly_* types must be > 0",
+                )
+    if auto_fill_source is not None and auto_fill_source not in _VALID_AUTO_FILL_SOURCES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"auto_fill_source must be one of {sorted(_VALID_AUTO_FILL_SOURCES)}",
+        )
+
+
 class HabitIn(BaseModel):
-    user_id: Optional[str] = None
-    name: str
+    name: str = Field(..., max_length=100)
+    tracking_type: str
+    description: Optional[str] = None
+    weekly_target: Optional[float] = None
+    unit: Optional[str] = None
+    auto_fill_source: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
 
 
 class HabitPatch(BaseModel):
-    name: Optional[str] = None
-    archived: Optional[bool] = None
+    name: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    weekly_target: Optional[float] = None
+    unit: Optional[str] = None
+    auto_fill_source: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class HabitReorderIn(BaseModel):
+    sort_order: int
 
 
 class HabitLogIn(BaseModel):
@@ -2064,45 +2138,67 @@ class HabitLogIn(BaseModel):
 
 
 @app.get("/api/habits")
-def get_habits(user: User = Depends(resolve_user)):
+def get_habits(
+    include_archived: bool = False,
+    user: User = Depends(resolve_user),
+):
     with Session(engine) as session:
-        rows = (
-            session.query(Habit)
-            .filter(Habit.user_id == user.id, Habit.archived_at.is_(None))
-            .order_by(Habit.display_order, Habit.created_at)
-            .all()
-        )
-        return JSONResponse([
-            {
-                "id": str(r.id),
-                "name": r.name,
-                "display_order": r.display_order,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ])
+        q = session.query(Habit).filter(Habit.user_id == user.id)
+        if not include_archived:
+            q = q.filter(Habit.is_archived.is_(False))
+        rows = q.order_by(Habit.sort_order).all()
+        return JSONResponse([_habit_dict(r) for r in rows])
 
 
 @app.post("/api/habits", status_code=201)
 def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
+    _validate_habit_business_rules(
+        tracking_type=body.tracking_type,
+        weekly_target=body.weekly_target,
+        auto_fill_source=body.auto_fill_source,
+    )
+    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
-        habit = Habit(user_id=user.id, name=body.name.strip())
+        max_order = (
+            session.query(_sa_func.max(Habit.sort_order))
+            .filter(Habit.user_id == user.id)
+            .scalar()
+        )
+        habit = Habit(
+            user_id=user.id,
+            name=body.name.strip(),
+            tracking_type=body.tracking_type,
+            description=body.description,
+            weekly_target=body.weekly_target,
+            unit=body.unit,
+            auto_fill_source=body.auto_fill_source,
+            icon=body.icon,
+            color=body.color,
+            sort_order=(max_order or 0) + 1,
+            is_archived=False,
+        )
         session.add(habit)
         session.commit()
         session.refresh(habit)
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(habit.id),
-                "name": habit.name,
-                "display_order": habit.display_order,
-                "created_at": habit.created_at.isoformat() if habit.created_at else None,
-            },
-        )
+        return JSONResponse(status_code=201, content=_habit_dict(habit))
 
 
 @app.patch("/api/habits/{habit_id}")
-def patch_habit(habit_id: str, body: HabitPatch, user: User = Depends(resolve_user)):
+async def patch_habit(habit_id: str, request: Request, user: User = Depends(resolve_user)):
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if "user_id" in raw or "tracking_type" in raw:
+        raise HTTPException(status_code=422, detail="user_id and tracking_type cannot be updated")
+    try:
+        body = HabitPatch(**raw)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if body.auto_fill_source is not None:
+        _validate_habit_business_rules(
+            tracking_type=None, weekly_target=None, auto_fill_source=body.auto_fill_source
+        )
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
@@ -2115,31 +2211,75 @@ def patch_habit(habit_id: str, body: HabitPatch, user: User = Depends(resolve_us
             raise HTTPException(status_code=403, detail="Forbidden")
         if body.name is not None:
             habit.name = body.name.strip()
+        if body.description is not None:
+            habit.description = body.description
+        if body.weekly_target is not None:
+            habit.weekly_target = body.weekly_target
+        if body.unit is not None:
+            habit.unit = body.unit
+        if body.auto_fill_source is not None:
+            habit.auto_fill_source = body.auto_fill_source
+        if body.icon is not None:
+            habit.icon = body.icon
+        if body.color is not None:
+            habit.color = body.color
+        if body.sort_order is not None:
+            habit.sort_order = body.sort_order
+        habit.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(habit)
-        return JSONResponse({
-            "id": str(habit.id),
-            "name": habit.name,
-            "display_order": habit.display_order,
-        })
+        return JSONResponse(_habit_dict(habit))
 
 
-@app.delete("/api/habits/{habit_id}", status_code=204)
-def delete_habit(habit_id: str, user: User = Depends(resolve_user)):
+@app.delete("/api/habits/{habit_id}")
+def delete_habit(
+    habit_id: str,
+    hard: bool = False,
+    user: User = Depends(resolve_user),
+):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
-    from datetime import datetime, timezone
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
         if habit.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
-        habit.archived_at = datetime.now(timezone.utc)
+        if hard:
+            session.query(HabitLog).filter(HabitLog.habit_id == hid).delete(
+                synchronize_session=False
+            )
+            session.delete(habit)
+        else:
+            habit.is_archived = True
+            habit.updated_at = _datetime.now(_timezone.utc)
         session.commit()
-    return Response(status_code=204)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/habits/{habit_id}/reorder")
+def reorder_habit(
+    habit_id: str,
+    body: HabitReorderIn,
+    user: User = Depends(resolve_user),
+):
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        habit.sort_order = body.sort_order
+        habit.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(habit)
+        return JSONResponse(_habit_dict(habit))
 
 
 @app.get("/api/habits/logs")
