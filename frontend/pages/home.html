@@ -1066,6 +1066,51 @@
       color: #dc2626;
       padding: 6px 4px 2px;
     }
+    .log-workout-cta-wrap {
+      margin: 12px 0 4px;
+    }
+    .log-workout-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      background: var(--accent, #e4ff52);
+      color: var(--accent-text, #1a2400);
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .sticky-log-btn {
+      display: none;
+    }
+    @media (max-width: 500px) {
+      .sticky-log-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        position: fixed;
+        bottom: 72px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 900;
+        background: var(--accent, #e4ff52);
+        color: var(--accent-text, #1a2400);
+        border: none;
+        border-radius: 28px;
+        padding: 13px 28px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        white-space: nowrap;
+        min-height: 48px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1080,14 +1125,24 @@
   <div id="row-1"></div>
   <div id="strava-stale-banner"></div>
   <div id="row-2"></div>
+  <div class="log-workout-cta-wrap">
+    <button type="button" class="log-workout-cta-btn" id="home-log-workout-btn">
+      <i class="ti ti-plus"></i> Log workout
+    </button>
+  </div>
   <div id="row-log"></div>
   <div id="row-3"></div>
   <div id="row-4"></div>
   <div id="row-5"></div>
 </main>
 
+<button type="button" class="sticky-log-btn" id="sticky-log-workout-btn" aria-label="Log workout">
+  <i class="ti ti-plus"></i> Log workout
+</button>
+
 <script src="js/nav.js"></script>
 <script src="js/ui-states.js"></script>
+<script src="js/workout-form.js"></script>
 <script src="js/home.js"></script>
 <script src="js/env.js"></script>
 </body>

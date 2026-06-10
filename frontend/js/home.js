@@ -2190,9 +2190,18 @@
     }
   }
 
+  function wireLogWorkoutButtons() {
+    function openForm() { if (window.WorkoutForm) WorkoutForm.open(); }
+    var homeBtn = document.getElementById('home-log-workout-btn');
+    var stickyBtn = document.getElementById('sticky-log-workout-btn');
+    if (homeBtn) homeBtn.addEventListener('click', openForm);
+    if (stickyBtn) stickyBtn.addEventListener('click', openForm);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () { init(); wireLogWorkoutButtons(); });
   } else {
     init();
+    wireLogWorkoutButtons();
   }
 })();
