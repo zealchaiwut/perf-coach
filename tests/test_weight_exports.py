@@ -1,5 +1,5 @@
 """
-Tests for issue #341: CSV export endpoints for weight entries and targets.
+Tests for issue #414: CSV export endpoints for weight entries and targets.
 6 AC anchors:
   (a) entries export returns valid CSV with correct headers
   (b) date range filter returns only entries within range
