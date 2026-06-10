@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <style>
     /* Instrument tokens shared with the log + detail panel */
-    .num-mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-variant-numeric: tabular-nums; }
+    .num-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
     /* ── Tabs ── */
     .tab-bar {
@@ -61,7 +61,7 @@
     .meta-field label {
       font-size: 0.8125rem;
       font-weight: 600;
-      color: #5c6886;
+      color: var(--ink-2);
     }
 
     .meta-field input[type="text"],
@@ -146,7 +146,7 @@
     .section-label {
       font-size: 0.6875rem;
       font-weight: 700;
-      color: #8b95ad;
+      color: var(--text-sub);
       text-transform: uppercase;
       letter-spacing: 0.07em;
       margin: 0 0 0.6rem;
@@ -167,7 +167,7 @@
     #exercises-table th {
       text-align: left;
       font-size: 0.625rem;
-      color: #8b95ad;
+      color: var(--text-sub);
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -388,7 +388,7 @@
     .run-field label {
       font-size: 0.8125rem;
       font-weight: 600;
-      color: #5c6886;
+      color: var(--ink-2);
     }
 
     .run-section input[type="number"] {
@@ -811,9 +811,9 @@
     #exercises-table .ex-weight,
     #exercises-table .ex-rpe,
     #workout-tss {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-variant-numeric: tabular-nums;
-      color: #0b1530;
+      color: var(--ink);
     }
 
     /* ── Segment type labels colored by intensity (ties to detail-panel timeline) ── */
@@ -821,7 +821,7 @@
     .seg-row[data-seg-type="easy"]     .seg-type { color: #15803d; }
     .seg-row[data-seg-type="tempo"]    .seg-type { color: #b45309; }
     .seg-row[data-seg-type="intervals"].seg-type { color: #b91c1c; }
-    .seg-row[data-seg-type="rest"]     .seg-type { color: #5c6886; }
+    .seg-row[data-seg-type="rest"]     .seg-type { color: var(--ink-2); }
     .seg-row[data-seg-type="cooldown"] .seg-type { color: #0e7490; }
 
     /* small leading intensity dot on each segment */

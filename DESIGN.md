@@ -26,6 +26,27 @@ new palette values in pages.
 | `--readiness-mid` | `#d97706` | Readiness 40–69 |
 | `--readiness-low` | `#dc2626` | Readiness < 40 |
 
+### Instrument set (training log, detail panel, workout form)
+
+Deep-navy data readout: mono numerals, tinted tiles, a run-intensity ramp.
+Used where numbers and session structure are the content.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--ink` | `#0b1530` | Instrument headings + numeric values (navy) |
+| `--ink-2` | `#5c6886` | Instrument secondary text (5.6:1 on white) |
+| `--tile` | `#f7f9fd` | Stat-tile / strip background |
+| `--mono` | `'JetBrains Mono', 'Courier New', monospace` | All numerals in the instrument surfaces |
+| `--intensity-warmup` | `#bfdbfe` | Run segment: warm-up (timeline + dot) |
+| `--intensity-easy` | `#bbf7d0` | Run segment: easy |
+| `--intensity-tempo` | `#fde68a` | Run segment: tempo |
+| `--intensity-intervals` | `#fca5a5` | Run segment: intervals |
+| `--intensity-rest` | `#e2e8f0` | Run segment: rest |
+| `--intensity-cooldown` | `#a5f3fc` | Run segment: cool-down |
+
+Muted instrument labels use `--text-sub` (`#6b7280`, AA at 4.9:1). The earlier
+`#8b95ad` failed WCAG AA on small text (3.0:1) and was retired.
+
 ## Typography
 
 - **Font family**: system-ui, -apple-system, sans-serif

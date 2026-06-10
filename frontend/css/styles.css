@@ -19,6 +19,23 @@
   --readiness-high: #16a34a;
   --readiness-mid: #d97706;
   --readiness-low: #dc2626;
+
+  /* ── Instrument set (training log + detail panel + workout form) ──
+     Deep-navy data readout: mono numerals, tinted tiles, intensity ramp. */
+  --ink: #0b1530;            /* instrument headings + numeric values */
+  --ink-2: #5c6886;          /* instrument secondary text (5.5:1 on white) */
+  --tile: #f7f9fd;           /* instrument stat-tile / strip background */
+  --mono: 'JetBrains Mono', 'Courier New', monospace;
+  /* Muted instrument labels use --text-sub (#6b7280, AA at 4.9:1);
+     the old #8b95ad failed AA on small text. */
+
+  /* Run intensity ramp — segment timeline + dots (low = cool, high = warm) */
+  --intensity-warmup:    #bfdbfe;
+  --intensity-easy:      #bbf7d0;
+  --intensity-tempo:     #fde68a;
+  --intensity-intervals: #fca5a5;
+  --intensity-rest:      #e2e8f0;
+  --intensity-cooldown:  #a5f3fc;
 }
 
 * { box-sizing: border-box; }

@@ -30,7 +30,7 @@
     .log-subtitle {
       margin: 0;
       font-size: 0.8125rem;
-      color: #888;
+      color: var(--text-sub);
     }
 
     .log-page-header-actions {
@@ -43,7 +43,7 @@
     .btn-primary:disabled,
     .btn-secondary:disabled {
       background: #ccc;
-      color: #888;
+      color: var(--text-sub);
       cursor: not-allowed;
       opacity: 1;
     }
@@ -159,7 +159,7 @@
     .day-name {
       font-size: 0.625rem;
       font-weight: 600;
-      color: #888;
+      color: var(--text-sub);
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
@@ -312,7 +312,7 @@
 
     .log-loading-indicator {
       font-size: 0.8125rem;
-      color: #888;
+      color: var(--text-sub);
       margin-left: auto;
     }
 
@@ -324,7 +324,7 @@
     }
 
     .log-empty {
-      color: #888;
+      color: var(--text-sub);
       font-size: 0.9375rem;
       padding: 2rem 0;
       text-align: center;
@@ -355,17 +355,17 @@
       font-size: 0.6875rem;
       letter-spacing: 0.07em;
       text-transform: uppercase;
-      color: #0b1530;
+      color: var(--ink);
     }
 
     .week-header-range {
       font-size: 0.8125rem;
-      color: #8b95ad;
+      color: var(--text-sub);
     }
 
     .week-header-summary {
       font-size: 0.8125rem;
-      color: #5c6886;
+      color: var(--ink-2);
       font-variant-numeric: tabular-nums;
       display: flex;
       gap: 0.5rem;
@@ -430,16 +430,16 @@
     }
 
     .entry-day-num {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 1.125rem;
       font-weight: 600;
       line-height: 1.1;
-      color: #0b1530;
+      color: var(--ink);
     }
 
     .entry-day-name {
       font-size: 0.6875rem;
-      color: #8b95ad;
+      color: var(--text-sub);
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
@@ -455,14 +455,14 @@
 
     .entry-type-dot {
       width: 9px; height: 9px; border-radius: 50%;
-      flex-shrink: 0; background: #8b95ad;
+      flex-shrink: 0; background: var(--text-sub);
     }
 
     .entry-type-label {
       font-size: 0.625rem;
       font-weight: 700;
       letter-spacing: 0.06em;
-      color: #8b95ad;
+      color: var(--text-sub);
     }
 
     .entry-type--run  .entry-type-dot { background: #3b82f6; }
@@ -485,7 +485,7 @@
     .entry-title {
       font-size: 0.9375rem;
       font-weight: 600;
-      color: #0b1530;
+      color: var(--ink);
       letter-spacing: -0.01em;
       white-space: nowrap;
       overflow: hidden;
@@ -494,7 +494,7 @@
 
     .entry-meta {
       font-size: 0.8125rem;
-      color: #5c6886;
+      color: var(--ink-2);
       margin-top: 0.1rem;
       white-space: nowrap;
       overflow: hidden;
@@ -511,16 +511,16 @@
     }
 
     .entry-metric-primary {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 0.9375rem;
       font-weight: 600;
-      color: #0b1530;
+      color: var(--ink);
     }
 
     .entry-metric-secondary {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 0.75rem;
-      color: #8b95ad;
+      color: var(--text-sub);
       margin-top: 0.05rem;
     }
 
@@ -663,7 +663,7 @@
     }
 
     .empty-state p {
-      color: #888;
+      color: var(--text-sub);
       font-size: 0.9375rem;
       margin: 0 0 1.25rem;
     }
@@ -809,7 +809,7 @@
     }
 
     .dp-position {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 0.75rem; font-weight: 600;
       color: #555; background: #f1f4fa;
       padding: 4px 10px; border-radius: 999px;
@@ -870,16 +870,16 @@
       font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.07em;
       text-transform: uppercase;
       padding: 3px 10px; border-radius: 999px;
-      background: #f1f4fa; color: #5c6886;
+      background: #f1f4fa; color: var(--ink-2);
     }
 
     .dp-hero h1 {
       margin: 0; font-size: 1.3125rem; font-weight: 700; line-height: 1.25;
-      letter-spacing: -0.02em; color: #0b1530;
+      letter-spacing: -0.02em; color: var(--ink);
     }
 
     .dp-hero-meta {
-      margin-top: 6px; font-size: 0.8125rem; color: #5c6886;
+      margin-top: 6px; font-size: 0.8125rem; color: var(--ink-2);
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
 
@@ -900,7 +900,7 @@
     .dp-section:last-child { margin-bottom: 0; }
 
     .dp-section-title {
-      font-size: 0.6875rem; font-weight: 600; color: #8b95ad;
+      font-size: 0.6875rem; font-weight: 600; color: var(--text-sub);
       text-transform: uppercase; letter-spacing: 0.07em;
       margin: 0 0 8px;
     }
@@ -913,7 +913,7 @@
     }
 
     .dp-stat {
-      background: #f7f9fd;
+      background: var(--tile);
       border-radius: 8px;
       padding: 10px 11px;
     }
@@ -923,25 +923,25 @@
       display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
       margin-bottom: 10px;
     }
-    .dp-hm { background: #f7f9fd; border-radius: 10px; padding: 13px 14px; }
+    .dp-hm { background: var(--tile); border-radius: 10px; padding: 13px 14px; }
     .dp-hm-val {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 1.65rem; font-weight: 600; color: #0b1530;
+      font-family: var(--mono);
+      font-size: 1.65rem; font-weight: 600; color: var(--ink);
       line-height: 1.05; letter-spacing: -0.02em;
     }
-    .dp-hm-unit { font-size: 0.8125rem; color: #8b95ad; font-weight: 500; margin-left: 3px; }
+    .dp-hm-unit { font-size: 0.8125rem; color: var(--text-sub); font-weight: 500; margin-left: 3px; }
     .dp-hm-label {
-      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      font-size: 0.625rem; font-weight: 600; color: var(--text-sub);
       text-transform: uppercase; letter-spacing: 0.07em; margin-top: 5px;
     }
     .dp-stat-strip {
       display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 2px 2px 0;
-      font-size: 0.8125rem; color: #5c6886;
+      font-size: 0.8125rem; color: var(--ink-2);
     }
-    .dp-strip-item { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+    .dp-strip-item { font-family: var(--mono); }
     .dp-strip-k {
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      font-size: 0.625rem; font-weight: 600; color: var(--text-sub);
       text-transform: uppercase; letter-spacing: 0.06em;
     }
 
@@ -957,28 +957,28 @@
       text-overflow: ellipsis; color: rgba(11,21,48,0.78);
     }
     /* Intensity palette: low = cool, high = warm */
-    .dp-tl-seg--warmup,   .dp-seg-dot--warmup   { background: #bfdbfe; }
-    .dp-tl-seg--easy,     .dp-seg-dot--easy     { background: #bbf7d0; }
-    .dp-tl-seg--tempo,    .dp-seg-dot--tempo    { background: #fde68a; }
-    .dp-tl-seg--intervals,.dp-seg-dot--intervals{ background: #fca5a5; }
-    .dp-tl-seg--rest,     .dp-seg-dot--rest     { background: #e2e8f0; }
-    .dp-tl-seg--cooldown, .dp-seg-dot--cooldown { background: #a5f3fc; }
+    .dp-tl-seg--warmup,   .dp-seg-dot--warmup   { background: var(--intensity-warmup); }
+    .dp-tl-seg--easy,     .dp-seg-dot--easy     { background: var(--intensity-easy); }
+    .dp-tl-seg--tempo,    .dp-seg-dot--tempo    { background: var(--intensity-tempo); }
+    .dp-tl-seg--intervals,.dp-seg-dot--intervals{ background: var(--intensity-intervals); }
+    .dp-tl-seg--rest,     .dp-seg-dot--rest     { background: var(--intensity-rest); }
+    .dp-tl-seg--cooldown, .dp-seg-dot--cooldown { background: var(--intensity-cooldown); }
     .dp-seg-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; justify-self: center; }
 
     .dp-stat-label {
-      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      font-size: 0.625rem; font-weight: 600; color: var(--text-sub);
       text-transform: uppercase; letter-spacing: 0.07em;
       margin-bottom: 4px;
     }
 
     .dp-stat-value {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 1rem; font-weight: 600; color: #0b1530;
+      font-family: var(--mono);
+      font-size: 1rem; font-weight: 600; color: var(--ink);
       line-height: 1.1;
     }
 
     .dp-stat-unit {
-      font-size: 0.625rem; color: #8b95ad;
+      font-size: 0.625rem; color: var(--text-sub);
       font-family: inherit; font-weight: 500; margin-left: 2px;
     }
 
@@ -1004,37 +1004,37 @@
       width: 24px; height: 20px; border-radius: 5px;
       background: #dbeafe; color: #1d4ed8;
       display: flex; align-items: center; justify-content: center;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--mono);
       font-size: 0.6875rem; font-weight: 700; flex-shrink: 0;
     }
 
-    .dp-interval-name { font-size: 0.875rem; font-weight: 500; color: #0b1530; }
-    .dp-interval-sub  { font-size: 0.75rem; color: #8b95ad; margin-top: 1px; }
+    .dp-interval-name { font-size: 0.875rem; font-weight: 500; color: var(--ink); }
+    .dp-interval-sub  { font-size: 0.75rem; color: var(--text-sub); margin-top: 1px; }
 
     .dp-interval-pace {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 0.8125rem; font-weight: 600;
-      color: #0b1530; text-align: right;
+      color: var(--ink); text-align: right;
     }
 
-    .dp-interval-pace-sub { font-size: 0.625rem; color: #8b95ad; text-align: right; margin-top: 1px; }
+    .dp-interval-pace-sub { font-size: 0.625rem; color: var(--text-sub); text-align: right; margin-top: 1px; }
 
     .dp-interval-hr {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 0.75rem; color: #5c6886; text-align: right;
+      font-family: var(--mono);
+      font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
     .dp-interval-footer {
       padding: 9px 12px;
-      background: #f7f9fd;
+      background: var(--tile);
       border-top: 1px solid rgba(13,30,67,0.05);
-      font-size: 0.8125rem; color: #5c6886;
+      font-size: 0.8125rem; color: var(--ink-2);
       display: flex; justify-content: space-between; align-items: center;
     }
 
     .dp-interval-footer strong {
-      color: #0b1530;
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      color: var(--ink);
+      font-family: var(--mono);
     }
 
     /* ── Per-km splits table ── */
@@ -1049,9 +1049,9 @@
       display: grid; grid-template-columns: 36px 1fr 72px 44px;
       gap: 10px; align-items: center;
       padding: 6px 12px;
-      background: #f7f9fd;
+      background: var(--tile);
       border-bottom: 1px solid rgba(13,30,67,0.08);
-      font-size: 0.625rem; font-weight: 600; color: #8b95ad;
+      font-size: 0.625rem; font-weight: 600; color: var(--text-sub);
       text-transform: uppercase; letter-spacing: 0.06em;
     }
 
@@ -1064,17 +1064,17 @@
     }
 
     .dp-split-row:last-child { border-bottom: none; }
-    .dp-split-km { font-weight: 600; color: #5c6886; font-size: 0.8125rem; }
+    .dp-split-km { font-weight: 600; color: var(--ink-2); font-size: 0.8125rem; }
 
     .dp-split-pace {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--mono);
       font-size: 0.8125rem; font-weight: 600;
-      color: #0b1530; text-align: right;
+      color: var(--ink); text-align: right;
     }
 
     .dp-split-hr {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 0.75rem; color: #5c6886; text-align: right;
+      font-family: var(--mono);
+      font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
     /* ── Exercises list ── */
@@ -1090,25 +1090,25 @@
     .dp-exercise-item:last-child { border-bottom: none; }
 
     .dp-exercise-name {
-      font-size: 0.9375rem; font-weight: 500; color: #0b1530;
+      font-size: 0.9375rem; font-weight: 500; color: var(--ink);
     }
 
     .dp-exercise-sub {
-      font-size: 0.8125rem; color: #8b95ad; margin-top: 2px;
+      font-size: 0.8125rem; color: var(--text-sub); margin-top: 2px;
     }
 
     .dp-exercise-rpe {
       font-size: 0.6875rem; font-weight: 700;
       padding: 3px 7px; border-radius: 4px;
-      background: #f1f4fa; color: #5c6886; white-space: nowrap;
+      background: #f1f4fa; color: var(--ink-2); white-space: nowrap;
       align-self: start;
     }
 
     /* ── Notes card ── */
     .dp-notes-card {
-      background: #f7f9fd;
+      background: var(--tile);
       border-radius: 8px; padding: 12px 14px;
-      font-size: 0.9375rem; color: #5c6886; line-height: 1.55;
+      font-size: 0.9375rem; color: var(--ink-2); line-height: 1.55;
       margin: 0;
     }
 
@@ -1126,7 +1126,7 @@
       border: 1px solid #e0e0e0; background: #fff;
       border-radius: 8px; cursor: pointer;
       font-family: inherit; font-size: 0.875rem; font-weight: 600;
-      color: #0b1530;
+      color: var(--ink);
       display: inline-flex; align-items: center; justify-content: center; gap: 5px;
       transition: background 0.1s; text-decoration: none;
     }
@@ -1179,7 +1179,7 @@
       <button id="log-export-btn" class="btn-secondary">Export CSV</button>
       <button id="log-new-btn" class="btn-primary">Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"
-            style="font-size:12px;color:#5c6886;align-self:center;"></span>
+            style="font-size:12px;color:var(--ink-2);align-self:center;"></span>
     </div>
   </header>
 
