@@ -1,3 +1,43 @@
+/* ── Design tokens (source of truth: DESIGN.md) ─────────────────────────────
+   All colors in the app should reference these. Page-local <style> blocks
+   may add component rules but must not invent new palette values. */
+:root {
+  --primary: #3b82f6;        /* primary actions, active states, focus */
+  --primary-dark: #2563eb;   /* hover on primary */
+  --focus-ring: rgba(59, 130, 246, 0.18);
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --danger-dark: #b91c1c;
+  --danger-soft: #fee2e2;    /* delete-button hover bg */
+  --text: #111827;
+  --text-sub: #6b7280;
+  --border: #e5e7eb;         /* dividers, card borders */
+  --border-input: #d1d5db;   /* form control borders (slightly darker) */
+  --surface: #ffffff;
+  --surface-2: #f9fafb;      /* page background, alternate rows */
+  --readiness-high: #16a34a;
+  --readiness-mid: #d97706;
+  --readiness-low: #dc2626;
+
+  /* ── Instrument set (training log + detail panel + workout form) ──
+     Deep-navy data readout: mono numerals, tinted tiles, intensity ramp. */
+  --ink: #0b1530;            /* instrument headings + numeric values */
+  --ink-2: #5c6886;          /* instrument secondary text (5.5:1 on white) */
+  --tile: #f7f9fd;           /* instrument stat-tile / strip background */
+  --mono: 'JetBrains Mono', 'Courier New', monospace;
+  /* Muted instrument labels use --text-sub (#6b7280, AA at 4.9:1);
+     the old #8b95ad failed AA on small text. */
+
+  /* Run intensity ramp — segment timeline + dots (low = cool, high = warm) */
+  --intensity-warmup:    #bfdbfe;
+  --intensity-easy:      #bbf7d0;
+  --intensity-tempo:     #fde68a;
+  --intensity-intervals: #fca5a5;
+  --intensity-rest:      #e2e8f0;
+  --intensity-cooldown:  #a5f3fc;
+}
+
 * { box-sizing: border-box; }
 
 /* Ensure [hidden] always hides elements even when a class sets display:flex/block */
@@ -6,8 +46,8 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #fafafa;
-  color: #1a1a1a;
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 header {
@@ -15,8 +55,8 @@ header {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 2rem;
-  background: #fff;
-  border-bottom: 1px solid #e5e5e5;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 header h1 {
@@ -34,13 +74,13 @@ main {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  background: #e5e5e5;
-  color: #666;
+  background: var(--border);
+  color: var(--text-sub);
 }
 
-[data-env="prd"] .env-label   { background: #dc3545; color: #fff; }
-[data-env="uat"] .env-label   { background: #0d6efd; color: #fff; }
-[data-env="local"] .env-label { background: #6c757d; color: #fff; }
+[data-env="prd"] .env-label   { background: var(--danger); color: #fff; }
+[data-env="uat"] .env-label   { background: var(--primary); color: #fff; }
+[data-env="local"] .env-label { background: var(--text-sub); color: #fff; }
 
 .user-selector {
   display: flex;
@@ -51,24 +91,24 @@ main {
 
 .user-selector-label {
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-sub);
   white-space: nowrap;
 }
 
 .user-selector select {
   font-size: 0.8125rem;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-input);
   border-radius: 4px;
-  background: #fff;
-  color: #1a1a1a;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
 }
 
 .user-selector select:focus {
   outline: none;
-  border-color: #0070f3;
-  box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* ── Modal ── */
@@ -87,7 +127,7 @@ main {
 }
 
 .modal-box {
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   padding: 1.5rem;
   max-width: 400px;
@@ -111,15 +151,15 @@ main {
 .users-table th {
   text-align: left;
   font-size: 0.8125rem;
-  color: #666;
+  color: var(--text-sub);
   font-weight: 600;
   padding: 0.5rem 0.75rem;
-  border-bottom: 2px solid #e5e5e5;
+  border-bottom: 2px solid var(--border);
 }
 
 .users-table td {
   padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--border);
   font-size: 0.9375rem;
   vertical-align: middle;
 }
@@ -141,7 +181,7 @@ main {
 
 .inline-form input[type="text"] {
   padding: 0.45rem 0.75rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-input);
   border-radius: 4px;
   font-size: 0.9375rem;
   min-width: 200px;
@@ -149,17 +189,17 @@ main {
 
 .inline-form input[type="text"]:focus {
   outline: none;
-  border-color: #0070f3;
-  box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .field-error {
   font-size: 0.8125rem;
-  color: #c0392b;
+  color: var(--danger);
 }
 
 .page-error {
-  color: #c0392b;
+  color: var(--danger);
   font-size: 0.875rem;
   min-height: 1.2em;
   margin-bottom: 0.5rem;
@@ -168,23 +208,23 @@ main {
 /* ── Small buttons (table actions) ── */
 .btn-sm {
   padding: 0.3rem 0.7rem;
-  border: 1px solid #ccc;
-  background: #fff;
+  border: 1px solid var(--border-input);
+  background: var(--surface);
   border-radius: 4px;
   font-size: 0.8125rem;
   cursor: pointer;
-  color: #1a1a1a;
+  color: var(--text);
   white-space: nowrap;
 }
 
-.btn-sm:hover { background: #f5f5f5; }
+.btn-sm:hover { background: var(--surface-2); }
 
-.btn-sm.btn-delete { color: #c0392b; border-color: #f5c6c3; }
-.btn-sm.btn-delete:hover { background: #fee2e2; border-color: #f87171; }
+.btn-sm.btn-delete { color: var(--danger); border-color: #f5c6c3; }
+.btn-sm.btn-delete:hover { background: var(--danger-soft); border-color: #f87171; }
 
 .btn-primary {
   padding: 0.45rem 1rem;
-  background: #1a1a1a;
+  background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -192,11 +232,11 @@ main {
   cursor: pointer;
 }
 
-.btn-primary:hover { background: #333; }
+.btn-primary:hover { background: var(--primary-dark); }
 
 .btn-danger {
   padding: 0.45rem 1rem;
-  background: #c0392b;
+  background: var(--danger);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -204,16 +244,16 @@ main {
   cursor: pointer;
 }
 
-.btn-danger:hover { background: #a93226; }
+.btn-danger:hover { background: var(--danger-dark); }
 
 .btn-secondary {
   padding: 0.45rem 1rem;
-  background: #fff;
-  color: #1a1a1a;
-  border: 1px solid #ccc;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-input);
   border-radius: 4px;
   font-size: 0.875rem;
   cursor: pointer;
 }
 
-.btn-secondary:hover { background: #f5f5f5; }
+.btn-secondary:hover { background: var(--surface-2); }

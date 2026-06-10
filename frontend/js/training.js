@@ -80,6 +80,7 @@
     });
     customInput.style.display = value === '__custom__' ? 'block' : 'none';
     if (value !== '__custom__') customInput.value = '';
+    updateRunVisibility();
   }
 
   function getSelectedType() {
@@ -195,6 +196,394 @@
     return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // ── Run details: structured segment builder ───────────────────────────────────
+
+  function isRunType(t) {
+    return /^run(ning)?$/i.test((t || '').trim());
+  }
+
+  function runActive() { return isRunType(getSelectedType()); }
+
+  function updateRunVisibility() {
+    var run = runActive();
+    var runSec = document.getElementById('run-section');
+    var exSec = document.querySelector('.exercises-section');
+    if (runSec) runSec.style.display = run ? '' : 'none';
+    if (exSec) exSec.style.display = run ? 'none' : '';
+    if (run) { recomputeRunPace(); recomputeSegments(); }
+  }
+
+  function intFieldVal(id) {
+    var el = document.getElementById(id);
+    if (!el) return null;
+    var v = el.value.trim();
+    if (v === '') return null;
+    var n = parseInt(v, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function getRunDistanceKm() {
+    var v = document.getElementById('run-distance').value.trim();
+    if (v === '') return null;
+    var n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  }
+
+  function getRunDurationSeconds() {
+    var h = intFieldVal('run-dur-h') || 0;
+    var m = intFieldVal('run-dur-m') || 0;
+    var s = intFieldVal('run-dur-s') || 0;
+    var total = h * 3600 + m * 60 + s;
+    return total > 0 ? total : null;
+  }
+
+  function fmtPace(distKm, durSec) {
+    if (!distKm || !durSec || distKm <= 0 || durSec <= 0) return null;
+    var secPerKm = durSec / distKm;
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    if (s === 60) { m += 1; s = 0; }
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function recomputeRunPace() {
+    var el = document.getElementById('run-pace');
+    if (!el) return;
+    var pace = fmtPace(getRunDistanceKm(), getRunDurationSeconds());
+    if (pace) {
+      el.textContent = pace + ' /km';
+      el.classList.remove('is-empty');
+    } else {
+      el.textContent = '—';
+      el.classList.add('is-empty');
+    }
+  }
+
+  function trimNum(n) {
+    return parseFloat(n.toFixed(2)).toString();
+  }
+
+  // Segment types. Every row carries: value + km/min unit toggle + pace + HR.
+  // 'block' rows (Intervals) add a sets× multiplier. Rest-between-reps was
+  // dropped from the block; drag a standalone Rest segment where needed.
+  var SEG_TYPES = {
+    warmup:    { label: 'Warm-up',   mode: 'span'  },
+    easy:      { label: 'Easy run',  mode: 'span'  },
+    tempo:     { label: 'Tempo',     mode: 'span'  },
+    intervals: { label: 'Intervals', mode: 'block' },
+    rest:      { label: 'Rest',      mode: 'span'  },
+    cooldown:  { label: 'Cool-down', mode: 'span'  },
+  };
+
+  // Built-in starting points; users tweak then "Save as template" for their own.
+  var RUN_TEMPLATES = {
+    easy: [
+      { type: 'warmup',   value: 10,  unit: 'min' },
+      { type: 'easy',     value: 5,   unit: 'km'  },
+      { type: 'cooldown', value: 5,   unit: 'min' },
+    ],
+    intervals: [
+      { type: 'warmup',    value: 1,   unit: 'km' },
+      { type: 'intervals', sets: 4, value: 0.4, unit: 'km' },
+      { type: 'cooldown',  value: 1,   unit: 'km' },
+    ],
+    tempo: [
+      { type: 'warmup',   value: 10, unit: 'min' },
+      { type: 'tempo',    value: 20, unit: 'min' },
+      { type: 'cooldown', value: 10, unit: 'min' },
+    ],
+  };
+
+  // When the user types totals directly, segment sums stop overwriting them.
+  var _totalsTouched = false;
+  var _segDragSrc = null;
+
+  // "5:30" → 330 s/km; bare number → minutes/km. null = empty, NaN = invalid.
+  function parsePaceInput(str) {
+    str = (str || '').trim();
+    if (str === '') return null;
+    var m = /^(\d+):([0-5]\d)$/.exec(str);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (/^\d+(\.\d+)?$/.test(str)) return Math.round(parseFloat(str) * 60);
+    return NaN;
+  }
+
+  function fmtPaceSec(sec) {
+    if (sec == null || !isFinite(sec) || sec <= 0) return '';
+    var m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    if (s === 60) { m += 1; s = 0; }
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function addSegmentRow(type, data) {
+    var cfg = SEG_TYPES[type];
+    if (!cfg) return;
+    data = data || {};
+    var list = document.getElementById('segments-list');
+    var row = document.createElement('div');
+    row.className = 'seg-row';
+    row.draggable = true;
+    row.dataset.segType = type;
+
+    var unit = data.unit === 'min' ? 'min' : 'km';
+    row.dataset.unit = unit;
+
+    var inputs = '';
+    if (cfg.mode === 'block') {
+      inputs +=
+        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" value="' + (data.sets != null ? data.sets : '') + '"> ×';
+    }
+    inputs +=
+      '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (data.value != null ? data.value : '') + '">' +
+      '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
+        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
+      '</span>' +
+      '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
+      '<span class="seg-suffix">/km</span>' +
+      '<input type="number" class="seg-hr" inputmode="numeric" min="20" max="250" placeholder="HR" title="Avg heart rate" value="' + (data.hr != null ? data.hr : '') + '">';
+
+    row.innerHTML =
+      '<span class="seg-handle" title="Drag to reorder">⠿</span>' +
+      '<span class="seg-type">' + cfg.label + '</span>' +
+      '<span class="seg-inputs">' + inputs + '</span>' +
+      '<button type="button" class="remove-row-btn" title="Remove segment">✕</button>';
+
+    row.querySelector('.remove-row-btn').addEventListener('click', function () {
+      row.remove();
+      recomputeSegments();
+    });
+    row.querySelectorAll('input').forEach(function (inp) {
+      inp.addEventListener('input', recomputeSegments);
+    });
+    row.querySelectorAll('.seg-unit').forEach(function (ub) {
+      ub.addEventListener('click', function () {
+        row.dataset.unit = ub.dataset.unit;
+        row.querySelectorAll('.seg-unit').forEach(function (b) {
+          b.classList.toggle('active', b === ub);
+        });
+        var valEl = row.querySelector('.seg-val');
+        if (valEl) valEl.step = ub.dataset.unit === 'min' ? '1' : '0.1';
+        recomputeSegments();
+      });
+    });
+
+    // Drag-and-drop reordering (same affordance as the exercise table)
+    row.addEventListener('dragstart', function (e) {
+      _segDragSrc = row;
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', function () {
+      row.classList.remove('dragging');
+      document.querySelectorAll('.seg-row').forEach(function (r) { r.classList.remove('drag-over'); });
+      _segDragSrc = null;
+    });
+    row.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.seg-row').forEach(function (r) { r.classList.remove('drag-over'); });
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (!_segDragSrc || _segDragSrc === row) return;
+      var rect = row.getBoundingClientRect();
+      var after = e.clientY > rect.top + rect.height / 2;
+      row.parentNode.insertBefore(_segDragSrc, after ? row.nextSibling : row);
+      recomputeSegments();
+    });
+
+    list.appendChild(row);
+    return row;
+  }
+
+  function seedTemplate(key) {
+    var tpl = RUN_TEMPLATES[key];
+    if (!tpl) return;
+    var list = document.getElementById('segments-list');
+    if (list.children.length &&
+        !confirm('Replace the current segments with the ' + key + ' template?')) {
+      return;
+    }
+    list.innerHTML = '';
+    tpl.forEach(function (seg) { addSegmentRow(seg.type, seg); });
+    recomputeSegments();
+  }
+
+  // Read one segment row back into a plain object.
+  function readSegmentRow(row) {
+    var type = row.dataset.segType;
+    var cfg = SEG_TYPES[type];
+    function num(sel, float) {
+      var el = row.querySelector(sel);
+      if (!el || el.value.trim() === '') return null;
+      var n = float ? parseFloat(el.value) : parseInt(el.value, 10);
+      return isNaN(n) ? null : n;
+    }
+    var paceEl = row.querySelector('.seg-pace');
+    return {
+      type: type,
+      sets: cfg.mode === 'block' ? num('.seg-sets') : null,
+      value: num('.seg-val', true),
+      unit: row.dataset.unit === 'min' ? 'min' : 'km',
+      paceSec: parsePaceInput(paceEl ? paceEl.value : ''),
+      hr: num('.seg-hr'),
+    };
+  }
+
+  function getSegmentObjects() {
+    var out = [];
+    document.querySelectorAll('#segments-list .seg-row').forEach(function (row) {
+      out.push(readSegmentRow(row));
+    });
+    return out;
+  }
+
+  // Resolve one segment to per-unit km + seconds (pace fills the missing side).
+  function segmentDims(s) {
+    var km = null, sec = null;
+    var pace = (s.paceSec != null && !isNaN(s.paceSec)) ? s.paceSec : null;
+    if (s.unit === 'km') {
+      km = s.value;
+      if (km != null && pace) sec = km * pace;
+    } else {
+      sec = s.value != null ? s.value * 60 : null;
+      if (sec != null && pace) km = sec / pace;
+    }
+    var mult = s.sets != null && s.sets > 0 ? s.sets : 1;
+    return {
+      km: km != null ? km * mult : null,
+      sec: sec != null ? sec * mult : null,
+      repKm: km, repSec: sec,
+    };
+  }
+
+  function segmentTotals() {
+    var km = 0, sec = 0;
+    getSegmentObjects().forEach(function (s) {
+      var d = segmentDims(s);
+      if (d.km) km += d.km;
+      if (d.sec) sec += d.sec;
+    });
+    return { km: km, sec: sec };
+  }
+
+  function recomputeSegments() {
+    var sumEl = document.getElementById('segments-sum');
+    if (!sumEl) return;
+    var rows = document.querySelectorAll('#segments-list .seg-row');
+    if (!rows.length) { sumEl.textContent = ''; sumEl.classList.remove('is-mismatch'); return; }
+
+    var t = segmentTotals();
+
+    // Auto-fill totals while the user hasn't taken them over.
+    if (!_totalsTouched) {
+      if (t.km > 0) document.getElementById('run-distance').value = trimNum(t.km);
+      if (t.sec > 0) {
+        document.getElementById('run-dur-h').value = Math.floor(t.sec / 3600) || '';
+        document.getElementById('run-dur-m').value = Math.floor((t.sec % 3600) / 60) || '';
+        document.getElementById('run-dur-s').value = Math.round(t.sec % 60) || '';
+      }
+      recomputeRunPace();
+    }
+
+    var parts = [];
+    if (t.km > 0) parts.push(trimNum(t.km) + ' km');
+    if (t.sec > 0) parts.push(Math.round(t.sec / 60) + ' min');
+    var txt = 'Σ segments: ' + (parts.length ? parts.join(' · ') : '—');
+
+    var total = getRunDistanceKm();
+    var mismatch = _totalsTouched && total != null && t.km > 0 && Math.abs(t.km - total) > 0.05;
+    if (mismatch) txt = 'Σ segments: ' + trimNum(t.km) + ' of ' + trimNum(total) + ' km total';
+    sumEl.textContent = txt;
+    sumEl.classList.toggle('is-mismatch', mismatch);
+  }
+
+  // Serialize segments into workout_exercises payload rows.
+  // Per-rep distance/duration for blocks; pace materializes the missing side.
+  function getSegments() {
+    var out = [];
+    getSegmentObjects().forEach(function (s, i) {
+      var cfg = SEG_TYPES[s.type];
+      if (s.value == null && s.sets == null && s.hr == null) return; // empty row, skip
+      var d = segmentDims(s);
+      out.push({
+        display_order: i,
+        name: cfg.label,
+        sets: cfg.mode === 'block' ? s.sets : null,
+        reps: null,
+        weight_kg: null,
+        duration: null,
+        rpe: null,
+        distance_km: d.repKm != null ? parseFloat(d.repKm.toFixed(3)) : null,
+        duration_seconds: d.repSec != null ? Math.round(d.repSec) : null,
+        avg_hr: s.hr,
+      });
+    });
+    return out;
+  }
+
+  // Map a stored exercise row back to a segment descriptor (for edit/repeat).
+  function exerciseToSegment(ex) {
+    var name = (ex.name || '').toLowerCase();
+    var type = null;
+    Object.keys(SEG_TYPES).forEach(function (k) {
+      if (SEG_TYPES[k].label.toLowerCase() === name) type = k;
+    });
+    if (!type) return null; // not a run segment row (e.g. legacy strength exercise)
+    var km = ex.distance_km != null ? parseFloat(ex.distance_km) : null;
+    var sec = ex.duration_seconds != null ? ex.duration_seconds : null;
+    var seg = {
+      type: type,
+      sets: ex.sets != null ? ex.sets : null,
+      hr: ex.avg_hr != null ? ex.avg_hr : null,
+      paceSec: (km && sec) ? sec / km : null,
+    };
+    if (km != null) { seg.value = km; seg.unit = 'km'; }
+    else if (sec != null) { seg.value = Math.round(sec / 60); seg.unit = 'min'; }
+    else { seg.value = null; seg.unit = 'km'; }
+    return seg;
+  }
+
+  function resetRunFields() {
+    ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s', 'run-avg-hr', 'run-max-hr', 'run-elevation']
+      .forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });
+    var list = document.getElementById('segments-list');
+    if (list) list.innerHTML = '';
+    _totalsTouched = false;
+    var runErr = document.getElementById('run-error');
+    if (runErr) runErr.textContent = '';
+    recomputeRunPace();
+    recomputeSegments();
+  }
+
+  function fillRunFields(workout) {
+    document.getElementById('run-distance').value = workout.distance_km != null ? workout.distance_km : '';
+    var dur = workout.duration_seconds;
+    if (dur != null) {
+      var h = Math.floor(dur / 3600);
+      var m = Math.floor((dur % 3600) / 60);
+      var s = Math.round(dur % 60);
+      document.getElementById('run-dur-h').value = h || '';
+      document.getElementById('run-dur-m').value = (h || m) ? m : '';
+      document.getElementById('run-dur-s').value = s || '';
+    }
+    document.getElementById('run-avg-hr').value = workout.avg_hr != null ? workout.avg_hr : '';
+    document.getElementById('run-max-hr').value = workout.max_hr != null ? workout.max_hr : '';
+    document.getElementById('run-elevation').value = workout.elevation_m != null ? workout.elevation_m : '';
+    // Stored totals win over segment sums when editing.
+    _totalsTouched = true;
+    var list = document.getElementById('segments-list');
+    list.innerHTML = '';
+    (workout.exercises || []).forEach(function (ex) {
+      var seg = exerciseToSegment(ex);
+      if (seg) addSegmentRow(seg.type, seg);
+    });
+    recomputeRunPace();
+    recomputeSegments();
+  }
+
   // ── Form reset / fill ─────────────────────────────────────────────────────────
 
   function resetForm() {
@@ -207,6 +596,7 @@
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
     document.getElementById('save-workout-btn').textContent = 'Save workout';
+    resetRunFields();
     setSelectedType('Strength');
     addExerciseRow(null);
   }
@@ -221,14 +611,88 @@
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
     document.getElementById('save-workout-btn').textContent = 'Save changes';
+    resetRunFields();
     setSelectedType(workout.workout_type);
-    (workout.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
-    if (!workout.exercises || !workout.exercises.length) addExerciseRow(null);
+    if (isRunType(workout.workout_type)) {
+      fillRunFields(workout);
+    } else {
+      (workout.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+      if (!workout.exercises || !workout.exercises.length) addExerciseRow(null);
+    }
   }
 
   // ── Validation ────────────────────────────────────────────────────────────────
 
+  function validateRunForm() {
+    var valid = true;
+    var nameEl = document.getElementById('workout-name');
+    var nameErr = document.getElementById('name-error');
+    var runErr = document.getElementById('run-error');
+    nameErr.textContent = '';
+    runErr.textContent = '';
+
+    if (!nameEl.value.trim()) {
+      nameErr.textContent = 'Workout name is required.';
+      nameEl.focus();
+      valid = false;
+    }
+
+    var dateVal = document.getElementById('workout-date').value;
+    if (!dateVal || !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
+      nameErr.textContent = (nameErr.textContent ? nameErr.textContent + ' ' : '') + 'Invalid date.';
+      valid = false;
+    }
+
+    var dist = getRunDistanceKm();
+    var dur = getRunDurationSeconds();
+    if (dist == null || dist <= 0) {
+      runErr.textContent = 'Enter a distance greater than 0.';
+      valid = false;
+    } else if (dur == null) {
+      runErr.textContent = 'Enter a duration.';
+      valid = false;
+    }
+
+    ['run-avg-hr', 'run-max-hr'].forEach(function (id) {
+      var v = document.getElementById(id).value.trim();
+      if (v !== '') {
+        var n = parseInt(v, 10);
+        if (isNaN(n) || n < 20 || n > 250) {
+          runErr.textContent = 'Heart rate must be between 20 and 250.';
+          valid = false;
+        }
+      }
+    });
+
+    var segIssue = null;
+    getSegmentObjects().forEach(function (s) {
+      var cfg = SEG_TYPES[s.type];
+      if (cfg.mode === 'block') {
+        var empty = s.sets == null && s.value == null;
+        if (!empty && (!s.sets || s.sets < 1 || s.value == null || s.value <= 0)) {
+          segIssue = 'Intervals need sets ≥ 1 and a rep value.';
+        }
+      } else if (s.value != null && s.value < 0) {
+        segIssue = 'Segment values must be ≥ 0.';
+      }
+      if (s.paceSec != null && isNaN(s.paceSec)) {
+        segIssue = 'Pace must be m:ss per km (e.g. 5:30).';
+      }
+      if (s.hr != null && (s.hr < 20 || s.hr > 250)) {
+        segIssue = 'Segment HR must be between 20 and 250.';
+      }
+    });
+    if (segIssue) {
+      runErr.textContent = (runErr.textContent ? runErr.textContent + ' ' : '') + segIssue;
+      valid = false;
+    }
+
+    return valid;
+  }
+
   function validateForm() {
+    if (runActive()) return validateRunForm();
+
     var valid = true;
     var nameEl = document.getElementById('workout-name');
     var nameErr = document.getElementById('name-error');
@@ -370,10 +834,19 @@
   // ── Workout templates ─────────────────────────────────────────────────────────
 
   async function saveTemplate() {
-    var exercises = getExerciseRows().filter(function (r) { return r.name; });
-    if (!exercises.length) {
-      showToast('Add at least one exercise before saving a template.', true);
-      return;
+    var exercises;
+    if (runActive()) {
+      exercises = getSegments();
+      if (!exercises.length) {
+        showToast('Add at least one segment before saving a template.', true);
+        return;
+      }
+    } else {
+      exercises = getExerciseRows().filter(function (r) { return r.name; });
+      if (!exercises.length) {
+        showToast('Add at least one exercise before saving a template.', true);
+        return;
+      }
     }
     var tplName = prompt('Template name:');
     if (!tplName || !tplName.trim()) return;
@@ -409,28 +882,69 @@
       }
       listEl.innerHTML = '';
       templates.forEach(function (t) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:stretch;gap:0.35rem;margin-bottom:0.4rem;';
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.style.cssText = 'display:block;width:100%;text-align:left;padding:0.65rem 0.75rem;margin-bottom:0.4rem;border:1px solid #e5e5e5;border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
-        btn.textContent = t.name;
+        btn.style.cssText = 'flex:1;text-align:left;padding:0.65rem 0.75rem;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
+        btn.textContent = t.name + (isRunTemplate(t) ? '  🏃' : '');
         btn.addEventListener('mouseover', function () { btn.style.background = '#f8f9ff'; btn.style.borderColor = '#b3c0f0'; });
-        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = '#e5e5e5'; });
+        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = ''; });
         btn.addEventListener('click', function () {
           modal.style.display = 'none';
           applyTemplate(t);
         });
-        listEl.appendChild(btn);
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'remove-row-btn';
+        del.title = 'Delete template';
+        del.textContent = '✕';
+        del.addEventListener('click', async function () {
+          if (!confirm('Delete template "' + t.name + '"?')) return;
+          try {
+            var dres = await fetch('/api/workout-templates/' + t.id, { method: 'DELETE' });
+            if (!dres.ok && dres.status !== 204) throw new Error('Server error ' + dres.status);
+            row.remove();
+            if (!listEl.querySelector('div')) {
+              listEl.innerHTML = '<p class="empty-msg">No templates saved yet.</p>';
+            }
+          } catch (de) {
+            showToast('Could not delete template: ' + de.message, true);
+          }
+        });
+        row.appendChild(btn);
+        row.appendChild(del);
+        listEl.appendChild(row);
       });
     } catch (e) {
       listEl.innerHTML = '<p class="error-msg">Failed to load templates: ' + e.message + '</p>';
     }
   }
 
+  // A template is a run template when every row maps to a known segment label.
+  function isRunTemplate(template) {
+    var exs = template.exercises || [];
+    if (!exs.length) return false;
+    return exs.every(function (ex) { return exerciseToSegment(ex) !== null; });
+  }
+
   function applyTemplate(template) {
-    document.getElementById('exercises-tbody').innerHTML = '';
-    document.getElementById('exercises-error').textContent = '';
-    (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
-    if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    if (isRunTemplate(template)) {
+      setSelectedType('Running');
+      var list = document.getElementById('segments-list');
+      list.innerHTML = '';
+      _totalsTouched = false;
+      (template.exercises || []).forEach(function (ex) {
+        var seg = exerciseToSegment(ex);
+        if (seg) addSegmentRow(seg.type, seg);
+      });
+      recomputeSegments();
+    } else {
+      document.getElementById('exercises-tbody').innerHTML = '';
+      document.getElementById('exercises-error').textContent = '';
+      (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+      if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    }
     showToast('Prefilled from template "' + template.name + '".');
   }
 
@@ -439,7 +953,7 @@
   async function saveWorkout() {
     if (!validateForm()) return;
 
-    var rows = getExerciseRows().filter(function (r) { return r.name; });
+    var run = runActive();
     var tssRaw = document.getElementById('workout-tss').value.trim();
     var tssVal = tssRaw !== '' ? parseFloat(tssRaw) : null;
     var payload = {
@@ -448,8 +962,20 @@
       workout_type: getSelectedType(),
       remarks: document.getElementById('workout-remarks').value.trim() || null,
       tss: tssVal,
-      exercises: rows,
     };
+
+    if (run) {
+      payload.distance_km = getRunDistanceKm();
+      payload.duration_seconds = getRunDurationSeconds();
+      payload.avg_hr = intFieldVal('run-avg-hr');
+      payload.max_hr = intFieldVal('run-max-hr');
+      payload.elevation_m = intFieldVal('run-elevation');
+      // Run structure (segments) rides in exercises rows; the training-log
+      // detail panel renders distance-bearing exercises as intervals.
+      payload.exercises = getSegments();
+    } else {
+      payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
+    }
 
     var btn = document.getElementById('save-workout-btn');
     btn.disabled = true;
@@ -623,11 +1149,57 @@
       addExerciseRow(null);
     });
 
+    // Run details: live pace; typing totals directly stops segment auto-fill
+    ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s'].forEach(function (id) {
+      var e = document.getElementById(id);
+      if (e) e.addEventListener('input', function () {
+        _totalsTouched = true;
+        recomputeRunPace();
+        recomputeSegments();
+      });
+    });
+
+    // Segment builder: template chips + add-segment menu
+    document.querySelectorAll('.seg-tpl-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () { seedTemplate(chip.dataset.tpl); });
+    });
+    var addSegMenu = document.getElementById('add-segment-menu');
+    if (addSegMenu) {
+      addSegMenu.querySelectorAll('[data-seg]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          addSegMenu.removeAttribute('open');
+          var row = addSegmentRow(b.dataset.seg, null);
+          recomputeSegments();
+          if (row) { var first = row.querySelector('input'); if (first) first.focus(); }
+        });
+      });
+      document.addEventListener('click', function (e) {
+        if (addSegMenu.hasAttribute('open') && !addSegMenu.contains(e.target)) {
+          addSegMenu.removeAttribute('open');
+        }
+      });
+    }
+
+    document.getElementById('custom-type-input').addEventListener('input', updateRunVisibility);
+
     document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);
 
     document.getElementById('save-template-btn').addEventListener('click', saveTemplate);
 
     document.getElementById('template-picker-btn').addEventListener('click', openTemplatePicker);
+
+    // More menu: close after choosing an item or clicking outside
+    var moreMenu = document.getElementById('more-menu');
+    if (moreMenu) {
+      moreMenu.querySelectorAll('.more-menu-list button').forEach(function (b) {
+        b.addEventListener('click', function () { moreMenu.removeAttribute('open'); });
+      });
+      document.addEventListener('click', function (e) {
+        if (moreMenu.hasAttribute('open') && !moreMenu.contains(e.target)) {
+          moreMenu.removeAttribute('open');
+        }
+      });
+    }
 
     document.getElementById('template-modal-close').addEventListener('click', function () {
       document.getElementById('template-modal').style.display = 'none';

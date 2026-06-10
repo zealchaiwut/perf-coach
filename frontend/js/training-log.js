@@ -98,6 +98,24 @@
     return speed.toFixed(1) + ' km/h';
   }
 
+  // Map free-text workout_type values onto the four canonical keys.
+  // The full editor saves "Running"/"Strength"; synced workouts use "run".
+  function normalizeTypeKey(t) {
+    t = (t || '').toLowerCase().trim();
+    if (/^run(ning)?$|^race$/.test(t)) return 'run';
+    if (/^(lift|strength)/.test(t)) return 'lift';
+    if (/^(bike|ride|cycl)/.test(t)) return 'bike';
+    if (/^(wod|crossfit)/.test(t)) return 'wod';
+    return t;
+  }
+
+  // Segment label → intensity key (timeline colors + segment dots).
+  var RUN_SEGMENT_INTENSITY = {
+    'warm-up': 'warmup', 'easy run': 'easy', 'tempo': 'tempo',
+    'intervals': 'intervals', 'rest': 'rest', 'cool-down': 'cooldown',
+  };
+  var RUN_SEGMENT_LABELS = RUN_SEGMENT_INTENSITY; // truthy lookup by label
+
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso + 'T00:00:00');
@@ -170,6 +188,8 @@
     searchInput.type         = 'text';
     searchInput.id           = 'log-search';
     searchInput.placeholder  = 'Search workouts';
+    searchInput.setAttribute('aria-label', 'Search workouts');
+    searchInput.setAttribute('type', 'search');
     searchInput.value        = filters.search;
     searchInput.spellcheck   = false;
     searchInput.autocomplete = 'off';
@@ -482,7 +502,7 @@
     var header = document.createElement('div');
     header.className = 'week-header';
 
-    var titleEl = document.createElement('div');
+    var titleEl = document.createElement('h2');
     titleEl.className = 'week-header-title';
     titleEl.textContent = weekDisplayLabel(week);
 
@@ -532,6 +552,16 @@
 
     if (w.id) {
       row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      // Accessible name: type, title, date, and primary metric.
+      var ariaBits = [];
+      var tk = normalizeTypeKey(w.type);
+      ariaBits.push(({ run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' })[tk] || (w.type || 'Workout'));
+      ariaBits.push(w.title || 'Workout');
+      if (w.date) ariaBits.push(fmtDate(w.date));
+      if (tk === 'run' && w.distance_km != null) ariaBits.push((+w.distance_km).toFixed(1) + ' kilometers');
+      else if (w.duration_seconds) ariaBits.push(Math.round(w.duration_seconds / 60) + ' minutes');
+      row.setAttribute('aria-label', ariaBits.join(', ') + '. Open details');
       row.dataset.workoutId = w.id;
       var rowRef = row;
       row.addEventListener('click', function () {
@@ -557,11 +587,19 @@
     dateCol.appendChild(dayNumEl);
     dateCol.appendChild(dayNameEl);
 
-    var typeKey = (w.type || '').toLowerCase();
+    var typeKey = normalizeTypeKey(w.type);
     var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
+    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
+    row.classList.add('entry-row--' + typeSlug);
     var badge = document.createElement('span');
-    badge.className = 'entry-badge entry-badge--' + (TYPE_LABELS[typeKey] ? typeKey : 'other');
-    badge.textContent = TYPE_LABELS[typeKey] || (w.type || '');
+    badge.className = 'entry-type entry-type--' + typeSlug;
+    var dot = document.createElement('span');
+    dot.className = 'entry-type-dot';
+    badge.appendChild(dot);
+    var typeLbl = document.createElement('span');
+    typeLbl.className = 'entry-type-label';
+    typeLbl.textContent = (TYPE_LABELS[typeKey] || w.type || '').toUpperCase();
+    badge.appendChild(typeLbl);
 
     var body = document.createElement('div');
     body.className = 'entry-body';
@@ -804,8 +842,9 @@
         return res.json();
       })
       .then(function (workout) {
-        var isRun  = workout.workout_type === 'run';
-        var isBike = workout.workout_type === 'bike';
+        var _tk    = normalizeTypeKey(workout.workout_type);
+        var isRun  = _tk === 'run';
+        var isBike = _tk === 'bike';
 
         var returnUrl = '/log?week=' + toISODate(currentMonday);
         if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
@@ -848,7 +887,7 @@
     var contentEl = document.getElementById('dp-content');
     if (!contentEl) return;
 
-    var typeKey  = (workout.workout_type || '').toLowerCase();
+    var typeKey  = normalizeTypeKey(workout.workout_type);
     var isRun    = typeKey === 'run';
     var isBike   = typeKey === 'bike';
     var isCardio = isRun || isBike;
@@ -886,35 +925,60 @@
         '</div>' +
       '</div>';
 
-    // ── Stats grid 2×3 ──────────────────────────────────────────────────────
+    // ── Stats ─────────────────────────────────────────────────────────────────
     var statsHtml = '';
-    if (isCardio) {
-      // First tile (highlighted): Distance
-      var distStr = workout.distance_km != null ? (+workout.distance_km).toFixed(2) + '<span class="dp-stat-unit">km</span>' : '—';
-      var durStr  = workout.duration_seconds != null ? esc(fmtDurationDetail(workout.duration_seconds)) : '—';
-      var paceStr, paceUnit = '';
-      if (workout.duration_seconds && workout.distance_km) {
-        if (isBike) {
-          paceStr = esc(fmtSpeedKmh(workout.duration_seconds, workout.distance_km));
-        } else {
-          var secsPerKm = workout.duration_seconds / workout.distance_km;
-          var pm = Math.floor(secsPerKm / 60), ps = Math.round(secsPerKm % 60);
-          paceStr = esc(pm + ':' + pad(ps)) + '<span class="dp-stat-unit">/km</span>';
-        }
-      } else {
-        paceStr = '—';
+    if (isRun) {
+      var hasDist = workout.distance_km != null;
+      var hasPace = !!(workout.duration_seconds && workout.distance_km);
+      var distVal = hasDist ? parseFloat((+workout.distance_km).toFixed(2)) : null;
+      var paceVal = null;
+      if (hasPace) {
+        var spk = workout.duration_seconds / workout.distance_km;
+        paceVal = Math.floor(spk / 60) + ':' + pad(Math.round(spk % 60));
       }
-      var hrStr   = workout.avg_hr != null ? esc(workout.avg_hr) + '<span class="dp-stat-unit">bpm</span>' : '—';
-      var elevStr = workout.elevation_m != null ? esc(workout.elevation_m) + '<span class="dp-stat-unit">m</span>' : '—';
-      var tssStr  = workout.tss != null ? esc((+workout.tss).toFixed(0)) : '—';
-
+      var m1, m2;
+      if (hasDist) {
+        m1 = { v: distVal, u: 'km', l: 'Distance' };
+        m2 = hasPace
+          ? { v: paceVal, u: '/km', l: 'Avg pace' }
+          : { v: workout.duration_seconds != null ? fmtDurationDetail(workout.duration_seconds) : '\u2014', u: '', l: 'Duration' };
+      } else {
+        m1 = { v: workout.duration_seconds != null ? fmtDurationDetail(workout.duration_seconds) : '\u2014', u: '', l: 'Duration' };
+        m2 = { v: workout.avg_hr != null ? workout.avg_hr : '\u2014', u: workout.avg_hr != null ? 'bpm' : '', l: 'Avg HR' };
+      }
+      function heroMetric(m) {
+        return '<div class="dp-hm">' +
+          '<div class="dp-hm-val">' + esc(String(m.v)) + (m.u ? '<span class="dp-hm-unit">' + m.u + '</span>' : '') + '</div>' +
+          '<div class="dp-hm-label">' + esc(m.l) + '</div>' +
+        '</div>';
+      }
+      var stripItems = [];
+      if (hasDist && workout.duration_seconds != null) stripItems.push(['Duration', fmtDurationDetail(workout.duration_seconds)]);
+      if (workout.avg_hr != null && !(m1.l === 'Avg HR' || m2.l === 'Avg HR')) stripItems.push(['HR', workout.avg_hr + ' bpm']);
+      if (workout.elevation_m != null) stripItems.push(['Elev', workout.elevation_m + ' m']);
+      if (workout.tss != null) stripItems.push(['TSS', (+workout.tss).toFixed(0)]);
+      var stripHtml = stripItems.map(function (it) {
+        return '<span class="dp-strip-item"><span class="dp-strip-k">' + esc(it[0]) + '</span> ' + esc(String(it[1])) + '</span>';
+      }).join('');
+      statsHtml =
+        '<div class="dp-section">' +
+          '<div class="dp-hero-metrics">' + heroMetric(m1) + heroMetric(m2) + '</div>' +
+          (stripHtml ? '<div class="dp-stat-strip">' + stripHtml + '</div>' : '') +
+        '</div>';
+    } else if (isBike) {
+      var distStr = workout.distance_km != null ? (+workout.distance_km).toFixed(2) + '<span class="dp-stat-unit">km</span>' : '\u2014';
+      var durStr  = workout.duration_seconds != null ? esc(fmtDurationDetail(workout.duration_seconds)) : '\u2014';
+      var spdStr  = (workout.duration_seconds && workout.distance_km) ? esc(fmtSpeedKmh(workout.duration_seconds, workout.distance_km)) : '\u2014';
+      var hrStr   = workout.avg_hr != null ? esc(workout.avg_hr) + '<span class="dp-stat-unit">bpm</span>' : '\u2014';
+      var elevStr = workout.elevation_m != null ? esc(workout.elevation_m) + '<span class="dp-stat-unit">m</span>' : '\u2014';
+      var tssStr  = workout.tss != null ? esc((+workout.tss).toFixed(0)) : '\u2014';
       statsHtml =
         '<div class="dp-section">' +
           '<div class="dp-section-title">Stats</div>' +
           '<div class="dp-stats-grid">' +
-            '<div class="dp-stat highlight"><div class="dp-stat-label">' + (isBike ? 'Distance' : 'Distance') + '</div><div class="dp-stat-value">' + distStr + '</div></div>' +
+            '<div class="dp-stat"><div class="dp-stat-label">Distance</div><div class="dp-stat-value">' + distStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">Avg ' + (isBike ? 'speed' : 'pace') + '</div><div class="dp-stat-value">' + paceStr + '</div></div>' +
+            '<div class="dp-stat"><div class="dp-stat-label">Avg speed</div><div class="dp-stat-value">' + spdStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Avg HR</div><div class="dp-stat-value">' + hrStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Elev</div><div class="dp-stat-value">' + elevStr + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">TSS</div><div class="dp-stat-value">' + tssStr + '</div></div>' +
@@ -936,7 +1000,7 @@
         '<div class="dp-section">' +
           '<div class="dp-section-title">Stats</div>' +
           '<div class="dp-stats-grid">' +
-            '<div class="dp-stat highlight"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr2 + '</div></div>' +
+            '<div class="dp-stat"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr2 + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Exercises</div><div class="dp-stat-value">' + esc(String(exCount)) + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Total reps</div><div class="dp-stat-value">' + (totalReps > 0 ? esc(String(totalReps)) : '—') + '</div></div>' +
             '<div class="dp-stat"><div class="dp-stat-label">Avg RPE</div><div class="dp-stat-value">' + (avgRpe != null ? esc(avgRpe) : '—') + '</div></div>' +
@@ -946,9 +1010,99 @@
         '</div>';
     }
 
-    // ── Intervals section (RUN with distance_km exercises) ──────────────────
+    // ── Segments section (structured runs from the run builder) ─────────────
+    var segmentsHtml = '';
+    var segExs = exercises.filter(function (ex) {
+      return RUN_SEGMENT_LABELS[(ex.name || '').toLowerCase()];
+    });
+    var isStructuredRun = isRun && segExs.length > 0 && segExs.length === exercises.length;
+    if (isStructuredRun) {
+      var segData = exercises.map(function (ex) {
+        var sets   = ex.sets != null ? ex.sets : null;
+        var repKm  = ex.distance_km != null ? parseFloat(ex.distance_km) : null;
+        var repSec = ex.duration_seconds != null ? ex.duration_seconds : null;
+        var mult   = sets && sets > 0 ? sets : 1;
+        return {
+          name: ex.name,
+          intensity: RUN_SEGMENT_INTENSITY[(ex.name || '').toLowerCase()] || 'easy',
+          sets: sets, repKm: repKm, repSec: repSec, mult: mult, hr: ex.avg_hr,
+          totKm: repKm != null ? repKm * mult : null,
+          totSec: repSec != null ? repSec * mult : null,
+        };
+      });
+
+      var allTime = segData.every(function (s) { return s.totSec > 0; });
+      var allDist = segData.every(function (s) { return s.totKm > 0; });
+      var axis = allTime ? 'time' : (allDist ? 'dist' : 'equal');
+      var axisTotal = segData.reduce(function (a, s) {
+        return a + (axis === 'time' ? (s.totSec || 0) : axis === 'dist' ? (s.totKm || 0) : 1);
+      }, 0) || 1;
+
+      var tlBlocks = '';
+      segData.forEach(function (s) {
+        var mag = axis === 'time' ? (s.totSec || 0) : axis === 'dist' ? (s.totKm || 0) : 1;
+        var pct = Math.max(mag / axisTotal, 0.02);
+        var detail = axis === 'time'
+          ? fmtDurationDetail(Math.round(s.totSec || 0))
+          : (s.totKm != null ? parseFloat(s.totKm.toFixed(2)) + ' km' : '');
+        tlBlocks +=
+          '<div class="dp-tl-seg dp-tl-seg--' + s.intensity + '" ' +
+            'style="flex:' + (pct * 1000).toFixed(0) + ' 1 0;" ' +
+            'title="' + esc(s.name + (detail ? ' \u00b7 ' + detail : '')) + '">' +
+            '<span class="dp-tl-label">' + esc(s.name) + '</span>' +
+          '</div>';
+      });
+      var timelineHtml =
+        '<div class="dp-timeline" role="img" aria-label="Session intensity by segment">' + tlBlocks + '</div>';
+
+      var sgRows = '';
+      var sgKm = 0, sgSec = 0, sgHrs = [], sgHrSum = 0;
+      segData.forEach(function (s) {
+        if (s.totKm) sgKm += s.totKm;
+        if (s.totSec) sgSec += s.totSec;
+        if (s.hr != null) { sgHrs.push(s.hr); sgHrSum += s.hr; }
+        var distFmt = s.repKm != null
+          ? (s.repKm >= 1 ? (+s.repKm).toFixed(1) + ' km' : Math.round(s.repKm * 1000) + 'm')
+          : null;
+        var timeFmt = s.repSec != null ? fmtDurationDetail(s.repSec) : null;
+        var qty = s.sets != null
+          ? s.sets + ' \u00d7 ' + (distFmt || timeFmt || '\u2014')
+          : ([distFmt, timeFmt].filter(Boolean).join(' \u00b7 ') || '\u2014');
+        var paceFmt = (s.repSec && s.repKm) ? fmtPaceFromSec(s.repSec, s.repKm) : '\u2014';
+        var hrFmt   = s.hr != null ? s.hr + ' bpm' : '\u2014';
+        sgRows +=
+          '<div class="dp-interval-row">' +
+            '<div class="dp-seg-dot dp-seg-dot--' + s.intensity + '" title="' + esc(s.name) + '"></div>' +
+            '<div>' +
+              '<div class="dp-interval-name">' + esc(s.name) + '</div>' +
+              '<div class="dp-interval-sub">' + esc(qty) + '</div>' +
+            '</div>' +
+            '<div><div class="dp-interval-pace">' + esc(paceFmt) + '</div></div>' +
+            '<div class="dp-interval-hr">' + esc(hrFmt) + '</div>' +
+          '</div>';
+      });
+
+      var sgPace = (sgSec && sgKm) ? fmtPaceFromSec(sgSec, sgKm) : null;
+      var sgHr = sgHrs.length ? Math.round(sgHrSum / sgHrs.length) + ' bpm' : null;
+      var footRight = [sgPace, sgHr].filter(Boolean).join(' \u00b7 ') || '\u2014';
+
+      segmentsHtml =
+        '<div class="dp-section">' +
+          '<div class="dp-section-title">Session</div>' +
+          timelineHtml +
+          '<div class="dp-intervals" style="margin-top:12px;">' +
+            sgRows +
+            '<div class="dp-interval-footer">' +
+              '<span>Avg pace \u00b7 avg HR</span>' +
+              '<span><strong>' + footRight + '</strong></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── Intervals section (legacy runs with distance_km exercises) ──────────
     var intervalsHtml = '';
-    if (isRun) {
+    if (isRun && !isStructuredRun) {
       var intervalExs = exercises.filter(function (ex) {
         return ex.distance_km != null;
       });
@@ -1006,7 +1160,7 @@
 
     // ── Per-km splits section (RUN/BIKE, only if no interval exercises) ──────
     var splitsHtml = '';
-    if ((isRun || isBike) && !intervalsHtml && splits && splits.length) {
+    if ((isRun || isBike) && !intervalsHtml && !segmentsHtml && splits && splits.length) {
       var splitRows = '';
       splits.forEach(function (s) {
         var distKm  = parseFloat(s.distance_km);
@@ -1075,7 +1229,7 @@
         '</div>';
     }
 
-    contentEl.innerHTML = heroHtml + statsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
+    contentEl.innerHTML = heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────
@@ -1208,12 +1362,12 @@
 
     var emptyCta = document.getElementById('log-empty-cta');
     if (emptyCta) emptyCta.addEventListener('click', function () {
-      if (window.WorkoutForm) WorkoutForm.open(); else window.location.href = '/training';
+      window.location.href = '/training?return=/log';
     });
 
     var newBtn = document.getElementById('log-new-btn');
     if (newBtn) newBtn.addEventListener('click', function () {
-      if (window.WorkoutForm) WorkoutForm.open(); else window.location.href = '/training';
+      window.location.href = '/training?return=/log';
     });
 
     document.addEventListener('keydown', function (e) {

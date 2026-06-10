@@ -775,12 +775,16 @@
     var header =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
-        '<a href="/log">View all</a>' +
+        '<span style="display:inline-flex;align-items:center;gap:10px;">' +
+          '<a class="rw-log-btn" href="/training?return=/home"><i class="ti ti-plus"></i>Log workout</a>' +
+          '<a href="/log">View all</a>' +
+        '</span>' +
       '</div>';
 
     if (!workouts.length) {
       card.innerHTML = header +
-        '<div class="workouts-empty">No workouts in the last 14 days — log one.</div>';
+        '<div class="workouts-empty">No workouts in the last 14 days — ' +
+        '<a href="/training?return=/home">log one</a>.</div>';
       return;
     }
 
@@ -2407,18 +2411,9 @@
     }
   }
 
-  function wireLogWorkoutButtons() {
-    function openForm() { if (window.WorkoutForm) WorkoutForm.open(); }
-    var homeBtn = document.getElementById('home-log-workout-btn');
-    var stickyBtn = document.getElementById('sticky-log-workout-btn');
-    if (homeBtn) homeBtn.addEventListener('click', openForm);
-    if (stickyBtn) stickyBtn.addEventListener('click', openForm);
-  }
-
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { init(); wireLogWorkoutButtons(); });
+    document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
-    wireLogWorkoutButtons();
   }
 })();

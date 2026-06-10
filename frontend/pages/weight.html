@@ -26,7 +26,7 @@
     .page-subtitle {
       margin: 0;
       font-size: 0.875rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     .header-actions {
@@ -39,19 +39,19 @@
     .btn-secondary {
       padding: 0.4rem 0.9rem;
       background: #fff;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 500;
       color: #374151;
       cursor: pointer;
     }
-    .btn-secondary:hover { background: #f9fafb; }
+    .btn-secondary:hover { background: var(--surface-2); }
 
     .btn-primary {
       padding: 0.4rem 0.9rem;
-      background: #1a1a1a;
-      border: 1px solid #1a1a1a;
+      background: var(--text);
+      border: 1px solid var(--text);
       border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 500;
@@ -64,7 +64,7 @@
 
     .card {
       background: #fff;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1.25rem;
       margin-bottom: 1.25rem;
@@ -80,7 +80,7 @@
     .card-subtitle {
       font-size: 0.75rem;
       font-weight: 400;
-      color: #9ca3af;
+      color: var(--text-sub);
     }
 
     /* ── Hero strip ───────────────────────────────────────────────────────── */
@@ -93,7 +93,7 @@
 
     .hero-cell {
       background: #fff;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1rem 1.125rem;
       display: flex;
@@ -106,14 +106,14 @@
       font-weight: 600;
       letter-spacing: 0.05em;
       text-transform: uppercase;
-      color: #9ca3af;
+      color: var(--text-sub);
     }
 
     .hero-value {
       font-size: 1.75rem;
       font-weight: 700;
       line-height: 1.1;
-      color: #111827;
+      color: var(--text);
     }
 
     .hero-value.mono {
@@ -149,12 +149,12 @@
 
     .delta-pill.gain {
       background: #fee2e2;
-      color: #dc2626;
+      color: var(--danger);
     }
 
     .delta-pill.neutral {
       background: #f3f4f6;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     /* Quick-log */
@@ -167,20 +167,20 @@
     .quicklog-input {
       width: 5.5rem;
       padding: 0.4rem 0.6rem;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 6px;
       font-size: 0.9375rem;
       font-variant-numeric: tabular-nums;
     }
     .quicklog-input:focus {
       outline: none;
-      border-color: #2563eb;
+      border-color: var(--primary-dark);
       box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
     }
 
     .quicklog-btn {
       padding: 0.4rem 0.7rem;
-      background: #1a1a1a;
+      background: var(--text);
       color: #fff;
       border: none;
       border-radius: 6px;
@@ -193,7 +193,7 @@
 
     .quicklog-error {
       font-size: 0.75rem;
-      color: #dc2626;
+      color: var(--danger);
       min-height: 1em;
       margin-top: 0.2rem;
     }
@@ -201,7 +201,7 @@
     /* ── Chart card ───────────────────────────────────────────────────────── */
     .range-tabs {
       display: inline-flex;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 7px;
       overflow: hidden;
       margin-bottom: 1rem;
@@ -211,17 +211,17 @@
       padding: 0.35rem 0.85rem;
       background: #fff;
       border: none;
-      border-right: 1px solid #e5e7eb;
+      border-right: 1px solid var(--border);
       font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
-      color: #6b7280;
+      color: var(--text-sub);
       line-height: 1.5;
     }
     .range-tab:last-child { border-right: none; }
-    .range-tab:hover:not(.active) { background: #f9fafb; }
+    .range-tab:hover:not(.active) { background: var(--surface-2); }
     .range-tab.active {
-      background: #1a1a1a;
+      background: var(--text);
       color: #fff;
     }
 
@@ -243,7 +243,7 @@
       align-items: center;
       gap: 0.4rem;
       font-size: 0.78125rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     .legend-dot {
@@ -284,7 +284,7 @@
       left: 0;
       top: 0;
       height: 100%;
-      background: #2563eb;
+      background: var(--primary-dark);
       border-radius: 999px;
       transition: width 0.4s ease;
     }
@@ -295,7 +295,7 @@
       transform: translate(-50%, -50%);
       width: 16px;
       height: 16px;
-      background: #1a1a1a;
+      background: var(--text);
       border: 2px solid #fff;
       border-radius: 50%;
       box-shadow: 0 1px 4px rgba(0,0,0,0.25);
@@ -311,14 +311,14 @@
 
     .progress-label {
       font-size: 0.75rem;
-      color: #6b7280;
+      color: var(--text-sub);
       text-align: center;
     }
 
     .progress-label strong {
       display: block;
       font-size: 0.875rem;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
 
@@ -337,7 +337,7 @@
 
     .progress-pct-label {
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-left: 0.2rem;
     }
 
@@ -366,8 +366,8 @@
     }
 
     .milestone-item {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0.875rem 1rem;
     }
@@ -377,7 +377,7 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 0.35rem;
     }
 
@@ -385,12 +385,12 @@
       font-size: 1.125rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-      color: #111827;
+      color: var(--text);
     }
 
     .milestone-date {
       font-size: 0.75rem;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-top: 0.2rem;
     }
 
@@ -405,10 +405,10 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      color: #9ca3af;
+      color: var(--text-sub);
       text-align: left;
       padding: 0 0 0.5rem;
-      border-bottom: 1px solid #e5e7eb;
+      border-bottom: 1px solid var(--border);
     }
 
     .entries-table td {
@@ -429,11 +429,11 @@
 
     .entry-delta { font-size: 0.8125rem; }
     .entry-delta.loss { color: #15803d; }
-    .entry-delta.gain { color: #dc2626; }
-    .entry-delta.neutral { color: #9ca3af; }
+    .entry-delta.gain { color: var(--danger); }
+    .entry-delta.neutral { color: var(--text-sub); }
 
     .entry-no-data {
-      color: #9ca3af;
+      color: var(--text-sub);
       font-size: 0.875rem;
     }
 
@@ -445,7 +445,7 @@
     .entry-menu-btn {
       background: none;
       border: none;
-      color: #9ca3af;
+      color: var(--text-sub);
       cursor: pointer;
       padding: 0.2rem 0.4rem;
       border-radius: 4px;
@@ -459,7 +459,7 @@
       right: 0;
       top: calc(100% + 4px);
       background: #fff;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 7px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.1);
       z-index: 50;
@@ -478,22 +478,22 @@
       cursor: pointer;
       color: #374151;
     }
-    .entry-menu button:hover { background: #f9fafb; }
-    .entry-menu .menu-delete { color: #dc2626; }
+    .entry-menu button:hover { background: var(--surface-2); }
+    .entry-menu .menu-delete { color: var(--danger); }
     .entry-menu .menu-delete:hover { background: #fef2f2; }
 
     /* Backfill + button */
     .backfill-add-btn {
       background: none;
-      border: 1px dashed #d1d5db;
+      border: 1px dashed var(--border-input);
       border-radius: 6px;
-      color: #9ca3af;
+      color: var(--text-sub);
       cursor: pointer;
       font-size: 1rem;
       line-height: 1;
       padding: 0.2rem 0.55rem;
     }
-    .backfill-add-btn:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+    .backfill-add-btn:hover { border-color: var(--primary-dark); color: var(--primary-dark); background: #eff6ff; }
 
     /* Inline backfill form */
     .backfill-inline {
@@ -505,14 +505,14 @@
     .backfill-input {
       width: 5rem;
       padding: 0.25rem 0.5rem;
-      border: 1px solid #2563eb;
+      border: 1px solid var(--primary-dark);
       border-radius: 5px;
       font-size: 0.875rem;
     }
 
     .backfill-save-btn {
       padding: 0.25rem 0.65rem;
-      background: #1a1a1a;
+      background: var(--text);
       color: #fff;
       border: none;
       border-radius: 5px;
@@ -523,14 +523,14 @@
     .backfill-cancel-btn {
       background: none;
       border: none;
-      color: #9ca3af;
+      color: var(--text-sub);
       cursor: pointer;
       font-size: 0.8125rem;
     }
 
     .backfill-error {
       font-size: 0.75rem;
-      color: #dc2626;
+      color: var(--danger);
     }
 
     /* ── Responsive < 880px ───────────────────────────────────────────────── */
@@ -562,7 +562,7 @@
       .entries-table tr {
         display: block;
         background: #fff;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 0.75rem;
         margin-bottom: 0.5rem;
@@ -581,7 +581,7 @@
         font-size: 0.6875rem;
         font-weight: 600;
         text-transform: uppercase;
-        color: #9ca3af;
+        color: var(--text-sub);
         letter-spacing: 0.04em;
       }
       .entry-card-row { }
@@ -589,7 +589,7 @@
 
     /* Error banner */
     #page-error {
-      color: #dc2626;
+      color: var(--danger);
       font-size: 0.875rem;
       margin-bottom: 1rem;
       min-height: 1.2em;
@@ -654,19 +654,19 @@
       </div>
       <div class="chart-container">
         <!-- Loading chart… shown while Chart.js CDN script loads; hidden once chart renders -->
-        <div id="chart-loading" style="text-align:center;padding:48px 0;color:#9ca3af;font-size:0.9375rem;">Loading chart…</div>
+        <div id="chart-loading" style="text-align:center;padding:48px 0;color:var(--text-sub);font-size:0.9375rem;">Loading chart…</div>
         <canvas id="weight-chart" aria-label="Weight trend chart" hidden></canvas>
       </div>
       <!-- Legend chips for 4 datasets -->
       <div class="chart-legend" id="chart-legend">
         <span class="legend-chip">
-          <span class="legend-dot" style="background:#9ca3af"></span>Daily weigh-in
+          <span class="legend-dot" style="background:var(--text-sub)"></span>Daily weigh-in
         </span>
         <span class="legend-chip">
-          <span class="legend-line" style="background:#2563eb"></span>7-day moving avg
+          <span class="legend-line" style="background:var(--primary-dark)"></span>7-day moving avg
         </span>
         <span class="legend-chip" id="legend-target" hidden>
-          <span class="legend-dashed" style="border-color:#16a34a"></span>Target
+          <span class="legend-dashed" style="border-color:var(--success)"></span>Target
         </span>
         <span class="legend-chip" id="legend-projected" hidden>
           <span class="legend-dashed" style="border-color:#60a5fa"></span>Projected
