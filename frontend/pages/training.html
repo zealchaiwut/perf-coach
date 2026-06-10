@@ -10,7 +10,7 @@
     .tab-bar {
       display: flex;
       gap: 0;
-      border-bottom: 2px solid #e5e5e5;
+      border-bottom: 2px solid var(--border);
       margin-bottom: 1.5rem;
     }
 
@@ -27,8 +27,8 @@
     }
 
     .training-tab.active {
-      color: #1a1a1a;
-      border-bottom-color: #1a1a1a;
+      color: var(--text);
+      border-bottom-color: var(--text);
     }
 
     .training-tab:hover:not(.active) {
@@ -75,8 +75,8 @@
     .meta-field input:focus,
     .meta-field textarea:focus {
       outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     .meta-field textarea {
@@ -86,7 +86,7 @@
 
     .field-error {
       font-size: 0.8125rem;
-      color: #c0392b;
+      color: var(--danger);
       min-height: 1.1em;
     }
 
@@ -113,8 +113,8 @@
     }
 
     .type-chip.active {
-      background: #1a1a1a;
-      border-color: #1a1a1a;
+      background: var(--primary);
+      border-color: var(--primary);
       color: #fff;
     }
 
@@ -130,8 +130,8 @@
 
     #custom-type-input:focus {
       outline: none;
-      border-color: #0070f3;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     /* ── Exercises table ── */
@@ -148,7 +148,7 @@
 
     .table-scroll {
       overflow-x: auto;
-      border: 1px solid #e5e5e5;
+      border: 1px solid var(--border);
       border-radius: 6px;
     }
 
@@ -164,9 +164,9 @@
       color: #666;
       font-weight: 600;
       padding: 0.5rem 0.6rem;
-      border-bottom: 1px solid #e5e5e5;
+      border-bottom: 1px solid var(--border);
       white-space: nowrap;
-      background: #fafafa;
+      background: var(--surface-2);
     }
 
     #exercises-table td {
@@ -216,9 +216,9 @@
 
     .ex-input:focus {
       outline: none;
-      border-color: #0070f3;
+      border-color: var(--primary);
       background: #fff;
-      box-shadow: 0 0 0 2px rgba(0,112,243,0.12);
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     .ex-name { min-width: 140px; }
@@ -237,13 +237,13 @@
     }
 
     .remove-row-btn:hover {
-      color: #c0392b;
+      color: var(--danger);
       background: #fee2e2;
     }
 
     .error-msg {
       font-size: 0.8125rem;
-      color: #c0392b;
+      color: var(--danger);
       min-height: 1.2em;
       margin: 0.4rem 0 0;
     }
@@ -263,7 +263,7 @@
       border-radius: 4px;
       font-size: 0.875rem;
       cursor: pointer;
-      color: #1a1a1a;
+      color: var(--text);
     }
 
     .table-actions button:hover:not(:disabled) {
@@ -272,7 +272,7 @@
 
     .table-actions button:disabled {
       color: #aaa;
-      border-color: #e5e5e5;
+      border-color: var(--border);
       cursor: not-allowed;
     }
 
@@ -297,7 +297,7 @@
       align-items: center;
       justify-content: space-between;
       padding: 0.85rem 1rem;
-      border: 1px solid #e5e5e5;
+      border: 1px solid var(--border);
       border-radius: 6px;
       margin-bottom: 0.5rem;
       cursor: pointer;
@@ -326,7 +326,7 @@
       gap: 0.75rem;
       flex-wrap: wrap;
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     .history-chevron {
@@ -336,12 +336,12 @@
     }
 
     .empty-msg {
-      color: #9ca3af;
+      color: var(--text-sub);
       font-size: 0.9375rem;
     }
 
     .loading-msg {
-      color: #9ca3af;
+      color: var(--text-sub);
       font-size: 0.9375rem;
     }
 
@@ -384,13 +384,13 @@
 
     .detail-meta-text {
       font-size: 0.875rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin: 0 0 1rem;
     }
 
     .detail-table-scroll {
       overflow-x: auto;
-      border: 1px solid #e5e5e5;
+      border: 1px solid var(--border);
       border-radius: 6px;
       margin-bottom: 1rem;
     }
@@ -407,8 +407,8 @@
       color: #666;
       font-weight: 600;
       padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid #e5e5e5;
-      background: #fafafa;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
     }
 
     .detail-table td {
@@ -441,12 +441,12 @@
     }
 
     #toast.toast-ok {
-      background: #1a1a1a;
+      background: var(--text);
       color: #fff;
     }
 
     #toast.toast-error {
-      background: #c0392b;
+      background: var(--danger);
       color: #fff;
     }
 
@@ -482,7 +482,7 @@
       <!-- Metadata block -->
       <div class="workout-meta">
         <div class="meta-field">
-          <label for="workout-name">Name <span style="color:#c0392b">*</span></label>
+          <label for="workout-name">Name <span style="color:var(--danger)">*</span></label>
           <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
           <datalist id="workout-name-suggestions"></datalist>
           <p id="name-error" class="field-error"></p>

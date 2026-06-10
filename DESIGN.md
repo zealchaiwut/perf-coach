@@ -2,16 +2,24 @@
 
 ## Color Tokens
 
+**Implemented as CSS custom properties in `frontend/css/styles.css` `:root`.**
+Page `<style>` blocks must reference these via `var(--token)`; do not invent
+new palette values in pages.
+
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--primary` | `#3b82f6` | Primary actions, active states |
+| `--primary` | `#3b82f6` | Primary actions, active/selected states, focus borders |
 | `--primary-dark` | `#2563eb` | Hover on primary |
+| `--focus-ring` | `rgba(59,130,246,0.18)` | Focus box-shadow on inputs/controls |
 | `--success` | `#16a34a` | Positive trends, done states |
 | `--warning` | `#d97706` | Amber warnings, moderate load |
-| `--danger` | `#dc2626` | Errors, high load, failed |
+| `--danger` | `#dc2626` | Errors, destructive actions, high load |
+| `--danger-dark` | `#b91c1c` | Hover on danger |
+| `--danger-soft` | `#fee2e2` | Delete-button hover background |
 | `--text` | `#111827` | Body text |
-| `--text-sub` | `#6b7280` | Secondary / muted text |
+| `--text-sub` | `#6b7280` | Secondary / muted text (min AA on white) |
 | `--border` | `#e5e7eb` | Dividers, card borders |
+| `--border-input` | `#d1d5db` | Form-control borders |
 | `--surface` | `#ffffff` | Card / panel background |
 | `--surface-2` | `#f9fafb` | Page background, alternate rows |
 | `--readiness-high` | `#16a34a` | Readiness ≥ 70 |

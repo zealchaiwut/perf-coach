@@ -21,29 +21,29 @@
       align-items: center;
       gap: 0.5rem;
       font-size: 0.875rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-bottom: 0.25rem;
     }
 
     .wt-breadcrumb a {
-      color: #6b7280;
+      color: var(--text-sub);
       text-decoration: none;
     }
-    .wt-breadcrumb a:hover { color: #1a1a1a; text-decoration: underline; }
+    .wt-breadcrumb a:hover { color: var(--text); text-decoration: underline; }
 
     .wt-page-title {
       margin: 0;
       font-size: 1.5rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
     }
 
     .header-actions { display: flex; gap: 0.75rem; align-items: center; flex-shrink: 0; }
 
     .btn-primary {
       padding: 0.4rem 0.9rem;
-      background: #1a1a1a;
-      border: 1px solid #1a1a1a;
+      background: var(--text);
+      border: 1px solid var(--text);
       border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 500;
@@ -59,18 +59,18 @@
     .btn-secondary {
       padding: 0.4rem 0.9rem;
       background: #fff;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 500;
       color: #374151;
       cursor: pointer;
     }
-    .btn-secondary:hover { background: #f9fafb; }
+    .btn-secondary:hover { background: var(--surface-2); }
 
     .card {
       background: #fff;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1.25rem;
       margin-bottom: 1.25rem;
@@ -115,13 +115,13 @@
     .active-card-header-title {
       font-size: 1rem;
       font-weight: 600;
-      color: #111827;
+      color: var(--text);
     }
 
     .icon-btn {
       width: 32px;
       height: 32px;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 6px;
       background: #fff;
       cursor: pointer;
@@ -129,9 +129,9 @@
       align-items: center;
       justify-content: center;
       font-size: 0.875rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
-    .icon-btn:hover { background: #f3f4f6; color: #111827; }
+    .icon-btn:hover { background: #f3f4f6; color: var(--text); }
 
     .active-card-body {
       display: grid;
@@ -143,20 +143,20 @@
     .weight-range-display {
       font-size: 1.5rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
       margin-bottom: 0.25rem;
       font-variant-numeric: tabular-nums;
     }
 
     .weight-dates-row {
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-bottom: 0.125rem;
     }
 
     .weight-months-sub {
       font-size: 0.8125rem;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 1rem;
     }
 
@@ -169,7 +169,7 @@
     }
 
     .pace-stat {
-      background: #f9fafb;
+      background: var(--surface-2);
       border: 1px solid #f3f4f6;
       border-radius: 8px;
       padding: 0.625rem 0.75rem;
@@ -180,14 +180,14 @@
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 0.25rem;
     }
 
     .pace-stat-value {
       font-size: 1.0625rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
 
@@ -195,8 +195,8 @@
       font-size: 0.875rem;
       margin-left: 0.25rem;
     }
-    .pace-arrow.green { color: #16a34a; }
-    .pace-arrow.amber { color: #d97706; }
+    .pace-arrow.green { color: var(--success); }
+    .pace-arrow.amber { color: var(--warning); }
 
     /* Right side mini-cards */
     .active-card-right {
@@ -207,8 +207,8 @@
     }
 
     .mini-card {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0.875rem;
       text-align: center;
@@ -219,14 +219,14 @@
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 0.375rem;
     }
 
     .progress-pct-large {
       font-size: 2rem;
       font-weight: 800;
-      color: #111827;
+      color: var(--text);
       line-height: 1;
       margin-bottom: 0.25rem;
       font-variant-numeric: tabular-nums;
@@ -234,7 +234,7 @@
 
     .kg-lost-label {
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-bottom: 0.5rem;
     }
 
@@ -256,13 +256,13 @@
     .projected-date-value {
       font-size: 1rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
       margin-bottom: 0.25rem;
     }
 
     .projected-pace-label {
       font-size: 0.75rem;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-bottom: 0.25rem;
     }
 
@@ -270,8 +270,8 @@
       font-size: 0.75rem;
       font-weight: 600;
     }
-    .days-delta.ahead  { color: #16a34a; }
-    .days-delta.behind { color: #d97706; }
+    .days-delta.ahead  { color: var(--success); }
+    .days-delta.behind { color: var(--warning); }
 
     /* ── Inline "Set new target" form ────────────────────────────────────── */
     .new-target-form-card .form-grid {
@@ -297,10 +297,10 @@
     .form-field input,
     .form-field textarea {
       padding: 0.5rem 0.75rem;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 6px;
       font-size: 0.875rem;
-      color: #111827;
+      color: var(--text);
       background: #fff;
       font-family: inherit;
       width: 100%;
@@ -308,9 +308,9 @@
     }
     .form-field input:focus,
     .form-field textarea:focus {
-      outline: 2px solid #3b82f6;
+      outline: 2px solid var(--primary);
       outline-offset: 1px;
-      border-color: #3b82f6;
+      border-color: var(--primary);
     }
 
     .form-field textarea { resize: vertical; min-height: 64px; }
@@ -324,7 +324,7 @@
 
     .form-error {
       font-size: 0.8125rem;
-      color: #dc2626;
+      color: var(--danger);
       margin-top: 0.25rem;
     }
 
@@ -349,14 +349,14 @@
       left: 16px;
       right: 16px;
       height: 6px;
-      background: #e5e7eb;
+      background: var(--border);
       border-radius: 999px;
       overflow: hidden;
     }
 
     .milestone-track-fill {
       height: 100%;
-      background: linear-gradient(90deg, #16a34a, #22c55e);
+      background: linear-gradient(90deg, var(--success), #22c55e);
       border-radius: 999px;
       transition: width 0.4s ease;
     }
@@ -374,14 +374,14 @@
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: #e5e7eb;
+      background: var(--border);
       border: 3px solid #fff;
-      box-shadow: 0 0 0 2px #e5e7eb;
+      box-shadow: 0 0 0 2px var(--border);
       margin-bottom: 0.5rem;
       flex-shrink: 0;
     }
-    .milestone-marker.done { background: #16a34a; box-shadow: 0 0 0 2px #16a34a; }
-    .milestone-marker.current { background: #3b82f6; box-shadow: 0 0 0 2px #3b82f6; }
+    .milestone-marker.done { background: var(--success); box-shadow: 0 0 0 2px var(--success); }
+    .milestone-marker.current { background: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
     .milestone-marker.goal { background: #f59e0b; box-shadow: 0 0 0 2px #f59e0b; }
 
     .milestone-label {
@@ -389,13 +389,13 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #6b7280;
+      color: var(--text-sub);
       margin-bottom: 0.125rem;
     }
 
     .milestone-date {
       font-size: 0.75rem;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 0.125rem;
       white-space: nowrap;
     }
@@ -403,7 +403,7 @@
     .milestone-weight {
       font-size: 0.8125rem;
       font-weight: 600;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
 
@@ -423,14 +423,14 @@
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      color: #9ca3af;
+      color: var(--text-sub);
       margin-bottom: 0.375rem;
     }
 
     .stat-box-value {
       font-size: 1.5rem;
       font-weight: 800;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
       line-height: 1;
     }
@@ -438,7 +438,7 @@
     .success-rate {
       font-size: 0.75rem;
       font-weight: 600;
-      color: #16a34a;
+      color: var(--success);
       margin-top: 0.25rem;
     }
 
@@ -453,17 +453,17 @@
     .filter-pill {
       padding: 0.3rem 0.875rem;
       border-radius: 999px;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       background: #fff;
       font-size: 0.8125rem;
       font-weight: 500;
-      color: #6b7280;
+      color: var(--text-sub);
       cursor: pointer;
     }
-    .filter-pill:hover { background: #f9fafb; }
+    .filter-pill:hover { background: var(--surface-2); }
     .filter-pill.active {
-      background: #1a1a1a;
-      border-color: #1a1a1a;
+      background: var(--text);
+      border-color: var(--text);
       color: #fff;
     }
 
@@ -481,8 +481,8 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      color: #9ca3af;
-      border-bottom: 1px solid #e5e7eb;
+      color: var(--text-sub);
+      border-bottom: 1px solid var(--border);
     }
 
     .history-table td {
@@ -493,12 +493,12 @@
     }
 
     .history-table tbody tr:last-child td { border-bottom: none; }
-    .history-table tbody tr:hover { background: #fafafa; }
+    .history-table tbody tr:hover { background: var(--surface-2); }
 
     .history-empty {
       text-align: center;
       padding: 2rem 1rem;
-      color: #9ca3af;
+      color: var(--text-sub);
       font-size: 0.875rem;
     }
 
@@ -516,9 +516,9 @@
     .badge-replaced  { background: #dbeafe; color: #1d4ed8; }
     .badge-abandoned { background: #fef3c7; color: #92400e; }
 
-    .delta-positive { color: #16a34a; font-weight: 600; }
-    .delta-amber    { color: #d97706; font-weight: 600; }
-    .delta-neutral  { color: #9ca3af; }
+    .delta-positive { color: var(--success); font-weight: 600; }
+    .delta-amber    { color: var(--warning); font-weight: 600; }
+    .delta-neutral  { color: var(--text-sub); }
 
     /* Actions menu */
     .actions-menu {
@@ -529,13 +529,13 @@
     .actions-btn {
       padding: 0.25rem 0.5rem;
       background: #fff;
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--border);
       border-radius: 5px;
       cursor: pointer;
       font-size: 0.8125rem;
-      color: #6b7280;
+      color: var(--text-sub);
     }
-    .actions-btn:hover { background: #f9fafb; }
+    .actions-btn:hover { background: var(--surface-2); }
 
     /* ── Modals ───────────────────────────────────────────────────────────── */
     .modal-overlay {
@@ -562,7 +562,7 @@
       margin: 0 0 1.25rem;
       font-size: 1rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
     }
 
     .modal-form-field {
@@ -581,10 +581,10 @@
     .modal-form-field input,
     .modal-form-field textarea {
       padding: 0.5rem 0.75rem;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 6px;
       font-size: 0.875rem;
-      color: #111827;
+      color: var(--text);
       font-family: inherit;
       box-sizing: border-box;
       width: 100%;
@@ -599,13 +599,13 @@
 
     .modal-error {
       font-size: 0.8125rem;
-      color: #dc2626;
+      color: var(--danger);
       margin-top: 0.5rem;
     }
 
     /* End modal */
     .end-weight-display {
-      background: #f9fafb;
+      background: var(--surface-2);
       border-radius: 8px;
       padding: 0.75rem;
       margin-bottom: 1rem;
@@ -617,7 +617,7 @@
     .end-weight-value {
       font-size: 1.25rem;
       font-weight: 700;
-      color: #111827;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
 
@@ -640,7 +640,7 @@
 
     .btn-end-achieved {
       padding: 0.625rem 1rem;
-      background: #16a34a;
+      background: var(--success);
       color: #fff;
       border: none;
       border-radius: 7px;
@@ -655,13 +655,13 @@
       padding: 0.625rem 1rem;
       background: #fff;
       color: #374151;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border-input);
       border-radius: 7px;
       font-size: 0.875rem;
       font-weight: 600;
       cursor: pointer;
     }
-    .btn-end-abandoned:hover:not(:disabled) { background: #f9fafb; }
+    .btn-end-abandoned:hover:not(:disabled) { background: var(--surface-2); }
     .btn-end-abandoned:disabled { opacity: 0.4; cursor: default; }
 
     /* ── Responsive ───────────────────────────────────────────────────────── */
@@ -699,7 +699,7 @@
       .history-table tbody tr {
         display: block;
         background: #fff;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 0.875rem;
         margin-bottom: 0.75rem;
@@ -720,7 +720,7 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: #9ca3af;
+        color: var(--text-sub);
         flex-shrink: 0;
         margin-right: 0.75rem;
       }
@@ -967,7 +967,7 @@
     <div class="modal">
       <h2>End this target</h2>
       <div class="end-weight-display" id="end-weight-display" hidden>
-        <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.25rem;">End weight (latest entry)</div>
+        <div style="font-size:0.75rem;color:var(--text-sub);margin-bottom:0.25rem;">End weight (latest entry)</div>
         <div class="end-weight-value" id="end-weight-value">--</div>
       </div>
       <p class="end-no-weight-msg" id="end-no-weight-msg" hidden>
