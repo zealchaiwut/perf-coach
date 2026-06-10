@@ -27,7 +27,6 @@ const TRACKING_TYPE_LABELS = {
 const DAY_LABELS_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-const WHEEL_CIRCUMFERENCE = 289.03; // 2 * π * r=46
 
 const STARTER_HABITS = [
   {
@@ -80,6 +79,10 @@ let editingHabitId = null;
 let selectedIcon = ICONS[0];
 let selectedColor = COLORS[0];
 
+// Week-view state
+let weekData = null;        // last response from GET /api/habits/week
+let currentWeekStart = null; // ISO date string; null = use server default (current week)
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 function isoDate(d) {
@@ -131,6 +134,28 @@ function iconLabel(code) {
   return code ? code.replace('ti-', '').replace(/-/g, ' ') : '?';
 }
 
+function formatWeekRange(weekStart, weekEnd) {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [, sm, sd] = weekStart.split('-').map(Number);
+  const [, em, ed] = weekEnd.split('-').map(Number);
+  if (sm === em) return `${MONTHS[sm-1]} ${sd}–${ed}`;
+  return `${MONTHS[sm-1]} ${sd}–${MONTHS[em-1]} ${ed}`;
+}
+
+// ── Polar-to-cartesian helpers (issue #432 wheel) ─────────────────────────────
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function arcPath(cx, cy, r, startDeg, endDeg) {
+  const s = polarToCartesian(cx, cy, r, startDeg);
+  const e = polarToCartesian(cx, cy, r, endDeg);
+  const large = (endDeg - startDeg) > 180 ? 1 : 0;
+  return `M ${s.x.toFixed(3)} ${s.y.toFixed(3)} A ${r} ${r} 0 ${large} 1 ${e.x.toFixed(3)} ${e.y.toFixed(3)}`;
+}
+
 function habitIconHTML(icon, color, size) {
   const bg = color || '#9ca3af';
   const s = size || 26;
@@ -160,21 +185,28 @@ async function loadAndRender() {
   const weekTo = dates[6];
 
   try {
-    const [activeRes, archivedRes, logsRes, statsRes] = await Promise.all([
+    const weekUrl = currentWeekStart
+      ? `/api/habits/week?week_start=${currentWeekStart}`
+      : '/api/habits/week';
+
+    const [weekRes, activeRes, archivedRes, logsRes] = await Promise.all([
+      fetch(weekUrl),
       fetch('/api/habits'),
       fetch('/api/habits?include_archived=true'),
       fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
-      fetch('/api/habits/stats?days=30'),
     ]);
 
+    if (!weekRes.ok) throw new Error(`Server error ${weekRes.status}`);
     if (!activeRes.ok) throw new Error(`Server error ${activeRes.status}`);
     if (!archivedRes.ok) throw new Error(`Server error ${archivedRes.status}`);
+
+    weekData = await weekRes.json();
+    currentWeekStart = weekData.week_start;
 
     activeHabits = await activeRes.json();
     const allHabits = await archivedRes.json();
     archivedHabits = allHabits.filter(h => h.is_archived);
     const logs = logsRes.ok ? await logsRes.json() : [];
-    const stats = statsRes.ok ? await statsRes.json() : [];
 
     // Fetch per-habit progress for weekly habits card
     const progressMap = {};
@@ -191,15 +223,8 @@ async function loadAndRender() {
       });
     }
 
-    // ── Subtitle ──
-    const subtitleEl = document.getElementById('habits-subtitle');
-    if (subtitleEl) {
-      if (activeHabits.length === 0) {
-        subtitleEl.textContent = 'No habits yet — add one to start tracking';
-      } else {
-        subtitleEl.textContent = `${activeHabits.length} habit${activeHabits.length !== 1 ? 's' : ''} · this week`;
-      }
-    }
+    // ── Page header (always updated) ──
+    renderPageHeader();
 
     // ── Starter or dashboard ──
     if (activeHabits.length === 0 && archivedHabits.length === 0) {
@@ -212,9 +237,11 @@ async function loadAndRender() {
     document.getElementById('habits-day-grid-card').style.display = '';
     document.getElementById('weekly-habits-card').style.display = '';
 
-    // ── Dashboard cards ──
-    renderWheel(activeHabits, logs, dates, todayStr);
-    renderStatsCard(activeHabits, stats);
+    // ── Hero cards ──
+    renderHeroWheel();
+    renderHeroStats();
+
+    // ── Daily grid + weekly habits (unchanged, uses current-week data) ──
     renderDailyGrid(activeHabits, logs, dates, todayStr);
     renderWeeklyHabits(activeHabits, progressMap);
     renderArchivedList();
@@ -233,7 +260,6 @@ function renderEmptyState() {
   document.getElementById('weekly-habits-card').style.display = 'none';
 
   renderStarterGrid();
-  renderWheelEmpty();
 }
 
 function renderStarterGrid() {
@@ -279,79 +305,189 @@ async function createStarterHabit(starter) {
   }
 }
 
-// ── Wheel ─────────────────────────────────────────────────────────────────────
+// ── Page header ───────────────────────────────────────────────────────────────
 
-function renderWheelEmpty() {
-  const arc = document.getElementById('wheel-arc');
-  const pctEl = document.getElementById('wheel-pct');
-  const labelEl = document.getElementById('wheel-label');
-  if (!arc) return;
-  arc.classList.add('wheel-empty');
-  arc.style.strokeDashoffset = '0';
-  if (pctEl) {
-    pctEl.style.fontSize = '13px';
-    pctEl.style.color = 'var(--text-tertiary)';
-    pctEl.textContent = 'Add habits to start tracking';
+function renderPageHeader() {
+  const subtitleEl = document.getElementById('habits-subtitle');
+  const navLabel = document.getElementById('week-nav-label');
+  const nextBtn = document.getElementById('week-next-btn');
+  const backWrap = document.getElementById('back-current-wrap');
+
+  const isEmpty = (activeHabits.length === 0 && archivedHabits.length === 0);
+
+  if (isEmpty) {
+    if (subtitleEl) subtitleEl.textContent = 'No habits yet — add one to start tracking';
+    if (navLabel) navLabel.textContent = weekData ? formatWeekRange(weekData.week_start, weekData.week_end) : '—';
+    if (nextBtn) nextBtn.disabled = weekData ? weekData.is_current_week : true;
+    if (backWrap) backWrap.style.display = 'none';
+    return;
   }
-  if (labelEl) labelEl.textContent = '';
+
+  if (!weekData) return;
+
+  const range = formatWeekRange(weekData.week_start, weekData.week_end);
+  if (navLabel) navLabel.textContent = range;
+  if (nextBtn) nextBtn.disabled = weekData.is_current_week;
+  if (backWrap) backWrap.style.display = weekData.is_current_week ? 'none' : '';
+
+  if (!subtitleEl) return;
+
+  if (!weekData.is_current_week) {
+    subtitleEl.textContent = `Week of ${range}`;
+    return;
+  }
+
+  // Current week: "Week of Jun 9–15 · day N of 7 · X of Y daily checks so far"
+  const today = bangkokTodayStr();
+  const totals = weekData.week_totals;
+  const N = totals.elapsed_days;
+  const doneElapsed = (weekData.day_scores || [])
+    .filter(ds => ds.date <= today)
+    .reduce((acc, ds) => acc + ds.done, 0);
+  const possibleElapsed = totals.daily_habits_count * N;
+  subtitleEl.textContent = `Week of ${range} · day ${N} of 7 · ${doneElapsed} of ${possibleElapsed} daily checks so far`;
 }
 
-function renderWheel(habits, logs, dates, todayStr) {
-  const arc = document.getElementById('wheel-arc');
+// ── Hero wheel (Card A) ───────────────────────────────────────────────────────
+
+const WHEEL_COLORS = {
+  full:    '#16a34a',
+  partial: '#f59e0b',
+  zero:    '#9ca3af',
+  today:   '#2563eb',
+  future:  '#d1d9e9',
+};
+const WHEEL_DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+function renderHeroWheel() {
+  const svg = document.getElementById('week-wheel-svg');
   const pctEl = document.getElementById('wheel-pct');
-  const labelEl = document.getElementById('wheel-label');
-  if (!arc) return;
+  const checksEl = document.getElementById('wheel-checks-line');
+  if (!svg || !weekData) return;
 
-  arc.classList.remove('wheel-empty');
-  arc.style.stroke = '';
+  const wheel = weekData.wheel || [];
+  const totals = weekData.week_totals;
 
-  const total = habits.length * 7;
-  if (total === 0) { renderWheelEmpty(); return; }
+  // Geometry constants — all dependent on viewBox "0 0 148 148"
+  const cx = 74, cy = 74;
+  const r = 52;       // ring radius
+  const sw = 11;      // stroke width
+  const arcDeg = 44;  // degrees each arc spans
+  const slotDeg = 360 / 7;  // degrees per day slot (~51.43°)
+  const letterR = 63;       // radius for day-letter placement (outside ring)
 
-  // Count distinct (habit_id, date) pairs this week up to today
-  const seen = new Set();
-  logs.forEach(l => {
-    if (l.logged_date >= dates[0] && l.logged_date <= todayStr) {
-      seen.add(l.habit_id + '|' + l.logged_date);
-    }
+  svg.innerHTML = '';
+
+  wheel.forEach((seg, i) => {
+    const slotCenter = -90 + i * slotDeg;
+    const arcStart = slotCenter - arcDeg / 2;
+    const arcEnd   = slotCenter + arcDeg / 2;
+    const isToday  = seg.state === 'today';
+
+    // Arc segment
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', arcPath(cx, cy, r, arcStart, arcEnd));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', WHEEL_COLORS[seg.state] || WHEEL_COLORS.zero);
+    path.setAttribute('stroke-width', String(sw));
+    path.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(path);
+
+    // Day letter (outside ring)
+    const lpos = polarToCartesian(cx, cy, letterR, slotCenter);
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('x', lpos.x.toFixed(2));
+    txt.setAttribute('y', lpos.y.toFixed(2));
+    txt.setAttribute('text-anchor', 'middle');
+    txt.setAttribute('dominant-baseline', 'central');
+    txt.setAttribute('font-size', '8');
+    txt.setAttribute('font-family', 'Inter Tight, system-ui, sans-serif');
+    txt.setAttribute('font-weight', isToday ? '700' : '400');
+    txt.setAttribute('fill', isToday ? '#2563eb' : '#8b95ad');
+    txt.textContent = WHEEL_DAY_LETTERS[i];
+    svg.appendChild(txt);
   });
-  const daysElapsed = dates.filter(d => d <= todayStr).length;
-  const possibleSoFar = habits.length * Math.max(1, daysElapsed);
-  const completed = seen.size;
-  const pct = Math.round(Math.min(100, (completed / possibleSoFar) * 100));
 
-  const offset = WHEEL_CIRCUMFERENCE * (1 - pct / 100);
-  arc.style.strokeDashoffset = offset;
+  // Center percentage
+  if (pctEl) pctEl.textContent = Math.round(totals.pct_elapsed) + '%';
 
-  if (pctEl) {
-    pctEl.style.fontSize = '';
-    pctEl.style.color = '';
-    pctEl.textContent = pct + '%';
+  // Checks line (right of wheel)
+  if (checksEl) {
+    const today = bangkokTodayStr();
+    const doneElapsed = (weekData.day_scores || [])
+      .filter(ds => ds.date <= today)
+      .reduce((acc, ds) => acc + ds.done, 0);
+    const possibleElapsed = totals.daily_habits_count * totals.elapsed_days;
+
+    if (weekData.is_current_week) {
+      checksEl.textContent = `${doneElapsed} / ${possibleElapsed} possible checks (Mon–today)`;
+    } else {
+      const doneFull = totals.daily_done;
+      const possibleFull = totals.daily_habits_count * 7;
+      checksEl.textContent = `${doneFull} / ${possibleFull} checks`;
+    }
   }
-  if (labelEl) labelEl.textContent = 'this week';
 }
 
-// ── Stats card ────────────────────────────────────────────────────────────────
+// ── Hero stats (Card B) ───────────────────────────────────────────────────────
 
-function renderStatsCard(habits, stats) {
-  const streakEl = document.getElementById('stat-streak');
-  const rateEl = document.getElementById('stat-rate');
-  const countEl = document.getElementById('stat-count');
+function renderHeroStats() {
+  if (!weekData) return;
 
-  if (countEl) countEl.textContent = String(habits.length);
+  const todayLabelEl  = document.getElementById('stat-today-label');
+  const todayValEl    = document.getElementById('stat-today-val');
+  const todaySubEl    = document.getElementById('stat-today-sub');
+  const streakTile    = document.getElementById('stat-streak-tile');
+  const streakValEl   = document.getElementById('stat-streak-val');
+  const streakSubEl   = document.getElementById('stat-streak-sub');
+  const lastWeekValEl = document.getElementById('stat-lastweek-val');
+  const lastWeekSubEl = document.getElementById('stat-lastweek-sub');
 
-  let bestStreak = 0;
-  let avgRate = 0;
-  if (Array.isArray(stats) && stats.length > 0) {
-    stats.forEach(s => {
-      if (s.streak > bestStreak) bestStreak = s.streak;
-    });
-    const totalRate = stats.reduce((acc, s) => acc + (s.completion_rate || 0), 0);
-    avgRate = Math.round((totalRate / stats.length) * 100);
+  const today   = bangkokTodayStr();
+  const totals  = weekData.week_totals;
+  const streaks = weekData.streaks || {};
+  const lastWeek = weekData.last_week;
+
+  // ── Today tile ──
+  if (weekData.is_current_week) {
+    const todayScore = (weekData.day_scores || []).find(ds => ds.date === today) || { done: 0, of: 0 };
+    if (todayLabelEl) todayLabelEl.textContent = 'Today';
+    if (todayValEl) todayValEl.textContent = `${todayScore.done} / ${todayScore.of}`;
+    if (todaySubEl) {
+      const left = Math.max(0, todayScore.of - todayScore.done);
+      todaySubEl.textContent = left === 0
+        ? 'all done!'
+        : `${left} habit${left !== 1 ? 's' : ''} left to check`;
+    }
+  } else {
+    // Past-week: show week result
+    if (todayLabelEl) todayLabelEl.textContent = 'Week result';
+    if (todayValEl) todayValEl.textContent = `${Math.round(totals.pct_full_week)}%`;
+    if (todaySubEl) todaySubEl.textContent = '';
   }
 
-  if (streakEl) streakEl.textContent = bestStreak + (bestStreak === 1 ? ' day' : ' days');
-  if (rateEl) rateEl.textContent = avgRate + '%';
+  // ── Best streak tile (hide gracefully when null) ──
+  const best = streaks.best;
+  if (streakTile) {
+    if (best && best.length > 0) {
+      streakTile.style.display = '';
+      if (streakValEl) streakValEl.textContent = `${best.length} day${best.length !== 1 ? 's' : ''}`;
+      if (streakSubEl) streakSubEl.textContent = best.habit_name || '—';
+    } else {
+      streakTile.style.display = 'none';
+    }
+  }
+
+  // ── Last week tile ──
+  if (lastWeek) {
+    if (lastWeekValEl) lastWeekValEl.textContent = `${Math.round(lastWeek.pct)}%`;
+    if (lastWeekSubEl) {
+      lastWeekSubEl.innerHTML = `<span class="stat-sub-green">${lastWeek.done} / ${lastWeek.possible} checks ✓</span>`;
+    }
+  } else {
+    if (lastWeekValEl) lastWeekValEl.textContent = '—';
+    if (lastWeekSubEl) lastWeekSubEl.textContent = 'no data';
+  }
 }
 
 // ── Daily grid ────────────────────────────────────────────────────────────────
@@ -479,12 +615,16 @@ async function handleDayCellToggle(btn) {
       }
     }
 
-    // Re-render wheel with updated logs (lightweight)
-    const dates = weekDates();
-    const logsRes = await fetch(`/api/habits/logs?from=${dates[0]}&to=${dates[6]}`);
-    if (logsRes.ok) {
-      const logs = await logsRes.json();
-      renderWheel(activeHabits, logs, dates, bangkokTodayStr());
+    // Refresh hero from /api/habits/week to reflect the toggle
+    const weekUrl = currentWeekStart
+      ? `/api/habits/week?week_start=${currentWeekStart}`
+      : '/api/habits/week';
+    const weekRes = await fetch(weekUrl);
+    if (weekRes.ok) {
+      weekData = await weekRes.json();
+      renderPageHeader();
+      renderHeroWheel();
+      renderHeroStats();
     }
   } catch (e) {
     showError('Failed to update log: ' + e.message);
@@ -770,6 +910,38 @@ function closeModal() {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('add-habit-btn').addEventListener('click', openNewModal);
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
+
+  // ── Week navigation ──
+  const prevBtn = document.getElementById('week-prev-btn');
+  const nextBtn = document.getElementById('week-next-btn');
+  const backBtn = document.getElementById('back-current-btn');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', async () => {
+      if (!currentWeekStart) return;
+      const [y, m, d] = currentWeekStart.split('-').map(Number);
+      const prevMon = new Date(y, m - 1, d - 7);
+      currentWeekStart = isoDate(prevMon);
+      await loadAndRender();
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', async () => {
+      if (!currentWeekStart || (weekData && weekData.is_current_week)) return;
+      const [y, m, d] = currentWeekStart.split('-').map(Number);
+      const nextMon = new Date(y, m - 1, d + 7);
+      currentWeekStart = isoDate(nextMon);
+      await loadAndRender();
+    });
+  }
+
+  if (backBtn) {
+    backBtn.addEventListener('click', async () => {
+      currentWeekStart = null;
+      await loadAndRender();
+    });
+  }
 
   document.getElementById('habit-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('habit-modal')) closeModal();
