@@ -316,10 +316,16 @@
         ' <span class="seg-or">·</span> rest' +
         ' <input type="number" class="seg-restm" inputmode="numeric" min="0" step="50" placeholder="200" value="' + (data.restM != null ? data.restM : '') + '"> m';
     } else {
+      // One value + a km/min unit toggle
+      var unit = data.minutes != null && data.km == null ? 'min' : 'km';
+      var val = unit === 'min' ? data.minutes : data.km;
+      row.dataset.unit = unit;
       inputs =
-        '<input type="number" class="seg-dist" inputmode="decimal" min="0" step="0.1" placeholder="—" value="' + (data.km != null ? data.km : '') + '"> km' +
-        ' <span class="seg-or">or</span> ' +
-        '<input type="number" class="seg-min" inputmode="numeric" min="0" step="1" placeholder="—" value="' + (data.minutes != null ? data.minutes : '') + '"> min';
+        '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (val != null ? val : '') + '">' +
+        '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
+          '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
+          '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
+        '</span>';
     }
 
     row.innerHTML =
@@ -334,6 +340,17 @@
     });
     row.querySelectorAll('input').forEach(function (inp) {
       inp.addEventListener('input', recomputeSegments);
+    });
+    row.querySelectorAll('.seg-unit').forEach(function (ub) {
+      ub.addEventListener('click', function () {
+        row.dataset.unit = ub.dataset.unit;
+        row.querySelectorAll('.seg-unit').forEach(function (b) {
+          b.classList.toggle('active', b === ub);
+        });
+        var valEl = row.querySelector('.seg-val');
+        if (valEl) valEl.step = ub.dataset.unit === 'min' ? '1' : '0.1';
+        recomputeSegments();
+      });
     });
 
     // Drag-and-drop reordering (same affordance as the exercise table)
@@ -392,7 +409,11 @@
     if (cfg.mode === 'block') {
       return { type: type, sets: num('.seg-sets'), repM: num('.seg-repm'), restM: num('.seg-restm') };
     }
-    return { type: type, km: num('.seg-dist', true), minutes: num('.seg-min') };
+    var v = num('.seg-val', true);
+    if (row.dataset.unit === 'min') {
+      return { type: type, km: null, minutes: v };
+    }
+    return { type: type, km: v, minutes: null };
   }
 
   function getSegmentObjects() {
@@ -773,10 +794,19 @@
   // ── Workout templates ─────────────────────────────────────────────────────────
 
   async function saveTemplate() {
-    var exercises = getExerciseRows().filter(function (r) { return r.name; });
-    if (!exercises.length) {
-      showToast('Add at least one exercise before saving a template.', true);
-      return;
+    var exercises;
+    if (runActive()) {
+      exercises = getSegments();
+      if (!exercises.length) {
+        showToast('Add at least one segment before saving a template.', true);
+        return;
+      }
+    } else {
+      exercises = getExerciseRows().filter(function (r) { return r.name; });
+      if (!exercises.length) {
+        showToast('Add at least one exercise before saving a template.', true);
+        return;
+      }
     }
     var tplName = prompt('Template name:');
     if (!tplName || !tplName.trim()) return;
@@ -812,28 +842,69 @@
       }
       listEl.innerHTML = '';
       templates.forEach(function (t) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:stretch;gap:0.35rem;margin-bottom:0.4rem;';
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.style.cssText = 'display:block;width:100%;text-align:left;padding:0.65rem 0.75rem;margin-bottom:0.4rem;border:1px solid #e5e5e5;border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
-        btn.textContent = t.name;
+        btn.style.cssText = 'flex:1;text-align:left;padding:0.65rem 0.75rem;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.9375rem;';
+        btn.textContent = t.name + (isRunTemplate(t) ? '  🏃' : '');
         btn.addEventListener('mouseover', function () { btn.style.background = '#f8f9ff'; btn.style.borderColor = '#b3c0f0'; });
-        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = '#e5e5e5'; });
+        btn.addEventListener('mouseout', function () { btn.style.background = '#fff'; btn.style.borderColor = ''; });
         btn.addEventListener('click', function () {
           modal.style.display = 'none';
           applyTemplate(t);
         });
-        listEl.appendChild(btn);
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'remove-row-btn';
+        del.title = 'Delete template';
+        del.textContent = '✕';
+        del.addEventListener('click', async function () {
+          if (!confirm('Delete template "' + t.name + '"?')) return;
+          try {
+            var dres = await fetch('/api/workout-templates/' + t.id, { method: 'DELETE' });
+            if (!dres.ok && dres.status !== 204) throw new Error('Server error ' + dres.status);
+            row.remove();
+            if (!listEl.querySelector('div')) {
+              listEl.innerHTML = '<p class="empty-msg">No templates saved yet.</p>';
+            }
+          } catch (de) {
+            showToast('Could not delete template: ' + de.message, true);
+          }
+        });
+        row.appendChild(btn);
+        row.appendChild(del);
+        listEl.appendChild(row);
       });
     } catch (e) {
       listEl.innerHTML = '<p class="error-msg">Failed to load templates: ' + e.message + '</p>';
     }
   }
 
+  // A template is a run template when every row maps to a known segment label.
+  function isRunTemplate(template) {
+    var exs = template.exercises || [];
+    if (!exs.length) return false;
+    return exs.every(function (ex) { return exerciseToSegment(ex) !== null; });
+  }
+
   function applyTemplate(template) {
-    document.getElementById('exercises-tbody').innerHTML = '';
-    document.getElementById('exercises-error').textContent = '';
-    (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
-    if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    if (isRunTemplate(template)) {
+      setSelectedType('Running');
+      var list = document.getElementById('segments-list');
+      list.innerHTML = '';
+      _totalsTouched = false;
+      (template.exercises || []).forEach(function (ex) {
+        var seg = exerciseToSegment(ex);
+        if (seg) addSegmentRow(seg.type, seg);
+      });
+      recomputeSegments();
+    } else {
+      document.getElementById('exercises-tbody').innerHTML = '';
+      document.getElementById('exercises-error').textContent = '';
+      (template.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+      if (!template.exercises || !template.exercises.length) addExerciseRow(null);
+    }
     showToast('Prefilled from template "' + template.name + '".');
   }
 

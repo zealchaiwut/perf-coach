@@ -560,13 +560,35 @@
       box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
-    .seg-dist { width: 4.2rem; }
-    .seg-min  { width: 3.6rem; }
+    .seg-val  { width: 4.2rem; }
     .seg-sets { width: 2.8rem; }
     .seg-repm { width: 4rem; }
     .seg-restm { width: 4rem; }
 
     .seg-or { color: var(--border-input); }
+
+    /* km/min unit toggle */
+    .seg-unit-toggle {
+      display: inline-flex;
+      border: 1px solid var(--border-input);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .seg-unit {
+      border: none;
+      background: var(--surface);
+      color: var(--text-sub);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      cursor: pointer;
+    }
+
+    .seg-unit.active {
+      background: var(--primary);
+      color: #fff;
+    }
 
     .seg-foot {
       display: flex;

@@ -104,10 +104,11 @@ def test_workout_logging__quick_log_modal_removed():
 def test_workout_logging__home_entry_points_open_full_editor():
     js = _HOME_JS.read_text()
     assert "WorkoutForm" not in js, "home.js must not reference the removed modal"
-    assert "/training" in js, "home Log-workout buttons must navigate to /training"
+    assert "rw-log-btn" in js and "/training" in js, \
+        "Recent-workouts card must carry the Log workout button linking to /training"
     html = _HOME_HTML.read_text()
-    assert "sticky" in html.lower(), \
-        "home.html keeps the sticky mobile Log workout button (now navigating to /training)"
+    assert "sticky-log-btn" not in html, \
+        "floating sticky Log-workout button is removed (button lives in the workouts widget)"
 
 
 def test_workout_logging__training_log_entry_points_open_full_editor():
