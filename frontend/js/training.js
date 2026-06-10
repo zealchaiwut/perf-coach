@@ -263,9 +263,9 @@
     return parseFloat(n.toFixed(2)).toString();
   }
 
-  // Segment types: label + which inputs the row shows.
-  // mode 'span'  = distance (km) OR duration (min)
-  // mode 'block' = sets × rep distance (m) + rest (m)
+  // Segment types. Every row carries: value + km/min unit toggle + pace + HR.
+  // 'block' rows (Intervals) add a sets× multiplier. Rest-between-reps was
+  // dropped from the block; drag a standalone Rest segment where needed.
   var SEG_TYPES = {
     warmup:    { label: 'Warm-up',   mode: 'span'  },
     easy:      { label: 'Easy run',  mode: 'span'  },
@@ -278,25 +278,42 @@
   // Built-in starting points; users tweak then "Save as template" for their own.
   var RUN_TEMPLATES = {
     easy: [
-      { type: 'warmup',   minutes: 10 },
-      { type: 'easy',     km: 5 },
-      { type: 'cooldown', minutes: 5 },
+      { type: 'warmup',   value: 10,  unit: 'min' },
+      { type: 'easy',     value: 5,   unit: 'km'  },
+      { type: 'cooldown', value: 5,   unit: 'min' },
     ],
     intervals: [
-      { type: 'warmup',    km: 1 },
-      { type: 'intervals', sets: 4, repM: 400, restM: 200 },
-      { type: 'cooldown',  km: 1 },
+      { type: 'warmup',    value: 1,   unit: 'km' },
+      { type: 'intervals', sets: 4, value: 0.4, unit: 'km' },
+      { type: 'cooldown',  value: 1,   unit: 'km' },
     ],
     tempo: [
-      { type: 'warmup',   minutes: 10 },
-      { type: 'tempo',    minutes: 20 },
-      { type: 'cooldown', minutes: 10 },
+      { type: 'warmup',   value: 10, unit: 'min' },
+      { type: 'tempo',    value: 20, unit: 'min' },
+      { type: 'cooldown', value: 10, unit: 'min' },
     ],
   };
 
   // When the user types totals directly, segment sums stop overwriting them.
   var _totalsTouched = false;
   var _segDragSrc = null;
+
+  // "5:30" → 330 s/km; bare number → minutes/km. null = empty, NaN = invalid.
+  function parsePaceInput(str) {
+    str = (str || '').trim();
+    if (str === '') return null;
+    var m = /^(\d+):([0-5]\d)$/.exec(str);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (/^\d+(\.\d+)?$/.test(str)) return Math.round(parseFloat(str) * 60);
+    return NaN;
+  }
+
+  function fmtPaceSec(sec) {
+    if (sec == null || !isFinite(sec) || sec <= 0) return '';
+    var m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    if (s === 60) { m += 1; s = 0; }
+    return m + ':' + String(s).padStart(2, '0');
+  }
 
   function addSegmentRow(type, data) {
     var cfg = SEG_TYPES[type];
@@ -308,25 +325,23 @@
     row.draggable = true;
     row.dataset.segType = type;
 
-    var inputs;
+    var unit = data.unit === 'min' ? 'min' : 'km';
+    row.dataset.unit = unit;
+
+    var inputs = '';
     if (cfg.mode === 'block') {
-      inputs =
-        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" value="' + (data.sets != null ? data.sets : '') + '"> ×' +
-        ' <input type="number" class="seg-repm" inputmode="numeric" min="50" step="50" placeholder="400" value="' + (data.repM != null ? data.repM : '') + '"> m' +
-        ' <span class="seg-or">·</span> rest' +
-        ' <input type="number" class="seg-restm" inputmode="numeric" min="0" step="50" placeholder="200" value="' + (data.restM != null ? data.restM : '') + '"> m';
-    } else {
-      // One value + a km/min unit toggle
-      var unit = data.minutes != null && data.km == null ? 'min' : 'km';
-      var val = unit === 'min' ? data.minutes : data.km;
-      row.dataset.unit = unit;
-      inputs =
-        '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (val != null ? val : '') + '">' +
-        '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
-          '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
-          '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
-        '</span>';
+      inputs +=
+        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" value="' + (data.sets != null ? data.sets : '') + '"> ×';
     }
+    inputs +=
+      '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (data.value != null ? data.value : '') + '">' +
+      '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
+        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
+      '</span>' +
+      '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
+      '<span class="seg-suffix">/km</span>' +
+      '<input type="number" class="seg-hr" inputmode="numeric" min="20" max="250" placeholder="HR" title="Avg heart rate" value="' + (data.hr != null ? data.hr : '') + '">';
 
     row.innerHTML =
       '<span class="seg-handle" title="Drag to reorder">⠿</span>' +
@@ -406,14 +421,15 @@
       var n = float ? parseFloat(el.value) : parseInt(el.value, 10);
       return isNaN(n) ? null : n;
     }
-    if (cfg.mode === 'block') {
-      return { type: type, sets: num('.seg-sets'), repM: num('.seg-repm'), restM: num('.seg-restm') };
-    }
-    var v = num('.seg-val', true);
-    if (row.dataset.unit === 'min') {
-      return { type: type, km: null, minutes: v };
-    }
-    return { type: type, km: v, minutes: null };
+    var paceEl = row.querySelector('.seg-pace');
+    return {
+      type: type,
+      sets: cfg.mode === 'block' ? num('.seg-sets') : null,
+      value: num('.seg-val', true),
+      unit: row.dataset.unit === 'min' ? 'min' : 'km',
+      paceSec: parsePaceInput(paceEl ? paceEl.value : ''),
+      hr: num('.seg-hr'),
+    };
   }
 
   function getSegmentObjects() {
@@ -424,16 +440,31 @@
     return out;
   }
 
-  // Segment sums: distance (km) + duration (s) from whatever is specified.
+  // Resolve one segment to per-unit km + seconds (pace fills the missing side).
+  function segmentDims(s) {
+    var km = null, sec = null;
+    var pace = (s.paceSec != null && !isNaN(s.paceSec)) ? s.paceSec : null;
+    if (s.unit === 'km') {
+      km = s.value;
+      if (km != null && pace) sec = km * pace;
+    } else {
+      sec = s.value != null ? s.value * 60 : null;
+      if (sec != null && pace) km = sec / pace;
+    }
+    var mult = s.sets != null && s.sets > 0 ? s.sets : 1;
+    return {
+      km: km != null ? km * mult : null,
+      sec: sec != null ? sec * mult : null,
+      repKm: km, repSec: sec,
+    };
+  }
+
   function segmentTotals() {
     var km = 0, sec = 0;
     getSegmentObjects().forEach(function (s) {
-      if (s.type && SEG_TYPES[s.type].mode === 'block') {
-        if (s.sets && s.repM) km += s.sets * (s.repM + (s.restM || 0)) / 1000;
-      } else {
-        if (s.km) km += s.km;
-        if (s.minutes) sec += s.minutes * 60;
-      }
+      var d = segmentDims(s);
+      if (d.km) km += d.km;
+      if (d.sec) sec += d.sec;
     });
     return { km: km, sec: sec };
   }
@@ -470,22 +501,25 @@
   }
 
   // Serialize segments into workout_exercises payload rows.
+  // Per-rep distance/duration for blocks; pace materializes the missing side.
   function getSegments() {
     var out = [];
     getSegmentObjects().forEach(function (s, i) {
       var cfg = SEG_TYPES[s.type];
-      var row = { display_order: i, name: cfg.label, sets: null, reps: null, weight_kg: null, duration: null, rpe: null, distance_km: null, duration_seconds: null };
-      if (cfg.mode === 'block') {
-        if (!s.sets && !s.repM) return; // empty row, skip
-        row.sets = s.sets;
-        row.distance_km = s.repM != null ? s.repM / 1000 : null;
-        if (s.restM != null) row.duration = 'rest ' + s.restM + 'm';
-      } else {
-        if (s.km == null && s.minutes == null) return; // empty row, skip
-        row.distance_km = s.km;
-        row.duration_seconds = s.minutes != null ? s.minutes * 60 : null;
-      }
-      out.push(row);
+      if (s.value == null && s.sets == null && s.hr == null) return; // empty row, skip
+      var d = segmentDims(s);
+      out.push({
+        display_order: i,
+        name: cfg.label,
+        sets: cfg.mode === 'block' ? s.sets : null,
+        reps: null,
+        weight_kg: null,
+        duration: null,
+        rpe: null,
+        distance_km: d.repKm != null ? parseFloat(d.repKm.toFixed(3)) : null,
+        duration_seconds: d.repSec != null ? Math.round(d.repSec) : null,
+        avg_hr: s.hr,
+      });
     });
     return out;
   }
@@ -498,17 +532,18 @@
       if (SEG_TYPES[k].label.toLowerCase() === name) type = k;
     });
     if (!type) return null; // not a run segment row (e.g. legacy strength exercise)
-    if (SEG_TYPES[type].mode === 'block') {
-      var rest = null;
-      var m = /rest\s+(\d+)\s*m/i.exec(ex.duration || '');
-      if (m) rest = parseInt(m[1], 10);
-      return { type: type, sets: ex.sets, repM: ex.distance_km != null ? Math.round(ex.distance_km * 1000) : null, restM: rest };
-    }
-    return {
+    var km = ex.distance_km != null ? parseFloat(ex.distance_km) : null;
+    var sec = ex.duration_seconds != null ? ex.duration_seconds : null;
+    var seg = {
       type: type,
-      km: ex.distance_km != null ? parseFloat(ex.distance_km) : null,
-      minutes: ex.duration_seconds != null ? Math.round(ex.duration_seconds / 60) : null,
+      sets: ex.sets != null ? ex.sets : null,
+      hr: ex.avg_hr != null ? ex.avg_hr : null,
+      paceSec: (km && sec) ? sec / km : null,
     };
+    if (km != null) { seg.value = km; seg.unit = 'km'; }
+    else if (sec != null) { seg.value = Math.round(sec / 60); seg.unit = 'min'; }
+    else { seg.value = null; seg.unit = 'km'; }
+    return seg;
   }
 
   function resetRunFields() {
@@ -633,13 +668,18 @@
     getSegmentObjects().forEach(function (s) {
       var cfg = SEG_TYPES[s.type];
       if (cfg.mode === 'block') {
-        var empty = s.sets == null && s.repM == null && s.restM == null;
-        if (!empty && (!s.sets || s.sets < 1 || !s.repM || s.repM <= 0)) {
-          segIssue = 'Intervals need sets ≥ 1 and a rep distance.';
+        var empty = s.sets == null && s.value == null;
+        if (!empty && (!s.sets || s.sets < 1 || s.value == null || s.value <= 0)) {
+          segIssue = 'Intervals need sets ≥ 1 and a rep value.';
         }
-      } else {
-        if (s.km != null && s.km < 0) segIssue = 'Segment distance must be ≥ 0.';
-        if (s.minutes != null && s.minutes < 0) segIssue = 'Segment minutes must be ≥ 0.';
+      } else if (s.value != null && s.value < 0) {
+        segIssue = 'Segment values must be ≥ 0.';
+      }
+      if (s.paceSec != null && isNaN(s.paceSec)) {
+        segIssue = 'Pace must be m:ss per km (e.g. 5:30).';
+      }
+      if (s.hr != null && (s.hr < 20 || s.hr > 250)) {
+        segIssue = 'Segment HR must be between 20 and 250.';
       }
     });
     if (segIssue) {
