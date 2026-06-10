@@ -1,5 +1,28 @@
 # Changelog
 
+## Sprint 53.1 — Weight redesign cleanup
+
+- #427: Weight page redesign: plan-vs-actual tracking, milestone chart, stepper quick-log, coach strip — docs updated, Chart.js dead code removed, purge script added
+
+## Sprint 53 — Weight page redesign
+
+- #420: Investigate Weight Page and Add Plan Math to Active-Target
+- #421: Extend weight-chart endpoint with plan series and milestones
+- #422: Rebuild weight page hero with 2-card layout
+- #423: Rebuild weight trend chart as custom SVG
+- #424: Rebuild progress card with stat-row and plan-aware milestones
+- #425: Rebuild recent entries as compact side-by-side card
+- #426: Migrate weight page to home design language
+
+Features shipped in Sprint 53:
+- Weight page migrated to home gradient design language (Inter Tight / JetBrains Mono, gradient background, floating cards)
+- Weight page hero rebuilt as 2-card layout: current weight hero + recent-entries side panel
+- Custom SVG trend chart replacing Chart.js dependency; renders actuals, 7-day MA, and plan overlay
+- Progress card rebuilt with stat-row and plan-aware milestones (25 % / 50 % / 75 % / goal)
+- `GET /api/weight-chart` extended with `plan_series`, `future_milestones`, `today_marker`, `logged_today`, `today_delta_kg`
+- `GET /api/weight-targets/active` extended with `plan_today_kg`, `gap_kg`, `gap_direction`, `gap_basis`, `milestones`
+- `backend/services/weight_plan.py` — plan math service: `plan_at`, `compute_gap`, `generate_milestones`
+
 ## Sprint 52 — Mobile fast-log & code quality
 
 - #394: Mobile-optimise daily metrics fast-log flow — new fast-log form on home page with stepper inputs, segmented energy/mood pills, 800ms auto-save debounce, and "Log today" CTA banner

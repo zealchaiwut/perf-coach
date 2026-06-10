@@ -119,3 +119,35 @@ Canvas element id: `weight-chart`. The instance is managed in `frontend/js/weigh
 The primary leak path is: `compute_status_label` → `status_label` field in active-target response → `weight-targets.js:236–244` renders `status_label` as a UI pill without guarding for `no_data`. The `labelMap` on line 244 falls back to class `'on-track'` for unknown values, so the pill shows the raw string `"no_data"` when no data is present.
 
 After this ticket, `gap_direction: "no_data"` is the canonical field; `status_label` is retained as a deprecated field.
+
+---
+
+## Post-ship verification
+
+Results recorded after the weight redesign shipped (sprint 53.1, issue #427).
+
+### Fresh-user (no data, no target set)
+
+- Weight page loads without JS errors on a new account with zero weight entries and no target.
+- Empty-state UI renders correctly; no-data coach strip state displayed.
+- Chart renders cleanly with no actuals/trend/plan lines and no crash.
+
+### Active flow (hero log + backfill row)
+
+- User with an active target logs today's weight via hero stepper → entry saves, plan-vs-actual delta updates immediately, coach strip reflects new state, milestone chart redraws.
+- Backfill row used to enter weight for 5 days ago → entry saves to correct date, 7-day rolling average recalculates, `gap_direction` reflects updated average.
+
+### Behind-plan render
+
+- Seeded entries set user more than 0.2 kg above target trajectory.
+- Coach strip shows behind-plan state (amber); gap indicator is negative (heavier than plan); correct copy displayed.
+
+### Ahead-of-plan render
+
+- Seeded entries set user more than 0.2 kg below target trajectory.
+- Coach strip shows ahead-of-plan state (green); gap indicator is positive (lighter than plan); milestone dates shift correctly.
+
+### No-target render
+
+- Weight target removed from an account that has existing weight entries.
+- Plan line absent from chart; milestone section hidden or shows appropriate empty state; no JS errors.
