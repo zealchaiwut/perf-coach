@@ -395,10 +395,11 @@ class TestACb_LogWeekStartBangkok:
         sess.refresh.side_effect = _refresh
 
         try:
-            with patch("backend.main.Session", return_value=sess):
+            with patch("backend.main.Session", return_value=sess), \
+                 patch("backend.main._bangkok_today", return_value=date(2026, 6, 14)):
                 res = client.post(
                     f"/api/habits/{habit_id}/log",
-                    json={"log_date": "2026-06-14"},  # Sunday
+                    json={"log_date": "2026-06-14"},  # Sunday — mock today=Sun so date is valid
                 )
             assert res.status_code == 201
             assert "log" in captured
@@ -441,10 +442,11 @@ class TestACb_LogWeekStartBangkok:
         sess.refresh.side_effect = _refresh
 
         try:
-            with patch("backend.main.Session", return_value=sess):
+            with patch("backend.main.Session", return_value=sess), \
+                 patch("backend.main._bangkok_today", return_value=date(2026, 6, 15)):
                 res = client.post(
                     f"/api/habits/{habit_id}/log",
-                    json={"log_date": "2026-06-15"},  # Monday
+                    json={"log_date": "2026-06-15"},  # Monday — mock today=Mon so date is valid
                 )
             assert res.status_code == 201
             assert "log" in captured
@@ -740,8 +742,9 @@ class TestACf_DeleteLog:
         sess = _make_delete_session(habit, existing_log=None)
 
         try:
-            with patch("backend.main.Session", return_value=sess):
-                res = client.delete(f"/api/habits/{habit_id}/log?date=2000-01-01")
+            with patch("backend.main.Session", return_value=sess), \
+                 patch("backend.main._bangkok_today", return_value=date(2026, 6, 11)):
+                res = client.delete(f"/api/habits/{habit_id}/log?date=2026-06-10")
             assert res.status_code == 404
         finally:
             _teardown()

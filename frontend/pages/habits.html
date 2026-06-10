@@ -4,75 +4,373 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Habits – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
   <style>
-    .page-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      max-width: 720px;
-      margin-bottom: 1.5rem;
+    /* ── Base ──────────────────────────────────────────────────────────────── */
+    html, body { margin: 0; padding: 0; overflow-x: hidden; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
     }
 
-    .page-header h1 {
-      font-size: 1.25rem;
-      font-weight: 700;
+    /* ── Page wrapper ──────────────────────────────────────────────────────── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 24px 24px;
+    }
+
+    /* ── Floating card ─────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 18px 20px;
+      margin-bottom: 10px;
+    }
+
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Page header (on gradient) ─────────────────────────────────────────── */
+    .habits-page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .habits-page-header h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+
+    .page-subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: rgba(255,255,255,0.72);
+    }
+
+    .btn-new-habit {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.92);
+      border: none;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-new-habit:hover { background: #fff; }
+
+    .error-msg {
+      font-size: 13px;
+      color: #fff;
+      min-height: 1.2em;
+      margin-bottom: 8px;
+      background: rgba(122,26,26,0.55);
+      border-radius: 8px;
+      padding: 0;
+    }
+    .error-msg:not(:empty) { padding: 10px 14px; }
+
+    /* ── Hero 2-col row ────────────────────────────────────────────────────── */
+    .hero-row {
+      display: grid;
+      grid-template-columns: minmax(280px, 350px) 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Wheel card (Card A) ───────────────────────────────────────────────── */
+    .hero-wheel-card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px 18px;
+    }
+
+    .hero-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
       margin: 0;
     }
 
-    .btn-primary {
-      padding: 0.5rem 1.25rem;
-      background: #1a1a1a;
-      color: #fff;
+    .wheel-and-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .wheel-wrap {
+      position: relative;
+      width: 148px;
+      height: 148px;
+      flex-shrink: 0;
+    }
+
+    .week-wheel-svg {
+      width: 148px;
+      height: 148px;
+      overflow: visible;
+    }
+
+    .wheel-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .wheel-pct {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .wheel-sublabel {
+      font-size: 7.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--text-tertiary);
+      margin-top: 3px;
+    }
+
+    .wheel-side {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .wheel-side-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+
+    .wheel-checks-line {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    .wheel-legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-dot-full    { background: #16a34a; }
+    .legend-dot-partial { background: #f59e0b; }
+    .legend-dot-zero    { background: #9ca3af; }
+    .legend-dot-future  { background: #d1d9e9; border: 1px solid #b8c4d8; }
+
+    /* ── Stats card (Card B) ───────────────────────────────────────────────── */
+    .hero-stats-card {
+      display: flex;
+      flex-direction: row;
+      gap: 1px;
+      background: var(--card-border);
+      border-radius: var(--card-radius);
+      overflow: hidden;
+      /* Card border/shadow applied via .card class on the element */
+    }
+
+    .stat-tile {
+      flex: 1;
+      background: var(--card-bg);
+      padding: 16px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .stat-tile-today { background: #f0f6ff; }
+
+    .stat-tile-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+    }
+
+    .stat-tile-val {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1.15;
+    }
+
+    .stat-tile-sub {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .stat-sub-green {
+      color: #16a34a;
+      font-weight: 500;
+    }
+
+    /* ── Week-nav pill ─────────────────────────────────────────────────────── */
+    .habits-header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .week-nav-pill {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.32);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+
+    .week-nav-btn {
+      background: none;
       border: none;
-      border-radius: 6px;
-      font-size: 0.9375rem;
+      color: #fff;
+      font-size: 16px;
       cursor: pointer;
+      padding: 0 5px;
+      line-height: 1;
+      opacity: 0.85;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-nav-btn:hover:not(:disabled) { opacity: 1; }
+    .week-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .week-nav-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #fff;
       white-space: nowrap;
+      min-width: 82px;
+      text-align: center;
     }
 
-    .btn-primary:hover { background: #333; }
+    /* ── Back-to-current chip ──────────────────────────────────────────────── */
+    .back-current-wrap { margin-bottom: 10px; }
 
-    .error-msg {
-      font-size: 0.8125rem;
-      color: #c0392b;
-      min-height: 1.2em;
-      margin-bottom: 0.75rem;
+    .back-current-btn {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      color: #fff;
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .back-current-btn:hover { background: rgba(255,255,255,0.28); }
+
+    /* ── Starter suggestions ───────────────────────────────────────────────── */
+    #starter-section {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 20px;
+      margin-bottom: 10px;
+      text-align: center;
     }
 
-    /* ── Starter suggestions ── */
-    .starter-section {
-      max-width: 720px;
-      margin-bottom: 2rem;
+    .starter-heading {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 6px;
     }
 
-    .starter-section p {
-      font-size: 0.9375rem;
-      color: #555;
-      margin-bottom: 0.75rem;
+    .starter-sub {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin: 0 0 16px;
     }
 
     .starter-grid {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem;
+      gap: 8px;
+      justify-content: center;
     }
 
     .starter-btn {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.6rem 1rem;
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      font-size: 0.9375rem;
+      gap: 8px;
+      padding: 8px 14px;
+      background: #f7f9fc;
+      border: 1px solid #e8eaf0;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-family: 'Inter Tight', sans-serif;
       cursor: pointer;
-      color: #1a1a1a;
-      transition: background 0.15s;
+      color: var(--text-primary);
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s;
     }
-
-    .starter-btn:hover { background: #eef0f2; }
+    .starter-btn:hover { background: #eef0f6; border-color: #d8e3f5; }
 
     .starter-icon {
       width: 28px;
@@ -81,204 +379,804 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.75rem;
-      font-weight: 700;
+      font-size: 14px;
       color: #fff;
       flex-shrink: 0;
     }
 
-    /* ── Habit list ── */
-    #habit-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      max-width: 720px;
+    /* ── Daily grid card ───────────────────────────────────────────────────── */
+    .habits-day-grid {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
-    .habit-row {
+    .day-grid-hdr {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 0.25rem;
-      border-bottom: 1px solid #e8e8e8;
-      cursor: default;
-      user-select: none;
+      justify-content: space-between;
+      margin-bottom: 14px;
     }
 
-    .habit-row.drag-over {
-      background: #f0f7ff;
-      border-radius: 4px;
+    .day-grid-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
     }
 
-    .habit-row.dragging {
-      opacity: 0.4;
+    .day-grid-week {
+      font-size: 12px;
+      color: var(--text-tertiary);
     }
 
-    .drag-handle {
-      color: #bbb;
-      cursor: grab;
-      font-size: 1rem;
-      padding: 0 0.125rem;
-      flex-shrink: 0;
-      line-height: 1;
+    .day-grid-table {
+      width: 100%;
+      min-width: 400px;
+      border-collapse: collapse;
     }
 
-    .drag-handle:active { cursor: grabbing; }
+    .day-grid-table th {
+      padding: 0 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      text-align: center;
+      min-width: 36px;
+    }
 
-    .habit-icon {
-      width: 34px;
-      height: 34px;
+    .day-grid-table th.day-hdr-full { display: table-cell; }
+    .day-grid-table th.day-hdr-short { display: none; }
+
+    .day-grid-table th.habit-name-hdr {
+      text-align: left;
+      min-width: 120px;
+      padding-left: 0;
+    }
+
+    .day-grid-table td {
+      padding: 4px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .day-grid-table td.habit-name-cell {
+      text-align: left;
+      padding: 6px 8px 6px 0;
+      max-width: 160px;
+    }
+
+    .habit-name-inner {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .habit-icon-chip {
+      width: 26px;
+      height: 26px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 700;
+      font-size: 12px;
       color: #fff;
       flex-shrink: 0;
     }
 
-    .habit-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .habit-name {
-      font-size: 0.9375rem;
-      font-weight: 600;
-      color: #1a1a1a;
+    .habit-name-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .habit-meta {
+    .habit-meta-line {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-top: 0.2rem;
-      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
     }
 
-    .habit-tracking-type {
-      font-size: 0.75rem;
-      color: #777;
-      background: #f3f4f6;
-      padding: 0.1rem 0.4rem;
+    .habit-type-chip {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      background: #f3f6fb;
+      padding: 1px 5px;
       border-radius: 4px;
     }
 
-    .habit-goal {
-      font-size: 0.8125rem;
-      color: #555;
-    }
-
-    .habit-autofill-pill {
-      font-size: 0.75rem;
-      padding: 0.15rem 0.5rem;
+    .habit-autofill-badge {
+      font-size: 10.5px;
+      padding: 1px 6px;
       border-radius: 999px;
       background: #dbeafe;
       color: #1d4ed8;
       white-space: nowrap;
     }
 
-    .habit-autofill-pill.manual {
-      background: #f3f4f6;
-      color: #6b7280;
+    /* Day cell base */
+    .day-cell-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid #e8eaf0;
+      background: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: transparent;
+      transition: background 0.12s, border-color 0.12s;
+      padding: 0;
     }
 
-    /* ── Actions menu ── */
-    .habit-actions {
-      position: relative;
+    /* done: green-soft filled circle with ✓ */
+    .day-cell-btn.done {
+      background: var(--green-soft, #dff5d6);
+      border-color: #16a34a;
+      color: var(--green, #2d5e10);
+    }
+    .day-cell-btn.done:hover { background: #c8efc1; }
+
+    /* missed: hollow grey ring */
+    .day-cell-btn.missed {
+      background: #fff;
+      border: 2px solid #e8eaf0;
+      color: transparent;
+    }
+    .day-cell-btn.missed:hover { border-color: #93c5fd; background: #eff6ff; }
+
+    /* today-pending: white with blue dashed border and + icon */
+    .day-cell-btn.today-pending {
+      background: #fff;
+      border: 2px dashed #2563eb;
+      color: #2563eb;
+    }
+    .day-cell-btn.today-pending:hover { background: #eff6ff; }
+
+    /* future: faint dotted ring, inert */
+    .day-cell-btn.future {
+      background: transparent;
+      border: 2px dotted #d1d9e9;
+      color: transparent;
+      cursor: default;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    /* Today's column header is blue */
+    .day-hdr-today {
+      color: #2563eb !important;
+      font-weight: 700 !important;
+    }
+
+    .day-grid-empty {
+      text-align: center;
+      padding: 24px 0;
+      font-size: 13.5px;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Total column ──────────────────────────────────────────────────────── */
+    .day-total-hdr {
+      text-align: right !important;
+      white-space: nowrap;
+      min-width: 80px;
+    }
+
+    .day-total-cell {
+      text-align: right;
+      padding: 4px 8px 4px 4px;
+      min-width: 80px;
+      vertical-align: middle;
+    }
+
+    .day-total-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: block;
+      white-space: nowrap;
+    }
+
+    .day-total-bar-outer {
+      height: 4px;
+      background: #e8eaf0;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 3px 0 2px;
+    }
+
+    .day-total-bar-inner {
+      height: 100%;
+      background: linear-gradient(90deg, #86efac, #16a34a);
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    .day-total-pct {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      display: block;
+      text-align: right;
+    }
+
+    /* ── Day score row ─────────────────────────────────────────────────────── */
+    .day-score-row td {
+      border-top: 2px solid #d1d9e9;
+      padding-top: 8px;
+    }
+
+    .day-score-row {
+      background: #f7f9fc;
+    }
+
+    .day-score-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      text-align: left;
+      padding: 8px 8px 4px 0;
+      white-space: nowrap;
+    }
+
+    .day-score-cell {
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .day-score-val {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .day-score-val.day-score-full { color: #16a34a; }
+    .day-score-val.day-score-today { color: #2563eb; }
+    .day-score-val.day-score-dash { color: var(--text-tertiary); opacity: 0.4; }
+
+    /* ── Streak badge ──────────────────────────────────────────────────────── */
+    .streak-badge {
+      font-size: 10px;
+      background: #fff4e5;
+      color: #92400e;
+      border: 1px solid #fde68a;
+      padding: 1px 6px;
+      border-radius: 999px;
+      white-space: nowrap;
       flex-shrink: 0;
     }
 
-    .actions-toggle {
+    /* ── Daily grid overflow menu ──────────────────────────────────────────── */
+    .habit-actions-hdr { min-width: 32px; }
+
+    .habit-day-actions {
+      position: relative;
+    }
+
+    .day-actions-toggle {
       background: none;
       border: none;
       cursor: pointer;
-      color: #999;
+      color: var(--text-tertiary);
       font-size: 1.1rem;
-      padding: 0.25rem 0.5rem;
+      padding: 4px 6px;
       border-radius: 4px;
       line-height: 1;
     }
+    .day-actions-toggle:hover { background: #e8eaf0; color: var(--text-primary); }
 
-    .actions-toggle:hover { background: #f3f4f6; color: #444; }
-
-    .actions-menu {
+    .day-actions-menu {
       display: none;
       position: absolute;
       right: 0;
       top: calc(100% + 4px);
       background: #fff;
       border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
       z-index: 50;
       min-width: 130px;
       overflow: hidden;
     }
-
-    .actions-menu.open { display: block; }
-
-    .actions-menu button {
+    .day-actions-menu.open { display: block; }
+    .day-actions-menu button {
       display: block;
       width: 100%;
       text-align: left;
-      padding: 0.6rem 1rem;
+      padding: 9px 14px;
       background: none;
       border: none;
       cursor: pointer;
-      font-size: 0.9rem;
-      color: #1a1a1a;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .day-actions-menu button:hover { background: #f7f9fc; }
+    .day-actions-menu button.danger { color: var(--red); }
+    .day-actions-menu button.danger:hover { background: var(--red-soft); }
+
+    /* ── Weekly habits card ────────────────────────────────────────────────── */
+    .weekly-habits {
+      padding-bottom: 20px;
     }
 
-    .actions-menu button:hover { background: #f8f9fa; }
-
-    .actions-menu button.danger {
-      color: #c0392b;
+    .weekly-habits-hdr {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 14px;
     }
 
-    .actions-menu button.danger:hover { background: #fee2e2; }
+    .weekly-habits-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
 
-    /* ── Archived section ── */
+    .weekly-habits-hint {
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+
+    .weekly-habits-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── Weekly habit row ────────── */
+    .week-habit-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #f7f9fc;
+      transition: background 0.15s;
+    }
+    .week-habit-row:hover { background: #eef0f6; }
+
+    /* Left: icon + name + badge */
+    .week-habit-left {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .week-habit-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .week-habit-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .week-habit-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      flex-wrap: wrap;
+    }
+
+    .week-auto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #15803d;
+      white-space: nowrap;
+      cursor: default;
+    }
+
+    .week-auto-source {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 180px;
+    }
+
+    .week-manual-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10.5px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #f1f4fa;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+
+    .week-log-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: #ecfccb;
+      color: #4d7c0f;
+      border: 1px solid #bef264;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: 'Inter Tight', sans-serif;
+      line-height: 1.6;
+      transition: background 0.12s;
+    }
+    .week-log-chip:hover { background: #d9f99d; }
+
+    /* Middle: bar + labels */
+    .week-habit-progress {
+      min-width: 0;
+    }
+
+    /* Smooth gradient bar (weekly_minutes / weekly_quantity) */
+    .week-smooth-bar-outer {
+      position: relative;
+      height: 6px;
+      background: #e8eaf0;
+      border-radius: 999px;
+      overflow: visible;
+      margin-bottom: 5px;
+    }
+
+    .week-smooth-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+      transition: width 0.4s ease;
+      max-width: 100%;
+    }
+    .week-smooth-bar-fill.complete {
+      background: linear-gradient(90deg, #86efac 0%, #16a34a 100%);
+    }
+
+    .week-smooth-bar-endmark {
+      position: absolute;
+      right: 0;
+      top: -3px;
+      width: 2px;
+      height: 12px;
+      background: #9ca3af;
+      border-radius: 999px;
+    }
+
+    /* Segmented bar (weekly_count) */
+    .week-seg-bar {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      margin-bottom: 5px;
+      flex-wrap: wrap;
+    }
+
+    .week-seg {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: #e8eaf0;
+      min-width: 12px;
+      transition: background 0.2s;
+    }
+    .week-seg.filled {
+      background: #2563eb;
+    }
+    .week-seg.filled.complete {
+      background: #16a34a;
+    }
+
+    .week-overflow-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #9333ea;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .week-bar-labels {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 4px;
+    }
+
+    .week-breakdown-label {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .week-target-label {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* Right: value + pace */
+    .week-habit-right {
+      text-align: right;
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    .week-habit-val-main {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      font-weight: 600;
+      white-space: nowrap;
+      display: block;
+    }
+
+    .week-pace-line {
+      margin-top: 3px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .week-pace-on {
+      color: #16a34a;
+      font-weight: 600;
+    }
+
+    .week-pace-behind {
+      color: #d97706;
+      font-weight: 500;
+    }
+
+    .week-habit-actions {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .week-actions-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      font-size: 1.1rem;
+      padding: 4px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+    .week-actions-toggle:hover { background: #e8eaf0; color: var(--text-primary); }
+
+    .week-actions-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
+      z-index: 50;
+      min-width: 130px;
+      overflow: hidden;
+    }
+    .week-actions-menu.open { display: block; }
+    .week-actions-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 9px 14px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-actions-menu button:hover { background: #f7f9fc; }
+    .week-actions-menu button.danger { color: var(--red); }
+    .week-actions-menu button.danger:hover { background: var(--red-soft); }
+
+    .weekly-habits-empty {
+      text-align: center;
+      padding: 20px 16px;
+      font-size: 13.5px;
+      color: var(--text-tertiary);
+    }
+
+    .weekly-habits-empty p {
+      margin: 0 0 12px;
+      line-height: 1.5;
+    }
+
+    .weekly-empty-new-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 16px;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .weekly-empty-new-btn:hover { background: #162444; }
+
+    /* Log popover */
+    .week-log-popover {
+      position: absolute;
+      z-index: 100;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(13,30,67,0.14);
+      padding: 14px 16px;
+      min-width: 200px;
+      max-width: 240px;
+    }
+
+    .week-popover-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    .week-popover-input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid #d1d9e9;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      box-sizing: border-box;
+      margin-bottom: 8px;
+    }
+    .week-popover-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
+    }
+
+    .week-quick-chips {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .week-quick-chip {
+      flex: 1;
+      padding: 5px 0;
+      background: #f7f9fc;
+      border: 1px solid #e8eaf0;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-family: 'Inter Tight', sans-serif;
+      text-align: center;
+    }
+    .week-quick-chip:hover { background: #eef0f6; border-color: #d1d9e9; }
+
+    .week-popover-submit {
+      width: 100%;
+      padding: 7px 0;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .week-popover-submit:hover { background: #162444; }
+    .week-popover-submit:disabled { opacity: 0.5; cursor: default; }
+
+    .week-popover-error {
+      font-size: 11px;
+      color: var(--red, #ef4444);
+      margin-top: 6px;
+      min-height: 1em;
+    }
+
+    /* ── Management (archived section) ────────────────────────────────────── */
     .archived-section {
-      max-width: 720px;
-      margin-top: 1.5rem;
+      margin-top: 8px;
     }
 
     .archived-toggle {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 6px;
       background: none;
       border: none;
       cursor: pointer;
-      font-size: 0.9375rem;
-      color: #555;
-      padding: 0.5rem 0;
+      font-size: 12.5px;
       font-weight: 600;
+      color: var(--text-tertiary);
+      padding: 6px 0;
+      font-family: 'Inter Tight', sans-serif;
     }
-
-    .archived-toggle .arrow {
-      transition: transform 0.2s;
-      font-size: 0.75rem;
-    }
-
+    .archived-toggle .arrow { transition: transform 0.2s; font-size: 0.75rem; }
     .archived-toggle.open .arrow { transform: rotate(90deg); }
 
-    .archived-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    .archived-list .habit-row {
+    .archived-list { list-style: none; padding: 0; margin: 8px 0 0; }
+    .archived-habit-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #f7f9fc;
+      margin-bottom: 6px;
       opacity: 0.7;
     }
 
-    /* ── Modal ── */
+    .archived-habit-name {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .archived-btn {
+      background: none;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .archived-btn:hover { background: #eef0f6; }
+    .archived-delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .archived-delete-btn:hover { color: var(--red); background: var(--red-soft); }
+
+    /* ── Modal ─────────────────────────────────────────────────────────────── */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -288,12 +1186,11 @@
       justify-content: center;
       z-index: 200;
     }
-
     .modal-overlay.open { display: flex; }
 
     .modal-box {
       background: #fff;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 1.75rem;
       width: 90%;
       max-width: 480px;
@@ -306,26 +1203,13 @@
       font-size: 1.1rem;
       font-weight: 700;
       margin: 0 0 1.25rem;
+      color: var(--text-primary);
     }
 
-    .modal-form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
+    .modal-form { display: flex; flex-direction: column; gap: 1rem; }
 
-    .form-field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-
-    .form-field label {
-      font-size: 0.8125rem;
-      font-weight: 600;
-      color: #444;
-    }
-
+    .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-field label { font-size: 0.8125rem; font-weight: 600; color: #444; }
     .form-field input[type="text"],
     .form-field input[type="number"],
     .form-field select,
@@ -335,93 +1219,49 @@
       border-radius: 6px;
       font-size: 0.9375rem;
       background: #fff;
+      font-family: 'Inter Tight', sans-serif;
     }
-
     .form-field input:focus,
     .form-field select:focus,
     .form-field textarea:focus {
       outline: none;
-      border-color: #1a1a1a;
-      box-shadow: 0 0 0 2px rgba(26,26,26,0.1);
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
     }
-
-    .form-field textarea {
-      resize: vertical;
-      min-height: 64px;
-    }
-
+    .form-field textarea { resize: vertical; min-height: 64px; }
     .form-field .hint {
       font-size: 0.75rem;
-      color: #888;
+      color: var(--text-tertiary);
     }
+    .form-field .hint a { color: #2563eb; text-decoration: none; }
+    .form-field .hint a:hover { text-decoration: underline; }
 
-    .tracking-type-option { font-size: 0.8125rem; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.75rem;
-    }
-
-    /* ── Icon picker ── */
-    .icon-picker {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-
+    /* Icon picker */
+    .icon-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .icon-option {
-      width: 40px;
-      height: 40px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      background: #f8f9fa;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: #555;
+      width: 40px; height: 40px;
+      border: 2px solid #e0e0e0; border-radius: 8px;
+      background: #f8f9fa; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #555;
       transition: border-color 0.15s, background 0.15s;
     }
-
     .icon-option:hover { border-color: #999; background: #eee; }
+    .icon-option.selected { border-color: #0b1530; background: #0b1530; color: #fff; }
 
-    .icon-option.selected {
-      border-color: #1a1a1a;
-      background: #1a1a1a;
-      color: #fff;
-    }
-
-    /* ── Color picker ── */
-    .color-picker {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
+    /* Color picker */
+    .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .color-swatch {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      cursor: pointer;
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid transparent; cursor: pointer;
       transition: border-color 0.15s, transform 0.1s;
     }
-
     .color-swatch:hover { transform: scale(1.12); }
+    .color-swatch.selected { border-color: #0b1530; }
 
-    .color-swatch.selected { border-color: #1a1a1a; }
-
-    /* ── Modal actions ── */
-    .modal-actions {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-end;
-      margin-top: 0.5rem;
-    }
-
+    .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem; }
     .btn-cancel {
       padding: 0.5rem 1.25rem;
       background: transparent;
@@ -430,54 +1270,174 @@
       font-size: 0.9375rem;
       cursor: pointer;
       color: #444;
+      font-family: 'Inter Tight', sans-serif;
     }
-
     .btn-cancel:hover { background: #f5f5f5; }
+    .btn-primary {
+      padding: 0.5rem 1.25rem;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9375rem;
+      cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .btn-primary:hover { background: #162444; }
+    .modal-error { font-size: 0.8125rem; color: var(--red); min-height: 1.2em; }
 
-    .modal-error {
-      font-size: 0.8125rem;
-      color: #c0392b;
-      min-height: 1.2em;
+    /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
+    @media (max-width: 820px) {
+      .hero-row { grid-template-columns: 1fr; }
+      .habits-header-right { flex-wrap: wrap; gap: 6px; }
+      .habit-meta-line { display: none; }
+      .week-habit-row { flex-wrap: wrap; gap: 8px; }
     }
 
-    /* ── Mobile ── */
-    @media (max-width: 600px) {
-      .page-header h1 { font-size: 1.05rem; }
-      .habit-row { gap: 0.5rem; }
-      .habit-meta { gap: 0.3rem; }
-      .form-row { grid-template-columns: 1fr; }
-      .modal-box { padding: 1.25rem; }
+    /* ── Responsive ≤768px ─────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      main { padding: 16px 16px 20px; }
+      .habits-page-header h1 { font-size: 22px; }
+    }
+
+    /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
+    @media (max-width: 480px) {
+      main { padding: 12px 12px 16px; }
+      .habits-page-header h1 { font-size: 20px; }
+
+      .day-grid-table th.day-hdr-full { display: none; }
+      .day-grid-table th.day-hdr-short { display: table-cell; }
+
+      .day-cell-btn { width: 40px; height: 40px; }
+      .day-grid-table { min-width: 0; }
+
       .starter-grid { flex-direction: column; }
       .starter-btn { width: 100%; }
+
+      .form-row { grid-template-columns: 1fr; }
+      .modal-box { padding: 1.25rem; }
     }
   </style>
 </head>
 <body>
   <main>
-    <div class="page-header">
-      <h1>Habits — Weekly tracking</h1>
-      <button id="add-habit-btn" type="button" class="btn-primary">+ New habit</button>
+    <!-- Page header (renders on gradient) -->
+    <div class="habits-page-header">
+      <div>
+        <h1>Habits</h1>
+        <p class="page-subtitle" id="habits-subtitle">Loading…</p>
+      </div>
+      <div class="habits-header-right">
+        <!-- Week navigation pill -->
+        <div class="week-nav-pill" id="week-nav-pill">
+          <button type="button" class="week-nav-btn" id="week-prev-btn" aria-label="Previous week">‹</button>
+          <span class="week-nav-label" id="week-nav-label">—</span>
+          <button type="button" class="week-nav-btn" id="week-next-btn" aria-label="Next week" disabled>›</button>
+        </div>
+        <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
+      </div>
+    </div>
+
+    <!-- Back-to-current-week chip (shown only in past-week mode) -->
+    <div class="back-current-wrap" id="back-current-wrap" style="display:none">
+      <button type="button" class="back-current-btn" id="back-current-btn">← back to this week</button>
     </div>
 
     <p id="api-error" class="error-msg" role="alert"></p>
 
-    <!-- Starter suggestions (shown only when 0 habits) -->
-    <div id="starter-section" class="starter-section" style="display:none">
-      <p>Get started with these habits:</p>
+    <!-- Empty state: starter suggestions (shown only when 0 habits) -->
+    <div id="starter-section" style="display:none">
+      <p class="starter-heading">Welcome to Habits!</p>
+      <p class="starter-sub">Start tracking your weekly goals:</p>
       <div class="starter-grid" id="starter-grid"></div>
     </div>
 
-    <!-- Active habit list -->
-    <ul id="habit-list"></ul>
+    <!-- Hero row: Card A (week wheel) | Card B (3-up stats) -->
+    <div class="hero-row" id="hero-row">
 
-    <!-- Archived section -->
-    <div class="archived-section" id="archived-section" style="display:none">
-      <button type="button" class="archived-toggle" id="archived-toggle">
-        <span class="arrow">▶</span>
-        <span>Archived habits</span>
-        <span id="archived-count" style="color:#aaa;font-weight:400"></span>
-      </button>
-      <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      <!-- Card A: Week Wheel -->
+      <div class="card hero-wheel-card" id="wheel-card">
+        <p class="hero-card-title">This week</p>
+        <div class="wheel-and-info">
+          <!-- SVG wheel — 7 arc segments drawn by JS -->
+          <div class="wheel-wrap" id="wheel-wrap">
+            <svg id="week-wheel-svg" class="week-wheel-svg" viewBox="0 0 148 148" aria-hidden="true">
+              <!-- arcs and day labels injected by habits.js -->
+            </svg>
+            <div class="wheel-center">
+              <span class="wheel-pct" id="wheel-pct">--%</span>
+              <span class="wheel-sublabel">WEEK SO FAR</span>
+            </div>
+          </div>
+          <!-- Right of wheel: stat + legend -->
+          <div class="wheel-side" id="wheel-side">
+            <span class="wheel-side-title">This week</span>
+            <span class="wheel-checks-line" id="wheel-checks-line">loading…</span>
+            <div class="wheel-legend">
+              <div class="legend-item"><span class="legend-dot legend-dot-full"></span>Full</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-partial"></span>Partial</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-zero"></span>None</div>
+              <div class="legend-item"><span class="legend-dot legend-dot-future"></span>Future</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card B: 3-up Stats -->
+      <div class="card hero-stats-card" id="hero-stats-card">
+        <!-- Today tile (highlighted) -->
+        <div class="stat-tile stat-tile-today" id="stat-today-tile">
+          <div class="stat-tile-label" id="stat-today-label">Today</div>
+          <div class="stat-tile-val" id="stat-today-val">--/--</div>
+          <div class="stat-tile-sub" id="stat-today-sub">—</div>
+        </div>
+        <!-- Best streak tile (hidden when streaks.best is null) -->
+        <div class="stat-tile" id="stat-streak-tile" style="display:none">
+          <div class="stat-tile-label">Best streak</div>
+          <div class="stat-tile-val" id="stat-streak-val">-- days</div>
+          <div class="stat-tile-sub" id="stat-streak-sub">—</div>
+        </div>
+        <!-- Last week tile -->
+        <div class="stat-tile" id="stat-lastweek-tile">
+          <div class="stat-tile-label">Last week</div>
+          <div class="stat-tile-val" id="stat-lastweek-val">—</div>
+          <div class="stat-tile-sub" id="stat-lastweek-sub">no data</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily grid card -->
+    <div class="card habits-day-grid" id="habits-day-grid-card">
+      <div class="day-grid-hdr">
+        <span class="day-grid-title">Daily grid</span>
+        <span class="day-grid-week" id="day-grid-week"></span>
+      </div>
+      <div id="day-grid-content">
+        <div class="day-grid-empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Weekly habits card -->
+    <div class="card weekly-habits" id="weekly-habits-card">
+      <div class="weekly-habits-hdr">
+        <div>
+          <span class="weekly-habits-title">Weekly habits · progress accumulates across the week</span>
+          <div class="weekly-habits-hint">auto rows update when you log workouts</div>
+        </div>
+      </div>
+      <div class="weekly-habits-list" id="weekly-habits-content">
+        <div class="weekly-habits-empty">Loading…</div>
+      </div>
+
+      <!-- Archived section (inside weekly card) -->
+      <div class="archived-section" id="archived-section" style="display:none">
+        <button type="button" class="archived-toggle" id="archived-toggle">
+          <span class="arrow">▶</span>
+          <span>Archived habits</span>
+          <span id="archived-count" style="color:var(--text-tertiary);font-weight:400;font-size:12px"></span>
+        </button>
+        <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      </div>
     </div>
   </main>
 
@@ -488,7 +1448,7 @@
       <form id="modal-form" class="modal-form" novalidate>
 
         <div class="form-field">
-          <label for="modal-name">Name <span style="color:#c0392b">*</span></label>
+          <label for="modal-name">Name <span style="color:var(--red)">*</span></label>
           <input id="modal-name" type="text" placeholder="e.g. Zone 2 cardio" maxlength="100" autocomplete="off">
         </div>
 
@@ -528,7 +1488,7 @@
             <option value="workout.total_duration_minutes">Total duration — sum of all workout minutes</option>
             <option value="workout.distance_km">Distance — sum of workout distances (km)</option>
           </select>
-          <span class="hint">Auto-fill populates progress automatically from workout data.</span>
+          <span class="hint">Auto fills from workout data. <a href="/log" target="_blank">View workouts →</a></span>
         </div>
 
         <div class="form-field">

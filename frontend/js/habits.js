@@ -24,6 +24,10 @@ const TRACKING_TYPE_LABELS = {
   weekly_quantity: 'Weekly quantity',
 };
 
+const DAY_LABELS_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+
 const STARTER_HABITS = [
   {
     name: 'Zone 2 cardio',
@@ -69,13 +73,56 @@ const STARTER_HABITS = [
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let currentUserId = null;
 let activeHabits = [];
 let archivedHabits = [];
 let editingHabitId = null;
 let selectedIcon = ICONS[0];
 let selectedColor = COLORS[0];
-let dragSrcIndex = null;
+
+// Week-view state
+let weekData = null;        // last response from GET /api/habits/week
+let currentWeekStart = null; // ISO date string; null = use server default (current week)
+
+// Debounce handle for hero + grid-totals refresh after cell mutations
+let _gridRefreshTimer = null;
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function isoDate(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function bangkokToday() {
+  const bk = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const [y, m, d] = bk.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function bangkokTodayStr() {
+  return isoDate(bangkokToday());
+}
+
+function isoWeekMonday(date) {
+  const d = new Date(date);
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function weekDates() {
+  const today = bangkokToday();
+  const monday = isoWeekMonday(today);
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(isoDate(d));
+  }
+  return dates;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,88 +137,144 @@ function iconLabel(code) {
   return code ? code.replace('ti-', '').replace(/-/g, ' ') : '?';
 }
 
-function habitIconEl(icon, color) {
-  const el = document.createElement('div');
-  el.className = 'habit-icon';
-  el.style.background = color || '#999';
-  el.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
-  el.title = icon || '';
-  return el;
+function formatWeekRange(weekStart, weekEnd) {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [, sm, sd] = weekStart.split('-').map(Number);
+  const [, em, ed] = weekEnd.split('-').map(Number);
+  if (sm === em) return `${MONTHS[sm-1]} ${sd}–${ed}`;
+  return `${MONTHS[sm-1]} ${sd}–${MONTHS[em-1]} ${ed}`;
 }
 
-function goalText(habit) {
-  if (!habit.weekly_target) return '';
-  const unit = habit.unit || '';
-  return `Goal: ${habit.weekly_target} ${unit}/week`.trim();
+// ── Polar-to-cartesian helpers (issue #432 wheel) ─────────────────────────────
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function autofillPill(source) {
-  const span = document.createElement('span');
-  if (source) {
-    span.className = 'habit-autofill-pill';
-    span.textContent = 'auto from workouts';
-    span.title = source;
-  } else {
-    span.className = 'habit-autofill-pill manual';
-    span.textContent = 'manual';
+function arcPath(cx, cy, r, startDeg, endDeg) {
+  const s = polarToCartesian(cx, cy, r, startDeg);
+  const e = polarToCartesian(cx, cy, r, endDeg);
+  const large = (endDeg - startDeg) > 180 ? 1 : 0;
+  return `M ${s.x.toFixed(3)} ${s.y.toFixed(3)} A ${r} ${r} 0 ${large} 1 ${e.x.toFixed(3)} ${e.y.toFixed(3)}`;
+}
+
+function habitIconHTML(icon, color, size) {
+  const bg = color || '#9ca3af';
+  const s = size || 26;
+  if (icon) {
+    return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.5)}px"><i class="ti ${icon}" aria-hidden="true"></i></span>`;
   }
-  return span;
+  // Fallback ? when icon data is missing
+  return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.45)}px;font-weight:700">?</span>`;
 }
 
-// ── Load ──────────────────────────────────────────────────────────────────────
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Load & Render (main entry) ────────────────────────────────────────────────
 
 async function loadAndRender() {
   clearError();
-  const list = document.getElementById('habit-list');
-  if (list && typeof UIStates !== 'undefined') UIStates.setLoading(list);
+
+  const todayStr = bangkokTodayStr();
+  const dates = weekDates();
+  const weekFrom = dates[0];
+  const weekTo = dates[6];
 
   try {
-    const [activeRes, archivedRes] = await Promise.all([
+    const weekUrl = currentWeekStart
+      ? `/api/habits/week?week_start=${currentWeekStart}`
+      : '/api/habits/week';
+
+    const [weekRes, activeRes, archivedRes, logsRes] = await Promise.all([
+      fetch(weekUrl),
       fetch('/api/habits'),
       fetch('/api/habits?include_archived=true'),
+      fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
     ]);
+
+    if (!weekRes.ok) throw new Error(`Server error ${weekRes.status}`);
     if (!activeRes.ok) throw new Error(`Server error ${activeRes.status}`);
     if (!archivedRes.ok) throw new Error(`Server error ${archivedRes.status}`);
 
-    const allWithArchived = await archivedRes.json();
-    activeHabits = (await activeRes.json());
-    archivedHabits = allWithArchived.filter(h => h.is_archived);
+    weekData = await weekRes.json();
+    currentWeekStart = weekData.week_start;
 
-    renderActiveList();
+    activeHabits = await activeRes.json();
+    const allHabits = await archivedRes.json();
+    archivedHabits = allHabits.filter(h => h.is_archived);
+    const logs = logsRes.ok ? await logsRes.json() : [];
+
+    // ── Page header (always updated) ──
+    renderPageHeader();
+
+    // ── Starter or dashboard ──
+    if (activeHabits.length === 0 && archivedHabits.length === 0) {
+      renderEmptyState();
+      return;
+    }
+
+    document.getElementById('starter-section').style.display = 'none';
+    document.getElementById('hero-row').style.display = '';
+    document.getElementById('habits-day-grid-card').style.display = '';
+    document.getElementById('weekly-habits-card').style.display = '';
+
+    // ── Hero cards ──
+    renderHeroWheel();
+    renderHeroStats();
+
+    // Build log set (habit_id|date → log_id) for current-week done cell log IDs
+    const logSet = {};
+    logs.forEach(l => {
+      if (dates.includes(l.logged_date)) {
+        logSet[l.habit_id + '|' + l.logged_date] = l.id;
+      }
+    });
+
+    // ── Daily grid (uses weekData.daily_habits for 4-state cells) ──
+    renderDailyGrid(logSet);
+    renderWeeklyHabits(weekData.weekly_habits || [], weekData, activeHabits);
     renderArchivedList();
-    renderStarterOrList();
+
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
-    if (list && typeof UIStates !== 'undefined') UIStates.setError(list, 'Something went wrong. Please try again.');
   }
 }
 
-// ── Render active list ────────────────────────────────────────────────────────
+// ── Empty state ───────────────────────────────────────────────────────────────
 
-function renderStarterOrList() {
-  const starterSection = document.getElementById('starter-section');
-  const habitList = document.getElementById('habit-list');
+function renderEmptyState() {
+  document.getElementById('starter-section').style.display = '';
+  document.getElementById('hero-row').style.display = 'none';
+  document.getElementById('habits-day-grid-card').style.display = 'none';
+  document.getElementById('weekly-habits-card').style.display = 'none';
 
-  if (activeHabits.length === 0 && archivedHabits.length === 0) {
-    starterSection.style.display = '';
-    renderStarterGrid();
-  } else {
-    starterSection.style.display = 'none';
-  }
+  renderStarterGrid();
 }
 
 function renderStarterGrid() {
   const grid = document.getElementById('starter-grid');
+  if (!grid) return;
   grid.innerHTML = '';
   STARTER_HABITS.forEach(s => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'starter-btn';
 
-    const iconEl = document.createElement('div');
+    const iconEl = document.createElement('span');
     iconEl.className = 'starter-icon';
     iconEl.style.background = s.color;
-    iconEl.textContent = iconLabel(s.icon).slice(0, 2).toUpperCase();
+    if (s.icon) {
+      iconEl.innerHTML = `<i class="ti ${s.icon}" aria-hidden="true"></i>`;
+    } else {
+      iconEl.textContent = '?';
+    }
 
     const labelEl = document.createElement('span');
     labelEl.textContent = s.name;
@@ -198,95 +301,746 @@ async function createStarterHabit(starter) {
   }
 }
 
-function renderActiveList() {
-  const list = document.getElementById('habit-list');
-  list.innerHTML = '';
+// ── Page header ───────────────────────────────────────────────────────────────
 
-  if (activeHabits.length === 0) return;
+function renderPageHeader() {
+  const subtitleEl = document.getElementById('habits-subtitle');
+  const navLabel = document.getElementById('week-nav-label');
+  const nextBtn = document.getElementById('week-next-btn');
+  const backWrap = document.getElementById('back-current-wrap');
 
-  activeHabits.forEach((habit, index) => {
-    list.appendChild(buildHabitRow(habit, index, false));
+  const isEmpty = (activeHabits.length === 0 && archivedHabits.length === 0);
+
+  if (isEmpty) {
+    if (subtitleEl) subtitleEl.textContent = 'No habits yet — add one to start tracking';
+    if (navLabel) navLabel.textContent = weekData ? formatWeekRange(weekData.week_start, weekData.week_end) : '—';
+    if (nextBtn) nextBtn.disabled = weekData ? weekData.is_current_week : true;
+    if (backWrap) backWrap.style.display = 'none';
+    return;
+  }
+
+  if (!weekData) return;
+
+  const range = formatWeekRange(weekData.week_start, weekData.week_end);
+  if (navLabel) navLabel.textContent = range;
+  if (nextBtn) nextBtn.disabled = weekData.is_current_week;
+  if (backWrap) backWrap.style.display = weekData.is_current_week ? 'none' : '';
+
+  if (!subtitleEl) return;
+
+  if (!weekData.is_current_week) {
+    subtitleEl.textContent = `Week of ${range}`;
+    return;
+  }
+
+  // Current week: "Week of Jun 9–15 · day N of 7 · X of Y daily checks so far"
+  const today = bangkokTodayStr();
+  const totals = weekData.week_totals;
+  const N = totals.elapsed_days;
+  const doneElapsed = (weekData.day_scores || [])
+    .filter(ds => ds.date <= today)
+    .reduce((acc, ds) => acc + ds.done, 0);
+  const possibleElapsed = totals.daily_habits_count * N;
+  subtitleEl.textContent = `Week of ${range} · day ${N} of 7 · ${doneElapsed} of ${possibleElapsed} daily checks so far`;
+}
+
+// ── Hero wheel (Card A) ───────────────────────────────────────────────────────
+
+const WHEEL_COLORS = {
+  full:    '#16a34a',
+  partial: '#f59e0b',
+  zero:    '#9ca3af',
+  today:   '#2563eb',
+  future:  '#d1d9e9',
+};
+const WHEEL_DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+function renderHeroWheel() {
+  const svg = document.getElementById('week-wheel-svg');
+  const pctEl = document.getElementById('wheel-pct');
+  const checksEl = document.getElementById('wheel-checks-line');
+  if (!svg || !weekData) return;
+
+  const wheel = weekData.wheel || [];
+  const totals = weekData.week_totals;
+
+  // Geometry constants — all dependent on viewBox "0 0 148 148"
+  const cx = 74, cy = 74;
+  const r = 52;       // ring radius
+  const sw = 11;      // stroke width
+  const arcDeg = 44;  // degrees each arc spans
+  const slotDeg = 360 / 7;  // degrees per day slot (~51.43°)
+  const letterR = 63;       // radius for day-letter placement (outside ring)
+
+  svg.innerHTML = '';
+
+  wheel.forEach((seg, i) => {
+    const slotCenter = -90 + i * slotDeg;
+    const arcStart = slotCenter - arcDeg / 2;
+    const arcEnd   = slotCenter + arcDeg / 2;
+    const isToday  = seg.state === 'today';
+
+    // Arc segment
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', arcPath(cx, cy, r, arcStart, arcEnd));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', WHEEL_COLORS[seg.state] || WHEEL_COLORS.zero);
+    path.setAttribute('stroke-width', String(sw));
+    path.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(path);
+
+    // Day letter (outside ring)
+    const lpos = polarToCartesian(cx, cy, letterR, slotCenter);
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('x', lpos.x.toFixed(2));
+    txt.setAttribute('y', lpos.y.toFixed(2));
+    txt.setAttribute('text-anchor', 'middle');
+    txt.setAttribute('dominant-baseline', 'central');
+    txt.setAttribute('font-size', '8');
+    txt.setAttribute('font-family', 'Inter Tight, system-ui, sans-serif');
+    txt.setAttribute('font-weight', isToday ? '700' : '400');
+    txt.setAttribute('fill', isToday ? '#2563eb' : '#8b95ad');
+    txt.textContent = WHEEL_DAY_LETTERS[i];
+    svg.appendChild(txt);
+  });
+
+  // Center percentage
+  if (pctEl) pctEl.textContent = Math.round(totals.pct_elapsed) + '%';
+
+  // Checks line (right of wheel)
+  if (checksEl) {
+    const today = bangkokTodayStr();
+    const doneElapsed = (weekData.day_scores || [])
+      .filter(ds => ds.date <= today)
+      .reduce((acc, ds) => acc + ds.done, 0);
+    const possibleElapsed = totals.daily_habits_count * totals.elapsed_days;
+
+    if (weekData.is_current_week) {
+      checksEl.textContent = `${doneElapsed} / ${possibleElapsed} possible checks (Mon–today)`;
+    } else {
+      const doneFull = totals.daily_done;
+      const possibleFull = totals.daily_habits_count * 7;
+      checksEl.textContent = `${doneFull} / ${possibleFull} checks`;
+    }
+  }
+}
+
+// ── Hero stats (Card B) ───────────────────────────────────────────────────────
+
+function renderHeroStats() {
+  if (!weekData) return;
+
+  const todayLabelEl  = document.getElementById('stat-today-label');
+  const todayValEl    = document.getElementById('stat-today-val');
+  const todaySubEl    = document.getElementById('stat-today-sub');
+  const streakTile    = document.getElementById('stat-streak-tile');
+  const streakValEl   = document.getElementById('stat-streak-val');
+  const streakSubEl   = document.getElementById('stat-streak-sub');
+  const lastWeekValEl = document.getElementById('stat-lastweek-val');
+  const lastWeekSubEl = document.getElementById('stat-lastweek-sub');
+
+  const today   = bangkokTodayStr();
+  const totals  = weekData.week_totals;
+  const streaks = weekData.streaks || {};
+  const lastWeek = weekData.last_week;
+
+  // ── Today tile ──
+  if (weekData.is_current_week) {
+    const todayScore = (weekData.day_scores || []).find(ds => ds.date === today) || { done: 0, of: 0 };
+    if (todayLabelEl) todayLabelEl.textContent = 'Today';
+    if (todayValEl) todayValEl.textContent = `${todayScore.done} / ${todayScore.of}`;
+    if (todaySubEl) {
+      const left = Math.max(0, todayScore.of - todayScore.done);
+      todaySubEl.textContent = left === 0
+        ? 'all done!'
+        : `${left} habit${left !== 1 ? 's' : ''} left to check`;
+    }
+  } else {
+    // Past-week: show week result
+    if (todayLabelEl) todayLabelEl.textContent = 'Week result';
+    if (todayValEl) todayValEl.textContent = `${Math.round(totals.pct_full_week)}%`;
+    if (todaySubEl) todaySubEl.textContent = '';
+  }
+
+  // ── Best streak tile (hide gracefully when null) ──
+  const best = streaks.best;
+  if (streakTile) {
+    if (best && best.length > 0) {
+      streakTile.style.display = '';
+      if (streakValEl) streakValEl.textContent = `${best.length} day${best.length !== 1 ? 's' : ''}`;
+      if (streakSubEl) streakSubEl.textContent = best.habit_name || '—';
+    } else {
+      streakTile.style.display = 'none';
+    }
+  }
+
+  // ── Last week tile ──
+  if (lastWeek) {
+    if (lastWeekValEl) lastWeekValEl.textContent = `${Math.round(lastWeek.pct)}%`;
+    if (lastWeekSubEl) {
+      lastWeekSubEl.innerHTML = `<span class="stat-sub-green">${lastWeek.done} / ${lastWeek.possible} checks ✓</span>`;
+    }
+  } else {
+    if (lastWeekValEl) lastWeekValEl.textContent = '—';
+    if (lastWeekSubEl) lastWeekSubEl.textContent = 'no data';
+  }
+}
+
+// ── Daily grid ────────────────────────────────────────────────────────────────
+
+function _formatTarget(target) {
+  if (target == null) return '?';
+  return Number.isInteger(target) ? String(target) : target.toFixed(1);
+}
+
+function _setCellState(btn, state, logId) {
+  btn.dataset.state = state;
+  if (logId !== undefined) btn.dataset.logId = logId || '';
+  btn.className = 'day-cell-btn';
+  if (state === 'done') {
+    btn.classList.add('done');
+    btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i>';
+    btn.tabIndex = 0;
+  } else if (state === 'today-pending') {
+    btn.classList.add('today-pending');
+    btn.innerHTML = '<i class="ti ti-plus" aria-hidden="true"></i>';
+    btn.tabIndex = 0;
+  } else if (state === 'missed') {
+    btn.classList.add('missed');
+    btn.innerHTML = '';
+    btn.tabIndex = weekData && weekData.is_current_week ? 0 : -1;
+  } else {
+    btn.classList.add('future');
+    btn.innerHTML = '';
+    btn.tabIndex = -1;
+  }
+}
+
+function renderDailyGrid(logSet) {
+  const container = document.getElementById('day-grid-content');
+  const weekEl = document.getElementById('day-grid-week');
+  if (!container) return;
+
+  const dailyHabits = (weekData && weekData.daily_habits) || [];
+  const dayScores = (weekData && weekData.day_scores) || [];
+  const streaksPerHabit = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
+  const todayStr = bangkokTodayStr();
+
+  if (weekEl && weekData) {
+    const from = weekData.week_start.slice(5).replace('-', '/');
+    const to = weekData.week_end.slice(5).replace('-', '/');
+    weekEl.textContent = from + ' – ' + to;
+  }
+
+  if (dailyHabits.length === 0) {
+    container.innerHTML = '<div class="day-grid-empty">No daily habits yet.</div>';
+    return;
+  }
+
+  // Compute day dates from weekData
+  const weekDatesArr = (weekData && weekData.day_scores)
+    ? weekData.day_scores.map(ds => ds.date)
+    : [];
+
+  let html = '<table class="day-grid-table" role="grid">';
+  html += '<thead><tr>';
+  html += '<th class="habit-name-hdr">Habit</th>';
+  for (let i = 0; i < 7; i++) {
+    const dateStr = weekDatesArr[i] || '';
+    const isToday = dateStr === todayStr;
+    const todayCls = isToday ? ' day-hdr-today' : '';
+    html += `<th class="${todayCls}"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span>`;
+    html += `<span class="day-hdr-short">${DAY_LABELS_SHORT[i]}</span></th>`;
+  }
+  html += '<th class="day-total-hdr">Total</th>';
+  html += '<th class="habit-actions-hdr"></th>';
+  html += '</tr></thead><tbody>';
+
+  dailyHabits.forEach(habit => {
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 24);
+    const target = habit.total ? habit.total.target : 7;
+    const done = habit.total ? habit.total.done : 0;
+    const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+    const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
+
+    const streak = streaksPerHabit[habit.id] || 0;
+    const streakBadge = streak >= 3
+      ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
+      : '';
+
+    const metaTarget = _formatTarget(target);
+
+    html += `<tr class="habit-row" data-habit-id="${esc(String(habit.id))}">`;
+    html += `<td class="habit-name-cell">
+      <div class="habit-name-inner">
+        ${iconHTML}
+        <div>
+          <div class="habit-name-text">${esc(habit.name)}</div>
+          <div class="habit-meta-line">
+            <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
+            ${streakBadge}
+          </div>
+        </div>
+      </div>
+    </td>`;
+
+    for (let i = 0; i < 7; i++) {
+      const day = habit.days[i] || { date: weekDatesArr[i] || '', state: 'future' };
+      const dateStr = day.date;
+      // API returns "today_pending" but CSS class uses "today-pending"
+      const stateRaw = day.state;
+      const cssState = stateRaw === 'today_pending' ? 'today-pending' : stateRaw;
+      const logKey = habit.id + '|' + dateStr;
+      const logId = logSet[logKey] || '';
+
+      const isInert = cssState === 'future' || !(weekData && weekData.is_current_week);
+      const tIdx = isInert && cssState !== 'done' ? -1 : 0;
+
+      let cellInner = '';
+      if (cssState === 'done') {
+        cellInner = '<i class="ti ti-check" aria-hidden="true"></i>';
+      } else if (cssState === 'today-pending') {
+        cellInner = '<i class="ti ti-plus" aria-hidden="true"></i>';
+      }
+
+      const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]}: ${stateRaw.replace('_', ' ')}`;
+      html += `<td><button
+        class="day-cell-btn ${esc(cssState)}"
+        type="button"
+        aria-label="${esc(ariaLabel)}"
+        data-habit-id="${esc(String(habit.id))}"
+        data-date="${esc(dateStr)}"
+        data-state="${esc(cssState)}"
+        data-log-id="${esc(logId)}"
+        tabindex="${tIdx}"
+      >${cellInner}</button></td>`;
+    }
+
+    // Total column
+    html += `<td class="day-total-cell" id="total-cell-${esc(String(habit.id))}">
+      <span class="day-total-val">${esc(String(done))}/${esc(_formatTarget(target))}</span>
+      <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barWidth}%"></div></div>
+      <span class="day-total-pct">${pct}%</span>
+    </td>`;
+
+    // Actions menu column
+    html += `<td class="habit-actions-cell">
+      <div class="habit-day-actions">
+        <button type="button" class="day-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
+        <div class="day-actions-menu" id="day-menu-${esc(String(habit.id))}"></div>
+      </div>
+    </td>`;
+
+    html += '</tr>';
+  });
+
+  // DAY SCORE row (heavier border separator)
+  const totalDone = weekData ? weekData.week_totals.daily_done : 0;
+  const totalPossible = weekData ? weekData.week_totals.daily_habits_count * 7 : 0;
+  const weekPct = weekData ? Math.round(weekData.week_totals.pct_full_week) : 0;
+  const weekBarW = weekData ? Math.min(100, weekData.week_totals.pct_full_week).toFixed(1) : '0.0';
+
+  html += '<tr class="day-score-row" id="day-score-row">';
+  html += '<td class="day-score-label">Day Score</td>';
+  for (let i = 0; i < 7; i++) {
+    const ds = dayScores[i] || { date: '', done: 0, of: 0 };
+    const dateStr = ds.date;
+    const isFuture = dateStr > todayStr;
+    const isToday = dateStr === todayStr;
+    let valCls = '';
+    let valTxt = '';
+    if (isFuture) {
+      valCls = 'day-score-dash';
+      valTxt = '—';
+    } else {
+      if (ds.of > 0 && ds.done === ds.of) valCls = 'day-score-full';
+      else if (isToday) valCls = 'day-score-today';
+      valTxt = `${ds.done}/${ds.of}`;
+    }
+    html += `<td class="day-score-cell" data-date="${esc(dateStr)}">
+      <span class="day-score-val ${valCls}">${esc(valTxt)}</span>
+    </td>`;
+  }
+  html += `<td class="day-total-cell" id="day-score-total-cell">
+    <span class="day-total-val">${esc(String(totalDone))}/${esc(String(totalPossible))}</span>
+    <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${weekBarW}%"></div></div>
+    <span class="day-total-pct">${weekPct}% of week</span>
+  </td>`;
+  html += '<td></td>';
+  html += '</tr>';
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Build action menus and attach handlers
+  dailyHabits.forEach(habit => {
+    const fullHabit = activeHabits.find(h => String(h.id) === String(habit.id)) || habit;
+    const menu = document.getElementById(`day-menu-${habit.id}`);
+    if (menu) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
+      menu.appendChild(editBtn);
+
+      const archiveBtn = document.createElement('button');
+      archiveBtn.type = 'button';
+      archiveBtn.textContent = 'Archive';
+      archiveBtn.addEventListener('click', () => { closeAllMenus(); archiveHabit(habit.id); });
+      menu.appendChild(archiveBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => {
+        closeAllMenus();
+        if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
+          deleteHabit(habit.id);
+        }
+      });
+      menu.appendChild(deleteBtn);
+
+      const toggle = menu.previousElementSibling;
+      if (toggle) {
+        toggle.addEventListener('click', e => {
+          e.stopPropagation();
+          closeAllMenus();
+          menu.classList.toggle('open');
+        });
+      }
+    }
+  });
+
+  // Attach click and keyboard handlers on actionable cells
+  container.querySelectorAll('.day-cell-btn').forEach(btn => {
+    const state = btn.dataset.state;
+    const isInert = state === 'future' ||
+      !(weekData && weekData.is_current_week) && state !== 'done';
+
+    if (!isInert) {
+      btn.addEventListener('click', () => handleGridCellAction(btn));
+      btn.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleGridCellAction(btn);
+        }
+      });
+    }
   });
 }
 
-function buildHabitRow(habit, index, isArchived) {
-  const li = document.createElement('li');
-  li.className = 'habit-row';
-  li.dataset.id = habit.id;
-  li.dataset.index = index;
+// Update just the totals portion of the grid after a mutation (without rebuilding everything)
+function refreshGridTotals() {
+  if (!weekData) return;
+  const dailyHabits = weekData.daily_habits || [];
+  const dayScores = weekData.day_scores || [];
+  const todayStr = bangkokTodayStr();
 
-  // Drag handle (active only)
-  if (!isArchived) {
-    const handle = document.createElement('span');
-    handle.className = 'drag-handle';
-    handle.textContent = '⠿';
-    handle.draggable = true;
-    handle.setAttribute('aria-label', 'Drag to reorder');
-    li.appendChild(handle);
-
-    li.setAttribute('draggable', 'true');
-    li.addEventListener('dragstart', onDragStart);
-    li.addEventListener('dragover', onDragOver);
-    li.addEventListener('dragleave', onDragLeave);
-    li.addEventListener('drop', onDrop);
-    li.addEventListener('dragend', onDragEnd);
-  }
-
-  // Icon
-  li.appendChild(habitIconEl(habit.icon, habit.color));
-
-  // Info block
-  const info = document.createElement('div');
-  info.className = 'habit-info';
-
-  const nameEl = document.createElement('div');
-  nameEl.className = 'habit-name';
-  nameEl.textContent = habit.name;
-  info.appendChild(nameEl);
-
-  const meta = document.createElement('div');
-  meta.className = 'habit-meta';
-
-  const typeLabel = document.createElement('span');
-  typeLabel.className = 'habit-tracking-type';
-  typeLabel.textContent = TRACKING_TYPE_LABELS[habit.tracking_type] || habit.tracking_type;
-  meta.appendChild(typeLabel);
-
-  const goal = goalText(habit);
-  if (goal) {
-    const goalEl = document.createElement('span');
-    goalEl.className = 'habit-goal';
-    goalEl.textContent = goal;
-    meta.appendChild(goalEl);
-  }
-
-  meta.appendChild(autofillPill(habit.auto_fill_source));
-  info.appendChild(meta);
-  li.appendChild(info);
-
-  // Actions menu
-  const actionsDiv = document.createElement('div');
-  actionsDiv.className = 'habit-actions';
-
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'actions-toggle';
-  toggle.textContent = '⋯';
-  toggle.setAttribute('aria-label', 'Habit actions');
-  toggle.addEventListener('click', e => {
-    e.stopPropagation();
-    closeAllMenus();
-    menu.classList.toggle('open');
+  // Per-habit total cells
+  dailyHabits.forEach(habit => {
+    const totalCell = document.getElementById(`total-cell-${habit.id}`);
+    if (!totalCell) return;
+    const done = habit.total ? habit.total.done : 0;
+    const target = habit.total ? habit.total.target : 7;
+    const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+    const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
+    totalCell.innerHTML = `
+      <span class="day-total-val">${done}/${_formatTarget(target)}</span>
+      <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barWidth}%"></div></div>
+      <span class="day-total-pct">${pct}%</span>
+    `;
   });
 
-  const menu = document.createElement('div');
-  menu.className = 'actions-menu';
+  // Day score cells
+  const scoreRow = document.getElementById('day-score-row');
+  if (scoreRow) {
+    dayScores.forEach(ds => {
+      const cell = scoreRow.querySelector(`[data-date="${ds.date}"]`);
+      if (!cell) return;
+      const isFuture = ds.date > todayStr;
+      const isToday = ds.date === todayStr;
+      let valCls = '';
+      let valTxt = '';
+      if (isFuture) {
+        valCls = 'day-score-dash';
+        valTxt = '—';
+      } else {
+        if (ds.of > 0 && ds.done === ds.of) valCls = 'day-score-full';
+        else if (isToday) valCls = 'day-score-today';
+        valTxt = `${ds.done}/${ds.of}`;
+      }
+      cell.innerHTML = `<span class="day-score-val ${valCls}">${valTxt}</span>`;
+    });
 
-  if (!isArchived) {
+    // Grand total
+    const totalCell = document.getElementById('day-score-total-cell');
+    if (totalCell) {
+      const totals = weekData.week_totals;
+      const done = totals.daily_done;
+      const possible = totals.daily_habits_count * 7;
+      const pct = Math.round(totals.pct_full_week);
+      const barW = Math.min(100, totals.pct_full_week).toFixed(1);
+      totalCell.innerHTML = `
+        <span class="day-total-val">${done}/${possible}</span>
+        <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barW}%"></div></div>
+        <span class="day-total-pct">${pct}% of week</span>
+      `;
+    }
+  }
+}
+
+// Debounced 300 ms refetch of /api/habits/week → refresh hero + grid totals
+function scheduleHeroRefresh() {
+  if (_gridRefreshTimer) clearTimeout(_gridRefreshTimer);
+  _gridRefreshTimer = setTimeout(async () => {
+    const weekUrl = currentWeekStart
+      ? `/api/habits/week?week_start=${currentWeekStart}`
+      : '/api/habits/week';
+    try {
+      const res = await fetch(weekUrl);
+      if (!res.ok) return;
+      weekData = await res.json();
+      renderPageHeader();
+      renderHeroWheel();
+      renderHeroStats();
+      refreshGridTotals();
+    } catch (_e) {
+      // non-critical: hero will refresh on next full load
+    }
+  }, 300);
+}
+
+async function handleGridCellAction(btn) {
+  const habitId = btn.dataset.habitId;
+  const dateStr = btn.dataset.date;
+  const state = btn.dataset.state;  // 'done', 'today-pending', 'missed'
+
+  // Guard: only mutate in current week, never future cells
+  if (!weekData || !weekData.is_current_week) return;
+  if (state === 'future') return;
+
+  const prevState = state;
+  const prevLogId = btn.dataset.logId || '';
+
+  // Optimistic update
+  const todayStr = bangkokTodayStr();
+  if (state === 'done') {
+    const revertState = dateStr === todayStr ? 'today-pending' : 'missed';
+    _setCellState(btn, revertState, '');
+  } else {
+    _setCellState(btn, 'done');
+  }
+
+  btn.disabled = true;
+
+  try {
+    if (prevState === 'done') {
+      if (!prevLogId) { btn.disabled = false; return; }
+      const res = await fetch(`/api/habits/logs/${encodeURIComponent(prevLogId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 404) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${res.status}`);
+      }
+    } else {
+      const res = await fetch('/api/habits/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ habit_id: habitId, logged_date: dateStr }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+      btn.dataset.logId = data.id || '';
+    }
+
+    scheduleHeroRefresh();
+
+  } catch (e) {
+    // Rollback to previous state
+    _setCellState(btn, prevState, prevLogId);
+    if (typeof UIStates !== 'undefined') UIStates.showToast(e.message || 'Failed to update', true);
+  }
+
+  btn.disabled = false;
+}
+
+// ── Weekly habits card ────────────────────────────────────────────────────────
+
+const _AUTO_FILL_DESCRIPTIONS = {
+  'workout.zone2_minutes':          'synced with zone-2 minutes on your runs',
+  'workout.run_count':              'synced with run workouts',
+  'workout.lift_count':             'synced with strength workouts',
+  'workout.total_duration_minutes': 'synced with total workout duration',
+  'workout.distance_km':            'synced with workout distances',
+};
+
+const _WEEK_DAY_SHORTS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function _formatBreakdown(dailyBreakdown, weekStart) {
+  if (!dailyBreakdown || dailyBreakdown.length === 0) return '';
+  const [wy, wm, wd] = weekStart.split('-').map(Number);
+  const monDate = new Date(wy, wm - 1, wd);
+  return dailyBreakdown
+    .map(entry => {
+      const d = new Date(entry.date + 'T00:00:00');
+      const dow = (d.getDay() + 6) % 7; // 0=Mon
+      const dayName = _WEEK_DAY_SHORTS[dow] || entry.date;
+      const v = entry.value;
+      const vStr = Number.isInteger(v) ? String(v) : v.toFixed(1);
+      return `${dayName} ${vStr}`;
+    })
+    .join(' · ');
+}
+
+function _fmtVal(v) {
+  if (v == null) return '—';
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(1);
+}
+
+function _renderSegmentedBar(current, target, isComplete) {
+  const segCount = Math.max(1, Math.round(target));
+  const filled = Math.min(segCount, Math.round(current));
+  const over = Math.max(0, Math.round(current) - segCount);
+  const completeCls = isComplete ? ' complete' : '';
+
+  let segsHTML = '';
+  for (let i = 0; i < segCount; i++) {
+    const isFilled = i < filled;
+    segsHTML += `<div class="week-seg${isFilled ? ' filled' + completeCls : ''}"></div>`;
+  }
+  const overHTML = over > 0 ? `<span class="week-overflow-label">+${over} over</span>` : '';
+  return `<div class="week-seg-bar">${segsHTML}${overHTML}</div>`;
+}
+
+function _renderSmoothBar(pct, isComplete) {
+  const w = Math.min(100, pct).toFixed(1);
+  const completeCls = isComplete ? ' complete' : '';
+  return `<div class="week-smooth-bar-outer">
+    <div class="week-smooth-bar-fill${completeCls}" style="width:${w}%"></div>
+    <div class="week-smooth-bar-endmark"></div>
+  </div>`;
+}
+
+function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
+  const container = document.getElementById('weekly-habits-content');
+  if (!container) return;
+
+  const isCurrentWeek = wkData && wkData.is_current_week;
+  const elapsedDays = (wkData && wkData.week_totals && wkData.week_totals.elapsed_days) || 0;
+  const weekStart = (wkData && wkData.week_start) || '';
+
+  if (!weeklyHabits || weeklyHabits.length === 0) {
+    container.innerHTML = `
+      <div class="weekly-habits-empty">
+        <p>Track weekly goals like Zone 2 minutes — they can sync automatically from your workouts</p>
+        <button type="button" class="weekly-empty-new-btn" id="weekly-empty-new-btn">＋ New habit</button>
+      </div>`;
+    const emptyBtn = container.querySelector('#weekly-empty-new-btn');
+    if (emptyBtn) {
+      emptyBtn.addEventListener('click', () => {
+        openNewModal();
+        const sel = document.getElementById('modal-tracking-type');
+        if (sel) sel.value = 'weekly_minutes';
+      });
+    }
+    return;
+  }
+
+  container.innerHTML = '';
+
+  weeklyHabits.forEach(habit => {
+    const current = habit.current_value != null ? habit.current_value : 0;
+    const target = habit.target;
+    const pct = Math.min(100, habit.pct != null ? habit.pct : 0);
+    const isComplete = !!habit.is_complete;
+    const unit = habit.unit || '';
+    const isAutoFill = !!habit.auto_fill_source;
+    const trackingType = habit.tracking_type;
+
+    // Value string
+    const valStr = target != null
+      ? `${_fmtVal(current)} / ${_fmtVal(target)}${unit ? ' ' + unit : ''}`
+      : '—';
+
+    // Progress bar HTML
+    const barHTML = trackingType === 'weekly_count'
+      ? _renderSegmentedBar(current, target || 1, isComplete)
+      : _renderSmoothBar(pct, isComplete);
+
+    // Daily breakdown label
+    const breakdownStr = _formatBreakdown(habit.daily_breakdown, weekStart);
+
+    // Pace sub-line
+    let paceHTML = '';
+    if (target != null && target > 0) {
+      const onPace = elapsedDays === 0 || (current / target) >= (elapsedDays / 7);
+      if (onPace) {
+        paceHTML = `<div class="week-pace-line"><span class="week-pace-on">on pace</span></div>`;
+      } else {
+        const remaining = habit.remaining != null ? habit.remaining : Math.max(0, target - current);
+        const remStr = _fmtVal(remaining);
+        const unitStr = unit ? ` ${unit}` : '';
+        paceHTML = `<div class="week-pace-line"><span class="week-pace-behind">${esc(remStr)}${esc(unitStr)} to go</span></div>`;
+      }
+    }
+
+    // Meta badge (auto vs manual)
+    let metaHTML = '';
+    if (isAutoFill) {
+      const srcDesc = _AUTO_FILL_DESCRIPTIONS[habit.auto_fill_source] || habit.auto_fill_source;
+      metaHTML = `
+        <span class="week-auto-badge" title="Updates automatically from your workouts">↻ auto · workouts</span>
+        <span class="week-auto-source">${esc(srcDesc)}</span>`;
+    } else {
+      const logChip = isCurrentWeek
+        ? `<button type="button" class="week-log-chip" data-habit-id="${esc(String(habit.id))}" data-tracking-type="${esc(trackingType)}" data-unit="${esc(unit)}">＋ log</button>`
+        : '';
+      metaHTML = `<span class="week-manual-badge">manual</span>${logChip}`;
+    }
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 30);
+
+    const row = document.createElement('div');
+    row.className = 'week-habit-row';
+    row.id = `habit-week-row-${habit.id}`;
+
+    row.innerHTML = `
+      <div class="week-habit-left">
+        ${iconHTML}
+        <div class="week-habit-info">
+          <div class="week-habit-name">${esc(habit.name)}</div>
+          <div class="week-habit-meta">${metaHTML}</div>
+        </div>
+      </div>
+      <div class="week-habit-progress">
+        ${barHTML}
+        <div class="week-bar-labels">
+          <span class="week-breakdown-label">${esc(breakdownStr)}</span>
+          ${target != null ? `<span class="week-target-label">target ${esc(_fmtVal(target))}</span>` : ''}
+        </div>
+      </div>
+      <div class="week-habit-right">
+        <span class="week-habit-val-main" id="week-val-${esc(String(habit.id))}">${esc(valStr)}</span>
+        ${paceHTML}
+        <div class="week-habit-actions">
+          <button type="button" class="week-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
+          <div class="week-actions-menu" id="week-menu-${esc(String(habit.id))}"></div>
+        </div>
+      </div>`;
+
+    // Build action menu
+    const menu = row.querySelector('.week-actions-menu');
+    const fullHabit = (fullHabitsList || []).find(h => String(h.id) === String(habit.id)) || habit;
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.textContent = 'Edit';
-    editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(habit); });
+    editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
     menu.appendChild(editBtn);
 
     const archiveBtn = document.createElement('button');
@@ -294,45 +1048,194 @@ function buildHabitRow(habit, index, isArchived) {
     archiveBtn.textContent = 'Archive';
     archiveBtn.addEventListener('click', () => { closeAllMenus(); archiveHabit(habit.id); });
     menu.appendChild(archiveBtn);
-  } else {
-    const unarchiveBtn = document.createElement('button');
-    unarchiveBtn.type = 'button';
-    unarchiveBtn.textContent = 'Unarchive';
-    unarchiveBtn.addEventListener('click', () => { closeAllMenus(); unarchiveHabit(habit.id); });
-    menu.appendChild(unarchiveBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      closeAllMenus();
+      if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
+        deleteHabit(habit.id);
+      }
+    });
+    menu.appendChild(deleteBtn);
+
+    const toggle = row.querySelector('.week-actions-toggle');
+    toggle.addEventListener('click', e => {
+      e.stopPropagation();
+      closeAllMenus();
+      menu.classList.toggle('open');
+    });
+
+    container.appendChild(row);
+  });
+
+  // Attach log chip handlers
+  if (isCurrentWeek) {
+    container.querySelectorAll('.week-log-chip').forEach(chip => {
+      chip.addEventListener('click', e => {
+        e.stopPropagation();
+        openLogPopover(chip);
+      });
+    });
+  }
+}
+
+// ── Log popover ───────────────────────────────────────────────────────────────
+
+let _activePopover = null;
+
+function closeLogPopover() {
+  if (_activePopover) {
+    _activePopover.remove();
+    _activePopover = null;
+  }
+}
+
+function openLogPopover(chip) {
+  closeLogPopover();
+
+  const habitId = chip.dataset.habitId;
+  const trackingType = chip.dataset.trackingType;
+  const unit = chip.dataset.unit || '';
+
+  const popover = document.createElement('div');
+  popover.className = 'week-log-popover';
+  _activePopover = popover;
+
+  const isMinutes = trackingType === 'weekly_minutes';
+
+  const quickChipsHTML = isMinutes
+    ? `<div class="week-quick-chips">
+        <button type="button" class="week-quick-chip" data-add="5">+5</button>
+        <button type="button" class="week-quick-chip" data-add="10">+10</button>
+        <button type="button" class="week-quick-chip" data-add="15">+15</button>
+      </div>`
+    : '';
+
+  popover.innerHTML = `
+    <div class="week-popover-title">Log${unit ? ' ' + unit : ''}</div>
+    <input class="week-popover-input" type="number" min="0.1" step="any" placeholder="Amount…">
+    ${quickChipsHTML}
+    <button type="button" class="week-popover-submit">Add</button>
+    <div class="week-popover-error"></div>`;
+
+  const input = popover.querySelector('.week-popover-input');
+  const submitBtn = popover.querySelector('.week-popover-submit');
+  const errorEl = popover.querySelector('.week-popover-error');
+
+  // Quick chips accumulate into the input
+  if (isMinutes) {
+    popover.querySelectorAll('.week-quick-chip').forEach(qc => {
+      qc.addEventListener('click', () => {
+        const current = parseFloat(input.value) || 0;
+        input.value = current + parseInt(qc.dataset.add, 10);
+      });
+    });
   }
 
-  const deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'danger';
-  deleteBtn.textContent = 'Delete';
-  deleteBtn.addEventListener('click', () => {
-    closeAllMenus();
-    if (confirm(`Delete "${habit.name}"? This cannot be undone.`)) {
-      deleteHabit(habit.id);
+  submitBtn.addEventListener('click', async () => {
+    const value = parseFloat(input.value);
+    if (!value || value <= 0) {
+      errorEl.textContent = 'Enter a value greater than 0';
+      return;
+    }
+    submitBtn.disabled = true;
+    errorEl.textContent = '';
+    try {
+      const res = await fetch(`/api/habits/${encodeURIComponent(habitId)}/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value, mode: 'add' }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = (body.detail && body.detail.error_code) || body.detail || `Error ${res.status}`;
+        submitBtn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      closeLogPopover();
+
+      // Update value display from week_current_value without full refetch
+      const weekCurrentValue = data.week_current_value;
+      if (weekCurrentValue != null) {
+        const valEl = document.getElementById(`week-val-${habitId}`);
+        if (valEl) {
+          const wh = (weekData && weekData.weekly_habits || []).find(h => h.id === habitId);
+          const tgt = wh ? wh.target : null;
+          const unit2 = wh ? (wh.unit || '') : '';
+          const newValStr = tgt != null
+            ? `${_fmtVal(weekCurrentValue)} / ${_fmtVal(tgt)}${unit2 ? ' ' + unit2 : ''}`
+            : _fmtVal(weekCurrentValue);
+          valEl.textContent = newValStr;
+        }
+
+        // Update progress bar visually
+        const row = document.getElementById(`habit-week-row-${habitId}`);
+        if (row) {
+          const wh = (weekData && weekData.weekly_habits || []).find(h => h.id === habitId);
+          if (wh && wh.target != null) {
+            wh.current_value = weekCurrentValue;
+            wh.pct = Math.min(100, (weekCurrentValue / wh.target) * 100);
+            wh.is_complete = weekCurrentValue >= wh.target;
+            wh.remaining = Math.max(0, wh.target - weekCurrentValue);
+
+            const progDiv = row.querySelector('.week-habit-progress');
+            if (progDiv) {
+              const newBarHTML = wh.tracking_type === 'weekly_count'
+                ? _renderSegmentedBar(weekCurrentValue, wh.target, wh.is_complete)
+                : _renderSmoothBar(wh.pct, wh.is_complete);
+              const existing = progDiv.querySelector('.week-seg-bar, .week-smooth-bar-outer');
+              if (existing) existing.outerHTML = newBarHTML;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      errorEl.textContent = err.message || 'Failed to log';
+      submitBtn.disabled = false;
     }
   });
-  menu.appendChild(deleteBtn);
 
-  actionsDiv.appendChild(toggle);
-  actionsDiv.appendChild(menu);
-  li.appendChild(actionsDiv);
+  // Position popover relative to chip
+  const chipRect = chip.getBoundingClientRect();
+  popover.style.position = 'fixed';
+  popover.style.top = (chipRect.bottom + 6) + 'px';
+  popover.style.left = Math.max(8, chipRect.left) + 'px';
 
-  return li;
+  document.body.appendChild(popover);
+  input.focus();
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', _closePopoverOnOutside, { once: false, capture: true });
+  }, 0);
+}
+
+function _closePopoverOnOutside(e) {
+  if (_activePopover && !_activePopover.contains(e.target) && !e.target.classList.contains('week-log-chip')) {
+    closeLogPopover();
+    document.removeEventListener('click', _closePopoverOnOutside, true);
+  }
 }
 
 function closeAllMenus() {
-  document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+  document.querySelectorAll('.week-actions-menu.open, .day-actions-menu.open, .actions-menu.open').forEach(m => m.classList.remove('open'));
+  closeLogPopover();
 }
 
 document.addEventListener('click', closeAllMenus);
 
-// ── Render archived list ──────────────────────────────────────────────────────
+// ── Archived list ─────────────────────────────────────────────────────────────
 
 function renderArchivedList() {
   const section = document.getElementById('archived-section');
   const list = document.getElementById('archived-list');
   const countEl = document.getElementById('archived-count');
+
+  if (!section || !list) return;
 
   if (archivedHabits.length === 0) {
     section.style.display = 'none';
@@ -340,10 +1243,37 @@ function renderArchivedList() {
   }
 
   section.style.display = '';
-  countEl.textContent = ` (${archivedHabits.length})`;
+  if (countEl) countEl.textContent = ` (${archivedHabits.length})`;
   list.innerHTML = '';
-  archivedHabits.forEach((habit, index) => {
-    list.appendChild(buildHabitRow(habit, index, true));
+
+  archivedHabits.forEach(habit => {
+    const li = document.createElement('li');
+    li.className = 'archived-habit-row';
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 22);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'archived-habit-name';
+    nameEl.innerHTML = iconHTML + ' ' + esc(habit.name);
+
+    const unarchiveBtn = document.createElement('button');
+    unarchiveBtn.type = 'button';
+    unarchiveBtn.className = 'archived-btn';
+    unarchiveBtn.textContent = 'Restore';
+    unarchiveBtn.addEventListener('click', () => unarchiveHabit(habit.id));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'archived-delete-btn';
+    deleteBtn.title = 'Delete permanently';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', () => {
+      if (confirm(`Delete "${habit.name}" permanently?`)) deleteHabit(habit.id);
+    });
+
+    li.appendChild(nameEl);
+    li.appendChild(unarchiveBtn);
+    li.appendChild(deleteBtn);
+    list.appendChild(li);
   });
 }
 
@@ -371,7 +1301,7 @@ async function unarchiveHabit(habitId) {
     if (typeof UIStates !== 'undefined') UIStates.showToast('Habit restored');
     await loadAndRender();
   } catch (e) {
-    showError('Failed to unarchive habit: ' + e.message);
+    showError('Failed to restore habit: ' + e.message);
   }
 }
 
@@ -386,58 +1316,6 @@ async function deleteHabit(habitId) {
   }
 }
 
-// ── Drag & drop reorder ───────────────────────────────────────────────────────
-
-function onDragStart(e) {
-  dragSrcIndex = parseInt(this.dataset.index, 10);
-  this.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-}
-
-function onDragOver(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  this.classList.add('drag-over');
-}
-
-function onDragLeave() {
-  this.classList.remove('drag-over');
-}
-
-async function onDrop(e) {
-  e.preventDefault();
-  this.classList.remove('drag-over');
-  const destIndex = parseInt(this.dataset.index, 10);
-  if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
-
-  const reordered = [...activeHabits];
-  const [moved] = reordered.splice(dragSrcIndex, 1);
-  reordered.splice(destIndex, 0, moved);
-
-  activeHabits = reordered;
-  renderActiveList();
-
-  // Persist new sort_order for the moved habit
-  try {
-    const res = await fetch(`/api/habits/${encodeURIComponent(moved.id)}/reorder`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sort_order: destIndex }),
-    });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-  } catch (e) {
-    showError('Failed to save order: ' + e.message);
-    await loadAndRender();
-  }
-}
-
-function onDragEnd() {
-  document.querySelectorAll('.habit-row').forEach(r => {
-    r.classList.remove('dragging', 'drag-over');
-  });
-  dragSrcIndex = null;
-}
-
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 function buildIconPicker() {
@@ -447,8 +1325,8 @@ function buildIconPicker() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'icon-option' + (icon === selectedIcon ? ' selected' : '');
-    btn.textContent = iconLabel(icon).slice(0, 2).toUpperCase();
-    btn.title = icon;
+    btn.innerHTML = `<i class="ti ${icon}" aria-hidden="true"></i>`;
+    btn.title = iconLabel(icon);
     btn.dataset.icon = icon;
     btn.addEventListener('click', () => {
       selectedIcon = icon;
@@ -469,6 +1347,7 @@ function buildColorPicker() {
     btn.style.background = color;
     btn.title = color;
     btn.dataset.color = color;
+    btn.setAttribute('aria-label', `Color ${color}`);
     btn.addEventListener('click', () => {
       selectedColor = color;
       container.querySelectorAll('.color-swatch').forEach(b => b.classList.remove('selected'));
@@ -533,6 +1412,38 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('add-habit-btn').addEventListener('click', openNewModal);
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
 
+  // ── Week navigation ──
+  const prevBtn = document.getElementById('week-prev-btn');
+  const nextBtn = document.getElementById('week-next-btn');
+  const backBtn = document.getElementById('back-current-btn');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', async () => {
+      if (!currentWeekStart) return;
+      const [y, m, d] = currentWeekStart.split('-').map(Number);
+      const prevMon = new Date(y, m - 1, d - 7);
+      currentWeekStart = isoDate(prevMon);
+      await loadAndRender();
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', async () => {
+      if (!currentWeekStart || (weekData && weekData.is_current_week)) return;
+      const [y, m, d] = currentWeekStart.split('-').map(Number);
+      const nextMon = new Date(y, m - 1, d + 7);
+      currentWeekStart = isoDate(nextMon);
+      await loadAndRender();
+    });
+  }
+
+  if (backBtn) {
+    backBtn.addEventListener('click', async () => {
+      currentWeekStart = null;
+      await loadAndRender();
+    });
+  }
+
   document.getElementById('habit-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('habit-modal')) closeModal();
   });
@@ -541,13 +1452,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
-  document.getElementById('archived-toggle').addEventListener('click', () => {
-    const toggle = document.getElementById('archived-toggle');
-    const list = document.getElementById('archived-list');
-    const isOpen = toggle.classList.contains('open');
-    toggle.classList.toggle('open', !isOpen);
-    list.style.display = isOpen ? 'none' : '';
-  });
+  const archivedToggle = document.getElementById('archived-toggle');
+  if (archivedToggle) {
+    archivedToggle.addEventListener('click', () => {
+      const list = document.getElementById('archived-list');
+      const isOpen = archivedToggle.classList.contains('open');
+      archivedToggle.classList.toggle('open', !isOpen);
+      if (list) list.style.display = isOpen ? 'none' : '';
+    });
+  }
 
   document.getElementById('modal-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -605,12 +1518,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-window.addEventListener('userReady', e => {
-  currentUserId = e.detail.userId;
+window.addEventListener('userReady', () => {
   loadAndRender();
 });
 
-window.addEventListener('userChanged', e => {
-  currentUserId = e.detail.userId;
+window.addEventListener('userChanged', () => {
   loadAndRender();
 });

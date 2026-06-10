@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 54 — Habits redesign
+
+- #428: Migrate habits page to gradient design language (Inter Tight / JetBrains Mono, floating cards)
+- #429: Add `GET /api/habits/week` single-batch endpoint
+- #430: Add streaks and last-week summary to habits week API
+- #431: Enforce Bangkok backfill window and add increment-log mode
+- #432: Build habits page hero — 7-segment week wheel + stats cards
+- #433: Build daily habits grid with tap-to-check, totals, and day score row
+- #434: Build weekly habits card with auto-sync badges and manual log chip
+- #435: Habits redesign: week wheel, daily grid with day scores, weekly habits with workout auto-sync — polish pass, docs, dead code removal, and smoke verification
+
 ## Sprint 53.1 — Weight redesign cleanup
 
 - #427: Weight page redesign: plan-vs-actual tracking, milestone chart, stepper quick-log, coach strip — docs updated, Chart.js dead code removed, purge script added
