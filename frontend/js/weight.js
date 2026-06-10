@@ -450,9 +450,25 @@ function renderMilestones(target) {
 
 // ── Recent entries (last 14 days) ─────────────────────────────────────────
 
-function renderRecentEntries(entries) {
+function _nearestWeight(entries, targetDate) {
+  if (!entries.length) return null;
+  const sorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  const before = sorted.filter(e => e.entry_date < targetDate);
+  if (before.length) return before[before.length - 1].weight_kg;
+  const after = sorted.filter(e => e.entry_date > targetDate);
+  if (after.length) return after[0].weight_kg;
+  return null;
+}
+
+function renderRecentEntries(entries, activeTarget) {
   const tbody = document.getElementById('entries-tbody');
+  const viewAllLink = document.getElementById('view-all-link');
   if (!tbody) return;
+
+  // Update "View all N →" link count
+  if (viewAllLink) {
+    viewAllLink.textContent = `View all ${entries.length} →`;
+  }
 
   // Build a map: date → sorted entries (newest time first)
   const byDate = {};
@@ -471,7 +487,7 @@ function renderRecentEntries(entries) {
     days.push(addDays(today, -i));
   }
 
-  // Compute deltas: compare each entry to the previous date's last entry
+  // Compute deltas: compare each entry to the previous logged day (across gaps)
   const allSorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
   const prevWeight = {};
   allSorted.forEach((e, idx) => {
@@ -479,9 +495,15 @@ function renderRecentEntries(entries) {
     prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
   });
 
+  // Delta direction: ↓ green when toward target, ↑ red when away from target
+  const losingIsGoal = !activeTarget ||
+    activeTarget.target_weight_kg == null ||
+    activeTarget.start_weight_kg == null ||
+    activeTarget.target_weight_kg < activeTarget.start_weight_kg;
+
   // empty state: if no entries exist at all, show prompt instead of 14 blank rows
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:#9ca3af;font-size:0.9375rem;">
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:#9ca3af;font-size:0.9375rem;">
       No weight entries yet — log your first weigh-in above
     </td></tr>`;
     return;
@@ -493,16 +515,15 @@ function renderRecentEntries(entries) {
     const dayEntries = byDate[date];
 
     if (!dayEntries || !dayEntries.length) {
-      // empty state: no entry for this day — show backfill prompt
+      // No entry: show faded missing-day-row with ＋ Add chip
+      // No entry for this date — render add chip
       return `
-        <tr class="${rowClass}">
+        <tr class="${rowClass} missing-day-row" data-date="${date}">
           <td data-label="Date">${fmtDisplayDate(date)}</td>
-          <td data-label="Time"><span class="entry-no-data">No entry</span></td>
-          <td data-label="Weight">
-            <button class="backfill-add-btn" data-date="${date}" type="button"
-              aria-label="Add entry for ${date}">+</button>
+          <td data-label="Weight" colspan="2">
+            <button class="backfill-add-btn" data-date="${date}" data-is-today="${isToday}" type="button"
+              aria-label="No entry for ${date} — click to add">＋ Add</button>
           </td>
-          <td data-label="Delta"></td>
           <td></td>
         </tr>`;
     }
@@ -510,33 +531,45 @@ function renderRecentEntries(entries) {
     // One or more entries on this day
     return dayEntries.map((e, idx) => {
       const delta = prevWeight[e.id];
-      let deltaHtml = '';
+      let deltaHtml = `<span class="entry-delta neutral">—</span>`;
       if (delta != null) {
         const isFlat = Math.abs(delta) < 0.05;
-        const cls = isFlat ? 'neutral' : (delta < 0 ? 'loss' : 'gain');
-        const arrow = isFlat ? '→' : (delta < 0 ? '↓' : '↑');
+        const isLoss = delta < 0;
+        const isTowardTarget = losingIsGoal ? isLoss : !isLoss;
+        const cls = isFlat ? 'neutral' : (isTowardTarget ? 'loss' : 'gain');
+        const arrow = isFlat ? '→' : (isLoss ? '↓' : '↑');
         deltaHtml = `<span class="entry-delta ${cls}">${arrow} ${Math.abs(delta).toFixed(1)}</span>`;
       }
 
-      const timeStr = e.entry_time ? e.entry_time.slice(0, 5) : '--';
+      const notesHtml = e.notes
+        ? `<div class="entry-notes">${e.notes.replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c]))}</div>`
+        : '';
 
       return `
         <tr class="${rowClass}" data-entry-id="${e.id}">
-          <td data-label="Date">${idx === 0 ? fmtDisplayDate(date) : ''}</td>
-          <td data-label="Time">${timeStr}</td>
+          <td data-label="Date">
+            ${idx === 0 ? fmtDisplayDate(date) : ''}
+            ${notesHtml}
+          </td>
           <td data-label="Weight"><span class="entry-weight">${e.weight_kg.toFixed(1)} kg</span></td>
           <td data-label="Delta">${deltaHtml}</td>
           <td class="entry-actions-wrap">
-            <button class="entry-menu-btn" data-entry-id="${e.id}" type="button"
+            <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
               aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
           </td>
         </tr>`;
     }).join('');
   }).join('');
 
-  // Wire backfill + buttons
+  // Wire backfill ＋ Add chip buttons
   tbody.querySelectorAll('.backfill-add-btn').forEach(btn => {
-    btn.addEventListener('click', () => _openBackfill(btn, btn.dataset.date));
+    const date = btn.dataset.date;
+    const isToday = btn.dataset.isToday === 'true';
+    btn.addEventListener('click', () => _openMiniStepper(btn, date));
+    // Auto-open stepper for today's row if unlogged
+    if (isToday) {
+      _openMiniStepper(btn, date);
+    }
   });
 
   // Wire entry menu buttons
@@ -568,12 +601,22 @@ function _toggleEntryMenu(btn) {
   _closeAllMenus();
 
   const entryId = btn.dataset.entryId;
+  const weight = btn.dataset.weight;
+  const entryDate = btn.dataset.date;
   const menu = document.createElement('div');
   menu.className = 'entry-menu';
   menu.innerHTML = `
+    <button class="entry-edit" data-id="${entryId}" data-weight="${weight}" data-date="${entryDate}" type="button">Edit</button>
     <button class="menu-delete" data-id="${entryId}" type="button">Delete</button>`;
   btn.parentElement.appendChild(menu);
   btn.setAttribute('aria-expanded', 'true');
+
+  menu.querySelector('.entry-edit').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    _closeAllMenus();
+    const row = btn.closest('tr');
+    openInlineEdit(row, entryId, parseFloat(weight), entryDate);
+  });
 
   menu.querySelector('.menu-delete').addEventListener('click', async (ev) => {
     ev.stopPropagation();
@@ -589,25 +632,111 @@ function _toggleEntryMenu(btn) {
   });
 }
 
-// ── Backfill ───────────────────────────────────────────────────────────────
+// ── Inline edit and patch ──────────────────────────────────────────────────
 
-function _openBackfill(btn, date) {
+function openInlineEdit(row, entryId, currentWeight, currentDate) {
+  if (!row) return;
+  row.innerHTML = `
+    <td colspan="4">
+      <form class="inline-edit-form" novalidate>
+        <input type="number" step="0.1" min="20" max="300"
+          class="backfill-input" value="${currentWeight.toFixed(1)}" aria-label="Weight in kg">
+        <button type="submit" class="inline-save-btn">Save</button>
+        <button type="button" class="inline-cancel-btn">Cancel</button>
+        <span class="backfill-error" role="alert"></span>
+      </form>
+    </td>`;
+
+  const form = row.querySelector('form');
+  const weightInput = form.querySelector('input');
+  const errEl = form.querySelector('.backfill-error');
+
+  weightInput.focus();
+
+  row.addEventListener('keydown', function onEscape(ev) {
+    if (ev.key === 'Escape') {
+      row.removeEventListener('keydown', onEscape);
+      _reload();
+    }
+  });
+
+  form.querySelector('.inline-cancel-btn').addEventListener('click', () => _reload());
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    errEl.textContent = '';
+    const val = parseFloat(weightInput.value);
+    if (isNaN(val) || val <= 0) {
+      errEl.textContent = 'Weight must be a positive number.';
+      weightInput.focus();
+      return;
+    }
+    if (val < 20 || val > 300) {
+      errEl.textContent = 'Weight must be between 20 and 300 kg.';
+      weightInput.focus();
+      return;
+    }
+    try {
+      await patchEntry(entryId, { weight_kg: val });
+      UIStates.showToast('Entry updated');
+      await _reload();
+    } catch (e) {
+      if (e.message === 'conflict') {
+        errEl.textContent = 'Date conflict with another entry.';
+      } else {
+        showPageError('Save failed: ' + e.message);
+      }
+    }
+  });
+}
+
+async function patchEntry(entryId, data) {
+  const res = await fetch(`/api/weight-entries/${encodeURIComponent(entryId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (res.status === 409) throw new Error('conflict');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Backfill / mini-stepper ────────────────────────────────────────────────
+
+function _openMiniStepper(btn, date) {
   const td = btn.closest('td');
   if (!td) return;
 
+  const prefill = _nearestWeight(_recentEntries, date) || 70.0;
+  const initVal = (Math.round(prefill * 10) / 10).toFixed(1);
+
   td.innerHTML = `
-    <form class="backfill-inline" novalidate>
+    <form class="mini-stepper backfill-inline" novalidate>
+      <button type="button" class="stepper-btn stepper-dec" aria-label="Decrease">&#x2212;</button>
       <input type="number" step="0.1" min="20" max="300"
-        class="backfill-input" placeholder="kg" aria-label="Weight in kg">
-      <button type="submit" class="backfill-save-btn">Save</button>
-      <button type="button" class="backfill-cancel-btn">✕</button>
-      <span class="backfill-error" role="alert"></span>
+        class="stepper-value backfill-input" value="${initVal}" aria-label="Weight in kg">
+      <button type="button" class="stepper-btn stepper-inc" aria-label="Increase">+</button>
+      <button type="submit" class="stepper-log-btn backfill-save-btn">Log</button>
+      <button type="button" class="backfill-cancel-btn" style="font-size:0.8125rem;background:none;border:none;color:#9ca3af;cursor:pointer">&#x2715;</button>
+      <span class="stepper-error backfill-error" role="alert"></span>
     </form>`;
 
   const form = td.querySelector('form');
-  const input = td.querySelector('.backfill-input');
-  const errEl = td.querySelector('.backfill-error');
+  const input = td.querySelector('.stepper-value');
+  const errEl = td.querySelector('.stepper-error');
+
   input.focus();
+  input.select();
+
+  td.querySelector('.stepper-dec').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.max(20, v - 0.1).toFixed(1);
+  });
+
+  td.querySelector('.stepper-inc').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.min(300, v + 0.1).toFixed(1);
+  });
 
   td.querySelector('.backfill-cancel-btn').addEventListener('click', () => _reload());
 
@@ -890,8 +1019,8 @@ async function _reload() {
     renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
-    renderMilestones(_activeTarget);
-    renderRecentEntries(_recentEntries);
+    renderMilestones(_activeTarget, chartData.stats);
+    renderRecentEntries(_recentEntries, _activeTarget);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
