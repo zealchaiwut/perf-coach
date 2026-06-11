@@ -1533,6 +1533,176 @@
     }
   </style>
   <style>
+    /* ---- READINESS TILE (compact, home-top-row-right) ---- */
+    #home-top-row-right {
+      background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%);
+      border: 0;
+      border-radius: 20px;
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      min-height: 180px;
+    }
+    .rd-tile-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 12px;
+    }
+    .rd-tile-icon { font-size: 28px; color: rgba(11,21,48,0.5); }
+    .rd-tile-msg {
+      margin: 0;
+      font-size: 13.5px;
+      color: rgba(11,21,48,0.72);
+      line-height: 1.5;
+      max-width: 260px;
+    }
+    .rd-tile-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 18px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+      min-height: 40px;
+    }
+    .rd-tile-body {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding-top: 10px;
+    }
+    .rd-tile-ring-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .rd-tile-ring { display: block; }
+    .rd-tile-score-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+    .rd-tile-factors {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      flex: 1;
+    }
+    .rd-tile-factor {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+    }
+    .rd-tile-factor-name { font-weight: 600; min-width: 45px; }
+    .rd-tile-factor-val { color: rgba(11,21,48,0.75); }
+
+    /* ---- TRAINING CARD (home-training-card) ---- */
+    #home-training-card { padding: 20px 22px; }
+    .tw-stats {
+      display: flex;
+      gap: 24px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+    }
+    .tw-stat { display: flex; flex-direction: column; gap: 2px; }
+    .tw-stat-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: var(--text-primary);
+    }
+    .tw-stat-lbl {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 500;
+    }
+    .tw-unit { text-transform: lowercase; letter-spacing: 0; }
+    .tw-delta {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 3px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .tw-delta--green { background: var(--green-soft); color: var(--green); }
+    .tw-delta--red   { background: var(--red-soft);   color: var(--red); }
+    .tw-delta--flat  { background: var(--chip-bg);     color: var(--text-tertiary); }
+
+    /* 7-bar daily-load chart */
+    .tw-bar-chart {
+      display: flex;
+      gap: 6px;
+      align-items: flex-end;
+      height: 72px;
+      margin-top: 8px;
+    }
+    .tw-bar-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      height: 100%;
+    }
+    .tw-bar-wrap {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      align-items: flex-end;
+    }
+    .tw-bar {
+      width: 100%;
+      border-radius: 4px 4px 0 0;
+      background: var(--bg-1);
+      min-height: 4px;
+      transition: height 0.2s;
+    }
+    .tw-bar--rest  { background: var(--chip-bg); }
+    .tw-bar--today { background: var(--accent); }
+    .tw-bar-lbl {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 500;
+    }
+    .tw-empty {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      padding: 16px 4px;
+    }
+
+    /* ---- SLEEP CARD RIGHT (home-sleep-card) ---- */
+    #home-sleep-card {
+      min-height: 160px;
+    }
+
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 880px) {
+      #row-training-sleep { grid-template-columns: 1fr; }
+    }
+
     /* ---- HABITS PROGRESS WIDGET ---- */
     #habits-progress-widget { margin-bottom: 16px; }
     .hp-widget .card-head { margin-bottom: 12px; }
@@ -1659,6 +1829,13 @@
   <div id="home-weight-widget" style="margin-bottom:16px;"></div>
   <div id="strava-stale-banner"></div>
   <div id="row-2"></div>
+
+  <!-- Training card (full-width left column) + Sleep card (right column, below Recent Workouts) -->
+  <div id="row-training-sleep" style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;align-items:start;">
+    <div id="home-training-card" class="card"></div>
+    <div id="home-sleep-card" class="card sleep-card"></div>
+  </div>
+
   <div id="row-log">
     <!-- Fast-log form: static HTML, initialised by JS -->
     <section id="fast-log-section" class="card fast-log">
@@ -1779,6 +1956,7 @@
 <script src="js/ui-states.js"></script>
 <script src="js/wheel-helpers.js"></script>
 <script src="js/home-strip-habits.js"></script>
+<script src="js/home-readiness-training-sleep.js"></script>
 <script src="js/home.js"></script>
 <script src="js/home-habits.js"></script>
 <script src="js/env.js"></script>

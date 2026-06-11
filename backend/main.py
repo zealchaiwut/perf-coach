@@ -2724,6 +2724,7 @@ def _build_sleep_block(uid, today_bkk):
         return {"logged": False}
 
     return {
+        "logged": True,
         "hours": float(metrics.sleep_hours),
         "quality": int(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
     }

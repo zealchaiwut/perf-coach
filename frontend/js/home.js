@@ -2700,6 +2700,7 @@
 
       loadHomeWeightWidget(userId);
       loadSleepCard(userId);
+      if (window.HomeRTS) { HomeRTS.init(userId); }
       loadLogTodayCard(userId);
       initFastLogForm(userId);
       loadLogTodayBanner(userId);
