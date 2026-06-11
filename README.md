@@ -4,8 +4,8 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 
 ## Features
 
-- **Weight tracking** — daily log, trend chart, and goal targets
-- **Habit tracking** — redesigned habits page with gradient design language; 7-segment week wheel, tap-to-check daily grid with day-score footer row, weekly habits progress bars with auto-sync badges; auto-fill sources, weekly targets, archive/restore, and drag-to-reorder
+- **Weight tracking** — daily log; gradient-design weight page with two-card hero (current weight + log-today); custom SVG trend chart with range tabs (7D / 30D / 90D / 6M / 1Y / All); plan overlay, milestones, projected goal-hit date (7-day pace), and slide-in target-edit panel; `/weight/targets` removed — target editing is now inline on the weight page
+- **Habit tracking** — redesigned habits page with gradient design language; 7-segment week wheel, tap-to-check daily grid with day-score footer row, weekly habits progress bars with auto-sync badges; auto-fill sources, weekly targets, archive/restore, and drag-to-reorder; edit existing habits (tracking type locked after creation); 35-icon library organised by category
 - **Zone 2 tracking** — `zone2_minutes` on workouts auto-fills Zone 2 habit progress
 - **Weekly habits widget** — Mon–Sun progress grid on home page with streak badges; week boundary computed in Bangkok timezone (Asia/Bangkok)
 - **Habits streaks** — per-habit current streak and best-streak counters; today-pending does not break a streak
@@ -98,11 +98,11 @@ Each script:
 | `PATCH /api/weight-entries/{entry_id}` | Update `weight_kg`, `entry_date`, `entry_time`, or `notes` on a single entry |
 | `DELETE /api/weight-entries/{entry_id}` | Delete a single weight entry (204) |
 | `POST /api/weight-targets` | Create a new weight target; sets any existing active target to `replaced`; body: `user_id`, `start_weight_kg`, `start_date`, `target_weight_kg`, `target_date` |
-| `GET /api/weight-targets/active` | Get the active weight target with computed fields: `progress_pct`, `kg_to_go`, `days_remaining`, `required_pace_kg_per_week`, `current_pace_kg_per_week`, `projected_end_date`, `status_label`, `plan_today_kg`, `gap_kg`, `gap_direction`, `gap_basis`, `milestones` |
+| `GET /api/weight-targets/active` | Get the active weight target with computed fields: `progress_pct`, `kg_to_go`, `days_remaining`, `required_pace_kg_per_week`, `current_pace_kg_per_week`, `projected_end_date`, `status_label`, `plan_today_kg`, `gap_kg`, `gap_direction`, `gap_basis`, `milestones`, `projected_hit_date` (extrapolated from 7-day pace; `null` if pace is zero or moving away from goal) |
 | `GET /api/weight-targets/history` | List all weight targets for a user; optional `status` filter (`active`/`achieved`/`abandoned`/`replaced`) |
 | `PATCH /api/weight-targets/{target_id}` | Update `target_weight_kg`, `target_date`, or `notes` on the active target |
 | `POST /api/weight-targets/{target_id}/end` | End the active target; body: `status` (`achieved`/`abandoned`), optional `end_weight_kg` and `notes` |
-| `GET /api/weight-chart` | Weight entries and 7-day moving average trend; `user_id`, `from`/`to` params; response includes `actuals` (with `entry_id`), `trend` (daily MA), `stats` (current, delta_7d, delta_30d), `target` block; when active target exists also returns `plan_series` (daily plan points), `future_milestones`, `today_marker` (`actual_kg`, `trend_kg`, `plan_kg`, `gap_kg`, `gap_direction`), `logged_today`, and `today_delta_kg` |
+| `GET /api/weight-chart` | Weight entries and 7-day moving average trend; `user_id`, optional `from`/`to` date params or `range` shorthand (`7D`, `30D`, `90D`, `6M`, `1Y`, `ALL`; `ALL` resolves from earliest entry); optional `include_future_zone=true`; response: `actuals`, `trend`, `stats`, `future_milestones` (always an array), `today_marker`, `logged_today`, `today_delta_kg`; `plan_series` (daily plan points from plan-start date) and `target` block included only when an active target exists |
 | `GET /api/exports/weight-entries` | Download weight entries as CSV; `user_id`, optional `from`/`to` date range |
 | `GET /api/exports/weight-targets` | Download weight target history as CSV; `user_id`, optional `status` filter |
 | `GET /api/home/weight-summary` | Returns current weight, 7-day moving average, week/month deltas, 30-day sparkline, and active target progress for the home dashboard weight widget |
