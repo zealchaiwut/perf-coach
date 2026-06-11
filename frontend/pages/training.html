@@ -981,6 +981,12 @@
     .rl-profile-legend { display: flex; gap: 12px; margin-top: 8px; font-size: 9.5px; color: var(--text-secondary); flex-wrap: wrap; }
     .rl-zlg { display: inline-flex; align-items: center; gap: 4px; }
     .rl-zlg .d { width: 9px; height: 9px; border-radius: 3px; }
+    /* ── v2 sizing fixes ────────────────────────────────────────────────────── */
+    main { padding-top: 30px; }
+    .run-section.rl-card, .workout-meta.rl-card, .exercises-section.rl-card { max-width: none; }
+    #run-error:empty, .run-section .field-error:empty { display: none; }
+    .run-section.rl-card { padding-bottom: 16px; }
+    .run-secondary { margin-bottom: 0; }
   </style>
 </head>
 <body>
