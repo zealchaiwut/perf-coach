@@ -380,7 +380,8 @@ def test_ac14_svg_width_100pct():
 
 
 def test_ac14_svg_viewbox_900_280():
-    """AC14: SVG viewBox set to '0 0 900 280' for consistent rendering."""
+    """AC14 (revised): SVG viewBox is 900 wide; the height is render-time (_VH),
+    taller on mobile for readability. Built from VW and _VH."""
     src = _chart_js()
-    assert '0 0 900 280' in src, \
-        "viewBox '0 0 900 280' not found in weight-chart.js"
+    assert "'0 0 ' + VW + ' ' + _VH" in src or "0 0 900 280" in src, \
+        "viewBox (width 900, render-time _VH height) not found in weight-chart.js"

@@ -11,8 +11,8 @@ const WeightChart = (() => {
   // Zone layout: [past 20%][current 60%][future 20%] when a target exists.
   // Without a target the current range fills the full width. Thin separators
   // divide the zones.
-  const PAST_W   = Math.round(CW * 0.20);
-  const FUTURE_W = Math.round(CW * 0.20);
+  const PAST_W   = Math.round(CW * 0.05);
+  const FUTURE_W = Math.round(CW * 0.05);
   const CUR_W3   = CW - PAST_W - FUTURE_W;   // current-zone width in 3-zone mode
 
   const PAST_L   = PAD.left;
@@ -38,6 +38,8 @@ const WeightChart = (() => {
 
   let _tooltip   = null;
   let _activeDots = [];
+  let _VH = VH;   // render-time viewBox height (taller on mobile)
+  let _CH = CH;
 
   // ── SVG helpers ────────────────────────────────────────────────────────
 
@@ -52,7 +54,7 @@ const WeightChart = (() => {
   // ── Y coordinate mapping ───────────────────────────────────────────────
 
   function _yCoord(val, yMin, yMax) {
-    return PAD.top + CH - ((val - yMin) / (yMax - yMin)) * CH;
+    return PAD.top + _CH - ((val - yMin) / (yMax - yMin)) * _CH;
   }
 
   // ── Y bounds from API data ─────────────────────────────────────────────
@@ -118,7 +120,7 @@ const WeightChart = (() => {
   function _findNearestDot(svgEl, clientX, clientY) {
     const rect   = svgEl.getBoundingClientRect();
     const scaleX = VW / (rect.width  || 1);
-    const scaleY = VH / (rect.height || 1);
+    const scaleY = _VH / (rect.height || 1);
     const sx = (clientX - rect.left) * scaleX;
     const sy = (clientY - rect.top)  * scaleY;
     let best = null, bestDist = Infinity;
@@ -154,9 +156,9 @@ const WeightChart = (() => {
       const line2 = longRange
         ? d.toLocaleDateString('en-US', { year: '2-digit' })
         : d.toLocaleDateString('en-US', { month: 'short' });
-      const t1 = _el('text', { x: px, y: PAD.top + CH + 13, 'text-anchor': 'middle', 'font-size': '11', fill: '#9ca3af' });
+      const t1 = _el('text', { x: px, y: PAD.top + _CH + 13, 'text-anchor': 'middle', 'font-size': '11', fill: '#9ca3af' });
       t1.textContent = line1; svg.appendChild(t1);
-      const t2 = _el('text', { x: px, y: PAD.top + CH + 25, 'text-anchor': 'middle', 'font-size': '10', fill: '#b0b6c0' });
+      const t2 = _el('text', { x: px, y: PAD.top + _CH + 25, 'text-anchor': 'middle', 'font-size': '10', fill: '#b0b6c0' });
       t2.textContent = line2; svg.appendChild(t2);
     }
   }
@@ -171,6 +173,11 @@ const WeightChart = (() => {
     const loading = document.getElementById('chart-loading');
     if (loading) loading.hidden = true;
     container.hidden = false;
+
+    // Taller plot on mobile so the trend has vertical room to read (≈3.2:1
+    // desktop sliver → ~1.9:1 on phones).
+    _VH = (window.innerWidth <= 640) ? 480 : VH;
+    _CH = _VH - PAD.top - PAD.bottom;
 
     const hasTarget    = !!(data.plan_series && data.plan_series.length);
     const hasFuture    = !!(data.future_milestones && data.future_milestones.length);
@@ -189,7 +196,7 @@ const WeightChart = (() => {
 
     // Build SVG
     const svg = _el('svg', {
-      viewBox: '0 0 900 280',
+      viewBox: '0 0 ' + VW + ' ' + _VH,
       'aria-label': 'Weight trend chart',
       role: 'img',
     });
@@ -222,16 +229,16 @@ const WeightChart = (() => {
     // ── 1. Zone tints + thin separators ─────────────────────────────────
     if (threeZone) {
       svg.appendChild(_el('rect', {  // past: faint grey wash
-        x: PAST_L, y: PAD.top, width: PAST_W, height: CH,
+        x: PAST_L, y: PAD.top, width: PAST_W, height: _CH,
         fill: '#f3f4f6', opacity: '0.7',
       }));
       svg.appendChild(_el('rect', {  // future: faint blue wash
-        x: FUTURE_L, y: PAD.top, width: FUTURE_W, height: CH,
+        x: FUTURE_L, y: PAD.top, width: FUTURE_W, height: _CH,
         fill: C.future_bg,
       }));
       [PAST_R, CUR_R3].forEach(sx => {
         svg.appendChild(_el('line', {
-          x1: sx, y1: PAD.top, x2: sx, y2: PAD.top + CH,
+          x1: sx, y1: PAD.top, x2: sx, y2: PAD.top + _CH,
           stroke: C_SEP, 'stroke-width': '1',
         }));
       });
@@ -416,21 +423,23 @@ const WeightChart = (() => {
 
     // ── Future zone content ─────────────────────────────────────────────
     if (hasFutureZone) {
-      // "MILESTONES AHEAD" tag
-      const tagW = 96, tagH = 16;
-      const tagY = PAD.top + 6;
-      const tagX = FUTURE_L + (FUTURE_W - tagW) / 2;
-      svg.appendChild(_el('rect', {
-        x: tagX, y: tagY, width: tagW, height: tagH, rx: '4',
-        fill: '#dbeafe',
-      }));
-      const tagT = _el('text', {
-        x: FUTURE_L + FUTURE_W / 2, y: tagY + tagH / 2,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': '8', fill: '#1d4ed8', 'font-weight': '700',
-      });
-      tagT.textContent = 'MILESTONES AHEAD';
-      svg.appendChild(tagT);
+      // "MILESTONES AHEAD" tag — only when the future strip is wide enough.
+      if (FUTURE_W >= 110) {
+        const tagW = 96, tagH = 16;
+        const tagY = PAD.top + 6;
+        const tagX = FUTURE_L + (FUTURE_W - tagW) / 2;
+        svg.appendChild(_el('rect', {
+          x: tagX, y: tagY, width: tagW, height: tagH, rx: '4',
+          fill: '#dbeafe',
+        }));
+        const tagT = _el('text', {
+          x: FUTURE_L + FUTURE_W / 2, y: tagY + tagH / 2,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': '8', fill: '#1d4ed8', 'font-weight': '700',
+        });
+        tagT.textContent = 'MILESTONES AHEAD';
+        svg.appendChild(tagT);
+      }
 
       // Milestone markers (evenly spaced x-positions)
       const milestones = data.future_milestones;
