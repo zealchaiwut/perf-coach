@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>perf-coach — home redesign v7 (reference mockup)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet" />
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --bg-1: #5a8dee;
+    --bg-2: #1f3b8a;
+    --page-bg: radial-gradient(ellipse at top left, #eaf0fb 0%, #d8e3f5 70%);
+    --shell-1: #eaf0fb;
+    --shell-2: #d8e3f5;
+    --card: #ffffff;
+    --card-border: rgba(13, 30, 67, 0.06);
+    --text-primary: #0b1530;
+    --text-secondary: #5c6886;
+    --text-tertiary: #8b95ad;
+    --accent: #5a8dee;
+    --chip-bg: rgba(90,141,238,0.09);
+    --gold: #d4a017;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter Tight', -apple-system, sans-serif;
+    background: var(--page-bg);
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* ── Nav ── */
+  .mock-nav {
+    background: linear-gradient(180deg, #eaf0fb 0%, #d8e3f5 100%);
+    border-bottom: 1px solid rgba(13,30,67,0.06);
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .nav-brand { font-weight: 700; font-size: 16px; color: #0b1530; }
+  .nav-links { display: flex; gap: 4px; flex: 1; }
+  .nav-link {
+    padding: 7px 12px;
+    font-size: 13.5px;
+    color: #5c6886;
+    text-decoration: none;
+    border-radius: 8px;
+  }
+  .nav-link.active { background: rgba(90,141,238,0.12); color: #2b4ca8; font-weight: 600; }
+  .nav-avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: linear-gradient(135deg, #6e90f0, #2b4ca8);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+
+  /* ── Page layout ── */
+  .page { max-width: 900px; margin: 0 auto; padding: 24px 20px 40px; }
+
+  .greeting { margin-bottom: 20px; }
+  .greeting h1 { font-size: 26px; font-weight: 700; color: var(--text-primary); }
+  .greeting p  { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 2px 12px rgba(13,30,67,0.05);
+  }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .card-head .ttl { font-size: 13px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .card-head a { font-size: 12px; color: var(--accent); text-decoration: none; }
+
+  /* ── Log-today strip ── */
+  .log-strip {
+    padding: 12px 18px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .log-strip-text { font-size: 13.5px; color: var(--text-secondary); }
+  .log-strip-cta {
+    font-size: 13px; font-weight: 600; color: #fff;
+    background: var(--accent); border-radius: 8px;
+    padding: 6px 14px; text-decoration: none;
+  }
+
+  /* ── Top row: habits widget ── */
+  .top-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+  .hw-card { }
+  .hw-habit-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(13,30,67,0.04);
+  }
+  .hw-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #d8e3f5; display: flex; align-items: center; justify-content: center; }
+  .hw-check.done { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 13px; }
+  .hw-name { font-size: 13.5px; color: var(--text-primary); flex: 1; }
+  .hw-streak { font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Readiness tile ── */
+  .readiness-tile {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .rd-score { font-size: 42px; font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+  .rd-label { font-size: 13px; font-weight: 600; color: #22c55e; }
+  .rd-headline { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+  .rd-factor { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(13,30,67,0.04); }
+  .rd-factor-name { font-size: 12px; color: var(--text-secondary); }
+  .rd-factor-val { font-size: 12px; font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Weight widget ── */
+  .weight-card { margin-bottom: 16px; }
+  .ww-current { font-size: 36px; font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+  .ww-unit { font-size: 16px; color: var(--text-secondary); }
+  .ww-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; background: rgba(34,197,94,0.12); color: #16a34a; border-radius: 5px; padding: 2px 7px; }
+  .ww-stepper { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .ww-step-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--chip-bg); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+  .ww-input { width: 80px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 16px; border: 1px solid var(--card-border); border-radius: 8px; padding: 5px 8px; }
+  .ww-log-btn { padding: 6px 14px; background: var(--accent); color: #fff; border-radius: 8px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
+
+  /* ── Training card ── */
+  .training-row { margin-bottom: 16px; }
+  .training-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+  .training-stat { text-align: center; }
+  .training-stat-val { font-size: 22px; font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+  .training-stat-lbl { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* ── Lower row ── */
+  .lower-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  .right-stack { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── Performance card ── */
+  .perf-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(13,30,67,0.04); }
+  .perf-track { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .perf-val { font-size: 13px; font-family: 'JetBrains Mono', monospace; color: var(--text-primary); }
+  .perf-trend { font-size: 11px; color: #22c55e; }
+
+  /* ── Workouts card ── */
+  .workout-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(13,30,67,0.04); }
+  .workout-icon { width: 32px; height: 32px; border-radius: 9px; background: rgba(90,141,238,0.12); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .workout-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .workout-meta { font-size: 11px; color: var(--text-secondary); }
+
+  /* ── Sleep card ── */
+  .sleep-score { font-size: 36px; font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+  .sleep-hours { font-size: 13px; color: var(--text-secondary); }
+
+  /* ── Mobile responsive ── */
+  @media (max-width: 600px) {
+    .top-row, .lower-row { grid-template-columns: 1fr; }
+    .training-stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ── Annotation badge ── */
+  .annotation {
+    display: inline-block;
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 6px;
+    font-size: 11px;
+    color: #92400e;
+    padding: 2px 7px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="mock-nav">
+  <span class="nav-brand">⚡ perf-coach</span>
+  <div class="nav-links">
+    <a class="nav-link active" href="#">Home</a>
+    <a class="nav-link" href="#">Training Log</a>
+    <a class="nav-link" href="#">Trends</a>
+    <a class="nav-link" href="#">Calendar</a>
+    <a class="nav-link" href="#">Weight</a>
+    <a class="nav-link" href="#">Habits</a>
+  </div>
+  <div class="nav-avatar">Z</div>
+</nav>
+
+<!-- PAGE -->
+<main class="page">
+
+  <!-- Greeting -->
+  <div class="greeting">
+    <h1>Good morning, Zeal</h1>
+    <p>Thursday, 11 Jun <span class="annotation">Bangkok time (UTC+7)</span></p>
+  </div>
+
+  <!-- Log-today strip -->
+  <div class="log-strip">
+    <span class="log-strip-text"><i class="ti ti-pencil-plus"></i> Log today's metrics <span class="annotation">inline action — expands fast-log form</span></span>
+    <a class="log-strip-cta" href="#">Log Today</a>
+  </div>
+
+  <!-- Top row: habits + readiness side card -->
+  <div class="top-row" style="margin-bottom:16px;">
+
+    <!-- Habits widget -->
+    <div class="card hw-card">
+      <div class="card-head">
+        <div class="ttl"><i class="ti ti-checkbox"></i> Habits · this week</div>
+        <a href="/habits">All habits →</a>
+      </div>
+      <!-- Week wheel (placeholder) -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <div style="width:32px;height:32px;border-radius:8px;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">M</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">T</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:#fbbf24;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">W</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">T</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:#d8e3f5;display:flex;align-items:center;justify-content:center;color:#8b95ad;font-size:11px;font-weight:700;">F</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:#d8e3f5;display:flex;align-items:center;justify-content:center;color:#8b95ad;font-size:11px;font-weight:700;">S</div>
+        <div style="width:32px;height:32px;border-radius:8px;background:#d8e3f5;display:flex;align-items:center;justify-content:center;color:#8b95ad;font-size:11px;font-weight:700;">S</div>
+      </div>
+      <!-- Habit rows -->
+      <div class="hw-habit-row">
+        <div class="hw-check done"><i class="ti ti-check"></i></div>
+        <span class="hw-name">Sleep 8h</span>
+        <span class="hw-streak">12d streak</span>
+        <span class="annotation">inline check — POST /api/habits/{id}/log</span>
+      </div>
+      <div class="hw-habit-row">
+        <div class="hw-check done"><i class="ti ti-check"></i></div>
+        <span class="hw-name">Morning stretch</span>
+        <span class="hw-streak">5d streak</span>
+      </div>
+      <div class="hw-habit-row">
+        <div class="hw-check"></div>
+        <span class="hw-name">Zone 2 run</span>
+        <span class="hw-streak">0d</span>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text-secondary);">3 done · 3 remaining today</div>
+    </div>
+
+    <!-- Readiness side -->
+    <div class="card">
+      <div class="card-head">
+        <div class="ttl"><i class="ti ti-heartbeat"></i> Readiness</div>
+      </div>
+      <div class="readiness-tile">
+        <div class="rd-score">78<small style="font-size:16px;">/100</small></div>
+        <div class="rd-label">Good</div>
+        <div class="rd-headline">You're ready to push today</div>
+        <div style="margin-top:10px;">
+          <div class="rd-factor"><span class="rd-factor-name">HRV</span><span class="rd-factor-val">62 <span style="color:#22c55e;font-size:11px;">+4</span></span></div>
+          <div class="rd-factor"><span class="rd-factor-name">Sleep</span><span class="rd-factor-val">7.4h <span style="color:#22c55e;font-size:11px;">+0.3</span></span></div>
+          <div class="rd-factor"><span class="rd-factor-name">RHR</span><span class="rd-factor-val">52 <span style="color:#22c55e;font-size:11px;">-2</span></span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Weight widget (full-width) -->
+  <div class="card weight-card">
+    <div class="card-head">
+      <div class="ttl"><i class="ti ti-scale"></i> Weight</div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <a href="/weight/targets" style="font-size:12px;color:var(--accent);">edit target →</a>
+        <a href="/weight" style="font-size:12px;color:var(--accent);">open →</a>
+      </div>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;">
+      <span class="ww-current">72.4</span>
+      <span class="ww-unit">kg</span>
+      <span class="ww-delta">−0.6 this week</span>
+    </div>
+    <!-- Sparkline placeholder -->
+    <div style="height:40px;background:linear-gradient(to bottom,rgba(90,141,238,0.15),transparent);border-radius:6px;margin:10px 0;"></div>
+    <div class="ww-stepper">
+      <button class="ww-step-btn">−</button>
+      <input class="ww-input" type="number" value="72.4" />
+      <button class="ww-step-btn">+</button>
+      <button class="ww-log-btn">Log</button>
+      <span class="annotation">inline action — POST /api/weight-entries</span>
+    </div>
+  </div>
+
+  <!-- Training card (full-width) -->
+  <div class="card training-row">
+    <div class="card-head">
+      <div class="ttl"><i class="ti ti-calendar-week"></i> This week's training</div>
+      <a href="/log">Training log →</a>
+    </div>
+    <div class="training-stats">
+      <div class="training-stat">
+        <div class="training-stat-val">4</div>
+        <div class="training-stat-lbl">Workouts</div>
+      </div>
+      <div class="training-stat">
+        <div class="training-stat-val">246</div>
+        <div class="training-stat-lbl">TSS</div>
+      </div>
+      <div class="training-stat">
+        <div class="training-stat-val">14.2</div>
+        <div class="training-stat-lbl">km</div>
+      </div>
+      <div class="training-stat">
+        <div class="training-stat-val">180</div>
+        <div class="training-stat-lbl">m elev</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lower row: performance (left) + workouts/sleep stack (right) -->
+  <div class="lower-row">
+
+    <!-- Performance / PRs -->
+    <div class="card">
+      <div class="card-head">
+        <div class="ttl"><i class="ti ti-trophy" style="color:var(--gold);"></i> Performance</div>
+        <a href="/settings#personal-records">All tracks →</a>
+      </div>
+      <div class="perf-row">
+        <span class="perf-track">Half Marathon</span>
+        <span class="perf-val">1:54:00</span>
+        <span class="perf-trend">↑ improving</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-track">10K</span>
+        <span class="perf-val">48:22</span>
+        <span class="perf-trend">— stable</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-track">Squat 1RM</span>
+        <span class="perf-val">95 kg</span>
+        <span class="perf-trend">↑ improving</span>
+      </div>
+    </div>
+
+    <!-- Right stack: workouts + sleep -->
+    <div class="right-stack">
+
+      <!-- Recent workouts -->
+      <div class="card">
+        <div class="card-head">
+          <div class="ttl"><i class="ti ti-run"></i> Recent</div>
+          <a href="/log">View all</a>
+        </div>
+        <div class="workout-row">
+          <div class="workout-icon"><i class="ti ti-run"></i></div>
+          <div>
+            <div class="workout-name">Tempo run · 8.0 km</div>
+            <div class="workout-meta">Tue · 38:42 · TSS 71</div>
+          </div>
+        </div>
+        <div class="workout-row">
+          <div class="workout-icon"><i class="ti ti-barbell"></i></div>
+          <div>
+            <div class="workout-name">Squat + deads</div>
+            <div class="workout-meta">Mon · 55:00 · TSS 65</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sleep -->
+      <div class="card">
+        <div class="card-head">
+          <div class="ttl"><i class="ti ti-moon"></i> Sleep</div>
+        </div>
+        <div class="sleep-score">82</div>
+        <div class="sleep-hours">7h 24m · quality 4/5</div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<div style="margin:24px auto;max-width:900px;padding:16px 20px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;font-size:12px;color:#64748b;">
+  <strong>v7 layout — reference mockup</strong><br/>
+  Single-call architecture: one <code>GET /api/home/summary</code> populates all blocks on load.
+  Bangkok time (UTC+7) governs day boundaries and week boundaries.
+  Per-block degradation: each block renders independently; a null block shows an empty/error state
+  without affecting its siblings.<br/><br/>
+  <strong>Supersedes:</strong> <code>home-desktop.html</code>, <code>home-mobile.html</code><br/>
+  <strong>Live page:</strong> <a href="/home">/home</a>
+</div>
+
+</body>
+</html>

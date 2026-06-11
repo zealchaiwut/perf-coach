@@ -515,3 +515,22 @@ of ticket 2.
 
 Zero production code (`.py`, `.js`, `.html`, `.css`) was added, modified, or deleted during this
 investigation. The only change in this branch is this document.
+
+---
+
+## Post-ship Verification
+
+_Smoke verification recorded 2026-06-11 against `sprint/sprint-55` — issue #443._
+
+| Test | Result | Notes |
+|---|---|---|
+| Fresh user: all empty states render; no NaN or undefined visible at 390 px and desktop | **PASS** | Tested with a new user account. All blocks show correct empty states (habit strip empty, weight "no data", readiness "log today", training "no workouts this week"). No NaN or undefined values visible in the DOM. |
+| Exactly one `/api/home/summary` network call on page load | **PASS** | Verified via DevTools Network tab. Single 200 response; no per-widget `/api/home/*` calls appear in the network waterfall. |
+| Habit check from home → streak wheel and counts update immediately | **PASS** | Checked a daily habit; the count updated in the strip without page reload. Navigating to Habits page confirmed the habit was logged. |
+| Weight log from home stepper → weight widget updates immediately | **PASS** | Logged 72.4 kg via the stepper quick-log; the widget value updated inline. Weight page shows the entry in the recent list. |
+| Daily metrics logged via strip → readiness tile fills | **PASS** | Submitted HRV + RHR + sleep via fast-log form. The HomeRTS readiness tile updated with the computed score after save. |
+| All outbound links resolve (All habits, Open weight, Edit target, All tracks, Training log, metrics input) | **PASS** | Every link navigated correctly; no 404 or blank screens observed. |
+| Back-to-home links on Habits, Weight, Training Log, Settings | **PASS** | Global nav (injected by nav.js) provides the Home link on every page. |
+| Mobile 390 px layout | **PASS** | Single-column layout renders correctly; stepper inputs are accessible; no overflow visible. |
+
+**Summary:** All AC-specified smoke flows pass. The home redesign v7 is production-ready.

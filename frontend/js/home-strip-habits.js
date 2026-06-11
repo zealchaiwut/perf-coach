@@ -218,10 +218,10 @@
               });
             }
           } else {
-            var postRes = await fetch('/api/habits/' + encodeURIComponent(hid) + '/log', {
+            var postRes = await fetch('/api/habits/logs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ date: today }),
+              body: JSON.stringify({ habit_id: hid, logged_date: today }),
             });
             if (!postRes.ok) throw new Error('post failed');
             var postData = await postRes.json();
