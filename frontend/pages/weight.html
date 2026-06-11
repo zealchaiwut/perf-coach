@@ -489,21 +489,33 @@
       transform-origin: left center; transform: scaleX(0);
       transition: transform 0.4s ease;
     }
+    /* You-dot sits on the bar at the YOU position */
     .progress-marker.pgbar-you-dot {
       position: absolute; top: 50%; transform: translate(-50%, -50%);
-      width: 14px; height: 14px; background: #2563eb; border: 2px solid #fff;
+      width: 12px; height: 12px; background: #2563eb; border: 2px solid #fff;
       border-radius: 50%; box-shadow: 0 1px 4px rgba(37,99,235,0.35); z-index: 3;
     }
+    /* Plan-tick sits on the bar at the PLAN position */
     .pgbar-plan-tick {
-      position: absolute; top: -4px; transform: translateX(-50%);
-      width: 3px; height: 16px; background: #16a34a; border-radius: 2px; z-index: 2;
+      position: absolute; top: -3px; transform: translateX(-50%);
+      width: 3px; height: 14px; background: #16a34a; border-radius: 2px; z-index: 2;
     }
-    .pgbar-micro-row { position: relative; height: 1.125rem; margin-top: 4px; }
-    .pgbar-micro-lbl {
-      position: absolute; font-size: 9px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.04em; color: var(--text-tertiary); transform: translateX(-50%); white-space: nowrap;
+    /* Two marker lanes: YOU above the bar, PLAN below — always legible even when
+       the two positions coincide (e.g. right at the start). */
+    .pgbar-lane { position: relative; height: 19px; }
+    .pgbar-lane-top    { margin-bottom: 3px; }
+    .pgbar-lane-bottom { margin-top: 3px; }
+    .pgbar-flag {
+      position: absolute; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      white-space: nowrap; transition: left 0.4s ease;
     }
-    .pgbar-micro-plan-lbl { color: #16a34a; }
+    .pgbar-flag-you  { bottom: 0; color: #2563eb; }
+    .pgbar-flag-plan { top: 0; color: #16a34a; }
+    .pgbar-caret { width: 0; height: 0; }
+    .pgbar-caret-down { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; }
+    .pgbar-caret-up   { border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid currentColor; }
 
     /* Summary row */
     .progress-summary-row {
@@ -1120,15 +1132,25 @@
           </div>
           <!-- Progress bar -->
           <div class="progress-bar-wrap">
+            <!-- YOU marker rides above the bar -->
+            <div class="pgbar-lane pgbar-lane-top">
+              <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
+                <span class="pgbar-flag-lbl">YOU</span>
+                <span class="pgbar-caret pgbar-caret-down"></span>
+              </div>
+            </div>
             <div class="progress-bar-track" id="pgbar-track">
               <div class="progress-bar-fill pgbar-fill" id="pgbar-fill"></div>
-              <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
               <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
               <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
+              <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
             </div>
-            <div class="pgbar-micro-row" id="pgbar-micro-row">
-              <span class="pgbar-micro-lbl" id="pgbar-micro-you">you</span>
-              <span class="pgbar-micro-lbl pgbar-micro-plan-lbl" id="pgbar-micro-plan">plan</span>
+            <!-- PLAN marker rides below the bar -->
+            <div class="pgbar-lane pgbar-lane-bottom">
+              <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
+                <span class="pgbar-caret pgbar-caret-up"></span>
+                <span class="pgbar-flag-lbl">PLAN</span>
+              </div>
             </div>
           </div>
           <!-- Summary row -->

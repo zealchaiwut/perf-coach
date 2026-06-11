@@ -228,18 +228,20 @@ def test_ac5_micro_plan_label():
 
 
 def test_ac5_micro_you_text():
-    """AC5: 'you' micro-label text is literally 'you'."""
-    # The element with id pgbar-micro-you must contain 'you'
-    m = re.search(r'id="pgbar-micro-you"[^>]*>([^<]*)<', html)
-    assert m and m.group(1).strip() == "you", \
-        "pgbar-micro-you element text must be 'you' in weight.html"
+    """AC5 (revised): the YOU marker flag (id pgbar-micro-you) carries a YOU label.
+    The marker now rides above the bar in its own lane, so the label lives in a
+    child span rather than inline text."""
+    m = re.search(r'id="pgbar-micro-you".*?</div>', html, re.S)
+    assert m and re.search(r'>\s*YOU\s*<', m.group(0)), \
+        "pgbar-micro-you flag must contain a 'YOU' label in weight.html"
 
 
 def test_ac5_micro_plan_text():
-    """AC5: 'plan' micro-label text is literally 'plan'."""
-    m = re.search(r'id="pgbar-micro-plan"[^>]*>([^<]*)<', html)
-    assert m and m.group(1).strip() == "plan", \
-        "pgbar-micro-plan element text must be 'plan' in weight.html"
+    """AC5 (revised): the PLAN marker flag (id pgbar-micro-plan) carries a PLAN
+    label in a child span (marker now rides below the bar in its own lane)."""
+    m = re.search(r'id="pgbar-micro-plan".*?</div>', html, re.S)
+    assert m and re.search(r'>\s*PLAN\s*<', m.group(0)), \
+        "pgbar-micro-plan flag must contain a 'PLAN' label in weight.html"
 
 
 def test_ac5_js_positions_micro_you():
