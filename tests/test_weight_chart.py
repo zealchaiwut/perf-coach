@@ -430,3 +430,162 @@ def test_weight_chart_421_f_today_delta_null_when_no_yesterday(client):
         )
     finally:
         _delete_user(client, uid)
+
+
+# ═══════════════════ Issue #458 — Range tokens, plan_series absent, future_milestones always array ═══════════════════
+
+def _create_target_458(client: httpx.Client, user_id: str) -> dict:
+    """Target: starts 60 days ago, goal 120 days from now (weight-loss plan)."""
+    r = client.post("/api/weight-targets", json={
+        "user_id": user_id,
+        "start_weight_kg": 90.0,
+        "start_date": (TODAY - datetime.timedelta(days=60)).isoformat(),
+        "target_weight_kg": 80.0,
+        "target_date": (TODAY + datetime.timedelta(days=120)).isoformat(),
+    })
+    assert r.status_code == 201, f"Failed to create target: {r.text}"
+    return r.json()
+
+
+def test_weight_chart_458_7d_range_token(client):
+    """AC: range=7D returns trend with exactly 7 points and plan_series with 7 entries."""
+    uid = _create_user(client)
+    try:
+        _create_target_458(client, uid)
+        r = client.get("/api/weight-chart", params={"user_id": uid, "range": "7D"})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["range"]["from"] == (TODAY - datetime.timedelta(days=6)).isoformat()
+        assert data["range"]["to"] == TODAY_STR
+        trend = data["trend"]
+        assert len(trend) == 7, f"Expected 7 trend points for 7D range, got {len(trend)}"
+        assert "plan_series" in data, "plan_series missing with active target and range=7D"
+        ps = data["plan_series"]
+        assert len(ps) == 7, f"Expected 7 plan_series entries for 7D range, got {len(ps)}"
+        assert ps[0]["date"] == (TODAY - datetime.timedelta(days=6)).isoformat()
+        assert ps[-1]["date"] == TODAY_STR
+        for pt in ps:
+            assert "date" in pt and "plan_kg" in pt
+    finally:
+        _delete_user(client, uid)
+
+
+def test_weight_chart_458_all_range_token_plan_series_starts_at_plan_at(client):
+    """AC: range=ALL with entries before plan start — plan_series starts at plan start_date, not earliest entry."""
+    uid = _create_user(client)
+    try:
+        plan_start = TODAY - datetime.timedelta(days=60)
+        # Log entries going back 90 days, before the plan start
+        for i in [90, 80, 70, 60, 50, 40, 30, 20, 10]:
+            _log_weight(client, uid, 89.0, (TODAY - datetime.timedelta(days=i)).isoformat())
+        _create_target_458(client, uid)  # plan starts today-60
+
+        r = client.get("/api/weight-chart", params={"user_id": uid, "range": "ALL"})
+        assert r.status_code == 200, r.text
+        data = r.json()
+
+        # Chart range spans from earliest entry (today-90) to today
+        assert data["range"]["from"] == (TODAY - datetime.timedelta(days=90)).isoformat()
+        assert data["range"]["to"] == TODAY_STR
+
+        # plan_series starts from plan start_date (today-60), not earliest entry (today-90)
+        assert "plan_series" in data, "plan_series missing for ALL range with active target"
+        ps = data["plan_series"]
+        assert ps[0]["date"] == plan_start.isoformat(), (
+            f"plan_series should start at plan_start={plan_start}, got {ps[0]['date']}"
+        )
+        assert ps[-1]["date"] == TODAY_STR, f"plan_series should end today, got {ps[-1]['date']}"
+        # No duplicate dates
+        dates = [pt["date"] for pt in ps]
+        assert len(dates) == len(set(dates)), "Duplicate dates in plan_series"
+        # Exactly 61 entries (today-60 inclusive through today)
+        assert len(ps) == 61, f"Expected 61 plan_series entries for plan spanning 60 days, got {len(ps)}"
+    finally:
+        _delete_user(client, uid)
+
+
+def test_weight_chart_458_plan_series_absent_no_target(client):
+    """AC: plan_series key is absent (not null, not []) when the user has no active weight target."""
+    uid = _create_user(client)
+    try:
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "plan_series" not in data, (
+            f"plan_series should be absent (not null) when no target; found: {data.get('plan_series')}"
+        )
+    finally:
+        _delete_user(client, uid)
+
+
+def test_weight_chart_458_future_milestones_always_array(client):
+    """AC: future_milestones is always an array, even when there is no active target."""
+    uid = _create_user(client)
+    try:
+        r = client.get("/api/weight-chart", params={"user_id": uid})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "future_milestones" in data, "future_milestones key missing from response"
+        ms = data["future_milestones"]
+        assert isinstance(ms, list), f"Expected list for future_milestones, got {type(ms)}: {ms}"
+    finally:
+        _delete_user(client, uid)
+
+
+def test_weight_chart_458_range_tokens_30d_and_90d(client):
+    """AC: 30D and 90D range tokens return correctly bounded trend and plan_series.
+
+    plan_series starts from max(from_d, plan_start_date):
+    - 30D (from=today-29): plan started today-60, so ps starts at from_d (today-29) → 30 entries
+    - 90D (from=today-89): plan started today-60, so ps starts at plan_start (today-60) → 61 entries
+    """
+    uid = _create_user(client)
+    try:
+        _create_target_458(client, uid)  # plan starts today-60
+        plan_start_iso = (TODAY - datetime.timedelta(days=60)).isoformat()
+
+        # 30D: plan_start before from_d → plan_series covers full 30-day range
+        r30 = client.get("/api/weight-chart", params={"user_id": uid, "range": "30D"})
+        assert r30.status_code == 200, r30.text
+        d30 = r30.json()
+        assert len(d30["trend"]) == 30
+        assert "plan_series" in d30, "30D: plan_series missing"
+        ps30 = d30["plan_series"]
+        assert len(ps30) == 30, f"30D: Expected 30 plan_series entries, got {len(ps30)}"
+        assert ps30[0]["date"] == (TODAY - datetime.timedelta(days=29)).isoformat()
+        assert ps30[-1]["date"] == TODAY_STR
+
+        # 90D: plan_start within range → plan_series starts at plan_start (today-60) → 61 entries
+        r90 = client.get("/api/weight-chart", params={"user_id": uid, "range": "90D"})
+        assert r90.status_code == 200, r90.text
+        d90 = r90.json()
+        assert len(d90["trend"]) == 90
+        assert "plan_series" in d90, "90D: plan_series missing"
+        ps90 = d90["plan_series"]
+        assert ps90[0]["date"] == plan_start_iso, (
+            f"90D: ps should start at plan_start={plan_start_iso}, got {ps90[0]['date']}"
+        )
+        assert ps90[-1]["date"] == TODAY_STR
+        dates90 = [pt["date"] for pt in ps90]
+        assert len(dates90) == len(set(dates90)), "90D: duplicate dates in plan_series"
+    finally:
+        _delete_user(client, uid)
+
+
+def test_weight_chart_458_include_future_zone_param(client):
+    """AC: include_future_zone param is accepted; both responses include future_milestones; flag reflected in response."""
+    uid = _create_user(client)
+    try:
+        _create_target_458(client, uid)
+        r_on = client.get("/api/weight-chart", params={"user_id": uid, "range": "30D", "include_future_zone": "true"})
+        r_off = client.get("/api/weight-chart", params={"user_id": uid, "range": "30D"})
+        assert r_on.status_code == 200, r_on.text
+        assert r_off.status_code == 200, r_off.text
+        # future_milestones always present regardless of flag
+        assert "future_milestones" in r_on.json(), "future_milestones missing when include_future_zone=true"
+        assert "future_milestones" in r_off.json(), "future_milestones missing when include_future_zone omitted"
+        # Flag is reflected in the response
+        assert r_on.json().get("include_future_zone") is True, "include_future_zone not reflected as True"
+        assert r_off.json().get("include_future_zone") is False, "include_future_zone not reflected as False"
+    finally:
+        _delete_user(client, uid)

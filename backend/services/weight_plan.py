@@ -159,6 +159,63 @@ def _gap_direction(gap: Decimal, target) -> str:
     return "ahead" if gap > 0 else "behind"
 
 
+def project_hit_date(target, session, as_of_date: datetime.date) -> Optional[datetime.date]:
+    """Extrapolate 7-day pace to project when goal weight will be reached.
+
+    Returns None if pace is zero, insufficient data (<2 entries in window),
+    or pace is moving away from the goal.
+    """
+    from backend.models import WeightEntry  # local import to avoid circular dep
+
+    window_start = as_of_date - datetime.timedelta(days=6)
+    entries = (
+        session.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == target.user_id,
+            WeightEntry.entry_date >= window_start,
+            WeightEntry.entry_date <= as_of_date,
+        )
+        .order_by(WeightEntry.entry_date.asc())
+        .all()
+    )
+
+    if len(entries) < 2:
+        return None
+
+    first_e = entries[0]
+    last_e = entries[-1]
+    days_span = (last_e.entry_date - first_e.entry_date).days
+    if days_span == 0:
+        return None
+
+    # Positive = losing weight; negative = gaining
+    kg_change_per_week = (
+        Decimal(str(first_e.weight_kg)) - Decimal(str(last_e.weight_kg))
+    ) / Decimal(days_span) * 7
+
+    target_w = Decimal(str(target.target_weight_kg))
+    is_loss = target_w < Decimal(str(target.start_weight_kg))
+    current_w = Decimal(str(last_e.weight_kg))
+
+    if is_loss:
+        if kg_change_per_week <= 0:
+            return None
+        kg_to_go = current_w - target_w
+        if kg_to_go <= 0:
+            return None
+        weeks_needed = kg_to_go / kg_change_per_week
+    else:
+        if kg_change_per_week >= 0:
+            return None
+        kg_to_go = target_w - current_w
+        if kg_to_go <= 0:
+            return None
+        weeks_needed = kg_to_go / abs(kg_change_per_week)
+
+    days_needed = int(weeks_needed * 7)
+    return as_of_date + datetime.timedelta(days=days_needed)
+
+
 def _snap_to_month_start(d: datetime.date) -> datetime.date:
     """Round date to nearest 1st-of-month."""
     # First of current month

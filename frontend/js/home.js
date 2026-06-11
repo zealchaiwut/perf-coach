@@ -76,264 +76,6 @@
     return vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
   }
 
-  function deltaClass(delta, higherIsBetter) {
-    if (delta == null || Math.abs(delta) < 0.05) return 'flat';
-    if (higherIsBetter) return delta > 0 ? 'up' : 'down';
-    return delta < 0 ? 'up' : 'down';
-  }
-
-  function fmtDelta(delta, useDecimal) {
-    if (delta == null || Math.abs(delta) < 0.05) return '—';
-    var n = useDecimal ? delta.toFixed(1) : String(Math.round(delta));
-    return (delta > 0 ? '+' : '') + n;
-  }
-
-  function readinessHeadline(score) {
-    if (score >= 75) return "You’re ready to push today";
-    if (score >= 60) return 'Take it steady today';
-    return 'Rest up — your body needs recovery';
-  }
-
-  function readinessSub(score, todayM, avgs) {
-    var dHrv = (todayM.hrv != null && avgs.hrv != null) ? todayM.hrv - avgs.hrv : null;
-    var dRhr = (todayM.resting_hr != null && avgs.rhr != null) ? todayM.resting_hr - avgs.rhr : null;
-    var dSlp = (todayM.sleep_hours != null && avgs.sleep != null) ? todayM.sleep_hours - avgs.sleep : null;
-    var dEng = (todayM.energy != null && avgs.energy != null) ? todayM.energy - avgs.energy : null;
-
-    var signals = [];
-    if (dHrv != null) signals.push({ name: 'HRV',        delta: dHrv, good: dHrv > 0, pct: avgs.hrv   ? Math.abs(dHrv / avgs.hrv)   : 0 });
-    if (dRhr != null) signals.push({ name: 'Resting HR', delta: dRhr, good: dRhr < 0, pct: avgs.rhr   ? Math.abs(dRhr / avgs.rhr)   : 0 });
-    if (dSlp != null) signals.push({ name: 'Sleep',      delta: dSlp, good: dSlp > 0, pct: avgs.sleep ? Math.abs(dSlp / avgs.sleep) : 0 });
-    if (dEng != null) signals.push({ name: 'Energy',     delta: dEng, good: dEng > 0, pct: avgs.energy ? Math.abs(dEng / avgs.energy) : 0 });
-
-    if (!signals.length) {
-      if (score >= 75) return 'All metrics are dialled in — a solid window for quality work.';
-      if (score >= 60) return 'Mixed signals today — go by feel and adjust on the fly.';
-      return 'Rest and recovery is the priority today.';
-    }
-
-    signals.sort(function (a, b) { return b.pct - a.pct; });
-    var top = signals[0];
-
-    var copy = {
-      HRV:          { pos: 'HRV is up — a good sign for aerobic output today.',          neg: 'HRV is suppressed — consider backing off intensity.' },
-      'Resting HR': { pos: 'Resting HR is low — your body is well-recovered.',            neg: 'Elevated resting HR suggests your body is still recovering.' },
-      Sleep:        { pos: 'Good sleep last night is driving today’s readiness.',         neg: 'Short sleep is the main drag on today’s score.' },
-      Energy:       { pos: 'High self-reported energy — take advantage of it.',           neg: 'Low energy reported — take it easier than planned.' }
-    };
-
-    var set = copy[top.name];
-    if (!set) return 'Your metrics are shaping today’s readiness score.';
-    return top.good ? set.pos : set.neg;
-  }
-
-  function pillInfo(score) {
-    if (score >= 75) return { icon: 'ti-check',          label: 'Green · go',       cls: 'pill-green' };
-    if (score >= 60) return { icon: 'ti-alert-triangle', label: 'Amber · caution', cls: 'pill-amber' };
-    return              { icon: 'ti-x',               label: 'Red · rest',      cls: 'pill-red'   };
-  }
-
-  /* ---- Readiness card ---- */
-
-  var _RD_FACTOR_META = {
-    sleep_hours: {
-      name: 'Sleep',
-      fmt: function (v) { return v != null ? Number(v).toFixed(1) + 'h' : '—'; },
-      baseline_key: 'sleep_7d_avg_hours',
-    },
-    hrv: {
-      name: 'HRV',
-      fmt: function (v) { return v != null ? Math.round(v) + ' ms' : '—'; },
-      baseline_key: 'hrv_7d_avg',
-    },
-    rhr: {
-      name: 'RHR',
-      fmt: function (v) { return v != null ? Math.round(v) + ' bpm' : '—'; },
-      baseline_key: 'rhr_7d_avg',
-    },
-    mood: {
-      name: 'Mood',
-      fmt: function (v) { return v != null ? v + '/5' : '—'; },
-      baseline_key: null,
-    },
-    energy: {
-      name: 'Energy',
-      fmt: function (v) { return v != null ? v + '/5' : '—'; },
-      baseline_key: null,
-    },
-  };
-
-  var _RD_LABEL_COLOR = {
-    'Excellent': 'var(--green)',
-    'Good':      'var(--blue-text)',
-    'OK':        'var(--text-secondary)',
-    'Caution':   'var(--amber)',
-    'Recovery':  'var(--red)',
-  };
-
-  function _rdImpactNumeric(impact) {
-    return (impact === 'positive' || impact === 'negative') ? 1 : 0;
-  }
-
-  function _rdContributorRow(c, baseline) {
-    var meta = _RD_FACTOR_META[c.factor] ||
-      { name: c.factor, fmt: function (v) { return String(v != null ? v : '—'); }, baseline_key: null };
-    var valStr = meta.fmt(c.value);
-    var arrow = c.impact === 'positive' ? '↑' : (c.impact === 'negative' ? '↓' : '→');
-    var arrowCls = c.impact === 'positive' ? 'rd-arrow--positive' :
-      (c.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
-
-    var avgCmp = '';
-    if (meta.baseline_key && baseline && baseline[meta.baseline_key] != null && c.value != null) {
-      avgCmp = parseFloat(c.value) > parseFloat(baseline[meta.baseline_key])
-        ? ' (above avg)' : ' (below avg)';
-    }
-
-    return '<div class="rd-contributor">' +
-      '<span class="rd-factor-name">' + meta.name + '</span>' +
-      '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
-      '<span class="rd-factor-val">' + valStr + avgCmp + '</span>' +
-    '</div>';
-  }
-
-  async function loadReadinessCard(userId) {
-    var row1 = document.getElementById('row-1');
-    if (!row1) return;
-
-    var card = document.getElementById('readiness-hero-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'readiness-hero-card';
-      card.className = 'card readiness';
-      row1.insertBefore(card, row1.firstChild);
-    }
-
-    card.innerHTML = '<div class="lbl">Readiness · today</div>' + UIStates.loadingHTML();
-
-    var _rdResult = await _homeFetch('/api/home/readiness?user_id=' + encodeURIComponent(userId));
-    if (!_rdResult.ok) {
-      card.innerHTML = '<div class="lbl">Readiness · today</div>' +
-        UIStates.errorHTML('Could not load readiness data');
-      return;
-    }
-    var data = _rdResult.data;
-
-    /* Null score → no metrics logged today */
-    if (data.score === null) {
-      card.innerHTML =
-        '<div class="lbl">Readiness · today</div>' +
-        UIStates.emptyHTML(
-          'No metrics logged for today.',
-          '<a href="/home#log-today">Log today\'s metrics →</a>'
-        );
-      return;
-    }
-
-    /* Sort contributors by |weight × impact| descending, take top 3 */
-    var sortedContributors = (data.contributors || []).slice().sort(function (a, b) {
-      var ka = a.weight * _rdImpactNumeric(a.impact);
-      var kb = b.weight * _rdImpactNumeric(b.impact);
-      return kb - ka;
-    });
-    var top3 = sortedContributors.slice(0, 3);
-    var baseline = data.rolling_baseline || {};
-
-    var labelColor = _RD_LABEL_COLOR[data.score_label] || 'var(--text-secondary)';
-    var contributorsHTML = top3.map(function (c) {
-      return _rdContributorRow(c, baseline);
-    }).join('');
-
-    card.innerHTML =
-      '<div class="lbl">Readiness · today</div>' +
-      '<div class="score-block">' +
-        '<div class="score-label">Score</div>' +
-        '<div class="score">' + data.score + '<small>/100</small></div>' +
-        '<div class="rd-score-label" style="color:' + labelColor + ';font-size:13px;font-weight:600;margin-top:6px;">' +
-          data.score_label +
-        '</div>' +
-      '</div>' +
-      '<div class="rd-contributors">' + contributorsHTML + '</div>';
-  }
-
-  /* ---- Sleep card helpers ---- */
-
-  /*
-   * Sleep score formula:
-   * clip(((sleep_hours - 4) / 5) * 60 + ((sleep_quality - 1) / 4) * 40, 0, 100)
-   * Example: sleep_hours = 7.4, sleep_quality = 4 → score = 82
-   */
-  function computeSleepScore(hours, quality) {
-    var raw = ((hours - 4) / 5) * 60 + ((quality - 1) / 4) * 40;
-    return Math.round(Math.min(100, Math.max(0, raw)));
-  }
-
-  function fmtHoursAsleep(hours) {
-    var h = Math.floor(hours);
-    var m = Math.round((hours - h) * 60);
-    return h + 'h ' + m + 'm';
-  }
-
-  async function loadSleepCard(userId) {
-    var row1 = document.getElementById('row-1');
-    if (!row1) return;
-
-    var card = document.getElementById('sleep-hero-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'sleep-hero-card';
-      card.className = 'card sleep-card';
-      row1.appendChild(card);
-    }
-
-    card.innerHTML = UIStates.loadingHTML();
-
-    var today = bangkokTodayStr();
-    var data = null;
-    try {
-      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + today);
-      if (res.ok) data = await res.json();
-    } catch (_) { /* fall through to empty state */ }
-
-    var lbl = '<div class="slp-lbl"><i class="ti ti-moon"></i>Sleep · last night</div>';
-
-    if (!data || data.sleep_hours == null) {
-      card.innerHTML = lbl +
-        '<div class="slp-empty">No sleep logged for last night</div>';
-      return;
-    }
-
-    var score   = computeSleepScore(data.sleep_hours, data.sleep_quality != null ? data.sleep_quality : 0);
-    var timeStr = fmtHoursAsleep(data.sleep_hours);
-    var hrvStr  = data.hrv != null ? data.hrv + ' ms' : '—';
-    var qualStr = data.sleep_quality != null ? 'Quality ' + data.sleep_quality + '/5' : '—';
-
-    card.innerHTML = lbl +
-      '<div class="slp-body">' +
-        '<div class="slp-top">' +
-          '<div class="slp-score">' + score + '<small>/100</small></div>' +
-          '<div class="slp-quality">' + qualStr + '</div>' +
-        '</div>' +
-        '<div class="slp-meta">' +
-          '<div><div class="slp-m-l">Time asleep</div><div class="slp-m-v">' + timeStr + '</div></div>' +
-          '<div><div class="slp-m-l">HRV during</div><div class="slp-m-v">' + hrvStr + '</div></div>' +
-        '</div>' +
-        '<div class="slp-stages">' +
-          '<div class="slp-stages-lbl">Stages</div>' +
-          '<div class="slp-stages-bar">' +
-            '<div class="slp-seg-deep" style="width:22%"></div>' +
-            '<div class="slp-seg-rem" style="width:28%"></div>' +
-            '<div class="slp-seg-light" style="width:50%"></div>' +
-          '</div>' +
-          '<div class="slp-legend">' +
-            '<div class="slp-legend-item"><span class="slp-dot" style="background:#1f6feb"></span>Deep<span class="slp-pct">22%</span></div>' +
-            '<div class="slp-legend-item"><span class="slp-dot" style="background:#a86eff"></span>REM<span class="slp-pct">28%</span></div>' +
-            '<div class="slp-legend-item"><span class="slp-dot" style="background:rgba(255,255,255,0.5)"></span>Light<span class="slp-pct">50%</span></div>' +
-          '</div>' +
-          '<div class="slp-demo-note">demo data</div>' +
-        '</div>' +
-      '</div>';
-  }
-
   /* ---- Performance card helpers ---- */
 
   var TRACK_CONFIGS = {
@@ -594,7 +336,8 @@
   }
 
   async function loadPerformanceCard(userId) {
-    var row2 = document.getElementById('row-2');
+    var row2 = document.getElementById('home-perf-container') ||
+               document.getElementById('row-2');
     if (!row2) return;
 
     var card = document.getElementById('perf-card');
@@ -607,8 +350,8 @@
 
     var perfHeader =
       '<div class="card-head">' +
-        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</a></div>' +
-        '<a href="/settings#personal-records">All tracks</a>' +
+        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
+        '<a href="/settings#personal-records">All tracks →</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
@@ -626,7 +369,7 @@
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
       emptyEl.innerHTML =
-        'No tracked performances yet — <a href="/settings#personal-records">add your first PR in Settings</a>';
+        '<a href="/settings#personal-records">Set your personal records →</a>';
       card.appendChild(emptyEl);
       return;
     }
@@ -743,18 +486,26 @@
       if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
     }
 
+    // Zone-2 badge (issue #441): minutes spent in Z2 when the backend reports it
+    var z2HTML = '';
+    if (w.zone2_minutes != null) {
+      z2HTML = '<div class="z2-badge" title="Zone 2 minutes">Z2 ' + w.zone2_minutes + '</div>';
+    }
+
     return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
       '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
       '<div class="info">' +
         '<div class="ttl">' + titleText + '</div>' +
         '<div class="meta">' + metaParts.join(' · ') + '</div>' +
       '</div>' +
+      z2HTML +
       '<div class="sources">' + badgesHTML + '</div>' +
     '</div>';
   }
 
-  async function loadRecentWorkoutsCard(userId) {
-    var row2 = document.getElementById('row-2');
+  function loadRecentWorkoutsCard(userId, workoutsBlock) {
+    var row2 = document.getElementById('home-workouts-container') ||
+               document.getElementById('row-2');
     if (!row2) return;
 
     var card = document.getElementById('workouts-card');
@@ -767,24 +518,21 @@
 
     card.innerHTML = UIStates.loadingHTML();
 
-    var _rwResult = await _homeFetch(
-      '/api/home/recent-workouts?user_id=' + encodeURIComponent(userId) + '&limit=4'
-    );
-    var workouts = _rwResult.ok ? (_rwResult.data.workouts || []) : [];
+    var workouts = (workoutsBlock && workoutsBlock.workouts) ? workoutsBlock.workouts : [];
 
     var header =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
         '<span style="display:inline-flex;align-items:center;gap:10px;">' +
           '<a class="rw-log-btn" href="/training?return=/home"><i class="ti ti-plus"></i>Log workout</a>' +
-          '<a href="/log">View all</a>' +
+          '<a href="/log">View all →</a>' +
         '</span>' +
       '</div>';
 
     if (!workouts.length) {
       card.innerHTML = header +
-        '<div class="workouts-empty">No workouts in the last 14 days — ' +
-        '<a href="/training?return=/home">log one</a>.</div>';
+        '<div class="workouts-empty">No workouts yet — ' +
+        '<a href="/training?return=/home">log your first</a>.</div>';
       return;
     }
 
@@ -795,1065 +543,6 @@
     });
 
     card.innerHTML = header + '<div class="list">' + listHTML + '</div>';
-  }
-
-  /* ---- Habits Day-Grid card ---- */
-
-  function isoWeekMonday(d) {
-    var day = d.getDay();
-    var diff = (day === 0) ? -6 : 1 - day;
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
-  }
-
-  function addDays(d, n) {
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-  }
-
-  function buildHabitRow(habit, weekDates, todayStr, logsByHabit, userId, streakNum) {
-    var logsForHabit = logsByHabit[habit.id] || {};
-    var cellsHTML = '';
-    weekDates.forEach(function (dateStr) {
-      var isFuture = dateStr > todayStr;
-      var log = logsForHabit[dateStr];
-      var isDone = !!log;
-      var isToday = dateStr === todayStr;
-      var cls = 'day-cell' + (isDone ? ' done' : '') + (isToday ? ' today' : '') + (isFuture ? ' future' : '');
-      var inner = isDone ? '<i class="ti ti-check"></i>' : '';
-      cellsHTML +=
-        '<div class="' + cls + '"' +
-        ' data-habit-id="' + habit.id + '"' +
-        ' data-date="' + dateStr + '"' +
-        ' data-log-id="' + (log ? log.id : '') + '">' +
-        inner + '</div>';
-    });
-    return '<div class="week-row" data-habit-row="' + habit.id + '">' +
-      '<div class="habit-name" title="' + habit.name + '">' + habit.name + '</div>' +
-      cellsHTML +
-      '<div class="streak-col"><span class="num">' + streakNum + '</span>d</div>' +
-    '</div>';
-  }
-
-  async function refreshHabitRow(card, habit, weekDates, todayStr, userId) {
-    var logs = [];
-    try {
-      var lr = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
-      if (lr.ok) logs = await lr.json();
-    } catch (_) { /* network error, leave logs empty */ }
-
-    var logsForHabit = {};
-    logs.forEach(function (l) {
-      if (l.habit_id === habit.id) logsForHabit[l.logged_date] = l;
-    });
-
-    var streakNum = 0;
-    try {
-      var sr = await fetch('/api/habits/stats?habit_id=' + habit.id + '&days=30');
-      if (sr.ok) { var sd = await sr.json(); streakNum = sd.streak || 0; }
-    } catch (_) { /* network error, streak stays 0 */ }
-
-    var tmp = document.createElement('div');
-    tmp.innerHTML = buildHabitRow(habit, weekDates, todayStr, { [habit.id]: logsForHabit }, userId, streakNum);
-    var newRow = tmp.firstChild;
-    var existingRow = card.querySelector('[data-habit-row="' + habit.id + '"]');
-    if (existingRow) existingRow.parentNode.replaceChild(newRow, existingRow);
-
-    var footerBadge = card.querySelector('[data-streak-badge="' + habit.id + '"]');
-    if (footerBadge) footerBadge.textContent = habit.name.split(' ')[0] + ' ' + streakNum + 'd';
-
-    attachHabitCellListeners(card, [habit], weekDates, todayStr, userId);
-  }
-
-  function showHabitError(card, msg) {
-    var existing = card.querySelector('.habit-inline-error');
-    if (existing) existing.remove();
-    var el = document.createElement('div');
-    el.className = 'habit-inline-error';
-    el.textContent = msg;
-    var footer = card.querySelector('.habits-streak-footer');
-    if (footer) footer.insertAdjacentElement('beforebegin', el);
-    else card.appendChild(el);
-    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 4000);
-  }
-
-  function attachHabitCellListeners(card, habits, weekDates, todayStr, userId) {
-    var habitMap = {};
-    habits.forEach(function (h) { habitMap[h.id] = h; });
-    card.querySelectorAll('.day-cell:not(.future)').forEach(function (cell) {
-      if (cell._hasListener) return;
-      cell._hasListener = true;
-      cell.addEventListener('click', async function () {
-        var hid = cell.getAttribute('data-habit-id');
-        var dateStr = cell.getAttribute('data-date');
-        var logId = cell.getAttribute('data-log-id');
-        var habit = habitMap[hid];
-        if (!habit) return;
-
-        var wasLogged = !!logId;
-        if (wasLogged) {
-          cell.classList.remove('done');
-          cell.innerHTML = '';
-          cell.removeAttribute('data-log-id');
-        } else {
-          cell.classList.add('done');
-          cell.innerHTML = '<i class="ti ti-check"></i>';
-        }
-
-        try {
-          if (wasLogged) {
-            var delRes = await fetch('/api/habits/logs/' + logId, { method: 'DELETE' });
-            if (!delRes.ok) throw new Error('delete failed');
-          } else {
-            var postRes = await fetch('/api/habits/logs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ habit_id: hid, logged_date: dateStr })
-            });
-            if (!postRes.ok) throw new Error('post failed');
-            var newLog = await postRes.json();
-            cell.setAttribute('data-log-id', String(newLog.id));
-          }
-        } catch (_) {
-          if (wasLogged) {
-            cell.classList.add('done');
-            cell.innerHTML = '<i class="ti ti-check"></i>';
-            cell.setAttribute('data-log-id', logId);
-          } else {
-            cell.classList.remove('done');
-            cell.innerHTML = '';
-            cell.removeAttribute('data-log-id');
-          }
-          showHabitError(card, 'Could not save — try again');
-          return;
-        }
-
-        try {
-          var sr = await fetch('/api/habits/stats?habit_id=' + hid + '&days=30');
-          if (sr.ok) {
-            var sd = await sr.json();
-            var badge = card.querySelector('[data-streak-badge="' + hid + '"]');
-            if (badge) badge.textContent = habit.name.split(' ')[0] + ' ' + (sd.streak || 0) + 'd';
-            var streakCell = card.querySelector('[data-habit-row="' + hid + '"] .streak-col .num');
-            if (streakCell) streakCell.textContent = sd.streak || 0;
-          }
-        } catch (_) { /* network error, badge stays stale */ }
-      });
-    });
-  }
-
-  async function loadHabitsCard(userId) {
-    var row4 = document.getElementById('row-4');
-    if (!row4) return;
-
-    var card = document.getElementById('habits-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'habits-card';
-      card.className = 'card habits';
-      row4.insertBefore(card, row4.firstChild);
-    }
-
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-checkbox"></i>Habits · this week</div>' +
-        '<a href="/habits">All</a>' +
-      '</div>';
-
-    card.innerHTML = header + UIStates.loadingHTML();
-
-    var habits = [];
-    try {
-      var hr = await fetch('/api/habits');
-      if (hr.ok) habits = await hr.json();
-    } catch (_) { /* network error, leave habits empty */ }
-
-    if (!habits.length) {
-      card.innerHTML = header +
-        '<div class="habits-empty">Add a habit to start tracking your week — <a href="/habits">go to Habits</a></div>';
-      return;
-    }
-
-    var today = bangkokToday();
-    var todayStr = bangkokTodayStr();
-    var monday = isoWeekMonday(today);
-    var weekDates = [];
-    for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
-
-    var allLogs = [];
-    try {
-      var lr2 = await fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]);
-      if (lr2.ok) allLogs = await lr2.json();
-    } catch (_) { /* network error, leave logs empty */ }
-
-    var logsByHabit = {};
-    allLogs.forEach(function (l) {
-      if (!logsByHabit[l.habit_id]) logsByHabit[l.habit_id] = {};
-      logsByHabit[l.habit_id][l.logged_date] = l;
-    });
-
-    var streaks = {};
-    await Promise.all(habits.map(async function (h) {
-      try {
-        var sr = await fetch('/api/habits/stats?habit_id=' + h.id + '&days=30');
-        if (sr.ok) { var sd = await sr.json(); streaks[h.id] = sd.streak || 0; }
-        else streaks[h.id] = 0;
-      } catch (_) { streaks[h.id] = 0; }
-    }));
-
-    var headerRowHTML =
-      '<div class="week-row">' +
-        '<div class="week-header first">Habit</div>' +
-        '<div class="week-header">M</div><div class="week-header">T</div><div class="week-header">W</div>' +
-        '<div class="week-header">T</div><div class="week-header">F</div><div class="week-header">S</div>' +
-        '<div class="week-header">S</div>' +
-        '<div class="week-header streak-hdr">Streak</div>' +
-      '</div>';
-
-    var rowsHTML = '';
-    habits.forEach(function (h) {
-      rowsHTML += buildHabitRow(h, weekDates, todayStr, logsByHabit, userId, streaks[h.id] || 0);
-    });
-
-    var footerBadges = habits
-      .filter(function (h) { return (streaks[h.id] || 0) > 0; })
-      .map(function (h) {
-        return '<span class="badge" data-streak-badge="' + h.id + '">' +
-          h.name.split(' ')[0] + ' ' + (streaks[h.id] || 0) + 'd</span>';
-      })
-      .join('');
-
-    card.innerHTML = header +
-      '<div class="week-grid">' + headerRowHTML + rowsHTML + '</div>' +
-      '<div class="habits-streak-footer">Streaks: ' + footerBadges + '</div>';
-
-    attachHabitCellListeners(card, habits, weekDates, todayStr, userId);
-  }
-
-  /* ---- Habits Stats Graph card ---- */
-
-  async function loadHabitsStatsCard(userId) {
-    var row4 = document.getElementById('row-4');
-    if (!row4) return;
-
-    var today = bangkokToday();
-    var todayStr = bangkokTodayStr();
-    var monday = isoWeekMonday(today);
-    var weekDates = [];
-    for (var i = 0; i < 7; i++) weekDates.push(isoDate(addDays(monday, i)));
-
-    var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    var DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-    var habits = [], logs = [], allStats = [];
-    try {
-      var results = await Promise.all([
-        fetch('/api/habits'),
-        fetch('/api/habits/logs?from=' + weekDates[0] + '&to=' + weekDates[6]),
-        fetch('/api/habits/stats?days=30')
-      ]);
-      if (results[0].ok) habits = await results[0].json();
-      if (results[1].ok) logs = await results[1].json();
-      if (results[2].ok) allStats = await results[2].json();
-    } catch (_) { /* network error, leave collections empty */ }
-
-    var activeCount = habits.length;
-
-    // Zero-habits: hide the card entirely
-    if (activeCount === 0) return;
-
-    var card = document.getElementById('habits-stats-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'habits-stats-card';
-      card.className = 'card habits-graph';
-      row4.appendChild(card);
-    }
-
-    // Compute habitsCompletedByDay — count distinct (habit_id, day) log entries per day
-    var habitsCompletedByDay = {};
-    DAY_NAMES.forEach(function (d) { habitsCompletedByDay[d] = 0; });
-    var seen = {};
-    logs.forEach(function (l) {
-      var key = l.habit_id + '|' + l.logged_date;
-      if (seen[key]) return;
-      seen[key] = true;
-      var parts = l.logged_date.split('-');
-      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      var idx = d.getDay() === 0 ? 6 : d.getDay() - 1; // Mon=0 … Sun=6
-      habitsCompletedByDay[DAY_NAMES[idx]]++;
-    });
-
-    var totalCompleted = DAY_NAMES.reduce(function (s, d) { return s + habitsCompletedByDay[d]; }, 0);
-    var totalPossible = activeCount * 7;
-    var completionRate = totalPossible > 0 ? Math.round(totalCompleted / totalPossible * 100) : 0;
-
-    // bestDay: day name(s) with the highest N; supports ties
-    var maxN = Math.max.apply(null, DAY_NAMES.map(function (d) { return habitsCompletedByDay[d]; }));
-    var bestDayNames;
-    if (maxN === 0) {
-      bestDayNames = '—';
-    } else {
-      bestDayNames = DAY_NAMES.filter(function (d) { return habitsCompletedByDay[d] === maxN; }).join(' & ');
-    }
-
-    // longestStreak: max streak across all habits from /api/habits/stats list response
-    var longestStreakNum = 0;
-    var longestStreakHabit = '—';
-    if (Array.isArray(allStats)) {
-      allStats.forEach(function (s) {
-        if (s.streak > longestStreakNum) {
-          longestStreakNum = s.streak;
-          longestStreakHabit = s.habit_name;
-        }
-      });
-    }
-    var streakText = longestStreakNum > 0
-      ? longestStreakNum + ' days · ' + longestStreakHabit
-      : '—';
-
-    // Build 7-bar chart
-    var barsHTML = '';
-    weekDates.forEach(function (dateStr, i) {
-      var dayName = DAY_NAMES[i];
-      var n = habitsCompletedByDay[dayName];
-      var isFuture = dateStr > todayStr;
-      var isToday = dateStr === todayStr;
-      var cls = 'hg-day' + (isToday ? ' today' : '') + (isFuture ? ' future' : '');
-      var pct = isFuture ? 8 : (activeCount > 0 ? Math.round(n / activeCount * 100) : 0);
-      var label = isFuture ? '—' : String(n);
-      barsHTML +=
-        '<div class="' + cls + '">' +
-          '<div class="bar-val">' + label + '</div>' +
-          '<div class="bar-wrap"><div class="bar" style="height:' + Math.max(8, pct) + '%;"></div></div>' +
-          '<div class="dow">' + DOW_LABELS[i] + '</div>' +
-        '</div>';
-    });
-
-    var fillPct = totalPossible > 0 ? Math.round(totalCompleted / totalPossible * 100) : 0;
-
-    card.innerHTML =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-chart-bar"></i>Habits · stats</div>' +
-        '<span class="meta">This week</span>' +
-      '</div>' +
-      '<div class="hg-body">' +
-        '<div class="hg-bars">' +
-          '<div class="hg-label">Completed per day</div>' +
-          '<div class="hg-chart">' + barsHTML + '</div>' +
-        '</div>' +
-        '<div class="hg-stats">' +
-          '<div class="hg-stat">' +
-            '<div class="l">This week</div>' +
-            '<div class="v bar-stat">' + totalCompleted +
-              '<span class="sub">/ ' + totalPossible + ' possible</span>' +
-              '<span class="pct-bar"><span class="fill" style="width:' + fillPct + '%;"></span></span>' +
-            '</div>' +
-          '</div>' +
-          '<div class="hg-stat">' +
-            '<div class="l">Best day</div>' +
-            '<div class="v">' + bestDayNames + '</div>' +
-          '</div>' +
-          '<div class="hg-stat">' +
-            '<div class="l">Completion rate</div>' +
-            '<div class="v">' + completionRate + '%</div>' +
-          '</div>' +
-          '<div class="hg-stat">' +
-            '<div class="l">Longest streak</div>' +
-            '<div class="v">' + streakText + '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-  }
-
-  /* ---- Row 3: Trend cards (HRV · Weekly TSS · RHR · Weight) ---- */
-
-  function _trendAreaSpark(vals, strokeColor, fillColor, baselineVal) {
-    var W = 200, H = 48, PAD = 4;
-    var nonNull = vals.filter(function (v) { return v != null; });
-    if (!nonNull.length) {
-      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
-    }
-    var minV = Math.min.apply(null, nonNull);
-    var maxV = Math.max.apply(null, nonNull);
-    if (baselineVal != null) {
-      minV = Math.min(minV, baselineVal);
-      maxV = Math.max(maxV, baselineVal);
-    }
-    if (minV === maxV) { minV -= 1; maxV += 1; }
-
-    function normY(v) {
-      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
-    }
-
-    var pts = [];
-    for (var i = 0; i < vals.length; i++) {
-      if (vals[i] == null) continue;
-      var x = vals.length > 1 ? (i / (vals.length - 1)) * W : W / 2;
-      pts.push({ x: x, y: normY(vals[i]) });
-    }
-    if (!pts.length) {
-      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
-    }
-
-    var linePath = pts.map(function (p, idx) {
-      return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-    }).join(' ');
-
-    var lastPt = pts[pts.length - 1];
-    var areaPath = linePath +
-      ' L' + lastPt.x.toFixed(1) + ',' + H +
-      ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
-
-    var uid = 'tg' + Math.random().toString(36).slice(2, 7);
-    var gradDef = '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0%" stop-color="' + fillColor + '" stop-opacity="0.45"/>' +
-      '<stop offset="100%" stop-color="' + fillColor + '" stop-opacity="0"/>' +
-      '</linearGradient></defs>';
-
-    var out = '<svg class="trend-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + gradDef;
-    out += '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>';
-    out += '<path d="' + linePath + '" fill="none" stroke="' + strokeColor + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-    if (baselineVal != null) {
-      var by = normY(baselineVal);
-      out += '<line x1="0" y1="' + by.toFixed(1) + '" x2="' + W + '" y2="' + by.toFixed(1) + '" stroke="' + strokeColor + '" stroke-width="1" stroke-dasharray="3 4" opacity="0.4"/>';
-    }
-    out += '<circle cx="' + lastPt.x.toFixed(1) + '" cy="' + lastPt.y.toFixed(1) + '" r="3" fill="' + strokeColor + '"/>';
-    out += '</svg>';
-    return out;
-  }
-
-  function _trendBarSpark(vals, peakIdx) {
-    var W = 200, H = 48, GAP = 3;
-    var nonNull = vals.filter(function (v) { return v != null && v > 0; });
-    if (!nonNull.length) {
-      return '<svg class="trend-sparkline" viewBox="0 0 200 48" preserveAspectRatio="none"></svg>';
-    }
-    var maxV = Math.max.apply(null, nonNull);
-    var n = vals.length;
-    var barW = Math.max(4, Math.floor((W - GAP * (n - 1)) / n));
-    var step = barW + GAP;
-    var startX = (W - (barW * n + GAP * (n - 1))) / 2;
-
-    var out = '<svg class="trend-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
-    for (var i = 0; i < vals.length; i++) {
-      var v = vals[i];
-      var x = startX + i * step;
-      if (!v) {
-        out += '<rect x="' + x.toFixed(1) + '" y="' + (H - 2) + '" width="' + barW + '" height="2" rx="1" fill="#e5e7eb"/>';
-        continue;
-      }
-      var barH = Math.max(4, (v / maxV) * (H - 4));
-      var y = (H - barH).toFixed(1);
-      var fill = i === peakIdx ? '#f97316' : '#fdba74';
-      out += '<rect x="' + x.toFixed(1) + '" y="' + y + '" width="' + barW + '" height="' + barH.toFixed(1) + '" rx="2" fill="' + fill + '"/>';
-    }
-    out += '</svg>';
-    return out;
-  }
-
-  function _trendDeltaPill(text, direction) {
-    var dirClass = { up: 'trend-delta-pill--up', down: 'trend-delta-pill--down', flat: 'trend-delta-pill--flat' };
-    return '<span class="trend-delta-pill ' + (dirClass[direction] || dirClass.flat) + '">' + (text || '—') + '</span>';
-  }
-
-  function _trendCardInnerHTML(iconHTML, title, period, bigVal, unit, pillHTML, sparkSVG, footLeft, footRight, extraHTML) {
-    return '<div class="trend-card-header">' +
-        iconHTML +
-        '<span class="trend-card-title">' + title + '</span>' +
-        '<span class="trend-card-period">' + period + '</span>' +
-      '</div>' +
-      '<div class="trend-card-stat">' +
-        '<span class="trend-card-big">' + bigVal + '</span>' +
-        '<span class="trend-card-unit">' + unit + '</span>' +
-        pillHTML +
-      '</div>' +
-      sparkSVG +
-      '<div class="trend-card-footer">' +
-        '<span>' + footLeft + '</span>' +
-        '<span>' + footRight + '</span>' +
-      '</div>' +
-      (extraHTML || '');
-  }
-
-  function _trendCardErrorHTML(iconHTML, title, period) {
-    return '<div class="trend-card-header">' +
-        iconHTML +
-        '<span class="trend-card-title">' + title + '</span>' +
-        '<span class="trend-card-period">' + period + '</span>' +
-      '</div>' +
-      "<div class=\"trend-card-error\">Couldn't load data</div>";
-  }
-
-  function renderHRVTrendCard(el, summary) {
-    var iconHTML = '<i class="ti ti-heart-rate-monitor" style="font-size:16px;color:var(--teal-text);"></i>';
-    if (!summary) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'HRV', '30d');
-      return;
-    }
-    var series = (summary.hrv && summary.hrv.series) || [];
-    var baseline = summary.hrv ? summary.hrv.baseline_mean : null;
-    var sparkVals = series.map(function (d) { return d.value; });
-    var latest = null;
-    for (var i = series.length - 1; i >= 0; i--) {
-      if (series[i].value != null) { latest = series[i].value; break; }
-    }
-    if (latest === null) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'HRV', '30d');
-      return;
-    }
-    var pillHTML;
-    if (baseline != null) {
-      var delta = latest - baseline;
-      var absD = Math.abs(delta);
-      var dir = absD < 2 ? 'flat' : (delta > 0 ? 'up' : 'down');
-      var sign = delta > 0 ? '+' : '−';
-      pillHTML = _trendDeltaPill(sign + Math.round(absD) + ' ms', dir);
-    } else {
-      pillHTML = _trendDeltaPill('—', 'flat');
-    }
-    el.innerHTML = _trendCardInnerHTML(iconHTML, 'HRV', '30d',
-      Math.round(latest), 'ms', pillHTML,
-      _trendAreaSpark(sparkVals, '#1e6438', '#1e6438', baseline),
-      baseline != null ? 'Baseline ' + Math.round(baseline) + ' ms' : '30d avg',
-      'Today ' + Math.round(latest) + ' ms', '');
-  }
-
-  function renderRHRTrendCard(el, summary) {
-    var iconHTML = '<i class="ti ti-heart" style="font-size:16px;color:#dc2626;"></i>';
-    if (!summary) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'RHR', '30d');
-      return;
-    }
-    var series = (summary.rhr && summary.rhr.series) || [];
-    var baseline = summary.rhr ? summary.rhr.baseline_mean : null;
-    var sparkVals = series.map(function (d) { return d.value; });
-    var latest = null;
-    for (var i = series.length - 1; i >= 0; i--) {
-      if (series[i].value != null) { latest = series[i].value; break; }
-    }
-    if (latest === null) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'RHR', '30d');
-      return;
-    }
-    var pillHTML;
-    if (baseline != null) {
-      var delta = latest - baseline;
-      var absD = Math.abs(delta);
-      var dir = absD < 1 ? 'flat' : (delta < 0 ? 'up' : 'down');
-      var sign = delta > 0 ? '+' : '−';
-      pillHTML = _trendDeltaPill(sign + Math.round(absD) + ' bpm', dir);
-    } else {
-      pillHTML = _trendDeltaPill('—', 'flat');
-    }
-    el.innerHTML = _trendCardInnerHTML(iconHTML, 'RHR', '30d',
-      Math.round(latest), 'bpm', pillHTML,
-      _trendAreaSpark(sparkVals, '#dc2626', '#dc2626', baseline),
-      baseline != null ? 'Baseline ' + Math.round(baseline) + ' bpm' : '30d avg',
-      'Today ' + Math.round(latest) + ' bpm', '');
-  }
-
-  function renderWeeklyTSSTrendCard(el, summary) {
-    var iconHTML = '<i class="ti ti-flame" style="font-size:16px;color:var(--orange-text);"></i>';
-    if (!summary) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weekly TSS', '8d');
-      return;
-    }
-    var series = (summary.tss && summary.tss.series) || [];
-    var last8 = series.slice(-8);
-    if (!last8.length) {
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weekly TSS', '8d');
-      return;
-    }
-    var sparkVals = last8.map(function (d) { return d.value; });
-    var weekTotal = last8.reduce(function (s, d) { return s + (d.value || 0); }, 0);
-    var peakIdx = -1, peakVal = -Infinity;
-    sparkVals.forEach(function (v, i) {
-      if (v != null && v > peakVal) { peakVal = v; peakIdx = i; }
-    });
-    var bigDay = null;
-    if (peakIdx >= 0 && last8[peakIdx]) {
-      var p = last8[peakIdx].date.split('-');
-      var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-      bigDay = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-    }
-    var pillHTML;
-    var prev8 = series.slice(-16, -8);
-    if (prev8.length) {
-      var prevTotal = prev8.reduce(function (s, d) { return s + (d.value || 0); }, 0);
-      if (prevTotal > 0) {
-        var pct = ((weekTotal - prevTotal) / prevTotal) * 100;
-        var absP = Math.abs(pct);
-        var dir = absP < 5 ? 'flat' : (pct > 0 ? 'up' : 'down');
-        var sign = pct > 0 ? '+' : '−';
-        pillHTML = _trendDeltaPill(sign + absP.toFixed(0) + '%', dir);
-      } else {
-        pillHTML = _trendDeltaPill('—', 'flat');
-      }
-    } else {
-      pillHTML = _trendDeltaPill('—', 'flat');
-    }
-    el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weekly TSS', '8d',
-      Math.round(weekTotal), 'TSS', pillHTML,
-      _trendBarSpark(sparkVals, peakIdx),
-      'Last 8 days',
-      bigDay ? 'Peak: ' + bigDay : '—', '');
-  }
-
-  function _buildWeightQuickInput(prefillValue) {
-    var valAttr = (prefillValue != null) ? ' value="' + prefillValue + '"' : '';
-    return '<div class="trend-quick-input">' +
-      '<input type="number" class="trend-weight-input" step="0.1" min="20" max="300"' +
-        ' placeholder="kg" inputmode="decimal" aria-label="Weight in kg"' + valAttr + '>' +
-      '<button type="button" class="trend-quick-save-btn" data-save="weight">Save</button>' +
-      '<span class="trend-weight-error" style="display:none;font-size:11px;color:#dc2626;margin-left:6px;"></span>' +
-    '</div>';
-  }
-
-  function _wireWeightSave(cardEl, userId) {
-    var btn = cardEl.querySelector('[data-save="weight"]');
-    var inp = cardEl.querySelector('.trend-weight-input');
-    var errEl = cardEl.querySelector('.trend-weight-error');
-    if (!btn || !inp) return;
-
-    function showWeightErr(msg) {
-      if (!errEl) return;
-      errEl.textContent = msg;
-      errEl.style.display = 'inline';
-      setTimeout(function () { errEl.style.display = 'none'; }, 4000);
-    }
-
-    btn.addEventListener('click', async function () {
-      var raw = inp.value.trim();
-      if (errEl) errEl.style.display = 'none';
-      if (raw === '' || isNaN(Number(raw))) { showWeightErr('Enter a number'); inp.focus(); return; }
-      var val = parseFloat(raw);
-      if (val < 20 || val > 300) { showWeightErr('Must be 20–300 kg'); inp.focus(); return; }
-      btn.disabled = true;
-      try {
-        var todayStr = bangkokTodayStr();
-        var res = await fetch('/api/weight', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weight_kg: val, recorded_date: todayStr })
-        });
-        if (res.ok || res.status === 409) {
-          inp.value = '';
-          var wRes = await fetch('/api/weight');
-          if (wRes.ok) {
-            var entries = await wRes.json();
-            renderWeightTrendCard(cardEl, entries, userId);
-          }
-        } else {
-          showWeightErr('Save failed — try again');
-        }
-      } catch (_) {
-        showWeightErr('Network error — try again');
-      }
-      btn.disabled = false;
-    });
-  }
-
-  /* ---- Weight widget sparkline (40px height, blue accent) ---- */
-
-  function _weightSparkline(ma30) {
-    var W = 200, H = 40, PAD = 3;
-    if (!ma30 || !ma30.length) {
-      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
-    }
-    var vals = ma30.map(function (d) { return d.value; }).filter(function (v) { return v != null; });
-    if (!vals.length) {
-      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
-    }
-    var minV = Math.min.apply(null, vals);
-    var maxV = Math.max.apply(null, vals);
-    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
-
-    function normY(v) {
-      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
-    }
-
-    var pts = ma30.filter(function (d) { return d.value != null; }).map(function (d, i) {
-      var x = ma30.length > 1 ? (i / (ma30.length - 1)) * W : W / 2;
-      return { x: x, y: normY(d.value) };
-    });
-
-    if (!pts.length) {
-      return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>';
-    }
-
-    var linePath = pts.map(function (p, idx) {
-      return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-    }).join(' ');
-    var last = pts[pts.length - 1];
-    var areaPath = linePath + ' L' + last.x.toFixed(1) + ',' + H + ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
-    var uid = 'wwg' + Math.random().toString(36).slice(2, 7);
-
-    return '<svg class="ww-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none">' +
-      '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
-        '<stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.3"/>' +
-        '<stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>' +
-      '</linearGradient></defs>' +
-      '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>' +
-      '<path d="' + linePath + '" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<circle cx="' + last.x.toFixed(1) + '" cy="' + last.y.toFixed(1) + '" r="3" fill="#2b4ca8"/>' +
-    '</svg>';
-  }
-
-  /* ---- Delta pill color logic (direction-aware) ---- */
-
-  function _weightDeltaPillClass(delta, direction) {
-    if (delta == null || Math.abs(delta) < 0.05) return 'ww-pill--flat';
-    var isLoss = delta < 0;
-    if (direction === 'down') {
-      return isLoss ? 'ww-pill--green' : 'ww-pill--red';
-    }
-    if (direction === 'up') {
-      return isLoss ? 'ww-pill--red' : 'ww-pill--green';
-    }
-    // No target: neutral
-    return isLoss ? 'ww-pill--green' : 'ww-pill--red';
-  }
-
-  function _weightDeltaPillText(delta) {
-    if (delta == null || Math.abs(delta) < 0.05) return '—';
-    var sign = delta > 0 ? '+' : '−';
-    return sign + Math.abs(delta).toFixed(1) + ' kg';
-  }
-
-  function _wwStatusPillClass(statusLabel) {
-    if (statusLabel === 'on_track') return 'ww-status--green';
-    if (statusLabel === 'behind')   return 'ww-status--amber';
-    if (statusLabel === 'ahead')    return 'ww-status--blue';
-    return 'ww-status--amber';
-  }
-
-  function _wwStatusLabel(statusLabel) {
-    if (statusLabel === 'on_track') return 'On track';
-    if (statusLabel === 'behind')   return 'Behind';
-    if (statusLabel === 'ahead')    return 'Ahead';
-    return statusLabel;
-  }
-
-  /* ---- Weight widget renderer (wires to /api/home/weight-summary) ---- */
-
-  function renderWeightWidget(el, summary) {
-    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
-    var header =
-      '<div class="trend-card-header">' +
-        iconHTML +
-        '<span class="trend-card-title">Weight</span>' +
-        '<span class="trend-card-period">30d</span>' +
-      '</div>';
-
-    if (!summary || summary.current_weight == null) {
-      // Empty state
-      el.innerHTML = header +
-        '<div class="ww-empty">' +
-          'No weight logged yet — log your first weigh-in on the ' +
-          '<a href="/weight" style="color:#2b4ca8;text-decoration:none;">Weight page</a>' +
-        '</div>';
-      el.style.cursor = 'default';
-      return;
-    }
-
-    var direction = summary.target ? summary.target.direction : null;
-    var weekPillCls = _weightDeltaPillClass(summary.delta_week, direction);
-    var monthPillCls = _weightDeltaPillClass(summary.delta_month, direction);
-
-    var targetBlock = '';
-    if (summary.target) {
-      var pct = Math.max(0, Math.min(100, summary.target.progress_pct || 0));
-      var statusCls = _wwStatusPillClass(summary.target.status_label);
-      var statusTxt = _wwStatusLabel(summary.target.status_label);
-      targetBlock =
-        '<div class="ww-progress-row">' +
-          '<div class="ww-progress-bar"><div class="ww-progress-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
-          '<span class="ww-status-pill ' + statusCls + '">' + statusTxt + '</span>' +
-        '</div>';
-    } else {
-      targetBlock =
-        '<div class="ww-set-target">' +
-          '<a href="/weight/targets" style="color:#2b4ca8;text-decoration:none;font-size:12px;">' +
-            'Set a target →' +
-          '</a>' +
-        '</div>';
-    }
-
-    el.innerHTML = header +
-      '<div class="ww-stat">' +
-        '<span class="ww-current">' + summary.current_weight.toFixed(1) + '</span>' +
-        '<span class="ww-unit">kg</span>' +
-      '</div>' +
-      '<div class="ww-avg">' + (summary.avg_7d != null ? summary.avg_7d.toFixed(1) + ' kg avg' : '—') + '</div>' +
-      '<div class="ww-pills">' +
-        '<span class="ww-pill ' + weekPillCls + '">' + _weightDeltaPillText(summary.delta_week) + ' wk</span>' +
-        '<span class="ww-pill ' + monthPillCls + '">' + _weightDeltaPillText(summary.delta_month) + ' mo</span>' +
-      '</div>' +
-      _weightSparkline(summary.ma30) +
-      targetBlock;
-
-    el.style.cursor = 'pointer';
-  }
-
-  async function loadWeightWidget(el) {
-    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
-    var header =
-      '<div class="trend-card-header">' +
-        iconHTML +
-        '<span class="trend-card-title">Weight</span>' +
-        '<span class="trend-card-period">30d</span>' +
-      '</div>';
-
-    // Skeleton loading state
-    el.innerHTML = header +
-      '<div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">' +
-        '<div class="trend-skeleton-line" style="height:28px;width:55%"></div>' +
-        '<div class="trend-skeleton-line" style="height:12px;width:40%"></div>' +
-        '<div class="trend-skeleton-line" style="height:12px;width:70%"></div>' +
-        '<div class="trend-skeleton-line" style="height:40px"></div>' +
-      '</div>';
-
-    var _wwResult = await _homeFetch('/api/home/weight-summary');
-    if (!_wwResult.ok) {
-      el.innerHTML = header +
-        '<div class="ww-error">' +
-          'Could not load weight data' +
-          '<button type="button" class="ww-retry-btn" style="margin-left:10px;padding:3px 10px;font-size:11px;font-family:inherit;border:1px solid var(--card-border);border-radius:6px;background:var(--chip-bg);cursor:pointer;">Retry</button>' +
-        '</div>';
-      var retryBtn = el.querySelector('.ww-retry-btn');
-      if (retryBtn) {
-        retryBtn.addEventListener('click', function () { loadWeightWidget(el); });
-      }
-      return;
-    }
-    var summary = _wwResult.data;
-
-    renderWeightWidget(el, summary);
-
-    // Click navigates to /weight (but not if clicking the "Set a target" or "Weight page" links)
-    el.addEventListener('click', function (e) {
-      if (e.target.tagName === 'A' || e.target.closest('a')) return;
-      window.location.href = '/weight';
-    });
-  }
-
-  function renderWeightTrendCard(el, weightEntries, userId) {
-    var iconHTML = '<i class="ti ti-scale" style="font-size:16px;color:var(--blue-text);"></i>';
-
-    if (!weightEntries || !weightEntries.length) {
-      var quickInput = _buildWeightQuickInput(null);
-      el.innerHTML = _trendCardErrorHTML(iconHTML, 'Weight', '30d') + quickInput;
-      _wireWeightSave(el, userId);
-      return;
-    }
-
-    var sorted = weightEntries.slice().sort(function (a, b) {
-      return a.recorded_date.localeCompare(b.recorded_date);
-    });
-    var cutoffD = new Date();
-    cutoffD.setDate(cutoffD.getDate() - 29);
-    var cutoffStr = isoDate(cutoffD);
-    var recent = sorted.filter(function (e) { return e.recorded_date >= cutoffStr; });
-    if (!recent.length) recent = sorted.slice(-1);
-
-    var latest = recent[recent.length - 1];
-    var sparkVals = recent.map(function (e) { return e.weight_kg; });
-
-    var pillHTML;
-    if (recent.length >= 2) {
-      var delta = latest.weight_kg - recent[0].weight_kg;
-      var absD = Math.abs(delta);
-      if (absD < 0.1) {
-        pillHTML = _trendDeltaPill('—', 'flat');
-      } else {
-        var sign = delta > 0 ? '+' : '−';
-        pillHTML = _trendDeltaPill(sign + absD.toFixed(1) + ' kg', 'flat');
-      }
-    } else {
-      pillHTML = _trendDeltaPill('—', 'flat');
-    }
-
-    var quickInput = _buildWeightQuickInput(latest.weight_kg.toFixed(1));
-    el.innerHTML = _trendCardInnerHTML(iconHTML, 'Weight', '30d',
-      latest.weight_kg.toFixed(1), 'kg', pillHTML,
-      _trendAreaSpark(sparkVals, '#2b4ca8', '#2b4ca8', null),
-      '30d trend',
-      '<a href="/weight" style="color:#2b4ca8;text-decoration:none;font-size:11px;">View all →</a>',
-      quickInput);
-    _wireWeightSave(el, userId);
-  }
-
-  async function loadRow3(userId) {
-    var row3 = document.getElementById('row-3');
-    if (!row3) return;
-
-    var cardDefs = [
-      { id: 'trend-card-hrv' },
-      { id: 'trend-card-tss' },
-      { id: 'trend-card-rhr' },
-      { id: 'trend-card-weight' },
-    ];
-
-    row3.innerHTML = '';
-    cardDefs.forEach(function (c) {
-      var el = document.createElement('div');
-      el.id = c.id;
-      el.className = 'trend-card';
-      el.innerHTML =
-        '<div style="display:flex;flex-direction:column;gap:10px;">' +
-        '<div class="trend-skeleton-line" style="height:16px;width:50%"></div>' +
-        '<div class="trend-skeleton-line" style="height:28px;width:65%"></div>' +
-        '<div class="trend-skeleton-line" style="height:48px"></div>' +
-        '<div class="trend-skeleton-line" style="height:12px;width:80%"></div>' +
-        '</div>';
-      row3.appendChild(el);
-    });
-
-    var summary = null;
-    var summaryFailed = false;
-
-    var results = await Promise.allSettled([
-      fetch('/trends/summary?range=30d'),
-    ]);
-
-    var tResult = results[0];
-    if (tResult.status === 'fulfilled' && tResult.value.ok) {
-      try { summary = await tResult.value.json(); } catch (_) { summaryFailed = true; }
-    } else {
-      summaryFailed = true;
-    }
-
-    var passedSummary = summaryFailed ? null : summary;
-    renderHRVTrendCard(document.getElementById('trend-card-hrv'), passedSummary);
-    renderWeeklyTSSTrendCard(document.getElementById('trend-card-tss'), passedSummary);
-    renderRHRTrendCard(document.getElementById('trend-card-rhr'), passedSummary);
-    // Weight widget is fired separately from init() as part of the parallel home fetches
-  }
-
-  /* ---- Weekly Summary card ---- */
-
-  var _WKS_TYPE_ICONS = {
-    run:  { icon: 'ti-run',     label: 'Run' },
-    lift: { icon: 'ti-barbell', label: 'Lift' },
-    wod:  { icon: 'ti-flame',   label: 'WOD' },
-    bike: { icon: 'ti-bike',    label: 'Bike' },
-  };
-
-  function _wksDeltaPill(value, unit) {
-    var num = Number(value);
-    var cls = num > 0 ? 'wks-pill--green' : (num < 0 ? 'wks-pill--red' : 'wks-pill--flat');
-    var sign = num > 0 ? '+' : '';
-    return '<span class="wks-pill ' + cls + '">' + sign + value + ' ' + unit + '</span>';
-  }
-
-  function _wksTssBarChart(dailyLoad) {
-    var W = 280, H = 90, LABEL_H = 16, GAP = 4;
-    var chartH = H - LABEL_H;
-    var n = dailyLoad.length;
-    var barW = Math.max(8, Math.floor((W - GAP * (n - 1)) / n));
-    var step = barW + GAP;
-    var startX = (W - (barW * n + GAP * (n - 1))) / 2;
-    var today = bangkokTodayStr();
-
-    var maxTss = 1;
-    dailyLoad.forEach(function (d) { if (d.tss && d.tss > maxTss) maxTss = d.tss; });
-
-    var DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    var out = '<svg class="wks-bar-chart" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
-
-    dailyLoad.forEach(function (d, i) {
-      var x = startX + i * step;
-      var isToday = d.date === today;
-      var isRest = d.is_rest;
-
-      var barColor = isToday ? 'var(--accent)' : (isRest ? 'var(--chip-bg)' : '#5a8dee');
-      var tssVal = d.tss || 0;
-      var barH = isRest ? 4 : Math.max(4, (tssVal / maxTss) * (chartH - 8));
-      var y = chartH - barH;
-
-      out += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + barH.toFixed(1) + '" rx="3" fill="' + barColor + '"/>';
-      out += '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="10" fill="#8b95ad" font-family="Inter Tight, sans-serif">' + DAY_LABELS[i] + '</text>';
-    });
-
-    out += '</svg>';
-    return out;
-  }
-
-  async function loadWeeklySummaryCard(userId) {
-    var row5 = document.getElementById('row-5');
-    if (!row5) return;
-
-    var card = document.getElementById('weekly-summary-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'weekly-summary-card';
-      card.className = 'card wks-card';
-      row5.appendChild(card);
-    }
-
-    var header = '<div class="card-head"><div class="ttl"><i class="ti ti-calendar-week"></i>This week</div></div>';
-    card.innerHTML = header + UIStates.loadingHTML();
-
-    var result = await _homeFetch('/api/home/weekly-summary?user_id=' + encodeURIComponent(userId));
-    if (!result.ok) {
-      card.innerHTML = header + UIStates.errorHTML('Could not load weekly summary');
-      return;
-    }
-
-    var data = result.data;
-    var total = data.workouts.total;
-
-    if (total === 0) {
-      card.innerHTML = header +
-        UIStates.emptyHTML('No workouts this week', '<a href="/log">Log a workout →</a>');
-      return;
-    }
-
-    // Type breakdown icons
-    var typeHTML = '';
-    Object.keys(_WKS_TYPE_ICONS).forEach(function (t) {
-      var n = data.workouts.by_type[t] || 0;
-      if (n > 0) {
-        var ic = _WKS_TYPE_ICONS[t];
-        typeHTML += '<span class="wks-type"><i class="ti ' + ic.icon + '"></i>' + n + '</span>';
-      }
-    });
-    if (!typeHTML) typeHTML = '<span class="wks-type-none">—</span>';
-
-    // Totals
-    var durStr = '—';
-    if (data.duration_minutes != null) {
-      var h = Math.floor(data.duration_minutes / 60);
-      var m = Math.round(data.duration_minutes % 60);
-      durStr = h > 0 ? h + 'h ' + m + 'm' : m + 'm';
-    }
-    var distStr = data.distance_km != null ? data.distance_km.toFixed(1) + ' km' : null;
-    var tssStr  = data.total_tss   != null ? Math.round(data.total_tss) + ' TSS' : null;
-
-    // Delta pills (vs previous week)
-    var vp = data.vs_prev_week;
-    var deltaHTML =
-      _wksDeltaPill(vp.total_delta, 'wk') +
-      _wksDeltaPill(Number(vp.distance_km_delta).toFixed(1), 'km') +
-      _wksDeltaPill(Math.round(vp.tss_delta), 'TSS');
-
-    card.innerHTML = header +
-      '<div class="wks-body">' +
-        '<div class="wks-stats">' +
-          '<div class="wks-count-row">' +
-            '<span class="wks-count">' + total + '</span>' +
-            '<span class="wks-count-lbl">workouts</span>' +
-            '<span class="wks-rest">' + data.rest_days + ' rest days</span>' +
-          '</div>' +
-          '<div class="wks-types">' + typeHTML + '</div>' +
-          '<div class="wks-totals">' +
-            (distStr ? '<span class="wks-total-item"><span class="wks-v">' + distStr + '</span></span>' : '') +
-            '<span class="wks-total-item"><span class="wks-v">' + durStr + '</span></span>' +
-            (tssStr  ? '<span class="wks-total-item"><span class="wks-v">' + tssStr + '</span></span>' : '') +
-          '</div>' +
-          '<div class="wks-deltas">' + deltaHTML + '</div>' +
-        '</div>' +
-        '<div class="wks-chart">' + _wksTssBarChart(data.daily_load) + '</div>' +
-      '</div>';
   }
 
   /* ---- Log Today card ---- */
@@ -2017,11 +706,7 @@
           feedback.textContent = 'Saved';
           setTimeout(function () { feedback.textContent = ''; }, 3000);
           initialValues = { sleep_hours: shStr, sleep_quality: sqStr, energy: enStr, mood: moStr, resting_hr: rhrStr, hrv: hrvStr };
-          if (selectedDate === todayStr) {
-            loadSleepCard(userId);
-            loadReadinessCard(userId);
-            loadRow3(userId);
-          }
+
         } else {
           var errData = null;
           try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
@@ -2091,11 +776,7 @@
           feedback.textContent = 'Saved';
           setTimeout(function () { if (feedback) feedback.textContent = ''; }, 2000);
         }
-        if (todayStr === bangkokTodayStr()) {
-          loadSleepCard(userId);
-          loadReadinessCard(userId);
-          loadRow3(userId);
-        }
+
       } else {
         var errData = null;
         try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
@@ -2367,6 +1048,321 @@
     } catch (_) { /* network error, skip stale banner check */ }
   }
 
+  /* ---- Home Weight Widget ---- */
+
+  function _hwwSparkline(sparkline, plan) {
+    var W = 300, H = 52, PAD = 4;
+    if (!sparkline || !sparkline.length) {
+      return '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"></svg>';
+    }
+    // Combine sparkline and plan to get a shared scale
+    var allVals = sparkline.map(function (d) { return d.value; });
+    if (plan && plan.length) plan.forEach(function (d) { allVals.push(d.value); });
+    var minV = Math.min.apply(null, allVals);
+    var maxV = Math.max.apply(null, allVals);
+    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
+
+    function normY(v) {
+      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
+    }
+
+    // Get all dates involved for x-axis
+    var dates = sparkline.map(function (d) { return d.date; });
+    if (plan && plan.length) {
+      plan.forEach(function (d) { if (dates.indexOf(d.date) === -1) dates.push(d.date); });
+    }
+    dates.sort();
+    var n = dates.length;
+    function xForDate(dateStr) {
+      var idx = dates.indexOf(dateStr);
+      return n > 1 ? (idx / (n - 1)) * W : W / 2;
+    }
+
+    var uid = 'hwwg' + Math.random().toString(36).slice(2, 7);
+
+    var out = '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    out += '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.25"/>' +
+      '<stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>' +
+      '</linearGradient></defs>';
+
+    // Trend area + line
+    var pts = sparkline.map(function (d) {
+      return { x: xForDate(d.date), y: normY(d.value) };
+    });
+    if (pts.length >= 2) {
+      var linePath = pts.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+      }).join(' ');
+      var last = pts[pts.length - 1];
+      var areaPath = linePath + ' L' + last.x.toFixed(1) + ',' + H + ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
+      out += '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>';
+      out += '<path d="' + linePath + '" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+      out += '<circle cx="' + last.x.toFixed(1) + '" cy="' + last.y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
+    } else if (pts.length === 1) {
+      out += '<circle cx="' + pts[0].x.toFixed(1) + '" cy="' + pts[0].y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
+    }
+
+    // Plan line (dashed green) when plan data present
+    if (plan && plan.length >= 2) {
+      var planPts = plan.map(function (d) {
+        return { x: xForDate(d.date), y: normY(d.value) };
+      });
+      var planPath = planPts.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+      }).join(' ');
+      out += '<path d="' + planPath + '" fill="none" stroke="#2d5e10" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7" stroke-linecap="round"/>';
+    }
+
+    out += '</svg>';
+    return out;
+  }
+
+  function _hwwGapPill(statusLabel, gapKg) {
+    if (!statusLabel || statusLabel === 'no_data') return '';
+    if (statusLabel === 'on_track') {
+      return '<span class="hww-gap-pill hww-gap--flat">on plan</span>';
+    }
+    var absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : null;
+    if (statusLabel === 'behind') {
+      var text = absGap != null ? '+' + absGap + ' behind' : 'behind';
+      return '<span class="hww-gap-pill hww-gap--behind">' + text + '</span>';
+    }
+    if (statusLabel === 'ahead') {
+      var text2 = absGap != null ? absGap + ' ahead' : 'ahead';
+      return '<span class="hww-gap-pill hww-gap--ahead">' + text2 + '</span>';
+    }
+    return '';
+  }
+
+  function _hwwGoalLine(target) {
+    if (!target) return '';
+    var parts = [];
+    parts.push('Goal ' + Number(target.target_weight_kg).toFixed(1) + ' kg');
+    if (target.kg_to_go != null) parts.push(Number(target.kg_to_go).toFixed(1) + ' kg to go');
+    if (target.target_date) {
+      var dp = target.target_date.split('-');
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      parts.push(months[parseInt(dp[1],10)-1] + ' ' + parseInt(dp[2],10));
+    }
+    return '<div class="hww-goal-line">' +
+      parts.join(' · ') +
+      ' · <a href="/weight/targets">edit target →</a>' +
+    '</div>';
+  }
+
+  function _hwwRenderMain(el, summary, userId) {
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</div>' +
+        '<a href="/weight">Open →</a>' +
+      '</div>';
+
+    if (!summary || summary.current_weight == null) {
+      el.innerHTML = header +
+        '<div class="hww-layout">' +
+          '<div class="hww-main">' +
+            '<div class="hww-no-data">Log your first weigh-in to start tracking your progress.</div>' +
+          '</div>' +
+          '<div class="hww-stepper" id="hww-stepper-area"></div>' +
+        '</div>';
+      _hwwInitStepper(el, summary, userId);
+      return;
+    }
+
+    var rateClass = 'hww-rate--flat';
+    var rateText = '—';
+    if (summary.weekly_rate_kg != null) {
+      var r = summary.weekly_rate_kg;
+      var absR = Math.abs(r).toFixed(1);
+      var sign = r > 0 ? '+' : '−';
+      rateText = sign + absR + ' kg / wk';
+      var target = summary.target;
+      if (target) {
+        var isGoalDir = (target.direction === 'down' && r < 0) || (target.direction === 'up' && r > 0);
+        rateClass = isGoalDir ? 'hww-rate--goal' : 'hww-rate--flat';
+      }
+    }
+
+    var progressHTML = '';
+    if (summary.target) {
+      var pct = Math.max(0, Math.min(100, summary.target.progress_pct || 0));
+      progressHTML =
+        '<div class="hww-progress-wrap">' +
+          '<div class="hww-progress-bar">' +
+            '<div class="hww-progress-fill" style="width:' + pct.toFixed(1) + '%"></div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    el.innerHTML = header +
+      '<div class="hww-layout">' +
+        '<div class="hww-main">' +
+          '<div class="hww-top-row">' +
+            '<span class="hww-current">' + Number(summary.current_weight).toFixed(1) + '</span>' +
+            '<span class="hww-unit">kg</span>' +
+            _hwwGapPill(summary.status_label, summary.gap_kg) +
+          '</div>' +
+          _hwwSparkline(summary.sparkline, summary.plan) +
+          '<div class="hww-avg">' + (summary.avg_7d != null ? '7-day avg ' + Number(summary.avg_7d).toFixed(1) : '') + '</div>' +
+          '<div class="hww-rate ' + rateClass + '">' + rateText + '</div>' +
+          progressHTML +
+          _hwwGoalLine(summary.target) +
+        '</div>' +
+        '<div class="hww-stepper" id="hww-stepper-area"></div>' +
+      '</div>';
+
+    _hwwInitStepper(el, summary, userId);
+  }
+
+  function _hwwInitStepper(el, summary, userId) {
+    var stepperArea = el.querySelector('#hww-stepper-area');
+    if (!stepperArea) return;
+
+    var prefill = summary && summary.last_entry_kg != null ? Number(summary.last_entry_kg).toFixed(1) : '';
+    var loggedEntryId = null;
+
+    function _renderStepper(currentVal) {
+      stepperArea.innerHTML =
+        '<div class="hww-stepper-label">Log today</div>' +
+        '<div class="hww-step-row">' +
+          '<button type="button" class="hww-step-btn" id="hww-minus">−</button>' +
+          '<input id="hww-input" class="hww-step-input" type="number"' +
+            ' inputmode="decimal" step="0.1" min="20" max="300"' +
+            ' value="' + (currentVal != null ? currentVal : '') + '"' +
+            ' placeholder="—">' +
+          '<button type="button" class="hww-step-btn" id="hww-plus">+</button>' +
+        '</div>' +
+        '<button type="button" class="hww-log-btn" id="hww-log-btn">' +
+          'Log ' + (currentVal != null ? currentVal + ' kg' : '—') +
+        '</button>';
+
+      var input = stepperArea.querySelector('#hww-input');
+      var logBtn = stepperArea.querySelector('#hww-log-btn');
+      var minusBtn = stepperArea.querySelector('#hww-minus');
+      var plusBtn = stepperArea.querySelector('#hww-plus');
+
+      function _updateLabel() {
+        var v = parseFloat(input.value);
+        logBtn.textContent = (!isNaN(v) && v >= 20 && v <= 300) ? 'Log ' + v.toFixed(1) + ' kg' : 'Log —';
+      }
+
+      function _step(delta) {
+        var cur = input.value === '' ? NaN : parseFloat(input.value);
+        var next;
+        if (isNaN(cur)) {
+          next = delta > 0 ? 20 : 300;
+        } else {
+          next = Math.min(300, Math.max(20, Math.round((cur + delta) * 10) / 10));
+        }
+        input.value = next.toFixed(1);
+        _updateLabel();
+      }
+
+      minusBtn.addEventListener('click', function () { _step(-0.1); });
+      plusBtn.addEventListener('click',  function () { _step( 0.1); });
+      input.addEventListener('input', _updateLabel);
+
+      logBtn.addEventListener('click', async function () {
+        var raw = input.value.trim();
+        if (raw === '' || isNaN(parseFloat(raw))) return;
+        var val = parseFloat(raw);
+        if (val < 20 || val > 300) return;
+        logBtn.disabled = true;
+        var todayStr = bangkokTodayStr();
+        try {
+          var res = await fetch('/api/weight-entries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: userId,
+              entry_date: todayStr,
+              weight_kg: val
+            })
+          });
+          var entryId = null;
+          if (res.status === 409) {
+            var conflictData = null;
+            try { conflictData = await res.json(); } catch (_) {}
+            entryId = conflictData && conflictData.existing_id ? conflictData.existing_id : null;
+            if (entryId) {
+              var patchRes = await fetch('/api/weight-entries/' + entryId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ weight_kg: val })
+              });
+              if (!patchRes.ok) { logBtn.disabled = false; return; }
+            }
+          } else if (res.ok) {
+            var created = null;
+            try { created = await res.json(); } catch (_) {}
+            entryId = created && created.id ? created.id : null;
+          } else {
+            logBtn.disabled = false;
+            return;
+          }
+          loggedEntryId = entryId;
+          _renderCompact(val.toFixed(1));
+          // Refresh widget data
+          loadHomeWeightWidget(userId);
+        } catch (_) {
+          logBtn.disabled = false;
+        }
+      });
+    }
+
+    function _renderCompact(kgStr) {
+      stepperArea.innerHTML =
+        '<div class="hww-compact">' +
+          '<span>✓ Logged today · ' + kgStr + ' kg</span>' +
+          '<button type="button" class="hww-compact-edit">edit</button>' +
+        '</div>';
+      var editBtn = stepperArea.querySelector('.hww-compact-edit');
+      if (editBtn) {
+        editBtn.addEventListener('click', function () {
+          _renderStepper(parseFloat(kgStr));
+        });
+      }
+    }
+
+    _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
+  }
+
+  function _weightSummaryAdapter(wBlock) {
+    if (!wBlock) return null;
+    return {
+      current_weight: wBlock.current_kg,
+      avg_7d:         wBlock.seven_day_avg,
+      weekly_rate_kg: wBlock.weekly_rate_kg,
+      sparkline:      wBlock.sparkline,
+      plan:           wBlock.plan_sparkline,
+      status_label:   wBlock.gap_direction,
+      gap_kg:         wBlock.gap_kg,
+      last_entry_kg:  wBlock.last_entry_kg,
+      logged_today:   wBlock.logged_today,
+      target: (wBlock.target_kg != null ? {
+        weight_kg:    wBlock.target_kg,
+        date:         wBlock.target_date,
+        progress_pct: wBlock.progress_pct,
+        direction:    wBlock.gap_direction === 'below' ? 'down' : 'up',
+      } : null),
+    };
+  }
+
+  function _renderHomeWeightWidget(weightBlock, userId) {
+    var container = document.getElementById('home-weight-widget');
+    if (!container) return;
+
+    var card = container.querySelector('.card.hww-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card hww-card';
+      container.appendChild(card);
+    }
+
+    _hwwRenderMain(card, _weightSummaryAdapter(weightBlock), userId);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -2389,25 +1385,34 @@
       _checkThresholdBanner();
       _checkStravaStaleBanner();
 
-      // Set up row-3 containers synchronously (weight widget fired below)
-      loadRow3(userId);
+      /* Single summary fetch — distribute to all widget renderers */
+      var _sumRes = await fetch('/api/home/summary');
+      var summary = _sumRes.ok ? await _sumRes.json() : {};
 
-      // Fire all 5 /api/home/* widget fetches simultaneously
-      var weightEl = document.getElementById('trend-card-weight');
-      Promise.all([
-        loadReadinessCard(userId),
-        loadPerformanceCard(userId),
-        loadRecentWorkoutsCard(userId),
-        loadWeeklySummaryCard(userId),
-        loadWeightWidget(weightEl),
-      ]);
+      /* Habits strip + log-today strip */
+      if (window.HomeStripHabits) {
+        HomeStripHabits.render(summary);
+      }
 
-      loadSleepCard(userId);
-      loadLogTodayCard(userId);
+      /* Readiness tile + training card + sleep card */
+      if (window.HomeRTS) {
+        HomeRTS.render(summary);
+      }
+
+      /* Weight widget (using summary.weight block) */
+      _renderHomeWeightWidget(summary.weight, userId);
+
+      /* Performance card (fetches own data, uses summary.performance for context) */
+      var _perfBlock = summary.performance;
+      loadPerformanceCard(userId, _perfBlock);
+
+      /* Recent workouts card (fetches own data, uses summary.recent_workouts for context) */
+      var _workoutsBlock = summary.recent_workouts;
+      loadRecentWorkoutsCard(userId, _workoutsBlock);
+
       initFastLogForm(userId);
-      loadLogTodayBanner(userId);
-      loadHabitsCard(userId);
-      loadHabitsStatsCard(userId);
+
+
     }
   }
 

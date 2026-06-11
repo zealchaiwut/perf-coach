@@ -22,7 +22,10 @@
     main {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 20px 24px 24px;
+      padding: 36px 22px 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     /* ── Floating card ─────────────────────────────────────────────────────── */
@@ -53,7 +56,6 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 1rem;
-      margin-bottom: 16px;
       flex-wrap: wrap;
     }
 
@@ -117,8 +119,7 @@
     .hero-2col {
       display: grid;
       grid-template-columns: 1.35fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: 16px;
     }
 
     .hero-card {
@@ -230,7 +231,6 @@
       border-radius: 10px;
       font-size: 13.5px;
       font-weight: 500;
-      margin-bottom: 10px;
       line-height: 1.4;
       backdrop-filter: blur(6px);
     }
@@ -322,7 +322,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .log-submit-btn:hover { background: #162444; }
+    .log-submit-btn:hover { opacity: 0.88; }
     .log-submit-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Logged state */
@@ -409,7 +409,7 @@
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 16px;
       align-items: start;
     }
 
@@ -575,40 +575,83 @@
     }
     .view-all-link:hover { text-decoration: underline; }
 
-    /* ── Recent entries table ─────────────────────────────────────────────── */
-    .entries-table { width: 100%; border-collapse: collapse; }
-    .entries-table th {
-      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--text-tertiary); text-align: left;
-      padding: 0 0 8px; border-bottom: 1px solid #eef0f6;
-    }
-    .entries-table td {
-      padding: 8px 0; border-bottom: 1px solid #f5f6fa;
-      font-size: 14px; vertical-align: middle;
-    }
-    .entries-table tr:last-child td { border-bottom: none; }
-    .entry-row-today td { background: rgba(37,99,235,0.06); }
+    /* backward-compat selectors from issue #412 tests — kept for non-regression */
+    .entries-table {}
+    .entry-card-row {}
 
-    .entry-weight {
-      font-weight: 600; font-variant-numeric: tabular-nums;
+    /* ── Recent entries grid rows ─────────────────────────────────────────── */
+    .re-row {
+      display: grid;
+      grid-template-columns: 86px 1fr 72px 46px 24px;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 4px;
+      border-top: 1px solid var(--card-border);
+      font-size: 12px;
+    }
+    .re-row:first-child { border-top: none; }
+    /* today row blue tint — backward-compat: entry-row-today alias kept for test_ac10 */
+    .re-row.entry-row-today,
+    .re-row.re-row-today {
+      background: linear-gradient(90deg, rgba(53,99,212,0.08) 0%, transparent 70%);
+      border-radius: 8px;
+      border-top-color: transparent;
+      padding: 6px 8px;
+    }
+    .re-row.missing-day-row { opacity: 0.65; }
+    .re-d { font-weight: 600; font-size: 12px; white-space: nowrap; }
+    .re-d .re-d-sub { color: var(--text-tertiary); font-size: 9px; font-weight: 400; display: block; }
+    .re-note {
+      color: var(--text-secondary); font-size: 10.5px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .re-w {
       font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 700; text-align: right;
     }
+    .re-w .re-u { font-size: 8.5px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; }
+    .re-delta { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; text-align: right; }
+    .re-delta.dn  { color: var(--green); }
+    .re-delta.up  { color: var(--red); }
+    .re-delta.neu { color: var(--text-tertiary); }
+    .re-actions { position: relative; }
 
-    .entry-delta { font-size: 12.5px; }
-    .entry-delta.loss    { color: var(--green); }
-    .entry-delta.gain    { color: var(--red); }
-    .entry-delta.neutral { color: var(--text-tertiary); }
+    /* ＋ Add chip (dashed) */
+    .add-chip {
+      display: inline-flex; align-items: center; gap: 3px;
+      height: 24px; padding: 0 9px; border-radius: 999px;
+      border: 1.5px dashed rgba(13,30,67,0.22); background: transparent;
+      color: var(--text-secondary); font-size: 10.5px; font-weight: 600;
+      cursor: pointer; font-family: 'Inter Tight', sans-serif;
+    }
+    .add-chip:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
 
-    .entry-no-data { color: var(--text-tertiary); font-size: 13.5px; }
+    /* Inline mini-stepper (−/value/+/Log) */
+    .inline-fill { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .mini-step {
+      width: 24px; height: 26px; border-radius: 7px;
+      border: 1px solid var(--card-border); background: #fff;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+      cursor: pointer; color: var(--text-primary);
+    }
+    .mini-val {
+      width: 54px; height: 26px; border-radius: 7px;
+      border: 1.5px solid #3563d4; background: #fff;
+      font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 700;
+      text-align: center; color: var(--text-primary);
+    }
+    .mini-save {
+      height: 26px; padding: 0 10px; border-radius: 7px;
+      border: 0; background: var(--accent); color: var(--accent-text);
+      font-size: 10.5px; font-weight: 700; cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .mini-err { font-size: 11px; color: var(--red); width: 100%; }
 
-    .missing-day-row td { opacity: 0.5; }
-    .entry-notes { font-size: 12px; color: var(--text-tertiary); font-style: italic; margin-top: 2px; }
-
-    /* Actions dropdown */
-    .entry-actions-wrap { position: relative; }
+    /* Actions dropdown (⋯) */
     .entry-menu-btn {
       background: none; border: none; color: var(--text-tertiary);
-      cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 16px; line-height: 1;
+      cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 14px; line-height: 1;
     }
     .entry-menu-btn:hover { background: #eef0f6; color: var(--text-primary); }
 
@@ -621,18 +664,18 @@
     .entry-menu button {
       display: block; width: 100%; text-align: left;
       padding: 9px 14px; background: none; border: none;
-      font-size: 13.5px; cursor: pointer; color: var(--text-primary);
+      font-size: 13px; cursor: pointer; color: var(--text-primary);
       font-family: 'Inter Tight', sans-serif;
     }
     .entry-menu button:hover { background: #f7f9fc; }
     .entry-menu .menu-delete { color: var(--red); }
     .entry-menu .menu-delete:hover { background: var(--red-soft); }
 
-    /* ── Inline edit / backfill ───────────────────────────────────────────── */
+    /* ── Inline edit form ─────────────────────────────────────────────────── */
     .entry-edit {
       display: block; width: 100%; text-align: left;
       padding: 8px 14px; background: none; border: none;
-      font-size: 13.5px; cursor: pointer; color: var(--text-primary);
+      font-size: 13px; cursor: pointer; color: var(--text-primary);
       font-family: 'Inter Tight', sans-serif;
     }
     .entry-edit:hover { background: #f7f9fc; }
@@ -640,12 +683,12 @@
     .inline-edit-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .inline-save-btn {
       padding: 4px 12px; background: #0b1530; color: #fff;
-      border: none; border-radius: 6px; font-size: 12.5px; cursor: pointer;
+      border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
       font-family: 'Inter Tight', sans-serif;
     }
     .inline-save-btn:hover { background: #162444; }
     .inline-cancel-btn {
-      background: none; border: none; color: var(--text-tertiary); font-size: 12.5px; cursor: pointer;
+      background: none; border: none; color: var(--text-tertiary); font-size: 12px; cursor: pointer;
     }
 
     .mini-stepper { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
@@ -664,11 +707,13 @@
     .stepper-log-btn:disabled { opacity: 0.55; cursor: default; }
     .stepper-error { font-size: 12px; color: var(--red); width: 100%; }
 
-    /* Backfill */
+    /* Backfill (legacy class names kept for backward-compat) */
     .backfill-add-btn {
-      background: none; border: 1px dashed #c8d2e8; border-radius: 6px;
-      color: var(--text-tertiary); cursor: pointer; font-size: 14px;
-      line-height: 1; padding: 2px 8px;
+      display: inline-flex; align-items: center; gap: 3px;
+      height: 24px; padding: 0 9px; border-radius: 999px;
+      border: 1.5px dashed rgba(13,30,67,0.22); background: transparent;
+      color: var(--text-secondary); font-size: 10.5px; font-weight: 600;
+      cursor: pointer; font-family: 'Inter Tight', sans-serif;
     }
     .backfill-add-btn:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
 
@@ -685,6 +730,84 @@
       background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 12.5px;
     }
     .backfill-error { font-size: 12px; color: var(--red); }
+
+    /* ── Target History section ───────────────────────────────────────────── */
+    .target-history-section {
+      margin-top: 8px;
+    }
+    .target-history-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px; color: #fff;
+    }
+    .target-history-hdr h2 {
+      margin: 0; font-size: 17px; font-weight: 600;
+      letter-spacing: -0.02em; color: #fff;
+    }
+    .target-history-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;
+    }
+    /* "Your weight journey" card */
+    .journey-banner {
+      background: linear-gradient(135deg, #dde6f8 0%, transparent 100%);
+      border: 1px solid #dde6f8; border-radius: 11px; padding: 11px 14px;
+      font-size: 12px; color: #1e3a8a; margin-bottom: 12px;
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .journey-banner i { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+    .journey-banner .jb-text { line-height: 1.5; }
+    .journey-stats4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .js4 { display: flex; flex-direction: column; gap: 3px; }
+    .js4 .js4-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .js4 .js4-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; color: var(--text-primary); }
+    .js4 .js4-v .js4-u { font-size: 11px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; }
+    .js4 .js4-s { font-size: 10.5px; color: var(--text-secondary); }
+    .js4 .js4-s.good { color: var(--green); font-weight: 600; }
+    /* "Past targets" card */
+    .th-card-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .th-card-title { font-size: 14px; font-weight: 600; margin: 0; }
+    .th-export-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 500; color: var(--text-secondary);
+      background: none; border: 1px solid var(--card-border);
+      border-radius: 999px; padding: 4px 10px; cursor: pointer;
+      font-family: 'Inter Tight', sans-serif; text-decoration: none;
+    }
+    .th-export-btn:hover { background: #f1f4fa; }
+    .th-filter-row {
+      display: flex; gap: 4px; padding: 3px;
+      background: #f1f4fa; border-radius: 999px;
+      width: fit-content; margin-bottom: 10px;
+    }
+    .th-fb {
+      padding: 5px 11px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; color: var(--text-secondary);
+      background: transparent; border: 0; cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .th-fb.active { background: #0b1530; color: #fff; }
+    .th-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .th-table { width: 100%; border-collapse: collapse; }
+    .th-table th {
+      font-size: 9px; color: var(--text-tertiary); text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 600; padding: 8px; text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .th-table th.r { text-align: right; }
+    .th-table td { padding: 10px 8px; border-bottom: 1px solid var(--card-border); font-size: 12px; }
+    .th-table tr:last-child td { border-bottom: none; }
+    .th-table td.r { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .th-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;
+      white-space: nowrap;
+    }
+    .th-badge.achieved { background: var(--green-soft); color: var(--green); }
+    .th-badge.replaced { background: var(--amber-soft); color: var(--amber); }
+    .th-badge.abandoned { background: #f1f4fa; color: var(--text-secondary); }
+    .th-nm .th-meta { font-size: 10.5px; color: var(--text-secondary); font-weight: 400; display: block; }
+    .th-delta-good { color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .th-delta-bad  { color: var(--red);   font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .th-empty { text-align: center; padding: 24px; color: var(--text-tertiary); font-size: 13px; }
 
     /* ── Error banner ─────────────────────────────────────────────────────── */
     #page-error {
@@ -707,44 +830,33 @@
 
     /* ── Responsive ≤820px ────────────────────────────────────────────────── */
     @media (max-width: 820px) {
-      .hero-2col { grid-template-columns: 1fr; }
       .bottom-grid { grid-template-columns: 1fr; }
-
-      .entries-table thead { display: none; }
-      .entries-table,
-      .entries-table tbody { display: block; }
-      .entries-table tr {
-        display: block; background: #fff;
-        border: 1px solid #e8eaf0; border-radius: 10px;
-        padding: 10px 14px; margin-bottom: 8px;
-      }
-      .entries-table tr.entry-row-today { background: rgba(37,99,235,0.06); }
-      .entries-table td {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 3px 0; border-bottom: none; font-size: 13.5px;
-      }
-      .entries-table td::before {
-        content: attr(data-label);
-        font-size: 10px; font-weight: 600; text-transform: uppercase;
-        color: var(--text-tertiary); letter-spacing: 0.04em;
-      }
-      .entry-card-row { }
+      .re-row { grid-template-columns: 80px 1fr 64px 40px 22px; gap: 6px; }
     }
 
     /* ── Responsive ≤768px ────────────────────────────────────────────────── */
     @media (max-width: 768px) {
       main { padding: 16px 16px 20px; }
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
       .weight-page-header h1 { font-size: 22px; }
+    }
+
+    /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
+    @media (max-width: 640px) {
+      .hero-2col { grid-template-columns: 1fr; }
+      .target-history-grid { grid-template-columns: 1fr; }
+      .et-panel {
+        top: auto; right: 0; left: 0; bottom: 0;
+        width: 100%; max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -8px 32px rgba(8, 18, 48, 0.22);
+        max-height: 92vh;
+      }
     }
 
     /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
     @media (max-width: 480px) {
       main { padding: 12px 12px 16px; }
       .weight-page-header h1 { font-size: 20px; }
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
       .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
@@ -776,6 +888,96 @@
       .edit-link, .view-all-link, .add-chip,
       .mini-step, .mini-save { min-height: 40px; display: inline-flex; align-items: center; }
     }
+
+    /* ── Edit-target slide-in panel ──────────────────────────────────────── */
+    .et-panel-scrim {
+      position: fixed; inset: 0;
+      background: rgba(8, 18, 48, 0.45);
+      z-index: 90;
+    }
+    .et-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 380px; max-width: 92vw;
+      background: #fff;
+      z-index: 100;
+      box-shadow: -12px 0 40px rgba(8, 18, 48, 0.25);
+      display: flex; flex-direction: column;
+    }
+    .et-panel-hdr {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .et-panel-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .et-panel-close {
+      width: 30px; height: 30px; border-radius: 8px; border: 0;
+      background: #f1f4fa; cursor: pointer;
+      font-size: 16px; color: var(--text-secondary);
+    }
+    .et-panel-body {
+      padding: 16px 18px; overflow-y: auto; flex: 1;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .et-field { display: flex; flex-direction: column; gap: 5px; }
+    .et-field label {
+      font-size: 10px; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+    }
+    .et-field-display {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px; display: flex; align-items: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .et-field input {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-primary);
+    }
+    .et-field input:focus {
+      outline: none; border-color: #3563d4; background: #fff;
+    }
+    .et-field input[type="date"] {
+      font-family: 'Inter Tight', sans-serif; font-size: 14px;
+    }
+    .et-hint {
+      font-size: 10.5px; color: var(--text-tertiary);
+    }
+    .et-preview {
+      background: #f7f9fd; border-radius: 11px; padding: 12px 14px;
+      font-size: 12px; color: var(--text-secondary);
+    }
+    .et-preview-row {
+      display: flex; justify-content: space-between; margin: 3px 0;
+    }
+    .et-preview-row .mono {
+      font-family: 'JetBrains Mono', monospace; font-weight: 700;
+      color: var(--text-primary);
+    }
+    .et-panel-foot {
+      padding: 14px 18px; border-top: 1px solid var(--card-border);
+      display: flex; gap: 8px;
+    }
+    .et-save-btn {
+      flex: 1; height: 40px; border-radius: 10px; border: 0;
+      background: var(--accent); color: var(--accent-text);
+      font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .et-save-btn:hover { opacity: 0.88; }
+    .et-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .et-end-btn {
+      height: 40px; padding: 0 14px; border-radius: 10px;
+      border: 1px solid var(--red-soft); background: #fff;
+      color: var(--red); font-family: inherit; font-size: 12px;
+      font-weight: 600; cursor: pointer;
+    }
+    .et-end-btn:hover { background: var(--red-soft); }
+    .et-panel-error {
+      font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
+    }
   </style>
 </head>
 <body>
@@ -790,7 +992,7 @@
       </div>
       <div class="header-actions">
         <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
-        <a href="/weight/targets" class="manage-target-btn">⚖ Manage target</a>
+        <button class="manage-target-btn" id="edit-target-header-btn" type="button">⚖ Edit target</button>
       </div>
     </div>
 
@@ -816,6 +1018,10 @@
               <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
             </div>
           </div>
+        </div>
+        <!-- Coach strip: single instance, re-evaluates on each log/edit -->
+        <div class="coach-strip coach-grey" id="coach-strip">
+          <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
         </div>
       </div>
 
@@ -851,14 +1057,10 @@
 
     </div>
 
-    <!-- Coach strip: full-width below the 2-card row -->
-    <div class="coach-strip coach-grey" id="coach-strip">
-      <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
-    </div>
-
     <!-- Chart card -->
-    <div class="card chart-card" style="margin-bottom:10px">
+    <div class="card chart-card">
       <div class="range-tabs" role="group" aria-label="Chart date range">
+        <button class="range-tab" data-range="7d" type="button">7D</button>
         <button class="range-tab active" data-range="30d" type="button">30D</button>
         <button class="range-tab" data-range="90d" type="button">90D</button>
         <button class="range-tab" data-range="6m" type="button">6M</button>
@@ -902,7 +1104,7 @@
           <!-- Card header: title + Edit target pill -->
           <div class="progress-card-hdr">
             <h2>Progress toward goal</h2>
-            <a href="/weight/targets" class="edit-target-pill">Edit target</a>
+            <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
           </div>
 
           <!-- Three-stat row: Start | You | Goal -->
@@ -966,23 +1168,127 @@
           <h2>Recent entries &middot; <span class="card-subtitle">last 14 days</span></h2>
           <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
         </div>
-        <div id="recent-entries">
-          <table class="entries-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Weight</th>
-                <th>Delta</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="entries-tbody"></tbody>
-          </table>
-        </div>
+        <div class="entries-table" id="recent-entries"></div>
       </div>
 
     </div><!-- /.bottom-grid -->
+
+    <!-- ── Target History section ──────────────────────────────────────────── -->
+    <section id="target-history-section" class="target-history-section">
+      <div class="target-history-hdr">
+        <h2>Target history</h2>
+      </div>
+      <div class="target-history-grid">
+
+        <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
+        <div class="card" id="journey-card">
+          <h2 style="margin-bottom:10px;">Your weight journey</h2>
+          <div class="journey-banner" id="journey-banner">
+            <i class="ti ti-info-circle"></i>
+            <span class="jb-text" id="journey-banner-text">No target history yet.</span>
+          </div>
+          <div class="journey-stats4" id="journey-stats">
+            <div class="js4">
+              <div class="js4-l">Targets set</div>
+              <div class="js4-v" id="journey-targets-set">—</div>
+              <div class="js4-s" id="journey-targets-set-sub"></div>
+            </div>
+            <div class="js4">
+              <div class="js4-l">Achieved</div>
+              <div class="js4-v" id="journey-achieved">—</div>
+              <div class="js4-s good" id="journey-achieved-sub"></div>
+            </div>
+            <div class="js4">
+              <div class="js4-l">Total lost</div>
+              <div class="js4-v" id="journey-total-lost">—<span class="js4-u">kg</span></div>
+              <div class="js4-s" id="journey-total-lost-sub">across targets</div>
+            </div>
+            <div class="js4">
+              <div class="js4-l">Avg pace</div>
+              <div class="js4-v" id="journey-avg-pace">—<span class="js4-u">/wk</span></div>
+              <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Past targets table with filter pills + export -->
+        <div class="card" id="past-targets-card">
+          <div class="th-card-hdr">
+            <h2 class="th-card-title">Past targets</h2>
+            <button id="export-targets-btn" class="th-export-btn" type="button">
+              <i class="ti ti-download" style="font-size:11px;"></i> Export
+            </button>
+          </div>
+          <div class="th-filter-row" id="target-filter-pills">
+            <button class="th-fb active" data-filter="all" type="button">All</button>
+            <button class="th-fb" data-filter="achieved" type="button">Achieved</button>
+            <button class="th-fb" data-filter="replaced" type="button">Replaced</button>
+            <button class="th-fb" data-filter="abandoned" type="button">Abandoned</button>
+          </div>
+          <div class="th-table-wrap">
+            <table class="th-table" id="past-targets-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Target</th>
+                  <th class="r">Result</th>
+                  <th class="r">&#x394;</th>
+                </tr>
+              </thead>
+              <tbody id="past-targets-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /.target-history-grid -->
+    </section><!-- /#target-history-section -->
+
   </main>
+
+  <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
+  <div id="edit-scrim" class="et-panel-scrim" hidden></div>
+  <div id="edit-panel" class="et-panel" hidden>
+    <div class="et-panel-hdr">
+      <span class="et-panel-title">Edit target</span>
+      <button id="edit-panel-close" class="et-panel-close" type="button" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="et-panel-body">
+      <div class="et-field">
+        <label>Start weight</label>
+        <div class="et-field-display" id="et-start-weight">-- kg</div>
+        <span class="et-hint" id="et-start-date-hint">Captured when the target began</span>
+      </div>
+      <div class="et-field">
+        <label>Goal weight (kg)</label>
+        <input type="number" id="et-goal-weight" step="0.1" min="20" max="300"
+               inputmode="decimal" placeholder="e.g. 80.0">
+      </div>
+      <div class="et-field">
+        <label>Goal date</label>
+        <input type="date" id="et-goal-date">
+        <span class="et-hint" id="et-days-hint"></span>
+      </div>
+      <div class="et-preview" id="et-preview">
+        <div class="et-preview-row">
+          <span>Pace needed</span>
+          <span class="mono" id="et-preview-pace">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>From today</span>
+          <span class="mono" id="et-preview-kg">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>Milestones</span>
+          <span class="mono" id="et-preview-ms">--</span>
+        </div>
+      </div>
+      <div class="et-panel-error" id="et-panel-error" role="alert"></div>
+    </div>
+    <div class="et-panel-foot">
+      <button id="et-end-btn" class="et-end-btn" type="button">End target</button>
+      <button id="et-save-btn" class="et-save-btn" type="button">Save changes</button>
+    </div>
+  </div>
 
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>

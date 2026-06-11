@@ -34,7 +34,7 @@ from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
-from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at
+from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
@@ -93,11 +93,17 @@ async def _auth_guard(request: Request, call_next):
 
 _CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# Authentication entry points are CSRF-exempt: login authenticates with
+# username + password and *establishes* the session, so it has no pre-existing
+# authenticated state to protect. A stale/leftover `session` cookie (e.g. from a
+# prior deploy) must never lock a user out of re-authenticating.
+_CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
+
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
     """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
-    if request.method not in _CSRF_SAFE_METHODS:
+    if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
         session_cookie = request.cookies.get(COOKIE_NAME)
         if session_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
@@ -1001,6 +1007,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     gap_data = _compute_weight_gap(t, session, today)
     milestones = _generate_weight_milestones(t, today)
+    hit_date = _project_hit_date(t, session, today)
 
     base.update({
         "progress_pct": progress_pct,
@@ -1014,6 +1021,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
         "gap_kg": gap_data["gap_kg"],
         "gap_direction": gap_data["gap_direction"],
         "gap_basis": gap_data["basis"],
+        "projected_hit_date": hit_date.isoformat() if hit_date is not None else None,
         "milestones": milestones,
     })
     return base
@@ -1175,6 +1183,123 @@ def get_weight_target_history(
         return JSONResponse({"targets": [_weight_target_history_dict(t) for t in targets]})
 
 
+@app.get("/api/weight-targets/history-summary")
+def get_weight_target_history_summary(user_id: str = Query(...)):
+    """All-time stats, past attempts comparison, completed target rows, and total entry count."""
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from sqlalchemy import func as _sa_func
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        completed_targets = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status != "active")
+            .order_by(WeightTarget.ended_at.desc())
+            .all()
+        )
+
+        active_target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+
+        total_entries = (
+            session.query(_sa_func.count(WeightEntry.id))
+            .filter(WeightEntry.user_id == uid)
+            .scalar()
+        ) or 0
+
+        achieved = [t for t in completed_targets if t.status == "achieved"]
+        all_count = len(completed_targets)
+        achieved_count = len(achieved)
+        success_pct = round(achieved_count / all_count * 100, 1) if all_count > 0 else 0.0
+
+        total_kg_lost = 0.0
+        for t in completed_targets:
+            if t.end_weight_kg is not None:
+                lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                if lost > 0:
+                    total_kg_lost += lost
+        total_kg_lost = round(total_kg_lost, 2)
+
+        avg_pace_kg_per_week = None
+        paces = []
+        for t in achieved:
+            if t.end_weight_kg is not None and t.ended_at is not None:
+                s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                if days > 0:
+                    kg_lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                    paces.append(kg_lost / (days / 7))
+        if paces:
+            avg_pace_kg_per_week = round(sum(paces) / len(paces), 2)
+
+        current_day_count = None
+        if active_target:
+            s_date = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
+            current_day_count = (_date.today() - s_date).days + 1
+
+        past_attempts = []
+        for t in achieved:
+            if t.end_weight_kg is not None and t.ended_at is not None:
+                s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                kg_lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                pace = round(kg_lost / (days / 7), 2) if days > 0 else None
+                past_attempts.append({
+                    "day_count": days,
+                    "kg_lost": round(kg_lost, 2),
+                    "pace_kg_per_week": pace,
+                })
+
+        target_rows = []
+        for t in completed_targets:
+            s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+            result_weight = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+            delta_kg = round(result_weight - float(t.start_weight_kg), 2) if result_weight is not None else None
+            if t.ended_at:
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                end_date_str = str(e_date)
+            else:
+                days = None
+                end_date_str = None
+            target_rows.append({
+                "id": str(t.id),
+                "status": t.status,
+                "start_weight_kg": float(t.start_weight_kg),
+                "target_weight_kg": float(t.target_weight_kg),
+                "start_date": str(s_date),
+                "end_date": end_date_str,
+                "days": days,
+                "result_weight_kg": result_weight,
+                "delta_kg": delta_kg,
+            })
+
+        return JSONResponse({
+            "stats": {
+                "targets_set": all_count,
+                "targets_achieved": achieved_count,
+                "success_pct": success_pct,
+                "total_kg_lost": total_kg_lost,
+                "avg_pace_kg_per_week": avg_pace_kg_per_week,
+                "current_day_count": current_day_count,
+            },
+            "past_attempts": past_attempts,
+            "targets": target_rows,
+            "total_entries": total_entries,
+        })
+
+
 @app.patch("/api/weight-targets/{target_id}")
 def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
     if "start_weight_kg" in body.model_fields_set or "start_date" in body.model_fields_set:
@@ -1276,6 +1401,8 @@ def get_weight_chart(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
     include_target: bool = Query(default=True),
+    range_token: Optional[str] = Query(default=None, alias="range"),
+    include_future_zone: bool = Query(default=False),
 ):
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1284,8 +1411,28 @@ def get_weight_chart(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
 
+    _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
     today = _date.today()
-    if from_date is None and to_date is None:
+    if range_token is not None:
+        if range_token not in _VALID_RANGE_TOKENS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"range must be one of: {', '.join(sorted(_VALID_RANGE_TOKENS))}",
+            )
+        to_d = today
+        if range_token == "7D":
+            from_d = today - _timedelta(days=6)
+        elif range_token == "30D":
+            from_d = today - _timedelta(days=29)
+        elif range_token == "90D":
+            from_d = today - _timedelta(days=89)
+        elif range_token == "6M":
+            from_d = today - _timedelta(days=183)
+        elif range_token == "1Y":
+            from_d = today - _timedelta(days=364)
+        else:  # ALL — from_d resolved inside session after earliest-entry lookup
+            from_d = None
+    elif from_date is None and to_date is None:
         from_d = today - _timedelta(days=89)
         to_d = today
     else:
@@ -1295,13 +1442,31 @@ def get_weight_chart(
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
 
-    if (to_d - from_d).days > 365:
+    # 365-day cap applies only for explicit from/to params; range tokens have predefined lengths
+    if range_token is None and (to_d - from_d).days > 365:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
 
     with Session(engine) as session:
         user = session.get(User, uid)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Resolve ALL range token: from_d = earliest entry date (or 90-day fallback)
+        if range_token == "ALL":
+            _earliest = (
+                session.query(WeightEntry)
+                .filter(WeightEntry.user_id == uid)
+                .order_by(WeightEntry.entry_date.asc())
+                .first()
+            )
+            if _earliest is not None:
+                from_d = (
+                    _earliest.entry_date
+                    if isinstance(_earliest.entry_date, _date)
+                    else _date.fromisoformat(str(_earliest.entry_date))
+                )
+            else:
+                from_d = today - _timedelta(days=89)
 
         # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to).
         # Always extend upper bound to today so logged_today / today_marker are always accurate.
@@ -1403,26 +1568,32 @@ def get_weight_chart(
             .first()
         )
 
-        # ── Plan series (one point per day, pure arithmetic from plan_at) ─────
+        # ── Plan series (one point per day from plan inception; omitted when no target) ─────
+        # Starts from max(from_d, plan_start_date) so pre-plan dates are excluded.
         if active_target is not None:
+            _ps_start = (
+                active_target.start_date
+                if isinstance(active_target.start_date, _date)
+                else _date.fromisoformat(str(active_target.start_date))
+            )
+            _ps_from = max(from_d, _ps_start)
+            _ps_days = (to_d - _ps_from).days + 1
             plan_series = [
                 {
-                    "date": str(from_d + _timedelta(days=i)),
-                    "plan_kg": float(round(_weight_plan_at(active_target, from_d + _timedelta(days=i)), 2)),
+                    "date": str(_ps_from + _timedelta(days=i)),
+                    "plan_kg": float(round(_weight_plan_at(active_target, _ps_from + _timedelta(days=i)), 2)),
                 }
-                for i in range(num_days)
+                for i in range(max(0, _ps_days))
             ]
-        else:
-            plan_series = None
 
-        # ── Future milestones (exclude today row) ─────────────────────────────
+        # ── Future milestones (always an array; exclude today row) ───────────────
         if active_target is not None:
             future_milestones = [
                 m for m in _generate_weight_milestones(active_target, today)
                 if m["kind"] != "today"
             ]
         else:
-            future_milestones = None
+            future_milestones = []
 
         # ── Today marker ──────────────────────────────────────────────────────
         today_vals = date_weights.get(today, [])
@@ -1458,18 +1629,45 @@ def get_weight_chart(
         else:
             today_delta_kg = None
 
-        # Target block
+        # ── Past actuals: every weigh-in strictly before from_d (the "past" zone) ──
+        # Greyed historical context. Downsampled to keep the payload bounded;
+        # empty when there is no earlier history (e.g. the ALL range).
+        _past_rows = (
+            session.query(WeightEntry)
+            .filter(WeightEntry.user_id == uid, WeightEntry.entry_date < from_d)
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+        _PAST_MAX = 150
+        if len(_past_rows) > _PAST_MAX:
+            _stride = len(_past_rows) / _PAST_MAX
+            _past_rows = [_past_rows[int(i * _stride)] for i in range(_PAST_MAX)]
+        past_actuals = [
+            {
+                "date": str(
+                    e.entry_date if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in _past_rows
+        ]
+
+        # plan_series is omitted (key absent) when no active target
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
+            "past_actuals": past_actuals,
             "trend": trend,
             "stats": stats,
-            "plan_series": plan_series,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
             "logged_today": logged_today,
             "today_delta_kg": today_delta_kg,
+            "include_future_zone": include_future_zone,
         }
+        if active_target is not None:
+            result["plan_series"] = plan_series
 
         if include_target:
             target_block = None
@@ -1600,9 +1798,22 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         if ma_30d_ago is not None:
             delta_month = round(avg_7d - ma_30d_ago, 2)
 
+    # sparkline: last 7 days of actual daily average weights (non-null days only)
+    sparkline = []
+    for i in range(7):
+        day = today - _timedelta(days=6 - i)
+        if day in date_weights:
+            vals = date_weights[day]
+            sparkline.append({"date": str(day), "value": round(sum(vals) / len(vals), 2)})
+
+    # gap_kg and status_label at top level
+    top_status_label: Optional[str] = None
+    gap_kg: Optional[float] = None
+
     target_info = None
     if active_target:
         status_label = _compute_status_label(active_target, avg_7d, today)
+        top_status_label = status_label
         target_w = float(active_target.target_weight_kg)
         start_w = float(active_target.start_weight_kg)
         direction = "down" if target_w < start_w else "up"
@@ -1613,19 +1824,53 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         else:
             progress_pct = 100.0
         td = active_target.target_date if isinstance(active_target.target_date, _date) else _date.fromisoformat(str(active_target.target_date))
+        sd = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
+        total_days = (td - sd).days
+
+        # Compute gap_kg: avg_7d vs expected trajectory at today
+        if avg_7d is not None and total_days > 0:
+            elapsed = (today - sd).days
+            t_frac = elapsed / total_days
+            expected_today = start_w + (target_w - start_w) * t_frac
+            gap_kg = round(avg_7d - expected_today, 2)
+
+        # plan: 7-day expected trajectory points for the sparkline window
+        plan = []
+        if total_days > 0:
+            for i in range(7):
+                day = today - _timedelta(days=6 - i)
+                elapsed_i = (day - sd).days
+                t_i = elapsed_i / total_days
+                expected_i = start_w + (target_w - start_w) * t_i
+                plan.append({"date": str(day), "value": round(expected_i, 2)})
+        else:
+            plan = []
+
+        # kg_to_go: abs(current_weight - target_weight_kg)
+        kg_to_go = round(abs((current_weight if current_weight is not None else start_w) - target_w), 2)
+
         target_info = {
             "direction": direction,
             "target_weight_kg": target_w,
             "target_date": str(td),
             "progress_pct": progress_pct,
             "status_label": status_label,
+            "kg_to_go": kg_to_go,
         }
+    else:
+        plan = []
 
     return JSONResponse({
         "current_weight": current_weight,
+        "last_entry_kg": current_weight,
         "avg_7d": avg_7d,
         "delta_week": delta_week,
+        "weekly_rate_kg": delta_week,
         "delta_month": delta_month,
+        "status_label": top_status_label,
+        "gap_kg": gap_kg,
+        "sparkline": sparkline,
+        "plan": plan,
         "target": target_info,
         "ma30": ma30,
     })
@@ -1722,6 +1967,10 @@ def get_home_recent_workouts(
             d["relative_date"] = _rel(w.workout_date)
         except Exception:
             pass
+        try:
+            d["zone2_minutes"] = int(w.zone2_minutes) if w.zone2_minutes is not None else None
+        except Exception:
+            d["zone2_minutes"] = None
         return d
 
     return JSONResponse({
@@ -1831,6 +2080,31 @@ def get_home_personal_records(
         current_value = float(latest.value_numeric)
         formatted = _format_pr_time(current_value) if track_type == "time" else _format_pr_weight(current_value)
 
+        # All-time best value
+        if track_type == "time":
+            pb_rec = min(recs, key=lambda r: float(r.value_numeric))
+        else:
+            pb_rec = max(recs, key=lambda r: float(r.value_numeric))
+        pb_value = float(pb_rec.value_numeric)
+        pb_formatted = _format_pr_time(pb_value) if track_type == "time" else _format_pr_weight(pb_value)
+        pb_date = pb_rec.achieved_on.isoformat() if pb_rec.achieved_on else None
+
+        # Improvement delta: only when latest entry IS the all-time best and a prior entry exists
+        delta_formatted = None
+        is_pr_improvement = False
+        if pb_rec.id == recs[0].id and len(recs) >= 2:
+            prev_val = float(recs[1].value_numeric)
+            if track_type == "time":
+                delta_secs = prev_val - pb_value
+                if delta_secs > 0:
+                    delta_formatted = "−" + _format_pr_time(delta_secs)
+                    is_pr_improvement = True
+            else:
+                delta_diff = pb_value - prev_val
+                if delta_diff > 0:
+                    delta_formatted = "+" + _format_pr_weight(delta_diff)
+                    is_pr_improvement = True
+
         result.append({
             "track_key": tk,
             "track_name": latest.track_name,
@@ -1838,6 +2112,11 @@ def get_home_personal_records(
             "current_value": current_value,
             "current_value_formatted": formatted,
             "achieved_on": latest.achieved_on.isoformat() if latest.achieved_on else None,
+            "pb_value": pb_value,
+            "pb_value_formatted": pb_formatted,
+            "pb_date": pb_date,
+            "delta_formatted": delta_formatted,
+            "is_pr_improvement": is_pr_improvement,
             "predicted_value": None,
             "predicted_value_formatted": None,
             "predicted_method": None,
@@ -2152,6 +2431,612 @@ def get_home_weekly_summary(
         "rest_days": rest_days,
         "vs_prev_week": vs_prev_week,
         "daily_load": daily_load,
+    })
+
+
+# ── Home summary aggregator endpoint (issue #437) ────────────────────────────
+
+_HOME_SUMMARY_LOG = _logging.getLogger(__name__)
+_HOME_SUMMARY_TOP_N = 5
+
+
+def _build_habits_block(uid, today_bkk, ws):
+    """Return the habits block for the home summary, or None on any error."""
+    from zoneinfo import ZoneInfo as _ZI
+    we = ws + _timedelta(days=6)
+    week_dates = [ws + _timedelta(days=i) for i in range(7)]
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(Habit.user_id == uid, Habit.is_archived.is_(False))
+            .order_by(Habit.sort_order)
+            .all()
+        )
+        all_logs = (
+            session.query(HabitLog)
+            .filter(HabitLog.user_id == uid, HabitLog.log_week_start == ws)
+            .all()
+        )
+
+    if not active_habits:
+        return None
+
+    logs_by_habit: dict = {}
+    for log in all_logs:
+        logs_by_habit.setdefault(log.habit_id, []).append(log)
+
+    daily_habits = [h for h in active_habits if h.tracking_type == "daily_checkmark"]
+
+    # Compute day_scores for wheel
+    num_daily = len(daily_habits)
+    day_scores = []
+    for d in week_dates:
+        done = sum(
+            1 for h in daily_habits
+            if any(log.log_date == d for log in logs_by_habit.get(h.id, []))
+        )
+        day_scores.append({"date": d.isoformat(), "done": done, "of": num_daily})
+
+    # Build wheel
+    wheel = []
+    for i, d in enumerate(week_dates):
+        if d == today_bkk:
+            state = "today"
+        elif d > today_bkk:
+            state = "future"
+        else:
+            ds = day_scores[i]
+            if num_daily > 0 and ds["done"] == num_daily:
+                state = "full"
+            elif ds["done"] > 0:
+                state = "partial"
+            else:
+                state = "zero"
+        wheel.append({"date": d.isoformat(), "state": state})
+
+    # Week totals
+    elapsed_days = 0
+    done_in_elapsed = 0
+    done_total = 0
+    for i, d in enumerate(week_dates):
+        ds = day_scores[i]
+        done_total += ds["done"]
+        if d <= today_bkk:
+            elapsed_days += 1
+            done_in_elapsed += ds["done"]
+
+    max_elapsed = num_daily * elapsed_days
+    pct_elapsed = round(
+        (done_in_elapsed / max_elapsed * 100.0) if max_elapsed > 0 else 0.0, 2
+    )
+    week_totals = {
+        "daily_done": done_total,
+        "daily_habits_count": num_daily,
+        "pct_elapsed": pct_elapsed,
+    }
+
+    # Compute streaks for daily habits (one extra query, capped 365 days)
+    from backend.services.habit_stats import _current_streak_from_dates as _cs
+    streak_logs_by_habit: dict = {}
+    if daily_habits:
+        streak_lookback = today_bkk - _timedelta(days=365)
+        with Session(engine) as _streak_session:
+            streak_rows = (
+                _streak_session.query(HabitLog)
+                .filter(
+                    HabitLog.user_id == uid,
+                    HabitLog.habit_id.in_([h.id for h in daily_habits]),
+                    HabitLog.log_date >= streak_lookback,
+                    HabitLog.log_date <= today_bkk,
+                )
+                .all()
+            )
+        for lg in streak_rows:
+            streak_logs_by_habit.setdefault(lg.habit_id, set()).add(lg.log_date)
+
+    # Build daily_habits list with today_checked, week_count, streak, auto_fill_source
+    daily_habits_data = []
+    for h in daily_habits:
+        habit_logs = logs_by_habit.get(h.id, [])
+        logged_dates = {log.log_date for log in habit_logs}
+        today_checked = today_bkk in logged_dates
+        week_count = sum(1 for d in week_dates if d in logged_dates and d <= today_bkk)
+        streak = _cs(today_bkk, streak_logs_by_habit.get(h.id, set()))
+        daily_habits_data.append({
+            "id": str(h.id),
+            "name": h.name,
+            "icon": h.icon,
+            "color": h.color,
+            "today_checked": today_checked,
+            "week_count": week_count,
+            "streak": streak,
+            "auto_fill_source": h.auto_fill_source,
+        })
+
+    top_habits = daily_habits_data[:_HOME_SUMMARY_TOP_N]
+    remaining_count = max(0, len(daily_habits_data) - _HOME_SUMMARY_TOP_N)
+
+    return {
+        "wheel": wheel,
+        "pct_elapsed": pct_elapsed,
+        "daily_habits": daily_habits_data,
+        "week_totals": week_totals,
+        "top_habits": top_habits,
+        "remaining_count": remaining_count,
+    }
+
+
+def _build_weight_block(uid, today_bkk):
+    """Return the weight block, or None when no active target exists."""
+    fetch_from = today_bkk - _timedelta(days=36)
+
+    with Session(engine) as session:
+        entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_from,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+        active_target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+
+    if active_target is None:
+        return None
+
+    date_weights: dict = {}
+    for e in entries:
+        d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+        date_weights.setdefault(d, []).append(float(e.weight_kg))
+
+    def _ma(day):
+        vals = []
+        for offset in range(7):
+            di = day - _timedelta(days=6 - offset)
+            if di in date_weights:
+                vals.extend(date_weights[di])
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    logged_today = today_bkk in date_weights
+    last_entry_kg = float(entries[-1].weight_kg) if entries else None
+    current_kg = last_entry_kg
+
+    seven_day_avg = _ma(today_bkk)
+    ma_7d_ago = _ma(today_bkk - _timedelta(days=7))
+    weekly_rate_kg = round(seven_day_avg - ma_7d_ago, 2) if (seven_day_avg is not None and ma_7d_ago is not None) else None
+
+    # 14-point sparkline (recent trend)
+    sparkline = []
+    for i in range(14):
+        day = today_bkk - _timedelta(days=13 - i)
+        sparkline.append({"date": str(day), "value": _ma(day)})
+
+    # 7-day plan sparkline
+    plan_sparkline = []
+    week_start = today_bkk - _timedelta(days=today_bkk.weekday())
+    for i in range(7):
+        day = week_start + _timedelta(days=i)
+        plan_sparkline.append({
+            "date": str(day),
+            "plan_kg": float(round(_weight_plan_at(active_target, day), 2)),
+        })
+
+    # Gap analysis (inline to avoid extra DB session for compute_gap)
+    target_w = float(active_target.target_weight_kg)
+    start_w = float(active_target.start_weight_kg)
+    basis_kg = seven_day_avg if seven_day_avg is not None else current_kg
+
+    gap_kg = None
+    gap_direction = "no_data"
+    if basis_kg is not None:
+        plan_today = float(round(_weight_plan_at(active_target, today_bkk), 2))
+        raw_gap = round(basis_kg - plan_today, 2)
+        gap_kg = raw_gap
+        is_loss = target_w < start_w
+        if abs(raw_gap) <= 0.2:
+            gap_direction = "on_plan"
+        elif is_loss:
+            gap_direction = "behind" if raw_gap > 0 else "ahead"
+        else:
+            gap_direction = "ahead" if raw_gap > 0 else "behind"
+
+    # Progress toward target
+    total_kg = abs(start_w - target_w)
+    if total_kg != 0 and current_kg is not None:
+        kg_changed = abs(start_w - current_kg)
+        progress_pct = round(min(max(kg_changed / total_kg * 100, 0), 100), 2)
+    else:
+        progress_pct = 100.0 if total_kg == 0 else None
+
+    target_date = active_target.target_date if isinstance(active_target.target_date, _date) \
+        else _date.fromisoformat(str(active_target.target_date))
+    kg_to_go = round(abs(target_w - current_kg), 2) if current_kg is not None else None
+
+    return {
+        "current_kg": current_kg,
+        "basis_kg": basis_kg,
+        "gap_kg": gap_kg,
+        "gap_direction": gap_direction,
+        "sparkline": sparkline,
+        "plan_sparkline": plan_sparkline,
+        "seven_day_avg": seven_day_avg,
+        "weekly_rate_kg": weekly_rate_kg,
+        "progress_pct": progress_pct,
+        "target_kg": target_w,
+        "target_date": str(target_date),
+        "kg_to_go": kg_to_go,
+        "logged_today": logged_today,
+        "last_entry_kg": last_entry_kg,
+    }
+
+
+def _build_readiness_block(uid, today_bkk):
+    """Return readiness block for today, or {"logged": false} when no metrics exist."""
+    baseline_end = today_bkk - _timedelta(days=1)
+    baseline_start = today_bkk - _timedelta(days=7)
+
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == today_bkk)
+            .first()
+        )
+        baseline_rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date <= baseline_end,
+            )
+            .all()
+        )
+
+    if metrics is None:
+        return {"logged": False}
+
+    def _avg(vals):
+        non_null = [v for v in vals if v is not None]
+        return round(sum(non_null) / len(non_null), 2) if non_null else None
+
+    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
+    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+
+    def _bscore(value, baseline, higher_is_better):
+        if value is None:
+            return 50.0
+        v = float(value)
+        if baseline is None or baseline == 0:
+            return 50.0
+        delta_pct = (v - float(baseline)) / float(baseline) * 100.0
+        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
+        return min(100.0, max(0.0, raw))
+
+    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg, True)
+    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, True)
+    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, False)
+    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
+    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+
+    total = sleep_score * 0.30 + hrv_score * 0.25 + rhr_score * 0.20 + mood_score * 0.15 + energy_score * 0.10
+    score = int(round(min(100.0, max(0.0, total))))
+
+    factors = [
+        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+         "impact": "positive" if sleep_score > 50 else ("negative" if sleep_score < 50 else "neutral"), "score": sleep_score},
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
+         "impact": "positive" if hrv_score > 50 else ("negative" if hrv_score < 50 else "neutral"), "score": hrv_score},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+         "impact": "positive" if rhr_score > 50 else ("negative" if rhr_score < 50 else "neutral"), "score": rhr_score},
+        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
+         "impact": "positive" if mood_score > 50 else ("negative" if mood_score < 50 else "neutral"), "score": mood_score},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
+         "impact": "positive" if energy_score > 50 else ("negative" if energy_score < 50 else "neutral"), "score": energy_score},
+    ]
+    # Top factors by absolute deviation from 50
+    top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
+    top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
+
+    return {
+        "logged": True,
+        "score": score,
+        "label": _readiness_score_label(score),
+        "top_factors": top_factors_clean,
+    }
+
+
+def _build_training_week_block(uid, today_bkk, ws):
+    """Return training_week block with 7-day daily_load array."""
+    we = ws + _timedelta(days=6)
+    prev_ws = ws - _timedelta(days=7)
+    prev_we = ws - _timedelta(days=1)
+
+    with Session(engine) as session:
+        all_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_ws,
+                Workout.workout_date <= we,
+            )
+            .all()
+        )
+
+    current_week = [w for w in all_workouts if ws <= w.workout_date <= we]
+    prev_week = [w for w in all_workouts if prev_ws <= w.workout_date <= prev_we]
+
+    def _sf(val):
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _si(val):
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _sum_attr(workouts, attr, cast):
+        try:
+            vals = [cast(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+            return sum(vals) if vals else None
+        except Exception:
+            return None
+
+    distance_km = _sum_attr(current_week, "distance_km", _sf)
+    if distance_km is not None:
+        distance_km = round(distance_km, 3)
+
+    zone2_minutes = _sum_attr(current_week, "zone2_minutes", _si)
+
+    prev_distance = _sum_attr(prev_week, "distance_km", _sf) or 0.0
+    prev_zone2 = _sum_attr(prev_week, "zone2_minutes", _si) or 0
+
+    vs_last_week = {
+        "workouts_count": len(current_week) - len(prev_week),
+        "distance_km": round(
+            (distance_km if distance_km is not None else 0.0) - prev_distance, 3
+        ),
+        "zone2_minutes": (zone2_minutes if zone2_minutes is not None else 0) - prev_zone2,
+    }
+
+    # daily_load: exactly 7 entries, one per day of current Bangkok week
+    daily_load = []
+    workout_dates = {w.workout_date for w in current_week}
+    for i in range(7):
+        day = ws + _timedelta(days=i)
+        day_workouts = [w for w in current_week if w.workout_date == day]
+        day_tss_vals = [_sf(getattr(w, "tss", None)) for w in day_workouts if getattr(w, "tss", None) is not None]
+        day_tss = round(sum(day_tss_vals), 2) if day_tss_vals else None
+        day_z2 = _sum_attr(day_workouts, "zone2_minutes", _si)
+        daily_load.append({
+            "date": day.isoformat(),
+            "tss": day_tss,
+            "zone2_minutes": day_z2,
+            "is_rest": day not in workout_dates,
+        })
+
+    return {
+        "workouts_count": len(current_week),
+        "distance_km": distance_km,
+        "zone2_minutes": zone2_minutes,
+        "vs_last_week": vs_last_week,
+        "daily_load": daily_load,
+    }
+
+
+def _build_performance_block(uid):
+    """Return top-3 PR tracks, or None when no records exist."""
+    with Session(engine) as session:
+        all_records = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.track_key.in_(_PR_DEFAULT_TRACKS),
+            )
+            .order_by(PersonalRecord.track_key, PersonalRecord.achieved_on.desc())
+            .all()
+        )
+
+    grouped: dict = {}
+    for r in all_records:
+        grouped.setdefault(r.track_key, []).append(r)
+
+    result = []
+    for tk in _PR_DEFAULT_TRACKS:
+        recs = grouped.get(tk, [])
+        if not recs:
+            continue
+        meta = _PR_TRACK_META.get(tk, {})
+        track_type = recs[0].track_type
+
+        # PB: best-ever record (min time for time tracks, max value for weight tracks)
+        if track_type == "time":
+            pb_rec = min(recs, key=lambda r: float(r.value_numeric))
+        else:
+            pb_rec = max(recs, key=lambda r: float(r.value_numeric))
+
+        pb_val = float(pb_rec.value_numeric)
+        pb_fmt = _format_pr_time(pb_val) if track_type == "time" else _format_pr_weight(pb_val)
+
+        most_recent = recs[0]  # ordered by achieved_on desc
+        mr_val = float(most_recent.value_numeric)
+        mr_fmt = _format_pr_time(mr_val) if track_type == "time" else _format_pr_weight(mr_val)
+
+        # improvement vs pb
+        if mr_val == pb_val:
+            improvement = "—"
+        elif track_type == "time":
+            pct = (pb_val - mr_val) / pb_val * 100
+            improvement = f"{pct:+.1f}%" if pct != 0 else "—"
+        else:
+            pct = (mr_val - pb_val) / pb_val * 100
+            improvement = f"{pct:+.1f}%" if pct != 0 else "—"
+
+        result.append({
+            "name": recs[0].track_name,
+            "track_meta": {"track_type": track_type, **meta},
+            "pb_value_formatted": pb_fmt,
+            "pb_date": pb_rec.achieved_on.isoformat() if pb_rec.achieved_on else None,
+            "most_recent_formatted": mr_fmt,
+            "improvement_vs_pb": improvement,
+        })
+
+    return result if result else None
+
+
+def _build_recent_workouts_block(uid, today_bkk):
+    """Return last 3 workouts, or empty list when none exist."""
+    with Session(engine) as session:
+        rows = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .limit(3)
+            .all()
+        )
+
+    def _rel(d):
+        delta = (today_bkk - d).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        if delta < 7:
+            return f"{delta} days ago"
+        return d.isoformat()
+
+    def _summary(w):
+        parts = []
+        try:
+            if w.distance_km is not None:
+                parts.append(f"{float(w.distance_km):.1f} km")
+        except Exception:
+            pass
+        try:
+            if w.duration_seconds is not None:
+                mins = int(w.duration_seconds) // 60
+                parts.append(f"{mins} min")
+        except Exception:
+            pass
+        return " · ".join(parts) if parts else ""
+
+    result = []
+    for w in rows:
+        try:
+            z2 = int(w.zone2_minutes) if getattr(w, "zone2_minutes", None) is not None else None
+        except Exception:
+            z2 = None
+        result.append({
+            "name": getattr(w, "name", None) or getattr(w, "workout_type", "Workout"),
+            "relative_day": _rel(w.workout_date),
+            "summary": _summary(w),
+            "zone2_minutes": z2,
+        })
+    return result
+
+
+def _build_sleep_block(uid, today_bkk):
+    """Return last-night sleep data, or {"logged": false} when not logged."""
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == today_bkk)
+            .first()
+        )
+
+    if metrics is None or metrics.sleep_hours is None:
+        return {"logged": False}
+
+    return {
+        "logged": True,
+        "hours": float(metrics.sleep_hours),
+        "quality": int(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+    }
+
+
+@app.get("/api/home/summary")
+def get_home_summary(user_id: Optional[str] = Query(default=None)):
+    """Aggregated home-page summary: all seven data blocks in one request.
+
+    Each block is computed independently; a failure in one block returns null
+    for that block without affecting the rest. All date/time boundaries use
+    Asia/Bangkok (UTC+7).
+    """
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _BKK = _ZoneInfo("Asia/Bangkok")
+    today_bkk: _date = _datetime.now(_BKK).date()
+    ws = _week_start_bangkok(today_bkk)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    habits_block = None
+    try:
+        habits_block = _build_habits_block(uid, today_bkk, ws)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary habits block error for user %s: %s", uid, _e)
+
+    weight_block = None
+    try:
+        weight_block = _build_weight_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary weight block error for user %s: %s", uid, _e)
+
+    readiness_block = None
+    try:
+        readiness_block = _build_readiness_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary readiness block error for user %s: %s", uid, _e)
+
+    training_week_block = None
+    try:
+        training_week_block = _build_training_week_block(uid, today_bkk, ws)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary training_week block error for user %s: %s", uid, _e)
+
+    performance_block = None
+    try:
+        performance_block = _build_performance_block(uid)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary performance block error for user %s: %s", uid, _e)
+
+    recent_workouts_block = None
+    try:
+        recent_workouts_block = _build_recent_workouts_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary recent_workouts block error for user %s: %s", uid, _e)
+
+    sleep_block = None
+    try:
+        sleep_block = _build_sleep_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary sleep block error for user %s: %s", uid, _e)
+
+    return JSONResponse({
+        "habits": habits_block,
+        "weight": weight_block,
+        "readiness": readiness_block,
+        "training_week": training_week_block,
+        "performance": performance_block,
+        "recent_workouts": recent_workouts_block,
+        "sleep": sleep_block,
     })
 
 
@@ -2985,8 +3870,8 @@ def get_habit_logs(
             session.query(HabitLog)
             .filter(
                 HabitLog.user_id == user.id,
-                HabitLog.logged_date >= from_d,
-                HabitLog.logged_date <= to_d,
+                HabitLog.log_date >= from_d,
+                HabitLog.log_date <= to_d,
             )
             .all()
         )
@@ -2995,7 +3880,7 @@ def get_habit_logs(
                 "id": str(r.id),
                 "habit_id": str(r.habit_id),
                 "user_id": str(r.user_id),
-                "logged_date": str(r.logged_date),
+                "logged_date": str(r.log_date),
             }
             for r in rows
         ])
@@ -3011,7 +3896,17 @@ def post_habit_log(body: HabitLogIn, user: User = Depends(resolve_user)):
         habit = session.get(Habit, hid)
         if habit is None or habit.user_id != user.id:
             raise HTTPException(status_code=404, detail="Habit not found")
-        log = HabitLog(habit_id=hid, user_id=user.id, logged_date=body.logged_date)
+        try:
+            log_date = _date.fromisoformat(body.logged_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+        log_week_start = _week_start_bangkok(log_date)
+        log = HabitLog(
+            habit_id=hid,
+            user_id=user.id,
+            log_date=log_date,
+            log_week_start=log_week_start,
+        )
         session.add(log)
         try:
             session.commit()
@@ -3028,7 +3923,7 @@ def post_habit_log(body: HabitLogIn, user: User = Depends(resolve_user)):
                 "id": str(log.id),
                 "habit_id": str(log.habit_id),
                 "user_id": str(log.user_id),
-                "logged_date": str(log.logged_date),
+                "logged_date": str(log.log_date),
             },
         )
 
@@ -3043,11 +3938,11 @@ def _compute_habit_streak(session, hid, uid, window_dates, today):
             return 0
         check = yesterday
     all_logs = (
-        session.query(HabitLog.logged_date)
+        session.query(HabitLog.log_date)
         .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
         .all()
     )
-    all_dates = {row.logged_date for row in all_logs}
+    all_dates = {row.log_date for row in all_logs}
     streak = 0
     while check in all_dates:
         streak += 1
@@ -3080,16 +3975,16 @@ def get_habit_stats(
             for habit in habits:
                 hid = habit.id
                 window_logs = (
-                    session.query(HabitLog.logged_date)
+                    session.query(HabitLog.log_date)
                     .filter(
                         HabitLog.habit_id == hid,
                         HabitLog.user_id == uid,
-                        HabitLog.logged_date >= window_start,
-                        HabitLog.logged_date <= today,
+                        HabitLog.log_date >= window_start,
+                        HabitLog.log_date <= today,
                     )
                     .all()
                 )
-                window_dates = {row.logged_date for row in window_logs}
+                window_dates = {row.log_date for row in window_logs}
                 days_completed = len(window_dates)
                 completion_rate = round(days_completed / days, 4)
                 streak = _compute_habit_streak(session, hid, uid, window_dates, today)
@@ -3111,16 +4006,16 @@ def get_habit_stats(
 
     with Session(engine) as session:
         window_logs = (
-            session.query(HabitLog.logged_date)
+            session.query(HabitLog.log_date)
             .filter(
                 HabitLog.habit_id == hid,
                 HabitLog.user_id == uid,
-                HabitLog.logged_date >= window_start,
-                HabitLog.logged_date <= today,
+                HabitLog.log_date >= window_start,
+                HabitLog.log_date <= today,
             )
             .all()
         )
-        window_dates = {row.logged_date for row in window_logs}
+        window_dates = {row.log_date for row in window_logs}
         days_completed = len(window_dates)
         completion_rate = round(days_completed / days, 4)
 
@@ -3168,7 +4063,7 @@ def get_active_streak(user_id: str):
                 SELECT DISTINCT d FROM (
                     SELECT recorded_date AS d FROM weight_entries WHERE user_id = :uid
                     UNION
-                    SELECT logged_date AS d FROM habit_logs WHERE user_id = :uid
+                    SELECT log_date AS d FROM habit_logs WHERE user_id = :uid
                     UNION
                     SELECT workout_date AS d FROM workouts WHERE user_id = :uid
                 ) sub
@@ -3244,7 +4139,7 @@ app.add_api_route("/login.html", _serve_login, include_in_schema=False)
 
 
 def _serve_weight_targets():
-    return FileResponse(str(_static_root / "frontend" / "pages" / "weight-targets.html"))
+    return RedirectResponse(url="/weight", status_code=302)
 
 app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
 
@@ -3300,11 +4195,11 @@ def get_calendar_month(
 
         # Habit log counts per date
         log_rows = (
-            session.query(HabitLog.logged_date)
+            session.query(HabitLog.log_date)
             .filter(
                 HabitLog.user_id == uid,
-                HabitLog.logged_date >= from_d,
-                HabitLog.logged_date <= to_d,
+                HabitLog.log_date >= from_d,
+                HabitLog.log_date <= to_d,
             )
             .all()
         )

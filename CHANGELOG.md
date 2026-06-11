@@ -1,5 +1,29 @@
 # Changelog
 
+## Sprint 56 — Weight page redesign v2 + habits polish
+
+- #454: Allow Users to Edit Habits After Creation
+- #455: Fix 500 error when saving today's habit count
+- #456: Expand Habit Icon Library and Increase Icon Size
+- #457: Extend active-target endpoint with plan math
+- #458: Extend weight-chart endpoint with plan, milestones, and coach data
+- #459: Rebuild weight-page hero: current + log-today cards
+- #460: Rebuild progress card with stat-row and plan-aware milestones
+- #461: Add slide-in Edit-target panel, remove /weight/targets page
+- #463: Migrate weight page to gradient design language
+- #464: Rebuild weight trend chart as custom SVG
+
+## Sprint 55 — Home redesign v7
+
+- #436: Investigate home page widgets and confirm API readiness
+- #437: Build GET /api/home/summary aggregator endpoint
+- #438: Add habit quick-check strip and log-today action to home page
+- #439: Add home weight widget with stepper quick-log
+- #440: Add Readiness tile, Training card, and Sleep card to home page
+- #441: Add Performance PRs and Recent Workouts cards
+- #442: Assemble home layout with gradient design language
+- #443: Home redesign: actionable habit checks + weight quick-log, two-up summary grid, single-call load — docs updated, dead widget code removed, cross-links audited, smoke verification recorded
+
 ## Sprint 54 — Habits redesign
 
 - #428: Migrate habits page to gradient design language (Inter Tight / JetBrains Mono, floating cards)
