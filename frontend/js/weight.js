@@ -805,10 +805,10 @@ function _openMiniStepper(btn, date) {
   });
 }
 
-// ── Backfill calendar (add/edit any past date) ─────────────────────────────
+// ── Backfill calendar (two months on desktop, one on mobile) ───────────────
 
-let _calY = null;          // displayed year
-let _calM = null;          // displayed month (0-11)
+let _calY = null;          // displayed RIGHT month: year
+let _calM = null;          // displayed RIGHT month: month (0-11)
 let _calSelDate = null;    // currently-open editor date
 
 function _pad2(n) { return String(n).padStart(2, '0'); }
@@ -832,56 +832,36 @@ function _calShift(delta) {
 }
 
 async function renderBackfillCalendar() {
-  const grid = document.getElementById('wcal-grid');
-  if (!grid || _userId == null) return;
+  const gridR = document.getElementById('wcal-grid-right');
+  if (!gridR || _userId == null) return;
   if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
 
-  const lastDay   = new Date(_calY, _calM + 1, 0).getDate();
-  const monthFrom = `${_calY}-${_pad2(_calM + 1)}-01`;
-  const monthTo   = `${_calY}-${_pad2(_calM + 1)}-${_pad2(lastDay)}`;
+  // Right = displayed month; Left = the month before it.
+  const rY = _calY, rM = _calM;
+  const lDate = new Date(rY, rM - 1, 1);
+  const lY = lDate.getFullYear(), lM = lDate.getMonth();
 
-  const titleEl = document.getElementById('wcal-title');
-  if (titleEl) titleEl.textContent =
-    new Date(_calY, _calM, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const fromStr = `${lY}-${_pad2(lM + 1)}-01`;
+  const rLast = new Date(rY, rM + 1, 0).getDate();
+  const toStr  = `${rY}-${_pad2(rM + 1)}-${_pad2(rLast)}`;
 
-  const nowYM = new Date();
-  const atCurrentMonth = (_calY > nowYM.getFullYear()) ||
-    (_calY === nowYM.getFullYear() && _calM >= nowYM.getMonth());
+  const now = new Date();
+  const atCurrent = (rY > now.getFullYear()) || (rY === now.getFullYear() && rM >= now.getMonth());
   const nextBtn = document.getElementById('wcal-next');
-  if (nextBtn) nextBtn.disabled = atCurrentMonth;
+  if (nextBtn) nextBtn.disabled = atCurrent;
 
   const byDate = {};
   try {
-    const res = await fetch(
-      `/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${monthFrom}&to=${monthTo}`
-    );
+    const res = await fetch(`/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${fromStr}&to=${toStr}`);
     if (res.ok) {
       const data = await res.json();
       (Array.isArray(data) ? data : (data.entries || [])).forEach(e => { byDate[e.entry_date] = e; });
     }
-  } catch (_) { /* leave month empty on error */ }
+  } catch (_) { /* leave empty on error */ }
 
-  const today   = todayISO();
-  const firstDow = new Date(_calY, _calM, 1).getDay();   // 0=Sun..6=Sat
-  const lead    = (firstDow + 6) % 7;                     // Monday-first
-  let cells = '';
-  for (let i = 0; i < lead; i++) cells += '<div class="wcal-cell empty"></div>';
-  for (let d = 1; d <= lastDay; d++) {
-    const date    = `${_calY}-${_pad2(_calM + 1)}-${_pad2(d)}`;
-    const entry   = byDate[date];
-    const future  = date > today;
-    const cls = ['wcal-cell'];
-    if (future) cls.push('future');
-    if (entry)  cls.push('has-entry');
-    if (date === today) cls.push('today');
-    const dot = entry ? '<span class="wcal-dot"></span>' : '';
-    cells += `<button type="button" class="${cls.join(' ')}" data-date="${date}"${future ? ' disabled' : ''}>${d}${dot}</button>`;
-  }
-  grid.innerHTML = cells;
-
-  grid.querySelectorAll('.wcal-cell[data-date]:not(.future)').forEach(btn => {
-    btn.addEventListener('click', () => _calOpenEditor(btn.dataset.date, byDate[btn.dataset.date] || null));
-  });
+  const today = todayISO();
+  _calRenderMonth(lY, lM, document.getElementById('wcal-grid-left'),  document.getElementById('wcal-mtitle-left'),  byDate, today);
+  _calRenderMonth(rY, rM, gridR, document.getElementById('wcal-mtitle-right'), byDate, today);
 
   if (_calSelDate) {
     _calOpenEditor(_calSelDate, byDate[_calSelDate] || null);
@@ -891,9 +871,37 @@ async function renderBackfillCalendar() {
   }
 }
 
+function _calRenderMonth(year, month, gridEl, titleEl, byDate, today) {
+  if (!gridEl) return;
+  if (titleEl) titleEl.textContent =
+    new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const lastDay  = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();   // 0=Sun..6=Sat
+  const lead     = (firstDow + 6) % 7;                    // Monday-first
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<div class="wcal-cell empty"></div>';
+  for (let d = 1; d <= lastDay; d++) {
+    const date   = `${year}-${_pad2(month + 1)}-${_pad2(d)}`;
+    const entry  = byDate[date];
+    const future = date > today;
+    const cls = ['wcal-cell'];
+    if (future) cls.push('future');
+    if (entry)  cls.push('has-entry');
+    if (date === today) cls.push('today');
+    if (date === _calSelDate) cls.push('sel');
+    const dot = entry ? '<span class="wcal-dot"></span>' : '';
+    cells += `<button type="button" class="${cls.join(' ')}" data-date="${date}"${future ? ' disabled' : ''}>${d}${dot}</button>`;
+  }
+  gridEl.innerHTML = cells;
+  gridEl.querySelectorAll('.wcal-cell[data-date]:not(.future)').forEach(btn => {
+    btn.addEventListener('click', () => _calOpenEditor(btn.dataset.date, byDate[btn.dataset.date] || null));
+  });
+}
+
 function _calOpenEditor(date, entry) {
   _calSelDate = date;
-  document.querySelectorAll('#wcal-grid .wcal-cell').forEach(c =>
+  document.querySelectorAll('#wcal .wcal-cell').forEach(c =>
     c.classList.toggle('sel', c.dataset.date === date));
 
   const editor = document.getElementById('wcal-editor');

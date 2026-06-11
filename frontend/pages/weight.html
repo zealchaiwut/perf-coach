@@ -979,34 +979,43 @@
       font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
     }
     /* ── Backfill calendar ─────────────────────────────────────────────────── */
+    /* ── Page layout: 2-col top (Current+Progress | Log+Recent) ─────────────── */
+    .top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
+    .top-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    @media (max-width: 880px) { .top-grid { grid-template-columns: 1fr; } }
+
+    /* ── Backfill calendar (fills card; 2 months desktop, 1 mobile) ─────────── */
     .wcal { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(13,30,67,0.07); }
-    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; gap: 4px 8px; flex-wrap: wrap; max-width: 232px; }
+    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .wcal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
-    .wcal-nav-group { display: inline-flex; align-items: center; gap: 8px; }
-    .wcal-title { font-size: 11px; font-weight: 600; color: var(--text-primary); min-width: 78px; text-align: center; }
-    .wcal-nav { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 13px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+    .wcal-nav-group { display: inline-flex; align-items: center; gap: 6px; }
+    .wcal-nav { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
     .wcal-nav:hover { background: #f1f4fa; color: var(--text-primary); }
     .wcal-nav:disabled { opacity: 0.35; cursor: not-allowed; }
-    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; max-width: 232px; }
-    .wcal-dow span { text-align: center; font-size: 8px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
-    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; max-width: 232px; }
-    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .wcal-months { display: flex; gap: 16px; align-items: flex-start; }
+    .wcal-month { flex: 1 1 0; min-width: 0; }
+    .wcal-mtitle { font-size: 11px; font-weight: 600; color: var(--text-primary); text-align: center; margin-bottom: 6px; }
+    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; }
+    .wcal-dow span { text-align: center; font-size: 8.5px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
+    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
     .wcal-cell:hover:not(.future):not(.empty) { background: #e8edf6; }
     .wcal-cell.empty { background: transparent; cursor: default; }
     .wcal-cell.future { color: var(--text-tertiary); opacity: 0.4; cursor: not-allowed; }
     .wcal-cell.has-entry { background: #dde6f8; color: #1e3a8a; }
     .wcal-cell.today { box-shadow: inset 0 0 0 1.5px var(--bg-1); }
     .wcal-cell.sel { box-shadow: 0 0 0 1.5px #2563eb; background: #dde6f8; }
-    .wcal-dot { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 3px; height: 3px; border-radius: 50%; background: #2563eb; }
+    .wcal-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 3.5px; height: 3.5px; border-radius: 50%; background: #2563eb; }
     .wcal-cell.sel .wcal-dot { display: none; }
-    .wcal-editor { margin-top: 11px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f1f4fa; border-radius: 9px; }
+    .wcal-editor { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f1f4fa; border-radius: 9px; }
     .wcal-ed-date { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
     .wcal-editor input { width: 84px; height: 34px; border-radius: 8px; border: 1.5px solid var(--card-border); background: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; color: var(--text-primary); }
     .wcal-save { height: 34px; padding: 0 15px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-text); font-family: inherit; font-weight: 700; font-size: 12px; cursor: pointer; }
     .wcal-del { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--card-border); background: #fff; color: var(--red); font-family: inherit; font-size: 12px; cursor: pointer; }
     .wcal-ed-err { font-size: 11px; color: var(--red); width: 100%; }
+    @media (max-width: 560px) { .wcal-month-left { display: none; } }
     @media (pointer: coarse) {
-      .wcal-nav { width: 30px; height: 30px; }
+      .wcal-nav { width: 32px; height: 32px; }
       .wcal-save, .wcal-del { min-height: 38px; }
     }
   </style>
@@ -1028,9 +1037,9 @@
     </div>
 
     <!-- Hero: 2-card row (Card A: Current | Card B: Log Today) -->
-    <div class="hero-2col" id="hero-2col">
-
-      <!-- Card A: Current Weight -->
+    <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
+    <div class="top-grid">
+      <div class="top-col">
       <div class="hero-card hero-card-a">
         <div class="hca-top">
           <span class="hca-label">CURRENT WEIGHT</span>
@@ -1055,81 +1064,6 @@
           <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
         </div>
       </div>
-
-      <!-- Card B: Log Today -->
-      <div class="hero-card hero-card-b">
-        <div class="hcb-top">
-          <span class="hcb-label">LOG TODAY</span>
-          <span class="hcb-date" id="hcb-date"></span>
-        </div>
-
-        <!-- Stepper (shown when not yet logged today, or while editing) -->
-        <div id="stepper-wrap">
-          <div class="stepper">
-            <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
-            <input
-              class="stepper-input" id="stepper-input"
-              type="number" step="0.1" min="20" max="300"
-              inputmode="decimal" aria-label="Weight in kg"
-            >
-            <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
-          </div>
-          <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
-          <div class="hcb-error" id="hcb-error" role="alert"></div>
-          <!-- quicklog-error alias for test_weight_page_frontend__412 -->
-          <div id="quicklog-error" hidden></div>
-        </div>
-
-        <!-- Logged strip (shown after successful log) -->
-        <div class="logged-strip" id="logged-strip" hidden>
-          <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Chart card -->
-    <div class="card chart-card">
-      <div class="range-tabs" role="group" aria-label="Chart date range">
-        <button class="range-tab" data-range="7d" type="button">7D</button>
-        <button class="range-tab active" data-range="30d" type="button">30D</button>
-        <button class="range-tab" data-range="90d" type="button">90D</button>
-        <button class="range-tab" data-range="6m" type="button">6M</button>
-        <button class="range-tab" data-range="1y" type="button">1Y</button>
-        <button class="range-tab" data-range="all" type="button">ALL</button>
-      </div>
-      <div class="chart-container">
-        <div id="chart-loading" style="text-align:center;padding:40px 0;color:var(--text-tertiary);font-size:13.5px;">Loading chart…</div>
-        <div id="weight-chart" hidden></div>
-      </div>
-      <!-- Legend chips -->
-      <div class="chart-legend" id="chart-legend">
-        <span class="legend-chip">
-          <span class="legend-dot" style="background:#9ca3af"></span>Weigh-in
-        </span>
-        <span class="legend-chip">
-          <span class="legend-line" style="background:#2563eb"></span>7-day avg
-        </span>
-        <span class="legend-chip" id="legend-plan" hidden>
-          <span class="legend-dashed" style="border-color:#16a34a"></span>Plan
-        </span>
-        <span class="legend-chip" id="legend-gap" hidden>
-          <span style="display:inline-block;width:18px;height:12px;background:var(--red-soft);border-radius:5px;flex-shrink:0"></span>Gap vs plan
-        </span>
-        <span class="legend-chip" id="legend-milestone" hidden>
-          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink:0" aria-hidden="true">
-            <polygon points="6,0 12,6 6,12 0,6" fill="#fff" stroke="#16a34a" stroke-width="2"/>
-          </svg>Milestone
-        </span>
-      </div>
-    </div>
-
-    <!-- Bottom grid: progress/milestones (left) + recent entries (right) -->
-    <div class="bottom-grid">
-
-      <!-- Left column: progress card + milestones (shown only if active target) -->
-      <div class="bottom-left-col">
-        <!-- Progress card -->
         <div class="card" id="progress-card" hidden>
 
           <!-- Card header: title + Edit target pill -->
@@ -1191,9 +1125,36 @@
           </div>
 
         </div><!-- /#progress-card -->
-      </div><!-- /.bottom-left-col -->
+      </div>
+      <div class="top-col">
+      <div class="hero-card hero-card-b">
+        <div class="hcb-top">
+          <span class="hcb-label">LOG TODAY</span>
+          <span class="hcb-date" id="hcb-date"></span>
+        </div>
 
-      <!-- Right column: recent entries card -->
+        <!-- Stepper (shown when not yet logged today, or while editing) -->
+        <div id="stepper-wrap">
+          <div class="stepper">
+            <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
+            <input
+              class="stepper-input" id="stepper-input"
+              type="number" step="0.1" min="20" max="300"
+              inputmode="decimal" aria-label="Weight in kg"
+            >
+            <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
+          </div>
+          <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
+          <div class="hcb-error" id="hcb-error" role="alert"></div>
+          <!-- quicklog-error alias for test_weight_page_frontend__412 -->
+          <div id="quicklog-error" hidden></div>
+        </div>
+
+        <!-- Logged strip (shown after successful log) -->
+        <div class="logged-strip" id="logged-strip" hidden>
+          <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
+        </div>
+      </div>
       <div class="card recent-entries-card" id="recent-entries-card">
         <div class="card-header-row">
           <h2>Recent entries &middot; <span class="card-subtitle">last 5 days</span></h2>
@@ -1201,25 +1162,67 @@
         </div>
         <div class="entries-table" id="recent-entries"></div>
 
-        <!-- Backfill calendar: add/edit weight for any past date -->
+        <!-- Backfill calendar: two months on desktop, one on mobile -->
         <div class="wcal" id="wcal">
           <div class="wcal-head">
             <span class="wcal-kicker">Backfill any date</span>
             <span class="wcal-nav-group">
-              <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Previous month">&#8249;</button>
-              <span class="wcal-title" id="wcal-title">&mdash;</span>
-              <button class="wcal-nav" id="wcal-next" type="button" aria-label="Next month">&#8250;</button>
+              <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">&#8249;</button>
+              <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">&#8250;</button>
             </span>
           </div>
-          <div class="wcal-dow" aria-hidden="true">
-            <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
+          <div class="wcal-months">
+            <div class="wcal-month wcal-month-left">
+              <div class="wcal-mtitle" id="wcal-mtitle-left">&mdash;</div>
+              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              <div class="wcal-grid" id="wcal-grid-left"></div>
+            </div>
+            <div class="wcal-month">
+              <div class="wcal-mtitle" id="wcal-mtitle-right">&mdash;</div>
+              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              <div class="wcal-grid" id="wcal-grid-right"></div>
+            </div>
           </div>
-          <div class="wcal-grid" id="wcal-grid"></div>
           <div class="wcal-editor" id="wcal-editor" hidden></div>
         </div>
       </div>
+    </div>
 
-    </div><!-- /.bottom-grid -->
+    <!-- Chart card (Graph) -->
+    <div class="card chart-card">
+      <div class="range-tabs" role="group" aria-label="Chart date range">
+        <button class="range-tab" data-range="7d" type="button">7D</button>
+        <button class="range-tab active" data-range="30d" type="button">30D</button>
+        <button class="range-tab" data-range="90d" type="button">90D</button>
+        <button class="range-tab" data-range="6m" type="button">6M</button>
+        <button class="range-tab" data-range="1y" type="button">1Y</button>
+        <button class="range-tab" data-range="all" type="button">ALL</button>
+      </div>
+      <div class="chart-container">
+        <div id="chart-loading" style="text-align:center;padding:40px 0;color:var(--text-tertiary);font-size:13.5px;">Loading chart…</div>
+        <div id="weight-chart" hidden></div>
+      </div>
+      <!-- Legend chips -->
+      <div class="chart-legend" id="chart-legend">
+        <span class="legend-chip">
+          <span class="legend-dot" style="background:#9ca3af"></span>Weigh-in
+        </span>
+        <span class="legend-chip">
+          <span class="legend-line" style="background:#2563eb"></span>7-day avg
+        </span>
+        <span class="legend-chip" id="legend-plan" hidden>
+          <span class="legend-dashed" style="border-color:#16a34a"></span>Plan
+        </span>
+        <span class="legend-chip" id="legend-gap" hidden>
+          <span style="display:inline-block;width:18px;height:12px;background:var(--red-soft);border-radius:5px;flex-shrink:0"></span>Gap vs plan
+        </span>
+        <span class="legend-chip" id="legend-milestone" hidden>
+          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink:0" aria-hidden="true">
+            <polygon points="6,0 12,6 6,12 0,6" fill="#fff" stroke="#16a34a" stroke-width="2"/>
+          </svg>Milestone
+        </span>
+      </div>
+    </div>
 
     <!-- ── Target History section ──────────────────────────────────────────── -->
     <section id="target-history-section" class="target-history-section">
