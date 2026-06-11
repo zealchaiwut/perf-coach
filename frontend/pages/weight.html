@@ -117,7 +117,7 @@
     .hero-2col {
       display: grid;
       grid-template-columns: 1.35fr 1fr;
-      gap: 10px;
+      gap: 16px;
       margin-bottom: 10px;
     }
 
@@ -294,8 +294,8 @@
       width: 100%;
       margin-top: 8px;
       padding: 10px 1rem;
-      background: #0b1530;
-      color: #fff;
+      background: var(--accent);
+      color: var(--accent-text);
       border: none;
       border-radius: 9px;
       font-size: 14px;
@@ -304,7 +304,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .log-submit-btn:hover { background: #162444; }
+    .log-submit-btn:hover { opacity: 0.88; }
     .log-submit-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Logged state */
@@ -685,7 +685,6 @@
 
     /* ── Responsive ≤820px ────────────────────────────────────────────────── */
     @media (max-width: 820px) {
-      .hero-2col { grid-template-columns: 1fr; }
       .bottom-grid { grid-template-columns: 1fr; }
 
       .entries-table thead { display: none; }
@@ -712,17 +711,18 @@
     /* ── Responsive ≤768px ────────────────────────────────────────────────── */
     @media (max-width: 768px) {
       main { padding: 16px 16px 20px; }
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
       .weight-page-header h1 { font-size: 22px; }
+    }
+
+    /* ── Responsive ≤640px — hero stacks to single column ────────────────── */
+    @media (max-width: 640px) {
+      .hero-2col { grid-template-columns: 1fr; }
     }
 
     /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
     @media (max-width: 480px) {
       main { padding: 12px 12px 16px; }
       .weight-page-header h1 { font-size: 20px; }
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
       .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
@@ -762,6 +762,10 @@
             <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
           </div>
         </div>
+        <!-- Coach strip: single instance, re-evaluates on each log/edit -->
+        <div class="coach-strip coach-grey" id="coach-strip">
+          <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
+        </div>
       </div>
 
       <!-- Card B: Log Today -->
@@ -794,11 +798,6 @@
         </div>
       </div>
 
-    </div>
-
-    <!-- Coach strip: full-width below the 2-card row -->
-    <div class="coach-strip coach-grey" id="coach-strip">
-      <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
     </div>
 
     <!-- Chart card -->
