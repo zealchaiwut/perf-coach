@@ -295,7 +295,7 @@ function renderProgress(target) {
   const youValEl  = document.getElementById('pstat-you-val');
   const planSubEl = document.getElementById('pstat-plan-sub');
   if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
-  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : 'plan --';
+  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan says ${planTodayKg.toFixed(1)}` : 'plan --';
 
   const goalValEl  = document.getElementById('pstat-goal-val');
   const goalDateEl = document.getElementById('pstat-goal-date');
@@ -956,6 +956,31 @@ function _cardBSetLoggedState(entries, fallbackWeight) {
   }
 }
 
+// ── Edit-target slide-in panel ────────────────────────────────────────────
+
+function _openEditPanel() {
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = false;
+  if (panel) panel.hidden = false;
+}
+
+function _closeEditPanel() {
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = true;
+  if (panel) panel.hidden = true;
+}
+
+function _initEditPanel() {
+  const pillBtn  = document.getElementById('edit-target-pill-btn');
+  const closeBtn = document.getElementById('edit-panel-close');
+  const scrim    = document.getElementById('edit-scrim');
+  if (pillBtn)  pillBtn.addEventListener('click', _openEditPanel);
+  if (closeBtn) closeBtn.addEventListener('click', _closeEditPanel);
+  if (scrim)    scrim.addEventListener('click', _closeEditPanel);
+}
+
 // ── Range tabs ─────────────────────────────────────────────────────────────
 
 function _initRangeTabs() {
@@ -1039,6 +1064,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   _initCardB();
   _initRangeTabs();
+  _initEditPanel();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
