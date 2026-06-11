@@ -490,10 +490,10 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  // Build 14-day list: today → today-13
+  // Build 5-day list: today → today-4 (older dates are reached via the calendar)
   const today = todayISO();
   const days = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 5; i++) {
     days.push(addDays(today, -i));
   }
 
@@ -802,6 +802,150 @@ function _openMiniStepper(btn, date) {
     } catch (e) {
       showPageError('Save failed: ' + e.message);
     }
+  });
+}
+
+// ── Backfill calendar (add/edit any past date) ─────────────────────────────
+
+let _calY = null;          // displayed year
+let _calM = null;          // displayed month (0-11)
+let _calSelDate = null;    // currently-open editor date
+
+function _pad2(n) { return String(n).padStart(2, '0'); }
+
+function _initBackfillCalendar() {
+  const now = new Date();
+  _calY = now.getFullYear();
+  _calM = now.getMonth();
+  const prev = document.getElementById('wcal-prev');
+  const next = document.getElementById('wcal-next');
+  if (prev) prev.addEventListener('click', () => _calShift(-1));
+  if (next) next.addEventListener('click', () => _calShift(1));
+}
+
+function _calShift(delta) {
+  _calM += delta;
+  if (_calM < 0) { _calM = 11; _calY -= 1; }
+  else if (_calM > 11) { _calM = 0; _calY += 1; }
+  _calSelDate = null;
+  renderBackfillCalendar();
+}
+
+async function renderBackfillCalendar() {
+  const grid = document.getElementById('wcal-grid');
+  if (!grid || _userId == null) return;
+  if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
+
+  const lastDay   = new Date(_calY, _calM + 1, 0).getDate();
+  const monthFrom = `${_calY}-${_pad2(_calM + 1)}-01`;
+  const monthTo   = `${_calY}-${_pad2(_calM + 1)}-${_pad2(lastDay)}`;
+
+  const titleEl = document.getElementById('wcal-title');
+  if (titleEl) titleEl.textContent =
+    new Date(_calY, _calM, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const nowYM = new Date();
+  const atCurrentMonth = (_calY > nowYM.getFullYear()) ||
+    (_calY === nowYM.getFullYear() && _calM >= nowYM.getMonth());
+  const nextBtn = document.getElementById('wcal-next');
+  if (nextBtn) nextBtn.disabled = atCurrentMonth;
+
+  const byDate = {};
+  try {
+    const res = await fetch(
+      `/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${monthFrom}&to=${monthTo}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      (Array.isArray(data) ? data : (data.entries || [])).forEach(e => { byDate[e.entry_date] = e; });
+    }
+  } catch (_) { /* leave month empty on error */ }
+
+  const today   = todayISO();
+  const firstDow = new Date(_calY, _calM, 1).getDay();   // 0=Sun..6=Sat
+  const lead    = (firstDow + 6) % 7;                     // Monday-first
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<div class="wcal-cell empty"></div>';
+  for (let d = 1; d <= lastDay; d++) {
+    const date    = `${_calY}-${_pad2(_calM + 1)}-${_pad2(d)}`;
+    const entry   = byDate[date];
+    const future  = date > today;
+    const cls = ['wcal-cell'];
+    if (future) cls.push('future');
+    if (entry)  cls.push('has-entry');
+    if (date === today) cls.push('today');
+    const dot = entry ? '<span class="wcal-dot"></span>' : '';
+    cells += `<button type="button" class="${cls.join(' ')}" data-date="${date}"${future ? ' disabled' : ''}>${d}${dot}</button>`;
+  }
+  grid.innerHTML = cells;
+
+  grid.querySelectorAll('.wcal-cell[data-date]:not(.future)').forEach(btn => {
+    btn.addEventListener('click', () => _calOpenEditor(btn.dataset.date, byDate[btn.dataset.date] || null));
+  });
+
+  if (_calSelDate) {
+    _calOpenEditor(_calSelDate, byDate[_calSelDate] || null);
+  } else {
+    const ed = document.getElementById('wcal-editor');
+    if (ed) ed.hidden = true;
+  }
+}
+
+function _calOpenEditor(date, entry) {
+  _calSelDate = date;
+  document.querySelectorAll('#wcal-grid .wcal-cell').forEach(c =>
+    c.classList.toggle('sel', c.dataset.date === date));
+
+  const editor = document.getElementById('wcal-editor');
+  if (!editor) return;
+  const label   = new Date(date + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const prefill = entry ? entry.weight_kg : (_nearestWeight(_recentEntries, date) || 70.0);
+
+  editor.hidden = false;
+  editor.innerHTML = `
+    <span class="wcal-ed-date">${label}</span>
+    <input type="number" step="0.1" min="20" max="300" inputmode="decimal"
+      value="${prefill.toFixed(1)}" aria-label="Weight in kg for ${label}">
+    <button type="button" class="wcal-save">${entry ? 'Update' : 'Add'}</button>
+    ${entry ? '<button type="button" class="wcal-del">Delete</button>' : ''}
+    <span class="wcal-ed-err" role="alert"></span>`;
+
+  const input = editor.querySelector('input');
+  const errEl = editor.querySelector('.wcal-ed-err');
+  input.focus(); input.select();
+
+  editor.querySelector('.wcal-save').addEventListener('click', async () => {
+    errEl.textContent = '';
+    const v = parseFloat(input.value);
+    if (isNaN(v) || v < 20 || v > 300) { errEl.textContent = 'Enter a valid weight (20–300 kg).'; input.focus(); return; }
+    try {
+      if (entry) {
+        await patchEntry(entry.id, { weight_kg: v });
+      } else {
+        const res = await fetch('/api/weight-entries', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: _userId, entry_date: date, weight_kg: v }),
+        });
+        if (res.status === 409) { errEl.textContent = 'Entry already exists for this date.'; return; }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      UIStates.showToast('Entry saved');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Save failed: ' + e.message; }
+  });
+
+  const delBtn = editor.querySelector('.wcal-del');
+  if (delBtn) delBtn.addEventListener('click', async () => {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const res = await fetch(`/api/weight-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
+      UIStates.showToast('Entry deleted');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Delete failed: ' + e.message; }
   });
 }
 
@@ -1425,6 +1569,7 @@ async function _reload() {
     renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
+    await renderBackfillCalendar();
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -1446,6 +1591,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initRangeTabs();
   _initEditPanel();
   _initTargetHistoryFilters();
+  _initBackfillCalendar();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
