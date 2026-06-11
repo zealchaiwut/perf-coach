@@ -38,8 +38,8 @@
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
     { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
-    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] },
-    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'] },
+    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
+    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
@@ -95,7 +95,24 @@
     '.global-nav .gn-logout:disabled{opacity:0.55;cursor:default;}',
     '@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}',
       '.global-nav .gn-brand-text{display:none;}',
-      '.global-nav .gn-logout .gn-logout-label{display:none;}}'
+      '.global-nav .gn-logout .gn-logout-label{display:none;}}',
+    '.global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}',
+    '.global-nav .gn-link-disabled i{opacity:0.7;}',
+    '@media (max-width:640px){',
+      '.global-nav{padding:0 12px;height:54px;gap:10px;}',
+      '.global-nav .gn-links{position:fixed;left:0;right:0;bottom:0;background:#fff;',
+        'border-top:1px solid rgba(13,30,67,0.08);box-shadow:0 -2px 10px rgba(13,30,67,0.06);',
+        'gap:0;padding:5px 4px;padding-bottom:calc(5px + env(safe-area-inset-bottom));',
+        'justify-content:space-around;overflow:visible;}',
+      '.global-nav .gn-link{flex:1;flex-direction:column;gap:2px;justify-content:center;',
+        'padding:5px 2px;border-radius:10px;font-size:9px;text-align:center;}',
+      '.global-nav .gn-link i{font-size:19px;}',
+      '.global-nav .gn-link span{font-size:9px;line-height:1.1;}',
+      '.global-nav .gn-link.active{background:transparent;color:#0b1530;}',
+      '.global-nav .gn-link.active i{color:#2b4ca8;}',
+      '.global-nav .gn-link.active span{font-weight:700;}',
+      'body{padding-bottom:62px;}',
+    '}'
   ].join('');
 
   var SYNC_BAR_CSS = [
@@ -144,6 +161,11 @@
     var path = window.location.pathname;
 
     var linksHtml = LINKS.map(function (l) {
+      if (l.disabled) {
+        return '<span class="gn-link gn-link-disabled" aria-disabled="true" title="Coming soon">' +
+               '<i class="ti ' + l.icon + '" aria-hidden="true"></i>' +
+               '<span>' + l.label + '</span></span>';
+      }
       var active = l.match.indexOf(path) !== -1;
       return '<a class="gn-link' + (active ? ' active' : '') + '" href="' + escAttr(l.href) + '"' +
              (active ? ' aria-current="page"' : '') + '>' +
@@ -162,13 +184,9 @@
       '<div class="gn-links">' + linksHtml + '</div>' +
       '<div class="gn-right">' +
         '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
-        '<a class="gn-avatar" id="nav-avatar" href="/settings" aria-label="Profile">U</a>' +
-        '<a class="gn-settings' + (path === '/settings' ? ' active' : '') + '"' +
-          ' href="/settings" title="Settings" aria-label="Settings"' +
-          (path === '/settings' ? ' aria-current="page"' : '') + '>' +
-          '<i class="ti ti-settings" aria-hidden="true"></i>' +
-          '<span class="gn-settings-label">Settings</span>' +
-        '</a>' +
+        '<a class="gn-avatar' + (path === '/settings' ? ' active' : '') + '" id="nav-avatar" href="/settings"' +
+          ' title="Profile and settings" aria-label="Profile and settings"' +
+          (path === '/settings' ? ' aria-current="page"' : '') + '>U</a>' +
         '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
           '<i class="ti ti-logout" aria-hidden="true"></i>' +
           '<span class="gn-logout-label">Log out</span>' +
@@ -323,6 +341,15 @@
       _navUserId = (e.detail && e.detail.userId) || null;
       updateAvatar(false);
     });
+    // Self-fetch identity so the avatar initial is correct even on pages that
+    // do not load user.js / dispatch userReady (e.g. the weight page).
+    fetch('/api/auth/me').then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (u) {
+        if (!u) return;
+        _navUserName = u.name || _navUserName || '';
+        _navUserId = u.id || _navUserId || null;
+        updateAvatar(false);
+      }).catch(function () {});
   }
 
   if (document.body) init();
