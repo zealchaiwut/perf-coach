@@ -979,25 +979,25 @@
       font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
     }
     /* ── Backfill calendar ─────────────────────────────────────────────────── */
-    .wcal { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(13,30,67,0.07); }
-    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; gap: 8px; flex-wrap: wrap; }
+    .wcal { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(13,30,67,0.07); }
+    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; gap: 4px 8px; flex-wrap: wrap; max-width: 232px; }
     .wcal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
     .wcal-nav-group { display: inline-flex; align-items: center; gap: 8px; }
-    .wcal-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); min-width: 96px; text-align: center; }
-    .wcal-nav { width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+    .wcal-title { font-size: 11px; font-weight: 600; color: var(--text-primary); min-width: 78px; text-align: center; }
+    .wcal-nav { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 13px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
     .wcal-nav:hover { background: #f1f4fa; color: var(--text-primary); }
     .wcal-nav:disabled { opacity: 0.35; cursor: not-allowed; }
-    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
-    .wcal-dow span { text-align: center; font-size: 9px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
-    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; max-width: 232px; }
+    .wcal-dow span { text-align: center; font-size: 8px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
+    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; max-width: 232px; }
+    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
     .wcal-cell:hover:not(.future):not(.empty) { background: #e8edf6; }
     .wcal-cell.empty { background: transparent; cursor: default; }
     .wcal-cell.future { color: var(--text-tertiary); opacity: 0.4; cursor: not-allowed; }
     .wcal-cell.has-entry { background: #dde6f8; color: #1e3a8a; }
-    .wcal-cell.today { box-shadow: inset 0 0 0 2px var(--bg-1); }
-    .wcal-cell.sel { box-shadow: 0 0 0 2px #2563eb; background: #dde6f8; }
-    .wcal-dot { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: #2563eb; }
+    .wcal-cell.today { box-shadow: inset 0 0 0 1.5px var(--bg-1); }
+    .wcal-cell.sel { box-shadow: 0 0 0 1.5px #2563eb; background: #dde6f8; }
+    .wcal-dot { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 3px; height: 3px; border-radius: 50%; background: #2563eb; }
     .wcal-cell.sel .wcal-dot { display: none; }
     .wcal-editor { margin-top: 11px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f1f4fa; border-radius: 9px; }
     .wcal-ed-date { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
@@ -1006,8 +1006,8 @@
     .wcal-del { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--card-border); background: #fff; color: var(--red); font-family: inherit; font-size: 12px; cursor: pointer; }
     .wcal-ed-err { font-size: 11px; color: var(--red); width: 100%; }
     @media (pointer: coarse) {
-      .wcal-nav { width: 40px; height: 40px; }
-      .wcal-save, .wcal-del { min-height: 40px; }
+      .wcal-nav { width: 30px; height: 30px; }
+      .wcal-save, .wcal-del { min-height: 38px; }
     }
   </style>
 </head>
