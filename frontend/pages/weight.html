@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Weight – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
@@ -158,23 +158,41 @@
     .hca-middle {
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 0;
+    }
+
+    /* Side columns: a small label over its value (mock v6 cc-side) */
+    .hca-col {
+      min-width: 86px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .hca-col-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
     }
 
     .hca-avg {
-      font-size: 12px;
+      font-size: 17px;
       font-variant-numeric: tabular-nums;
       font-family: 'JetBrains Mono', monospace;
-      font-weight: 500;
-      color: var(--text-secondary);
-      flex: 0 0 auto;
+      font-weight: 600;
+      color: var(--text-primary);
     }
 
     .hca-weight {
       font-size: 42px;
-      font-weight: 600;
+      font-weight: 700;
       line-height: 1;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.035em;
       font-variant-numeric: tabular-nums;
       font-family: 'JetBrains Mono', monospace;
       color: var(--text-primary);
@@ -185,8 +203,8 @@
     .hca-pills {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
     }
 
     /* Delta pills */
@@ -465,9 +483,11 @@
       border-radius: 999px; overflow: visible;
     }
     .progress-bar-fill.pgbar-fill {
-      position: absolute; left: 0; top: 0; height: 100%;
+      position: absolute; left: 0; top: 0; height: 100%; width: 100%;
       background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
-      border-radius: 999px; transition: width 0.4s ease;
+      border-radius: 999px;
+      transform-origin: left center; transform: scaleX(0);
+      transition: transform 0.4s ease;
     }
     .progress-marker.pgbar-you-dot {
       position: absolute; top: 50%; transform: translate(-50%, -50%);
@@ -793,12 +813,15 @@
     #page-error {
       color: #fff;
       font-size: 13.5px;
-      min-height: 1.2em;
+      margin: 0;
+    }
+    /* Banner only renders when there is an actual error message */
+    #page-error:not(:empty) {
+      margin-bottom: 12px;
       background: rgba(122,26,26,0.55);
       border-radius: 8px;
-      padding: 0;
+      padding: 10px 14px;
     }
-    #page-error:not(:empty) { padding: 10px 14px; }
 
     /* ── Responsive ≤880px ────────────────────────────────────────────────── */
     @media (max-width: 880px) {
@@ -837,6 +860,33 @@
       .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
+    }
+    /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
+    .stepper-btn:focus-visible, .range-tab:focus-visible, .log-submit-btn:focus-visible,
+    .btn-secondary:focus-visible, .manage-target-btn:focus-visible, .edit-target-pill:focus-visible,
+    .edit-link:focus-visible, .view-all-link:focus-visible, .stepper-input:focus-visible,
+    .mini-step:focus-visible, .mini-val:focus-visible, .mini-save:focus-visible,
+    .add-chip:focus-visible, .entry-edit:focus-visible, .entry-menu-btn:focus-visible {
+      outline: 2px solid var(--bg-1);
+      outline-offset: 2px;
+    }
+
+    /* Respect reduced-motion: instant progress + no transitions */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+    /* Touch devices: 44px tap targets (keyed to input method, desktop stays dense) */
+    @media (pointer: coarse) {
+      .stepper-btn { width: 44px; height: 44px; }
+      .log-submit-btn { min-height: 44px; }
+      .range-tab { min-height: 40px; display: inline-flex; align-items: center; }
+      .btn-secondary, .manage-target-btn, .edit-target-pill,
+      .edit-link, .view-all-link, .add-chip,
+      .mini-step, .mini-save { min-height: 40px; display: inline-flex; align-items: center; }
     }
 
     /* ── Edit-target slide-in panel ──────────────────────────────────────── */
@@ -956,11 +1006,17 @@
           <span class="hca-date-sub" id="hca-date-sub"></span>
         </div>
         <div class="hca-middle">
-          <div class="hca-avg" id="hca-avg">--</div>
+          <div class="hca-col">
+            <div class="hca-col-label">7-day avg</div>
+            <div class="hca-avg" id="hca-avg">--</div>
+          </div>
           <div class="hca-weight" id="hca-weight">--</div>
-          <div class="hca-pills">
-            <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
-            <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
+          <div class="hca-col hca-col-right">
+            <div class="hca-col-label">Change</div>
+            <div class="hca-pills">
+              <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
+              <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
+            </div>
           </div>
         </div>
         <!-- Coach strip: single instance, re-evaluates on each log/edit -->

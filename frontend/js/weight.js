@@ -317,7 +317,7 @@ function renderProgress(target) {
 
   // Gradient fill width = progress_pct
   const fillEl = document.getElementById('pgbar-fill');
-  if (fillEl) fillEl.style.width = `${pct}%`;
+  if (fillEl) fillEl.style.transform = `scaleX(${Math.max(0, Math.min(100, pct)) / 100})`;
 
   // You-dot position (progress_pct)
   const youDotEl = document.getElementById('pgbar-you-dot');
