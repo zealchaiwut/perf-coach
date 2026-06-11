@@ -2155,6 +2155,588 @@ def get_home_weekly_summary(
     })
 
 
+# ── Home summary aggregator endpoint (issue #437) ────────────────────────────
+
+_HOME_SUMMARY_LOG = _logging.getLogger(__name__)
+_HOME_SUMMARY_TOP_N = 5
+
+
+def _build_habits_block(uid, today_bkk, ws):
+    """Return the habits block for the home summary, or None on any error."""
+    from zoneinfo import ZoneInfo as _ZI
+    we = ws + _timedelta(days=6)
+    week_dates = [ws + _timedelta(days=i) for i in range(7)]
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(Habit.user_id == uid, Habit.is_archived.is_(False))
+            .order_by(Habit.sort_order)
+            .all()
+        )
+        all_logs = (
+            session.query(HabitLog)
+            .filter(HabitLog.user_id == uid, HabitLog.log_week_start == ws)
+            .all()
+        )
+
+    if not active_habits:
+        return None
+
+    logs_by_habit: dict = {}
+    for log in all_logs:
+        logs_by_habit.setdefault(log.habit_id, []).append(log)
+
+    daily_habits = [h for h in active_habits if h.tracking_type == "daily_checkmark"]
+
+    # Compute day_scores for wheel
+    num_daily = len(daily_habits)
+    day_scores = []
+    for d in week_dates:
+        done = sum(
+            1 for h in daily_habits
+            if any(log.log_date == d for log in logs_by_habit.get(h.id, []))
+        )
+        day_scores.append({"date": d.isoformat(), "done": done, "of": num_daily})
+
+    # Build wheel
+    wheel = []
+    for i, d in enumerate(week_dates):
+        if d == today_bkk:
+            state = "today"
+        elif d > today_bkk:
+            state = "future"
+        else:
+            ds = day_scores[i]
+            if num_daily > 0 and ds["done"] == num_daily:
+                state = "full"
+            elif ds["done"] > 0:
+                state = "partial"
+            else:
+                state = "zero"
+        wheel.append({"date": d.isoformat(), "state": state})
+
+    # Week totals
+    elapsed_days = 0
+    done_in_elapsed = 0
+    done_total = 0
+    for i, d in enumerate(week_dates):
+        ds = day_scores[i]
+        done_total += ds["done"]
+        if d <= today_bkk:
+            elapsed_days += 1
+            done_in_elapsed += ds["done"]
+
+    max_elapsed = num_daily * elapsed_days
+    pct_elapsed = round(
+        (done_in_elapsed / max_elapsed * 100.0) if max_elapsed > 0 else 0.0, 2
+    )
+    week_totals = {
+        "daily_done": done_total,
+        "daily_habits_count": num_daily,
+        "pct_elapsed": pct_elapsed,
+    }
+
+    # Build daily_habits list with today_checked + week_count
+    daily_habits_data = []
+    for h in daily_habits:
+        habit_logs = logs_by_habit.get(h.id, [])
+        logged_dates = {log.log_date for log in habit_logs}
+        today_checked = today_bkk in logged_dates
+        week_count = sum(1 for d in week_dates if d in logged_dates and d <= today_bkk)
+        daily_habits_data.append({
+            "id": str(h.id),
+            "name": h.name,
+            "icon": h.icon,
+            "color": h.color,
+            "today_checked": today_checked,
+            "week_count": week_count,
+        })
+
+    top_habits = daily_habits_data[:_HOME_SUMMARY_TOP_N]
+    remaining_count = max(0, len(daily_habits_data) - _HOME_SUMMARY_TOP_N)
+
+    return {
+        "wheel": wheel,
+        "pct_elapsed": pct_elapsed,
+        "daily_habits": daily_habits_data,
+        "week_totals": week_totals,
+        "top_habits": top_habits,
+        "remaining_count": remaining_count,
+    }
+
+
+def _build_weight_block(uid, today_bkk):
+    """Return the weight block, or None when no active target exists."""
+    fetch_from = today_bkk - _timedelta(days=36)
+
+    with Session(engine) as session:
+        entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_from,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+        active_target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+
+    if active_target is None:
+        return None
+
+    date_weights: dict = {}
+    for e in entries:
+        d = e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))
+        date_weights.setdefault(d, []).append(float(e.weight_kg))
+
+    def _ma(day):
+        vals = []
+        for offset in range(7):
+            di = day - _timedelta(days=6 - offset)
+            if di in date_weights:
+                vals.extend(date_weights[di])
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    logged_today = today_bkk in date_weights
+    last_entry_kg = float(entries[-1].weight_kg) if entries else None
+    current_kg = last_entry_kg
+
+    seven_day_avg = _ma(today_bkk)
+    ma_7d_ago = _ma(today_bkk - _timedelta(days=7))
+    weekly_rate_kg = round(seven_day_avg - ma_7d_ago, 2) if (seven_day_avg is not None and ma_7d_ago is not None) else None
+
+    # 14-point sparkline (recent trend)
+    sparkline = []
+    for i in range(14):
+        day = today_bkk - _timedelta(days=13 - i)
+        sparkline.append({"date": str(day), "value": _ma(day)})
+
+    # 7-day plan sparkline
+    plan_sparkline = []
+    week_start = today_bkk - _timedelta(days=today_bkk.weekday())
+    for i in range(7):
+        day = week_start + _timedelta(days=i)
+        plan_sparkline.append({
+            "date": str(day),
+            "plan_kg": float(round(_weight_plan_at(active_target, day), 2)),
+        })
+
+    # Gap analysis (inline to avoid extra DB session for compute_gap)
+    target_w = float(active_target.target_weight_kg)
+    start_w = float(active_target.start_weight_kg)
+    basis_kg = seven_day_avg if seven_day_avg is not None else current_kg
+
+    gap_kg = None
+    gap_direction = "no_data"
+    if basis_kg is not None:
+        plan_today = float(round(_weight_plan_at(active_target, today_bkk), 2))
+        raw_gap = round(basis_kg - plan_today, 2)
+        gap_kg = raw_gap
+        is_loss = target_w < start_w
+        if abs(raw_gap) <= 0.2:
+            gap_direction = "on_plan"
+        elif is_loss:
+            gap_direction = "behind" if raw_gap > 0 else "ahead"
+        else:
+            gap_direction = "ahead" if raw_gap > 0 else "behind"
+
+    # Progress toward target
+    total_kg = abs(start_w - target_w)
+    if total_kg != 0 and current_kg is not None:
+        kg_changed = abs(start_w - current_kg)
+        progress_pct = round(min(max(kg_changed / total_kg * 100, 0), 100), 2)
+    else:
+        progress_pct = 100.0 if total_kg == 0 else None
+
+    target_date = active_target.target_date if isinstance(active_target.target_date, _date) \
+        else _date.fromisoformat(str(active_target.target_date))
+    kg_to_go = round(abs(target_w - current_kg), 2) if current_kg is not None else None
+
+    return {
+        "current_kg": current_kg,
+        "basis_kg": basis_kg,
+        "gap_kg": gap_kg,
+        "gap_direction": gap_direction,
+        "sparkline": sparkline,
+        "plan_sparkline": plan_sparkline,
+        "seven_day_avg": seven_day_avg,
+        "weekly_rate_kg": weekly_rate_kg,
+        "progress_pct": progress_pct,
+        "target_kg": target_w,
+        "target_date": str(target_date),
+        "kg_to_go": kg_to_go,
+        "logged_today": logged_today,
+        "last_entry_kg": last_entry_kg,
+    }
+
+
+def _build_readiness_block(uid, today_bkk):
+    """Return readiness block for today, or {"logged": false} when no metrics exist."""
+    baseline_end = today_bkk - _timedelta(days=1)
+    baseline_start = today_bkk - _timedelta(days=7)
+
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == today_bkk)
+            .first()
+        )
+        baseline_rows = (
+            session.query(DailyMetric)
+            .filter(
+                DailyMetric.user_id == uid,
+                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date <= baseline_end,
+            )
+            .all()
+        )
+
+    if metrics is None:
+        return {"logged": False}
+
+    def _avg(vals):
+        non_null = [v for v in vals if v is not None]
+        return round(sum(non_null) / len(non_null), 2) if non_null else None
+
+    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
+    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+
+    def _bscore(value, baseline, higher_is_better):
+        if value is None:
+            return 50.0
+        v = float(value)
+        if baseline is None or baseline == 0:
+            return 50.0
+        delta_pct = (v - float(baseline)) / float(baseline) * 100.0
+        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
+        return min(100.0, max(0.0, raw))
+
+    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg, True)
+    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, True)
+    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, False)
+    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
+    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+
+    total = sleep_score * 0.30 + hrv_score * 0.25 + rhr_score * 0.20 + mood_score * 0.15 + energy_score * 0.10
+    score = int(round(min(100.0, max(0.0, total))))
+
+    factors = [
+        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+         "impact": "positive" if sleep_score > 50 else ("negative" if sleep_score < 50 else "neutral"), "score": sleep_score},
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
+         "impact": "positive" if hrv_score > 50 else ("negative" if hrv_score < 50 else "neutral"), "score": hrv_score},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+         "impact": "positive" if rhr_score > 50 else ("negative" if rhr_score < 50 else "neutral"), "score": rhr_score},
+        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
+         "impact": "positive" if mood_score > 50 else ("negative" if mood_score < 50 else "neutral"), "score": mood_score},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
+         "impact": "positive" if energy_score > 50 else ("negative" if energy_score < 50 else "neutral"), "score": energy_score},
+    ]
+    # Top factors by absolute deviation from 50
+    top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
+    top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
+
+    return {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "top_factors": top_factors_clean,
+    }
+
+
+def _build_training_week_block(uid, today_bkk, ws):
+    """Return training_week block with 7-day daily_load array."""
+    we = ws + _timedelta(days=6)
+    prev_ws = ws - _timedelta(days=7)
+    prev_we = ws - _timedelta(days=1)
+
+    with Session(engine) as session:
+        all_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_ws,
+                Workout.workout_date <= we,
+            )
+            .all()
+        )
+
+    current_week = [w for w in all_workouts if ws <= w.workout_date <= we]
+    prev_week = [w for w in all_workouts if prev_ws <= w.workout_date <= prev_we]
+
+    def _sf(val):
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _si(val):
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _sum_attr(workouts, attr, cast):
+        try:
+            vals = [cast(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+            return sum(vals) if vals else None
+        except Exception:
+            return None
+
+    distance_km = _sum_attr(current_week, "distance_km", _sf)
+    if distance_km is not None:
+        distance_km = round(distance_km, 3)
+
+    zone2_minutes = _sum_attr(current_week, "zone2_minutes", _si)
+
+    prev_distance = _sum_attr(prev_week, "distance_km", _sf) or 0.0
+    prev_zone2 = _sum_attr(prev_week, "zone2_minutes", _si) or 0
+
+    vs_last_week = {
+        "workouts_count": len(current_week) - len(prev_week),
+        "distance_km": round(
+            (distance_km if distance_km is not None else 0.0) - prev_distance, 3
+        ),
+        "zone2_minutes": (zone2_minutes if zone2_minutes is not None else 0) - prev_zone2,
+    }
+
+    # daily_load: exactly 7 entries, one per day of current Bangkok week
+    daily_load = []
+    workout_dates = {w.workout_date for w in current_week}
+    for i in range(7):
+        day = ws + _timedelta(days=i)
+        day_workouts = [w for w in current_week if w.workout_date == day]
+        day_tss_vals = [_sf(getattr(w, "tss", None)) for w in day_workouts if getattr(w, "tss", None) is not None]
+        day_tss = round(sum(day_tss_vals), 2) if day_tss_vals else None
+        day_z2 = _sum_attr(day_workouts, "zone2_minutes", _si)
+        daily_load.append({
+            "date": day.isoformat(),
+            "tss": day_tss,
+            "zone2_minutes": day_z2,
+            "is_rest": day not in workout_dates,
+        })
+
+    return {
+        "workouts_count": len(current_week),
+        "distance_km": distance_km,
+        "zone2_minutes": zone2_minutes,
+        "vs_last_week": vs_last_week,
+        "daily_load": daily_load,
+    }
+
+
+def _build_performance_block(uid):
+    """Return top-3 PR tracks, or None when no records exist."""
+    with Session(engine) as session:
+        all_records = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.track_key.in_(_PR_DEFAULT_TRACKS),
+            )
+            .order_by(PersonalRecord.track_key, PersonalRecord.achieved_on.desc())
+            .all()
+        )
+
+    grouped: dict = {}
+    for r in all_records:
+        grouped.setdefault(r.track_key, []).append(r)
+
+    result = []
+    for tk in _PR_DEFAULT_TRACKS:
+        recs = grouped.get(tk, [])
+        if not recs:
+            continue
+        meta = _PR_TRACK_META.get(tk, {})
+        track_type = recs[0].track_type
+
+        # PB: best-ever record (min time for time tracks, max value for weight tracks)
+        if track_type == "time":
+            pb_rec = min(recs, key=lambda r: float(r.value_numeric))
+        else:
+            pb_rec = max(recs, key=lambda r: float(r.value_numeric))
+
+        pb_val = float(pb_rec.value_numeric)
+        pb_fmt = _format_pr_time(pb_val) if track_type == "time" else _format_pr_weight(pb_val)
+
+        most_recent = recs[0]  # ordered by achieved_on desc
+        mr_val = float(most_recent.value_numeric)
+        mr_fmt = _format_pr_time(mr_val) if track_type == "time" else _format_pr_weight(mr_val)
+
+        # improvement vs pb
+        if mr_val == pb_val:
+            improvement = "—"
+        elif track_type == "time":
+            pct = (pb_val - mr_val) / pb_val * 100
+            improvement = f"{pct:+.1f}%" if pct != 0 else "—"
+        else:
+            pct = (mr_val - pb_val) / pb_val * 100
+            improvement = f"{pct:+.1f}%" if pct != 0 else "—"
+
+        result.append({
+            "name": recs[0].track_name,
+            "track_meta": {"track_type": track_type, **meta},
+            "pb_value_formatted": pb_fmt,
+            "pb_date": pb_rec.achieved_on.isoformat() if pb_rec.achieved_on else None,
+            "most_recent_formatted": mr_fmt,
+            "improvement_vs_pb": improvement,
+        })
+
+    return result if result else None
+
+
+def _build_recent_workouts_block(uid, today_bkk):
+    """Return last 3 workouts, or empty list when none exist."""
+    with Session(engine) as session:
+        rows = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .limit(3)
+            .all()
+        )
+
+    def _rel(d):
+        delta = (today_bkk - d).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        if delta < 7:
+            return f"{delta} days ago"
+        return d.isoformat()
+
+    def _summary(w):
+        parts = []
+        try:
+            if w.distance_km is not None:
+                parts.append(f"{float(w.distance_km):.1f} km")
+        except Exception:
+            pass
+        try:
+            if w.duration_seconds is not None:
+                mins = int(w.duration_seconds) // 60
+                parts.append(f"{mins} min")
+        except Exception:
+            pass
+        return " · ".join(parts) if parts else ""
+
+    result = []
+    for w in rows:
+        try:
+            z2 = int(w.zone2_minutes) if getattr(w, "zone2_minutes", None) is not None else None
+        except Exception:
+            z2 = None
+        result.append({
+            "name": getattr(w, "name", None) or getattr(w, "workout_type", "Workout"),
+            "relative_day": _rel(w.workout_date),
+            "summary": _summary(w),
+            "zone2_minutes": z2,
+        })
+    return result
+
+
+def _build_sleep_block(uid, today_bkk):
+    """Return last-night sleep data, or {"logged": false} when not logged."""
+    with Session(engine) as session:
+        metrics = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid, DailyMetric.metric_date == today_bkk)
+            .first()
+        )
+
+    if metrics is None or metrics.sleep_hours is None:
+        return {"logged": False}
+
+    return {
+        "hours": float(metrics.sleep_hours),
+        "quality": int(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+    }
+
+
+@app.get("/api/home/summary")
+def get_home_summary(user_id: Optional[str] = Query(default=None)):
+    """Aggregated home-page summary: all seven data blocks in one request.
+
+    Each block is computed independently; a failure in one block returns null
+    for that block without affecting the rest. All date/time boundaries use
+    Asia/Bangkok (UTC+7).
+    """
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _BKK = _ZoneInfo("Asia/Bangkok")
+    today_bkk: _date = _datetime.now(_BKK).date()
+    ws = _week_start_bangkok(today_bkk)
+
+    with Session(engine) as session:
+        user = session.get(User, uid)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    habits_block = None
+    try:
+        habits_block = _build_habits_block(uid, today_bkk, ws)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary habits block error for user %s: %s", uid, _e)
+
+    weight_block = None
+    try:
+        weight_block = _build_weight_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary weight block error for user %s: %s", uid, _e)
+
+    readiness_block = None
+    try:
+        readiness_block = _build_readiness_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary readiness block error for user %s: %s", uid, _e)
+
+    training_week_block = None
+    try:
+        training_week_block = _build_training_week_block(uid, today_bkk, ws)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary training_week block error for user %s: %s", uid, _e)
+
+    performance_block = None
+    try:
+        performance_block = _build_performance_block(uid)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary performance block error for user %s: %s", uid, _e)
+
+    recent_workouts_block = None
+    try:
+        recent_workouts_block = _build_recent_workouts_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary recent_workouts block error for user %s: %s", uid, _e)
+
+    sleep_block = None
+    try:
+        sleep_block = _build_sleep_block(uid, today_bkk)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary sleep block error for user %s: %s", uid, _e)
+
+    return JSONResponse({
+        "habits": habits_block,
+        "weight": weight_block,
+        "readiness": readiness_block,
+        "training_week": training_week_block,
+        "performance": performance_block,
+        "recent_workouts": recent_workouts_block,
+        "sleep": sleep_block,
+    })
+
+
 # ── Habit endpoints ───────────────────────────────────────────────────────────
 
 _VALID_TRACKING_TYPES = frozenset({
