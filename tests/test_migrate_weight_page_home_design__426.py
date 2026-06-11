@@ -235,18 +235,16 @@ def test_ac9_layout_hero_before_chart():
 
 
 def test_ac9_layout_chart_before_bottom_grid():
-    """Chart card must appear before bottom grid (compare HTML element positions)."""
-    # Search for HTML elements, not CSS class definitions
+    """Layout order: the two-column top grid (Current+Progress | Log+Recent)
+    comes first, then the chart card below it (revised layout: [cards][graph])."""
+    top_pos = WEIGHT_HTML.find('class="top-grid"')
     chart_pos = WEIGHT_HTML.find('class="card chart-card')
     if chart_pos == -1:
         chart_pos = WEIGHT_HTML.find('id="chart-loading"')
-    bottom_pos = WEIGHT_HTML.find('<div class="bottom-grid"')
-    if bottom_pos == -1:
-        bottom_pos = WEIGHT_HTML.find("id=\"bottom-grid\"")
-    assert chart_pos != -1 and bottom_pos != -1, \
-        "weight.html must have both chart card and bottom-grid elements"
-    assert chart_pos < bottom_pos, \
-        "chart card must appear before bottom grid in HTML"
+    assert top_pos != -1 and chart_pos != -1, \
+        "weight.html must have both the top-grid and the chart card"
+    assert top_pos < chart_pos, \
+        "the top grid (Current/Progress/Log/Recent) must appear before the chart"
 
 
 # ── AC10: 360px breakpoint ────────────────────────────────────────────────────

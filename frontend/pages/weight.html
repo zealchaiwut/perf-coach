@@ -990,6 +990,51 @@
     .et-panel-error {
       font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
     }
+    /* ── Backfill calendar ─────────────────────────────────────────────────── */
+    /* ── Page layout: 2-col top (Current+Progress | Log+Recent) ─────────────── */
+    .top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
+    .top-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    @media (max-width: 880px) { .top-grid { grid-template-columns: 1fr; } }
+
+    /* ── Backfill calendar (fills card; 2 months desktop, 1 mobile) ─────────── */
+    .wcal { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(13,30,67,0.07); }
+    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+    .wcal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
+    .wcal-nav-group { display: inline-flex; align-items: center; gap: 6px; }
+    .wcal-nav { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+    .wcal-nav:hover { background: #f1f4fa; color: var(--text-primary); }
+    .wcal-nav:disabled { opacity: 0.35; cursor: not-allowed; }
+    .wcal-months { display: flex; gap: 16px; align-items: flex-start; }
+    .wcal-month { flex: 1 1 0; min-width: 0; }
+    .wcal-mtitle { font-size: 11px; font-weight: 600; color: var(--text-primary); text-align: center; margin-bottom: 6px; }
+    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; }
+    .wcal-dow span { text-align: center; font-size: 8.5px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
+    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .wcal-cell:hover:not(.future):not(.empty) { background: #e8edf6; }
+    .wcal-cell.empty { background: transparent; cursor: default; }
+    .wcal-cell.future { color: var(--text-tertiary); opacity: 0.4; cursor: not-allowed; }
+    .wcal-cell.has-entry { background: #dde6f8; color: #1e3a8a; }
+    .wcal-cell.today { box-shadow: inset 0 0 0 1.5px var(--bg-1); }
+    .wcal-cell.sel { box-shadow: 0 0 0 1.5px #2563eb; background: #dde6f8; }
+    .wcal-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 3.5px; height: 3.5px; border-radius: 50%; background: #2563eb; }
+    .wcal-cell.sel .wcal-dot { display: none; }
+    .wcal-editor { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f1f4fa; border-radius: 9px; }
+    .wcal-ed-date { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+    .wcal-editor input { width: 84px; height: 34px; border-radius: 8px; border: 1.5px solid var(--card-border); background: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; color: var(--text-primary); }
+    .wcal-save { height: 34px; padding: 0 15px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-text); font-family: inherit; font-weight: 700; font-size: 12px; cursor: pointer; }
+    .wcal-del { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--card-border); background: #fff; color: var(--red); font-family: inherit; font-size: 12px; cursor: pointer; }
+    .wcal-ed-err { font-size: 11px; color: var(--red); width: 100%; }
+    @media (max-width: 560px) { .wcal-month-left { display: none; } }
+    @media (pointer: coarse) {
+      .wcal-nav { width: 32px; height: 32px; }
+      .wcal-save, .wcal-del { min-height: 38px; }
+    }
+    /* ── Merged card separator + milestone markers on the progress bar ──────── */
+    .merged-sep { border-top: 1px solid rgba(13,30,67,0.08); margin: 3px 0 12px; }
+    .pgbar-ms-layer { position: absolute; inset: 0; pointer-events: none; }
+    .pgbar-ms { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 7px; height: 7px; background: #fff; border: 1.5px solid #16a34a; border-radius: 1px; pointer-events: auto; cursor: help; z-index: 2; }
+    .pgbar-ms-goal { border-radius: 50%; transform: translate(-50%, -50%); width: 9px; height: 9px; background: #16a34a; border-color: #16a34a; }
   </style>
 </head>
 <body>
@@ -1009,10 +1054,11 @@
     </div>
 
     <!-- Hero: 2-card row (Card A: Current | Card B: Log Today) -->
-    <div class="hero-2col" id="hero-2col">
-
-      <!-- Card A: Current Weight -->
-      <div class="hero-card hero-card-a">
+    <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
+    <div class="top-grid">
+      <div class="top-col">
+        <!-- Merged: Current weight + Log Today + Progress toward goal -->
+        <div class="card hero-card hero-card-a merged-card">
         <div class="hca-top">
           <span class="hca-label">CURRENT WEIGHT</span>
           <span class="hca-date-sub" id="hca-date-sub"></span>
@@ -1035,15 +1081,11 @@
         <div class="coach-strip coach-grey" id="coach-strip">
           <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
         </div>
-      </div>
-
-      <!-- Card B: Log Today -->
-      <div class="hero-card hero-card-b">
+          <div class="merged-sep"></div>
         <div class="hcb-top">
           <span class="hcb-label">LOG TODAY</span>
           <span class="hcb-date" id="hcb-date"></span>
         </div>
-
         <!-- Stepper (shown when not yet logged today, or while editing) -->
         <div id="stepper-wrap">
           <div class="stepper">
@@ -1060,16 +1102,107 @@
           <!-- quicklog-error alias for test_weight_page_frontend__412 -->
           <div id="quicklog-error" hidden></div>
         </div>
-
         <!-- Logged strip (shown after successful log) -->
         <div class="logged-strip" id="logged-strip" hidden>
           <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
         </div>
+          <div id="progress-card" hidden>
+            <div class="merged-sep"></div>
+          <div class="progress-card-hdr">
+            <h2>Progress toward goal</h2>
+            <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
+          </div>
+          <!-- Three-stat row: Start | You | Goal -->
+          <div class="progress-stat-row">
+            <div>
+              <div class="pstat-val" id="pstat-start-val">-- kg</div>
+              <div class="pstat-lbl">Start</div>
+              <div class="pstat-date" id="pstat-start-date">--</div>
+            </div>
+            <div>
+              <div class="pstat-val pstat-val-blue" id="pstat-you-val">-- kg</div>
+              <div class="pstat-lbl">You</div>
+              <div class="pstat-plan-sub" id="pstat-plan-sub">plan -- kg</div>
+            </div>
+            <div>
+              <div class="pstat-val pstat-val-green" id="pstat-goal-val">-- kg</div>
+              <div class="pstat-lbl">Goal</div>
+              <div class="pstat-date pstat-date-green" id="pstat-goal-date">--</div>
+            </div>
+          </div>
+          <!-- Progress bar -->
+          <div class="progress-bar-wrap">
+            <!-- YOU marker rides above the bar -->
+            <div class="pgbar-lane pgbar-lane-top">
+              <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
+                <span class="pgbar-flag-lbl">YOU</span>
+                <span class="pgbar-caret pgbar-caret-down"></span>
+              </div>
+            </div>
+            <div class="progress-bar-track" id="pgbar-track">
+              <div class="progress-bar-fill pgbar-fill" id="pgbar-fill"></div>
+              <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
+              <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
+              <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
+            </div>
+            <!-- PLAN marker rides below the bar -->
+            <div class="pgbar-lane pgbar-lane-bottom">
+              <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
+                <span class="pgbar-caret pgbar-caret-up"></span>
+                <span class="pgbar-flag-lbl">PLAN</span>
+              </div>
+            </div>
+          </div>
+          <!-- Summary row -->
+          <div class="progress-summary-row">
+            <div>
+              <span class="progress-pct-big" id="progress-pct-big">--%</span>
+              <span class="progress-detail" id="progress-detail">-- kg to go · -- days</span>
+            </div>
+            <!-- Hidden backward-compat elements (for test_weight_page_frontend__412) -->
+            <span id="kg-to-go" hidden></span>
+            <span class="pgstatus-pill" id="pgstatus-pill"></span>
+          </div>
+          </div>
+        </div>
       </div>
+      <div class="top-col">
+        <!-- Recent entries + backfill calendar -->
+        <div class="card hero-card hero-card-b merged-card">
+        <div class="card-header-row">
+          <h2>Recent entries &middot; <span class="card-subtitle">last 5 days</span></h2>
+          <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
+        </div>
+        <div class="entries-table" id="recent-entries"></div>
 
+        <!-- Backfill calendar: two months on desktop, one on mobile -->
+        <div class="wcal" id="wcal">
+          <div class="wcal-head">
+            <span class="wcal-kicker">Backfill any date</span>
+            <span class="wcal-nav-group">
+              <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">&#8249;</button>
+              <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">&#8250;</button>
+            </span>
+          </div>
+          <div class="wcal-months">
+            <div class="wcal-month wcal-month-left">
+              <div class="wcal-mtitle" id="wcal-mtitle-left">&mdash;</div>
+              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              <div class="wcal-grid" id="wcal-grid-left"></div>
+            </div>
+            <div class="wcal-month">
+              <div class="wcal-mtitle" id="wcal-mtitle-right">&mdash;</div>
+              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              <div class="wcal-grid" id="wcal-grid-right"></div>
+            </div>
+          </div>
+          <div class="wcal-editor" id="wcal-editor" hidden></div>
+        </div>
+        </div>
+      </div>
     </div>
 
-    <!-- Chart card -->
+    <!-- Chart card (Graph) -->
     <div class="card chart-card">
       <div class="range-tabs" role="group" aria-label="Chart date range">
         <button class="range-tab" data-range="7d" type="button">7D</button>
@@ -1104,96 +1237,6 @@
         </span>
       </div>
     </div>
-
-    <!-- Bottom grid: progress/milestones (left) + recent entries (right) -->
-    <div class="bottom-grid">
-
-      <!-- Left column: progress card + milestones (shown only if active target) -->
-      <div class="bottom-left-col">
-        <!-- Progress card -->
-        <div class="card" id="progress-card" hidden>
-
-          <!-- Card header: title + Edit target pill -->
-          <div class="progress-card-hdr">
-            <h2>Progress toward goal</h2>
-            <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
-          </div>
-
-          <!-- Three-stat row: Start | You | Goal -->
-          <div class="progress-stat-row">
-            <div>
-              <div class="pstat-val" id="pstat-start-val">-- kg</div>
-              <div class="pstat-lbl">Start</div>
-              <div class="pstat-date" id="pstat-start-date">--</div>
-            </div>
-            <div>
-              <div class="pstat-val pstat-val-blue" id="pstat-you-val">-- kg</div>
-              <div class="pstat-lbl">You</div>
-              <div class="pstat-plan-sub" id="pstat-plan-sub">plan -- kg</div>
-            </div>
-            <div>
-              <div class="pstat-val pstat-val-green" id="pstat-goal-val">-- kg</div>
-              <div class="pstat-lbl">Goal</div>
-              <div class="pstat-date pstat-date-green" id="pstat-goal-date">--</div>
-            </div>
-          </div>
-
-          <!-- Progress bar -->
-          <div class="progress-bar-wrap">
-            <!-- YOU marker rides above the bar -->
-            <div class="pgbar-lane pgbar-lane-top">
-              <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
-                <span class="pgbar-flag-lbl">YOU</span>
-                <span class="pgbar-caret pgbar-caret-down"></span>
-              </div>
-            </div>
-            <div class="progress-bar-track" id="pgbar-track">
-              <div class="progress-bar-fill pgbar-fill" id="pgbar-fill"></div>
-              <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
-              <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
-            </div>
-            <!-- PLAN marker rides below the bar -->
-            <div class="pgbar-lane pgbar-lane-bottom">
-              <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
-                <span class="pgbar-caret pgbar-caret-up"></span>
-                <span class="pgbar-flag-lbl">PLAN</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Summary row -->
-          <div class="progress-summary-row">
-            <div>
-              <span class="progress-pct-big" id="progress-pct-big">--%</span>
-              <span class="progress-detail" id="progress-detail">-- kg to go · -- days</span>
-            </div>
-            <!-- Hidden backward-compat elements (for test_weight_page_frontend__412) -->
-            <span id="kg-to-go" hidden></span>
-            <span class="pgstatus-pill" id="pgstatus-pill"></span>
-          </div>
-
-          <!-- Milestone list -->
-          <div class="milestone-list-section" id="milestone-list-section">
-            <div class="milestone-list-hdr">
-              <span class="milestone-list-title">Milestones</span>
-              <span class="milestone-on-chart">◆ on chart</span>
-            </div>
-            <div id="milestone-rows"></div>
-          </div>
-
-        </div><!-- /#progress-card -->
-      </div><!-- /.bottom-left-col -->
-
-      <!-- Right column: recent entries card -->
-      <div class="card recent-entries-card" id="recent-entries-card">
-        <div class="card-header-row">
-          <h2>Recent entries &middot; <span class="card-subtitle">last 14 days</span></h2>
-          <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
-        </div>
-        <div class="entries-table" id="recent-entries"></div>
-      </div>
-
-    </div><!-- /.bottom-grid -->
 
     <!-- ── Target History section ──────────────────────────────────────────── -->
     <section id="target-history-section" class="target-history-section">

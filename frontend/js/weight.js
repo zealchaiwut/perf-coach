@@ -388,73 +388,31 @@ function renderProgress(target) {
 // ── Milestones panel ───────────────────────────────────────────────────────
 
 function renderMilestones(target) {
-  const rowsEl = document.getElementById('milestone-rows');
-  if (!rowsEl) return;
-
-  if (!target || !target.milestones || !target.milestones.length) {
-    rowsEl.innerHTML = '';
+  const layer = document.getElementById('pgbar-ms-layer');
+  if (!layer) return;
+  if (!target || !target.milestones || !target.milestones.length ||
+      target.start_weight_kg == null || target.target_weight_kg == null) {
+    layer.innerHTML = '';
     return;
   }
+  const start = target.start_weight_kg;
+  const goal  = target.target_weight_kg;
+  const span  = start - goal;
+  if (span === 0) { layer.innerHTML = ''; return; }
 
-  const gapDir      = target.gap_direction || 'no_data';
-  const planTodayKg = target.plan_today_kg;
-  const gapKg       = target.gap_kg;
-  // current basis derived the same way as in renderProgress
-  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
-
-  rowsEl.innerHTML = target.milestones.map(m => {
-    const dateDisplay = m.date ? (() => {
-      const d = new Date(m.date + 'T00:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    })() : '--';
-
-    if (m.kind === 'today') {
-      // Today row: actual basis weight + plan sub + signed delta chip
-      const actualDisplay = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
-      const planSub = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : '';
-
-      let rowClass = 'milestone-row milestone-row-standard';
-      if      (gapDir === 'behind')  rowClass = 'milestone-row milestone-today-behind';
-      else if (gapDir === 'ahead')   rowClass = 'milestone-row milestone-today-ahead';
-      else if (gapDir === 'on_plan') rowClass = 'milestone-row milestone-today-on-plan';
-
-      let deltaHtml = '';
-      if (gapKg != null) {
-        const sign      = gapKg >= 0 ? '+' : '';
-        const chipClass = Math.abs(gapKg) < 0.15
-          ? 'milestone-delta-neutral'
-          : (gapKg < 0 ? 'milestone-delta-ahead' : 'milestone-delta-behind');
-        deltaHtml = `<span class="milestone-row-delta ${chipClass}">${sign}${gapKg.toFixed(1)} kg</span>`;
-      }
-
-      return `
-        <div class="${rowClass}">
-          <div class="milestone-row-date">${dateDisplay}</div>
-          <div class="milestone-row-center">
-            <div class="milestone-row-weight">${actualDisplay}</div>
-            <div class="milestone-row-sub">${planSub}</div>
-          </div>
-          ${deltaHtml}
-        </div>`;
-    }
-
-    // Intermediate or goal row: plan kg + ↓ remaining from today's plan position
-    const planDisplay = m.plan_kg != null ? `${m.plan_kg.toFixed(1)} kg` : '--';
-    const remaining   = (planTodayKg != null && m.plan_kg != null)
-      ? Math.abs(planTodayKg - m.plan_kg)
-      : null;
-    const remainSub = remaining != null ? `↓ ${remaining.toFixed(1)} kg to go` : '';
-    const kindLabel = m.kind === 'goal' ? 'Goal' : '';
-
-    return `
-      <div class="milestone-row milestone-row-standard">
-        <div class="milestone-row-date">${dateDisplay}${kindLabel ? `<div style="font-size:0.625rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;">${kindLabel}</div>` : ''}</div>
-        <div class="milestone-row-center">
-          <div class="milestone-row-weight">${planDisplay}</div>
-          <div class="milestone-row-sub">${remainSub}</div>
-        </div>
-      </div>`;
-  }).join('');
+  // Intermediate + goal milestones become markers on the bar (today is the dot).
+  layer.innerHTML = target.milestones
+    .filter(m => m.kind !== 'today' && m.plan_kg != null)
+    .map(m => {
+      const pct = Math.max(0, Math.min(100, (start - m.plan_kg) / span * 100));
+      const dateStr = m.date
+        ? new Date(m.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : '';
+      const isGoal = m.kind === 'goal';
+      const title = `${dateStr ? dateStr + ' · ' : ''}${m.plan_kg.toFixed(1)} kg${isGoal ? ' (goal)' : ''}`;
+      return `<span class="pgbar-ms${isGoal ? ' pgbar-ms-goal' : ''}" style="left:${pct}%" title="${title}" aria-label="${title}"></span>`;
+    })
+    .join('');
 }
 
 // ── Recent entries (last 14 days) ─────────────────────────────────────────
@@ -490,10 +448,10 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  // Build 14-day list: today → today-13
+  // Build 5-day list: today → today-4 (older dates are reached via the calendar)
   const today = todayISO();
   const days = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 5; i++) {
     days.push(addDays(today, -i));
   }
 
@@ -802,6 +760,158 @@ function _openMiniStepper(btn, date) {
     } catch (e) {
       showPageError('Save failed: ' + e.message);
     }
+  });
+}
+
+// ── Backfill calendar (two months on desktop, one on mobile) ───────────────
+
+let _calY = null;          // displayed RIGHT month: year
+let _calM = null;          // displayed RIGHT month: month (0-11)
+let _calSelDate = null;    // currently-open editor date
+
+function _pad2(n) { return String(n).padStart(2, '0'); }
+
+function _initBackfillCalendar() {
+  const now = new Date();
+  _calY = now.getFullYear();
+  _calM = now.getMonth();
+  const prev = document.getElementById('wcal-prev');
+  const next = document.getElementById('wcal-next');
+  if (prev) prev.addEventListener('click', () => _calShift(-1));
+  if (next) next.addEventListener('click', () => _calShift(1));
+}
+
+function _calShift(delta) {
+  _calM += delta;
+  if (_calM < 0) { _calM = 11; _calY -= 1; }
+  else if (_calM > 11) { _calM = 0; _calY += 1; }
+  _calSelDate = null;
+  renderBackfillCalendar();
+}
+
+async function renderBackfillCalendar() {
+  const gridR = document.getElementById('wcal-grid-right');
+  if (!gridR || _userId == null) return;
+  if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
+
+  // Right = displayed month; Left = the month before it.
+  const rY = _calY, rM = _calM;
+  const lDate = new Date(rY, rM - 1, 1);
+  const lY = lDate.getFullYear(), lM = lDate.getMonth();
+
+  const fromStr = `${lY}-${_pad2(lM + 1)}-01`;
+  const rLast = new Date(rY, rM + 1, 0).getDate();
+  const toStr  = `${rY}-${_pad2(rM + 1)}-${_pad2(rLast)}`;
+
+  const now = new Date();
+  const atCurrent = (rY > now.getFullYear()) || (rY === now.getFullYear() && rM >= now.getMonth());
+  const nextBtn = document.getElementById('wcal-next');
+  if (nextBtn) nextBtn.disabled = atCurrent;
+
+  const byDate = {};
+  try {
+    const res = await fetch(`/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${fromStr}&to=${toStr}`);
+    if (res.ok) {
+      const data = await res.json();
+      (Array.isArray(data) ? data : (data.entries || [])).forEach(e => { byDate[e.entry_date] = e; });
+    }
+  } catch (_) { /* leave empty on error */ }
+
+  const today = todayISO();
+  _calRenderMonth(lY, lM, document.getElementById('wcal-grid-left'),  document.getElementById('wcal-mtitle-left'),  byDate, today);
+  _calRenderMonth(rY, rM, gridR, document.getElementById('wcal-mtitle-right'), byDate, today);
+
+  if (_calSelDate) {
+    _calOpenEditor(_calSelDate, byDate[_calSelDate] || null);
+  } else {
+    const ed = document.getElementById('wcal-editor');
+    if (ed) ed.hidden = true;
+  }
+}
+
+function _calRenderMonth(year, month, gridEl, titleEl, byDate, today) {
+  if (!gridEl) return;
+  if (titleEl) titleEl.textContent =
+    new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const lastDay  = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();   // 0=Sun..6=Sat
+  const lead     = (firstDow + 6) % 7;                    // Monday-first
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<div class="wcal-cell empty"></div>';
+  for (let d = 1; d <= lastDay; d++) {
+    const date   = `${year}-${_pad2(month + 1)}-${_pad2(d)}`;
+    const entry  = byDate[date];
+    const future = date > today;
+    const cls = ['wcal-cell'];
+    if (future) cls.push('future');
+    if (entry)  cls.push('has-entry');
+    if (date === today) cls.push('today');
+    if (date === _calSelDate) cls.push('sel');
+    const dot = entry ? '<span class="wcal-dot"></span>' : '';
+    cells += `<button type="button" class="${cls.join(' ')}" data-date="${date}"${future ? ' disabled' : ''}>${d}${dot}</button>`;
+  }
+  gridEl.innerHTML = cells;
+  gridEl.querySelectorAll('.wcal-cell[data-date]:not(.future)').forEach(btn => {
+    btn.addEventListener('click', () => _calOpenEditor(btn.dataset.date, byDate[btn.dataset.date] || null));
+  });
+}
+
+function _calOpenEditor(date, entry) {
+  _calSelDate = date;
+  document.querySelectorAll('#wcal .wcal-cell').forEach(c =>
+    c.classList.toggle('sel', c.dataset.date === date));
+
+  const editor = document.getElementById('wcal-editor');
+  if (!editor) return;
+  const label   = new Date(date + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const prefill = entry ? entry.weight_kg : (_nearestWeight(_recentEntries, date) || 70.0);
+
+  editor.hidden = false;
+  editor.innerHTML = `
+    <span class="wcal-ed-date">${label}</span>
+    <input type="number" step="0.1" min="20" max="300" inputmode="decimal"
+      value="${prefill.toFixed(1)}" aria-label="Weight in kg for ${label}">
+    <button type="button" class="wcal-save">${entry ? 'Update' : 'Add'}</button>
+    ${entry ? '<button type="button" class="wcal-del">Delete</button>' : ''}
+    <span class="wcal-ed-err" role="alert"></span>`;
+
+  const input = editor.querySelector('input');
+  const errEl = editor.querySelector('.wcal-ed-err');
+  input.focus(); input.select();
+
+  editor.querySelector('.wcal-save').addEventListener('click', async () => {
+    errEl.textContent = '';
+    const v = parseFloat(input.value);
+    if (isNaN(v) || v < 20 || v > 300) { errEl.textContent = 'Enter a valid weight (20–300 kg).'; input.focus(); return; }
+    try {
+      if (entry) {
+        await patchEntry(entry.id, { weight_kg: v });
+      } else {
+        const res = await fetch('/api/weight-entries', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: _userId, entry_date: date, weight_kg: v }),
+        });
+        if (res.status === 409) { errEl.textContent = 'Entry already exists for this date.'; return; }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      UIStates.showToast('Entry saved');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Save failed: ' + e.message; }
+  });
+
+  const delBtn = editor.querySelector('.wcal-del');
+  if (delBtn) delBtn.addEventListener('click', async () => {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const res = await fetch(`/api/weight-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
+      UIStates.showToast('Entry deleted');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Delete failed: ' + e.message; }
   });
 }
 
@@ -1425,6 +1535,7 @@ async function _reload() {
     renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
+    await renderBackfillCalendar();
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -1446,6 +1557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initRangeTabs();
   _initEditPanel();
   _initTargetHistoryFilters();
+  _initBackfillCalendar();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
