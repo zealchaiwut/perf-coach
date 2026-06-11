@@ -1600,9 +1600,22 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         if ma_30d_ago is not None:
             delta_month = round(avg_7d - ma_30d_ago, 2)
 
+    # sparkline: last 7 days of actual daily average weights (non-null days only)
+    sparkline = []
+    for i in range(7):
+        day = today - _timedelta(days=6 - i)
+        if day in date_weights:
+            vals = date_weights[day]
+            sparkline.append({"date": str(day), "value": round(sum(vals) / len(vals), 2)})
+
+    # gap_kg and status_label at top level
+    top_status_label: Optional[str] = None
+    gap_kg: Optional[float] = None
+
     target_info = None
     if active_target:
         status_label = _compute_status_label(active_target, avg_7d, today)
+        top_status_label = status_label
         target_w = float(active_target.target_weight_kg)
         start_w = float(active_target.start_weight_kg)
         direction = "down" if target_w < start_w else "up"
@@ -1613,19 +1626,53 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         else:
             progress_pct = 100.0
         td = active_target.target_date if isinstance(active_target.target_date, _date) else _date.fromisoformat(str(active_target.target_date))
+        sd = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
+        total_days = (td - sd).days
+
+        # Compute gap_kg: avg_7d vs expected trajectory at today
+        if avg_7d is not None and total_days > 0:
+            elapsed = (today - sd).days
+            t_frac = elapsed / total_days
+            expected_today = start_w + (target_w - start_w) * t_frac
+            gap_kg = round(avg_7d - expected_today, 2)
+
+        # plan: 7-day expected trajectory points for the sparkline window
+        plan = []
+        if total_days > 0:
+            for i in range(7):
+                day = today - _timedelta(days=6 - i)
+                elapsed_i = (day - sd).days
+                t_i = elapsed_i / total_days
+                expected_i = start_w + (target_w - start_w) * t_i
+                plan.append({"date": str(day), "value": round(expected_i, 2)})
+        else:
+            plan = []
+
+        # kg_to_go: abs(current_weight - target_weight_kg)
+        kg_to_go = round(abs((current_weight if current_weight is not None else start_w) - target_w), 2)
+
         target_info = {
             "direction": direction,
             "target_weight_kg": target_w,
             "target_date": str(td),
             "progress_pct": progress_pct,
             "status_label": status_label,
+            "kg_to_go": kg_to_go,
         }
+    else:
+        plan = []
 
     return JSONResponse({
         "current_weight": current_weight,
+        "last_entry_kg": current_weight,
         "avg_7d": avg_7d,
         "delta_week": delta_week,
+        "weekly_rate_kg": delta_week,
         "delta_month": delta_month,
+        "status_label": top_status_label,
+        "gap_kg": gap_kg,
+        "sparkline": sparkline,
+        "plan": plan,
         "target": target_info,
         "ma30": ma30,
     })
