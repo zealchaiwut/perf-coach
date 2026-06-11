@@ -312,8 +312,8 @@
       width: 100%;
       margin-top: 8px;
       padding: 10px 1rem;
-      background: #0b1530;
-      color: #fff;
+      background: var(--accent);
+      color: var(--accent-text);
       border: none;
       border-radius: 9px;
       font-size: 14px;
@@ -690,13 +690,15 @@
     #page-error {
       color: #fff;
       font-size: 13.5px;
+      margin: 0;
+    }
+    /* Banner only renders when there is an actual error message */
+    #page-error:not(:empty) {
       margin-bottom: 12px;
-      min-height: 1.2em;
       background: rgba(122,26,26,0.55);
       border-radius: 8px;
-      padding: 0;
+      padding: 10px 14px;
     }
-    #page-error:not(:empty) { padding: 10px 14px; }
 
     /* ── Responsive ≤880px ────────────────────────────────────────────────── */
     @media (max-width: 880px) {
