@@ -310,6 +310,9 @@ const WeightChart = (() => {
       todayX = xDate(tm.date);
       if (todayX == null) todayX = mainR - 4;
     }
+    // When the today marker sits near the right edge, the "plan"/"you" labels
+    // and the gap chip would overflow the viewBox — flip them to the left side.
+    const labelLeft = todayX != null && todayX > VW - 92;
 
     if (tm && tm.plan_kg != null && todayX != null) {
       planDotY = y(tm.plan_kg);
@@ -318,7 +321,8 @@ const WeightChart = (() => {
         fill: '#fff', stroke: C.plan, 'stroke-width': '2',
       }));
       const planLbl = _el('text', {
-        x: todayX + 8, y: planDotY - 4,
+        x: labelLeft ? todayX - 9 : todayX + 8, y: planDotY - 4,
+        'text-anchor': labelLeft ? 'end' : 'start',
         'font-size': '13', fill: C.plan, 'font-weight': '600',
       });
       planLbl.textContent = `plan ${tm.plan_kg.toFixed(1)} kg`;
@@ -333,7 +337,8 @@ const WeightChart = (() => {
         fill: C.trend, stroke: '#fff', 'stroke-width': '1.5',
       }));
       const youLbl = _el('text', {
-        x: todayX + 8, y: trendDotY - 4,
+        x: labelLeft ? todayX - 9 : todayX + 8, y: trendDotY - 4,
+        'text-anchor': labelLeft ? 'end' : 'start',
         'font-size': '13', fill: C.trend, 'font-weight': '600',
       });
       youLbl.textContent = `you ${tm.trend_kg.toFixed(1)} kg`;
@@ -362,14 +367,17 @@ const WeightChart = (() => {
         : '';
       const chipW = 66, chipH = 20, chipRx = 10;
       const chipY = botY + 8;
-      const chipX = todayX - chipW / 2;
+      // Keep the chip inside the plot: when near the right edge, end it at the
+      // marker instead of centring (which would overflow the viewBox).
+      const chipCx = labelLeft ? (todayX - chipW / 2 - 2) : todayX;
+      const chipX  = chipCx - chipW / 2;
 
       svg.appendChild(_el('rect', {
         x: chipX, y: chipY, width: chipW, height: chipH, rx: chipRx,
         fill: gapBg,
       }));
       const chipTxt = _el('text', {
-        x: todayX, y: chipY + chipH / 2,
+        x: chipCx, y: chipY + chipH / 2,
         'text-anchor': 'middle', 'dominant-baseline': 'middle',
         'font-size': '13', fill: gapColor, 'font-weight': '700',
       });
