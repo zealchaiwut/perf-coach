@@ -93,11 +93,17 @@ async def _auth_guard(request: Request, call_next):
 
 _CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# Authentication entry points are CSRF-exempt: login authenticates with
+# username + password and *establishes* the session, so it has no pre-existing
+# authenticated state to protect. A stale/leftover `session` cookie (e.g. from a
+# prior deploy) must never lock a user out of re-authenticating.
+_CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
+
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
     """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
-    if request.method not in _CSRF_SAFE_METHODS:
+    if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
         session_cookie = request.cookies.get(COOKIE_NAME)
         if session_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
