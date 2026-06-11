@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>perf-coach — weight (redesign v5)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --bg-1: #5a8dee; --bg-2: #1f3b8a;
+    --card: #ffffff;
+    --card-divider: rgba(13, 30, 67, 0.07);
+    --text-primary: #0b1530; --text-secondary: #5c6886; --text-tertiary: #8b95ad;
+    --accent: #e4ff52; --accent-text: #1a2400;
+    --green: #2d5e10; --green-soft: #dff5d6; --green-line: #16a34a;
+    --red: #b91c1c; --red-soft: #ffe2e2;
+    --amber: #6b4408; --amber-soft: #fff0c4;
+    --blue-text: #1e3a8a; --blue-soft: #dde6f8; --blue-line: #3563d4;
+    --chip-bg: #f1f4fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    color: var(--text-primary);
+    background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 75%);
+    min-height: 100vh;
+    letter-spacing: -0.01em;
+    font-size: 13px;
+  }
+
+  .topnav {
+    background: #fff; padding: 7px 20px;
+    display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .topnav .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+  .topnav .brand .mark { width: 25px; height: 25px; border-radius: 7px; background: linear-gradient(135deg,#6e90f0,#2b4ca8); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .topnav .nav-links { display: flex; gap: 2px; flex: 1; overflow-x: auto; }
+  .topnav .nav-link { padding: 5px 11px; border-radius: 999px; white-space: nowrap; font-size: 12px; font-weight: 500; color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+  .topnav .nav-link.active { background: #0b1530; color: #fff; }
+  .topnav .nav-link i { font-size: 13px; }
+  .env-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; background: var(--amber-soft); color: var(--amber); padding: 3px 8px; border-radius: 999px; }
+  .topnav .avatar { width: 27px; height: 27px; border-radius: 50%; background: linear-gradient(135deg,#ffb88a,#d97a3a); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; }
+
+  .page { max-width: 1040px; margin: 0 auto; padding: 20px 22px 36px; display: flex; flex-direction: column; gap: 16px; }
+
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; color: #fff; gap: 10px; flex-wrap: wrap; }
+  .page-head h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  .page-head p { margin: 2px 0 0; color: rgba(255,255,255,0.78); font-size: 11.5px; }
+  .btn { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.10); color: #fff; font-family: inherit; font-size: 11.5px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .btn.dark { background: #0b1530; border-color: #0b1530; }
+
+  .card { background: var(--card); border-radius: 14px; padding: 14px 16px; box-shadow: 0 6px 20px rgba(8,18,48,0.16); }
+
+  /* ===== HERO: two separate cards ===== */
+  .hero-row { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; }
+
+  /* Current card — number centered, coach strip at bottom */
+  .current-card { display: flex; flex-direction: column; gap: 10px; }
+  .cc-top { display: flex; align-items: center; justify-content: space-between; }
+  .cc-label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .cc-sub { font-size: 10.5px; color: var(--text-tertiary); }
+  .cc-mid { display: flex; align-items: center; justify-content: space-around; gap: 8px; padding: 2px 0; }
+  .cc-side { text-align: center; min-width: 88px; }
+  .cc-side .l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; margin-bottom: 4px; }
+  .cc-side .v { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600; }
+  .cc-side .v .u { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; }
+  .cc-side .pills { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+  .cc-center { text-align: center; }
+  .cc-center .big { font-family: 'JetBrains Mono', monospace; font-size: 42px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; white-space: nowrap; }
+  .cc-center .big .u { font-size: 16px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 3px; }
+  .delta-pill { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+  .delta-pill .v { font-family: 'JetBrains Mono', monospace; }
+  .delta-pill.down { background: var(--green-soft); color: var(--green); }
+  .delta-pill.up { background: var(--red-soft); color: var(--red); }
+
+  /* coach strip */
+  .coach-strip {
+    display: flex; align-items: center; gap: 9px;
+    border-radius: 10px; padding: 8px 12px;
+    font-size: 12px; font-weight: 600;
+  }
+  .coach-strip .emo { font-size: 19px; line-height: 1; }
+  .coach-strip.idle { background: var(--chip-bg); color: var(--text-secondary); }
+  .coach-strip.cheer { background: var(--amber-soft); color: var(--amber); }
+  .coach-strip.well { background: var(--green-soft); color: var(--green); }
+  .coach-states-demo { display: flex; gap: 6px; margin-top: 2px; }
+  .coach-mini { flex: 1; display: flex; align-items: center; gap: 5px; border-radius: 8px; padding: 4px 8px; font-size: 9.5px; font-weight: 600; opacity: 0.85; }
+  .coach-mini.idle { background: var(--chip-bg); color: var(--text-secondary); }
+  .coach-mini.cheer { background: var(--amber-soft); color: var(--amber); }
+  .coach-mini.well { background: var(--green-soft); color: var(--green); }
+  .demo-tag-sm { font-size: 8px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-tertiary); text-transform: uppercase; align-self: center; margin-right: 2px; }
+
+  /* Log today card */
+  .quick-log-card { display: flex; flex-direction: column; justify-content: center; gap: 9px; }
+  .ql-head { display: flex; justify-content: space-between; }
+  .ql-title { font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-tertiary); }
+  .ql-hint { font-size: 10px; color: var(--text-tertiary); }
+  .stepper-row { display: flex; gap: 7px; }
+  .step-btn { width: 42px; height: 42px; border-radius: 10px; border: 1px solid var(--card-divider); background: #f7f9fd; font-size: 18px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); }
+  .step-value { flex: 1; height: 42px; border-radius: 10px; border: 1.5px solid var(--card-divider); background: #f7f9fd; font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; text-align: center; color: var(--text-primary); min-width: 0; }
+  .ql-log-btn { width: 100%; height: 38px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-text); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+
+  /* ===== CHART (unchanged structure from v4) ===== */
+  .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+  .chart-title { font-size: 13px; font-weight: 600; }
+  .range-tabs { display: flex; background: var(--chip-bg); border-radius: 999px; padding: 2px; }
+  .range-tab { padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; color: var(--text-secondary); cursor: pointer; background: transparent; border: 0; font-family: inherit; }
+  .range-tab.active { background: #0b1530; color: #fff; }
+
+  .chart-svg { width: 100%; height: auto; display: block; }
+  .axis-label { fill: var(--text-tertiary); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+  .grid-line { stroke: rgba(13,30,67,0.06); stroke-width: 1; }
+  .future-region { fill: #f3f7ff; }
+  .axis-break { stroke: var(--text-tertiary); stroke-width: 1.5; }
+  .actual-point { fill: var(--text-tertiary); opacity: 0.6; }
+  .actual-point.recent { fill: var(--blue-line); opacity: 1; }
+  .trend-line { fill: none; stroke: var(--blue-line); stroke-width: 2.8; stroke-linecap: round; }
+  .plan-line { stroke: var(--green-line); stroke-width: 2; stroke-dasharray: 6 4; fill: none; opacity: 0.85; }
+  .target-line { stroke: var(--green-line); stroke-width: 1.2; stroke-dasharray: 2 4; fill: none; opacity: 0.55; }
+  .gap-line { stroke: var(--red); stroke-width: 1.8; stroke-dasharray: 3 3; }
+  .gap-chip-bg { fill: var(--red-soft); }
+  .gap-chip-text { fill: var(--red); font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; }
+  .plan-dot { fill: #fff; stroke: var(--green-line); stroke-width: 2.4; }
+  .ms-diamond { fill: #fff; stroke: var(--green-line); stroke-width: 2.4; }
+  .ms-goal-flag { fill: var(--green-line); }
+  .ms-label { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; fill: var(--text-primary); }
+  .ms-label-sub { font-family: 'Inter Tight', sans-serif; font-size: 10.5px; font-weight: 500; fill: var(--text-tertiary); }
+  .ms-label.goal { fill: var(--green-line); }
+  .label-today-w { fill: var(--blue-line); font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; }
+  .label-plan { fill: var(--green-line); font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 700; }
+  .zone-tag { font-family: 'Inter Tight'; font-size: 10.5px; font-weight: 600; fill: var(--text-tertiary); letter-spacing: 0.06em; }
+
+  .legend { display: flex; gap: 13px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--card-divider); margin-top: 2px; font-size: 10px; color: var(--text-secondary); font-weight: 500; }
+  .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 12px; height: 2px; border-radius: 2px; }
+  .sw.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-tertiary); }
+  .sw.line { background: var(--blue-line); }
+  .sw.dashed-g { background: transparent; border-top: 2px dashed var(--green-line); }
+  .sw.diamond { width: 8px; height: 8px; background: #fff; border: 2px solid var(--green-line); transform: rotate(45deg); border-radius: 1px; }
+  .sw.gap { background: transparent; border-top: 2px dashed var(--red); }
+
+  /* ===== BOTTOM: side-by-side ===== */
+  .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+
+  /* left: progress over milestones */
+  .pg-title { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .pg-title .edit-link { font-size: 10.5px; color: var(--text-secondary); text-decoration: none; padding: 4px 9px; border-radius: 999px; background: var(--chip-bg); display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
+  /* clean progress: numbers in a stat row, bar stays minimal */
+  .pg-stats-row { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .pg-stat { min-width: 70px; }
+  .pg-stat .l { font-size: 8.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; margin-bottom: 3px; }
+  .pg-stat .v { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; line-height: 1; }
+  .pg-stat .v .u { font-size: 9.5px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; }
+  .pg-stat .s { font-size: 9.5px; color: var(--text-tertiary); margin-top: 3px; }
+  .pg-stat.mid { text-align: center; }
+  .pg-stat.mid .v { font-size: 19px; color: var(--blue-line); }
+  .pg-stat.mid .s { color: var(--green-line); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+  .pg-stat.end { text-align: right; }
+  .pg-stat.end .v { color: var(--green-line); }
+  .pg-bar-zone { position: relative; height: 26px; margin-bottom: 10px; }
+  .pg-bar { position: absolute; top: 4px; left: 0; right: 0; height: 7px; border-radius: 999px; background: linear-gradient(90deg, var(--blue-line), var(--green-line)); opacity: 0.15; }
+  .pg-bar-fill { position: absolute; top: 4px; left: 0; height: 7px; border-radius: 999px; background: linear-gradient(90deg, var(--blue-line), var(--green-line)); }
+  .pg-dot { position: absolute; top: 1.5px; width: 12px; height: 12px; border-radius: 50%; background: var(--blue-line); border: 2.5px solid #fff; box-shadow: 0 0 0 1.5px var(--blue-line); transform: translateX(-50%); }
+  .pg-tick { position: absolute; top: 0; width: 2px; height: 15px; background: var(--green-line); border-radius: 2px; transform: translateX(-50%); }
+  .pg-micro { position: absolute; top: 16px; transform: translateX(-50%); font-size: 8.5px; font-weight: 600; white-space: nowrap; font-family: 'Inter Tight'; }
+  .pg-micro.you-l { color: var(--blue-line); }
+  .pg-micro.plan-l { color: var(--green-line); }
+  .pg-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .pg-pct { display: flex; align-items: baseline; gap: 5px; }
+  .pg-pct .num { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--blue-line); }
+  .pg-pct .lbl { font-size: 10.5px; color: var(--text-secondary); }
+  .status-pill { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+  .status-pill.behind { background: var(--red-soft); color: var(--red); }
+  .status-pill.behind .sub { font-weight: 500; opacity: 0.85; }
+
+  .ms-list { display: flex; flex-direction: column; gap: 5px; }
+  .ms-list-label { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; margin-bottom: 1px; display: flex; justify-content: space-between; }
+  .ms-list-label .chart-ref { text-transform: none; letter-spacing: 0; color: var(--green-line); font-weight: 500; }
+  .ms-row { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 8px; align-items: center; padding: 7px 10px; background: #f7f9fd; border-radius: 9px; font-size: 11.5px; }
+  .ms-row.now { background: linear-gradient(135deg, var(--red-soft) 0%, #fff 100%); border: 1px solid #f3b9b9; }
+  .ms-row .mi { width: 7px; height: 7px; background: #fff; border: 2px solid var(--green-line); transform: rotate(45deg); border-radius: 1px; }
+  .ms-row.now .mi { background: var(--blue-line); border-color: var(--blue-line); border-radius: 50%; transform: none; }
+  .ms-row.goal-row .mi { background: var(--green-line); border-color: var(--green-line); transform: none; border-radius: 2px; }
+  .ms-row .when { color: var(--text-secondary); font-size: 9.5px; }
+  .ms-row .when strong { display: block; color: var(--text-primary); font-size: 11.5px; font-weight: 600; }
+  .ms-row .kg { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; }
+  .ms-row.goal-row .kg { color: var(--green-line); }
+  .ms-row .d { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-tertiary); }
+  .delta-chip { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; padding: 3px 7px; border-radius: 999px; }
+  .delta-chip.behind { background: var(--red-soft); color: var(--red); }
+  .ms-row.now .kg-pair { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .ms-row.now .kg-pair .plan { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--green-line); font-weight: 600; }
+
+  /* right: recent entries compact */
+  .recent-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .recent-head .t { font-size: 13px; font-weight: 600; }
+  .recent-head .t .sub { font-size: 10.5px; color: var(--text-tertiary); font-weight: 400; margin-left: 5px; }
+  .recent-head a { font-size: 10.5px; color: var(--text-secondary); text-decoration: none; }
+  .re-row { display: grid; grid-template-columns: 86px 1fr 72px 46px; align-items: center; gap: 8px; padding: 7px 4px; border-top: 1px solid var(--card-divider); font-size: 12px; }
+  .re-row.today-row { background: linear-gradient(90deg, var(--blue-soft) 0%, transparent 70%); border-radius: 8px; border-top-color: transparent; padding: 6px 8px; }
+  .re-row .d { font-weight: 600; white-space: nowrap; }
+  .re-row .d .sub { color: var(--text-tertiary); font-size: 9px; font-weight: 400; display: block; }
+  .re-row .note { color: var(--text-secondary); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .re-row .w { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; text-align: right; }
+  .re-row .w .u { font-size: 8.5px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; }
+  .re-row .delta { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; text-align: right; }
+  .re-row .delta.dn { color: var(--green); }
+  .re-row .delta.up { color: var(--red); }
+  .re-row.missed { opacity: 0.7; }
+  .re-row.missed .d { color: var(--text-tertiary); font-weight: 500; }
+  .inline-fill { display: inline-flex; align-items: center; gap: 4px; }
+  .inline-fill .mini-step { width: 24px; height: 26px; border-radius: 7px; border: 1px solid var(--card-divider); background: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .inline-fill .mini-val { width: 54px; height: 26px; border-radius: 7px; border: 1.5px solid var(--blue-line); background: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 700; text-align: center; }
+  .inline-fill .mini-save { height: 26px; padding: 0 10px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-text); font-size: 10.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .add-chip { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 9px; border-radius: 999px; border: 1.5px dashed rgba(13,30,67,0.18); background: transparent; color: var(--text-secondary); font-size: 10.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
+  .annotation { background: rgba(255,255,255,0.12); border: 1px dashed rgba(255,255,255,0.35); border-radius: 10px; padding: 9px 14px; color: rgba(255,255,255,0.92); font-size: 11px; line-height: 1.5; }
+  .annotation strong { color: #fff; }
+
+  /* ===== TABS ===== */
+  .tabs { display: inline-flex; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; padding: 3px; }
+  .tab { padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8); background: transparent; border: 0; cursor: pointer; font-family: inherit; }
+  .tab.active { background: #fff; color: var(--text-primary); }
+
+  /* ===== HISTORY TAB ===== */
+  .stats4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .s4 { display: flex; flex-direction: column; gap: 4px; }
+  .s4 .l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .s4 .v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; }
+  .s4 .v .u { font-size: 11px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; }
+  .s4 .s { font-size: 10.5px; color: var(--text-secondary); } .s4 .s.good { color: var(--green); font-weight: 600; }
+  .filters { display: flex; gap: 4px; padding: 3px; background: var(--chip-bg); border-radius: 999px; }
+  .fb { padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--text-secondary); background: transparent; border: 0; cursor: pointer; font-family: inherit; }
+  .fb.active { background: #0b1530; color: #fff; }
+  .htable { width: 100%; border-collapse: collapse; }
+  .htable th { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; padding: 8px; text-align: left; border-bottom: 1px solid var(--card-divider); }
+  .htable th.r { text-align: right; } .htable th.c { text-align: center; }
+  .htable td { padding: 11px 8px; border-bottom: 1px solid var(--card-divider); font-size: 12px; }
+  .htable td.r { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .htable td.c { text-align: center; font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
+  .badge { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
+  .badge.done { background: var(--green-soft); color: var(--green); }
+  .badge.replaced { background: var(--amber-soft); color: var(--amber); }
+  .badge.abandoned { background: var(--chip-bg); color: var(--text-secondary); }
+  .htable .nm { font-weight: 600; } .htable .nm .meta { font-weight: 400; color: var(--text-secondary); font-size: 10.5px; display: block; }
+  .htable .delta.good { color: var(--green); } .htable .delta.partial { color: var(--amber); }
+  .vs-banner { background: linear-gradient(135deg, var(--blue-soft) 0%, transparent 100%); border: 1px solid var(--blue-soft); border-radius: 11px; padding: 11px 14px; font-size: 12px; color: var(--blue-text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .vs-banner i { font-size: 15px; }
+  .vs-banner strong { font-family: 'JetBrains Mono', monospace; }
+
+  /* ===== SLIDE-IN PANEL ===== */
+  .panel-scrim { position: fixed; inset: 0; background: rgba(8,18,48,0.45); z-index: 90; }
+  .panel { position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 92vw; background: #fff; z-index: 100; box-shadow: -12px 0 40px rgba(8,18,48,0.25); display: flex; flex-direction: column; }
+  .panel-h { padding: 16px 18px; border-bottom: 1px solid var(--card-divider); display: flex; align-items: center; justify-content: space-between; }
+  .panel-h .t { font-size: 15px; font-weight: 700; }
+  .panel-h .x { width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--chip-bg); cursor: pointer; font-size: 16px; color: var(--text-secondary); }
+  .panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .field input { height: 40px; border-radius: 10px; border: 1.5px solid var(--card-divider); background: #f7f9fd; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .field input:focus { outline: none; border-color: var(--blue-line); background: #fff; }
+  .field .hint { font-size: 10.5px; color: var(--text-tertiary); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .panel-preview { background: #f7f9fd; border-radius: 11px; padding: 12px 14px; font-size: 12px; color: var(--text-secondary); }
+  .panel-preview .pp-row { display: flex; justify-content: space-between; margin: 3px 0; }
+  .panel-preview .pp-row .mono { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text-primary); }
+  .panel-foot { padding: 14px 18px; border-top: 1px solid var(--card-divider); display: flex; gap: 8px; }
+  .panel-foot .save { flex: 1; height: 40px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-text); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .panel-foot .end { height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--red-soft); background: #fff; color: var(--red); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .panel-tag { position: absolute; top: 12px; left: 14px; background: var(--amber-soft); color: var(--amber); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+
+  @media (max-width: 640px) {
+    .hero-row { grid-template-columns: 1fr; }
+    .bottom-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="brand"><div class="mark"><i class="ti ti-activity-heartbeat"></i></div>perf-coach</div>
+  <div class="nav-links">
+    <a class="nav-link" href="#"><i class="ti ti-home"></i>Home</a>
+    <a class="nav-link" href="#"><i class="ti ti-list-details"></i>Training Log</a>
+    <a class="nav-link" href="#"><i class="ti ti-chart-line"></i>Trends</a>
+    <a class="nav-link" href="#"><i class="ti ti-calendar"></i>Calendar</a>
+    <a class="nav-link active" href="#"><i class="ti ti-scale"></i>Weight</a>
+    <a class="nav-link" href="#"><i class="ti ti-checkbox"></i>Habits</a>
+  </div>
+  <span class="env-pill">UAT</span>
+  <div class="avatar">M</div>
+</nav>
+
+<div class="page">
+
+  <div class="page-head">
+    <div>
+      <h1>Weight</h1>
+      <p>37 entries · 8 of last 14 days · trending <strong style="color:#fff;">↓ 0.3 kg/wk</strong></p>
+    </div>
+    <div style="display:flex;gap:7px; align-items:center;">
+      <div class="tabs">
+        <button class="tab active" id="tab-btn-overview" onclick="switchTab('overview')">Overview</button>
+        <button class="tab" id="tab-btn-history" onclick="switchTab('history')">History</button>
+      </div>
+      <button class="btn"><i class="ti ti-download"></i>Export</button>
+      <button class="btn dark" onclick="document.getElementById('edit-panel').style.display='block';document.getElementById('edit-scrim').style.display='block';"><i class="ti ti-edit"></i>Edit target</button>
+    </div>
+  </div>
+
+  <!-- ============ OVERVIEW TAB ============ -->
+  <div id="tab-overview">
+
+  <!-- HERO: two cards -->
+  <div class="hero-row">
+
+    <!-- Current card: number centered, coach strip -->
+    <div class="card current-card">
+      <div class="cc-top">
+        <span class="cc-label">Current weight</span>
+        <span class="cc-sub">Logged yesterday · Jun 9</span>
+      </div>
+      <div class="cc-mid">
+        <div class="cc-side">
+          <div class="l">7-day avg</div>
+          <div class="v">89.1<span class="u">kg</span></div>
+        </div>
+        <div class="cc-center">
+          <div class="big">88.7<span class="u">kg</span></div>
+        </div>
+        <div class="cc-side">
+          <div class="l">Change</div>
+          <div class="pills">
+            <span class="delta-pill down">↓ <span class="v">0.3</span>&nbsp;wk</span>
+            <span class="delta-pill down">↓ <span class="v">0.8</span>&nbsp;mo</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- coach strip: ACTIVE state = no entry today -->
+      <div class="coach-strip idle">
+        <span class="emo">😴</span>
+        <span>No entry yet today — log your weight to wake me up</span>
+      </div>
+      <!-- other states demo -->
+      <div class="coach-states-demo">
+        <span class="demo-tag-sm">states→</span>
+        <span class="coach-mini cheer"><span>💪</span> Up a little — new day, keep going</span>
+        <span class="coach-mini well"><span>🎉</span> You did well — on pace this week</span>
+      </div>
+    </div>
+
+    <!-- Log today card -->
+    <div class="card quick-log-card">
+      <div class="ql-head">
+        <span class="ql-title">Log today · Wed, Jun 10</span>
+        <span class="ql-hint">prefilled from last</span>
+      </div>
+      <div class="stepper-row">
+        <button class="step-btn">−</button>
+        <input class="step-value" value="88.7" inputmode="decimal" />
+        <button class="step-btn">+</button>
+      </div>
+      <button class="ql-log-btn">✓&nbsp; Log 88.7 kg</button>
+    </div>
+  </div>
+
+  <!-- CHART (same as v4) -->
+  <div class="card">
+    <div class="chart-header">
+      <div class="chart-title">Weight trend</div>
+      <div class="range-tabs">
+        <button class="range-tab">7D</button>
+        <button class="range-tab active">30D</button>
+        <button class="range-tab">90D</button>
+        <button class="range-tab">6M</button>
+        <button class="range-tab">1Y</button>
+        <button class="range-tab">ALL</button>
+      </div>
+    </div>
+
+    <svg class="chart-svg" viewBox="0 0 900 280">
+      <rect class="future-region" x="628" y="10" width="260" height="236" rx="6" />
+      <text class="zone-tag" x="640" y="24">MILESTONES AHEAD</text>
+
+      <line class="grid-line" x1="36" x2="888" y1="45"  y2="45" /><text class="axis-label" x="6" y="49">90</text>
+      <line class="grid-line" x1="36" x2="888" y1="76"  y2="76" /><text class="axis-label" x="6" y="80">88</text>
+      <line class="grid-line" x1="36" x2="888" y1="107" y2="107" /><text class="axis-label" x="6" y="111">86</text>
+      <line class="grid-line" x1="36" x2="888" y1="138" y2="138" /><text class="axis-label" x="6" y="142">84</text>
+      <line class="grid-line" x1="36" x2="888" y1="169" y2="169" /><text class="axis-label" x="6" y="173">82</text>
+      <line class="grid-line" x1="36" x2="888" y1="200" y2="200" /><text class="axis-label" x="6" y="204">80</text>
+
+      <line class="target-line" x1="36" x2="888" y1="200" y2="200" />
+
+      <text class="axis-label" x="48"  y="268">May 12</text>
+      <text class="axis-label" x="190" y="268">May 19</text>
+      <text class="axis-label" x="330" y="268">May 26</text>
+      <text class="axis-label" x="464" y="268">Jun 2</text>
+      <text class="axis-label" x="566" y="268">today</text>
+
+      <line class="axis-break" x1="612" y1="240" x2="620" y2="254" />
+      <line class="axis-break" x1="619" y1="240" x2="627" y2="254" />
+
+      <text class="axis-label" x="694" y="268" text-anchor="middle">Sep '26</text>
+      <text class="axis-label" x="778" y="268" text-anchor="middle">Nov '26</text>
+      <text class="axis-label" x="856" y="268" text-anchor="middle">Dec 31</text>
+
+      <line class="plan-line" x1="36" y1="100" x2="600" y2="107" />
+      <path class="plan-line" d="M 628 110 L 694 147 L 778 183 L 856 200" />
+
+      <circle class="plan-dot" cx="578" cy="107" r="4.5" />
+      <text class="label-plan" x="538" y="124">plan 86.0</text>
+
+      <circle class="actual-point" cx="56"  cy="50" r="3" />
+      <circle class="actual-point" cx="92"  cy="55" r="3" />
+      <circle class="actual-point" cx="110" cy="51" r="3" />
+      <circle class="actual-point" cx="164" cy="57" r="3" />
+      <circle class="actual-point" cx="200" cy="53" r="3" />
+      <circle class="actual-point" cx="236" cy="59" r="3" />
+      <circle class="actual-point" cx="290" cy="56" r="3" />
+      <circle class="actual-point" cx="326" cy="61" r="3" />
+      <circle class="actual-point" cx="380" cy="58" r="3" />
+      <circle class="actual-point" cx="416" cy="63" r="3" />
+      <circle class="actual-point" cx="452" cy="60" r="3" />
+      <circle class="actual-point" cx="488" cy="64" r="3" />
+      <circle class="actual-point" cx="524" cy="62" r="3" />
+      <circle class="actual-point" cx="542" cy="66" r="3" />
+      <circle class="actual-point recent" cx="578" cy="63" r="4.5" />
+      <text class="label-today-w" x="548" y="52">you 88.7</text>
+
+      <path class="trend-line" d="M 56 53 C 160 55, 300 58, 420 61 S 540 63, 578 63" />
+
+      <line class="gap-line" x1="578" y1="69" x2="578" y2="101" />
+      <rect class="gap-chip-bg" x="586" y="73" width="58" height="22" rx="11" />
+      <text class="gap-chip-text" x="594" y="88">+2.7</text>
+
+      <rect class="ms-diamond" x="688" y="141" width="12" height="12" transform="rotate(45 694 147)" />
+      <text class="ms-label" x="694" y="129" text-anchor="middle">83.4</text>
+      <text class="ms-label-sub" x="694" y="165" text-anchor="middle">Sep '26</text>
+
+      <rect class="ms-diamond" x="772" y="177" width="12" height="12" transform="rotate(45 778 183)" />
+      <text class="ms-label" x="778" y="165" text-anchor="middle">81.1</text>
+      <text class="ms-label-sub" x="778" y="201" text-anchor="middle">Nov '26</text>
+
+      <circle class="ms-goal-flag" cx="856" cy="200" r="6.5" />
+      <text class="ms-label goal" x="856" y="186" text-anchor="middle">80.0</text>
+      <text class="ms-label-sub" x="856" y="218" text-anchor="middle">goal</text>
+    </svg>
+
+    <div class="legend">
+      <span class="legend-item"><span class="sw dot"></span>Weigh-in</span>
+      <span class="legend-item"><span class="sw line"></span>7-day avg</span>
+      <span class="legend-item"><span class="sw dashed-g"></span>Plan (Jan → Dec, 90 → 80)</span>
+      <span class="legend-item"><span class="sw gap"></span>Gap vs plan</span>
+      <span class="legend-item"><span class="sw diamond"></span>Milestone</span>
+    </div>
+  </div>
+
+  <!-- BOTTOM: progress+milestones | recent entries -->
+  <div class="bottom-grid">
+
+    <!-- LEFT: progress bar on top of milestones -->
+    <div class="card">
+      <div class="pg-title">
+        Progress toward goal
+        <a class="edit-link" href="#"><i class="ti ti-edit"></i>Edit target</a>
+      </div>
+      <div class="pg-stats-row">
+        <div class="pg-stat">
+          <div class="l">Start</div>
+          <div class="v">90.0<span class="u"> kg</span></div>
+          <div class="s">Jan 1, 2026</div>
+        </div>
+        <div class="pg-stat mid">
+          <div class="l">You</div>
+          <div class="v">88.7<span class="u"> kg</span></div>
+          <div class="s">plan says 86.0</div>
+        </div>
+        <div class="pg-stat end">
+          <div class="l">Goal</div>
+          <div class="v">80.0<span class="u"> kg</span></div>
+          <div class="s">Dec 31, 2026</div>
+        </div>
+      </div>
+      <div class="pg-bar-zone">
+        <div class="pg-bar"></div>
+        <div class="pg-bar-fill" style="width:13%;"></div>
+        <div class="pg-dot" style="left:13%;"></div>
+        <div class="pg-micro you-l" style="left:13%;">you</div>
+        <div class="pg-tick" style="left:40%;"></div>
+        <div class="pg-micro plan-l" style="left:40%;">plan</div>
+      </div>
+      <div class="pg-summary">
+        <div class="pg-pct">
+          <span class="num">13%</span>
+          <span class="lbl">8.7 kg to go · 204 days</span>
+        </div>
+        <div class="status-pill behind">
+          +2.7 kg behind plan&nbsp;<span class="sub">· need 0.30 kg/wk</span>
+        </div>
+      </div>
+
+      <div class="ms-list">
+        <div class="ms-list-label">
+          Milestones
+          <span class="chart-ref">◆ on chart</span>
+        </div>
+        <div class="ms-row now">
+          <span class="mi"></span>
+          <span class="when"><strong>Today</strong>Jun 10, 2026</span>
+          <span class="kg-pair">
+            <span class="kg">88.7 kg</span>
+            <span class="plan">plan 86.0</span>
+          </span>
+          <span class="delta-chip behind">+2.7</span>
+        </div>
+        <div class="ms-row">
+          <span class="mi"></span>
+          <span class="when"><strong>Sep 2026</strong>plan milestone</span>
+          <span class="kg">83.4 kg</span>
+          <span class="d">↓ 5.3</span>
+        </div>
+        <div class="ms-row">
+          <span class="mi"></span>
+          <span class="when"><strong>Nov 2026</strong>plan milestone</span>
+          <span class="kg">81.1 kg</span>
+          <span class="d">↓ 7.6</span>
+        </div>
+        <div class="ms-row goal-row">
+          <span class="mi"></span>
+          <span class="when"><strong>Goal</strong>Dec 31, 2026</span>
+          <span class="kg">80.0 kg</span>
+          <span class="d">↓ 8.7</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: recent entries -->
+    <div class="card">
+      <div class="recent-head">
+        <div class="t">Recent entries<span class="sub">last 14 days</span></div>
+        <a href="#">View all 37 →</a>
+      </div>
+
+      <div class="re-row today-row missed">
+        <div class="d">Wed, Jun 10<span class="sub">Today</span></div>
+        <div class="note">
+          <span class="inline-fill">
+            <button class="mini-step">−</button>
+            <input class="mini-val" value="88.7" />
+            <button class="mini-step">+</button>
+            <button class="mini-save">Log</button>
+          </span>
+        </div>
+        <div class="w"></div><div class="delta"></div>
+      </div>
+
+      <div class="re-row">
+        <div class="d">Tue, Jun 9</div><div class="note"></div>
+        <div class="w">88.7<span class="u"> kg</span></div>
+        <div class="delta dn">↓ 0.8</div>
+      </div>
+
+      <div class="re-row">
+        <div class="d">Mon, Jun 8</div><div class="note">post-run</div>
+        <div class="w">89.5<span class="u"> kg</span></div>
+        <div class="delta up">↑ 0.4</div>
+      </div>
+
+      <div class="re-row missed">
+        <div class="d">Sun, Jun 7</div>
+        <div class="note"><button class="add-chip">＋ Add</button></div>
+        <div class="w"></div><div class="delta"></div>
+      </div>
+
+      <div class="re-row">
+        <div class="d">Sat, Jun 6</div><div class="note"></div>
+        <div class="w">89.1<span class="u"> kg</span></div>
+        <div class="delta dn">↓ 0.2</div>
+      </div>
+
+      <div class="re-row missed">
+        <div class="d">Fri, Jun 5</div>
+        <div class="note"><button class="add-chip">＋ Add</button></div>
+        <div class="w"></div><div class="delta"></div>
+      </div>
+
+      <div class="re-row">
+        <div class="d">Thu, Jun 4</div><div class="note"></div>
+        <div class="w">89.3<span class="u"> kg</span></div>
+        <div class="delta dn">↓ 0.3</div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <!-- ============ END OVERVIEW TAB ============ -->
+
+  <!-- ============ HISTORY TAB (hidden until History tab clicked) ============ -->
+  <div id="tab-history" style="display:none;">
+    <div class="bottom-grid">
+
+      <!-- LEFT: journey + all-time stats -->
+      <div class="card">
+        <div class="card-h"><span class="t">Your weight journey</span></div>
+        <div class="vs-banner">
+          <i class="ti ti-info-circle"></i>
+          <span>Day <strong>1</strong> of this target. Your last 80 kg goal took <strong>84 days</strong> — you lose <strong>0.52 kg/wk</strong> when you finish.</span>
+        </div>
+        <div class="stats4">
+          <div class="s4"><div class="l">Targets set</div><div class="v">3</div><div class="s">since Mar 2025</div></div>
+          <div class="s4"><div class="l">Achieved</div><div class="v">2</div><div class="s good">67% success</div></div>
+          <div class="s4"><div class="l">Total lost</div><div class="v">9.1<span class="u">kg</span></div><div class="s">across targets</div></div>
+          <div class="s4"><div class="l">Avg pace</div><div class="v">0.52<span class="u">/wk</span></div><div class="s">on achieved</div></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: past targets table -->
+      <div class="card">
+        <div class="card-h">
+          <span class="t">Past targets</span>
+          <a class="link" href="#" style="color:var(--blue-line);text-decoration:none;"><i class="ti ti-download" style="font-size:12px;"></i> Export</a>
+        </div>
+        <div class="filters" style="margin-bottom:10px; width:fit-content;">
+          <button class="fb active">All</button>
+          <button class="fb">Achieved</button>
+          <button class="fb">Replaced</button>
+          <button class="fb">Abandoned</button>
+        </div>
+        <table class="htable">
+          <thead>
+            <tr><th>Status</th><th>Target</th><th class="r">Result</th><th class="r">Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge done"><i class="ti ti-check" style="font-size:10px;"></i>Done</span></td>
+              <td><div class="nm">92 → 88<span class="meta">Jan–Feb 2026 · 55d</span></div></td>
+              <td class="r">88.0</td><td class="r delta good">−4.0</td>
+            </tr>
+            <tr>
+              <td><span class="badge replaced"><i class="ti ti-refresh" style="font-size:10px;"></i>Repl.</span></td>
+              <td><div class="nm">95 → 90<span class="meta">Oct–Jan 2026 · 84d</span></div></td>
+              <td class="r">91.8</td><td class="r delta partial">−3.2</td>
+            </tr>
+            <tr>
+              <td><span class="badge done"><i class="ti ti-check" style="font-size:10px;"></i>Done</span></td>
+              <td><div class="nm">97 → 92<span class="meta">Aug–Oct 2025 · 71d</span></div></td>
+              <td class="r">91.9</td><td class="r delta good">−5.1</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+  <!-- ============ END HISTORY TAB ============ -->
+
+
+  <!-- ============ SLIDE-IN EDIT PANEL ============ -->
+  <div id="edit-scrim" class="panel-scrim" style="display:none;" onclick="document.getElementById('edit-panel').style.display='none';this.style.display='none';"></div>
+  <div id="edit-panel" class="panel" style="display:none;">
+    <div class="panel-h">
+      <span class="t">Edit target</span>
+      <button class="x" onclick="document.getElementById('edit-panel').style.display='none';document.getElementById('edit-scrim').style.display='none';">×</button>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Start weight</label>
+        <input value="88.7" />
+        <span class="hint">Captured when the target began · Jun 10, 2026</span>
+      </div>
+      <div class="field">
+        <label>Goal weight (kg)</label>
+        <input value="80.0" />
+      </div>
+      <div class="field">
+        <label>Goal date</label>
+        <input value="2026-12-31" type="date" style="font-family:'Inter Tight';" />
+        <span class="hint">204 days from today</span>
+      </div>
+      <div class="panel-preview">
+        <div class="pp-row"><span>Pace needed</span><span class="mono">0.30 kg/wk</span></div>
+        <div class="pp-row"><span>From today (88.7)</span><span class="mono">8.7 kg to lose</span></div>
+        <div class="pp-row"><span>Milestones</span><span class="mono">Sep · Nov · Dec</span></div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="end"><i class="ti ti-flag-off" style="font-size:13px;"></i> End target</button>
+      <button class="save">Save changes</button>
+    </div>
+  </div>
+  <!-- ============ END PANEL ============ -->
+
+  <div class="annotation">
+    <strong>v7 — clean Overview matches v6, tabs now functional:</strong> the <strong>Overview tab</strong> is exactly the v6 layout — <code>[Current weight][Log today]</code> on top, <code>[Weight trend]</code> full-width, <code>[Progress toward goal][Recent entries]</code> on the bottom. Click <strong>History</strong> to swap in the two-box history view (journey/stats + past targets); click back to Overview. <strong>"Edit target"</strong> opens the slide-in panel from the right. Targets page is gone — all on /weight. Chart text enlarged + 7D range added.
+  </div>
+
+</div>
+
+<script>
+  function switchTab(which) {
+    var ov = document.getElementById('tab-overview');
+    var hi = document.getElementById('tab-history');
+    var bo = document.getElementById('tab-btn-overview');
+    var bh = document.getElementById('tab-btn-history');
+    if (which === 'history') {
+      ov.style.display = 'none'; hi.style.display = 'block';
+      bo.classList.remove('active'); bh.classList.add('active');
+    } else {
+      ov.style.display = 'block'; hi.style.display = 'none';
+      bh.classList.remove('active'); bo.classList.add('active');
+    }
+  }
+</script>
+
+</body>
+</html>
