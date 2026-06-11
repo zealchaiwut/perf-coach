@@ -947,18 +947,14 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
 
-    # Most recent weight entry logged since this target was created (excludes pre-target entries)
-    recent_entry = (
-        session.query(WeightEntry)
-        .filter(
-            WeightEntry.user_id == t.user_id,
-            WeightEntry.created_at >= t.created_at,
-        )
-        .order_by(WeightEntry.entry_date.desc(), WeightEntry.created_at.desc())
-        .first()
-    )
-    current_avg_kg = float(recent_entry.weight_kg) if recent_entry else None
-    current_weight = current_avg_kg if current_avg_kg is not None else float(t.start_weight_kg)
+    # Current weight basis: use the same value the gap calc and the YOU stat use
+    # (7-day average by entry_date, latest within 14 days otherwise). The earlier
+    # `created_at >= t.created_at` filter wrongly excluded weigh-ins logged before
+    # the target was set, falling back to start_weight and reporting 0% progress.
+    gap_data = _compute_weight_gap(t, session, today)
+    current_basis_kg = gap_data.get("current_basis_kg")
+    current_avg_kg = current_basis_kg
+    current_weight = current_basis_kg if current_basis_kg is not None else float(t.start_weight_kg)
 
     kg_lost = float(t.start_weight_kg) - current_weight
     kg_to_go = current_weight - float(t.target_weight_kg)
@@ -1005,7 +1001,6 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     status_label = _compute_status_label(t, current_avg_kg, today)
 
-    gap_data = _compute_weight_gap(t, session, today)
     milestones = _generate_weight_milestones(t, today)
     hit_date = _project_hit_date(t, session, today)
 
