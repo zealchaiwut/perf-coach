@@ -110,6 +110,7 @@ Each script:
 | `GET /api/home/personal-records` | Returns current PR values, formatted display strings, and trend signal for configurable tracks (default: `half_marathon,10k,squat_1rm`) |
 | `GET /api/home/readiness` | Returns daily readiness score (0–100), label, 5-factor contributor breakdown, and 7-day rolling baseline; `date` param defaults to today |
 | `GET /api/home/weekly-summary` | Returns Mon–Sun workout counts by type, distance/duration/TSS/elevation sums, rest-day count, prior-week deltas, and per-day TSS for sparkline; week computed in Asia/Bangkok timezone |
+| `GET /api/home/summary` | Single-call aggregator for the home page: returns all seven data blocks (habits, weight, readiness, training-week, performance/PRs, recent workouts, sleep) in one response; each block is computed independently and returns `null` on error without failing the whole request; all boundaries use Asia/Bangkok (UTC+7) |
 | `GET /api/user-preferences` | Returns per-user preferences (FTP, thresholds, timezone, display name, etc.) |
 | `PATCH /api/user-preferences` | Updates editable preference fields (ftp_w, threshold_hr, threshold_pace_seconds_per_km, display_name, week_start_day, timezone) |
 | `GET /api/personal-records/tracks` | Lists canonical PR tracks (running times and strength 1RMs) |

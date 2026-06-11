@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 55 — Home redesign v7
+
+- #436: Investigate home page widgets and confirm API readiness
+- #437: Build GET /api/home/summary aggregator endpoint
+- #438: Add habit quick-check strip and log-today action to home page
+- #439: Add home weight widget with stepper quick-log
+- #440: Add Readiness tile, Training card, and Sleep card to home page
+- #441: Add Performance PRs and Recent Workouts cards
+- #442: Assemble home layout with gradient design language
+- #443: Home redesign: actionable habit checks + weight quick-log, two-up summary grid, single-call load — docs updated, dead widget code removed, cross-links audited, smoke verification recorded
+
 ## Sprint 54 — Habits redesign
 
 - #428: Migrate habits page to gradient design language (Inter Tight / JetBrains Mono, floating cards)
