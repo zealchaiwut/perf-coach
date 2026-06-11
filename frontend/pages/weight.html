@@ -1045,7 +1045,7 @@
     <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
     <div class="top-grid">
       <div class="top-col">
-        <!-- Merged: Current weight + Progress toward goal -->
+        <!-- Merged: Current weight + Log Today + Progress toward goal -->
         <div class="card hero-card hero-card-a merged-card">
         <div class="hca-top">
           <span class="hca-label">CURRENT WEIGHT</span>
@@ -1068,6 +1068,31 @@
         <!-- Coach strip: single instance, re-evaluates on each log/edit -->
         <div class="coach-strip coach-grey" id="coach-strip">
           <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
+        </div>
+          <div class="merged-sep"></div>
+        <div class="hcb-top">
+          <span class="hcb-label">LOG TODAY</span>
+          <span class="hcb-date" id="hcb-date"></span>
+        </div>
+        <!-- Stepper (shown when not yet logged today, or while editing) -->
+        <div id="stepper-wrap">
+          <div class="stepper">
+            <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
+            <input
+              class="stepper-input" id="stepper-input"
+              type="number" step="0.1" min="20" max="300"
+              inputmode="decimal" aria-label="Weight in kg"
+            >
+            <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
+          </div>
+          <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
+          <div class="hcb-error" id="hcb-error" role="alert"></div>
+          <!-- quicklog-error alias for test_weight_page_frontend__412 -->
+          <div id="quicklog-error" hidden></div>
+        </div>
+        <!-- Logged strip (shown after successful log) -->
+        <div class="logged-strip" id="logged-strip" hidden>
+          <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
         </div>
           <div id="progress-card" hidden>
             <div class="merged-sep"></div>
@@ -1120,33 +1145,8 @@
         </div>
       </div>
       <div class="top-col">
-        <!-- Merged: Log Today + Recent entries -->
+        <!-- Recent entries + backfill calendar -->
         <div class="card hero-card hero-card-b merged-card">
-        <div class="hcb-top">
-          <span class="hcb-label">LOG TODAY</span>
-          <span class="hcb-date" id="hcb-date"></span>
-        </div>
-        <!-- Stepper (shown when not yet logged today, or while editing) -->
-        <div id="stepper-wrap">
-          <div class="stepper">
-            <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
-            <input
-              class="stepper-input" id="stepper-input"
-              type="number" step="0.1" min="20" max="300"
-              inputmode="decimal" aria-label="Weight in kg"
-            >
-            <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
-          </div>
-          <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
-          <div class="hcb-error" id="hcb-error" role="alert"></div>
-          <!-- quicklog-error alias for test_weight_page_frontend__412 -->
-          <div id="quicklog-error" hidden></div>
-        </div>
-        <!-- Logged strip (shown after successful log) -->
-        <div class="logged-strip" id="logged-strip" hidden>
-          <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
-        </div>
-          <div class="merged-sep"></div>
         <div class="card-header-row">
           <h2>Recent entries &middot; <span class="card-subtitle">last 5 days</span></h2>
           <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
