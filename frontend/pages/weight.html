@@ -22,7 +22,10 @@
     main {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 20px 24px 24px;
+      padding: 36px 22px 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     /* ── Floating card ─────────────────────────────────────────────────────── */
@@ -53,7 +56,6 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 1rem;
-      margin-bottom: 16px;
       flex-wrap: wrap;
     }
 
@@ -118,7 +120,6 @@
       display: grid;
       grid-template-columns: 1.35fr 1fr;
       gap: 16px;
-      margin-bottom: 10px;
     }
 
     .hero-card {
@@ -212,7 +213,6 @@
       border-radius: 10px;
       font-size: 13.5px;
       font-weight: 500;
-      margin-bottom: 10px;
       line-height: 1.4;
       backdrop-filter: blur(6px);
     }
@@ -793,7 +793,6 @@
     #page-error {
       color: #fff;
       font-size: 13.5px;
-      margin-bottom: 12px;
       min-height: 1.2em;
       background: rgba(122,26,26,0.55);
       border-radius: 8px;
@@ -1003,8 +1002,9 @@
     </div>
 
     <!-- Chart card -->
-    <div class="card chart-card" style="margin-bottom:10px">
+    <div class="card chart-card">
       <div class="range-tabs" role="group" aria-label="Chart date range">
+        <button class="range-tab" data-range="7d" type="button">7D</button>
         <button class="range-tab active" data-range="30d" type="button">30D</button>
         <button class="range-tab" data-range="90d" type="button">90D</button>
         <button class="range-tab" data-range="6m" type="button">6M</button>

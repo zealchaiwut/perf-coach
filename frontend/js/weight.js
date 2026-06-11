@@ -28,7 +28,7 @@ function addDays(dateStr, n) {
 
 // Compute from-date for each named range
 function rangeFromDate(range) {
-  const offsets = { '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
+  const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
   return addDays(todayISO(), offsets[range] ?? -29);
 }
 
@@ -115,6 +115,12 @@ async function fetchActiveTarget() {
 
 async function fetchTargetHistorySummary() {
   return apiFetch(`/api/weight-targets/history-summary?user_id=${encodeURIComponent(_userId)}`);
+}
+
+async function fetchTargetHistory(status) {
+  let url = `/api/weight-targets/history?user_id=${encodeURIComponent(_userId)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  return apiFetch(url);
 }
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
