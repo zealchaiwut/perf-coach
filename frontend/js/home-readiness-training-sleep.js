@@ -269,46 +269,27 @@
       '</div>';
   }
 
-  /* ── Init ────────────────────────────────────────────────────────────────── */
+  /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
 
-  function init(userId) {
+  function render(summary) {
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
 
-    if (!rdEl && !twEl && !slpEl) return;
-
-    var url = '/api/home/summary' + (userId ? '?user_id=' + encodeURIComponent(userId) : '');
-    fetch(url)
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        var summary = data || {};
-
-        if (rdEl) {
-          if (!rdEl.classList.contains('card')) {
-            rdEl.className = 'card';
-          }
-          renderReadinessTile(rdEl, summary.readiness || null);
-        }
-        if (twEl) {
-          renderTrainingCard(twEl, summary.training_week || null);
-        }
-        if (slpEl) {
-          renderSleepCard(slpEl, summary.sleep || null);
-        }
-      })
-      .catch(function () {
-        if (rdEl)  renderReadinessTile(rdEl, null);
-        if (twEl)  renderTrainingCard(twEl, null);
-        if (slpEl) renderSleepCard(slpEl, null);
-      });
+    if (rdEl) {
+      if (!rdEl.classList.contains('card')) {
+        rdEl.className = 'card';
+      }
+      renderReadinessTile(rdEl, summary && summary.readiness ? summary.readiness : null);
+    }
+    if (twEl) {
+      renderTrainingCard(twEl, summary && summary.training_week ? summary.training_week : null);
+    }
+    if (slpEl) {
+      renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
+    }
   }
 
-  /* Expose for home.js to call after auth */
-  window.HomeRTS = { init: init };
-
-  /* Also auto-init if the page has already loaded user context */
-  if (document.readyState !== 'loading') {
-    /* home.js will call HomeRTS.init(userId) after auth; no standalone init needed */
-  }
+  /* Expose for home.js to call with pre-fetched summary */
+  window.HomeRTS = { render: render };
 })();

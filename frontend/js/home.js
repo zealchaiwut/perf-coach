@@ -594,7 +594,8 @@
   }
 
   async function loadPerformanceCard(userId) {
-    var row2 = document.getElementById('row-2');
+    var row2 = document.getElementById('home-perf-container') ||
+               document.getElementById('row-2');
     if (!row2) return;
 
     var card = document.getElementById('perf-card');
@@ -754,7 +755,8 @@
   }
 
   async function loadRecentWorkoutsCard(userId) {
-    var row2 = document.getElementById('row-2');
+    var row2 = document.getElementById('home-workouts-container') ||
+               document.getElementById('row-2');
     if (!row2) return;
 
     var card = document.getElementById('workouts-card');
@@ -2647,7 +2649,28 @@
     _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
   }
 
-  async function loadHomeWeightWidget(userId) {
+  function _weightSummaryAdapter(wBlock) {
+    if (!wBlock) return null;
+    return {
+      current_weight: wBlock.current_kg,
+      avg_7d:         wBlock.seven_day_avg,
+      weekly_rate_kg: wBlock.weekly_rate_kg,
+      sparkline:      wBlock.sparkline,
+      plan:           wBlock.plan_sparkline,
+      status_label:   wBlock.gap_direction,
+      gap_kg:         wBlock.gap_kg,
+      last_entry_kg:  wBlock.last_entry_kg,
+      logged_today:   wBlock.logged_today,
+      target: (wBlock.target_kg != null ? {
+        weight_kg:    wBlock.target_kg,
+        date:         wBlock.target_date,
+        progress_pct: wBlock.progress_pct,
+        direction:    wBlock.gap_direction === 'below' ? 'down' : 'up',
+      } : null),
+    };
+  }
+
+  function _renderHomeWeightWidget(weightBlock, userId) {
     var container = document.getElementById('home-weight-widget');
     if (!container) return;
 
@@ -2658,9 +2681,7 @@
       container.appendChild(card);
     }
 
-    var r = await _homeFetch('/api/home/weight-summary');
-    var summary = r.ok ? r.data : null;
-    _hwwRenderMain(card, summary, userId);
+    _hwwRenderMain(card, _weightSummaryAdapter(weightBlock), userId);
   }
 
   /* ---- Init ---- */
@@ -2685,25 +2706,39 @@
       _checkThresholdBanner();
       _checkStravaStaleBanner();
 
-      // Set up row-3 containers synchronously (weight widget fired below)
+      /* Single summary fetch — distribute to all widget renderers */
+      var _sumRes = await fetch('/api/home/summary');
+      var summary = _sumRes.ok ? await _sumRes.json() : {};
+
+      /* Habits strip + log-today strip */
+      if (window.HomeStripHabits) {
+        HomeStripHabits.render(summary);
+      }
+
+      /* Readiness tile + training card + sleep card */
+      if (window.HomeRTS) {
+        HomeRTS.render(summary);
+      }
+
+      /* Weight widget (using summary.weight block) */
+      _renderHomeWeightWidget(summary.weight, userId);
+
+      /* Performance card (fetches own data, uses summary.performance for context) */
+      var _perfBlock = summary.performance;
+      loadPerformanceCard(userId, _perfBlock);
+
+      /* Recent workouts card (fetches own data, uses summary.recent_workouts for context) */
+      var _workoutsBlock = summary.recent_workouts;
+      loadRecentWorkoutsCard(userId, _workoutsBlock);
+
+      /* Row-3 trend cards + fast log form */
       loadRow3(userId);
-
-      // Fire all 5 /api/home/* widget fetches simultaneously
-      var weightEl = document.getElementById('trend-card-weight');
-      Promise.all([
-        loadReadinessCard(userId),
-        loadPerformanceCard(userId),
-        loadRecentWorkoutsCard(userId),
-        loadWeeklySummaryCard(userId),
-        loadWeightWidget(weightEl),
-      ]);
-
-      loadHomeWeightWidget(userId);
-      loadSleepCard(userId);
-      if (window.HomeRTS) { HomeRTS.init(userId); }
-      loadLogTodayCard(userId);
       initFastLogForm(userId);
-      loadLogTodayBanner(userId);
+
+      /* Weekly summary (row-5 style — renders if container exists) */
+      loadWeeklySummaryCard(userId);
+
+      /* Habits + stats cards (legacy containers, no-ops if containers absent) */
       loadHabitsCard(userId);
       loadHabitsStatsCard(userId);
     }

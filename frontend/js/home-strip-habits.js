@@ -2,7 +2,7 @@
   'use strict';
 
   var _WH   = window.WheelHelpers;
-  var _summary = null;
+  var _habitsBlock = null;
 
   /* ── Helpers ── */
 
@@ -111,7 +111,6 @@
     var top3     = (habits.top_habits && habits.top_habits.length > 0
                     ? habits.top_habits : habits.daily_habits).slice(0, 3);
     var remaining = habits.remaining_count != null ? habits.remaining_count : 0;
-    var weekDays = (habits.week_totals && habits.week_totals.daily_habits_count) || 7;
 
     /* Wheel */
     var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct) : '';
@@ -197,10 +196,8 @@
 
         try {
           if (isDone) {
-            /* Need to find today's log id — look from log_id stored on element */
             var logId = el.getAttribute('data-log-id');
             if (!logId) {
-              /* Try to DELETE via today endpoint if no stored log id */
               var delByDate = await fetch(
                 '/api/habits/' + encodeURIComponent(hid) + '/log?date=' + today,
                 { method: 'DELETE' }
@@ -211,6 +208,15 @@
               if (!delRes.ok) throw new Error('delete failed');
               el.removeAttribute('data-log-id');
             }
+            /* Locally update today_checked in cached block */
+            if (_habitsBlock) {
+              (_habitsBlock.daily_habits || []).forEach(function (h) {
+                if (h.id === hid) h.today_checked = false;
+              });
+              (_habitsBlock.top_habits || []).forEach(function (h) {
+                if (h.id === hid) h.today_checked = false;
+              });
+            }
           } else {
             var postRes = await fetch('/api/habits/' + encodeURIComponent(hid) + '/log', {
               method: 'POST',
@@ -220,9 +226,18 @@
             if (!postRes.ok) throw new Error('post failed');
             var postData = await postRes.json();
             if (postData && postData.id) el.setAttribute('data-log-id', String(postData.id));
+            /* Locally update today_checked in cached block */
+            if (_habitsBlock) {
+              (_habitsBlock.daily_habits || []).forEach(function (h) {
+                if (h.id === hid) h.today_checked = true;
+              });
+              (_habitsBlock.top_habits || []).forEach(function (h) {
+                if (h.id === hid) h.today_checked = true;
+              });
+            }
           }
-          /* Refresh habits block */
-          await _loadSummary(true);
+          /* Re-render from local state — no summary re-fetch */
+          if (_habitsBlock) _renderHabits(_habitsBlock);
         } catch (_) {
           /* Revert optimistic update */
           if (isDone) {
@@ -238,32 +253,13 @@
     });
   }
 
-  /* ── Main load ── */
+  /* ── Public API ── */
 
-  async function _loadSummary(habitsOnly) {
-    try {
-      var r = await fetch('/api/home/summary');
-      if (!r.ok) return;
-      _summary = await r.json();
-    } catch (_) {
-      return;
-    }
-
-    if (!habitsOnly) {
-      _renderStrip(_summary.readiness);
-    }
-    _renderHabits(_summary.habits);
+  function render(summary) {
+    _habitsBlock = (summary && summary.habits) ? summary.habits : null;
+    _renderStrip(summary ? summary.readiness : null);
+    _renderHabits(_habitsBlock);
   }
 
-  /* ── Init ── */
-
-  function _init() {
-    _loadSummary(false);
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _init);
-  } else {
-    _init();
-  }
+  window.HomeStripHabits = { render: render };
 })();
