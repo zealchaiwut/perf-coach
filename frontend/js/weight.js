@@ -28,7 +28,7 @@ function addDays(dateStr, n) {
 
 // Compute from-date for each named range
 function rangeFromDate(range) {
-  const offsets = { '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
+  const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
   return addDays(todayISO(), offsets[range] ?? -29);
 }
 
