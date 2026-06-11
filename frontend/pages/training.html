@@ -951,6 +951,36 @@
     .dur-box:focus { outline: none; }
     .dur-sep { font-size: 10px; color: var(--text-tertiary); }
     .run-section .field-error, #run-error { color: var(--red); font-size: 11.5px; }
+    /* ── v2 layout fixes ────────────────────────────────────────────────────── */
+    .workout-meta .rl-card-label { grid-column: 1 / -1; margin-bottom: 0; }
+    .rl-save-bar .more-summary {
+      display: inline-flex; align-items: center; gap: 5px; padding: 9px 14px; border-radius: 9px;
+      border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.12); color: #fff;
+      font-size: 12px; font-weight: 600; cursor: pointer; list-style: none; font-family: inherit;
+    }
+    .rl-save-bar .more-summary::-webkit-details-marker { display: none; }
+    .rl-save-bar .more-menu { position: relative; }
+    .rl-save-bar .more-menu-list { background: #fff; border-radius: 10px; box-shadow: 0 6px 20px rgba(8,18,48,0.18); padding: 6px; position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 190px; z-index: 20; }
+    .rl-save-bar .more-menu-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 7px; font-size: 13px; color: var(--text-primary); cursor: pointer; font-family: inherit; }
+    .rl-save-bar .more-menu-list button:hover { background: var(--rl-tile); }
+    /* hide the dev nav links (global nav covers navigation) */
+    #view-new > p, #view-history > p { display: none; }
+    /* ── v2 stage 3: profile bar + totals badges ────────────────────────────── */
+    .run-field label { display: flex; align-items: center; gap: 5px; }
+    .rl-badge { font-size: 7.5px; font-weight: 700; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 999px; text-transform: uppercase; }
+    .rl-badge.auto { background: var(--green-soft); color: var(--green); }
+    .rl-badge.sync { background: #dde6f8; color: #1e3a8a; }
+    .rl-profile { display: none; margin-bottom: 12px; }
+    .rl-profile.has-segs { display: block; }
+    .rl-profile-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; background: var(--rl-tile); border-radius: 10px; padding: 8px; }
+    .rl-pseg { border-radius: 4px 4px 2px 2px; min-width: 4px; min-height: 6px; }
+    .rl-pseg.easy { background: var(--rl-easy); }
+    .rl-pseg.tempo { background: var(--rl-tempo); }
+    .rl-pseg.hard { background: var(--rl-hard); }
+    .rl-pseg.recovery { background: var(--rl-recovery); }
+    .rl-profile-legend { display: flex; gap: 12px; margin-top: 8px; font-size: 9.5px; color: var(--text-secondary); flex-wrap: wrap; }
+    .rl-zlg { display: inline-flex; align-items: center; gap: 4px; }
+    .rl-zlg .d { width: 9px; height: 9px; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -1020,6 +1050,9 @@
           <button type="button" class="seg-tpl-chip" data-tpl="tempo">Tempo</button>
         </div>
 
+        <!-- session profile: effort shape, rendered from segments -->
+        <div class="rl-profile" id="run-profile" aria-hidden="true"></div>
+
         <div id="segments-list" class="segments-list" aria-label="Run segments"></div>
 
         <div class="seg-foot">
@@ -1039,7 +1072,7 @@
 
         <div class="run-primary">
           <div class="run-field">
-            <label for="run-distance">Distance</label>
+            <label for="run-distance">Distance <span class="rl-badge auto">auto</span></label>
             <div class="run-input-affix">
               <input id="run-distance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.0">
               <span class="affix">km</span>
@@ -1047,7 +1080,7 @@
           </div>
 
           <div class="run-field">
-            <label for="run-dur-h">Duration</label>
+            <label for="run-dur-h">Duration <span class="rl-badge auto">auto</span></label>
             <div class="run-duration">
               <input id="run-dur-h" class="dur-box" type="number" inputmode="numeric" min="0" max="99" placeholder="0">
               <span class="dur-sep">h</span>
@@ -1059,28 +1092,28 @@
           </div>
 
           <div class="run-field run-pace-field">
-            <label>Avg pace</label>
+            <label>Avg pace <span class="rl-badge auto">auto</span></label>
             <output id="run-pace" class="run-pace">—</output>
           </div>
         </div>
 
         <div class="run-secondary">
           <div class="run-field">
-            <label for="run-avg-hr">Avg HR</label>
+            <label for="run-avg-hr">Avg HR <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
               <span class="affix">bpm</span>
             </div>
           </div>
           <div class="run-field">
-            <label for="run-max-hr">Max HR</label>
+            <label for="run-max-hr">Max HR <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
               <span class="affix">bpm</span>
             </div>
           </div>
           <div class="run-field">
-            <label for="run-elevation">Elevation gain</label>
+            <label for="run-elevation">Elevation <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
               <span class="affix">m</span>

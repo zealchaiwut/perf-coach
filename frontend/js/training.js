@@ -469,9 +469,37 @@
     return { km: km, sec: sec };
   }
 
+  // Session profile: one bar per segment, height = effort, width ~ duration.
+  var _RL_EFFORT = { warmup: 'easy', easy: 'easy', cooldown: 'easy', tempo: 'tempo', intervals: 'hard', rest: 'recovery' };
+  var _RL_EFFORT_H = { easy: 40, tempo: 72, hard: 92, recovery: 26 };
+
+  function renderProfile() {
+    var wrap = document.getElementById('run-profile');
+    if (!wrap) return;
+    var segs = getSegmentObjects();
+    if (!segs.length) { wrap.className = 'rl-profile'; wrap.innerHTML = ''; return; }
+    var bars = segs.map(function (s) {
+      var d = segmentDims(s);
+      var w = (d.sec && d.sec > 0) ? d.sec : (d.km && d.km > 0 ? d.km * 300 : 60);
+      var eff = _RL_EFFORT[s.type] || 'easy';
+      var h = _RL_EFFORT_H[eff] || 40;
+      return '<div class="rl-pseg ' + eff + '" style="flex:' + w.toFixed(2) + ';height:' + h + '%"></div>';
+    }).join('');
+    wrap.className = 'rl-profile has-segs';
+    wrap.innerHTML =
+      '<div class="rl-profile-bars">' + bars + '</div>' +
+      '<div class="rl-profile-legend">' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-easy)"></span>Easy</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-tempo)"></span>Tempo</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-hard)"></span>Hard</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-recovery)"></span>Recovery</span>' +
+      '</div>';
+  }
+
   function recomputeSegments() {
     var sumEl = document.getElementById('segments-sum');
     if (!sumEl) return;
+    renderProfile();
     var rows = document.querySelectorAll('#segments-list .seg-row');
     if (!rows.length) { sumEl.textContent = ''; sumEl.classList.remove('is-mismatch'); return; }
 
