@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Weight – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
@@ -764,6 +764,15 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
       }
+    }
+    /* Touch devices: 44px tap targets (keyed to input method, desktop stays dense) */
+    @media (pointer: coarse) {
+      .stepper-btn { width: 44px; height: 44px; }
+      .log-submit-btn { min-height: 44px; }
+      .range-tab { min-height: 40px; display: inline-flex; align-items: center; }
+      .btn-secondary, .manage-target-btn, .edit-target-pill,
+      .edit-link, .view-all-link, .add-chip,
+      .mini-step, .mini-save { min-height: 40px; display: inline-flex; align-items: center; }
     }
   </style>
 </head>
