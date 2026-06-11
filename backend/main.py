@@ -1629,10 +1629,35 @@ def get_weight_chart(
         else:
             today_delta_kg = None
 
+        # ── Past actuals: every weigh-in strictly before from_d (the "past" zone) ──
+        # Greyed historical context. Downsampled to keep the payload bounded;
+        # empty when there is no earlier history (e.g. the ALL range).
+        _past_rows = (
+            session.query(WeightEntry)
+            .filter(WeightEntry.user_id == uid, WeightEntry.entry_date < from_d)
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+        _PAST_MAX = 150
+        if len(_past_rows) > _PAST_MAX:
+            _stride = len(_past_rows) / _PAST_MAX
+            _past_rows = [_past_rows[int(i * _stride)] for i in range(_PAST_MAX)]
+        past_actuals = [
+            {
+                "date": str(
+                    e.entry_date if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in _past_rows
+        ]
+
         # plan_series is omitted (key absent) when no active target
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
+            "past_actuals": past_actuals,
             "trend": trend,
             "stats": stats,
             "future_milestones": future_milestones,

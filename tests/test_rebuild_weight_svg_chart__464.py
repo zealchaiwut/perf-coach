@@ -110,48 +110,43 @@ def test_ac3_renders_chart_on_tab_click():
 # ── AC4: Dual-zone layout for ≥ 90D on wide viewport ─────────────────────────
 
 def test_ac4_main_zone_65pct():
-    """AC4: Main zone uses ~65% of chart width (constant MAIN_W_WITH_TARGET = 0.65 * CW)."""
+    """AC4 (revised): 3-zone layout [past 20% | current 60% | future 20%].
+    The current zone is derived as CW - PAST_W - FUTURE_W."""
     src = _chart_js()
-    assert '0.65' in src, "Main zone 65% width constant not found in weight-chart.js"
+    assert 'PAST_W' in src and 'CUR_W3' in src, \
+        "3-zone current-width constant (CUR_W3 = CW - PAST_W - FUTURE_W) not found"
 
 
 def test_ac4_future_zone_30pct():
-    """AC4: Future zone uses ~30% of chart width."""
+    """AC4 (revised): past and future zones each use ~20% of chart width."""
     src = _chart_js()
-    assert '0.30' in src or '0.3)' in src, \
-        "Future zone 30% width constant not found in weight-chart.js"
+    assert '0.20' in src or '0.2)' in src, \
+        "20% zone width constant (PAST_W / FUTURE_W) not found in weight-chart.js"
 
 
 def test_ac4_axis_break_glyph():
-    """AC4: Axis-break glyph (two slanted lines) rendered between zones."""
+    """AC4 (revised): zones are divided by thin vertical separators (no axis-break glyph)."""
     src = _chart_js()
-    assert re.search(r'\[-\d+,\s*\d+\]', src), \
-        "Axis-break two-tick offset array not found in weight-chart.js (e.g. [-12, 12])"
+    assert 'C_SEP' in src, \
+        "Thin zone-separator constant (C_SEP) not found in weight-chart.js"
 
 
 # ── AC5: Short range / small viewport → no future zone + milestones link ─────
 
 def test_ac5_short_range_hides_future_zone():
-    """AC5: weight-chart.js must check if range is short (7d or 30d) to suppress future zone."""
+    """AC5 (revised): the 3-zone layout (incl. future milestones) is shown for every
+    range whenever a target exists; short ranges no longer suppress it."""
     src = _chart_js()
-    has_range_check = (
-        "'7d'" in src or '"7d"' in src or
-        'shortRange' in src or 'isShortRange' in src or
-        "range === '7d'" in src or 'range === "7d"' in src
-    )
-    assert has_range_check, \
-        "Short-range (7d/30d) check for hiding future zone not found in weight-chart.js"
+    assert 'threeZone' in src, \
+        "threeZone flag (target-driven 3-zone layout) not found in weight-chart.js"
 
 
 def test_ac5_small_viewport_hides_future_zone():
-    """AC5: weight-chart.js must check viewport width (< 640px) to suppress future zone."""
+    """AC5 (revised): the future zone is no longer suppressed by viewport width;
+    the 3-zone layout is target-driven (threeZone)."""
     src = _chart_js()
-    has_viewport_check = (
-        '640' in src and
-        ('innerWidth' in src or 'clientWidth' in src or 'offsetWidth' in src)
-    )
-    assert has_viewport_check, \
-        "Viewport width < 640px check not found in weight-chart.js"
+    assert 'threeZone' in src, \
+        "threeZone flag not found in weight-chart.js"
 
 
 def test_ac5_milestones_link_present():
@@ -243,10 +238,12 @@ def test_ac9_ahead_chip_green():
 
 
 def test_ac9_ahead_chip_minus_sign():
-    """AC9: Ahead state gap_kg is negative → toFixed renders minus sign."""
+    """AC9 (revised): the gap vs plan is drawn as a dashed gap line cue (the kg
+    chip label is hidden; values appear on hover). The ahead/behind direction
+    still drives the gap rendering."""
     src = _chart_js()
-    assert 'gap_kg' in src and 'toFixed' in src, \
-        "gap_kg.toFixed rendering not found in weight-chart.js"
+    assert 'gap_direction' in src, \
+        "gap_direction handling (gap line) not found in weight-chart.js"
 
 
 # ── AC10: Behind-plan state ───────────────────────────────────────────────────
@@ -272,24 +269,19 @@ def test_ac11_axis_numbers_font_size_12():
 
 
 def test_ac11_you_plan_labels_font_size_13_to_14():
-    """AC11: 'you' and 'plan' value labels must use font-size 13 or 14."""
+    """AC11 (revised): the today you/plan values are shown on hover (labels hidden
+    to reduce clutter), so both today_marker values feed the hover dots."""
     src = _chart_js()
-    has_13_or_14 = (
-        "'font-size': '13'" in src or "'font-size': '14'" in src or
-        '"font-size": "13"' in src or '"font-size": "14"' in src or
-        "'font-size', '13'" in src or "'font-size', '14'" in src
-    )
-    assert has_13_or_14, \
-        "You/plan label font-size 13 or 14 not found in weight-chart.js"
+    assert 'tm.plan_kg' in src and 'tm.trend_kg' in src, \
+        "today-marker plan/trend values (hover) not found in weight-chart.js"
 
 
 def test_ac11_milestone_kg_labels_font_size_13():
-    """AC11: Milestone kg labels must use font-size 13."""
+    """AC11 (revised): milestone values are shown on hover (labels hidden), so
+    each milestone's plan_kg feeds a hover dot."""
     src = _chart_js()
-    # Must appear in context of milestone rendering
-    assert "'font-size': '13'" in src or '"font-size": "13"' in src or \
-           "'font-size', '13'" in src, \
-        "Milestone kg label font-size '13' not found in weight-chart.js"
+    assert 'm.plan_kg' in src, \
+        "milestone plan_kg (hover) not found in weight-chart.js"
 
 
 def test_ac11_trend_stroke_width_2_8():
