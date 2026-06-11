@@ -238,10 +238,12 @@ def test_ac9_ahead_chip_green():
 
 
 def test_ac9_ahead_chip_minus_sign():
-    """AC9: Ahead state gap_kg is negative → toFixed renders minus sign."""
+    """AC9 (revised): the gap vs plan is drawn as a dashed gap line cue (the kg
+    chip label is hidden; values appear on hover). The ahead/behind direction
+    still drives the gap rendering."""
     src = _chart_js()
-    assert 'gap_kg' in src and 'toFixed' in src, \
-        "gap_kg.toFixed rendering not found in weight-chart.js"
+    assert 'gap_direction' in src, \
+        "gap_direction handling (gap line) not found in weight-chart.js"
 
 
 # ── AC10: Behind-plan state ───────────────────────────────────────────────────
@@ -267,24 +269,19 @@ def test_ac11_axis_numbers_font_size_12():
 
 
 def test_ac11_you_plan_labels_font_size_13_to_14():
-    """AC11: 'you' and 'plan' value labels must use font-size 13 or 14."""
+    """AC11 (revised): the today you/plan values are shown on hover (labels hidden
+    to reduce clutter), so both today_marker values feed the hover dots."""
     src = _chart_js()
-    has_13_or_14 = (
-        "'font-size': '13'" in src or "'font-size': '14'" in src or
-        '"font-size": "13"' in src or '"font-size": "14"' in src or
-        "'font-size', '13'" in src or "'font-size', '14'" in src
-    )
-    assert has_13_or_14, \
-        "You/plan label font-size 13 or 14 not found in weight-chart.js"
+    assert 'tm.plan_kg' in src and 'tm.trend_kg' in src, \
+        "today-marker plan/trend values (hover) not found in weight-chart.js"
 
 
 def test_ac11_milestone_kg_labels_font_size_13():
-    """AC11: Milestone kg labels must use font-size 13."""
+    """AC11 (revised): milestone values are shown on hover (labels hidden), so
+    each milestone's plan_kg feeds a hover dot."""
     src = _chart_js()
-    # Must appear in context of milestone rendering
-    assert "'font-size': '13'" in src or '"font-size": "13"' in src or \
-           "'font-size', '13'" in src, \
-        "Milestone kg label font-size '13' not found in weight-chart.js"
+    assert 'm.plan_kg' in src, \
+        "milestone plan_kg (hover) not found in weight-chart.js"
 
 
 def test_ac11_trend_stroke_width_2_8():

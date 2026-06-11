@@ -217,6 +217,7 @@ const WeightChart = (() => {
     }
 
     const gridRight = threeZone ? FUTURE_R : curR;
+    const gridLeft  = threeZone ? PAST_L : curL;
 
     // ── 1. Zone tints + thin separators ─────────────────────────────────
     if (threeZone) {
@@ -240,11 +241,11 @@ const WeightChart = (() => {
     for (let kg = Math.ceil(yMin / 2) * 2; kg <= yMax; kg += 2) {
       const gy = y(kg);
       svg.appendChild(_el('line', {
-        x1: curL, y1: gy, x2: gridRight, y2: gy,
+        x1: gridLeft, y1: gy, x2: gridRight, y2: gy,
         stroke: C.grid, 'stroke-width': '0.75',
       }));
       const lbl = _el('text', {
-        x: curL - 5, y: gy,
+        x: gridLeft - 5, y: gy,
         'text-anchor': 'end', 'dominant-baseline': 'middle',
         'font-size': '12', fill: '#9ca3af',
       });
@@ -256,7 +257,7 @@ const WeightChart = (() => {
     if (data.target && data.target.target_weight_kg != null) {
       const tgy = y(data.target.target_weight_kg);
       svg.appendChild(_el('line', {
-        x1: curL, y1: tgy, x2: gridRight, y2: tgy,
+        x1: gridLeft, y1: tgy, x2: gridRight, y2: tgy,
         stroke: C.plan, 'stroke-width': '1',
         'stroke-dasharray': '3 4', opacity: '0.35',
       }));
@@ -360,13 +361,8 @@ const WeightChart = (() => {
         cx: todayX, cy: planDotY, r: '5',
         fill: '#fff', stroke: C.plan, 'stroke-width': '2',
       }));
-      const planLbl = _el('text', {
-        x: labelLeft ? todayX - 9 : todayX + 8, y: planDotY - 4,
-        'text-anchor': labelLeft ? 'end' : 'start',
-        'font-size': '13', fill: C.plan, 'font-weight': '600',
-      });
-      planLbl.textContent = `plan ${tm.plan_kg.toFixed(1)} kg`;
-      svg.appendChild(planLbl);
+      // Value shown on hover (label hidden to reduce clutter)
+      _activeDots.push({ cx: todayX, cy: planDotY, date: tm.date, kg: tm.plan_kg });
     }
 
     // ── 8. Blue highlighted dot + "you X kg" label ─────────────────────
@@ -376,13 +372,7 @@ const WeightChart = (() => {
         cx: todayX, cy: trendDotY, r: '5',
         fill: C.trend, stroke: '#fff', 'stroke-width': '1.5',
       }));
-      const youLbl = _el('text', {
-        x: labelLeft ? todayX - 9 : todayX + 8, y: trendDotY - 4,
-        'text-anchor': labelLeft ? 'end' : 'start',
-        'font-size': '13', fill: C.trend, 'font-weight': '600',
-      });
-      youLbl.textContent = `you ${tm.trend_kg.toFixed(1)} kg`;
-      svg.appendChild(youLbl);
+      _activeDots.push({ cx: todayX, cy: trendDotY, date: tm.date, kg: tm.trend_kg });
     }
 
     // ── 9. Red/green dashed vertical gap line + rounded gap chip ───────
@@ -402,27 +392,9 @@ const WeightChart = (() => {
         'stroke-dasharray': '3 2',
       }));
 
-      const gapText = tm.gap_kg != null
-        ? `${tm.gap_kg >= 0 ? '+' : ''}${tm.gap_kg.toFixed(1)} kg`
-        : '';
-      const chipW = 66, chipH = 20, chipRx = 10;
-      const chipY = botY + 8;
-      // Keep the chip inside the plot: when near the right edge, end it at the
-      // marker instead of centring (which would overflow the viewBox).
-      const chipCx = labelLeft ? (todayX - chipW / 2 - 2) : todayX;
-      const chipX  = chipCx - chipW / 2;
-
-      svg.appendChild(_el('rect', {
-        x: chipX, y: chipY, width: chipW, height: chipH, rx: chipRx,
-        fill: gapBg,
-      }));
-      const chipTxt = _el('text', {
-        x: chipCx, y: chipY + chipH / 2,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': '13', fill: gapColor, 'font-weight': '700',
-      });
-      chipTxt.textContent = gapText;
-      svg.appendChild(chipTxt);
+      // Gap value (vs plan) shown on hover over the today markers; the chip
+      // label is hidden to reduce clutter. The dashed gap line stays as a cue.
+      void gapBg;
     }
 
     // (Zone boundaries are drawn as thin separators above; no axis-break glyph.)
@@ -483,20 +455,8 @@ const WeightChart = (() => {
           }));
         }
 
-        const kgT = _el('text', {
-          x: mx, y: my + 17,
-          'text-anchor': 'middle', 'font-size': '13', fill: C.plan, 'font-weight': '600',
-        });
-        kgT.textContent = `${m.plan_kg.toFixed(1)} kg`;
-        svg.appendChild(kgT);
-
-        const dt = new Date(m.date + 'T00:00:00');
-        const dtT = _el('text', {
-          x: mx, y: my + 29,
-          'text-anchor': 'middle', 'font-size': '10', fill: '#9ca3af',
-        });
-        dtT.textContent = dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-        svg.appendChild(dtT);
+        // Milestone value/date shown on hover (labels hidden to reduce clutter)
+        _activeDots.push({ cx: mx, cy: my, date: m.date, kg: m.plan_kg });
       });
     }
 
