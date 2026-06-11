@@ -38,10 +38,10 @@
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
     { href: '/log',      label: 'Training Log', icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
-    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
-    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
-    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] }
+    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
+    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
+    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 
@@ -98,20 +98,15 @@
       '.global-nav .gn-logout .gn-logout-label{display:none;}}',
     '.global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}',
     '.global-nav .gn-link-disabled i{opacity:0.7;}',
-    '@media (max-width:640px){',
-      '.global-nav{padding:0 12px;height:54px;gap:10px;}',
-      '.global-nav .gn-links{position:fixed;left:0;right:0;bottom:0;background:#fff;',
-        'border-top:1px solid rgba(13,30,67,0.08);box-shadow:0 -2px 10px rgba(13,30,67,0.06);',
-        'gap:0;padding:5px 4px;padding-bottom:calc(5px + env(safe-area-inset-bottom));',
-        'justify-content:space-around;overflow:visible;}',
-      '.global-nav .gn-link{flex:1;flex-direction:column;gap:2px;justify-content:center;',
-        'padding:5px 2px;border-radius:10px;font-size:9px;text-align:center;}',
-      '.global-nav .gn-link i{font-size:19px;}',
-      '.global-nav .gn-link span{font-size:9px;line-height:1.1;}',
-      '.global-nav .gn-link.active{background:transparent;color:#0b1530;}',
-      '.global-nav .gn-link.active i{color:#2b4ca8;}',
-      '.global-nav .gn-link.active span{font-weight:700;}',
-      'body{padding-bottom:62px;}',
+    // Narrow widths: icon-only links that stay in the top bar (scroll if needed),
+    // so the nav is always visible instead of moving off-screen.
+    '@media (max-width:760px){',
+      '.global-nav{padding:0 12px;gap:8px;}',
+      '.global-nav .gn-brand-text{display:none;}',
+      '.global-nav .gn-logout .gn-logout-label{display:none;}',
+      '.global-nav .gn-link span{display:none;}',
+      '.global-nav .gn-link{padding:8px 9px;}',
+      '.global-nav .gn-link i{font-size:17px;}',
     '}'
   ].join('');
 
