@@ -169,8 +169,9 @@ const WeightChart = (() => {
     const hasTarget    = !!(data.plan_series && data.plan_series.length);
     const hasFuture    = !!(data.future_milestones && data.future_milestones.length);
 
-    // Short ranges (7d, 30d) and small viewports suppress the future zone
-    const isShortRange    = (range === '7d' || range === '30d');
+    // 7d and small viewports suppress the future zone (too narrow to split).
+    // 30d keeps it so milestones stay visible on the right.
+    const isShortRange    = (range === '7d');
     const isSmallViewport = window.innerWidth < 640;
     const hasFutureZone   = hasTarget && hasFuture && !isShortRange && !isSmallViewport;
 
@@ -194,8 +195,11 @@ const WeightChart = (() => {
     const { yMin, yMax } = _computeYBounds(data);
     const y = (val) => _yCoord(val, yMin, yMax);
 
-    // X scale — main zone stretches full width when no future zone
-    const mainR    = hasFutureZone ? BREAK_L : (PAD.left + CW);
+    // X scale. With a future zone the main data ends at BREAK_L; otherwise it
+    // stops short of the right edge (RIGHT_GUTTER) so the today-marker labels
+    // ("plan/you/gap") have room instead of clipping against the viewBox.
+    const RIGHT_GUTTER = 80;
+    const mainR    = hasFutureZone ? BREAK_L : (PAD.left + CW - RIGHT_GUTTER);
     const curMainW = mainR - MAIN_L;
 
     const trendDates = (data.trend || []).map(p => p.date);
