@@ -402,7 +402,7 @@
 
     .perf-grid {
       display: grid;
-      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      grid-template-columns: 1.4fr 1fr 1fr;
     }
     .perf-hdr { display: contents; }
     .perf-row { display: contents; }
@@ -496,6 +496,13 @@
     .workouts-empty {
       font-size: 13.5px; color: var(--text-secondary);
       padding: 16px 4px; line-height: 1.5;
+    }
+    .workout.clickable { cursor: pointer; }
+    .workout.clickable:hover { background: var(--card-hover, rgba(0,0,0,0.025)); border-radius: 8px; }
+    .z2-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+      background: rgba(16,185,129,0.12); color: #059669;
+      border-radius: 5px; padding: 2px 5px; flex-shrink: 0;
     }
 
     /* ---- Strava stale sync banner ---- */
@@ -1658,7 +1665,11 @@
   <div id="row-1"></div>
   <div id="home-weight-widget" style="margin-bottom:16px;"></div>
   <div id="strava-stale-banner"></div>
-  <div id="row-2"></div>
+  <!-- row-2: Performance PRs (left) + Recent Workouts (right) -->
+  <div id="row-2">
+    <div id="perf-card" class="card"></div>
+    <div id="home-workouts-card" class="card workouts"></div>
+  </div>
   <div id="row-log">
     <!-- Fast-log form: static HTML, initialised by JS -->
     <section id="fast-log-section" class="card fast-log">
