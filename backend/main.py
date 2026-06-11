@@ -3672,8 +3672,8 @@ def get_habit_logs(
             session.query(HabitLog)
             .filter(
                 HabitLog.user_id == user.id,
-                HabitLog.logged_date >= from_d,
-                HabitLog.logged_date <= to_d,
+                HabitLog.log_date >= from_d,
+                HabitLog.log_date <= to_d,
             )
             .all()
         )
@@ -3682,7 +3682,7 @@ def get_habit_logs(
                 "id": str(r.id),
                 "habit_id": str(r.habit_id),
                 "user_id": str(r.user_id),
-                "logged_date": str(r.logged_date),
+                "logged_date": str(r.log_date),
             }
             for r in rows
         ])
@@ -3698,7 +3698,17 @@ def post_habit_log(body: HabitLogIn, user: User = Depends(resolve_user)):
         habit = session.get(Habit, hid)
         if habit is None or habit.user_id != user.id:
             raise HTTPException(status_code=404, detail="Habit not found")
-        log = HabitLog(habit_id=hid, user_id=user.id, logged_date=body.logged_date)
+        try:
+            log_date = _date.fromisoformat(body.logged_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+        log_week_start = _week_start_bangkok(log_date)
+        log = HabitLog(
+            habit_id=hid,
+            user_id=user.id,
+            log_date=log_date,
+            log_week_start=log_week_start,
+        )
         session.add(log)
         try:
             session.commit()
@@ -3715,7 +3725,7 @@ def post_habit_log(body: HabitLogIn, user: User = Depends(resolve_user)):
                 "id": str(log.id),
                 "habit_id": str(log.habit_id),
                 "user_id": str(log.user_id),
-                "logged_date": str(log.logged_date),
+                "logged_date": str(log.log_date),
             },
         )
 
@@ -3730,11 +3740,11 @@ def _compute_habit_streak(session, hid, uid, window_dates, today):
             return 0
         check = yesterday
     all_logs = (
-        session.query(HabitLog.logged_date)
+        session.query(HabitLog.log_date)
         .filter(HabitLog.habit_id == hid, HabitLog.user_id == uid)
         .all()
     )
-    all_dates = {row.logged_date for row in all_logs}
+    all_dates = {row.log_date for row in all_logs}
     streak = 0
     while check in all_dates:
         streak += 1
@@ -3767,16 +3777,16 @@ def get_habit_stats(
             for habit in habits:
                 hid = habit.id
                 window_logs = (
-                    session.query(HabitLog.logged_date)
+                    session.query(HabitLog.log_date)
                     .filter(
                         HabitLog.habit_id == hid,
                         HabitLog.user_id == uid,
-                        HabitLog.logged_date >= window_start,
-                        HabitLog.logged_date <= today,
+                        HabitLog.log_date >= window_start,
+                        HabitLog.log_date <= today,
                     )
                     .all()
                 )
-                window_dates = {row.logged_date for row in window_logs}
+                window_dates = {row.log_date for row in window_logs}
                 days_completed = len(window_dates)
                 completion_rate = round(days_completed / days, 4)
                 streak = _compute_habit_streak(session, hid, uid, window_dates, today)
@@ -3798,16 +3808,16 @@ def get_habit_stats(
 
     with Session(engine) as session:
         window_logs = (
-            session.query(HabitLog.logged_date)
+            session.query(HabitLog.log_date)
             .filter(
                 HabitLog.habit_id == hid,
                 HabitLog.user_id == uid,
-                HabitLog.logged_date >= window_start,
-                HabitLog.logged_date <= today,
+                HabitLog.log_date >= window_start,
+                HabitLog.log_date <= today,
             )
             .all()
         )
-        window_dates = {row.logged_date for row in window_logs}
+        window_dates = {row.log_date for row in window_logs}
         days_completed = len(window_dates)
         completion_rate = round(days_completed / days, 4)
 
@@ -3855,7 +3865,7 @@ def get_active_streak(user_id: str):
                 SELECT DISTINCT d FROM (
                     SELECT recorded_date AS d FROM weight_entries WHERE user_id = :uid
                     UNION
-                    SELECT logged_date AS d FROM habit_logs WHERE user_id = :uid
+                    SELECT log_date AS d FROM habit_logs WHERE user_id = :uid
                     UNION
                     SELECT workout_date AS d FROM workouts WHERE user_id = :uid
                 ) sub
@@ -3987,11 +3997,11 @@ def get_calendar_month(
 
         # Habit log counts per date
         log_rows = (
-            session.query(HabitLog.logged_date)
+            session.query(HabitLog.log_date)
             .filter(
                 HabitLog.user_id == uid,
-                HabitLog.logged_date >= from_d,
-                HabitLog.logged_date <= to_d,
+                HabitLog.log_date >= from_d,
+                HabitLog.log_date <= to_d,
             )
             .all()
         )
