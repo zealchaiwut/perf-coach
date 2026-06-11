@@ -96,8 +96,12 @@ def test_b_export_csv_button_present():
 
 
 def test_b_manage_target_links_to_weight_targets():
-    assert "/weight/targets" in WEIGHT_HTML, \
-        "HTML must have a link/button targeting /weight/targets"
+    # AC #461: /weight/targets page removed; manage-target is now a slide-in panel button.
+    # The header must have an Edit target control (not a /weight/targets href).
+    assert "edit-target-header-btn" in WEIGHT_HTML or "Edit target" in WEIGHT_HTML, \
+        "HTML must have an Edit target button (slide-in panel trigger — /weight/targets page removed)"
+    assert "/weight/targets" not in WEIGHT_HTML, \
+        "The /weight/targets link must be removed (consolidated into /weight panel, AC #461)"
 
 
 # ── (c) Hero strip ────────────────────────────────────────────────────────────

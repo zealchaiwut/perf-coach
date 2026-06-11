@@ -714,9 +714,16 @@
       .weight-page-header h1 { font-size: 22px; }
     }
 
-    /* ── Responsive ≤640px — hero stacks to single column ────────────────── */
+    /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
     @media (max-width: 640px) {
       .hero-2col { grid-template-columns: 1fr; }
+      .et-panel {
+        top: auto; right: 0; left: 0; bottom: 0;
+        width: 100%; max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -8px 32px rgba(8, 18, 48, 0.22);
+        max-height: 92vh;
+      }
     }
 
     /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
@@ -753,7 +760,70 @@
       background: #f1f4fa; cursor: pointer;
       font-size: 16px; color: var(--text-secondary);
     }
-    .et-panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+    .et-panel-body {
+      padding: 16px 18px; overflow-y: auto; flex: 1;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .et-field { display: flex; flex-direction: column; gap: 5px; }
+    .et-field label {
+      font-size: 10px; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+    }
+    .et-field-display {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px; display: flex; align-items: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .et-field input {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-primary);
+    }
+    .et-field input:focus {
+      outline: none; border-color: #3563d4; background: #fff;
+    }
+    .et-field input[type="date"] {
+      font-family: 'Inter Tight', sans-serif; font-size: 14px;
+    }
+    .et-hint {
+      font-size: 10.5px; color: var(--text-tertiary);
+    }
+    .et-preview {
+      background: #f7f9fd; border-radius: 11px; padding: 12px 14px;
+      font-size: 12px; color: var(--text-secondary);
+    }
+    .et-preview-row {
+      display: flex; justify-content: space-between; margin: 3px 0;
+    }
+    .et-preview-row .mono {
+      font-family: 'JetBrains Mono', monospace; font-weight: 700;
+      color: var(--text-primary);
+    }
+    .et-panel-foot {
+      padding: 14px 18px; border-top: 1px solid var(--card-border);
+      display: flex; gap: 8px;
+    }
+    .et-save-btn {
+      flex: 1; height: 40px; border-radius: 10px; border: 0;
+      background: var(--accent); color: var(--accent-text);
+      font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .et-save-btn:hover { opacity: 0.88; }
+    .et-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .et-end-btn {
+      height: 40px; padding: 0 14px; border-radius: 10px;
+      border: 1px solid var(--red-soft); background: #fff;
+      color: var(--red); font-family: inherit; font-size: 12px;
+      font-weight: 600; cursor: pointer;
+    }
+    .et-end-btn:hover { background: var(--red-soft); }
+    .et-panel-error {
+      font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
+    }
   </style>
 </head>
 <body>
@@ -768,7 +838,7 @@
       </div>
       <div class="header-actions">
         <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
-        <a href="/weight/targets" class="manage-target-btn">⚖ Manage target</a>
+        <button class="manage-target-btn" id="edit-target-header-btn" type="button">⚖ Edit target</button>
       </div>
     </div>
 
@@ -955,7 +1025,7 @@
     </div><!-- /.bottom-grid -->
   </main>
 
-  <!-- ── Edit-target slide-in panel (content populated by Ticket 6) ─────── -->
+  <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
   <div id="edit-scrim" class="et-panel-scrim" hidden></div>
   <div id="edit-panel" class="et-panel" hidden>
     <div class="et-panel-hdr">
@@ -963,7 +1033,40 @@
       <button id="edit-panel-close" class="et-panel-close" type="button" aria-label="Close">&#x2715;</button>
     </div>
     <div class="et-panel-body">
-      <!-- Ticket 6 will populate this section -->
+      <div class="et-field">
+        <label>Start weight</label>
+        <div class="et-field-display" id="et-start-weight">-- kg</div>
+        <span class="et-hint" id="et-start-date-hint">Captured when the target began</span>
+      </div>
+      <div class="et-field">
+        <label>Goal weight (kg)</label>
+        <input type="number" id="et-goal-weight" step="0.1" min="20" max="300"
+               inputmode="decimal" placeholder="e.g. 80.0">
+      </div>
+      <div class="et-field">
+        <label>Goal date</label>
+        <input type="date" id="et-goal-date">
+        <span class="et-hint" id="et-days-hint"></span>
+      </div>
+      <div class="et-preview" id="et-preview">
+        <div class="et-preview-row">
+          <span>Pace needed</span>
+          <span class="mono" id="et-preview-pace">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>From today</span>
+          <span class="mono" id="et-preview-kg">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>Milestones</span>
+          <span class="mono" id="et-preview-ms">--</span>
+        </div>
+      </div>
+      <div class="et-panel-error" id="et-panel-error" role="alert"></div>
+    </div>
+    <div class="et-panel-foot">
+      <button id="et-end-btn" class="et-end-btn" type="button">End target</button>
+      <button id="et-save-btn" class="et-save-btn" type="button">Save changes</button>
     </div>
   </div>
 
