@@ -317,7 +317,22 @@ const WeightChart = (() => {
       _activeDots.push({ cx: px, cy: py, date: p.date, kg: p.weight_kg });
     });
 
-    // ── 6. Blue 7-day trend path (skips null gaps) ──────────────────────
+    // ── 6. Blue 7-day trend path ────────────────────────────────────────
+    // Thin dashed bridge first: connects every trend point across missing-data
+    // gaps. Drawn under the thick segments, so it only shows inside the gaps.
+    const bridgePts = [];
+    (data.trend || []).forEach((p, idx) => {
+      if (p.weight_kg != null) bridgePts.push(`${xIdx(idx)},${y(p.weight_kg)}`);
+    });
+    if (bridgePts.length >= 2) {
+      svg.appendChild(_el('polyline', {
+        points: bridgePts.join(' '),
+        fill: 'none', stroke: C.trend, 'stroke-width': '1',
+        'stroke-dasharray': '2 3', opacity: '0.45',
+        'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+      }));
+    }
+
     let trendSeg = [];
     (data.trend || []).forEach((p, idx) => {
       if (p.weight_kg == null) {
