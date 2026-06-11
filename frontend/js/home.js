@@ -2367,6 +2367,302 @@
     } catch (_) { /* network error, skip stale banner check */ }
   }
 
+  /* ---- Home Weight Widget ---- */
+
+  function _hwwSparkline(sparkline, plan) {
+    var W = 300, H = 52, PAD = 4;
+    if (!sparkline || !sparkline.length) {
+      return '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"></svg>';
+    }
+    // Combine sparkline and plan to get a shared scale
+    var allVals = sparkline.map(function (d) { return d.value; });
+    if (plan && plan.length) plan.forEach(function (d) { allVals.push(d.value); });
+    var minV = Math.min.apply(null, allVals);
+    var maxV = Math.max.apply(null, allVals);
+    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
+
+    function normY(v) {
+      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
+    }
+
+    // Get all dates involved for x-axis
+    var dates = sparkline.map(function (d) { return d.date; });
+    if (plan && plan.length) {
+      plan.forEach(function (d) { if (dates.indexOf(d.date) === -1) dates.push(d.date); });
+    }
+    dates.sort();
+    var n = dates.length;
+    function xForDate(dateStr) {
+      var idx = dates.indexOf(dateStr);
+      return n > 1 ? (idx / (n - 1)) * W : W / 2;
+    }
+
+    var uid = 'hwwg' + Math.random().toString(36).slice(2, 7);
+
+    var out = '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    out += '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.25"/>' +
+      '<stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>' +
+      '</linearGradient></defs>';
+
+    // Trend area + line
+    var pts = sparkline.map(function (d) {
+      return { x: xForDate(d.date), y: normY(d.value) };
+    });
+    if (pts.length >= 2) {
+      var linePath = pts.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+      }).join(' ');
+      var last = pts[pts.length - 1];
+      var areaPath = linePath + ' L' + last.x.toFixed(1) + ',' + H + ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
+      out += '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>';
+      out += '<path d="' + linePath + '" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+      out += '<circle cx="' + last.x.toFixed(1) + '" cy="' + last.y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
+    } else if (pts.length === 1) {
+      out += '<circle cx="' + pts[0].x.toFixed(1) + '" cy="' + pts[0].y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
+    }
+
+    // Plan line (dashed green) when plan data present
+    if (plan && plan.length >= 2) {
+      var planPts = plan.map(function (d) {
+        return { x: xForDate(d.date), y: normY(d.value) };
+      });
+      var planPath = planPts.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+      }).join(' ');
+      out += '<path d="' + planPath + '" fill="none" stroke="#2d5e10" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7" stroke-linecap="round"/>';
+    }
+
+    out += '</svg>';
+    return out;
+  }
+
+  function _hwwGapPill(statusLabel, gapKg) {
+    if (!statusLabel || statusLabel === 'no_data') return '';
+    if (statusLabel === 'on_track') {
+      return '<span class="hww-gap-pill hww-gap--flat">on plan</span>';
+    }
+    var absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : null;
+    if (statusLabel === 'behind') {
+      var text = absGap != null ? '+' + absGap + ' behind' : 'behind';
+      return '<span class="hww-gap-pill hww-gap--behind">' + text + '</span>';
+    }
+    if (statusLabel === 'ahead') {
+      var text2 = absGap != null ? absGap + ' ahead' : 'ahead';
+      return '<span class="hww-gap-pill hww-gap--ahead">' + text2 + '</span>';
+    }
+    return '';
+  }
+
+  function _hwwGoalLine(target) {
+    if (!target) return '';
+    var parts = [];
+    parts.push('Goal ' + Number(target.target_weight_kg).toFixed(1) + ' kg');
+    if (target.kg_to_go != null) parts.push(Number(target.kg_to_go).toFixed(1) + ' kg to go');
+    if (target.target_date) {
+      var dp = target.target_date.split('-');
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      parts.push(months[parseInt(dp[1],10)-1] + ' ' + parseInt(dp[2],10));
+    }
+    return '<div class="hww-goal-line">' +
+      parts.join(' · ') +
+      ' · <a href="/weight/targets">edit target →</a>' +
+    '</div>';
+  }
+
+  function _hwwRenderMain(el, summary, userId) {
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</div>' +
+        '<a href="/weight">Open →</a>' +
+      '</div>';
+
+    if (!summary || summary.current_weight == null) {
+      el.innerHTML = header +
+        '<div class="hww-layout">' +
+          '<div class="hww-main">' +
+            '<div class="hww-no-data">Log your first weigh-in to start tracking your progress.</div>' +
+          '</div>' +
+          '<div class="hww-stepper" id="hww-stepper-area"></div>' +
+        '</div>';
+      _hwwInitStepper(el, summary, userId);
+      return;
+    }
+
+    var rateClass = 'hww-rate--flat';
+    var rateText = '—';
+    if (summary.weekly_rate_kg != null) {
+      var r = summary.weekly_rate_kg;
+      var absR = Math.abs(r).toFixed(1);
+      var sign = r > 0 ? '+' : '−';
+      rateText = sign + absR + ' kg / wk';
+      var target = summary.target;
+      if (target) {
+        var isGoalDir = (target.direction === 'down' && r < 0) || (target.direction === 'up' && r > 0);
+        rateClass = isGoalDir ? 'hww-rate--goal' : 'hww-rate--flat';
+      }
+    }
+
+    var progressHTML = '';
+    if (summary.target) {
+      var pct = Math.max(0, Math.min(100, summary.target.progress_pct || 0));
+      progressHTML =
+        '<div class="hww-progress-wrap">' +
+          '<div class="hww-progress-bar">' +
+            '<div class="hww-progress-fill" style="width:' + pct.toFixed(1) + '%"></div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    el.innerHTML = header +
+      '<div class="hww-layout">' +
+        '<div class="hww-main">' +
+          '<div class="hww-top-row">' +
+            '<span class="hww-current">' + Number(summary.current_weight).toFixed(1) + '</span>' +
+            '<span class="hww-unit">kg</span>' +
+            _hwwGapPill(summary.status_label, summary.gap_kg) +
+          '</div>' +
+          _hwwSparkline(summary.sparkline, summary.plan) +
+          '<div class="hww-avg">' + (summary.avg_7d != null ? '7-day avg ' + Number(summary.avg_7d).toFixed(1) : '') + '</div>' +
+          '<div class="hww-rate ' + rateClass + '">' + rateText + '</div>' +
+          progressHTML +
+          _hwwGoalLine(summary.target) +
+        '</div>' +
+        '<div class="hww-stepper" id="hww-stepper-area"></div>' +
+      '</div>';
+
+    _hwwInitStepper(el, summary, userId);
+  }
+
+  function _hwwInitStepper(el, summary, userId) {
+    var stepperArea = el.querySelector('#hww-stepper-area');
+    if (!stepperArea) return;
+
+    var prefill = summary && summary.last_entry_kg != null ? Number(summary.last_entry_kg).toFixed(1) : '';
+    var loggedEntryId = null;
+
+    function _renderStepper(currentVal) {
+      stepperArea.innerHTML =
+        '<div class="hww-stepper-label">Log today</div>' +
+        '<div class="hww-step-row">' +
+          '<button type="button" class="hww-step-btn" id="hww-minus">−</button>' +
+          '<input id="hww-input" class="hww-step-input" type="number"' +
+            ' inputmode="decimal" step="0.1" min="20" max="300"' +
+            ' value="' + (currentVal != null ? currentVal : '') + '"' +
+            ' placeholder="—">' +
+          '<button type="button" class="hww-step-btn" id="hww-plus">+</button>' +
+        '</div>' +
+        '<button type="button" class="hww-log-btn" id="hww-log-btn">' +
+          'Log ' + (currentVal != null ? currentVal + ' kg' : '—') +
+        '</button>';
+
+      var input = stepperArea.querySelector('#hww-input');
+      var logBtn = stepperArea.querySelector('#hww-log-btn');
+      var minusBtn = stepperArea.querySelector('#hww-minus');
+      var plusBtn = stepperArea.querySelector('#hww-plus');
+
+      function _updateLabel() {
+        var v = parseFloat(input.value);
+        logBtn.textContent = (!isNaN(v) && v >= 20 && v <= 300) ? 'Log ' + v.toFixed(1) + ' kg' : 'Log —';
+      }
+
+      function _step(delta) {
+        var cur = input.value === '' ? NaN : parseFloat(input.value);
+        var next;
+        if (isNaN(cur)) {
+          next = delta > 0 ? 20 : 300;
+        } else {
+          next = Math.min(300, Math.max(20, Math.round((cur + delta) * 10) / 10));
+        }
+        input.value = next.toFixed(1);
+        _updateLabel();
+      }
+
+      minusBtn.addEventListener('click', function () { _step(-0.1); });
+      plusBtn.addEventListener('click',  function () { _step( 0.1); });
+      input.addEventListener('input', _updateLabel);
+
+      logBtn.addEventListener('click', async function () {
+        var raw = input.value.trim();
+        if (raw === '' || isNaN(parseFloat(raw))) return;
+        var val = parseFloat(raw);
+        if (val < 20 || val > 300) return;
+        logBtn.disabled = true;
+        var todayStr = bangkokTodayStr();
+        try {
+          var res = await fetch('/api/weight-entries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: userId,
+              entry_date: todayStr,
+              weight_kg: val
+            })
+          });
+          var entryId = null;
+          if (res.status === 409) {
+            var conflictData = null;
+            try { conflictData = await res.json(); } catch (_) {}
+            entryId = conflictData && conflictData.existing_id ? conflictData.existing_id : null;
+            if (entryId) {
+              var patchRes = await fetch('/api/weight-entries/' + entryId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ weight_kg: val })
+              });
+              if (!patchRes.ok) { logBtn.disabled = false; return; }
+            }
+          } else if (res.ok) {
+            var created = null;
+            try { created = await res.json(); } catch (_) {}
+            entryId = created && created.id ? created.id : null;
+          } else {
+            logBtn.disabled = false;
+            return;
+          }
+          loggedEntryId = entryId;
+          _renderCompact(val.toFixed(1));
+          // Refresh widget data
+          loadHomeWeightWidget(userId);
+        } catch (_) {
+          logBtn.disabled = false;
+        }
+      });
+    }
+
+    function _renderCompact(kgStr) {
+      stepperArea.innerHTML =
+        '<div class="hww-compact">' +
+          '<span>✓ Logged today · ' + kgStr + ' kg</span>' +
+          '<button type="button" class="hww-compact-edit">edit</button>' +
+        '</div>';
+      var editBtn = stepperArea.querySelector('.hww-compact-edit');
+      if (editBtn) {
+        editBtn.addEventListener('click', function () {
+          _renderStepper(parseFloat(kgStr));
+        });
+      }
+    }
+
+    _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
+  }
+
+  async function loadHomeWeightWidget(userId) {
+    var container = document.getElementById('home-weight-widget');
+    if (!container) return;
+
+    var card = container.querySelector('.card.hww-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card hww-card';
+      container.appendChild(card);
+    }
+
+    var r = await _homeFetch('/api/home/weight-summary');
+    var summary = r.ok ? r.data : null;
+    _hwwRenderMain(card, summary, userId);
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -2402,6 +2698,7 @@
         loadWeightWidget(weightEl),
       ]);
 
+      loadHomeWeightWidget(userId);
       loadSleepCard(userId);
       loadLogTodayCard(userId);
       initFastLogForm(userId);
