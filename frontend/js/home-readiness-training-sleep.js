@@ -152,7 +152,7 @@
           (isRest  ? ' tw-bar--rest'  : '');
         return '<div class="tw-bar-col">' +
           '<div class="tw-bar-wrap">' +
-            '<div class="' + barCls + '" style="height:' + pct + '%;" ' +
+            '<div class="' + barCls + '" style="height:' + pct + '%;' + (isToday ? 'background:var(--accent);' : '') + '" ' +
               'aria-label="' + _TRAINING_DAY_LABELS[i] + (isRest ? ' rest' : '') + '"></div>' +
           '</div>' +
           '<div class="tw-bar-lbl">' + _TRAINING_DAY_LABELS[i].charAt(0) + '</div>' +
