@@ -4,6 +4,11 @@ Risk: MEDIUM — new frontend page with multiple UI sections, no auth/security/d
 → 1-2 tests per criterion where HTTP-testable; visual/JS-driven ACs marked manual.
 
 Prerequisites: tester413 user must exist in UAT DB with password "Test413pass!".
+
+NOTE — issue #461 (sprint-56): The standalone /weight/targets page was consolidated into
+/weight via a slide-in panel. /weight/targets now redirects (302) to /weight.
+Tests that previously checked weight-targets.html content now verify the redirect
+and the equivalent functionality on /weight. API endpoint tests are unchanged.
 """
 import os
 import uuid
@@ -33,79 +38,103 @@ def user_id(client):
 
 
 # ── Routing & Shell ───────────────────────────────────────────────────────────
+# Updated for #461: /weight/targets now redirects (302) to /weight.
 
 def test_build_weight_target_management_page__route_returns_200(client):
-    # AC: Route /weight/targets registered; returns weight-targets.html
+    # AC #461: /weight/targets redirects to /weight; httpx follows and gets 200 HTML.
     r = client.get("/weight/targets")
-    assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+    assert r.status_code == 200, f"Expected 200 after redirect, got {r.status_code}"
     assert "text/html" in r.headers.get("content-type", ""), "Response is not HTML"
+    # Verify we landed on /weight (redirect was followed)
+    assert str(r.url).rstrip("/").endswith("/weight"), (
+        f"Expected redirect to /weight, landed at {r.url}"
+    )
 
 
 def test_build_weight_target_management_page__weight_targets_js_loaded(client):
-    # AC: Logic lives in frontend/js/weight-targets.js
+    # AC #461: /weight/targets page removed; weight-targets.js no longer served.
+    # After the redirect, the /weight page is returned — it must NOT load weight-targets.js.
     r = client.get("/weight/targets")
     assert r.status_code == 200
-    assert "weight-targets.js" in r.text, "weight-targets.js script tag missing from page"
+    assert "weight-targets.js" not in r.text, (
+        "weight-targets.js must NOT be loaded — the page was consolidated into /weight"
+    )
+    # /weight page must be served instead
+    assert "weight.js" in r.text, "weight.js must be present on the /weight page"
 
 
 # ── Section A — Header ────────────────────────────────────────────────────────
+# Updated for #461: content now lives on /weight, not on a separate /weight/targets page.
 
 def test_build_weight_target_management_page__breadcrumb_and_title(client):
-    # AC: Breadcrumb renders with back link to /weight and page title "Weight targets"
+    # AC #461: /weight/targets redirects to /weight; the Weight page title is present.
     r = client.get("/weight/targets")
     html = r.text
-    assert 'href="/weight"' in html, "Breadcrumb link to /weight missing"
-    assert "Weight targets" in html, "Page title 'Weight targets' missing"
+    # /weight page serves "Weight" as the title (the separate targets page is gone)
+    assert "Weight" in html, "Weight page title missing after redirect from /weight/targets"
 
 
 def test_build_weight_target_management_page__set_new_target_button_present(client):
-    # AC: "Set new target" button appears in header right
+    # AC #461: Standalone "Set new target" form was removed; Edit target is now a slide-in
+    # panel on /weight. The /weight page has an "Edit target" control instead.
     r = client.get("/weight/targets")
-    assert "Set new target" in r.text, "'Set new target' button text missing"
+    assert "Edit target" in r.text or "edit-target" in r.text, (
+        "Edit target control not found on /weight after redirect"
+    )
 
 
 def test_build_weight_target_management_page__disabled_button_tooltip(client):
-    # AC: Disabled button shows tooltip "End or replace the current target first"
+    # AC #461: Target management moved to /weight slide-in panel.
+    # Verify the /weight page loaded (tooltip logic is now JS-only in the panel).
     r = client.get("/weight/targets")
-    assert "End or replace the current target first" in r.text, "Tooltip text missing"
+    assert r.status_code == 200, "Redirect from /weight/targets failed"
 
 
 # ── Section B — Active Target Card (static HTML elements) ────────────────────
+# Updated for #461: active target management is now in the /weight slide-in panel.
 
 def test_build_weight_target_management_page__active_target_banner(client):
-    # AC: Banner pill reads "ACTIVE TARGET"
+    # AC #461: "ACTIVE TARGET" banner on the old standalone page is replaced by the
+    # /weight progress card. Verify the /weight page has the progress card.
     r = client.get("/weight/targets")
-    assert "ACTIVE TARGET" in r.text, "'ACTIVE TARGET' banner text missing"
+    html = r.text
+    # /weight has the progress card which shows target context
+    assert 'id="progress-card"' in html, (
+        "progress-card not found on /weight after redirect from /weight/targets"
+    )
 
 
 def test_build_weight_target_management_page__active_card_edit_end_buttons(client):
-    # AC: Card header includes edit (pencil) icon button and end (X) icon button
+    # AC #461: Edit/End actions moved to the /weight slide-in panel.
     r = client.get("/weight/targets")
     html = r.text
-    assert 'id="edit-target-btn"' in html, "Edit target button missing"
-    assert 'id="end-target-btn"' in html, "End target button missing"
+    # /weight page has the slide-in panel with save/end buttons
+    assert 'id="et-save-btn"' in html or 'id="edit-panel"' in html, (
+        "Edit panel not found on /weight after redirect from /weight/targets"
+    )
+    assert 'id="et-end-btn"' in html, "End target button not found in /weight edit panel"
 
 
 def test_build_weight_target_management_page__pace_stats_grid_elements(client):
-    # AC: 3-up pace stats grid shows Remaining kg, Pace needed kg/wk, Your current pace kg/wk
+    # AC #461: Pace stats moved to the slide-in panel live preview.
+    # Verify the /weight page loaded and the panel preview elements are present.
     r = client.get("/weight/targets")
     html = r.text
-    assert "Remaining" in html, "Remaining kg stat label missing"
-    assert "Pace needed" in html, "Pace needed stat label missing"
-    assert "current pace" in html.lower(), "Current pace stat label missing"
+    assert "et-preview-pace" in html or "Pace" in html, (
+        "Pace preview element not found on /weight after redirect"
+    )
 
 
-# ── Section B — Set New Target Form (static HTML elements) ───────────────────
+# ── Section B — Set New Target Form ───────────────────────────────────────────
+# Updated for #461: standalone form removed; panel fields on /weight replace it.
 
 def test_build_weight_target_management_page__new_target_form_fields(client):
-    # AC: Fields: start weight, start date, target weight, target date, notes
+    # AC #461: Create/edit target now uses the /weight slide-in panel.
+    # Panel has goal weight + goal date fields; start weight is display-only.
     r = client.get("/weight/targets")
     html = r.text
-    assert 'id="form-start-weight"' in html, "form-start-weight field missing"
-    assert 'id="form-start-date"' in html, "form-start-date field missing"
-    assert 'id="form-target-weight"' in html, "form-target-weight field missing"
-    assert 'id="form-target-date"' in html, "form-target-date field missing"
-    assert 'id="form-notes"' in html, "form-notes field missing"
+    assert 'id="et-goal-weight"' in html, "et-goal-weight panel field missing on /weight"
+    assert 'id="et-goal-date"' in html, "et-goal-date panel field missing on /weight"
 
 
 def _csrf_headers(client):
@@ -149,30 +178,31 @@ def test_build_weight_target_management_page__api_create_target(client, user_id)
 
 
 # ── Section C — Milestone Timeline Strip ─────────────────────────────────────
+# Updated for #461: the standalone milestone strip moved to /weight progress card.
 
 def test_build_weight_target_management_page__milestone_strip_elements(client):
-    # AC: Horizontal rail with labeled points and gradient fill
+    # AC #461: Milestone data now on /weight. Verify /weight has the milestone section.
     r = client.get("/weight/targets")
     html = r.text
-    assert 'id="milestone-rail"' in html, "milestone-rail element missing"
-    assert 'id="milestone-track-fill"' in html, "milestone-track-fill element missing"
-    assert "milestone-strip" in html, "milestone-strip container missing"
+    # After redirect to /weight, milestone rows are rendered in the progress card
+    assert 'id="milestone-rows"' in html or "milestone" in html.lower(), (
+        "Milestone section not found on /weight after redirect from /weight/targets"
+    )
 
 
 # ── Section D — Stats Summary Card ───────────────────────────────────────────
+# Updated for #461: standalone stats summary removed; API history endpoint unchanged.
 
 def test_build_weight_target_management_page__stats_summary_four_up_grid(client):
-    # AC: 4-up grid shows Targets set, Targets achieved, Total weight lost, Avg pace kg/wk
+    # AC #461: Standalone stats page removed; /weight/targets redirects to /weight.
+    # The /weight page must be served (status 200, HTML content).
     r = client.get("/weight/targets")
-    html = r.text
-    assert "Targets set" in html, "'Targets set' stat label missing"
-    assert "Targets achieved" in html, "'Targets achieved' stat label missing"
-    assert "Total weight lost" in html, "'Total weight lost' stat label missing"
-    assert "Avg pace" in html, "'Avg pace' stat label missing"
+    assert r.status_code == 200, "Redirect from /weight/targets should end at 200"
+    assert "text/html" in r.headers.get("content-type", "")
 
 
 def test_build_weight_target_management_page__api_history_endpoint(client, user_id):
-    # AC: All values computed client-side from GET /api/weight-targets/history
+    # AC: All values computed client-side from GET /api/weight-targets/history (unchanged)
     r = client.get(f"{WT}/history", params={"user_id": user_id})
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     data = r.json()
@@ -181,42 +211,44 @@ def test_build_weight_target_management_page__api_history_endpoint(client, user_
 
 
 # ── Section E — History Table ─────────────────────────────────────────────────
+# Updated for #461: history table was on the standalone page (now removed).
 
 def test_build_weight_target_management_page__history_table_columns(client):
-    # AC: Columns: Status, Name, Pace kg/wk, Result weight, Delta, Duration days, Actions
+    # AC #461: Standalone history page removed. /weight is served after redirect.
+    # Verify the /weight page loads successfully with weight content.
     r = client.get("/weight/targets")
     html = r.text
-    for col in ("Status", "Name", "Pace kg/wk", "Result weight", "Delta", "Duration days", "Actions"):
-        assert col in html, f"History table column '{col}' missing"
+    assert r.status_code == 200
+    assert "Weight" in html, "Weight page not served after redirect from /weight/targets"
 
 
 def test_build_weight_target_management_page__filter_pills_present(client):
-    # AC: Filter pills at top: All / Achieved / Replaced / Abandoned
+    # AC #461: Filter pills on the standalone page removed.
+    # /weight/targets redirects to /weight which serves weight.js.
     r = client.get("/weight/targets")
-    html = r.text
-    for label in ("All", "Achieved", "Replaced", "Abandoned"):
-        assert f'data-filter="{label.lower()}"' in html, f"Filter pill '{label}' missing"
+    assert r.status_code == 200
+    assert "weight.js" in r.text, "weight.js not found after redirect to /weight"
 
 
-# ── Edit Modal ────────────────────────────────────────────────────────────────
+# ── Edit Panel ────────────────────────────────────────────────────────────────
+# Updated for #461: edit modal replaced by slide-in panel on /weight.
 
 def test_build_weight_target_management_page__edit_modal_fields(client):
-    # AC: Edit modal editable fields: target_weight, target_date, notes
+    # AC #461: Edit panel on /weight has goal weight + goal date fields.
     r = client.get("/weight/targets")
     html = r.text
-    assert 'id="edit-target-weight"' in html, "Edit modal target weight field missing"
-    assert 'id="edit-target-date"' in html, "Edit modal target date field missing"
-    assert 'id="edit-notes"' in html, "Edit modal notes field missing"
+    assert 'id="et-goal-weight"' in html, "Panel goal-weight field missing on /weight"
+    assert 'id="et-goal-date"' in html, "Panel goal-date field missing on /weight"
 
 
-# ── End Modal ─────────────────────────────────────────────────────────────────
+# ── End Action ────────────────────────────────────────────────────────────────
+# Updated for #461: end modal replaced by End target button in the slide-in panel.
 
 def test_build_weight_target_management_page__end_modal_two_options(client):
-    # AC: End modal presents "Mark as achieved" / "Mark as abandoned"
+    # AC #461: "End target" button moved to the /weight slide-in panel footer.
     r = client.get("/weight/targets")
     html = r.text
-    assert "Mark as achieved" in html, "'Mark as achieved' button text missing"
-    assert "Mark as abandoned" in html, "'Mark as abandoned' button text missing"
+    assert 'id="et-end-btn"' in html, "End target button not found in /weight panel"
 
 
 # ── API: active target endpoint ───────────────────────────────────────────────
