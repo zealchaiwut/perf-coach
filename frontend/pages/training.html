@@ -5,8 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Training – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* ════════════════════════════════════════════════════════════════════
+       Running-log v2 — gradient design system (matches home/weight).
+       Effort-typed segments, session-profile bar, sync-aware totals.
+       ════════════════════════════════════════════════════════════════════ */
+    :root {
+      --rl-easy: #16a34a; --rl-easy-soft: #dff5d6;
+      --rl-tempo: #d97706; --rl-tempo-soft: #fff0c4;
+      --rl-hard: #ea580c; --rl-hard-soft: #ffedd5;
+      --rl-recovery: #64748b; --rl-recovery-soft: #eef2f6;
+      --rl-tile: #f7f9fd;
+    }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    main {
+      max-width: 860px; margin: 0 auto; padding: 22px 18px 48px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .rl-card {
+      background: var(--card-bg); border-radius: 14px; padding: 16px 18px;
+      box-shadow: var(--card-shadow); border: 1px solid var(--card-border);
+    }
+    .rl-card-label {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-tertiary);
+      margin-bottom: 13px; display: flex; align-items: center; gap: 6px;
+    }
+    /* page head + tabs on the gradient */
+    .rl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #fff; }
+    .rl-head h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .rl-tabs { display: inline-flex; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 3px; }
+    .rl-tabs .training-tab {
+      padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      color: rgba(255,255,255,0.85); background: transparent; border: 0; cursor: pointer;
+      font-family: inherit; margin: 0;
+    }
+    .rl-tabs .training-tab.active { background: #fff; color: var(--text-primary); }
+    /* import strip */
+    .rl-import {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(255,255,255,0.10); border: 1px dashed rgba(255,255,255,0.3);
+      border-radius: 12px; padding: 10px 15px; color: rgba(255,255,255,0.92); font-size: 12px; flex-wrap: wrap;
+    }
+    .rl-import .rl-import-srcs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rl-import a.rl-src {
+      background: rgba(255,255,255,0.16); color: #fff; font-size: 11.5px; font-weight: 600;
+      padding: 6px 12px; border-radius: 999px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .rl-import a.rl-src:hover { background: rgba(255,255,255,0.28); }
+    /* save bar */
+    .rl-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .rl-save-bar .save { display: inline-flex; align-items: center; gap: 7px; padding: 11px 22px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-text); font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .rl-save-bar .cancel { color: rgba(255,255,255,0.9); background: transparent; border: 0; font-size: 13px; font-weight: 500; cursor: pointer; padding: 9px 12px; font-family: inherit; }
+    .rl-save-bar .rl-save-right { display: flex; align-items: center; gap: 8px; }
+
     /* Instrument tokens shared with the log + detail panel */
     .num-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -833,21 +891,171 @@
       background: currentColor;
       vertical-align: 1px;
     }
+    /* ── Running-log v2: inner components (override legacy) ─────────────────── */
+    .workout-meta.rl-card { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; max-width: none; margin: 0; }
+    .workout-meta .meta-field.full-width { grid-column: 1 / -1; }
+    .meta-field label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .meta-field input[type="text"], .meta-field input[type="date"], .meta-field input[type="number"], .meta-field textarea {
+      border: 1.5px solid var(--card-border); background: var(--rl-tile); border-radius: 9px; padding: 9px 11px; font-size: 13px; color: var(--text-primary); font-family: inherit;
+    }
+    .meta-field input.mono, .meta-field input[type="number"] { font-family: 'JetBrains Mono', monospace; }
+    .meta-field input:focus, .meta-field textarea:focus { outline: none; border-color: #3563d4; background: #fff; box-shadow: none; }
+    .meta-field textarea { min-height: 44px; }
+    /* type pills */
+    #type-chips.chip-group { gap: 7px; }
+    .type-chip { padding: 8px 14px; border: 1.5px solid var(--card-border); border-radius: 999px; background: #fff; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+    .type-chip:hover { border-color: #9aa3b2; }
+    .type-chip.active { background: #3563d4; border-color: #3563d4; color: #fff; }
+    /* presets ("Start from") */
+    .seg-templates { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+    .seg-tpl-label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .seg-tpl-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--card-border); background: var(--rl-tile); font-size: 11.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; font-family: inherit; }
+    .seg-tpl-chip:hover { border-color: #3563d4; color: #3563d4; }
+    /* segments — effort-typed background tint (no side-stripe), colored label */
+    .segments-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+    .seg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--rl-tile); }
+    .seg-row[data-seg-type="tempo"] { background: var(--rl-tempo-soft); }
+    .seg-row[data-seg-type="intervals"] { background: var(--rl-hard-soft); }
+    .seg-row[data-seg-type="rest"] { background: var(--rl-recovery-soft); }
+    .seg-row[data-seg-type="warmup"], .seg-row[data-seg-type="easy"], .seg-row[data-seg-type="cooldown"] { background: var(--rl-easy-soft); }
+    .seg-handle { color: var(--text-tertiary); cursor: grab; font-size: 13px; }
+    .seg-type { font-size: 12.5px; font-weight: 700; color: var(--text-primary); min-width: 78px; }
+    .seg-row[data-seg-type="tempo"] .seg-type { color: var(--rl-tempo); }
+    .seg-row[data-seg-type="intervals"] .seg-type { color: var(--rl-hard); }
+    .seg-row[data-seg-type="rest"] .seg-type { color: var(--rl-recovery); }
+    .seg-row[data-seg-type="warmup"] .seg-type, .seg-row[data-seg-type="easy"] .seg-type, .seg-row[data-seg-type="cooldown"] .seg-type { color: var(--rl-easy); }
+    .seg-inputs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; flex: 1; }
+    .seg-inputs input.seg-val, .seg-inputs input.seg-sets { width: 52px; height: 32px; border: 1.5px solid var(--card-border); background: #fff; border-radius: 8px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .seg-inputs input.seg-sets { width: 38px; }
+    .seg-inputs input.seg-pace { width: 58px; height: 32px; border: 1.5px solid var(--card-border); background: #fff; border-radius: 8px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 700; color: var(--text-primary); }
+    .seg-unit-toggle { display: inline-flex; background: #fff; border: 1px solid var(--card-border); border-radius: 8px; padding: 2px; }
+    .seg-unit { border: 0; background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--text-tertiary); padding: 3px 7px; border-radius: 6px; cursor: pointer; }
+    .seg-unit.active { background: #3563d4; color: #fff; }
+    .seg-suffix { font-size: 9px; color: var(--text-tertiary); }
+    .seg-inputs input.seg-hr { display: none; }   /* HR moves to Totals in v2 */
+    .remove-row-btn { width: 26px; height: 26px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; margin-left: auto; }
+    .remove-row-btn:hover { background: var(--red-soft); color: var(--red); }
+    .segments-sum { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-secondary); margin: 0; }
+    .seg-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    /* run totals as tiles */
+    .run-primary, .run-secondary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .run-field { background: var(--rl-tile); border-radius: 11px; padding: 11px 13px; display: flex; flex-direction: column; gap: 6px; }
+    .run-field label { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .run-field input { border: 0; background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); width: 100%; padding: 0; }
+    .run-field input:focus { outline: none; }
+    .run-input-affix { display: flex; align-items: baseline; gap: 3px; }
+    .run-input-affix .affix { font-size: 10px; color: var(--text-tertiary); }
+    .run-pace { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .run-duration { display: flex; align-items: baseline; gap: 1px; }
+    .dur-box { width: 30px; border: 0; background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; text-align: center; color: var(--text-primary); padding: 0; }
+    .dur-box:focus { outline: none; }
+    .dur-sep { font-size: 10px; color: var(--text-tertiary); }
+    .run-section .field-error, #run-error { color: var(--red); font-size: 11.5px; }
+    /* ── v2 layout fixes ────────────────────────────────────────────────────── */
+    .workout-meta .rl-card-label { grid-column: 1 / -1; margin-bottom: 0; }
+    .rl-save-bar .more-summary {
+      display: inline-flex; align-items: center; gap: 5px; padding: 9px 14px; border-radius: 9px;
+      border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.12); color: #fff;
+      font-size: 12px; font-weight: 600; cursor: pointer; list-style: none; font-family: inherit;
+    }
+    .rl-save-bar .more-summary::-webkit-details-marker { display: none; }
+    .rl-save-bar .more-menu { position: relative; }
+    .rl-save-bar .more-menu-list { background: #fff; border-radius: 10px; box-shadow: 0 6px 20px rgba(8,18,48,0.18); padding: 6px; position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 190px; z-index: 20; }
+    .rl-save-bar .more-menu-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 7px; font-size: 13px; color: var(--text-primary); cursor: pointer; font-family: inherit; }
+    .rl-save-bar .more-menu-list button:hover { background: var(--rl-tile); }
+    /* hide the dev nav links (global nav covers navigation) */
+    #view-new > p, #view-history > p { display: none; }
+    /* ── v2 stage 3: profile bar + totals badges ────────────────────────────── */
+    .run-field label { display: flex; align-items: center; gap: 5px; }
+    .rl-badge { font-size: 7.5px; font-weight: 700; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 999px; text-transform: uppercase; }
+    .rl-badge.auto { background: var(--green-soft); color: var(--green); }
+    .rl-badge.sync { background: #dde6f8; color: #1e3a8a; }
+    .rl-profile { display: none; margin-bottom: 12px; }
+    .rl-profile.has-segs { display: block; }
+    .rl-profile-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; background: var(--rl-tile); border-radius: 10px; padding: 8px; }
+    .rl-pseg { border-radius: 4px 4px 2px 2px; min-width: 4px; min-height: 6px; }
+    .rl-pseg.easy { background: var(--rl-easy); }
+    .rl-pseg.tempo { background: var(--rl-tempo); }
+    .rl-pseg.hard { background: var(--rl-hard); }
+    .rl-pseg.recovery { background: var(--rl-recovery); }
+    .rl-profile-legend { display: flex; gap: 12px; margin-top: 8px; font-size: 9.5px; color: var(--text-secondary); flex-wrap: wrap; }
+    .rl-zlg { display: inline-flex; align-items: center; gap: 4px; }
+    .rl-zlg .d { width: 9px; height: 9px; border-radius: 3px; }
+    /* ── v2 sizing fixes ────────────────────────────────────────────────────── */
+    main { padding-top: 30px; }
+    .run-section.rl-card, .workout-meta.rl-card, .exercises-section.rl-card { max-width: none; }
+    #run-error:empty, .run-section .field-error:empty { display: none; }
+    .run-section.rl-card { padding-bottom: 16px; }
+    .run-secondary { margin-bottom: 0; }
+    .type-chip-disabled { opacity: 0.4; color: #9aa3b2 !important; background: #fff !important; border-color: var(--card-border) !important; cursor: not-allowed; pointer-events: none; }
+    /* ── Strength exercise builder ──────────────────────────────────────────── */
+    .exercise-list { display: flex; flex-direction: column; gap: 10px; }
+    .exercise { border: 1.5px solid var(--card-border); border-radius: 12px; overflow: hidden; }
+    .exercise-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--rl-tile); border-bottom: 1.5px solid var(--card-border); }
+    .exercise-head .grip { color: var(--text-tertiary); cursor: grab; font-size: 13px; }
+    .ex-icon { width: 30px; height: 30px; border-radius: 8px; background: #ebe5f9; color: #4f3c8c; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+    .ex-name-wrap { flex: 1; min-width: 0; }
+    input.ex-name { width: 100%; border: 0; background: transparent; font-family: inherit; font-size: 13.5px; font-weight: 700; color: var(--text-primary); padding: 4px 2px; }
+    input.ex-name:focus { outline: none; }
+    .ex-vol { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-tertiary); }
+    .ex-vol strong { display: block; font-size: 12.5px; color: var(--text-primary); }
+    .ex-remove { width: 26px; height: 26px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+    .ex-remove:hover { background: var(--red-soft); color: var(--red); }
+    .set-table { padding: 6px 12px 12px; }
+    .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 1fr 26px; gap: 8px; align-items: center; }
+    .set-cols { padding: 7px 0 4px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-tertiary); }
+    .set-cols .r { text-align: center; }
+    .set-row { padding: 4px 0; }
+    .set-badge { height: 30px; border-radius: 8px; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .set-badge.working { background: #ebe5f9; color: #4f3c8c; }
+    .set-badge.warmup { background: var(--amber-soft); color: var(--amber); }
+    .set-badge.drop { background: var(--rl-hard-soft); color: var(--rl-hard); }
+    .set-badge.failure { background: var(--red-soft); color: var(--red); }
+    .set-in { height: 30px; border: 1.5px solid var(--card-border); background: #fff; border-radius: 8px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text-primary); width: 100%; }
+    .set-in:focus { outline: none; border-color: #3563d4; }
+    .set-cell { display: flex; align-items: center; gap: 4px; }
+    .set-cell .u { font-size: 9px; color: var(--text-tertiary); }
+    .set-x { width: 24px; height: 24px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+    .set-x:hover { background: var(--red-soft); color: var(--red); }
+    .add-set { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 1.5px dashed var(--card-border); background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .add-set:hover { border-color: #4f3c8c; color: #4f3c8c; }
+    .ex-add-row { margin-top: 12px; }
+    .add-ex { display: inline-flex; align-items: center; gap: 6px; padding: 9px 15px; border-radius: 999px; border: 1.5px dashed var(--card-border); background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .add-ex:hover { border-color: #4f3c8c; color: #4f3c8c; }
+    .str-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--card-border); }
+    .str-tile { background: var(--rl-tile); border-radius: 11px; padding: 11px 13px; }
+    .str-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+    .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 2px; }
+    @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
   </style>
 </head>
 <body>
 
   <main>
-    <!-- Sub-tabs -->
-    <div class="tab-bar">
-      <button class="training-tab active" data-tab="new">New workout</button>
-      <button class="training-tab" data-tab="history">History</button>
+    <div class="rl-head">
+      <h1>Log workout</h1>
+      <div class="rl-tabs">
+        <button class="training-tab active" data-tab="new">New workout</button>
+        <button class="training-tab" data-tab="history">History</button>
+      </div>
+    </div>
+
+    <!-- Sync-later: pull a run in from a device instead of logging by hand -->
+    <div class="rl-import">
+      <span>Logging manually, or pull this run in from a device.</span>
+      <span class="rl-import-srcs">
+        <a class="rl-src" href="/settings#integrations">Strava</a>
+        <a class="rl-src" href="/settings#integrations">Garmin</a>
+        <a class="rl-src" href="/settings#integrations">Stryd</a>
+      </span>
     </div>
 
     <!-- ── New workout view ── -->
     <div id="view-new">
-      <!-- Metadata block -->
-      <div class="workout-meta">
+      <!-- Workout basics -->
+      <div class="workout-meta rl-card">
+        <div class="rl-card-label">Workout basics</div>
         <div class="meta-field">
           <label for="workout-name">Name <span style="color:var(--danger)">*</span></label>
           <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
@@ -878,8 +1086,8 @@
       </div>
 
       <!-- ── Run details (shown only when workout type is a run) ── -->
-      <div id="run-section" class="run-section" style="display:none">
-        <p class="section-label">Run details</p>
+      <div id="run-section" class="run-section rl-card" style="display:none">
+        <div class="rl-card-label">Run structure</div>
 
         <!-- Structure: templates seed editable segment rows -->
         <div class="seg-templates">
@@ -888,6 +1096,9 @@
           <button type="button" class="seg-tpl-chip" data-tpl="intervals">Intervals</button>
           <button type="button" class="seg-tpl-chip" data-tpl="tempo">Tempo</button>
         </div>
+
+        <!-- session profile: effort shape, rendered from segments -->
+        <div class="rl-profile" id="run-profile" aria-hidden="true"></div>
 
         <div id="segments-list" class="segments-list" aria-label="Run segments"></div>
 
@@ -908,7 +1119,7 @@
 
         <div class="run-primary">
           <div class="run-field">
-            <label for="run-distance">Distance</label>
+            <label for="run-distance">Distance <span class="rl-badge auto">auto</span></label>
             <div class="run-input-affix">
               <input id="run-distance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.0">
               <span class="affix">km</span>
@@ -916,7 +1127,7 @@
           </div>
 
           <div class="run-field">
-            <label for="run-dur-h">Duration</label>
+            <label for="run-dur-h">Duration <span class="rl-badge auto">auto</span></label>
             <div class="run-duration">
               <input id="run-dur-h" class="dur-box" type="number" inputmode="numeric" min="0" max="99" placeholder="0">
               <span class="dur-sep">h</span>
@@ -928,28 +1139,28 @@
           </div>
 
           <div class="run-field run-pace-field">
-            <label>Avg pace</label>
+            <label>Avg pace <span class="rl-badge auto">auto</span></label>
             <output id="run-pace" class="run-pace">—</output>
           </div>
         </div>
 
         <div class="run-secondary">
           <div class="run-field">
-            <label for="run-avg-hr">Avg HR</label>
+            <label for="run-avg-hr">Avg HR <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
               <span class="affix">bpm</span>
             </div>
           </div>
           <div class="run-field">
-            <label for="run-max-hr">Max HR</label>
+            <label for="run-max-hr">Max HR <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
               <span class="affix">bpm</span>
             </div>
           </div>
           <div class="run-field">
-            <label for="run-elevation">Elevation gain</label>
+            <label for="run-elevation">Elevation <span class="rl-badge sync">sync</span></label>
             <div class="run-input-affix">
               <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
               <span class="affix">m</span>
@@ -961,45 +1172,43 @@
       </div>
 
       <!-- Exercise table -->
-      <div class="exercises-section">
-        <p class="section-label">Exercises</p>
-        <div class="table-scroll">
-          <table id="exercises-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Exercise</th>
-                <th>Sets</th>
-                <th>Reps</th>
-                <th>Weight (kg)</th>
-                <th>Duration</th>
-                <th>RPE</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="exercises-tbody"></tbody>
-          </table>
-        </div>
+      <div class="exercises-section rl-card">
+        <div class="rl-card-label">Exercises</div>
+        <div id="exercises-tbody" class="exercise-list"></div>
         <datalist id="exercise-name-suggestions"></datalist>
         <p id="exercises-error" class="error-msg"></p>
-        <div class="table-actions">
-          <button id="add-exercise-btn" type="button">+ Add exercise</button>
+        <div class="ex-add-row">
+          <button id="add-exercise-btn" type="button" class="add-ex"><span aria-hidden="true">+</span> Add exercise</button>
+        </div>
+        <div class="str-totals">
+          <div class="str-tile">
+            <div class="str-l">Volume <span class="rl-badge auto">auto</span></div>
+            <div class="str-v"><span id="str-volume">0</span><span class="su">kg</span></div>
+          </div>
+          <div class="str-tile">
+            <div class="str-l">Sets <span class="rl-badge auto">auto</span></div>
+            <div class="str-v"><span id="str-sets">0</span> <span class="su" id="str-sets-sub">0 working</span></div>
+          </div>
+          <div class="str-tile">
+            <div class="str-l">Est. e1RM <span class="rl-badge auto">auto</span></div>
+            <div class="str-v" id="str-e1rm">—</div>
+          </div>
         </div>
       </div>
 
-      <!-- Form action bar: one primary action; utilities live in the More menu -->
-      <div class="form-actions">
+      <!-- Save bar -->
+      <div class="rl-save-bar">
         <details id="more-menu" class="more-menu">
-          <summary class="btn-secondary more-summary">More <span aria-hidden="true">▾</span></summary>
+          <summary class="more more-summary">More options <span aria-hidden="true">▾</span></summary>
           <div class="more-menu-list" role="menu">
             <button id="repeat-last-btn" type="button" role="menuitem">Repeat last workout</button>
             <button id="template-picker-btn" type="button" role="menuitem">Start from template</button>
             <button id="save-template-btn" type="button" role="menuitem">Save as template</button>
           </div>
         </details>
-        <div class="form-actions-right">
-          <button id="cancel-btn" type="button" class="btn-quiet">Cancel</button>
-          <button id="save-workout-btn" type="button" class="btn-primary">Save workout</button>
+        <div class="rl-save-right">
+          <button id="cancel-btn" type="button" class="cancel">Cancel</button>
+          <button id="save-workout-btn" type="button" class="save">Save workout</button>
         </div>
       </div>
 

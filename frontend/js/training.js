@@ -49,6 +49,9 @@
 
   // ── Type chips ────────────────────────────────────────────────────────────────
 
+  // Only Strength + Running are active for now; the rest are greyed out.
+  var DISABLED_TYPES = { 'Race': 1, 'Yoga': 1 };
+
   function initChips() {
     var container = document.getElementById('type-chips');
     var customInput = document.getElementById('custom-type-input');
@@ -56,18 +59,24 @@
     WORKOUT_TYPES.forEach(function (type) {
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'type-chip';
+      btn.className = 'type-chip' + (DISABLED_TYPES[type] ? ' type-chip-disabled' : '');
       btn.dataset.value = type;
       btn.textContent = type;
-      btn.addEventListener('click', function () { selectChip(type); });
+      if (DISABLED_TYPES[type]) {
+        btn.disabled = true;
+        btn.title = 'Coming soon';
+      } else {
+        btn.addEventListener('click', function () { selectChip(type); });
+      }
       container.appendChild(btn);
     });
     var customBtn = document.createElement('button');
     customBtn.type = 'button';
-    customBtn.className = 'type-chip';
+    customBtn.className = 'type-chip type-chip-disabled';
     customBtn.dataset.value = '__custom__';
     customBtn.textContent = '+ Custom';
-    customBtn.addEventListener('click', function () { selectChip('__custom__'); });
+    customBtn.disabled = true;
+    customBtn.title = 'Coming soon';
     container.appendChild(customBtn);
     selectChip('Strength');
     customInput.addEventListener('input', function () {});
@@ -104,88 +113,160 @@
 
   // ── Exercise table ─────────────────────────────────────────────────────────────
 
+  // ── Strength exercise builder (per-set) ──────────────────────────────────────
+  var SET_TYPES = {
+    warmup:  { cls: 'warmup',  badge: 'W', working: false },
+    working: { cls: 'working', badge: '',  working: true  },
+    drop:    { cls: 'drop',    badge: 'D', working: true  },
+    failure: { cls: 'failure', badge: 'F', working: true  },
+  };
+  var SET_TYPE_ORDER = ['working', 'warmup', 'drop', 'failure'];
+
+  // One payload row per exercise: sets_json detail + a summary from the top
+  // working set (back-compat + PR detection).
   function getExerciseRows() {
-    var rows = document.querySelectorAll('#exercises-tbody tr');
+    var cards = document.querySelectorAll('#exercises-tbody .exercise');
     var result = [];
-    rows.forEach(function (row, i) {
+    cards.forEach(function (card, i) {
+      var sets = [];
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        var w = parseFloat(r.querySelector('.set-weight').value);
+        var reps = parseInt(r.querySelector('.set-reps').value, 10);
+        var rpe = parseFloat(r.querySelector('.set-rpe').value);
+        var rest = parseInt(r.querySelector('.set-rest').value, 10);
+        sets.push({
+          type: r.dataset.setType || 'working',
+          weight: isFinite(w) ? w : null,
+          reps: isFinite(reps) ? reps : null,
+          rpe: isFinite(rpe) ? rpe : null,
+          rest: isFinite(rest) ? rest : null,
+        });
+      });
+      var working = sets.filter(function (s) { return SET_TYPES[s.type] && SET_TYPES[s.type].working; });
+      var top = null;
+      working.forEach(function (s) { if (s.weight != null && (!top || s.weight > top.weight)) top = s; });
+      var first = sets[0] || {};
       result.push({
         display_order: i,
-        name: row.querySelector('.ex-name').value.trim(),
-        sets: parseInt(row.querySelector('.ex-sets').value, 10) || null,
-        reps: parseInt(row.querySelector('.ex-reps').value, 10) || null,
-        weight_kg: parseFloat(row.querySelector('.ex-weight').value) || null,
-        duration: row.querySelector('.ex-duration').value.trim() || null,
-        rpe: parseInt(row.querySelector('.ex-rpe').value, 10) || null,
+        name: card.querySelector('.ex-name').value.trim(),
+        sets: working.length || null,
+        reps: top ? top.reps : (first.reps != null ? first.reps : null),
+        weight_kg: top ? top.weight : (first.weight != null ? first.weight : null),
+        rpe: (top && top.rpe != null) ? Math.round(top.rpe) : null,
+        duration: null,
+        sets_json: sets.length ? JSON.stringify(sets) : null,
       });
     });
     return result;
   }
 
+  function _relabelSets(card) {
+    if (!card) return;
+    var workingIdx = 0;
+    card.querySelectorAll('.set-row').forEach(function (r) {
+      var type = r.dataset.setType || 'working';
+      var cfg = SET_TYPES[type] || SET_TYPES.working;
+      var badge = r.querySelector('.set-badge');
+      badge.className = 'set-badge ' + cfg.cls;
+      if (type === 'working') { workingIdx += 1; badge.textContent = String(workingIdx); }
+      else badge.textContent = cfg.badge;
+    });
+  }
+
+  function _updateExerciseVolume(card) {
+    if (!card) return;
+    var vol = 0;
+    card.querySelectorAll('.set-row').forEach(function (r) {
+      var w = parseFloat(r.querySelector('.set-weight').value) || 0;
+      var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
+      vol += w * reps;
+    });
+    var el = card.querySelector('.ex-vol strong');
+    if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+  }
+
+  function recomputeStrengthTotals() {
+    var vol = 0, total = 0, working = 0, topW = 0, topReps = 0;
+    document.querySelectorAll('#exercises-tbody .exercise').forEach(function (card) {
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        var w = parseFloat(r.querySelector('.set-weight').value) || 0;
+        var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
+        vol += w * reps; total += 1;
+        var type = r.dataset.setType || 'working';
+        if (SET_TYPES[type] && SET_TYPES[type].working) working += 1;
+        if (w > topW) { topW = w; topReps = reps; }
+      });
+      _updateExerciseVolume(card);
+    });
+    var set = function (id, t) { var e = document.getElementById(id); if (e) e.textContent = t; };
+    set('str-volume', vol ? Math.round(vol).toLocaleString() : '0');
+    set('str-sets', String(total));
+    set('str-sets-sub', working + ' working');
+    var e1 = (topW && topReps) ? Math.round(topW * (1 + topReps / 30)) : null;
+    set('str-e1rm', e1 ? (e1 + ' kg') : '—');
+  }
+
+  function addSetRow(setTable, sd) {
+    sd = sd || {};
+    var card = setTable.closest('.exercise');
+    var row = document.createElement('div');
+    row.className = 'set-row';
+    row.dataset.setType = SET_TYPES[sd.type] ? sd.type : 'working';
+    function v(x) { return (x != null && x !== '') ? x : ''; }
+    row.innerHTML =
+      '<button type="button" class="set-badge" title="Cycle set type"></button>' +
+      '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" value="' + v(sd.weight) + '"></div>' +
+      '<div class="set-cell"><input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '"></div>' +
+      '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" value="' + v(sd.rpe) + '"></div>' +
+      '<div class="set-cell"><input type="number" class="set-in set-rest" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.rest) + '"><span class="u">s</span></div>' +
+      '<button type="button" class="set-x" title="Remove set">✕</button>';
+    row.querySelector('.set-badge').addEventListener('click', function () {
+      var idx = SET_TYPE_ORDER.indexOf(row.dataset.setType);
+      row.dataset.setType = SET_TYPE_ORDER[(idx + 1) % SET_TYPE_ORDER.length];
+      _relabelSets(card); recomputeStrengthTotals();
+    });
+    row.querySelector('.set-x').addEventListener('click', function () {
+      row.remove(); _relabelSets(card); recomputeStrengthTotals();
+    });
+    row.querySelectorAll('input').forEach(function (inp) { inp.addEventListener('input', recomputeStrengthTotals); });
+    setTable.insertBefore(row, setTable.querySelector('.add-set'));
+  }
+
   function addExerciseRow(data) {
-    var tbody = document.getElementById('exercises-tbody');
-    var tr = document.createElement('tr');
-    tr.draggable = true;
-    tr.innerHTML =
-      '<td class="drag-handle" title="Drag to reorder">⠿</td>' +
-      '<td><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></td>' +
-      '<td><input type="number" class="ex-input ex-sets" placeholder="—" min="1" value="' + (data && data.sets != null ? data.sets : '') + '"></td>' +
-      '<td><input type="number" class="ex-input ex-reps" placeholder="—" min="1" value="' + (data && data.reps != null ? data.reps : '') + '"></td>' +
-      '<td><input type="number" class="ex-input ex-weight" placeholder="—" min="0" step="0.5" value="' + (data && data.weight_kg != null ? data.weight_kg : '') + '"></td>' +
-      '<td><input type="text" class="ex-input ex-duration" placeholder="—" value="' + (data && data.duration ? escapeAttr(data.duration) : '') + '"></td>' +
-      '<td><input type="number" class="ex-input ex-rpe" placeholder="—" min="1" max="10" value="' + (data && data.rpe != null ? data.rpe : '') + '"></td>' +
-      '<td><button type="button" class="remove-row-btn" title="Remove exercise">✕</button></td>';
+    var list = document.getElementById('exercises-tbody');
+    var card = document.createElement('div');
+    card.className = 'exercise';
+    card.innerHTML =
+      '<div class="exercise-head">' +
+        '<span class="grip" title="Reorder">⠿</span>' +
+        '<div class="ex-icon">🏋</div>' +
+        '<div class="ex-name-wrap"><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></div>' +
+        '<div class="ex-vol">volume<strong>—</strong></div>' +
+        '<button type="button" class="remove-row-btn ex-remove" title="Remove exercise">✕</button>' +
+      '</div>' +
+      '<div class="set-table">' +
+        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
+        '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
+      '</div>';
+    list.appendChild(card);
+    var setTable = card.querySelector('.set-table');
+    card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
+    card.querySelector('.ex-remove').addEventListener('click', function () { card.remove(); recomputeStrengthTotals(); });
+    card.querySelector('.ex-name').addEventListener('input', recomputeStrengthTotals);
 
-    tr.querySelector('.remove-row-btn').addEventListener('click', function () {
-      tr.remove();
-    });
-
-    // Tab key advances cells within the row, then jumps to next row's first input
-    tr.querySelectorAll('.ex-input').forEach(function (inp, idx, all) {
-      inp.addEventListener('keydown', function (e) {
-        if (e.key === 'Tab' && !e.shiftKey && idx === all.length - 1) {
-          var next = tr.nextElementSibling;
-          if (next) {
-            e.preventDefault();
-            var firstInput = next.querySelector('.ex-input');
-            if (firstInput) firstInput.focus();
-          }
-        }
-      });
-    });
-
-    // Drag-and-drop reordering
-    tr.addEventListener('dragstart', function (e) {
-      dragSrcIdx = rowIndex(tr);
-      e.dataTransfer.effectAllowed = 'move';
-      tr.classList.add('dragging');
-    });
-    tr.addEventListener('dragend', function () {
-      tr.classList.remove('dragging');
-      document.querySelectorAll('#exercises-tbody tr').forEach(function (r) {
-        r.classList.remove('drag-over');
-      });
-    });
-    tr.addEventListener('dragover', function (e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      document.querySelectorAll('#exercises-tbody tr').forEach(function (r) { r.classList.remove('drag-over'); });
-      tr.classList.add('drag-over');
-    });
-    tr.addEventListener('drop', function (e) {
-      e.preventDefault();
-      var destIdx = rowIndex(tr);
-      if (dragSrcIdx === null || dragSrcIdx === destIdx) return;
-      var tbody = document.getElementById('exercises-tbody');
-      var rows = Array.from(tbody.querySelectorAll('tr'));
-      var srcRow = rows[dragSrcIdx];
-      tbody.removeChild(srcRow);
-      var refRow = tbody.querySelectorAll('tr')[destIdx] || null;
-      tbody.insertBefore(srcRow, refRow);
-      dragSrcIdx = null;
-    });
-
-    tbody.appendChild(tr);
-    tr.querySelector('.ex-name').focus();
+    var seeded = false;
+    if (data && data.sets_json) {
+      try { var arr = JSON.parse(data.sets_json); if (Array.isArray(arr) && arr.length) { arr.forEach(function (sd) { addSetRow(setTable, sd); }); seeded = true; } } catch (e) {}
+    }
+    if (!seeded && data && (data.sets != null || data.weight_kg != null || data.reps != null)) {
+      var n = (data.sets != null && data.sets > 0) ? data.sets : 1;
+      for (var k = 0; k < n; k++) addSetRow(setTable, { type: 'working', weight: data.weight_kg, reps: data.reps, rpe: data.rpe });
+      seeded = true;
+    }
+    if (!seeded) addSetRow(setTable, { type: 'working' });
+    _relabelSets(card);
+    recomputeStrengthTotals();
+    if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
   function rowIndex(tr) {
@@ -469,9 +550,37 @@
     return { km: km, sec: sec };
   }
 
+  // Session profile: one bar per segment, height = effort, width ~ duration.
+  var _RL_EFFORT = { warmup: 'easy', easy: 'easy', cooldown: 'easy', tempo: 'tempo', intervals: 'hard', rest: 'recovery' };
+  var _RL_EFFORT_H = { easy: 40, tempo: 72, hard: 92, recovery: 26 };
+
+  function renderProfile() {
+    var wrap = document.getElementById('run-profile');
+    if (!wrap) return;
+    var segs = getSegmentObjects();
+    if (!segs.length) { wrap.className = 'rl-profile'; wrap.innerHTML = ''; return; }
+    var bars = segs.map(function (s) {
+      var d = segmentDims(s);
+      var w = (d.sec && d.sec > 0) ? d.sec : (d.km && d.km > 0 ? d.km * 300 : 60);
+      var eff = _RL_EFFORT[s.type] || 'easy';
+      var h = _RL_EFFORT_H[eff] || 40;
+      return '<div class="rl-pseg ' + eff + '" style="flex:' + w.toFixed(2) + ';height:' + h + '%"></div>';
+    }).join('');
+    wrap.className = 'rl-profile has-segs';
+    wrap.innerHTML =
+      '<div class="rl-profile-bars">' + bars + '</div>' +
+      '<div class="rl-profile-legend">' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-easy)"></span>Easy</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-tempo)"></span>Tempo</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-hard)"></span>Hard</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-recovery)"></span>Recovery</span>' +
+      '</div>';
+  }
+
   function recomputeSegments() {
     var sumEl = document.getElementById('segments-sum');
     if (!sumEl) return;
+    renderProfile();
     var rows = document.querySelectorAll('#segments-list .seg-row');
     if (!rows.length) { sumEl.textContent = ''; sumEl.classList.remove('is-mismatch'); return; }
 

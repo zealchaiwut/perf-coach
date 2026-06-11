@@ -200,6 +200,7 @@ class WorkoutExercise(Base):
     distance_km = Column(Numeric(8, 3), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
+    sets_json = Column(Text, nullable=True)  # per-set detail for strength builder
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (

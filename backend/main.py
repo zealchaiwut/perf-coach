@@ -4263,6 +4263,7 @@ class ExerciseIn(BaseModel):
     distance_km: Optional[float] = None
     duration_seconds: Optional[int] = None
     avg_hr: Optional[int] = None
+    sets_json: Optional[str] = None  # JSON array of per-set detail (strength)
 
 
 # Compound sources (e.g. 'strava,stryd') are supported so a single workout can carry data from multiple integrations.
@@ -4333,6 +4334,15 @@ def _validate_exercise(ex: ExerciseIn) -> None:
         raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
     if ex.avg_hr is not None and not (20 <= ex.avg_hr <= 250):
         raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+    if ex.sets_json is not None:
+        if len(ex.sets_json) > 8000:
+            raise HTTPException(status_code=422, detail="sets_json too large")
+        try:
+            parsed = _json.loads(ex.sets_json)
+        except Exception:
+            raise HTTPException(status_code=422, detail="sets_json must be valid JSON")
+        if not isinstance(parsed, list):
+            raise HTTPException(status_code=422, detail="sets_json must be a JSON array")
 
 
 def _exercise_dict(e: WorkoutExercise) -> dict:
@@ -4348,6 +4358,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
         "distance_km": str(e.distance_km) if e.distance_km is not None else None,
         "duration_seconds": e.duration_seconds,
         "avg_hr": e.avg_hr,
+        "sets_json": e.sets_json,
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
 
@@ -4534,6 +4545,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
                 distance_km=ex.distance_km,
                 duration_seconds=ex.duration_seconds,
                 avg_hr=ex.avg_hr,
+                sets_json=ex.sets_json,
             )
             session.add(e)
             exercises.append(e)
