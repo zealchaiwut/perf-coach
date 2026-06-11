@@ -112,6 +112,12 @@ async function fetchActiveTarget() {
   return apiFetch(`/api/weight-targets/active?user_id=${encodeURIComponent(_userId)}`);
 }
 
+async function fetchTargetHistory(status) {
+  let url = `/api/weight-targets/history?user_id=${encodeURIComponent(_userId)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  return apiFetch(url);
+}
+
 // ── Subtitle ─────────────────────────────────────────────────────────────
 
 function renderSubtitle(summary, stats) {
@@ -1224,6 +1230,145 @@ function _initRangeTabs() {
   });
 }
 
+// ── Target history ────────────────────────────────────────────────────────
+
+function _fmtTargetDateRange(t) {
+  const startD = new Date(t.start_date + 'T00:00:00');
+  const endD   = t.ended_at ? new Date(t.ended_at) : (t.target_date ? new Date(t.target_date + 'T00:00:00') : null);
+  const mo = d => d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  const days = t.duration_days != null ? `${t.duration_days}d` : '';
+  return endD ? `${mo(startD)}–${mo(endD)} · ${days}` : mo(startD);
+}
+
+function _renderTargetRows(targets) {
+  const tbody = document.getElementById('past-targets-tbody');
+  const empty = document.getElementById('targets-empty-state');
+  const table = document.getElementById('past-targets-table');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!targets || !targets.length) {
+    if (table) table.hidden = true;
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (table) table.hidden = false;
+  if (empty) empty.hidden = true;
+
+  targets.forEach(t => {
+    const result = t.achieved_weight_kg != null ? t.achieved_weight_kg.toFixed(1) : '--';
+    const delta = t.achieved_weight_kg != null
+      ? (t.start_weight_kg - t.achieved_weight_kg).toFixed(1)
+      : '--';
+    const deltaNum = t.achieved_weight_kg != null ? (t.start_weight_kg - t.achieved_weight_kg) : null;
+    const deltaClass = deltaNum != null && deltaNum > 0 ? 'good' : (deltaNum != null && deltaNum < 0 ? 'partial' : '');
+    const statusLabel = t.status === 'achieved' ? 'Done'
+      : t.status === 'replaced' ? 'Repl.'
+      : t.status === 'abandoned' ? 'Abnd.'
+      : t.status;
+    const badgeClass = t.status === 'achieved' ? 'achieved'
+      : t.status === 'replaced' ? 'replaced'
+      : 'abandoned';
+
+    const range = `${t.start_weight_kg.toFixed(0)} → ${t.target_weight_kg.toFixed(0)}`;
+    const dateRange = _fmtTargetDateRange(t);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+      <td><div class="pt-target-nm">${range}<span class="pt-target-meta">${dateRange}</span></div></td>
+      <td class="r">${result}</td>
+      <td class="r pt-delta ${deltaClass}">${deltaNum != null ? (deltaNum >= 0 ? '−' : '+') + Math.abs(deltaNum).toFixed(1) : '--'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+let _allTargetHistory = [];
+let _activeHistoryFilter = 'all';
+
+function renderTargetHistory(historyData) {
+  _allTargetHistory = historyData.targets || [];
+  _renderJourneyCard(_allTargetHistory);
+  _renderTargetRows(_allTargetHistory);
+}
+
+function _renderJourneyCard(targets) {
+  const totalSet = targets.length;
+  const achieved = targets.filter(t => t.status === 'achieved');
+  const achievedCount = achieved.length;
+  const achievedPct = totalSet > 0 ? Math.round(achievedCount / totalSet * 100) : 0;
+
+  const totalLost = achieved.reduce((sum, t) => {
+    if (t.achieved_weight_kg != null) return sum + (t.start_weight_kg - t.achieved_weight_kg);
+    return sum;
+  }, 0);
+
+  const avgPace = achievedCount > 0
+    ? achieved.reduce((sum, t) => {
+        if (t.achieved_weight_kg != null && t.duration_days > 0) {
+          const kg = t.start_weight_kg - t.achieved_weight_kg;
+          return sum + kg / (t.duration_days / 7);
+        }
+        return sum;
+      }, 0) / achievedCount
+    : null;
+
+  const setEl = document.getElementById('jstat-targets-set');
+  if (setEl) setEl.textContent = totalSet;
+
+  const achEl = document.getElementById('jstat-achieved');
+  if (achEl) achEl.textContent = achievedCount;
+
+  const achPctEl = document.getElementById('jstat-achieved-pct');
+  if (achPctEl) {
+    achPctEl.textContent = achievedCount > 0 ? `${achievedPct}% success` : '';
+    achPctEl.className = achievedCount > 0 ? 'jstat-sub good' : 'jstat-sub';
+  }
+
+  const lostEl = document.getElementById('jstat-total-lost');
+  if (lostEl) {
+    if (lostEl.firstChild && lostEl.firstChild.nodeType === Node.TEXT_NODE) {
+      lostEl.firstChild.textContent = totalLost > 0 ? totalLost.toFixed(1) : '0';
+    }
+  }
+
+  const paceEl = document.getElementById('jstat-avg-pace');
+  if (paceEl) {
+    if (paceEl.firstChild && paceEl.firstChild.nodeType === Node.TEXT_NODE) {
+      paceEl.firstChild.textContent = avgPace != null ? avgPace.toFixed(2) : '--';
+    }
+  }
+
+  const bannerWrap = document.getElementById('vs-banner-wrap');
+  if (bannerWrap) {
+    if (targets.length === 0) {
+      bannerWrap.innerHTML = '';
+    } else {
+      bannerWrap.innerHTML = `
+        <div class="vs-banner">
+          <i class="ti ti-info-circle"></i>
+          <span>${totalSet} target${totalSet !== 1 ? 's' : ''} set · <strong>${achievedCount}</strong> achieved · <strong>${totalLost.toFixed(1)} kg</strong> total lost</span>
+        </div>`;
+    }
+  }
+}
+
+function _initTargetHistoryFilters() {
+  const pillsWrap = document.getElementById('past-targets-filters');
+  if (!pillsWrap) return;
+  pillsWrap.addEventListener('click', e => {
+    const btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    _activeHistoryFilter = btn.dataset.filter || 'all';
+    pillsWrap.querySelectorAll('.filter-pill').forEach(p => p.classList.toggle('active', p === btn));
+    const filtered = _activeHistoryFilter === 'all'
+      ? _allTargetHistory
+      : _allTargetHistory.filter(t => t.status === _activeHistoryFilter);
+    _renderTargetRows(filtered);
+  });
+}
+
 // ── Partial reloads ───────────────────────────────────────────────────────
 
 async function _reloadHeroAndCoach() {
@@ -1251,11 +1396,12 @@ async function _reloadEntries() {
 
 async function _reload() {
   try {
-    const [chartData, entriesRes, targetRes, summaryRes] = await Promise.all([
+    const [chartData, entriesRes, targetRes, summaryRes, historyRes] = await Promise.all([
       fetchChartData(_currentRange),
       fetchRecentEntries(),
       fetchActiveTarget(),
       fetchAllEntriesSummary(),
+      fetchTargetHistory(),
     ]);
 
     _chartData = chartData;
@@ -1270,6 +1416,7 @@ async function _reload() {
     renderMilestones(_activeTarget, chartData.stats);
     renderRecentEntries(_recentEntries, _activeTarget);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
+    renderTargetHistory(historyRes);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -1290,6 +1437,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initCardB();
   _initRangeTabs();
   _initEditPanel();
+  _initTargetHistoryFilters();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
