@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.services.weight_plan import compute_gap, generate_milestones, plan_at
+from backend.services.weight_plan import compute_gap, generate_milestones, plan_at, project_hit_date
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -259,3 +259,66 @@ def test_generate_milestones_dedup_short_target():
     assert stones[0]["kind"] == "today"
     assert stones[-1]["kind"] == "goal"
     assert len(stones) in (3, 4)
+
+
+# ── (i) project_hit_date: plausible future date for healthy pace ─────────────
+
+def test_project_hit_date_returns_future_date_loss():
+    """project_hit_date returns a future date when pace is healthy for LOSS target."""
+    today = datetime.date.today()
+    sd = today - datetime.timedelta(days=30)
+    td = today + datetime.timedelta(days=180)
+    t = _target(85.0, 75.0, start_date=sd, target_date=td)
+    # 7-day window: 0.5 kg/week loss pace
+    entries = [
+        _FakeEntry(today - datetime.timedelta(days=6), 81.0),  # oldest (first)
+        _FakeEntry(today - datetime.timedelta(days=3), 80.6),
+        _FakeEntry(today, 80.5),  # most recent (last)
+    ]
+    session = _FakeSession(entries)
+    result = project_hit_date(t, session, today)
+    assert result is not None
+    assert isinstance(result, datetime.date)
+    assert result > today
+
+
+def test_project_hit_date_returns_none_zero_pace():
+    """project_hit_date returns None when pace is zero (no weight change)."""
+    today = datetime.date.today()
+    sd = today - datetime.timedelta(days=30)
+    td = today + datetime.timedelta(days=180)
+    t = _target(85.0, 75.0, start_date=sd, target_date=td)
+    entries = [
+        _FakeEntry(today - datetime.timedelta(days=6), 81.0),
+        _FakeEntry(today, 81.0),  # same weight = zero pace
+    ]
+    session = _FakeSession(entries)
+    result = project_hit_date(t, session, today)
+    assert result is None
+
+
+def test_project_hit_date_returns_none_adverse_pace():
+    """project_hit_date returns None when pace moves away from goal (gaining on LOSS target)."""
+    today = datetime.date.today()
+    sd = today - datetime.timedelta(days=30)
+    td = today + datetime.timedelta(days=180)
+    t = _target(85.0, 75.0, start_date=sd, target_date=td)
+    entries = [
+        _FakeEntry(today - datetime.timedelta(days=6), 80.0),
+        _FakeEntry(today, 81.0),  # gaining weight on a loss target
+    ]
+    session = _FakeSession(entries)
+    result = project_hit_date(t, session, today)
+    assert result is None
+
+
+def test_project_hit_date_returns_none_insufficient_data():
+    """project_hit_date returns None when fewer than 2 entries in 7-day window."""
+    today = datetime.date.today()
+    sd = today - datetime.timedelta(days=30)
+    td = today + datetime.timedelta(days=180)
+    t = _target(85.0, 75.0, start_date=sd, target_date=td)
+    entries = [_FakeEntry(today, 81.0)]  # only 1 entry
+    session = _FakeSession(entries)
+    result = project_hit_date(t, session, today)
+    assert result is None

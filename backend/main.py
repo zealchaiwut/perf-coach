@@ -34,7 +34,7 @@ from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
-from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at
+from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
@@ -1001,6 +1001,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     gap_data = _compute_weight_gap(t, session, today)
     milestones = _generate_weight_milestones(t, today)
+    hit_date = _project_hit_date(t, session, today)
 
     base.update({
         "progress_pct": progress_pct,
@@ -1014,6 +1015,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
         "gap_kg": gap_data["gap_kg"],
         "gap_direction": gap_data["gap_direction"],
         "gap_basis": gap_data["basis"],
+        "projected_hit_date": hit_date.isoformat() if hit_date is not None else None,
         "milestones": milestones,
     })
     return base
