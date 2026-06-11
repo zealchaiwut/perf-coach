@@ -988,6 +988,46 @@
     .run-section.rl-card { padding-bottom: 16px; }
     .run-secondary { margin-bottom: 0; }
     .type-chip-disabled { opacity: 0.4; color: #9aa3b2 !important; background: #fff !important; border-color: var(--card-border) !important; cursor: not-allowed; pointer-events: none; }
+    /* ── Strength exercise builder ──────────────────────────────────────────── */
+    .exercise-list { display: flex; flex-direction: column; gap: 10px; }
+    .exercise { border: 1.5px solid var(--card-border); border-radius: 12px; overflow: hidden; }
+    .exercise-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--rl-tile); border-bottom: 1.5px solid var(--card-border); }
+    .exercise-head .grip { color: var(--text-tertiary); cursor: grab; font-size: 13px; }
+    .ex-icon { width: 30px; height: 30px; border-radius: 8px; background: #ebe5f9; color: #4f3c8c; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+    .ex-name-wrap { flex: 1; min-width: 0; }
+    input.ex-name { width: 100%; border: 0; background: transparent; font-family: inherit; font-size: 13.5px; font-weight: 700; color: var(--text-primary); padding: 4px 2px; }
+    input.ex-name:focus { outline: none; }
+    .ex-vol { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-tertiary); }
+    .ex-vol strong { display: block; font-size: 12.5px; color: var(--text-primary); }
+    .ex-remove { width: 26px; height: 26px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+    .ex-remove:hover { background: var(--red-soft); color: var(--red); }
+    .set-table { padding: 6px 12px 12px; }
+    .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 1fr 26px; gap: 8px; align-items: center; }
+    .set-cols { padding: 7px 0 4px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-tertiary); }
+    .set-cols .r { text-align: center; }
+    .set-row { padding: 4px 0; }
+    .set-badge { height: 30px; border-radius: 8px; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .set-badge.working { background: #ebe5f9; color: #4f3c8c; }
+    .set-badge.warmup { background: var(--amber-soft); color: var(--amber); }
+    .set-badge.drop { background: var(--rl-hard-soft); color: var(--rl-hard); }
+    .set-badge.failure { background: var(--red-soft); color: var(--red); }
+    .set-in { height: 30px; border: 1.5px solid var(--card-border); background: #fff; border-radius: 8px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text-primary); width: 100%; }
+    .set-in:focus { outline: none; border-color: #3563d4; }
+    .set-cell { display: flex; align-items: center; gap: 4px; }
+    .set-cell .u { font-size: 9px; color: var(--text-tertiary); }
+    .set-x { width: 24px; height: 24px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+    .set-x:hover { background: var(--red-soft); color: var(--red); }
+    .add-set { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 1.5px dashed var(--card-border); background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .add-set:hover { border-color: #4f3c8c; color: #4f3c8c; }
+    .ex-add-row { margin-top: 12px; }
+    .add-ex { display: inline-flex; align-items: center; gap: 6px; padding: 9px 15px; border-radius: 999px; border: 1.5px dashed var(--card-border); background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .add-ex:hover { border-color: #4f3c8c; color: #4f3c8c; }
+    .str-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--card-border); }
+    .str-tile { background: var(--rl-tile); border-radius: 11px; padding: 11px 13px; }
+    .str-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+    .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 2px; }
+    @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
   </style>
 </head>
 <body>
@@ -1134,27 +1174,25 @@
       <!-- Exercise table -->
       <div class="exercises-section rl-card">
         <div class="rl-card-label">Exercises</div>
-        <div class="table-scroll">
-          <table id="exercises-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Exercise</th>
-                <th>Sets</th>
-                <th>Reps</th>
-                <th>Weight (kg)</th>
-                <th>Duration</th>
-                <th>RPE</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="exercises-tbody"></tbody>
-          </table>
-        </div>
+        <div id="exercises-tbody" class="exercise-list"></div>
         <datalist id="exercise-name-suggestions"></datalist>
         <p id="exercises-error" class="error-msg"></p>
-        <div class="table-actions">
-          <button id="add-exercise-btn" type="button">+ Add exercise</button>
+        <div class="ex-add-row">
+          <button id="add-exercise-btn" type="button" class="add-ex"><span aria-hidden="true">+</span> Add exercise</button>
+        </div>
+        <div class="str-totals">
+          <div class="str-tile">
+            <div class="str-l">Volume <span class="rl-badge auto">auto</span></div>
+            <div class="str-v"><span id="str-volume">0</span><span class="su">kg</span></div>
+          </div>
+          <div class="str-tile">
+            <div class="str-l">Sets <span class="rl-badge auto">auto</span></div>
+            <div class="str-v"><span id="str-sets">0</span> <span class="su" id="str-sets-sub">0 working</span></div>
+          </div>
+          <div class="str-tile">
+            <div class="str-l">Est. e1RM <span class="rl-badge auto">auto</span></div>
+            <div class="str-v" id="str-e1rm">—</div>
+          </div>
         </div>
       </div>
 
