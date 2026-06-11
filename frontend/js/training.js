@@ -49,6 +49,9 @@
 
   // ── Type chips ────────────────────────────────────────────────────────────────
 
+  // Only Strength + Running are active for now; the rest are greyed out.
+  var DISABLED_TYPES = { 'Race': 1, 'Yoga': 1 };
+
   function initChips() {
     var container = document.getElementById('type-chips');
     var customInput = document.getElementById('custom-type-input');
@@ -56,18 +59,24 @@
     WORKOUT_TYPES.forEach(function (type) {
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'type-chip';
+      btn.className = 'type-chip' + (DISABLED_TYPES[type] ? ' type-chip-disabled' : '');
       btn.dataset.value = type;
       btn.textContent = type;
-      btn.addEventListener('click', function () { selectChip(type); });
+      if (DISABLED_TYPES[type]) {
+        btn.disabled = true;
+        btn.title = 'Coming soon';
+      } else {
+        btn.addEventListener('click', function () { selectChip(type); });
+      }
       container.appendChild(btn);
     });
     var customBtn = document.createElement('button');
     customBtn.type = 'button';
-    customBtn.className = 'type-chip';
+    customBtn.className = 'type-chip type-chip-disabled';
     customBtn.dataset.value = '__custom__';
     customBtn.textContent = '+ Custom';
-    customBtn.addEventListener('click', function () { selectChip('__custom__'); });
+    customBtn.disabled = true;
+    customBtn.title = 'Coming soon';
     container.appendChild(customBtn);
     selectChip('Strength');
     customInput.addEventListener('input', function () {});
