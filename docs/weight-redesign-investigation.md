@@ -72,8 +72,46 @@ Pre-ticket response shape (all fields still required for backward compat):
 }
 ```
 
-Post-ticket additions: `plan_today_kg`, `gap_kg`, `gap_direction`, `gap_basis`, `milestones`.
-See Part B — Endpoint in issue #420 for full shape.
+Full current response shape (after issues #420 and #457):
+
+```json
+{
+  "target": {
+    "id": "<uuid>",
+    "user_id": "<uuid>",
+    "start_weight_kg": 85.0,
+    "start_date": "YYYY-MM-DD",
+    "target_weight_kg": 75.0,
+    "target_date": "YYYY-MM-DD",
+    "status": "active",
+    "notes": "string or null",
+    "end_weight_kg": null,
+    "ended_at": null,
+    "created_at": "<iso datetime>",
+    "updated_at": "<iso datetime>",
+    "progress_pct": 42.0,
+    "kg_to_go": 5.8,
+    "days_remaining": 73,
+    "required_pace_kg_per_week": 0.555,
+    "current_pace_kg_per_week": 0.48,
+    "projected_end_date": "YYYY-MM-DD or null",
+    "status_label": "on_track|behind|ahead|no_data",
+    "plan_today_kg": 80.5,
+    "gap_kg": 1.5,
+    "gap_direction": "behind|ahead|on_plan|no_data",
+    "gap_basis": "avg_7d|latest_entry|null",
+    "projected_hit_date": "YYYY-MM-DD or null",
+    "milestones": [
+      {"date": "YYYY-MM-DD", "plan_kg": 80.5, "kind": "today"},
+      {"date": "YYYY-MM-DD", "plan_kg": 79.0, "kind": "intermediate"},
+      {"date": "YYYY-MM-DD", "plan_kg": 77.5, "kind": "intermediate"},
+      {"date": "YYYY-MM-DD", "plan_kg": 75.0, "kind": "goal"}
+    ]
+  }
+}
+```
+
+`projected_end_date` is computed from a 14-day pace window (inline in `main.py`); `projected_hit_date` is computed from the 7-day pace via `backend/services/weight_plan.project_hit_date`. `status_label` is deprecated.
 
 ### Chart endpoint: `GET /api/weight-chart`
 
@@ -105,7 +143,22 @@ Canvas element id: `weight-chart`. The instance is managed in `frontend/js/weigh
 
 ## Milestone Logic
 
-**Currently absent.** No milestone generation exists anywhere. `weight.js` calls `renderMilestones(_activeTarget, chartData.stats)` (line 802) but that function renders from whatever fields the active-target response provides — which has none yet. The AC for issue #420 defines the milestone spec.
+Milestones are computed by `backend/services/weight_plan.generate_milestones(target, as_of_date)`. It produces 4 items: a `"today"` stone, two `"intermediate"` stones (at 1/3 and 2/3 of remaining days, each snapped to the nearest 1st-of-month, deduped if they collide), and a `"goal"` stone. Each stone has `{date, plan_kg, kind}`. Milestones are returned in the `milestones` array of `GET /api/weight-targets/active`.
+
+On the frontend, `weight-targets.js` renders milestones onto the `#milestone-rail` track inside `#milestone-strip` (see `renderMilestoneStrip()` and `renderAllTimeStats()`).
+
+## `/weight/targets` Page
+
+The page at `/weight/targets` (served as `frontend/pages/weight-targets.html`) renders four visible sections:
+
+| Section | DOM id | Content |
+|---|---|---|
+| Active target card | `#active-card` | Goal weight, kg remaining, required pace, current pace, status pill |
+| Milestone rail | `#milestone-strip` | Visual progress track with today/intermediate/goal markers |
+| All-time stats | Inside `#milestone-strip` | Targets set, targets achieved, total kg lost, average pace |
+| History table | `#history-table` | Completed/abandoned targets with achieved %, duration, pace |
+
+When no active target exists, `#active-card` is hidden and a create-target form is shown instead.
 
 ## `no_data` Enum Leak Locations
 
@@ -118,7 +171,11 @@ Canvas element id: `weight-chart`. The instance is managed in `frontend/js/weigh
 
 The primary leak path is: `compute_status_label` → `status_label` field in active-target response → `weight-targets.js:236–244` renders `status_label` as a UI pill without guarding for `no_data`. The `labelMap` on line 244 falls back to class `'on-track'` for unknown values, so the pill shows the raw string `"no_data"` when no data is present.
 
-After this ticket, `gap_direction: "no_data"` is the canonical field; `status_label` is retained as a deprecated field.
+After issues #420/#457, `gap_direction: "no_data"` is the canonical field; `status_label` is retained as a deprecated field.
+
+### `STATES→` Coach Demo Rows
+
+A search across `frontend/` (all HTML and JS files) finds **no** `STATES→` demo strings. This pattern was considered during the redesign but was not added to the codebase. No coach demo rows leak into the live UI.
 
 ---
 

@@ -31,15 +31,16 @@ def test_hero_grid_css_columns():
         "Expected grid-template-columns: 1.35fr / 1fr in weight.html CSS"
 
 
-def test_hero_stacks_at_820px():
-    """Media query collapses hero to single column at ≤820px."""
-    assert "820px" in html, "Expected @media (max-width: 820px) rule in weight.html"
-    # After the 820px breakpoint, hero-2col must switch to grid-template-columns:1fr
+def test_hero_stacks_at_640px():
+    """Media query collapses hero to single column at ≤640px (issue #459 fixed regression)."""
+    # Issue #459 moved the hero breakpoint from 820px → 640px.
+    # The hero must NOT stack at 820px (that was the regression), only at 640px.
+    assert "640px" in html, "Expected @media (max-width: 640px) rule in weight.html"
     m = re.search(
-        r"820px.*?hero-2col.*?grid-template-columns\s*:\s*1fr",
+        r"640px.*?hero-2col.*?grid-template-columns\s*:\s*1fr",
         html, re.DOTALL
     )
-    assert m, "hero-2col not set to 1fr column inside 820px media query"
+    assert m, "hero-2col must be set to 1fr column inside 640px media query"
 
 
 # ── AC: Card A – CURRENT WEIGHT label + relative logged-date sub ──────────

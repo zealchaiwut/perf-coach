@@ -1,5 +1,18 @@
 # Changelog
 
+## Sprint 56 — Weight page redesign v2 + habits polish
+
+- #454: Allow Users to Edit Habits After Creation
+- #455: Fix 500 error when saving today's habit count
+- #456: Expand Habit Icon Library and Increase Icon Size
+- #457: Extend active-target endpoint with plan math
+- #458: Extend weight-chart endpoint with plan, milestones, and coach data
+- #459: Rebuild weight-page hero: current + log-today cards
+- #460: Rebuild progress card with stat-row and plan-aware milestones
+- #461: Add slide-in Edit-target panel, remove /weight/targets page
+- #463: Migrate weight page to gradient design language
+- #464: Rebuild weight trend chart as custom SVG
+
 ## Sprint 55 — Home redesign v7
 
 - #436: Investigate home page widgets and confirm API readiness

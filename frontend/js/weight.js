@@ -28,7 +28,7 @@ function addDays(dateStr, n) {
 
 // Compute from-date for each named range
 function rangeFromDate(range) {
-  const offsets = { '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
+  const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
   return addDays(todayISO(), offsets[range] ?? -29);
 }
 
@@ -110,6 +110,12 @@ async function fetchAllEntriesSummary() {
 
 async function fetchActiveTarget() {
   return apiFetch(`/api/weight-targets/active?user_id=${encodeURIComponent(_userId)}`);
+}
+
+async function fetchTargetHistory(status) {
+  let url = `/api/weight-targets/history?user_id=${encodeURIComponent(_userId)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  return apiFetch(url);
 }
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
@@ -295,7 +301,7 @@ function renderProgress(target) {
   const youValEl  = document.getElementById('pstat-you-val');
   const planSubEl = document.getElementById('pstat-plan-sub');
   if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
-  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : 'plan --';
+  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan says ${planTodayKg.toFixed(1)}` : 'plan --';
 
   const goalValEl  = document.getElementById('pstat-goal-val');
   const goalDateEl = document.getElementById('pstat-goal-date');
@@ -956,6 +962,256 @@ function _cardBSetLoggedState(entries, fallbackWeight) {
   }
 }
 
+// ── Edit-target slide-in panel ────────────────────────────────────────────
+
+function _openEditPanel() {
+  _populateEditPanel(_activeTarget);
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = false;
+  if (panel) panel.hidden = false;
+  const goalWeight = document.getElementById('et-goal-weight');
+  if (goalWeight) goalWeight.focus();
+}
+
+function _closeEditPanel() {
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = true;
+  if (panel) panel.hidden = true;
+  const errEl = document.getElementById('et-panel-error');
+  if (errEl) errEl.textContent = '';
+}
+
+function _populateEditPanel(target) {
+  const startWEl   = document.getElementById('et-start-weight');
+  const startHint  = document.getElementById('et-start-date-hint');
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const errEl      = document.getElementById('et-panel-error');
+
+  if (errEl) errEl.textContent = '';
+
+  if (target) {
+    if (startWEl)   startWEl.textContent = `${target.start_weight_kg.toFixed(1)} kg`;
+    if (startHint)  {
+      const d = new Date(target.start_date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      startHint.textContent = `Captured when the target began · ${dateStr}`;
+    }
+    if (goalWInput) goalWInput.value = target.target_weight_kg.toFixed(1);
+    if (goalDInput) goalDInput.value = target.target_date;
+  } else {
+    if (startWEl)   startWEl.textContent = '-- kg';
+    if (startHint)  startHint.textContent = 'No active target';
+    if (goalWInput) goalWInput.value = '';
+    if (goalDInput) goalDInput.value = '';
+  }
+
+  _updatePreview();
+}
+
+function _updatePreview() {
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const paceEl     = document.getElementById('et-preview-pace');
+  const kgEl       = document.getElementById('et-preview-kg');
+  const msEl       = document.getElementById('et-preview-ms');
+  const daysHint   = document.getElementById('et-days-hint');
+
+  const goalW = parseFloat(goalWInput ? goalWInput.value : '');
+  const goalD = goalDInput ? goalDInput.value : '';
+  const today = todayISO();
+
+  // Days from today hint
+  if (daysHint && goalD) {
+    const d = new Date(goalD + 'T00:00:00');
+    const t = new Date(today + 'T00:00:00');
+    const days = Math.round((d - t) / 86400000);
+    daysHint.textContent = days > 0 ? `${days} days from today` : (days === 0 ? 'today' : 'date is in the past');
+  } else if (daysHint) {
+    daysHint.textContent = '';
+  }
+
+  if (!goalD || isNaN(goalW)) {
+    if (paceEl) paceEl.textContent = '--';
+    if (kgEl)   kgEl.textContent   = '--';
+    if (msEl)   msEl.textContent   = '--';
+    return;
+  }
+
+  // Get the current weight basis (use _activeTarget plan + gap, or chart stats)
+  const currentW = _activeTarget && _activeTarget.plan_today_kg != null && _activeTarget.gap_kg != null
+    ? _activeTarget.plan_today_kg + _activeTarget.gap_kg
+    : (_chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null);
+
+  if (currentW == null || isNaN(currentW)) {
+    if (paceEl) paceEl.textContent = '--';
+    if (kgEl)   kgEl.textContent   = '--';
+    if (msEl)   msEl.textContent   = '--';
+    return;
+  }
+
+  const kgToLose = currentW - goalW;
+  const daysLeft = Math.round((new Date(goalD + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+
+  if (kgEl) {
+    kgEl.textContent = kgToLose > 0
+      ? `${kgToLose.toFixed(1)} kg to lose`
+      : `${Math.abs(kgToLose).toFixed(1)} kg to gain`;
+  }
+
+  if (paceEl) {
+    if (daysLeft > 0) {
+      const weeksLeft = daysLeft / 7;
+      const pace = Math.abs(kgToLose) / weeksLeft;
+      paceEl.textContent = `${pace.toFixed(2)} kg/wk`;
+    } else {
+      paceEl.textContent = '--';
+    }
+  }
+
+  if (msEl) {
+    // Milestone months: roughly every 3 months from today to goal date
+    const months = Math.round(daysLeft / 30);
+    if (months <= 1) {
+      msEl.textContent = '< 1 month';
+    } else {
+      const labels = [];
+      const d = new Date(today + 'T00:00:00');
+      for (let m = 3; m < months; m += 3) {
+        const ms = new Date(d);
+        ms.setMonth(ms.getMonth() + m);
+        labels.push(ms.toLocaleDateString('en-US', { month: 'short' }) + ' \'' + String(ms.getFullYear()).slice(2));
+      }
+      msEl.textContent = labels.length ? labels.join(' · ') : (months + ' mo');
+    }
+  }
+}
+
+async function _saveEditPanel() {
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const saveBtn    = document.getElementById('et-save-btn');
+  const errEl      = document.getElementById('et-panel-error');
+
+  if (errEl) errEl.textContent = '';
+
+  const goalW = parseFloat(goalWInput ? goalWInput.value : '');
+  const goalD = goalDInput ? goalDInput.value : '';
+
+  if (isNaN(goalW) || goalW < 20 || goalW > 300) {
+    if (errEl) errEl.textContent = 'Goal weight must be between 20 and 300 kg.';
+    return;
+  }
+  if (!goalD) {
+    if (errEl) errEl.textContent = 'Please select a goal date.';
+    return;
+  }
+  const today = todayISO();
+  if (goalD <= today) {
+    if (errEl) errEl.textContent = 'Goal date must be in the future.';
+    return;
+  }
+
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    if (_activeTarget) {
+      const res = await fetch(`/api/weight-targets/${encodeURIComponent(_activeTarget.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_weight_kg: goalW, target_date: goalD }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = data.detail || `Save failed (HTTP ${res.status})`;
+        return;
+      }
+    } else {
+      // No active target — POST a new one using current weight as start
+      const startW = _chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null;
+      if (!startW) {
+        if (errEl) errEl.textContent = 'Log a weight entry before creating a target.';
+        return;
+      }
+      const res = await fetch('/api/weight-targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: _userId,
+          start_weight_kg: startW,
+          start_date: today,
+          target_weight_kg: goalW,
+          target_date: goalD,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = data.detail || `Create failed (HTTP ${res.status})`;
+        return;
+      }
+    }
+    UIStates.showToast('Target saved');
+    _closeEditPanel();
+    await _reload();
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Network error: ' + e.message;
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function _endTargetFromPanel() {
+  if (!_activeTarget) return;
+  if (!confirm('End this target? This action cannot be undone.')) return;
+
+  const endBtn = document.getElementById('et-end-btn');
+  const errEl  = document.getElementById('et-panel-error');
+  if (errEl) errEl.textContent = '';
+  if (endBtn) endBtn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/weight-targets/${encodeURIComponent(_activeTarget.id)}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'abandoned' }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (errEl) errEl.textContent = data.detail || `End failed (HTTP ${res.status})`;
+      return;
+    }
+    UIStates.showToast('Target ended');
+    _closeEditPanel();
+    await _reload();
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Network error: ' + e.message;
+  } finally {
+    if (endBtn) endBtn.disabled = false;
+  }
+}
+
+function _initEditPanel() {
+  const pillBtn       = document.getElementById('edit-target-pill-btn');
+  const headerBtn     = document.getElementById('edit-target-header-btn');
+  const closeBtn      = document.getElementById('edit-panel-close');
+  const scrim         = document.getElementById('edit-scrim');
+  const saveBtn       = document.getElementById('et-save-btn');
+  const endBtn        = document.getElementById('et-end-btn');
+  const goalWInput    = document.getElementById('et-goal-weight');
+  const goalDInput    = document.getElementById('et-goal-date');
+
+  if (pillBtn)    pillBtn.addEventListener('click', _openEditPanel);
+  if (headerBtn)  headerBtn.addEventListener('click', _openEditPanel);
+  if (closeBtn)   closeBtn.addEventListener('click', _closeEditPanel);
+  if (scrim)      scrim.addEventListener('click', _closeEditPanel);
+  if (saveBtn)    saveBtn.addEventListener('click', _saveEditPanel);
+  if (endBtn)     endBtn.addEventListener('click', _endTargetFromPanel);
+  if (goalWInput) goalWInput.addEventListener('input', _updatePreview);
+  if (goalDInput) goalDInput.addEventListener('input', _updatePreview);
+}
+
 // ── Range tabs ─────────────────────────────────────────────────────────────
 
 function _initRangeTabs() {
@@ -971,6 +1227,145 @@ function _initRangeTabs() {
         showPageError('Chart load failed: ' + e.message);
       }
     });
+  });
+}
+
+// ── Target history ────────────────────────────────────────────────────────
+
+function _fmtTargetDateRange(t) {
+  const startD = new Date(t.start_date + 'T00:00:00');
+  const endD   = t.ended_at ? new Date(t.ended_at) : (t.target_date ? new Date(t.target_date + 'T00:00:00') : null);
+  const mo = d => d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  const days = t.duration_days != null ? `${t.duration_days}d` : '';
+  return endD ? `${mo(startD)}–${mo(endD)} · ${days}` : mo(startD);
+}
+
+function _renderTargetRows(targets) {
+  const tbody = document.getElementById('past-targets-tbody');
+  const empty = document.getElementById('targets-empty-state');
+  const table = document.getElementById('past-targets-table');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!targets || !targets.length) {
+    if (table) table.hidden = true;
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (table) table.hidden = false;
+  if (empty) empty.hidden = true;
+
+  targets.forEach(t => {
+    const result = t.achieved_weight_kg != null ? t.achieved_weight_kg.toFixed(1) : '--';
+    const delta = t.achieved_weight_kg != null
+      ? (t.start_weight_kg - t.achieved_weight_kg).toFixed(1)
+      : '--';
+    const deltaNum = t.achieved_weight_kg != null ? (t.start_weight_kg - t.achieved_weight_kg) : null;
+    const deltaClass = deltaNum != null && deltaNum > 0 ? 'good' : (deltaNum != null && deltaNum < 0 ? 'partial' : '');
+    const statusLabel = t.status === 'achieved' ? 'Done'
+      : t.status === 'replaced' ? 'Repl.'
+      : t.status === 'abandoned' ? 'Abnd.'
+      : t.status;
+    const badgeClass = t.status === 'achieved' ? 'achieved'
+      : t.status === 'replaced' ? 'replaced'
+      : 'abandoned';
+
+    const range = `${t.start_weight_kg.toFixed(0)} → ${t.target_weight_kg.toFixed(0)}`;
+    const dateRange = _fmtTargetDateRange(t);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
+      <td><div class="pt-target-nm">${range}<span class="pt-target-meta">${dateRange}</span></div></td>
+      <td class="r">${result}</td>
+      <td class="r pt-delta ${deltaClass}">${deltaNum != null ? (deltaNum >= 0 ? '−' : '+') + Math.abs(deltaNum).toFixed(1) : '--'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+let _allTargetHistory = [];
+let _activeHistoryFilter = 'all';
+
+function renderTargetHistory(historyData) {
+  _allTargetHistory = historyData.targets || [];
+  _renderJourneyCard(_allTargetHistory);
+  _renderTargetRows(_allTargetHistory);
+}
+
+function _renderJourneyCard(targets) {
+  const totalSet = targets.length;
+  const achieved = targets.filter(t => t.status === 'achieved');
+  const achievedCount = achieved.length;
+  const achievedPct = totalSet > 0 ? Math.round(achievedCount / totalSet * 100) : 0;
+
+  const totalLost = achieved.reduce((sum, t) => {
+    if (t.achieved_weight_kg != null) return sum + (t.start_weight_kg - t.achieved_weight_kg);
+    return sum;
+  }, 0);
+
+  const avgPace = achievedCount > 0
+    ? achieved.reduce((sum, t) => {
+        if (t.achieved_weight_kg != null && t.duration_days > 0) {
+          const kg = t.start_weight_kg - t.achieved_weight_kg;
+          return sum + kg / (t.duration_days / 7);
+        }
+        return sum;
+      }, 0) / achievedCount
+    : null;
+
+  const setEl = document.getElementById('jstat-targets-set');
+  if (setEl) setEl.textContent = totalSet;
+
+  const achEl = document.getElementById('jstat-achieved');
+  if (achEl) achEl.textContent = achievedCount;
+
+  const achPctEl = document.getElementById('jstat-achieved-pct');
+  if (achPctEl) {
+    achPctEl.textContent = achievedCount > 0 ? `${achievedPct}% success` : '';
+    achPctEl.className = achievedCount > 0 ? 'jstat-sub good' : 'jstat-sub';
+  }
+
+  const lostEl = document.getElementById('jstat-total-lost');
+  if (lostEl) {
+    if (lostEl.firstChild && lostEl.firstChild.nodeType === Node.TEXT_NODE) {
+      lostEl.firstChild.textContent = totalLost > 0 ? totalLost.toFixed(1) : '0';
+    }
+  }
+
+  const paceEl = document.getElementById('jstat-avg-pace');
+  if (paceEl) {
+    if (paceEl.firstChild && paceEl.firstChild.nodeType === Node.TEXT_NODE) {
+      paceEl.firstChild.textContent = avgPace != null ? avgPace.toFixed(2) : '--';
+    }
+  }
+
+  const bannerWrap = document.getElementById('vs-banner-wrap');
+  if (bannerWrap) {
+    if (targets.length === 0) {
+      bannerWrap.innerHTML = '';
+    } else {
+      bannerWrap.innerHTML = `
+        <div class="vs-banner">
+          <i class="ti ti-info-circle"></i>
+          <span>${totalSet} target${totalSet !== 1 ? 's' : ''} set · <strong>${achievedCount}</strong> achieved · <strong>${totalLost.toFixed(1)} kg</strong> total lost</span>
+        </div>`;
+    }
+  }
+}
+
+function _initTargetHistoryFilters() {
+  const pillsWrap = document.getElementById('past-targets-filters');
+  if (!pillsWrap) return;
+  pillsWrap.addEventListener('click', e => {
+    const btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    _activeHistoryFilter = btn.dataset.filter || 'all';
+    pillsWrap.querySelectorAll('.filter-pill').forEach(p => p.classList.toggle('active', p === btn));
+    const filtered = _activeHistoryFilter === 'all'
+      ? _allTargetHistory
+      : _allTargetHistory.filter(t => t.status === _activeHistoryFilter);
+    _renderTargetRows(filtered);
   });
 }
 
@@ -1001,11 +1396,12 @@ async function _reloadEntries() {
 
 async function _reload() {
   try {
-    const [chartData, entriesRes, targetRes, summaryRes] = await Promise.all([
+    const [chartData, entriesRes, targetRes, summaryRes, historyRes] = await Promise.all([
       fetchChartData(_currentRange),
       fetchRecentEntries(),
       fetchActiveTarget(),
       fetchAllEntriesSummary(),
+      fetchTargetHistory(),
     ]);
 
     _chartData = chartData;
@@ -1020,6 +1416,7 @@ async function _reload() {
     renderMilestones(_activeTarget, chartData.stats);
     renderRecentEntries(_recentEntries, _activeTarget);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
+    renderTargetHistory(historyRes);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -1039,6 +1436,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   _initCardB();
   _initRangeTabs();
+  _initEditPanel();
+  _initTargetHistoryFilters();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {

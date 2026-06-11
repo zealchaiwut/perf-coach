@@ -1,9 +1,25 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ICONS = [
-  'ti-run', 'ti-barbell', 'ti-droplet', 'ti-book',
-  'ti-bed', 'ti-flame', 'ti-walk', 'ti-bike',
-  'ti-meditation', 'ti-shoe', 'ti-clipboard',
+  // Fitness
+  'ti-run', 'ti-barbell', 'ti-walk', 'ti-bike', 'ti-shoe',
+  'ti-swimming', 'ti-yoga', 'ti-dumbbell', 'ti-stretching',
+  // Energy & Vitality
+  'ti-flame', 'ti-sun', 'ti-moon', 'ti-heart',
+  // Mindfulness
+  'ti-meditation', 'ti-brain', 'ti-mood-smile',
+  // Nutrition & Hydration
+  'ti-droplet', 'ti-apple', 'ti-coffee', 'ti-salad',
+  // Rest & Recovery
+  'ti-bed', 'ti-bath',
+  // Learning
+  'ti-book', 'ti-pencil', 'ti-school', 'ti-notebook',
+  // Productivity
+  'ti-clipboard', 'ti-clock', 'ti-calendar', 'ti-target', 'ti-check',
+  // Social
+  'ti-users', 'ti-message',
+  // Health
+  'ti-stethoscope',
 ];
 
 const COLORS = [
@@ -557,7 +573,7 @@ function renderDailyGrid(logSet) {
   html += '</tr></thead><tbody>';
 
   dailyHabits.forEach(habit => {
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 24);
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
     const target = habit.total ? habit.total.target : 7;
     const done = habit.total ? habit.total.done : 0;
     const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
@@ -1250,7 +1266,7 @@ function renderArchivedList() {
     const li = document.createElement('li');
     li.className = 'archived-habit-row';
 
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 22);
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
     const nameEl = document.createElement('span');
     nameEl.className = 'archived-habit-name';
     nameEl.innerHTML = iconHTML + ' ' + esc(habit.name);
@@ -1367,6 +1383,8 @@ function openNewModal() {
   document.getElementById('modal-name').value = '';
   document.getElementById('modal-description').value = '';
   document.getElementById('modal-tracking-type').value = 'daily_checkmark';
+  document.getElementById('modal-tracking-type').disabled = false;
+  document.getElementById('modal-tracking-type-hint').style.display = 'none';
   document.getElementById('modal-weekly-target').value = '';
   document.getElementById('modal-unit').value = '';
   document.getElementById('modal-auto-fill').value = '';
@@ -1389,6 +1407,8 @@ function openEditModal(habit) {
   document.getElementById('modal-name').value = habit.name || '';
   document.getElementById('modal-description').value = habit.description || '';
   document.getElementById('modal-tracking-type').value = habit.tracking_type || 'daily_checkmark';
+  document.getElementById('modal-tracking-type').disabled = true;
+  document.getElementById('modal-tracking-type-hint').style.display = '';
   document.getElementById('modal-weekly-target').value = habit.weekly_target != null ? habit.weekly_target : '';
   document.getElementById('modal-unit').value = habit.unit || '';
   document.getElementById('modal-auto-fill').value = habit.auto_fill_source || '';
@@ -1403,6 +1423,7 @@ function openEditModal(habit) {
 
 function closeModal() {
   document.getElementById('habit-modal').classList.remove('open');
+  document.getElementById('modal-tracking-type').disabled = false;
   editingHabitId = null;
 }
 
@@ -1486,6 +1507,9 @@ document.addEventListener('DOMContentLoaded', () => {
       icon: selectedIcon || null,
       color: selectedColor || null,
     };
+
+    // tracking_type is immutable after creation — backend rejects it in PATCH
+    if (editingHabitId) delete payload.tracking_type;
 
     try {
       let res;

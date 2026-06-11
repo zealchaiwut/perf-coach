@@ -22,7 +22,10 @@
     main {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 20px 24px 24px;
+      padding: 36px 22px 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     /* ── Floating card ─────────────────────────────────────────────────────── */
@@ -53,7 +56,6 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 1rem;
-      margin-bottom: 16px;
       flex-wrap: wrap;
     }
 
@@ -117,8 +119,7 @@
     .hero-2col {
       display: grid;
       grid-template-columns: 1.35fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: 16px;
     }
 
     .hero-card {
@@ -212,7 +213,6 @@
       border-radius: 10px;
       font-size: 13.5px;
       font-weight: 500;
-      margin-bottom: 10px;
       line-height: 1.4;
       backdrop-filter: blur(6px);
     }
@@ -294,8 +294,8 @@
       width: 100%;
       margin-top: 8px;
       padding: 10px 1rem;
-      background: #0b1530;
-      color: #fff;
+      background: var(--accent);
+      color: var(--accent-text);
       border: none;
       border-radius: 9px;
       font-size: 14px;
@@ -304,7 +304,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .log-submit-btn:hover { background: #162444; }
+    .log-submit-btn:hover { opacity: 0.88; }
     .log-submit-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Logged state */
@@ -391,7 +391,7 @@
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 16px;
       align-items: start;
     }
 
@@ -670,13 +670,108 @@
     #page-error {
       color: #fff;
       font-size: 13.5px;
-      margin-bottom: 12px;
       min-height: 1.2em;
       background: rgba(122,26,26,0.55);
       border-radius: 8px;
       padding: 0;
     }
     #page-error:not(:empty) { padding: 10px 14px; }
+
+    /* ── Target history section ─────────────────────────────────────────────── */
+    .target-history-section { display: flex; flex-direction: column; gap: 8px; }
+
+    .target-history-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+      color: rgba(255,255,255,0.62);
+    }
+
+    .target-history-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    /* Journey card */
+    .vs-banner {
+      background: #dde6f8; border: 1px solid #c3d3f0;
+      border-radius: 10px; padding: 10px 12px;
+      font-size: 12px; color: #1e3a8a;
+      display: flex; align-items: flex-start; gap: 8px;
+      margin-bottom: 12px;
+    }
+    .vs-banner i { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+    .vs-banner strong { font-family: 'JetBrains Mono', monospace; }
+
+    .journey-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .jstat { display: flex; flex-direction: column; gap: 3px; }
+    .jstat-lbl { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; }
+    .jstat-val {
+      font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700;
+      line-height: 1; color: var(--text-primary);
+    }
+    .jstat-val .u { font-size: 11px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; }
+    .jstat-sub { font-size: 10.5px; color: var(--text-secondary); }
+    .jstat-sub.good { color: var(--green); font-weight: 600; }
+
+    /* Past targets card */
+    .past-targets-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .past-targets-head h2 { margin: 0; }
+
+    .filter-pills {
+      display: flex; gap: 4px; padding: 3px;
+      background: #f1f4fa; border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    .filter-pill {
+      padding: 4px 11px; border-radius: 999px;
+      font-size: 11px; font-weight: 600;
+      color: var(--text-secondary); background: transparent;
+      border: 0; cursor: pointer;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .filter-pill.active { background: #0b1530; color: #fff; }
+
+    .past-targets-table { width: 100%; border-collapse: collapse; }
+    .past-targets-table th {
+      font-size: 9px; color: var(--text-tertiary); text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 600; padding: 6px 6px;
+      text-align: left; border-bottom: 1px solid #eef0f6;
+    }
+    .past-targets-table th.r { text-align: right; }
+    .past-targets-table td {
+      padding: 10px 6px; border-bottom: 1px solid #f5f6fa;
+      font-size: 12px; vertical-align: middle;
+    }
+    .past-targets-table tr:last-child td { border-bottom: none; }
+    .past-targets-table td.r {
+      text-align: right;
+      font-family: 'JetBrains Mono', monospace; font-weight: 600;
+    }
+
+    .status-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 5px;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .status-badge.achieved { background: var(--green-soft); color: var(--green); }
+    .status-badge.replaced { background: var(--amber-soft); color: var(--amber); }
+    .status-badge.abandoned { background: #f1f4fa; color: var(--text-secondary); }
+
+    .pt-target-nm { font-weight: 600; font-size: 12px; }
+    .pt-target-meta { font-weight: 400; color: var(--text-secondary); font-size: 10.5px; display: block; margin-top: 2px; }
+    .pt-delta.good { color: var(--green); }
+    .pt-delta.partial { color: var(--amber); }
+
+    /* Empty state for target history */
+    .targets-empty-state {
+      text-align: center; padding: 28px 12px;
+      color: var(--text-tertiary); font-size: 13px;
+    }
+    .targets-empty-state .emo { font-size: 28px; margin-bottom: 8px; display: block; }
 
     /* ── Responsive ≤880px ────────────────────────────────────────────────── */
     @media (max-width: 880px) {
@@ -685,9 +780,6 @@
 
     /* ── Responsive ≤820px ────────────────────────────────────────────────── */
     @media (max-width: 820px) {
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
-
       .entries-table thead { display: none; }
       .entries-table,
       .entries-table tbody { display: block; }
@@ -712,20 +804,120 @@
     /* ── Responsive ≤768px ────────────────────────────────────────────────── */
     @media (max-width: 768px) {
       main { padding: 16px 16px 20px; }
+      .weight-page-header h1 { font-size: 22px; }
+    }
+
+    /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
+    @media (max-width: 640px) {
       .hero-2col { grid-template-columns: 1fr; }
       .bottom-grid { grid-template-columns: 1fr; }
-      .weight-page-header h1 { font-size: 22px; }
+      .target-history-grid { grid-template-columns: 1fr; }
+      .et-panel {
+        top: auto; right: 0; left: 0; bottom: 0;
+        width: 100%; max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -8px 32px rgba(8, 18, 48, 0.22);
+        max-height: 92vh;
+      }
     }
 
     /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
     @media (max-width: 480px) {
       main { padding: 12px 12px 16px; }
       .weight-page-header h1 { font-size: 20px; }
-      .hero-2col { grid-template-columns: 1fr; }
-      .bottom-grid { grid-template-columns: 1fr; }
       .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
+    }
+
+    /* ── Edit-target slide-in panel ──────────────────────────────────────── */
+    .et-panel-scrim {
+      position: fixed; inset: 0;
+      background: rgba(8, 18, 48, 0.45);
+      z-index: 90;
+    }
+    .et-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: 380px; max-width: 92vw;
+      background: #fff;
+      z-index: 100;
+      box-shadow: -12px 0 40px rgba(8, 18, 48, 0.25);
+      display: flex; flex-direction: column;
+    }
+    .et-panel-hdr {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .et-panel-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .et-panel-close {
+      width: 30px; height: 30px; border-radius: 8px; border: 0;
+      background: #f1f4fa; cursor: pointer;
+      font-size: 16px; color: var(--text-secondary);
+    }
+    .et-panel-body {
+      padding: 16px 18px; overflow-y: auto; flex: 1;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .et-field { display: flex; flex-direction: column; gap: 5px; }
+    .et-field label {
+      font-size: 10px; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+    }
+    .et-field-display {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px; display: flex; align-items: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .et-field input {
+      height: 40px; border-radius: 10px;
+      border: 1.5px solid var(--card-border); background: #f7f9fd;
+      padding: 0 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
+      color: var(--text-primary);
+    }
+    .et-field input:focus {
+      outline: none; border-color: #3563d4; background: #fff;
+    }
+    .et-field input[type="date"] {
+      font-family: 'Inter Tight', sans-serif; font-size: 14px;
+    }
+    .et-hint {
+      font-size: 10.5px; color: var(--text-tertiary);
+    }
+    .et-preview {
+      background: #f7f9fd; border-radius: 11px; padding: 12px 14px;
+      font-size: 12px; color: var(--text-secondary);
+    }
+    .et-preview-row {
+      display: flex; justify-content: space-between; margin: 3px 0;
+    }
+    .et-preview-row .mono {
+      font-family: 'JetBrains Mono', monospace; font-weight: 700;
+      color: var(--text-primary);
+    }
+    .et-panel-foot {
+      padding: 14px 18px; border-top: 1px solid var(--card-border);
+      display: flex; gap: 8px;
+    }
+    .et-save-btn {
+      flex: 1; height: 40px; border-radius: 10px; border: 0;
+      background: var(--accent); color: var(--accent-text);
+      font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .et-save-btn:hover { opacity: 0.88; }
+    .et-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .et-end-btn {
+      height: 40px; padding: 0 14px; border-radius: 10px;
+      border: 1px solid var(--red-soft); background: #fff;
+      color: var(--red); font-family: inherit; font-size: 12px;
+      font-weight: 600; cursor: pointer;
+    }
+    .et-end-btn:hover { background: var(--red-soft); }
+    .et-panel-error {
+      font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
     }
   </style>
 </head>
@@ -741,7 +933,7 @@
       </div>
       <div class="header-actions">
         <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
-        <a href="/weight/targets" class="manage-target-btn">⚖ Manage target</a>
+        <button class="manage-target-btn" id="edit-target-header-btn" type="button">⚖ Edit target</button>
       </div>
     </div>
 
@@ -761,6 +953,10 @@
             <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
             <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
           </div>
+        </div>
+        <!-- Coach strip: single instance, re-evaluates on each log/edit -->
+        <div class="coach-strip coach-grey" id="coach-strip">
+          <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
         </div>
       </div>
 
@@ -796,14 +992,10 @@
 
     </div>
 
-    <!-- Coach strip: full-width below the 2-card row -->
-    <div class="coach-strip coach-grey" id="coach-strip">
-      <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
-    </div>
-
     <!-- Chart card -->
-    <div class="card chart-card" style="margin-bottom:10px">
+    <div class="card chart-card">
       <div class="range-tabs" role="group" aria-label="Chart date range">
+        <button class="range-tab" data-range="7d" type="button">7D</button>
         <button class="range-tab active" data-range="30d" type="button">30D</button>
         <button class="range-tab" data-range="90d" type="button">90D</button>
         <button class="range-tab" data-range="6m" type="button">6M</button>
@@ -847,7 +1039,7 @@
           <!-- Card header: title + Edit target pill -->
           <div class="progress-card-hdr">
             <h2>Progress toward goal</h2>
-            <a href="/weight/targets" class="edit-target-pill">Edit target</a>
+            <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
           </div>
 
           <!-- Three-stat row: Start | You | Goal -->
@@ -927,7 +1119,116 @@
       </div>
 
     </div><!-- /.bottom-grid -->
+
+    <!-- Target history: Journey (left) | Past targets (right) -->
+    <div class="target-history-section" id="target-history-section">
+      <span class="target-history-label">Target history</span>
+      <div class="target-history-grid">
+
+        <!-- Journey card -->
+        <div class="card" id="journey-card">
+          <h2>Your weight journey</h2>
+          <div id="vs-banner-wrap"></div>
+          <div class="journey-stats" id="journey-stats">
+            <div class="jstat">
+              <span class="jstat-lbl">Targets set</span>
+              <span class="jstat-val" id="jstat-targets-set">--</span>
+            </div>
+            <div class="jstat">
+              <span class="jstat-lbl">Achieved</span>
+              <span class="jstat-val" id="jstat-achieved">--</span>
+              <span class="jstat-sub" id="jstat-achieved-pct"></span>
+            </div>
+            <div class="jstat">
+              <span class="jstat-lbl">Total lost</span>
+              <span class="jstat-val" id="jstat-total-lost">--<span class="u"> kg</span></span>
+            </div>
+            <div class="jstat">
+              <span class="jstat-lbl">Avg pace</span>
+              <span class="jstat-val" id="jstat-avg-pace">--<span class="u">/wk</span></span>
+            </div>
+          </div>
+        </div><!-- /#journey-card -->
+
+        <!-- Past targets card -->
+        <div class="card" id="past-targets-card">
+          <div class="past-targets-head">
+            <h2>Past targets</h2>
+          </div>
+          <div class="filter-pills" id="past-targets-filters">
+            <button class="filter-pill active" data-filter="all" type="button">All</button>
+            <button class="filter-pill" data-filter="achieved" type="button">Achieved</button>
+            <button class="filter-pill" data-filter="replaced" type="button">Replaced</button>
+            <button class="filter-pill" data-filter="abandoned" type="button">Abandoned</button>
+          </div>
+          <div id="past-targets-body">
+            <table class="past-targets-table" id="past-targets-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Target</th>
+                  <th class="r">Result</th>
+                  <th class="r">&#x394;</th>
+                </tr>
+              </thead>
+              <tbody id="past-targets-tbody"></tbody>
+            </table>
+            <div class="targets-empty-state" id="targets-empty-state" hidden>
+              <span class="emo">🏁</span>
+              No targets yet — set a goal above to start tracking your progress.
+            </div>
+          </div>
+        </div><!-- /#past-targets-card -->
+
+      </div><!-- /.target-history-grid -->
+    </div><!-- /#target-history-section -->
+
   </main>
+
+  <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
+  <div id="edit-scrim" class="et-panel-scrim" hidden></div>
+  <div id="edit-panel" class="et-panel" hidden>
+    <div class="et-panel-hdr">
+      <span class="et-panel-title">Edit target</span>
+      <button id="edit-panel-close" class="et-panel-close" type="button" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="et-panel-body">
+      <div class="et-field">
+        <label>Start weight</label>
+        <div class="et-field-display" id="et-start-weight">-- kg</div>
+        <span class="et-hint" id="et-start-date-hint">Captured when the target began</span>
+      </div>
+      <div class="et-field">
+        <label>Goal weight (kg)</label>
+        <input type="number" id="et-goal-weight" step="0.1" min="20" max="300"
+               inputmode="decimal" placeholder="e.g. 80.0">
+      </div>
+      <div class="et-field">
+        <label>Goal date</label>
+        <input type="date" id="et-goal-date">
+        <span class="et-hint" id="et-days-hint"></span>
+      </div>
+      <div class="et-preview" id="et-preview">
+        <div class="et-preview-row">
+          <span>Pace needed</span>
+          <span class="mono" id="et-preview-pace">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>From today</span>
+          <span class="mono" id="et-preview-kg">--</span>
+        </div>
+        <div class="et-preview-row">
+          <span>Milestones</span>
+          <span class="mono" id="et-preview-ms">--</span>
+        </div>
+      </div>
+      <div class="et-panel-error" id="et-panel-error" role="alert"></div>
+    </div>
+    <div class="et-panel-foot">
+      <button id="et-end-btn" class="et-end-btn" type="button">End target</button>
+      <button id="et-save-btn" class="et-save-btn" type="button">Save changes</button>
+    </div>
+  </div>
 
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>
