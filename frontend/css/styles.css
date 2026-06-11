@@ -55,7 +55,7 @@
   --card-shadow: 0 2px 12px rgba(13, 30, 67, 0.10), 0 1px 3px rgba(13, 30, 67, 0.06);
   --text-primary: #0b1530;
   --text-secondary: #5c6886;
-  --text-tertiary: #8b95ad;
+  --text-tertiary: #69748c;  /* AA 4.77:1; was #8b95ad (3.0:1, failed) */
   --accent: #e4ff52;
   --accent-text: #1a2400;
   --green: #2d5e10;

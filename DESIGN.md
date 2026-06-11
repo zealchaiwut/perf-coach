@@ -29,7 +29,7 @@ The home page and weight page use a gradient design language. New pages should f
 |-------|-------|-------|
 | `--text-primary` | `#0b1530` | Body text on white cards |
 | `--text-secondary` | `#5c6886` | Secondary / muted text |
-| `--text-tertiary` | `#8b95ad` | Labels, micro-text |
+| `--text-tertiary` | `#69748c` | Labels, micro-text (AA 4.77:1; #8b95ad failed) |
 
 ### Typography
 

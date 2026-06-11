@@ -483,9 +483,11 @@
       border-radius: 999px; overflow: visible;
     }
     .progress-bar-fill.pgbar-fill {
-      position: absolute; left: 0; top: 0; height: 100%;
+      position: absolute; left: 0; top: 0; height: 100%; width: 100%;
       background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
-      border-radius: 999px; transition: width 0.4s ease;
+      border-radius: 999px;
+      transform-origin: left center; transform: scaleX(0);
+      transition: transform 0.4s ease;
     }
     .progress-marker.pgbar-you-dot {
       position: absolute; top: 50%; transform: translate(-50%, -50%);
@@ -744,6 +746,24 @@
       .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
+    }
+    /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
+    .stepper-btn:focus-visible, .range-tab:focus-visible, .log-submit-btn:focus-visible,
+    .btn-secondary:focus-visible, .manage-target-btn:focus-visible, .edit-target-pill:focus-visible,
+    .edit-link:focus-visible, .view-all-link:focus-visible, .stepper-input:focus-visible,
+    .mini-step:focus-visible, .mini-val:focus-visible, .mini-save:focus-visible,
+    .add-chip:focus-visible, .entry-edit:focus-visible, .entry-menu-btn:focus-visible {
+      outline: 2px solid var(--bg-1);
+      outline-offset: 2px;
+    }
+
+    /* Respect reduced-motion: instant progress + no transitions */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
     }
   </style>
 </head>
