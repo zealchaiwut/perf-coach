@@ -1367,6 +1367,8 @@ function openNewModal() {
   document.getElementById('modal-name').value = '';
   document.getElementById('modal-description').value = '';
   document.getElementById('modal-tracking-type').value = 'daily_checkmark';
+  document.getElementById('modal-tracking-type').disabled = false;
+  document.getElementById('modal-tracking-type-hint').style.display = 'none';
   document.getElementById('modal-weekly-target').value = '';
   document.getElementById('modal-unit').value = '';
   document.getElementById('modal-auto-fill').value = '';
@@ -1389,6 +1391,8 @@ function openEditModal(habit) {
   document.getElementById('modal-name').value = habit.name || '';
   document.getElementById('modal-description').value = habit.description || '';
   document.getElementById('modal-tracking-type').value = habit.tracking_type || 'daily_checkmark';
+  document.getElementById('modal-tracking-type').disabled = true;
+  document.getElementById('modal-tracking-type-hint').style.display = '';
   document.getElementById('modal-weekly-target').value = habit.weekly_target != null ? habit.weekly_target : '';
   document.getElementById('modal-unit').value = habit.unit || '';
   document.getElementById('modal-auto-fill').value = habit.auto_fill_source || '';
@@ -1403,6 +1407,7 @@ function openEditModal(habit) {
 
 function closeModal() {
   document.getElementById('habit-modal').classList.remove('open');
+  document.getElementById('modal-tracking-type').disabled = false;
   editingHabitId = null;
 }
 
@@ -1486,6 +1491,9 @@ document.addEventListener('DOMContentLoaded', () => {
       icon: selectedIcon || null,
       color: selectedColor || null,
     };
+
+    // tracking_type is immutable after creation — backend rejects it in PATCH
+    if (editingHabitId) delete payload.tracking_type;
 
     try {
       let res;
