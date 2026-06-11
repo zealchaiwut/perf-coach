@@ -388,73 +388,31 @@ function renderProgress(target) {
 // ── Milestones panel ───────────────────────────────────────────────────────
 
 function renderMilestones(target) {
-  const rowsEl = document.getElementById('milestone-rows');
-  if (!rowsEl) return;
-
-  if (!target || !target.milestones || !target.milestones.length) {
-    rowsEl.innerHTML = '';
+  const layer = document.getElementById('pgbar-ms-layer');
+  if (!layer) return;
+  if (!target || !target.milestones || !target.milestones.length ||
+      target.start_weight_kg == null || target.target_weight_kg == null) {
+    layer.innerHTML = '';
     return;
   }
+  const start = target.start_weight_kg;
+  const goal  = target.target_weight_kg;
+  const span  = start - goal;
+  if (span === 0) { layer.innerHTML = ''; return; }
 
-  const gapDir      = target.gap_direction || 'no_data';
-  const planTodayKg = target.plan_today_kg;
-  const gapKg       = target.gap_kg;
-  // current basis derived the same way as in renderProgress
-  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
-
-  rowsEl.innerHTML = target.milestones.map(m => {
-    const dateDisplay = m.date ? (() => {
-      const d = new Date(m.date + 'T00:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    })() : '--';
-
-    if (m.kind === 'today') {
-      // Today row: actual basis weight + plan sub + signed delta chip
-      const actualDisplay = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
-      const planSub = planTodayKg != null ? `plan ${planTodayKg.toFixed(1)} kg` : '';
-
-      let rowClass = 'milestone-row milestone-row-standard';
-      if      (gapDir === 'behind')  rowClass = 'milestone-row milestone-today-behind';
-      else if (gapDir === 'ahead')   rowClass = 'milestone-row milestone-today-ahead';
-      else if (gapDir === 'on_plan') rowClass = 'milestone-row milestone-today-on-plan';
-
-      let deltaHtml = '';
-      if (gapKg != null) {
-        const sign      = gapKg >= 0 ? '+' : '';
-        const chipClass = Math.abs(gapKg) < 0.15
-          ? 'milestone-delta-neutral'
-          : (gapKg < 0 ? 'milestone-delta-ahead' : 'milestone-delta-behind');
-        deltaHtml = `<span class="milestone-row-delta ${chipClass}">${sign}${gapKg.toFixed(1)} kg</span>`;
-      }
-
-      return `
-        <div class="${rowClass}">
-          <div class="milestone-row-date">${dateDisplay}</div>
-          <div class="milestone-row-center">
-            <div class="milestone-row-weight">${actualDisplay}</div>
-            <div class="milestone-row-sub">${planSub}</div>
-          </div>
-          ${deltaHtml}
-        </div>`;
-    }
-
-    // Intermediate or goal row: plan kg + ↓ remaining from today's plan position
-    const planDisplay = m.plan_kg != null ? `${m.plan_kg.toFixed(1)} kg` : '--';
-    const remaining   = (planTodayKg != null && m.plan_kg != null)
-      ? Math.abs(planTodayKg - m.plan_kg)
-      : null;
-    const remainSub = remaining != null ? `↓ ${remaining.toFixed(1)} kg to go` : '';
-    const kindLabel = m.kind === 'goal' ? 'Goal' : '';
-
-    return `
-      <div class="milestone-row milestone-row-standard">
-        <div class="milestone-row-date">${dateDisplay}${kindLabel ? `<div style="font-size:0.625rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;">${kindLabel}</div>` : ''}</div>
-        <div class="milestone-row-center">
-          <div class="milestone-row-weight">${planDisplay}</div>
-          <div class="milestone-row-sub">${remainSub}</div>
-        </div>
-      </div>`;
-  }).join('');
+  // Intermediate + goal milestones become markers on the bar (today is the dot).
+  layer.innerHTML = target.milestones
+    .filter(m => m.kind !== 'today' && m.plan_kg != null)
+    .map(m => {
+      const pct = Math.max(0, Math.min(100, (start - m.plan_kg) / span * 100));
+      const dateStr = m.date
+        ? new Date(m.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : '';
+      const isGoal = m.kind === 'goal';
+      const title = `${dateStr ? dateStr + ' · ' : ''}${m.plan_kg.toFixed(1)} kg${isGoal ? ' (goal)' : ''}`;
+      return `<span class="pgbar-ms${isGoal ? ' pgbar-ms-goal' : ''}" style="left:${pct}%" title="${title}" aria-label="${title}"></span>`;
+    })
+    .join('');
 }
 
 // ── Recent entries (last 14 days) ─────────────────────────────────────────

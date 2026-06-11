@@ -371,9 +371,10 @@ def test_ac8_pgstatus_pill_set_from_lookup():
 # ── AC9: Milestones from /active array ───────────────────────────────────────
 
 def test_ac9_milestone_rows_element():
-    """AC9: milestone-rows container exists for list rendering."""
-    assert 'id="milestone-rows"' in html, \
-        "Missing id='milestone-rows' in weight.html"
+    """AC9 (revised): milestones now render as markers on the progress bar
+    (the standalone list was removed), so the bar carries a milestone layer."""
+    assert 'id="pgbar-ms-layer"' in html, \
+        "Missing id='pgbar-ms-layer' (milestone markers on the progress bar)"
 
 
 def test_ac9_js_uses_target_milestones():
@@ -386,9 +387,9 @@ def test_ac9_js_uses_target_milestones():
 
 
 def test_ac9_js_renders_milestone_rows():
-    """AC9: JS renders milestone rows into milestone-rows element."""
-    assert "milestone-rows" in js, \
-        "JS does not render into id='milestone-rows'"
+    """AC9 (revised): JS renders milestone markers into the progress-bar layer."""
+    assert "pgbar-ms-layer" in js, \
+        "JS does not render milestones into id='pgbar-ms-layer'"
 
 
 # ── AC10: Today row ───────────────────────────────────────────────────────────
@@ -449,9 +450,10 @@ def test_ac11_js_uses_plan_today_for_remaining():
 # ── AC12: List header with ◆ on chart ────────────────────────────────────────
 
 def test_ac12_on_chart_hint():
-    """AC12: Milestone list header contains '◆ on chart' hint."""
-    assert "◆ on chart" in html or "◆ on chart" in js, \
-        "'◆ on chart' hint not found in weight.html or weight.js"
+    """AC12 (revised): milestones are shown as diamond/goal markers on the bar
+    (and on the chart). The standalone list hint was removed."""
+    assert "pgbar-ms" in js or "pgbar-ms" in html, \
+        "milestone bar markers (pgbar-ms) not found"
 
 
 def test_ac12_milestone_list_header():

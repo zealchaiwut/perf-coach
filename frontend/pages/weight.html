@@ -1018,6 +1018,11 @@
       .wcal-nav { width: 32px; height: 32px; }
       .wcal-save, .wcal-del { min-height: 38px; }
     }
+    /* ── Merged card separator + milestone markers on the progress bar ──────── */
+    .merged-sep { border-top: 1px solid rgba(13,30,67,0.08); margin: 3px 0 12px; }
+    .pgbar-ms-layer { position: absolute; inset: 0; pointer-events: none; }
+    .pgbar-ms { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 7px; height: 7px; background: #fff; border: 1.5px solid #16a34a; border-radius: 1px; pointer-events: auto; cursor: help; z-index: 2; }
+    .pgbar-ms-goal { border-radius: 50%; transform: translate(-50%, -50%); width: 9px; height: 9px; background: #16a34a; border-color: #16a34a; }
   </style>
 </head>
 <body>
@@ -1040,7 +1045,8 @@
     <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
     <div class="top-grid">
       <div class="top-col">
-      <div class="hero-card hero-card-a">
+        <!-- Merged: Current weight + Progress toward goal -->
+        <div class="card hero-card merged-card">
         <div class="hca-top">
           <span class="hca-label">CURRENT WEIGHT</span>
           <span class="hca-date-sub" id="hca-date-sub"></span>
@@ -1063,15 +1069,12 @@
         <div class="coach-strip coach-grey" id="coach-strip">
           <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
         </div>
-      </div>
-        <div class="card" id="progress-card" hidden>
-
-          <!-- Card header: title + Edit target pill -->
+          <div id="progress-card" hidden>
+            <div class="merged-sep"></div>
           <div class="progress-card-hdr">
             <h2>Progress toward goal</h2>
             <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
           </div>
-
           <!-- Three-stat row: Start | You | Goal -->
           <div class="progress-stat-row">
             <div>
@@ -1090,20 +1093,19 @@
               <div class="pstat-date pstat-date-green" id="pstat-goal-date">--</div>
             </div>
           </div>
-
           <!-- Progress bar -->
           <div class="progress-bar-wrap">
             <div class="progress-bar-track" id="pgbar-track">
               <div class="progress-bar-fill pgbar-fill" id="pgbar-fill"></div>
               <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
               <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
+              <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
             </div>
             <div class="pgbar-micro-row" id="pgbar-micro-row">
               <span class="pgbar-micro-lbl" id="pgbar-micro-you">you</span>
               <span class="pgbar-micro-lbl pgbar-micro-plan-lbl" id="pgbar-micro-plan">plan</span>
             </div>
           </div>
-
           <!-- Summary row -->
           <div class="progress-summary-row">
             <div>
@@ -1114,25 +1116,16 @@
             <span id="kg-to-go" hidden></span>
             <span class="pgstatus-pill" id="pgstatus-pill"></span>
           </div>
-
-          <!-- Milestone list -->
-          <div class="milestone-list-section" id="milestone-list-section">
-            <div class="milestone-list-hdr">
-              <span class="milestone-list-title">Milestones</span>
-              <span class="milestone-on-chart">◆ on chart</span>
-            </div>
-            <div id="milestone-rows"></div>
           </div>
-
-        </div><!-- /#progress-card -->
+        </div>
       </div>
       <div class="top-col">
-      <div class="hero-card hero-card-b">
+        <!-- Merged: Log Today + Recent entries -->
+        <div class="card hero-card merged-card">
         <div class="hcb-top">
           <span class="hcb-label">LOG TODAY</span>
           <span class="hcb-date" id="hcb-date"></span>
         </div>
-
         <!-- Stepper (shown when not yet logged today, or while editing) -->
         <div id="stepper-wrap">
           <div class="stepper">
@@ -1149,13 +1142,11 @@
           <!-- quicklog-error alias for test_weight_page_frontend__412 -->
           <div id="quicklog-error" hidden></div>
         </div>
-
         <!-- Logged strip (shown after successful log) -->
         <div class="logged-strip" id="logged-strip" hidden>
           <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
         </div>
-      </div>
-      <div class="card recent-entries-card" id="recent-entries-card">
+          <div class="merged-sep"></div>
         <div class="card-header-row">
           <h2>Recent entries &middot; <span class="card-subtitle">last 5 days</span></h2>
           <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
@@ -1184,6 +1175,7 @@
             </div>
           </div>
           <div class="wcal-editor" id="wcal-editor" hidden></div>
+        </div>
         </div>
       </div>
     </div>
