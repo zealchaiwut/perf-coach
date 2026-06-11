@@ -1769,6 +1769,10 @@ def get_home_recent_workouts(
             d["relative_date"] = _rel(w.workout_date)
         except Exception:
             pass
+        try:
+            d["zone2_minutes"] = int(w.zone2_minutes) if w.zone2_minutes is not None else None
+        except Exception:
+            d["zone2_minutes"] = None
         return d
 
     return JSONResponse({
@@ -1878,6 +1882,31 @@ def get_home_personal_records(
         current_value = float(latest.value_numeric)
         formatted = _format_pr_time(current_value) if track_type == "time" else _format_pr_weight(current_value)
 
+        # All-time best value
+        if track_type == "time":
+            pb_rec = min(recs, key=lambda r: float(r.value_numeric))
+        else:
+            pb_rec = max(recs, key=lambda r: float(r.value_numeric))
+        pb_value = float(pb_rec.value_numeric)
+        pb_formatted = _format_pr_time(pb_value) if track_type == "time" else _format_pr_weight(pb_value)
+        pb_date = pb_rec.achieved_on.isoformat() if pb_rec.achieved_on else None
+
+        # Improvement delta: only when latest entry IS the all-time best and a prior entry exists
+        delta_formatted = None
+        is_pr_improvement = False
+        if pb_rec.id == recs[0].id and len(recs) >= 2:
+            prev_val = float(recs[1].value_numeric)
+            if track_type == "time":
+                delta_secs = prev_val - pb_value
+                if delta_secs > 0:
+                    delta_formatted = "−" + _format_pr_time(delta_secs)
+                    is_pr_improvement = True
+            else:
+                delta_diff = pb_value - prev_val
+                if delta_diff > 0:
+                    delta_formatted = "+" + _format_pr_weight(delta_diff)
+                    is_pr_improvement = True
+
         result.append({
             "track_key": tk,
             "track_name": latest.track_name,
@@ -1885,6 +1914,11 @@ def get_home_personal_records(
             "current_value": current_value,
             "current_value_formatted": formatted,
             "achieved_on": latest.achieved_on.isoformat() if latest.achieved_on else None,
+            "pb_value": pb_value,
+            "pb_value_formatted": pb_formatted,
+            "pb_date": pb_date,
+            "delta_formatted": delta_formatted,
+            "is_pr_improvement": is_pr_improvement,
             "predicted_value": None,
             "predicted_value_formatted": None,
             "predicted_method": None,

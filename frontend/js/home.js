@@ -608,8 +608,8 @@
 
     var perfHeader =
       '<div class="card-head">' +
-        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Performance</a></div>' +
-        '<a href="/settings#personal-records">All tracks</a>' +
+        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
+        '<a href="/settings#personal-records">All tracks →</a>' +
       '</div>';
     card.innerHTML = perfHeader + UIStates.loadingHTML();
 
@@ -627,7 +627,7 @@
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
       emptyEl.innerHTML =
-        'No tracked performances yet — <a href="/settings#personal-records">add your first PR in Settings</a>';
+        '<a href="/settings#personal-records">Set your personal records →</a>';
       card.appendChild(emptyEl);
       return;
     }
@@ -744,12 +744,19 @@
       if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
     }
 
+    // Zone-2 badge (issue #441): minutes spent in Z2 when the backend reports it
+    var z2HTML = '';
+    if (w.zone2_minutes != null) {
+      z2HTML = '<div class="z2-badge" title="Zone 2 minutes">Z2 ' + w.zone2_minutes + '</div>';
+    }
+
     return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
       '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
       '<div class="info">' +
         '<div class="ttl">' + titleText + '</div>' +
         '<div class="meta">' + metaParts.join(' · ') + '</div>' +
       '</div>' +
+      z2HTML +
       '<div class="sources">' + badgesHTML + '</div>' +
     '</div>';
   }
@@ -779,14 +786,14 @@
         '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
         '<span style="display:inline-flex;align-items:center;gap:10px;">' +
           '<a class="rw-log-btn" href="/training?return=/home"><i class="ti ti-plus"></i>Log workout</a>' +
-          '<a href="/log">View all</a>' +
+          '<a href="/log">View all →</a>' +
         '</span>' +
       '</div>';
 
     if (!workouts.length) {
       card.innerHTML = header +
-        '<div class="workouts-empty">No workouts in the last 14 days — ' +
-        '<a href="/training?return=/home">log one</a>.</div>';
+        '<div class="workouts-empty">No workouts yet — ' +
+        '<a href="/training?return=/home">log your first</a>.</div>';
       return;
     }
 
