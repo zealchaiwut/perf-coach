@@ -11,8 +11,8 @@ const WeightChart = (() => {
   // Zone layout: [past 20%][current 60%][future 20%] when a target exists.
   // Without a target the current range fills the full width. Thin separators
   // divide the zones.
-  const PAST_W   = Math.round(CW * 0.20);
-  const FUTURE_W = Math.round(CW * 0.20);
+  const PAST_W   = Math.round(CW * 0.05);
+  const FUTURE_W = Math.round(CW * 0.05);
   const CUR_W3   = CW - PAST_W - FUTURE_W;   // current-zone width in 3-zone mode
 
   const PAST_L   = PAD.left;
@@ -423,21 +423,23 @@ const WeightChart = (() => {
 
     // ── Future zone content ─────────────────────────────────────────────
     if (hasFutureZone) {
-      // "MILESTONES AHEAD" tag
-      const tagW = 96, tagH = 16;
-      const tagY = PAD.top + 6;
-      const tagX = FUTURE_L + (FUTURE_W - tagW) / 2;
-      svg.appendChild(_el('rect', {
-        x: tagX, y: tagY, width: tagW, height: tagH, rx: '4',
-        fill: '#dbeafe',
-      }));
-      const tagT = _el('text', {
-        x: FUTURE_L + FUTURE_W / 2, y: tagY + tagH / 2,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': '8', fill: '#1d4ed8', 'font-weight': '700',
-      });
-      tagT.textContent = 'MILESTONES AHEAD';
-      svg.appendChild(tagT);
+      // "MILESTONES AHEAD" tag — only when the future strip is wide enough.
+      if (FUTURE_W >= 110) {
+        const tagW = 96, tagH = 16;
+        const tagY = PAD.top + 6;
+        const tagX = FUTURE_L + (FUTURE_W - tagW) / 2;
+        svg.appendChild(_el('rect', {
+          x: tagX, y: tagY, width: tagW, height: tagH, rx: '4',
+          fill: '#dbeafe',
+        }));
+        const tagT = _el('text', {
+          x: FUTURE_L + FUTURE_W / 2, y: tagY + tagH / 2,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': '8', fill: '#1d4ed8', 'font-weight': '700',
+        });
+        tagT.textContent = 'MILESTONES AHEAD';
+        svg.appendChild(tagT);
+      }
 
       // Milestone markers (evenly spaced x-positions)
       const milestones = data.future_milestones;
