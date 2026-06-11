@@ -1278,6 +1278,8 @@ def get_weight_chart(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
     include_target: bool = Query(default=True),
+    range_token: Optional[str] = Query(default=None, alias="range"),
+    include_future_zone: bool = Query(default=False),
 ):
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1286,8 +1288,28 @@ def get_weight_chart(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user_id")
 
+    _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
     today = _date.today()
-    if from_date is None and to_date is None:
+    if range_token is not None:
+        if range_token not in _VALID_RANGE_TOKENS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"range must be one of: {', '.join(sorted(_VALID_RANGE_TOKENS))}",
+            )
+        to_d = today
+        if range_token == "7D":
+            from_d = today - _timedelta(days=6)
+        elif range_token == "30D":
+            from_d = today - _timedelta(days=29)
+        elif range_token == "90D":
+            from_d = today - _timedelta(days=89)
+        elif range_token == "6M":
+            from_d = today - _timedelta(days=183)
+        elif range_token == "1Y":
+            from_d = today - _timedelta(days=364)
+        else:  # ALL — from_d resolved inside session after earliest-entry lookup
+            from_d = None
+    elif from_date is None and to_date is None:
         from_d = today - _timedelta(days=89)
         to_d = today
     else:
@@ -1297,13 +1319,31 @@ def get_weight_chart(
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
 
-    if (to_d - from_d).days > 365:
+    # 365-day cap applies only for explicit from/to params; range tokens have predefined lengths
+    if range_token is None and (to_d - from_d).days > 365:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
 
     with Session(engine) as session:
         user = session.get(User, uid)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Resolve ALL range token: from_d = earliest entry date (or 90-day fallback)
+        if range_token == "ALL":
+            _earliest = (
+                session.query(WeightEntry)
+                .filter(WeightEntry.user_id == uid)
+                .order_by(WeightEntry.entry_date.asc())
+                .first()
+            )
+            if _earliest is not None:
+                from_d = (
+                    _earliest.entry_date
+                    if isinstance(_earliest.entry_date, _date)
+                    else _date.fromisoformat(str(_earliest.entry_date))
+                )
+            else:
+                from_d = today - _timedelta(days=89)
 
         # Fetch entries wide enough for trend MA (6 days before from) and delta stats (36 days before to).
         # Always extend upper bound to today so logged_today / today_marker are always accurate.
@@ -1405,26 +1445,32 @@ def get_weight_chart(
             .first()
         )
 
-        # ── Plan series (one point per day, pure arithmetic from plan_at) ─────
+        # ── Plan series (one point per day from plan inception; omitted when no target) ─────
+        # Starts from max(from_d, plan_start_date) so pre-plan dates are excluded.
         if active_target is not None:
+            _ps_start = (
+                active_target.start_date
+                if isinstance(active_target.start_date, _date)
+                else _date.fromisoformat(str(active_target.start_date))
+            )
+            _ps_from = max(from_d, _ps_start)
+            _ps_days = (to_d - _ps_from).days + 1
             plan_series = [
                 {
-                    "date": str(from_d + _timedelta(days=i)),
-                    "plan_kg": float(round(_weight_plan_at(active_target, from_d + _timedelta(days=i)), 2)),
+                    "date": str(_ps_from + _timedelta(days=i)),
+                    "plan_kg": float(round(_weight_plan_at(active_target, _ps_from + _timedelta(days=i)), 2)),
                 }
-                for i in range(num_days)
+                for i in range(max(0, _ps_days))
             ]
-        else:
-            plan_series = None
 
-        # ── Future milestones (exclude today row) ─────────────────────────────
+        # ── Future milestones (always an array; exclude today row) ───────────────
         if active_target is not None:
             future_milestones = [
                 m for m in _generate_weight_milestones(active_target, today)
                 if m["kind"] != "today"
             ]
         else:
-            future_milestones = None
+            future_milestones = []
 
         # ── Today marker ──────────────────────────────────────────────────────
         today_vals = date_weights.get(today, [])
@@ -1460,18 +1506,20 @@ def get_weight_chart(
         else:
             today_delta_kg = None
 
-        # Target block
+        # plan_series is omitted (key absent) when no active target
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
             "trend": trend,
             "stats": stats,
-            "plan_series": plan_series,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
             "logged_today": logged_today,
             "today_delta_kg": today_delta_kg,
+            "include_future_zone": include_future_zone,
         }
+        if active_target is not None:
+            result["plan_series"] = plan_series
 
         if include_target:
             target_block = None
