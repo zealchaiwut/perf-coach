@@ -2237,13 +2237,33 @@ def _build_habits_block(uid, today_bkk, ws):
         "pct_elapsed": pct_elapsed,
     }
 
-    # Build daily_habits list with today_checked + week_count
+    # Compute streaks for daily habits (one extra query, capped 365 days)
+    from backend.services.habit_stats import _current_streak_from_dates as _cs
+    streak_logs_by_habit: dict = {}
+    if daily_habits:
+        streak_lookback = today_bkk - _timedelta(days=365)
+        with Session(engine) as _streak_session:
+            streak_rows = (
+                _streak_session.query(HabitLog)
+                .filter(
+                    HabitLog.user_id == uid,
+                    HabitLog.habit_id.in_([h.id for h in daily_habits]),
+                    HabitLog.log_date >= streak_lookback,
+                    HabitLog.log_date <= today_bkk,
+                )
+                .all()
+            )
+        for lg in streak_rows:
+            streak_logs_by_habit.setdefault(lg.habit_id, set()).add(lg.log_date)
+
+    # Build daily_habits list with today_checked, week_count, streak, auto_fill_source
     daily_habits_data = []
     for h in daily_habits:
         habit_logs = logs_by_habit.get(h.id, [])
         logged_dates = {log.log_date for log in habit_logs}
         today_checked = today_bkk in logged_dates
         week_count = sum(1 for d in week_dates if d in logged_dates and d <= today_bkk)
+        streak = _cs(today_bkk, streak_logs_by_habit.get(h.id, set()))
         daily_habits_data.append({
             "id": str(h.id),
             "name": h.name,
@@ -2251,6 +2271,8 @@ def _build_habits_block(uid, today_bkk, ws):
             "color": h.color,
             "today_checked": today_checked,
             "week_count": week_count,
+            "streak": streak,
+            "auto_fill_source": h.auto_fill_source,
         })
 
     top_habits = daily_habits_data[:_HOME_SUMMARY_TOP_N]
@@ -2443,6 +2465,7 @@ def _build_readiness_block(uid, today_bkk):
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
     return {
+        "logged": True,
         "score": score,
         "label": _readiness_score_label(score),
         "top_factors": top_factors_clean,
