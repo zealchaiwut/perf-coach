@@ -135,19 +135,20 @@ const WeightChart = (() => {
     trendDates.forEach((date, idx) => {
       const d = new Date(date + 'T00:00:00');
       let show = false;
-      if (range === '30d')      show = d.getDate() % 7 === 1 || idx === 0 || idx === n - 1;
-      else if (range === '90d') show = d.getDate() === 1 || idx === 0 || idx === n - 1;
-      else                       show = d.getDate() === 1 || idx === n - 1;
+      if (range === '7d')        show = idx % 2 === 0 || idx === n - 1;
+      else if (range === '30d')  show = d.getDate() % 7 === 1 || idx === 0 || idx === n - 1;
+      else if (range === '90d')  show = d.getDate() === 1 || idx === 0 || idx === n - 1;
+      else                        show = d.getDate() === 1 || idx === n - 1;
       if (!show) return;
 
       const px = xFn(idx, n);
-      const lbl = (range === '30d')
+      const lbl = (range === '7d' || range === '30d')
         ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 
       const txt = _el('text', {
         x: px, y: PAD.top + CH + 14,
-        'text-anchor': 'middle', 'font-size': '9.5', fill: '#9ca3af',
+        'text-anchor': 'middle', 'font-size': '12', fill: '#9ca3af',
       });
       txt.textContent = lbl;
       svg.appendChild(txt);
@@ -167,7 +168,11 @@ const WeightChart = (() => {
 
     const hasTarget    = !!(data.plan_series && data.plan_series.length);
     const hasFuture    = !!(data.future_milestones && data.future_milestones.length);
-    const hasFutureZone = hasTarget && hasFuture;
+
+    // Short ranges (7d, 30d) and small viewports suppress the future zone
+    const isShortRange    = (range === '7d' || range === '30d');
+    const isSmallViewport = window.innerWidth < 640;
+    const hasFutureZone   = hasTarget && hasFuture && !isShortRange && !isSmallViewport;
 
     // Reset container
     container.innerHTML = '';
@@ -228,7 +233,7 @@ const WeightChart = (() => {
       const lbl = _el('text', {
         x: MAIN_L - 5, y: gy,
         'text-anchor': 'end', 'dominant-baseline': 'middle',
-        'font-size': '10', fill: '#9ca3af',
+        'font-size': '12', fill: '#9ca3af',
       });
       lbl.textContent = String(kg);
       svg.appendChild(lbl);
@@ -278,7 +283,7 @@ const WeightChart = (() => {
         if (trendSeg.length >= 2) {
           svg.appendChild(_el('polyline', {
             points: trendSeg.join(' '),
-            fill: 'none', stroke: C.trend, 'stroke-width': '2',
+            fill: 'none', stroke: C.trend, 'stroke-width': '2.8',
             'stroke-linejoin': 'round', 'stroke-linecap': 'round',
           }));
         }
@@ -292,7 +297,7 @@ const WeightChart = (() => {
     if (trendSeg.length >= 2) {
       svg.appendChild(_el('polyline', {
         points: trendSeg.join(' '),
-        fill: 'none', stroke: C.trend, 'stroke-width': '2',
+        fill: 'none', stroke: C.trend, 'stroke-width': '2.8',
         'stroke-linejoin': 'round', 'stroke-linecap': 'round',
       }));
     }
@@ -314,7 +319,7 @@ const WeightChart = (() => {
       }));
       const planLbl = _el('text', {
         x: todayX + 8, y: planDotY - 4,
-        'font-size': '9.5', fill: C.plan, 'font-weight': '600',
+        'font-size': '13', fill: C.plan, 'font-weight': '600',
       });
       planLbl.textContent = `plan ${tm.plan_kg.toFixed(1)} kg`;
       svg.appendChild(planLbl);
@@ -329,7 +334,7 @@ const WeightChart = (() => {
       }));
       const youLbl = _el('text', {
         x: todayX + 8, y: trendDotY - 4,
-        'font-size': '9.5', fill: C.trend, 'font-weight': '600',
+        'font-size': '13', fill: C.trend, 'font-weight': '600',
       });
       youLbl.textContent = `you ${tm.trend_kg.toFixed(1)} kg`;
       svg.appendChild(youLbl);
@@ -355,7 +360,7 @@ const WeightChart = (() => {
       const gapText = tm.gap_kg != null
         ? `${tm.gap_kg >= 0 ? '+' : ''}${tm.gap_kg.toFixed(1)} kg`
         : '';
-      const chipW = 62, chipH = 18, chipRx = 9;
+      const chipW = 66, chipH = 20, chipRx = 10;
       const chipY = botY + 8;
       const chipX = todayX - chipW / 2;
 
@@ -366,7 +371,7 @@ const WeightChart = (() => {
       const chipTxt = _el('text', {
         x: todayX, y: chipY + chipH / 2,
         'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': '9.5', fill: gapColor, 'font-weight': '700',
+        'font-size': '13', fill: gapColor, 'font-weight': '700',
       });
       chipTxt.textContent = gapText;
       svg.appendChild(chipTxt);
@@ -433,20 +438,38 @@ const WeightChart = (() => {
         }
 
         const kgT = _el('text', {
-          x: mx, y: my + 16,
-          'text-anchor': 'middle', 'font-size': '9', fill: C.plan, 'font-weight': '600',
+          x: mx, y: my + 17,
+          'text-anchor': 'middle', 'font-size': '13', fill: C.plan, 'font-weight': '600',
         });
         kgT.textContent = `${m.plan_kg.toFixed(1)} kg`;
         svg.appendChild(kgT);
 
         const dt = new Date(m.date + 'T00:00:00');
         const dtT = _el('text', {
-          x: mx, y: my + 27,
-          'text-anchor': 'middle', 'font-size': '8', fill: '#9ca3af',
+          x: mx, y: my + 29,
+          'text-anchor': 'middle', 'font-size': '10', fill: '#9ca3af',
         });
         dtT.textContent = dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
         svg.appendChild(dtT);
       });
+    }
+
+    // ── "milestones ↓" link (shown when future zone is suppressed but target exists) ──
+    if (hasTarget && hasFuture && !hasFutureZone) {
+      const link = document.createElement('a');
+      link.href = '#progress-card';
+      link.className = 'wc-milestones-link';
+      link.textContent = 'milestones ↓';
+      Object.assign(link.style, {
+        display: 'block',
+        textAlign: 'right',
+        fontSize: '12px',
+        color: '#16a34a',
+        textDecoration: 'none',
+        marginTop: '4px',
+        paddingRight: '4px',
+      });
+      container.appendChild(link);
     }
 
     // ── X-axis labels ───────────────────────────────────────────────────
