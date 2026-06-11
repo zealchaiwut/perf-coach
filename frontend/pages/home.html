@@ -53,7 +53,7 @@
 
     /* ---- PAGE ---- */
     .page {
-      max-width: 1320px;
+      max-width: 760px;
       margin: 0 auto;
       padding: 28px;
     }
@@ -73,9 +73,15 @@
     }
 
     /* ---- ROWS ---- */
-    #row-1, #row-2, #row-3, #row-4 { margin-bottom: 16px; }
-    #row-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
-    #row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+    #home-training-row { margin-bottom: 16px; }
+    #home-lower-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+      align-items: start;
+    }
+    #home-right-stack { display: flex; flex-direction: column; gap: 16px; }
 
     /* ---- CARD ---- */
     .card {
@@ -1250,14 +1256,13 @@
     .wks-chart { display: flex; align-items: center; justify-content: center; }
     .wks-bar-chart { width: 100%; height: 90px; display: block; overflow: visible; }
 
-    /* ---- RESPONSIVE: <= 880px ---- */
-    @media (max-width: 880px) {
+    /* ---- RESPONSIVE: <= 640px ---- */
+    @media (max-width: 640px) {
       .page { padding: 16px 14px 8px; }
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
 
-      #row-1 { grid-template-columns: 1fr; }
-      #row-2 { grid-template-columns: 1fr; }
+      #home-lower-row { grid-template-columns: 1fr; }
 
       .workout-desktop-only { display: none; }
 
@@ -1473,7 +1478,7 @@
     }
     /* Today-check circle */
     .hw-check-circle {
-      width: 32px; height: 32px; border-radius: 50%;
+      width: 40px; height: 40px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer; flex-shrink: 0;
       font-size: 15px; font-weight: 700;
@@ -1802,42 +1807,28 @@
     <div id="home-top-row-right"></div>
   </div>
 
-  <!-- Legacy habits-progress-widget (kept for backward compat, hidden by default) -->
-  <div id="habits-progress-widget" class="card hp-widget" style="display:none;">
-    <div class="card-head">
-      <div class="ttl"><i class="ti ti-target-arrow"></i>This week's progress</div>
-      <a href="/habits">All habits</a>
-    </div>
-    <div class="hp-body"></div>
-  </div>
-
-  <!-- Legacy log-today-banner (kept hidden, replaced by home-log-today-strip) -->
-  <div id="log-today-banner" style="display:none;">
-    <div class="ltb-inner">
-      <div class="ltb-icon"><i class="ti ti-chart-line"></i></div>
-      <div class="ltb-msg">
-        <strong>Log today's metrics</strong>
-        <span>Track your RHR, HRV, sleep, energy and mood.</span>
-      </div>
-      <button id="log-today-cta-btn" type="button" class="ltb-btn">
-        <i class="ti ti-pencil-plus"></i> Log today
-      </button>
-    </div>
-  </div>
-
-  <div id="row-1"></div>
+  <!-- Row 2: Weight (full-width) -->
   <div id="home-weight-widget" style="margin-bottom:16px;"></div>
-  <div id="strava-stale-banner"></div>
-  <div id="row-2"></div>
 
-  <!-- Training card (full-width left column) + Sleep card (right column, below Recent Workouts) -->
-  <div id="row-training-sleep" style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;align-items:start;">
+  <!-- Strava stale banner (shown when sync is needed) -->
+  <div id="strava-stale-banner"></div>
+
+  <!-- Lower row 1: This week's training (full-width) -->
+  <div id="home-training-row">
     <div id="home-training-card" class="card"></div>
-    <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
 
-  <div id="row-log">
-    <!-- Fast-log form: static HTML, initialised by JS -->
+  <!-- Lower row 2: Performance (left) + [Recent Workouts + Sleep stacked] (right) -->
+  <div id="home-lower-row">
+    <div id="home-perf-container"></div>
+    <div id="home-right-stack">
+      <div id="home-workouts-container"></div>
+      <div id="home-sleep-card" class="card sleep-card"></div>
+    </div>
+  </div>
+
+  <!-- Fast-log form: revealed when Log Today strip CTA is tapped -->
+  <div id="row-log" style="margin-top:16px;">
     <section id="fast-log-section" class="card fast-log">
       <div class="card-head">
         <div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>
@@ -1914,7 +1905,7 @@
             <input type="hidden" id="fm-mood-val" name="mood">
           </div>
 
-          <!-- Weight (optional, 30–200) — note: /api/daily-metrics does not persist this field -->
+          <!-- Weight (optional, 30–200) -->
           <div class="fm-field">
             <label class="fm-label" for="fm-weight">
               Weight <span class="fm-unit">kg</span>
@@ -1947,9 +1938,6 @@
       </form>
     </section>
   </div>
-  <div id="row-3"></div>
-  <div id="row-4"></div>
-  <div id="row-5"></div>
 </main>
 
 <script src="js/nav.js"></script>
