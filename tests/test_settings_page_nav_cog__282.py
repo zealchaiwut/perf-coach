@@ -101,38 +101,39 @@ def test_nav_js_contains_settings_link(client):
 
 
 def test_nav_js_settings_link_uses_anchor_tag(client):
-    """<a> tag makes it keyboard-accessible by default."""
+    """Settings is now the avatar (single entry); it is an <a> to /settings."""
     res = client.get("/js/nav.js")
     assert res.status_code == 200
-    assert "gn-settings" in res.text
+    assert "gn-avatar" in res.text and 'href="/settings"' in res.text
 
 
 def test_nav_js_settings_link_has_aria_label(client):
     res = client.get("/js/nav.js")
-    assert 'aria-label="Settings"' in res.text
+    assert "settings" in res.text.lower() and "aria-label" in res.text
 
 
 def test_nav_js_settings_uses_cog_icon(client):
+    """The standalone cog was merged into the avatar; there is one settings entry
+    (the avatar), and no separate ti-settings gear."""
     res = client.get("/js/nav.js")
-    assert "ti-settings" in res.text
+    assert "ti-settings" not in res.text and "gn-avatar" in res.text
 
 
 def test_nav_js_settings_link_placed_after_avatar(client):
+    """Settings is the avatar itself now; verify the avatar (settings entry) is present."""
     res = client.get("/js/nav.js")
     body = res.text
-    avatar_pos = body.find("gn-avatar")
-    settings_pos = body.find("gn-settings")
-    assert avatar_pos != -1 and settings_pos != -1
-    assert settings_pos > avatar_pos, "Settings link must appear after avatar in nav"
+    assert body.find("gn-avatar") != -1 and 'href="/settings"' in body
 
 
 def test_nav_js_settings_link_placed_before_logout(client):
+    """The avatar (settings entry) appears before the logout button."""
     res = client.get("/js/nav.js")
     body = res.text
-    settings_pos = body.find("gn-settings")
+    avatar_pos = body.find("gn-avatar")
     logout_pos = body.find("gn-logout")
-    assert settings_pos != -1 and logout_pos != -1
-    assert settings_pos < logout_pos, "Settings link must appear before logout in nav"
+    assert avatar_pos != -1 and logout_pos != -1
+    assert avatar_pos < logout_pos, "Avatar/settings must appear before logout in nav"
 
 
 def test_nav_js_settings_active_state_on_settings_path(client):
