@@ -1177,6 +1177,123 @@ def get_weight_target_history(
         return JSONResponse({"targets": [_weight_target_history_dict(t) for t in targets]})
 
 
+@app.get("/api/weight-targets/history-summary")
+def get_weight_target_history_summary(user_id: str = Query(...)):
+    """All-time stats, past attempts comparison, completed target rows, and total entry count."""
+    try:
+        uid = _uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    from sqlalchemy import func as _sa_func
+    with Session(engine) as session:
+        user = session.get(User, uid)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        completed_targets = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status != "active")
+            .order_by(WeightTarget.ended_at.desc())
+            .all()
+        )
+
+        active_target = (
+            session.query(WeightTarget)
+            .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
+            .first()
+        )
+
+        total_entries = (
+            session.query(_sa_func.count(WeightEntry.id))
+            .filter(WeightEntry.user_id == uid)
+            .scalar()
+        ) or 0
+
+        achieved = [t for t in completed_targets if t.status == "achieved"]
+        all_count = len(completed_targets)
+        achieved_count = len(achieved)
+        success_pct = round(achieved_count / all_count * 100, 1) if all_count > 0 else 0.0
+
+        total_kg_lost = 0.0
+        for t in completed_targets:
+            if t.end_weight_kg is not None:
+                lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                if lost > 0:
+                    total_kg_lost += lost
+        total_kg_lost = round(total_kg_lost, 2)
+
+        avg_pace_kg_per_week = None
+        paces = []
+        for t in achieved:
+            if t.end_weight_kg is not None and t.ended_at is not None:
+                s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                if days > 0:
+                    kg_lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                    paces.append(kg_lost / (days / 7))
+        if paces:
+            avg_pace_kg_per_week = round(sum(paces) / len(paces), 2)
+
+        current_day_count = None
+        if active_target:
+            s_date = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
+            current_day_count = (_date.today() - s_date).days + 1
+
+        past_attempts = []
+        for t in achieved:
+            if t.end_weight_kg is not None and t.ended_at is not None:
+                s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                kg_lost = float(t.start_weight_kg) - float(t.end_weight_kg)
+                pace = round(kg_lost / (days / 7), 2) if days > 0 else None
+                past_attempts.append({
+                    "day_count": days,
+                    "kg_lost": round(kg_lost, 2),
+                    "pace_kg_per_week": pace,
+                })
+
+        target_rows = []
+        for t in completed_targets:
+            s_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
+            result_weight = float(t.end_weight_kg) if t.end_weight_kg is not None else None
+            delta_kg = round(result_weight - float(t.start_weight_kg), 2) if result_weight is not None else None
+            if t.ended_at:
+                e_date = t.ended_at.date() if hasattr(t.ended_at, "date") else t.ended_at
+                days = (e_date - s_date).days
+                end_date_str = str(e_date)
+            else:
+                days = None
+                end_date_str = None
+            target_rows.append({
+                "id": str(t.id),
+                "status": t.status,
+                "start_weight_kg": float(t.start_weight_kg),
+                "target_weight_kg": float(t.target_weight_kg),
+                "start_date": str(s_date),
+                "end_date": end_date_str,
+                "days": days,
+                "result_weight_kg": result_weight,
+                "delta_kg": delta_kg,
+            })
+
+        return JSONResponse({
+            "stats": {
+                "targets_set": all_count,
+                "targets_achieved": achieved_count,
+                "success_pct": success_pct,
+                "total_kg_lost": total_kg_lost,
+                "avg_pace_kg_per_week": avg_pace_kg_per_week,
+                "current_day_count": current_day_count,
+            },
+            "past_attempts": past_attempts,
+            "targets": target_rows,
+            "total_entries": total_entries,
+        })
+
+
 @app.patch("/api/weight-targets/{target_id}")
 def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
     if "start_weight_kg" in body.model_fields_set or "start_date" in body.model_fields_set:
