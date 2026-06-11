@@ -157,23 +157,41 @@
     .hca-middle {
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 0;
+    }
+
+    /* Side columns: a small label over its value (mock v6 cc-side) */
+    .hca-col {
+      min-width: 86px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .hca-col-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
     }
 
     .hca-avg {
-      font-size: 12px;
+      font-size: 17px;
       font-variant-numeric: tabular-nums;
       font-family: 'JetBrains Mono', monospace;
-      font-weight: 500;
-      color: var(--text-secondary);
-      flex: 0 0 auto;
+      font-weight: 600;
+      color: var(--text-primary);
     }
 
     .hca-weight {
       font-size: 42px;
-      font-weight: 600;
+      font-weight: 700;
       line-height: 1;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.035em;
       font-variant-numeric: tabular-nums;
       font-family: 'JetBrains Mono', monospace;
       color: var(--text-primary);
@@ -184,8 +202,8 @@
     .hca-pills {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
     }
 
     /* Delta pills */
@@ -755,11 +773,17 @@
           <span class="hca-date-sub" id="hca-date-sub"></span>
         </div>
         <div class="hca-middle">
-          <div class="hca-avg" id="hca-avg">--</div>
+          <div class="hca-col">
+            <div class="hca-col-label">7-day avg</div>
+            <div class="hca-avg" id="hca-avg">--</div>
+          </div>
           <div class="hca-weight" id="hca-weight">--</div>
-          <div class="hca-pills">
-            <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
-            <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
+          <div class="hca-col hca-col-right">
+            <div class="hca-col-label">Change</div>
+            <div class="hca-pills">
+              <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
+              <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
+            </div>
           </div>
         </div>
       </div>
