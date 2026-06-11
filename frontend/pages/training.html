@@ -5,8 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Training – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* ════════════════════════════════════════════════════════════════════
+       Running-log v2 — gradient design system (matches home/weight).
+       Effort-typed segments, session-profile bar, sync-aware totals.
+       ════════════════════════════════════════════════════════════════════ */
+    :root {
+      --rl-easy: #16a34a; --rl-easy-soft: #dff5d6;
+      --rl-tempo: #d97706; --rl-tempo-soft: #fff0c4;
+      --rl-hard: #ea580c; --rl-hard-soft: #ffedd5;
+      --rl-recovery: #64748b; --rl-recovery-soft: #eef2f6;
+      --rl-tile: #f7f9fd;
+    }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    main {
+      max-width: 860px; margin: 0 auto; padding: 22px 18px 48px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .rl-card {
+      background: var(--card-bg); border-radius: 14px; padding: 16px 18px;
+      box-shadow: var(--card-shadow); border: 1px solid var(--card-border);
+    }
+    .rl-card-label {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-tertiary);
+      margin-bottom: 13px; display: flex; align-items: center; gap: 6px;
+    }
+    /* page head + tabs on the gradient */
+    .rl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #fff; }
+    .rl-head h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .rl-tabs { display: inline-flex; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 3px; }
+    .rl-tabs .training-tab {
+      padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      color: rgba(255,255,255,0.85); background: transparent; border: 0; cursor: pointer;
+      font-family: inherit; margin: 0;
+    }
+    .rl-tabs .training-tab.active { background: #fff; color: var(--text-primary); }
+    /* import strip */
+    .rl-import {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(255,255,255,0.10); border: 1px dashed rgba(255,255,255,0.3);
+      border-radius: 12px; padding: 10px 15px; color: rgba(255,255,255,0.92); font-size: 12px; flex-wrap: wrap;
+    }
+    .rl-import .rl-import-srcs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rl-import a.rl-src {
+      background: rgba(255,255,255,0.16); color: #fff; font-size: 11.5px; font-weight: 600;
+      padding: 6px 12px; border-radius: 999px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .rl-import a.rl-src:hover { background: rgba(255,255,255,0.28); }
+    /* save bar */
+    .rl-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .rl-save-bar .save { display: inline-flex; align-items: center; gap: 7px; padding: 11px 22px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-text); font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .rl-save-bar .cancel { color: rgba(255,255,255,0.9); background: transparent; border: 0; font-size: 13px; font-weight: 500; cursor: pointer; padding: 9px 12px; font-family: inherit; }
+    .rl-save-bar .rl-save-right { display: flex; align-items: center; gap: 8px; }
+
     /* Instrument tokens shared with the log + detail panel */
     .num-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -838,16 +896,29 @@
 <body>
 
   <main>
-    <!-- Sub-tabs -->
-    <div class="tab-bar">
-      <button class="training-tab active" data-tab="new">New workout</button>
-      <button class="training-tab" data-tab="history">History</button>
+    <div class="rl-head">
+      <h1>Log workout</h1>
+      <div class="rl-tabs">
+        <button class="training-tab active" data-tab="new">New workout</button>
+        <button class="training-tab" data-tab="history">History</button>
+      </div>
+    </div>
+
+    <!-- Sync-later: pull a run in from a device instead of logging by hand -->
+    <div class="rl-import">
+      <span>Logging manually, or pull this run in from a device.</span>
+      <span class="rl-import-srcs">
+        <a class="rl-src" href="/settings#integrations">Strava</a>
+        <a class="rl-src" href="/settings#integrations">Garmin</a>
+        <a class="rl-src" href="/settings#integrations">Stryd</a>
+      </span>
     </div>
 
     <!-- ── New workout view ── -->
     <div id="view-new">
-      <!-- Metadata block -->
-      <div class="workout-meta">
+      <!-- Workout basics -->
+      <div class="workout-meta rl-card">
+        <div class="rl-card-label">Workout basics</div>
         <div class="meta-field">
           <label for="workout-name">Name <span style="color:var(--danger)">*</span></label>
           <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
@@ -878,8 +949,8 @@
       </div>
 
       <!-- ── Run details (shown only when workout type is a run) ── -->
-      <div id="run-section" class="run-section" style="display:none">
-        <p class="section-label">Run details</p>
+      <div id="run-section" class="run-section rl-card" style="display:none">
+        <div class="rl-card-label">Run structure</div>
 
         <!-- Structure: templates seed editable segment rows -->
         <div class="seg-templates">
@@ -961,8 +1032,8 @@
       </div>
 
       <!-- Exercise table -->
-      <div class="exercises-section">
-        <p class="section-label">Exercises</p>
+      <div class="exercises-section rl-card">
+        <div class="rl-card-label">Exercises</div>
         <div class="table-scroll">
           <table id="exercises-table">
             <thead>
@@ -987,19 +1058,19 @@
         </div>
       </div>
 
-      <!-- Form action bar: one primary action; utilities live in the More menu -->
-      <div class="form-actions">
+      <!-- Save bar -->
+      <div class="rl-save-bar">
         <details id="more-menu" class="more-menu">
-          <summary class="btn-secondary more-summary">More <span aria-hidden="true">▾</span></summary>
+          <summary class="more more-summary">More options <span aria-hidden="true">▾</span></summary>
           <div class="more-menu-list" role="menu">
             <button id="repeat-last-btn" type="button" role="menuitem">Repeat last workout</button>
             <button id="template-picker-btn" type="button" role="menuitem">Start from template</button>
             <button id="save-template-btn" type="button" role="menuitem">Save as template</button>
           </div>
         </details>
-        <div class="form-actions-right">
-          <button id="cancel-btn" type="button" class="btn-quiet">Cancel</button>
-          <button id="save-workout-btn" type="button" class="btn-primary">Save workout</button>
+        <div class="rl-save-right">
+          <button id="cancel-btn" type="button" class="cancel">Cancel</button>
+          <button id="save-workout-btn" type="button" class="save">Save workout</button>
         </div>
       </div>
 
