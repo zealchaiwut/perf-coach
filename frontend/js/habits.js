@@ -1,9 +1,25 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ICONS = [
-  'ti-run', 'ti-barbell', 'ti-droplet', 'ti-book',
-  'ti-bed', 'ti-flame', 'ti-walk', 'ti-bike',
-  'ti-meditation', 'ti-shoe', 'ti-clipboard',
+  // Fitness
+  'ti-run', 'ti-barbell', 'ti-walk', 'ti-bike', 'ti-shoe',
+  'ti-swimming', 'ti-yoga', 'ti-dumbbell', 'ti-stretching',
+  // Energy & Vitality
+  'ti-flame', 'ti-sun', 'ti-moon', 'ti-heart',
+  // Mindfulness
+  'ti-meditation', 'ti-brain', 'ti-mood-smile',
+  // Nutrition & Hydration
+  'ti-droplet', 'ti-apple', 'ti-coffee', 'ti-salad',
+  // Rest & Recovery
+  'ti-bed', 'ti-bath',
+  // Learning
+  'ti-book', 'ti-pencil', 'ti-school', 'ti-notebook',
+  // Productivity
+  'ti-clipboard', 'ti-clock', 'ti-calendar', 'ti-target', 'ti-check',
+  // Social
+  'ti-users', 'ti-message',
+  // Health
+  'ti-stethoscope',
 ];
 
 const COLORS = [
@@ -557,7 +573,7 @@ function renderDailyGrid(logSet) {
   html += '</tr></thead><tbody>';
 
   dailyHabits.forEach(habit => {
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 24);
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
     const target = habit.total ? habit.total.target : 7;
     const done = habit.total ? habit.total.done : 0;
     const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
@@ -1250,7 +1266,7 @@ function renderArchivedList() {
     const li = document.createElement('li');
     li.className = 'archived-habit-row';
 
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 22);
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
     const nameEl = document.createElement('span');
     nameEl.className = 'archived-habit-name';
     nameEl.innerHTML = iconHTML + ' ' + esc(habit.name);
