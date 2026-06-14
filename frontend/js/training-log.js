@@ -368,6 +368,9 @@
     params.set('from', filters.from || addDays(today, -29));
     params.set('to',   filters.to   || today);
     params.set('include_rest', 'true');
+    // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
+    // readiness widget is fed from one computation (no duplicate load_context).
+    params.set('include_load_context', 'true');
 
     fetch('/api/training-log?' + params.toString())
       .then(function (res) {
@@ -380,6 +383,10 @@
         var listEl = document.getElementById('log-list');
         renderList(listEl, lastWeeks);
         updateHeaderStats(data);
+        // issue #528: re-render training-load surfaces on every fetch, so a
+        // date-range change updates them without a full page reload (AC4).
+        renderLoadWidget(data.load_context);
+        renderVolumeChart();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -393,6 +400,150 @@
       .finally(function () {
         if (loadingEl) loadingEl.hidden = true;
       });
+  }
+
+  // ── Training-load surfaces (issue #528) ─────────────────────────────────────
+  var volumeChart = null;
+
+  function fmtLoadNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return String(Math.round(v * 10) / 10);
+  }
+
+  // Readiness widget: current CTL / ATL / TSB + plain-language interpretation.
+  function renderLoadWidget(lc) {
+    var el = document.getElementById('load-widget');
+    if (!el) return;
+
+    var ctl, atl, tsb, interp, cls;
+    if (lc && typeof lc.ctl === 'number') {
+      ctl = lc.ctl; atl = lc.atl; tsb = lc.tsb;
+      interp = lc.interpretation || '—';
+      cls = tsb >= 5 ? 'fresh' : (tsb <= -15 ? 'fatigued' : 'neutral');
+    } else {
+      // AC7 zero/empty state — brand-new athlete or < 7 days of history.
+      ctl = 0; atl = 0; tsb = 0;
+      interp = 'Not enough data';
+      cls = 'empty';
+    }
+
+    function stat(val, label, sub) {
+      return '<div class="lw-stat">' +
+               '<div class="lw-stat-val">' + esc(fmtLoadNum(val)) + '</div>' +
+               '<div class="lw-stat-label">' + label + '</div>' +
+               '<div class="lw-stat-sub">' + sub + '</div>' +
+             '</div>';
+    }
+
+    el.innerHTML =
+      '<div class="lw-head">' +
+        '<span class="lw-title">Readiness</span>' +
+        '<span class="lw-interp lw-interp--' + cls + '">' + esc(interp) + '</span>' +
+      '</div>' +
+      '<div class="lw-stats">' +
+        stat(ctl, 'CTL', 'Fitness') +
+        stat(atl, 'ATL', 'Fatigue') +
+        stat(tsb, 'TSB', 'Freshness') +
+      '</div>';
+    el.hidden = false;
+  }
+
+  function volumeWeekLabel(monday) {
+    return monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  // Weekly volume chart: >= 8 weeks of distance (km) or TSS, auto-selected.
+  function renderVolumeChart() {
+    var card   = document.getElementById('volume-chart-card');
+    var canvas = document.getElementById('volume-chart');
+    var unitEl = document.getElementById('volume-chart-unit');
+    // Guard: no-op when the surfaces or Chart.js are absent (other pages).
+    if (!card || !canvas || typeof Chart === 'undefined') return;
+
+    var toISO     = filters.to || todayISO();
+    var toMonday  = getMondayOf(new Date(toISO + 'T00:00:00'));
+    // Minimum window: 8 week-buckets ending at the selected week.
+    var minStart  = new Date(toMonday);
+    minStart.setDate(minStart.getDate() - 7 * 7);
+
+    var startMonday = minStart;
+    if (filters.from) {
+      var fm = getMondayOf(new Date(filters.from + 'T00:00:00'));
+      if (fm < minStart) startMonday = fm;
+    }
+
+    var fromStr = toISODate(startMonday);
+    // Separate fetch WITHOUT include_load_context so load_context stays a
+    // single computation on the main list request (AC5).
+    fetch('/api/training-log?from=' + fromStr + '&to=' + toISO + '&include_rest=false')
+      .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function (data) {
+        var weeks = data.weeks || [];
+        var byStart = {};
+        weeks.forEach(function (w) { byStart[w.week_start] = w.summary || {}; });
+
+        var labels = [], distVals = [], tssVals = [];
+        var cur = new Date(startMonday);
+        while (cur <= toMonday) {
+          var s = byStart[toISODate(cur)] || {};
+          labels.push(volumeWeekLabel(cur));
+          // zero-fill empty/zero-activity weeks so they render as a zero bar (AC7)
+          distVals.push(Math.round((s.total_distance_km || 0) * 10) / 10);
+          tssVals.push(Math.round(s.total_tss || 0));
+          cur.setDate(cur.getDate() + 7);
+        }
+
+        // Auto-select metric: distance when any distance present, else TSS.
+        var hasDist = distVals.some(function (v) { return v > 0; });
+        var hasTss  = tssVals.some(function (v) { return v > 0; });
+        var useDist = hasDist || !hasTss;
+        var values  = useDist ? distVals : tssVals;
+        var unit    = useDist ? 'km' : 'TSS';
+        var color   = useDist ? '#3b82f6' : '#f59e0b';
+
+        if (unitEl) unitEl.textContent = unit;
+
+        if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+        volumeChart = new Chart(canvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: unit,
+              data: values,
+              backgroundColor: color,
+              borderRadius: 3,
+              maxBarThickness: 36,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) { return ctx.parsed.y + ' ' + unit; },
+                },
+              },
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: { font: { size: 10 }, color: '#69748c' },
+                title: { display: true, text: 'Week', color: '#69748c', font: { size: 10 } },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { font: { size: 10 }, color: '#69748c' },
+                title: { display: true, text: unit, color: '#69748c', font: { size: 10 } },
+              },
+            },
+          },
+        });
+        card.hidden = false;
+      })
+      .catch(function () { /* leave prior chart / hidden card untouched */ });
   }
 
   // ── Log list rendering ────────────────────────────────────────────────────
