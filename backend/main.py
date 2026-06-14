@@ -5976,6 +5976,7 @@ def get_training_log(
             "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
+            "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
             "is_stryd_synced": w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
             "weight_context": w.remarks,

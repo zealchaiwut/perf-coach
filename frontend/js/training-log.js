@@ -695,6 +695,14 @@
     return groupEl;
   }
 
+  // issue #530: a workout is Strava-sourced if its `source` is 'strava' OR it
+  // carries a Strava activity URL (some imports leave `source` unset). Shared by
+  // the list and detail views so both attribute the source identically.
+  function isStravaWorkout(workout) {
+    if (!workout) return false;
+    return workout.source === 'strava' || !!workout.strava_activity_url;
+  }
+
   function buildEntryRow(w) {
     var row = document.createElement('div');
     row.className = 'entry-row';
@@ -802,7 +810,7 @@
 
     var sourcesWrap = document.createElement('div');
     sourcesWrap.className = 'source-badges-wrap';
-    var isStrava = (w.source === 'strava');
+    var isStrava = isStravaWorkout(w);
     var isStryd = !!w.is_stryd_synced;
     if (isStrava) {
       var sbadge = document.createElement('span');
@@ -1001,7 +1009,7 @@
         var returnUrl = '/log?week=' + toISODate(currentMonday);
         if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
 
-        var isStrava = (workout.source === 'strava') || !!workout.strava_activity_url;
+        var isStrava = isStravaWorkout(workout);
         if (isStrava) {
           if (stravaBtn) {
             stravaBtn.href         = workout.strava_activity_url || '#';
@@ -1052,7 +1060,7 @@
     var typeLabel = typeLabels[typeKey] || (workout.workout_type || 'Workout').toUpperCase();
 
     var sourceHtml = '';
-    var dpIsStrava = (workout.source === 'strava');
+    var dpIsStrava = isStravaWorkout(workout);
     var dpIsStryd  = !!workout.is_stryd_synced;
     if (dpIsStrava) {
       sourceHtml += '<span class="dp-src-badge dp-src-badge--strava" title="strava">St</span>';
