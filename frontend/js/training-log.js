@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+  // Shared format helpers (issue #531) — single home for type normalization,
+  // pace/duration formatting, and segment definitions. training-log.html loads
+  // lib/training-format.js before this script.
+  var TF = window.TrainingFormat;
+
   // ── State ─────────────────────────────────────────────────────────────────
   var filters               = { type: 'all', search: '', from: '', to: '' };
   var lastWeeks             = [];
@@ -40,13 +45,10 @@
     return s;
   }
 
+  // issue #531: empty for falsy/non-positive, else the shared h:mm:ss/m:ss form.
   function fmtDurationRow(secs) {
     if (!secs || secs <= 0) return '';
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = Math.round(secs % 60);
-    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
-    return m + ':' + pad(s);
+    return TF.formatDuration(secs);
   }
 
   function fmtTotalTime(totalMinutes) {
@@ -64,10 +66,11 @@
     return m + 'min';
   }
 
+  // issue #531: render an already-computed seconds-per-km via the shared
+  // pace formatter; '' keeps the prior empty-input behavior.
   function fmtPace(secsPerKm) {
-    if (!secsPerKm) return '';
-    var m = Math.floor(secsPerKm / 60), s = Math.round(secsPerKm % 60);
-    return m + ':' + pad(s) + ' /km';
+    var core = TF.formatPace(secsPerKm, 1);
+    return core ? core + ' /km' : '';
   }
 
   function fmtShortDate(isoStr) {
@@ -75,21 +78,18 @@
     return d.getDate() + ' ' + MONTHS[d.getMonth()];
   }
 
+  // issue #531: shared h:mm:ss/m:ss formatter; '—' for missing values.
   function fmtDurationDetail(secs) {
-    if (secs == null) return '—';
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = secs % 60;
-    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
-    return m + ':' + pad(s);
+    return secs == null ? '—' : TF.formatDuration(secs);
   }
 
+  // issue #531: compute seconds-per-km here (the #118 contract), then render
+  // the m:ss part via the shared pace formatter; '—' when inputs are missing.
   function fmtPaceFromSec(durSeconds, distKm) {
     if (!durSeconds || !distKm || distKm === 0) return '—';
     var secsPerKm = durSeconds / distKm;
-    var pm = Math.floor(secsPerKm / 60);
-    var ps = Math.round(secsPerKm % 60);
-    return pm + ':' + pad(ps) + ' /km';
+    var core = TF.formatPace(secsPerKm, 1);
+    return core ? core + ' /km' : '—';
   }
 
   function fmtSpeedKmh(durSeconds, distKm) {
@@ -98,22 +98,13 @@
     return speed.toFixed(1) + ' km/h';
   }
 
-  // Map free-text workout_type values onto the four canonical keys.
-  // The full editor saves "Running"/"Strength"; synced workouts use "run".
-  function normalizeTypeKey(t) {
-    t = (t || '').toLowerCase().trim();
-    if (/^run(ning)?$|^race$/.test(t)) return 'run';
-    if (/^(lift|strength)/.test(t)) return 'lift';
-    if (/^(bike|ride|cycl)/.test(t)) return 'bike';
-    if (/^(wod|crossfit)/.test(t)) return 'wod';
-    return t;
-  }
+  // Map free-text workout_type values onto canonical keys (issue #531: the
+  // shared normalizer, so the log and the editor detect runs identically).
+  var normalizeTypeKey = TF.normalizeType;
 
-  // Segment label → intensity key (timeline colors + segment dots).
-  var RUN_SEGMENT_INTENSITY = {
-    'warm-up': 'warmup', 'easy run': 'easy', 'tempo': 'tempo',
-    'intervals': 'intervals', 'rest': 'rest', 'cool-down': 'cooldown',
-  };
+  // Segment label → intensity key (timeline colors + segment dots), derived
+  // from the shared segment definitions (issue #531).
+  var RUN_SEGMENT_INTENSITY = TF.segmentIntensityByLabel;
   var RUN_SEGMENT_LABELS = RUN_SEGMENT_INTENSITY; // truthy lookup by label
 
   function fmtDate(iso) {

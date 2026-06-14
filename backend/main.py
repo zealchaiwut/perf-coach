@@ -4321,6 +4321,29 @@ def get_workouts(
         return JSONResponse(result)
 
 
+@app.get("/api/exercises/names")
+def get_exercise_names(user: User = Depends(resolve_user)):
+    """Distinct exercise names for the session user, for autocomplete (issue #531).
+
+    Replaces the ~10 full workout-detail fetches loadSuggestions used to fire
+    just to populate the exercise-name datalist — one query, names only.
+    """
+    with Session(engine) as session:
+        rows = (
+            session.query(WorkoutExercise.name)
+            .join(Workout, WorkoutExercise.workout_id == Workout.id)
+            .filter(
+                Workout.user_id == user.id,
+                WorkoutExercise.name.isnot(None),
+            )
+            .distinct()
+            .order_by(WorkoutExercise.name)
+            .all()
+        )
+        names = [r[0] for r in rows if r[0] and r[0].strip()]
+        return JSONResponse(names)
+
+
 @app.get("/api/workouts/{workout_id}")
 def get_workout(workout_id: str, user: User = Depends(resolve_user)):
     try:
