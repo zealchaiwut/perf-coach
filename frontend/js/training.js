@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+  // Shared format helpers (issue #531) — single home for type normalization,
+  // pace formatting, and segment↔exercise mapping. training.html loads
+  // lib/training-format.js before this script.
+  var TF = window.TrainingFormat;
+
   var currentUserId = null;
   var currentView = 'new';
   var editingWorkoutId = null;
@@ -279,8 +284,11 @@
 
   // ── Run details: structured segment builder ───────────────────────────────────
 
+  // Run detection routes through the shared normalizeType so the editor and
+  // the log agree on what counts as a run (issue #531; "Race" normalizes to
+  // "run" just as the log already treats it).
   function isRunType(t) {
-    return /^run(ning)?$/i.test((t || '').trim());
+    return TF.normalizeType(t) === 'run';
   }
 
   function runActive() { return isRunType(getSelectedType()); }
@@ -318,19 +326,10 @@
     return total > 0 ? total : null;
   }
 
-  function fmtPace(distKm, durSec) {
-    if (!distKm || !durSec || distKm <= 0 || durSec <= 0) return null;
-    var secPerKm = durSec / distKm;
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    if (s === 60) { m += 1; s = 0; }
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
   function recomputeRunPace() {
     var el = document.getElementById('run-pace');
     if (!el) return;
-    var pace = fmtPace(getRunDistanceKm(), getRunDurationSeconds());
+    var pace = TF.formatPace(getRunDurationSeconds(), getRunDistanceKm());
     if (pace) {
       el.textContent = pace + ' /km';
       el.classList.remove('is-empty');
@@ -344,17 +343,10 @@
     return parseFloat(n.toFixed(2)).toString();
   }
 
-  // Segment types. Every row carries: value + km/min unit toggle + pace + HR.
-  // 'block' rows (Intervals) add a sets× multiplier. Rest-between-reps was
-  // dropped from the block; drag a standalone Rest segment where needed.
-  var SEG_TYPES = {
-    warmup:    { label: 'Warm-up',   mode: 'span'  },
-    easy:      { label: 'Easy run',  mode: 'span'  },
-    tempo:     { label: 'Tempo',     mode: 'span'  },
-    intervals: { label: 'Intervals', mode: 'block' },
-    rest:      { label: 'Rest',      mode: 'span'  },
-    cooldown:  { label: 'Cool-down', mode: 'span'  },
-  };
+  // Segment types come from the shared module (issue #531). Every row carries:
+  // value + km/min unit toggle + pace + HR. 'block' rows (Intervals) add a
+  // sets× multiplier; drag a standalone Rest segment where needed.
+  var SEG_TYPES = TF.SEG_TYPES;
 
   // Built-in starting points; users tweak then "Save as template" for their own.
   var RUN_TEMPLATES = {
@@ -389,11 +381,10 @@
     return NaN;
   }
 
+  // Format an already-computed seconds-per-km value (issue #531: delegates to
+  // the shared pace formatter; empty string keeps the segment input blank).
   function fmtPaceSec(sec) {
-    if (sec == null || !isFinite(sec) || sec <= 0) return '';
-    var m = Math.floor(sec / 60), s = Math.round(sec % 60);
-    if (s === 60) { m += 1; s = 0; }
-    return m + ':' + String(s).padStart(2, '0');
+    return TF.formatPace(sec, 1) || '';
   }
 
   function addSegmentRow(type, data) {
@@ -521,24 +512,8 @@
     return out;
   }
 
-  // Resolve one segment to per-unit km + seconds (pace fills the missing side).
-  function segmentDims(s) {
-    var km = null, sec = null;
-    var pace = (s.paceSec != null && !isNaN(s.paceSec)) ? s.paceSec : null;
-    if (s.unit === 'km') {
-      km = s.value;
-      if (km != null && pace) sec = km * pace;
-    } else {
-      sec = s.value != null ? s.value * 60 : null;
-      if (sec != null && pace) km = sec / pace;
-    }
-    var mult = s.sets != null && s.sets > 0 ? s.sets : 1;
-    return {
-      km: km != null ? km * mult : null,
-      sec: sec != null ? sec * mult : null,
-      repKm: km, repSec: sec,
-    };
-  }
+  // Resolve one segment to per-unit km + seconds (issue #531: shared helper).
+  var segmentDims = TF.segmentDims;
 
   function segmentTotals() {
     var km = 0, sec = 0;
@@ -609,28 +584,10 @@
     sumEl.classList.toggle('is-mismatch', mismatch);
   }
 
-  // Serialize segments into workout_exercises payload rows.
-  // Per-rep distance/duration for blocks; pace materializes the missing side.
+  // Serialize segments into workout_exercises payload rows (issue #531:
+  // shared mapping so the editor and the log round-trip segments identically).
   function getSegments() {
-    var out = [];
-    getSegmentObjects().forEach(function (s, i) {
-      var cfg = SEG_TYPES[s.type];
-      if (s.value == null && s.sets == null && s.hr == null) return; // empty row, skip
-      var d = segmentDims(s);
-      out.push({
-        display_order: i,
-        name: cfg.label,
-        sets: cfg.mode === 'block' ? s.sets : null,
-        reps: null,
-        weight_kg: null,
-        duration: null,
-        rpe: null,
-        distance_km: d.repKm != null ? parseFloat(d.repKm.toFixed(3)) : null,
-        duration_seconds: d.repSec != null ? Math.round(d.repSec) : null,
-        avg_hr: s.hr,
-      });
-    });
-    return out;
+    return TF.mapSegmentsToExercises(getSegmentObjects());
   }
 
   // Map a stored exercise row back to a segment descriptor (for edit/repeat).
@@ -847,51 +804,47 @@
       d.setFullYear(d.getFullYear() - 1);
       var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
+      // Workout-name datalist from the list endpoint (one request).
       var res = await fetch('/api/workouts?from=' + from + '&to=' + to);
-      if (!res.ok) return;
-      var workouts = await res.json();
-      if (!workouts.length) return;
+      if (res.ok) {
+        var workouts = await res.json();
+        if (!workouts.length) {
+          // No workout history yet; leave the workout-name datalist empty.
+        } else {
+          var workoutNames = [];
+          var seen = {};
+          workouts.forEach(function (w) {
+            var n = w.name;
+            if (n && !seen[n]) { seen[n] = true; workoutNames.push(n); }
+          });
 
-      var workoutNames = [];
-      var seen = {};
-      workouts.forEach(function (w) {
-        var n = w.name;
-        if (n && !seen[n]) { seen[n] = true; workoutNames.push(n); }
-      });
-
-      var wDL = document.getElementById('workout-name-suggestions');
-      if (wDL) {
-        wDL.innerHTML = '';
-        workoutNames.forEach(function (name) {
-          var opt = document.createElement('option');
-          opt.value = name;
-          wDL.appendChild(opt);
-        });
+          var wDL = document.getElementById('workout-name-suggestions');
+          if (wDL) {
+            wDL.innerHTML = '';
+            workoutNames.forEach(function (name) {
+              var opt = document.createElement('option');
+              opt.value = name;
+              wDL.appendChild(opt);
+            });
+          }
+        }
       }
 
-      var detailIds = workouts.slice(0, 10).map(function (w) { return w.id; });
-      var details = await Promise.all(detailIds.map(function (id) {
-        return fetch('/api/workouts/' + id).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
-      }));
-
-      var exSeen = {};
-      var exNames = [];
-      details.forEach(function (w) {
-        if (!w || !w.exercises) return;
-        w.exercises.forEach(function (ex) {
-          var n = ex.name;
-          if (n && !exSeen[n]) { exSeen[n] = true; exNames.push(n); }
-        });
-      });
-
-      var exDL = document.getElementById('exercise-name-suggestions');
-      if (exDL) {
-        exDL.innerHTML = '';
-        exNames.forEach(function (name) {
-          var opt = document.createElement('option');
-          opt.value = name;
-          exDL.appendChild(opt);
-        });
+      // Exercise-name datalist from the dedicated endpoint (issue #531): a
+      // single request replaces the ~10 full workout-detail fetches that used
+      // to scale with the number of workouts.
+      var exRes = await fetch('/api/exercises/names');
+      if (exRes.ok) {
+        var exNames = await exRes.json();
+        var exDL = document.getElementById('exercise-name-suggestions');
+        if (exDL) {
+          exDL.innerHTML = '';
+          exNames.forEach(function (name) {
+            var opt = document.createElement('option');
+            opt.value = name;
+            exDL.appendChild(opt);
+          });
+        }
       }
     } catch (e) { /* suggestions are best-effort; never block the form */ }
   }
