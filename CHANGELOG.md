@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 59.1 — Weight chart body metrics + CSS cleanup
+
+- #520: Add body metrics and selectable moving average window
+- #517: Move inline styles to styles.css, remove dead CSS
+
 ## Sprint 59 — Weight page polish: mobile, performance, streak
 
 - #515: Fix weight chart unreadable on mobile touch devices
