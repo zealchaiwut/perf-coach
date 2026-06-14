@@ -152,18 +152,17 @@ def _csrf_headers(client):
 def test_build_weight_target_management_page__api_create_target(client, user_id):
     # AC: Submit button creates target via API; clean up any leftover active target first
     headers = _csrf_headers(client)
-    active_r = client.get(f"{WT}/active", params={"user_id": user_id})
+    active_r = client.get(f"{WT}/active")
     if active_r.status_code == 200 and active_r.json().get("target"):
         active_id = active_r.json()["target"]["id"]
         # End endpoint requires a recent weight entry; log one if needed
         today = _dt.date.today().isoformat()
-        client.post(WE, json={"user_id": user_id, "entry_date": today, "weight_kg": 85.0},
+        client.post(WE, json={"entry_date": today, "weight_kg": 85.0},
                     headers=_csrf_headers(client))
         client.post(f"{WT}/{active_id}/end", json={"status": "abandoned"}, headers=_csrf_headers(client))
 
     today = _dt.date.today()
     payload = {
-        "user_id": user_id,
         "start_weight_kg": 90.0,
         "start_date": today.isoformat(),
         "target_weight_kg": 80.0,
@@ -203,7 +202,7 @@ def test_build_weight_target_management_page__stats_summary_four_up_grid(client)
 
 def test_build_weight_target_management_page__api_history_endpoint(client, user_id):
     # AC: All values computed client-side from GET /api/weight-targets/history (unchanged)
-    r = client.get(f"{WT}/history", params={"user_id": user_id})
+    r = client.get(f"{WT}/history")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     data = r.json()
     assert "targets" in data, "Response missing 'targets' key"
@@ -255,7 +254,7 @@ def test_build_weight_target_management_page__end_modal_two_options(client):
 
 def test_build_weight_target_management_page__api_active_target_returns_200(client, user_id):
     # AC: GET /api/weight-targets/active used to populate active card
-    r = client.get(f"{WT}/active", params={"user_id": user_id})
+    r = client.get(f"{WT}/active")
     assert r.status_code in (200, 404), f"Unexpected status {r.status_code}: {r.text}"
     if r.status_code == 200:
         data = r.json()

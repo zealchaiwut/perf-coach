@@ -140,13 +140,18 @@ def test_e_gain_goal_accepted():
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Issue #336 — /api/weight-targets endpoint tests (a) through (k)
+# Updated for issue #488: endpoints now require session auth, no client user_id
 # ═══════════════════════════════════════════════════════════════════════════════
 import time as _time
 import httpx
+from backend.auth import hash_password as _hash_pw
+from backend.models import User as _UserModel
+from sqlalchemy.orm import Session as _OrmSess
 
 _API_BASE = "http://127.0.0.1:9001"
 _WT = "/api/weight-targets"
 _WE = "/api/weight-entries"
+_WT_TEST_PW = "wt-test-pw-336"
 
 _TODAY = datetime.date.today()
 _START_DATE = (_TODAY - datetime.timedelta(days=30)).isoformat()
@@ -161,18 +166,33 @@ def http_client():
 
 @pytest.fixture(scope="module")
 def api_user_id(http_client):
-    """Create a dedicated test user; cascade-delete on teardown."""
+    """Create a dedicated test user with password; cascade-delete on teardown."""
     name = f"wt_api_{uuid.uuid4().hex[:8]}"
     res = http_client.post("/api/users", json={"name": name})
     assert res.status_code == 201, res.text
     uid = res.json()["id"]
+    pw_hash = _hash_pw(_WT_TEST_PW)
+    with _OrmSess(engine) as db:
+        u = db.get(_UserModel, uuid.UUID(uid))
+        u.password_hash = pw_hash
+        db.commit()
     yield uid
     http_client.delete(f"/api/users/{uid}")
 
 
-def _wt_post(client, user_id, **kwargs):
+@pytest.fixture(scope="module")
+def api_session_cookie(http_client, api_user_id):
+    """Log in and return session cookie for api_user."""
+    with _OrmSess(engine) as db:
+        u = db.get(_UserModel, uuid.UUID(api_user_id))
+        name = u.name
+    res = http_client.post("/api/auth/login", json={"username": name, "password": _WT_TEST_PW})
+    assert res.status_code == 200, res.text
+    return res.cookies.get("session")
+
+
+def _wt_post(client, cookie, **kwargs):
     payload = {
-        "user_id": user_id,
         "start_weight_kg": kwargs.get("start_weight_kg", 90.0),
         "start_date": kwargs.get("start_date", _START_DATE),
         "target_weight_kg": kwargs.get("target_weight_kg", 80.0),
@@ -180,78 +200,80 @@ def _wt_post(client, user_id, **kwargs):
     }
     if "notes" in kwargs:
         payload["notes"] = kwargs["notes"]
-    return client.post(_WT, json=payload)
+    return client.post(_WT, json=payload, cookies={"session": cookie})
 
 
-def _log_weight(client, user_id, weight_kg, days_ago=0):
+def _log_weight(client, cookie, weight_kg, days_ago=0):
     """Log a weight entry; ignore 409 (duplicate for same date)."""
     d = (_TODAY - datetime.timedelta(days=days_ago)).isoformat()
-    r = client.post(_WE, json={"user_id": user_id, "entry_date": d, "weight_kg": weight_kg})
+    r = client.post(_WE, json={"entry_date": d, "weight_kg": weight_kg},
+                    cookies={"session": cookie})
     assert r.status_code in (201, 409), f"Unexpected status logging weight: {r.status_code} {r.text}"
     return r
 
 
-def _end_target(client, user_id, target_id, status="abandoned"):
+def _end_target(client, cookie, target_id, status="abandoned"):
     """Log today's weight (ignore 409 duplicate) then end the target."""
-    _log_weight(client, user_id, 89.0, days_ago=0)
-    r = client.post(f"{_WT}/{target_id}/end", json={"status": status})
+    _log_weight(client, cookie, 89.0, days_ago=0)
+    r = client.post(f"{_WT}/{target_id}/end", json={"status": status},
+                    cookies={"session": cookie})
     assert r.status_code == 200, f"Failed to end target {target_id}: {r.status_code} {r.text}"
     return r
 
 
 # ── (a) POST creates target successfully ──────────────────────────────────────
 
-def test_api_a_post_creates_target(http_client, api_user_id):
+def test_api_a_post_creates_target(http_client, api_user_id, api_session_cookie):
     """AC (a): POST returns 201 with status='active' and expected fields."""
-    res = _wt_post(http_client, api_user_id)
+    res = _wt_post(http_client, api_session_cookie)
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["status"] == "active"
     assert body["user_id"] == api_user_id
     assert "id" in body
     assert "created_at" in body
-    _end_target(http_client, api_user_id, body["id"])
+    _end_target(http_client, api_session_cookie, body["id"])
 
 
 # ── (b) POST with existing active target returns 409 with active_id ───────────
 
-def test_api_b_duplicate_active_returns_409(http_client, api_user_id):
+def test_api_b_duplicate_active_returns_409(http_client, api_session_cookie):
     """AC (b): Second POST while an active target exists → 409 error_code='active_target_exists' with active_id."""
-    r1 = _wt_post(http_client, api_user_id)
+    r1 = _wt_post(http_client, api_session_cookie)
     assert r1.status_code == 201, r1.text
     active_id = r1.json()["id"]
 
-    r2 = _wt_post(http_client, api_user_id)
+    r2 = _wt_post(http_client, api_session_cookie)
     assert r2.status_code == 409, r2.text
     body = r2.json()
     assert body["error_code"] == "active_target_exists"
     assert body["active_id"] == active_id
     assert "message" in body
 
-    _end_target(http_client, api_user_id, active_id)
+    _end_target(http_client, api_session_cookie, active_id)
 
 
 # ── (c) GET /active returns {"target": null} when no active target ─────────────
 
-def test_api_c_get_active_no_target_returns_null(http_client, api_user_id):
+def test_api_c_get_active_no_target_returns_null(http_client, api_session_cookie):
     """AC (c): GET /active → 200 {"target": null} when no active target (not 404)."""
-    res = http_client.get(f"{_WT}/active", params={"user_id": api_user_id})
+    res = http_client.get(f"{_WT}/active", cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     assert res.json() == {"target": None}
 
 
 # ── (d) GET /active returns all computed fields when target exists ─────────────
 
-def test_api_d_get_active_returns_computed_fields(http_client, api_user_id):
+def test_api_d_get_active_returns_computed_fields(http_client, api_session_cookie):
     """AC (d): GET /active returns target object with all required computed fields."""
-    r = _wt_post(http_client, api_user_id, start_weight_kg=90.0, target_weight_kg=80.0)
+    r = _wt_post(http_client, api_session_cookie, start_weight_kg=90.0, target_weight_kg=80.0)
     assert r.status_code == 201, r.text
     target_id = r.json()["id"]
 
-    _log_weight(http_client, api_user_id, 88.0, days_ago=7)
-    _log_weight(http_client, api_user_id, 87.5, days_ago=0)
+    _log_weight(http_client, api_session_cookie, 88.0, days_ago=7)
+    _log_weight(http_client, api_session_cookie, 87.5, days_ago=0)
 
-    res = http_client.get(f"{_WT}/active", params={"user_id": api_user_id})
+    res = http_client.get(f"{_WT}/active", cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     t = res.json()["target"]
     assert t is not None
@@ -268,21 +290,21 @@ def test_api_d_get_active_returns_computed_fields(http_client, api_user_id):
     assert isinstance(t["progress_pct"], (int, float))
     assert isinstance(t["days_remaining"], int)
 
-    _end_target(http_client, api_user_id, target_id)
+    _end_target(http_client, api_session_cookie, target_id)
 
 
 # ── (e) progress_pct is correct for partial weight loss ───────────────────────
 
-def test_api_e_progress_pct_correct(http_client, api_user_id):
+def test_api_e_progress_pct_correct(http_client, api_session_cookie):
     """AC (e): progress_pct = kg_lost / total_kg_to_lose * 100 (capped 0-100)."""
     # start=100, target=80 → total=20 kg to lose; current=95 → pct=25.0
-    r = _wt_post(http_client, api_user_id, start_weight_kg=100.0, target_weight_kg=80.0)
+    r = _wt_post(http_client, api_session_cookie, start_weight_kg=100.0, target_weight_kg=80.0)
     assert r.status_code == 201, r.text
     target_id = r.json()["id"]
 
-    _log_weight(http_client, api_user_id, 95.0, days_ago=1)
+    _log_weight(http_client, api_session_cookie, 95.0, days_ago=1)
 
-    res = http_client.get(f"{_WT}/active", params={"user_id": api_user_id})
+    res = http_client.get(f"{_WT}/active", cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     t = res.json()["target"]
     assert t is not None
@@ -290,26 +312,26 @@ def test_api_e_progress_pct_correct(http_client, api_user_id):
         f"Expected progress_pct≈25.0 (kg_lost=5/total=20), got {t['progress_pct']}"
     )
 
-    _end_target(http_client, api_user_id, target_id)
+    _end_target(http_client, api_session_cookie, target_id)
 
 
 # ── (f) GET /history returns ended targets sorted by ended_at DESC ─────────────
 
-def test_api_f_history_sorted_by_ended_at_desc(http_client, api_user_id):
+def test_api_f_history_sorted_by_ended_at_desc(http_client, api_session_cookie):
     """AC (f): GET /history → 200 with non-active targets sorted ended_at DESC; computed fields present."""
-    r1 = _wt_post(http_client, api_user_id)
+    r1 = _wt_post(http_client, api_session_cookie)
     assert r1.status_code == 201, r1.text
     id1 = r1.json()["id"]
-    _end_target(http_client, api_user_id, id1)
+    _end_target(http_client, api_session_cookie, id1)
 
     _time.sleep(0.05)
 
-    r2 = _wt_post(http_client, api_user_id)
+    r2 = _wt_post(http_client, api_session_cookie)
     assert r2.status_code == 201, r2.text
     id2 = r2.json()["id"]
-    _end_target(http_client, api_user_id, id2)
+    _end_target(http_client, api_session_cookie, id2)
 
-    res = http_client.get(f"{_WT}/history", params={"user_id": api_user_id})
+    res = http_client.get(f"{_WT}/history", cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     targets = res.json()["targets"]
     assert len(targets) >= 2
@@ -325,44 +347,47 @@ def test_api_f_history_sorted_by_ended_at_desc(http_client, api_user_id):
 
 # ── (g) PATCH on active target succeeds ───────────────────────────────────────
 
-def test_api_g_patch_active_target_succeeds(http_client, api_user_id):
+def test_api_g_patch_active_target_succeeds(http_client, api_session_cookie):
     """AC (g): PATCH allowed fields (target_weight_kg, target_date, notes) → 200."""
-    r = _wt_post(http_client, api_user_id)
+    r = _wt_post(http_client, api_session_cookie)
     assert r.status_code == 201, r.text
     target_id = r.json()["id"]
 
-    res = http_client.patch(f"{_WT}/{target_id}", json={"target_weight_kg": 78.0})
+    res = http_client.patch(f"{_WT}/{target_id}", json={"target_weight_kg": 78.0},
+                            cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     body = res.json()
     assert abs(body["target_weight_kg"] - 78.0) < 0.01
 
-    _end_target(http_client, api_user_id, target_id)
+    _end_target(http_client, api_session_cookie, target_id)
 
 
 # ── (h) PATCH on non-active target returns 422 ────────────────────────────────
 
-def test_api_h_patch_non_active_target_returns_422(http_client, api_user_id):
+def test_api_h_patch_non_active_target_returns_422(http_client, api_session_cookie):
     """AC (h): PATCH on ended (non-active) target → 422."""
-    r = _wt_post(http_client, api_user_id)
+    r = _wt_post(http_client, api_session_cookie)
     assert r.status_code == 201, r.text
     target_id = r.json()["id"]
-    _end_target(http_client, api_user_id, target_id)
+    _end_target(http_client, api_session_cookie, target_id)
 
-    res = http_client.patch(f"{_WT}/{target_id}", json={"notes": "too late"})
+    res = http_client.patch(f"{_WT}/{target_id}", json={"notes": "too late"},
+                            cookies={"session": api_session_cookie})
     assert res.status_code == 422, res.text
 
 
 # ── (i) POST /end transitions target to achieved ──────────────────────────────
 
-def test_api_i_end_target_achieved(http_client, api_user_id):
+def test_api_i_end_target_achieved(http_client, api_session_cookie):
     """AC (i): POST /{id}/end with status='achieved' sets status, ended_at, end_weight_kg."""
-    r = _wt_post(http_client, api_user_id)
+    r = _wt_post(http_client, api_session_cookie)
     assert r.status_code == 201, r.text
     target_id = r.json()["id"]
 
-    _log_weight(http_client, api_user_id, 85.0, days_ago=0)
+    _log_weight(http_client, api_session_cookie, 85.0, days_ago=0)
 
-    res = http_client.post(f"{_WT}/{target_id}/end", json={"status": "achieved"})
+    res = http_client.post(f"{_WT}/{target_id}/end", json={"status": "achieved"},
+                           cookies={"session": api_session_cookie})
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["status"] == "achieved"
@@ -372,15 +397,15 @@ def test_api_i_end_target_achieved(http_client, api_user_id):
 
 # ── (j) After ending, a new POST succeeds (no 409) ────────────────────────────
 
-def test_api_j_new_target_after_ending_succeeds(http_client, api_user_id):
+def test_api_j_new_target_after_ending_succeeds(http_client, api_session_cookie):
     """AC (j): After ending the active target, a new POST creates successfully (no 409)."""
-    r1 = _wt_post(http_client, api_user_id)
+    r1 = _wt_post(http_client, api_session_cookie)
     assert r1.status_code == 201, r1.text
-    _end_target(http_client, api_user_id, r1.json()["id"])
+    _end_target(http_client, api_session_cookie, r1.json()["id"])
 
-    r2 = _wt_post(http_client, api_user_id)
+    r2 = _wt_post(http_client, api_session_cookie)
     assert r2.status_code == 201, f"Expected 201 after previous target was ended: {r2.text}"
-    _end_target(http_client, api_user_id, r2.json()["id"])
+    _end_target(http_client, api_session_cookie, r2.json()["id"])
 
 
 # ── (k) POST /end with no recent weight entry returns 422 ─────────────────────
@@ -391,13 +416,22 @@ def test_api_k_end_without_recent_weight_returns_422(http_client):
     res = http_client.post("/api/users", json={"name": name})
     assert res.status_code == 201, res.text
     uid_k = res.json()["id"]
+    pw_hash = _hash_pw(_WT_TEST_PW)
+    with _OrmSess(engine) as db:
+        u = db.get(_UserModel, uuid.UUID(uid_k))
+        u.password_hash = pw_hash
+        db.commit()
+    login_res = http_client.post("/api/auth/login", json={"username": name, "password": _WT_TEST_PW})
+    assert login_res.status_code == 200, login_res.text
+    cookie_k = login_res.cookies.get("session")
 
     try:
-        r = _wt_post(http_client, uid_k)
+        r = _wt_post(http_client, cookie_k)
         assert r.status_code == 201, r.text
         target_id = r.json()["id"]
 
-        res = http_client.post(f"{_WT}/{target_id}/end", json={"status": "achieved"})
+        res = http_client.post(f"{_WT}/{target_id}/end", json={"status": "achieved"},
+                               cookies={"session": cookie_k})
         assert res.status_code == 422, res.text
         detail = res.json().get("detail", "")
         assert "Log a recent weight" in detail, f"Expected guidance message, got: {detail!r}"
