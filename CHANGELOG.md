@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 61 — Training log charts, mobile polish, Strava source parity, JS refactor
+
+- #527: Show workout metrics and badges on mobile viewports
+- #528: Surface training load and weekly volume chart on log
+- #530: Normalize Strava source attribution across list and detail
+- #531: Extract shared JS module for training format helpers
+
 ## Sprint 59.1 — Weight chart body metrics + CSS cleanup
 
 - #520: Add body metrics and selectable moving average window

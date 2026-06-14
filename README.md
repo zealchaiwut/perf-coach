@@ -12,7 +12,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
-- **Training log** — workout log with type badges, TSS, distance, HR, and pace; friendly empty state for new users
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace; training load (CTL/ATL/TSB) widget and weekly volume bar chart on the log page; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
 - **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
@@ -88,7 +88,8 @@ Each script:
 | `GET /api/environment` | Returns `{"environment": "PRD"\|"UAT", "version": "0.1.0"}` |
 | `GET /api/health` | Returns DB connection status |
 | `GET /api/users` | Returns list of users |
-| `GET /api/training-log` | Returns training log entries with workout details (distance, duration, HR, elevation, pace); supports `from`, `to`, `types`, `search`, `include_rest` query params. Response includes a top-level `load_context` block (CTL/ATL/TSB + interpretation) when user has ≥7 days of data. |
+| `GET /api/training-log` | Returns training log entries with workout details (distance, duration, HR, elevation, pace, source, strava_activity_url); supports `from`, `to`, `types`, `search`, `include_rest` query params. Response includes a top-level `load_context` block (CTL/ATL/TSB + interpretation) when user has ≥7 days of data. |
+| `GET /api/exercises/names` | Returns sorted list of distinct exercise names for the session user; used for autocomplete in the workout log form |
 | `GET /trends/summary` | Returns trend aggregations (readiness, HRV, RHR, sleep, energy, mood, TSS) for a date range |
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |
