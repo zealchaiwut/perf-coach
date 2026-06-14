@@ -3,8 +3,7 @@
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function todayISO() {
-  const d = new Date();
-  return isoDateStr(d);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 }
 
 function isoDateStr(date) {

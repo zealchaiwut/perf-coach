@@ -42,6 +42,13 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 
 app = FastAPI()
 
+
+def _today_bkk() -> _date:
+    """Return today's date in Asia/Bangkok (UTC+7) timezone."""
+    from zoneinfo import ZoneInfo
+    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
+
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
@@ -725,7 +732,7 @@ def create_weight_entry(body: WeightEntriesCreateIn):
         entry_date = _date.fromisoformat(body.entry_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
-    if entry_date > _date.today() + _timedelta(days=1):
+    if entry_date > _today_bkk() + _timedelta(days=1):
         raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
 
     entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
@@ -1407,7 +1414,7 @@ def get_weight_chart(
         raise HTTPException(status_code=400, detail="Invalid user_id")
 
     _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
-    today = _date.today()
+    today = _today_bkk()
     if range_token is not None:
         if range_token not in _VALID_RANGE_TOKENS:
             raise HTTPException(
