@@ -5,7 +5,6 @@ import hmac as _hmac
 import io as _io
 import json as _json
 import logging as _logging
-import math as _math
 import os
 import secrets as _secrets
 import threading as _threading
@@ -18,8 +17,6 @@ from urllib.parse import urlencode as _urlencode
 import urllib.request as _urllib_request
 import urllib.error as _urllib_error
 
-_start_time = time.monotonic()
-
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,7 +28,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
-from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
@@ -39,6 +36,8 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+
+_start_time = time.monotonic()
 
 app = FastAPI()
 
@@ -206,7 +205,7 @@ def get_about():
 @app.get("/api/users")
 def get_users():
     try:
-        from sqlalchemy import func, outerjoin, select
+        from sqlalchemy import func, select
         with Session(engine) as session:
             wcount_sub = (
                 select(WeightEntry.user_id, func.count().label("wcount"))
@@ -2286,8 +2285,6 @@ _HOME_SUMMARY_TOP_N = 5
 
 def _build_habits_block(uid, today_bkk, ws):
     """Return the habits block for the home summary, or None on any error."""
-    from zoneinfo import ZoneInfo as _ZI
-    we = ws + _timedelta(days=6)
     week_dates = [ws + _timedelta(days=i) for i in range(7)]
 
     with Session(engine) as session:
@@ -3354,7 +3351,7 @@ def post_habit_log_entry(
             .all()
         )
         week_current_value = sum(
-            float(l.value) for l in week_logs if l.value is not None
+            float(lg.value) for lg in week_logs if lg.value is not None
         )
         result = _habit_log_dict(saved_log)
         result["week_current_value"] = week_current_value
@@ -4012,7 +4009,7 @@ def get_calendar_month(
         sleep_quality: int | null  # 1–5
       }
     """
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
     import calendar as _cal
 
     uid = user.id
@@ -4262,6 +4259,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
+        "source": w.source,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -5976,6 +5974,7 @@ def get_training_log(
             "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
             "tss": float(w.tss) if w.tss is not None else None,
             "source": w.source or w.tss_source or "manual",
+            "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
             "is_stryd_synced": w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
             "weight_context": w.remarks,
@@ -6898,6 +6897,7 @@ async def post_sync_strava(
     Falls back to synchronous execution if BackgroundTasks is unavailable.
     """
     from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
+    from sqlalchemy import select
 
     uid = user.id
 
@@ -7134,13 +7134,13 @@ def strava_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
         w_no_source_count = session.execute(
             _sel(_func.count(Workout.id))
             .where(Workout.user_id == uid)
-            .where((Workout.source == None) | (Workout.source == ""))
+            .where((Workout.source.is_(None)) | (Workout.source == ""))
         ).scalar() or 0
 
         stryd_synced_count = session.execute(
             _sel(_func.count(Workout.id))
             .where(Workout.user_id == uid)
-            .where(Workout.stryd_activity_pk != None)
+            .where(Workout.stryd_activity_pk.isnot(None))
         ).scalar() or 0
 
         # Count workouts whose start_time is within 5 minutes of another workout for the same user
@@ -8007,7 +8007,6 @@ def get_feel_summary(
     to_date: Optional[str] = Query(None, alias="to"),
     user: User = Depends(resolve_user),
 ):
-    from sqlalchemy import func as _func
 
     parsed_from = None
     if from_date is not None:
@@ -8088,7 +8087,6 @@ def _make_preview(notes: str, query: str, window: int = 80) -> str:
     end = min(len(notes), idx + len(query) + window // 2)
     snippet = notes[start:end]
     # replace match within snippet (case-preserving)
-    snip_lower = snippet.lower()
     rel = idx - start
     matched_text = snippet[rel: rel + len(query)]
     preview = snippet[:rel] + f"**{matched_text}**" + snippet[rel + len(query):]
@@ -8580,7 +8578,7 @@ def admin_create_user(body: AdminUserCreateIn):
 
 @app.get("/api/admin/users", dependencies=[Depends(require_admin)])
 def admin_list_users():
-    from sqlalchemy import func, select
+    from sqlalchemy import select
     with Session(engine) as session:
         strava_sub = select(StravaToken.user_id).subquery()
         google_sub = select(GoogleOAuthCredentials.user_id).subquery()
