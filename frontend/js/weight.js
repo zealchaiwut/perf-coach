@@ -67,6 +67,8 @@ let _chartData = null;       // last /api/weight-chart response
 let _activeTarget = null;    // last /api/weight-targets/active target object
 let _recentEntries = [];     // entries for last 14 days
 let _historySummary = null;  // last /api/weight-targets/history-summary response
+let _rangeAbortController = null;
+let _rangeFetchSeq = 0;
 
 // ── API helpers ────────────────────────────────────────────────────────────
 
@@ -75,8 +77,9 @@ function showPageError(msg) {
   if (el) el.textContent = msg || '';
 }
 
-async function apiFetch(url) {
-  const res = await fetch(url);
+async function apiFetch(url, signal) {
+  const opts = signal ? { signal } : {};
+  const res = await fetch(url, opts);
   if (res.status === 401 || res.status === 403) {
     window.location.href = '/login';
     throw new Error('auth');
@@ -85,11 +88,12 @@ async function apiFetch(url) {
   return res.json();
 }
 
-async function fetchChartData(range) {
+async function fetchChartData(range, signal) {
   const from = rangeFromDate(range);
   const to = todayISO();
   return apiFetch(
-    `/api/weight-chart?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}&include_target=true`
+    `/api/weight-chart?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}&include_target=true`,
+    signal
   );
 }
 
@@ -1351,10 +1355,16 @@ function _initRangeTabs() {
       _currentRange = btn.dataset.range;
       document.querySelectorAll('.range-tab').forEach(b => b.classList.toggle('active', b === btn));
 
+      if (_rangeAbortController) _rangeAbortController.abort();
+      _rangeAbortController = new AbortController();
+      const seq = ++_rangeFetchSeq;
+
       try {
-        const data = await fetchChartData(_currentRange);
+        const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
+        if (seq !== _rangeFetchSeq) return;
         renderChart(data, _currentRange);
       } catch (e) {
+        if (e.name === 'AbortError') return;
         showPageError('Chart load failed: ' + e.message);
       }
     });
