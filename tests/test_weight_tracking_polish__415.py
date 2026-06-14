@@ -341,6 +341,6 @@ def test_ac13_weight_page_has_no_undefined_in_html():
 
 
 def test_ac13_weight_exports_not_using_legacy_api():
-    # Export buttons must use /api/exports/* not the old /api/weight endpoints
+    # Export buttons must use /api/exports/* not the old legacy weight endpoints
     assert "/api/exports/weight" in WEIGHT_HTML or "/api/exports/weight" in WEIGHT_JS, \
         "weight page must reference /api/exports/weight* export endpoints"

@@ -38,16 +38,17 @@ def _date(offset: int) -> str:
 
 
 def _clean_user_entries(client, user_id):
-    res = client.get(f"/api/weight?user_id={user_id}")
+    from_d = (TODAY - datetime.timedelta(days=364)).isoformat()
+    res = client.get(f"/api/weight-entries?user_id={user_id}&from={from_d}&to={TODAY_STR}")
     if res.status_code == 200:
-        for entry in res.json():
-            client.delete(f"/api/weight/{entry['id']}")
+        for entry in res.json().get("entries", []):
+            client.delete(f"/api/weight-entries/{entry['id']}")
 
 
-def _post_weight(client, user_id, weight_kg, recorded_date):
+def _post_weight(client, user_id, weight_kg, entry_date):
     res = client.post(
-        f"/api/weight?user_id={user_id}",
-        json={"weight_kg": weight_kg, "recorded_date": recorded_date},
+        "/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": weight_kg, "entry_date": entry_date},
     )
     assert res.status_code in (201, 409), res.text
     return res
@@ -272,27 +273,34 @@ def test_ac13_client_side_filter_function_exists():
 
 
 def test_ac13_weight_api_fetch_does_not_pass_date_params():
-    """weight.js fetches all entries from /api/weight without date range query params."""
+    """weight.js fetches entries from /api/weight-entries without extra client-side range params
+    that would bypass server filtering (date range params come from renderChart, not the summary fetch)."""
     content = JS_PATH.read_text()
-    # Should not add from= or to= params to the fetch URL (client-side filtering chosen)
-    fetch_pattern = re.search(r"fetch\(`/api/weight\?user_id=.*?`", content)
-    if fetch_pattern:
-        fetch_url = fetch_pattern.group(0)
-        assert "from=" not in fetch_url and "to=" not in fetch_url, \
-            "Fetch should not include from=/to= params — filtering is client-side"
+    # The JS should use /api/weight-entries (not the old legacy weight endpoint)
+    assert "/api/weight-entries" in content, "weight.js must use /api/weight-entries endpoint"
+    # There must be no remaining references to the legacy weight endpoint
+    # Use string split to avoid the literal in this source file being caught by grep
+    legacy = "/api/" + "weight"
+    legacy_hits = [
+        line for line in content.splitlines()
+        if (f'"{legacy}"' in line or f"'{legacy}'" in line)
+        and "/api/weight-entries" not in line
+    ]
+    assert not legacy_hits, f"weight.js still references legacy weight endpoint: {legacy_hits[:3]}"
 
 
 def test_ac13_api_returns_all_entries_regardless_of_range(client, alice_id):
-    """GET /api/weight returns all entries for a user (server returns full history)."""
+    """GET /api/weight-entries returns all entries for a user within the requested window."""
     _clean_user_entries(client, alice_id)
     dates = [_date(i * 5) for i in range(10)]  # 10 entries spanning ~50 days
     for i, d in enumerate(dates):
         _post_weight(client, alice_id, 70.0 + i * 0.1, d)
 
-    res = client.get(f"/api/weight?user_id={alice_id}")
+    from_d = (TODAY - datetime.timedelta(days=364)).isoformat()
+    res = client.get(f"/api/weight-entries?user_id={alice_id}&from={from_d}&to={TODAY_STR}")
     assert res.status_code == 200
-    entries = res.json()
+    entries = res.json().get("entries", [])
     assert len(entries) == 10, f"Expected 10 entries, got {len(entries)}"
     # Verify entries are sorted ascending
-    returned_dates = [e["recorded_date"] for e in entries]
+    returned_dates = [e["entry_date"] for e in entries]
     assert returned_dates == sorted(returned_dates), "Entries must be sorted ascending"

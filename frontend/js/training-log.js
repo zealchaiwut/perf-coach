@@ -367,6 +367,7 @@
     if (filters.search) params.set('search', filters.search);
     params.set('from', filters.from || addDays(today, -29));
     params.set('to',   filters.to   || today);
+    params.set('include_rest', 'true');
 
     fetch('/api/training-log?' + params.toString())
       .then(function (res) {

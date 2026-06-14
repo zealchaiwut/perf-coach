@@ -19,10 +19,10 @@ Neon Postgres. Migrations managed by Alembic (`alembic/versions/`).
 | id | UUID | PK, default `gen_random_uuid()` |
 | user_id | UUID | FK → users.id, NOT NULL |
 | weight_kg | NUMERIC(5,2) | NOT NULL |
-| recorded_date | DATE | NOT NULL |
+| entry_date | DATE | NOT NULL |
 | created_at | TIMESTAMPTZ | default `now()` |
 
-Unique constraint: `(user_id, recorded_date)` — one entry per user per day.
+Unique constraint: `(user_id, entry_date)` — one entry per user per day.
 
 ### habits
 

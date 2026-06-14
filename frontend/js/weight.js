@@ -3,8 +3,7 @@
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function todayISO() {
-  const d = new Date();
-  return isoDateStr(d);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 }
 
 function isoDateStr(date) {
@@ -89,7 +88,7 @@ async function fetchChartData(range) {
   const from = rangeFromDate(range);
   const to = todayISO();
   return apiFetch(
-    `/api/weight-chart?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}&include_target=true`
+    `/api/weight-chart?from=${from}&to=${to}&include_target=true`
   );
 }
 
@@ -97,7 +96,7 @@ async function fetchRecentEntries() {
   const from = addDays(todayISO(), -13);
   const to = todayISO();
   return apiFetch(
-    `/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}`
+    `/api/weight-entries?from=${from}&to=${to}`
   );
 }
 
@@ -105,21 +104,21 @@ async function fetchAllEntriesSummary() {
   const from = addDays(todayISO(), -364);
   const to = todayISO();
   return apiFetch(
-    `/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}`
+    `/api/weight-entries?from=${from}&to=${to}`
   );
 }
 
 async function fetchActiveTarget() {
-  return apiFetch(`/api/weight-targets/active?user_id=${encodeURIComponent(_userId)}`);
+  return apiFetch(`/api/weight-targets/active`);
 }
 
 async function fetchTargetHistorySummary() {
-  return apiFetch(`/api/weight-targets/history-summary?user_id=${encodeURIComponent(_userId)}`);
+  return apiFetch(`/api/weight-targets/history-summary`);
 }
 
 async function fetchTargetHistory(status) {
-  let url = `/api/weight-targets/history?user_id=${encodeURIComponent(_userId)}`;
-  if (status) url += `&status=${encodeURIComponent(status)}`;
+  let url = `/api/weight-targets/history`;
+  if (status) url += `?status=${encodeURIComponent(status)}`;
   return apiFetch(url);
 }
 
@@ -743,7 +742,6 @@ function _openMiniStepper(btn, date) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: _userId,
           entry_date: date,
           weight_kg: raw,
         }),
@@ -810,7 +808,7 @@ async function renderBackfillCalendar() {
 
   const byDate = {};
   try {
-    const res = await fetch(`/api/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${fromStr}&to=${toStr}`);
+    const res = await fetch(`/api/weight-entries?from=${fromStr}&to=${toStr}`);
     if (res.ok) {
       const data = await res.json();
       (Array.isArray(data) ? data : (data.entries || [])).forEach(e => { byDate[e.entry_date] = e; });
@@ -891,7 +889,7 @@ function _calOpenEditor(date, entry) {
       } else {
         const res = await fetch('/api/weight-entries', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: _userId, entry_date: date, weight_kg: v }),
+          body: JSON.stringify({ entry_date: date, weight_kg: v }),
         });
         if (res.status === 409) { errEl.textContent = 'Entry already exists for this date.'; return; }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -983,7 +981,6 @@ async function _submitCardB(weightKg) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: _userId,
           entry_date: todayISO(),
           entry_time: nowHHMM(),
           weight_kg: weightKg,
@@ -1270,7 +1267,6 @@ async function _saveEditPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: _userId,
           start_weight_kg: startW,
           start_date: today,
           target_weight_kg: goalW,
@@ -1503,8 +1499,8 @@ function _initTargetHistoryFilters() {
   if (exportBtn) {
     exportBtn.addEventListener('click', () => {
       const status = _targetHistoryFilter === 'all' ? '' : _targetHistoryFilter;
-      let url = `/api/exports/weight-targets?user_id=${encodeURIComponent(_userId)}`;
-      if (status) url += `&status=${encodeURIComponent(status)}`;
+      let url = `/api/exports/weight-targets`;
+      if (status) url += `?status=${encodeURIComponent(status)}`;
       window.location.href = url;
     });
   }
@@ -1564,11 +1560,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     exportBtn.addEventListener('click', () => {
       let url;
       if (_currentRange === 'all') {
-        url = `/api/exports/weight-entries?user_id=${encodeURIComponent(_userId)}`;
+        url = `/api/exports/weight-entries`;
       } else {
         const from = rangeFromDate(_currentRange);
         const to = todayISO();
-        url = `/api/exports/weight-entries?user_id=${encodeURIComponent(_userId)}&from=${from}&to=${to}`;
+        url = `/api/exports/weight-entries?from=${from}&to=${to}`;
       }
       window.location.href = url;
     });
