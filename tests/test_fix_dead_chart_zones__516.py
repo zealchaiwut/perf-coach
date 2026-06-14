@@ -67,8 +67,8 @@ def test_ac2_past_w_is_not_5_percent():
     assert m, "Cannot parse PAST_W definition from weight-chart.js"
     mult = float(m.group(1))
     assert mult != 0.05, (
-        f"PAST_W is still 5% (CW * 0.05) — identified as an accidental leftover. "
-        f"Update to an intentional value (e.g. 0.20) that matches the zone-layout comment."
+        "PAST_W is still 5% (CW * 0.05) — identified as an accidental leftover. "
+        "Update to an intentional value (e.g. 0.20) that matches the zone-layout comment."
     )
 
 
