@@ -46,16 +46,17 @@ def bob_id(client):
 
 
 def _clean(client, user_id):
-    res = client.get(f"/api/weight?user_id={user_id}")
+    from_d = (TODAY - datetime.timedelta(days=364)).isoformat()
+    res = client.get(f"/api/weight-entries?user_id={user_id}&from={from_d}&to={TODAY_STR}")
     if res.status_code == 200:
-        for e in res.json():
-            client.delete(f"/api/weight/{e['id']}")
+        for e in res.json().get("entries", []):
+            client.delete(f"/api/weight-entries/{e['id']}")
 
 
 def _post(client, user_id, date_str, weight_kg):
     res = client.post(
-        f"/api/weight?user_id={user_id}",
-        json={"weight_kg": weight_kg, "recorded_date": date_str},
+        "/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": weight_kg, "entry_date": date_str},
     )
     assert res.status_code in (201, 409), f"Unexpected {res.status_code}: {res.text}"
     return res
@@ -131,10 +132,10 @@ def test_ac3_card1_need_more_data_when_fewer_than_2_entries(client, alice_id):
     if THIS_WEEK_DATES[0] <= TODAY:
         _post(client, alice_id, THIS_WEEK_DATES[0].isoformat(), 70.0)
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     this_week = [
         e for e in entries
-        if THIS_MONDAY.isoformat() <= e["recorded_date"] <= THIS_WEEK_DATES[-1].isoformat()
+        if THIS_MONDAY.isoformat() <= e["entry_date"] <= THIS_WEEK_DATES[-1].isoformat()
     ]
     assert len(this_week) < 2, "Should have fewer than 2 entries to trigger 'Need more data'"
 
@@ -152,10 +153,10 @@ def test_ac3_card1_avg_computable_from_api(client, alice_id):
 
     assert len(posted) >= 2, f"Need at least 2 past days this week; got {len(posted)}"
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     this_week = [
         e for e in entries
-        if THIS_MONDAY.isoformat() <= e["recorded_date"] <= THIS_WEEK_DATES[-1].isoformat()
+        if THIS_MONDAY.isoformat() <= e["entry_date"] <= THIS_WEEK_DATES[-1].isoformat()
     ]
     assert len(this_week) >= 2
     api_avg = sum(e["weight_kg"] for e in this_week) / len(this_week)
@@ -164,16 +165,16 @@ def test_ac3_card1_avg_computable_from_api(client, alice_id):
 
 
 def test_ac3_card1_prev_week_comparison_available(client, alice_id):
-    """Card 1 sub-label needs prev-week data; API must return it from /api/weight."""
+    """Card 1 sub-label needs prev-week data; API must return it from /api/weight-entries."""
     # Add previous-week entries (only dates that have already passed)
     past_prev = [d for d in PREV_WEEK_DATES if d < TODAY]
     for d in past_prev[:2]:
         _post(client, alice_id, d.isoformat(), 71.0)
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     prev_week = [
         e for e in entries
-        if PREV_MONDAY.isoformat() <= e["recorded_date"] <= PREV_WEEK_DATES[-1].isoformat()
+        if PREV_MONDAY.isoformat() <= e["entry_date"] <= PREV_WEEK_DATES[-1].isoformat()
     ]
     assert len(prev_week) >= 1, "Need at least 1 prev-week entry for comparison sublabel"
 
@@ -196,9 +197,9 @@ def test_ac4_card2_need_more_data_when_fewer_than_14_days(client, bob_id):
         d = TODAY - datetime.timedelta(days=i)
         _post(client, bob_id, d.isoformat(), 75.0 - i * 0.1)
 
-    entries = client.get(f"/api/weight?user_id={bob_id}").json()
-    window = [e for e in entries if THIRTY_AGO.isoformat() <= e["recorded_date"] <= TODAY_STR]
-    assert len({e["recorded_date"] for e in window}) < 14
+    entries = client.get(f"/api/weight-entries?user_id={bob_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
+    window = [e for e in entries if THIRTY_AGO.isoformat() <= e["entry_date"] <= TODAY_STR]
+    assert len({e["entry_date"] for e in window}) < 14
 
 
 def test_ac4_card2_trend_computable_with_14_plus_days(client, alice_id):
@@ -209,12 +210,12 @@ def test_ac4_card2_trend_computable_with_14_plus_days(client, alice_id):
         if d >= THIRTY_AGO:
             _post(client, alice_id, d.isoformat(), round(73.0 - i * 0.15, 1))
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     window = sorted(
-        [e for e in entries if THIRTY_AGO.isoformat() <= e["recorded_date"] <= TODAY_STR],
-        key=lambda e: e["recorded_date"],
+        [e for e in entries if THIRTY_AGO.isoformat() <= e["entry_date"] <= TODAY_STR],
+        key=lambda e: e["entry_date"],
     )
-    unique_days = len({e["recorded_date"] for e in window})
+    unique_days = len({e["entry_date"] for e in window})
     assert unique_days >= 14, f"Expected ≥ 14 days, got {unique_days}"
 
     change = window[-1]["weight_kg"] - window[0]["weight_kg"]
@@ -228,10 +229,10 @@ def test_ac4_card2_gain_scenario(client, bob_id):
         d = TODAY - datetime.timedelta(days=14 - i)
         _post(client, bob_id, d.isoformat(), round(70.0 + i * 0.2, 1))
 
-    entries = client.get(f"/api/weight?user_id={bob_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={bob_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     window = sorted(
-        [e for e in entries if THIRTY_AGO.isoformat() <= e["recorded_date"] <= TODAY_STR],
-        key=lambda e: e["recorded_date"],
+        [e for e in entries if THIRTY_AGO.isoformat() <= e["entry_date"] <= TODAY_STR],
+        key=lambda e: e["entry_date"],
     )
     change = window[-1]["weight_kg"] - window[0]["weight_kg"]
     assert change > 0, "Expected net weight gain over 30 days"
@@ -265,10 +266,10 @@ def test_ac5_card3_days_count_matches_api(client, alice_id):
             if r.status_code == 201:
                 logged.append(d.isoformat())
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     this_week_set = {
-        e["recorded_date"] for e in entries
-        if THIS_MONDAY.isoformat() <= e["recorded_date"] <= THIS_WEEK_DATES[-1].isoformat()
+        e["entry_date"] for e in entries
+        if THIS_MONDAY.isoformat() <= e["entry_date"] <= THIS_WEEK_DATES[-1].isoformat()
     }
     assert this_week_set == set(logged), f"API days mismatch: {this_week_set} vs {set(logged)}"
 
@@ -277,15 +278,15 @@ def test_ac5_card3_today_logged_state(client, alice_id):
     """When today has an entry, API confirms it — JS should show green check for today."""
     _clean(client, alice_id)
     _post(client, alice_id, TODAY_STR, 70.0)
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    assert any(e["recorded_date"] == TODAY_STR for e in entries), "Today's entry must appear in API"
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
+    assert any(e["entry_date"] == TODAY_STR for e in entries), "Today's entry must appear in API"
 
 
 def test_ac5_card3_today_pending_state(client, bob_id):
     """When today has no entry, API returns empty for today — JS should show dashed circle."""
     _clean(client, bob_id)
-    entries = client.get(f"/api/weight?user_id={bob_id}").json()
-    assert not any(e["recorded_date"] == TODAY_STR for e in entries)
+    entries = client.get(f"/api/weight-entries?user_id={bob_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
+    assert not any(e["entry_date"] == TODAY_STR for e in entries)
 
 
 def test_ac5_card3_today_not_logged_sublabel_in_js():
@@ -340,16 +341,16 @@ def test_ac7_different_users_return_different_entries(client, alice_id, bob_id):
         if d <= TODAY:
             _post(client, alice_id, d.isoformat(), 65.0)
 
-    alice_entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    bob_entries = client.get(f"/api/weight?user_id={bob_id}").json()
+    alice_entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
+    bob_entries = client.get(f"/api/weight-entries?user_id={bob_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
 
     alice_this_week = [
         e for e in alice_entries
-        if THIS_MONDAY.isoformat() <= e["recorded_date"] <= THIS_WEEK_DATES[-1].isoformat()
+        if THIS_MONDAY.isoformat() <= e["entry_date"] <= THIS_WEEK_DATES[-1].isoformat()
     ]
     bob_this_week = [
         e for e in bob_entries
-        if THIS_MONDAY.isoformat() <= e["recorded_date"] <= THIS_WEEK_DATES[-1].isoformat()
+        if THIS_MONDAY.isoformat() <= e["entry_date"] <= THIS_WEEK_DATES[-1].isoformat()
     ]
 
     assert len(alice_this_week) >= 1
@@ -366,11 +367,11 @@ def test_ac7_js_reloads_on_user_change():
 # ── AC-8: Cards refresh after new weight entry ────────────────────────────────
 
 def test_ac8_post_then_get_reflects_new_entry(client, alice_id):
-    """After submitting a weight entry, GET /api/weight immediately returns updated data."""
+    """After submitting a weight entry, GET /api/weight-entries immediately returns updated data."""
     _clean(client, alice_id)
-    before = client.get(f"/api/weight?user_id={alice_id}").json()
+    before = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     _post(client, alice_id, TODAY_STR, 69.5)
-    after = client.get(f"/api/weight?user_id={alice_id}").json()
+    after = client.get(f"/api/weight-entries?user_id={alice_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json().get("entries", [])
     assert len(after) == len(before) + 1, "Entry list must grow by 1 after POST"
 
 
@@ -392,7 +393,7 @@ def test_ac9_render_summary_cards_function_exists():
 
 
 def test_ac9_summary_cards_called_with_api_entries():
-    """renderSummaryCards must be called with entries from /api/weight, not a separate fetch."""
+    """renderSummaryCards must be called with entries from /api/weight-entries, not a separate fetch."""
     js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "weight.js").read_text()
     assert "renderSummaryCards(entries)" in js
 
@@ -407,7 +408,7 @@ def test_ac9_no_new_api_endpoints_for_summary():
 # ── AC: New user with no data — all cards show "Need more data" ───────────────
 
 def test_new_user_no_data_returns_empty_list(client, bob_id):
-    """A user with no entries returns [] from API; all 3 cards would show 'Need more data'."""
+    """A user with no entries returns an empty entries list from API; all 3 cards would show 'Need more data'."""
     _clean(client, bob_id)
-    entries = client.get(f"/api/weight?user_id={bob_id}").json()
-    assert entries == []
+    data = client.get(f"/api/weight-entries?user_id={bob_id}&from={(TODAY - datetime.timedelta(days=364)).isoformat()}&to={TODAY_STR}").json()
+    assert data.get("entries", []) == []

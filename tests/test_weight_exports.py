@@ -1,5 +1,6 @@
 """
 Tests for issue #414: CSV export endpoints for weight entries and targets.
+Updated for issue #488: endpoints now require session auth, no client user_id.
 6 AC anchors:
   (a) entries export returns valid CSV with correct headers
   (b) date range filter returns only entries within range
@@ -16,8 +17,11 @@ import uuid
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.orm import Session as _OrmSess
 
+from backend.auth import hash_password as _hash_pw
 from backend.db import engine
+from backend.models import User as _UserModel
 
 BASE = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 
@@ -28,6 +32,7 @@ DATE_C = "2025-05-01"
 _TARGET_START = "2025-01-01"
 _TARGET_END = "2025-04-01"
 _TARGET_ENDED_AT = "2025-04-10T08:00:00+00:00"
+_EXPORT_TEST_PW = "export-test-pw-414"
 
 
 def _parse_csv(text: str) -> list[list[str]]:
@@ -46,26 +51,41 @@ def test_uid(client):
     r = client.post("/api/users", json={"name": name})
     assert r.status_code == 201, f"user creation failed: {r.text}"
     uid = r.json()["id"]
+    pw_hash = _hash_pw(_EXPORT_TEST_PW)
+    with _OrmSess(engine) as db:
+        u = db.get(_UserModel, uuid.UUID(uid))
+        u.password_hash = pw_hash
+        db.commit()
     yield uid
     client.delete(f"/api/users/{uid}")
 
 
 @pytest.fixture(scope="module")
-def seeded_entries(client, test_uid):
-    client.post("/api/weight-entries", json={
-        "user_id": test_uid, "entry_date": DATE_A, "weight_kg": 80.0, "notes": "normal day",
-    })
-    client.post("/api/weight-entries", json={
-        "user_id": test_uid, "entry_date": DATE_B, "weight_kg": 79.5, "notes": "note with, comma",
-    })
-    client.post("/api/weight-entries", json={
-        "user_id": test_uid, "entry_date": DATE_C, "weight_kg": 79.0,
-    })
-    return test_uid
+def session_cookie(client, test_uid):
+    with _OrmSess(engine) as db:
+        u = db.get(_UserModel, uuid.UUID(test_uid))
+        name = u.name
+    res = client.post("/api/auth/login", json={"username": name, "password": _EXPORT_TEST_PW})
+    assert res.status_code == 200, res.text
+    return res.cookies.get("session")
 
 
 @pytest.fixture(scope="module")
-def seeded_targets(client, test_uid):
+def seeded_entries(client, test_uid, session_cookie):
+    client.post("/api/weight-entries", json={
+        "entry_date": DATE_A, "weight_kg": 80.0, "notes": "normal day",
+    }, cookies={"session": session_cookie})
+    client.post("/api/weight-entries", json={
+        "entry_date": DATE_B, "weight_kg": 79.5, "notes": "note with, comma",
+    }, cookies={"session": session_cookie})
+    client.post("/api/weight-entries", json={
+        "entry_date": DATE_C, "weight_kg": 79.0,
+    }, cookies={"session": session_cookie})
+    return session_cookie
+
+
+@pytest.fixture(scope="module")
+def seeded_targets(client, test_uid, session_cookie):
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -83,14 +103,14 @@ def seeded_targets(client, test_uid):
             ),
             {"uid": test_uid, "ea": _TARGET_ENDED_AT},
         )
-    return test_uid
+    return session_cookie
 
 
 # ── (a) entries export returns valid CSV with correct headers ──────────────────
 
 def test_a_entries_export_has_correct_headers(client, seeded_entries):
     """AC (a): GET /api/exports/weight-entries returns text/csv with exact header row."""
-    r = client.get(f"/api/exports/weight-entries?user_id={seeded_entries}")
+    r = client.get("/api/exports/weight-entries", cookies={"session": seeded_entries})
     assert r.status_code == 200
     assert "text/csv" in r.headers["content-type"]
     rows = _parse_csv(r.text)
@@ -102,7 +122,8 @@ def test_a_entries_export_has_correct_headers(client, seeded_entries):
 def test_b_date_range_filter(client, seeded_entries):
     """AC (b): from/to params restrict rows and set filename correctly."""
     r = client.get(
-        f"/api/exports/weight-entries?user_id={seeded_entries}&from={DATE_A}&to={DATE_B}"
+        f"/api/exports/weight-entries?from={DATE_A}&to={DATE_B}",
+        cookies={"session": seeded_entries},
     )
     assert r.status_code == 200
     cd = r.headers.get("content-disposition", "")
@@ -120,7 +141,8 @@ def test_b_date_range_filter(client, seeded_entries):
 def test_c_header_only_when_empty(client, seeded_entries):
     """AC (c): empty result returns header row only without error."""
     r = client.get(
-        f"/api/exports/weight-entries?user_id={seeded_entries}&from=2000-01-01&to=2000-01-31"
+        "/api/exports/weight-entries?from=2000-01-01&to=2000-01-31",
+        cookies={"session": seeded_entries},
     )
     assert r.status_code == 200
     rows = _parse_csv(r.text)
@@ -133,7 +155,8 @@ def test_c_header_only_when_empty(client, seeded_entries):
 def test_d_comma_in_notes_quoted(client, seeded_entries):
     """AC (d): csv.reader reconstructs comma-containing notes as a single field."""
     r = client.get(
-        f"/api/exports/weight-entries?user_id={seeded_entries}&from={DATE_B}&to={DATE_B}"
+        f"/api/exports/weight-entries?from={DATE_B}&to={DATE_B}",
+        cookies={"session": seeded_entries},
     )
     assert r.status_code == 200
     rows = _parse_csv(r.text)
@@ -146,7 +169,7 @@ def test_d_comma_in_notes_quoted(client, seeded_entries):
 
 def test_e_targets_export_achieved_pct(client, seeded_targets):
     """AC (e): achieved_pct = (start - end) / (start - target) * 100 = 60.0 for test data."""
-    r = client.get(f"/api/exports/weight-targets?user_id={seeded_targets}")
+    r = client.get("/api/exports/weight-targets", cookies={"session": seeded_targets})
     assert r.status_code == 200
     assert "text/csv" in r.headers["content-type"]
     cd = r.headers.get("content-disposition", "")
@@ -167,7 +190,8 @@ def test_e_targets_export_achieved_pct(client, seeded_targets):
 
 def test_f_status_filter_targets(client, seeded_targets):
     """AC (f): ?status=achieved returns only achieved rows; filename includes status."""
-    r = client.get(f"/api/exports/weight-targets?user_id={seeded_targets}&status=achieved")
+    r = client.get("/api/exports/weight-targets?status=achieved",
+                   cookies={"session": seeded_targets})
     assert r.status_code == 200
     cd = r.headers.get("content-disposition", "")
     assert 'filename="weight-targets-achieved.csv"' in cd

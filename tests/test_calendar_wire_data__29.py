@@ -34,9 +34,9 @@ def alice_id(client):
 # ── AC-1: Fetch weight, habits/logs, and training on page load ────────────────
 
 def test_ac1_js_fetches_weight_api():
-    """calendar.js must call /api/weight with user_id on page load."""
-    assert "/api/weight" in JS, "calendar.js must fetch /api/weight"
-    assert "user_id" in JS, "calendar.js must pass user_id to /api/weight"
+    """calendar.js must call /api/weight-entries with user_id on page load."""
+    assert "/api/weight-entries" in JS, "calendar.js must fetch /api/weight-entries"
+    assert "user_id" in JS, "calendar.js must pass user_id to /api/weight-entries"
 
 
 def test_ac1_js_fetches_habits_logs_api():
@@ -57,11 +57,11 @@ def test_ac1_js_fetches_training_api():
 
 
 def test_ac1_weight_fetch_includes_user_id():
-    """calendar.js /api/weight call must include user_id query param."""
+    """calendar.js /api/weight-entries call must include user_id query param."""
     assert "user_id" in JS, "calendar.js must pass user_id to weight API"
-    weight_idx = JS.find("/api/weight")
+    weight_idx = JS.find("/api/weight-entries")
     context = JS[weight_idx:weight_idx + 100]
-    assert "user_id" in context, "user_id must appear in the /api/weight fetch call"
+    assert "user_id" in context, "user_id must appear in the /api/weight-entries fetch call"
 
 
 def test_ac1_habits_logs_fetch_has_date_range():
@@ -91,10 +91,10 @@ def test_ac1_all_three_fetches_in_parallel():
 
 
 def test_ac1_weight_api_returns_200_for_user(client, alice_id):
-    """GET /api/weight?user_id=<alice> must return 200."""
-    res = client.get(f"/api/weight?user_id={alice_id}")
+    """GET /api/weight-entries?user_id=<alice> must return 200."""
+    res = client.get(f"/api/weight-entries?user_id={alice_id}")
     assert res.status_code == 200, f"Expected 200, got {res.status_code}"
-    assert isinstance(res.json(), list), "Response must be a list"
+    assert isinstance(res.json()["entries"], list), "Response must contain an 'entries' list"
 
 
 def test_ac1_habits_logs_api_returns_200_with_range(client, alice_id):
@@ -513,13 +513,13 @@ def test_structural_fetch_calls_inside_iife():
 # ── API contract ──────────────────────────────────────────────────────────────
 
 def test_api_weight_entry_has_required_fields(client, alice_id):
-    """Weight API response must include recorded_date and weight_kg fields."""
-    res = client.get(f"/api/weight?user_id={alice_id}")
+    """Weight API response must include entry_date and weight_kg fields."""
+    res = client.get(f"/api/weight-entries?user_id={alice_id}")
     assert res.status_code == 200
-    entries = res.json()
+    entries = res.json()["entries"]
     if entries:
         entry = entries[0]
-        assert "recorded_date" in entry, "Weight entry must have recorded_date"
+        assert "entry_date" in entry, "Weight entry must have entry_date"
         assert "weight_kg" in entry, "Weight entry must have weight_kg"
 
 

@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
@@ -41,6 +41,13 @@ from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 
 app = FastAPI()
+
+
+def _today_bkk() -> _date:
+    """Return today's date in Asia/Bangkok (UTC+7) timezone."""
+    from zoneinfo import ZoneInfo
+    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
 _static_root = Path(__file__).parent.parent
@@ -552,121 +559,9 @@ async def delete_avatar(request: Request):
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
 
-class WeightEntryIn(BaseModel):
-    weight_kg: float
-    recorded_date: str  # YYYY-MM-DD
-
-
-@app.get("/api/weight")
-def get_weight(user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        rows = (
-            session.query(WeightEntry)
-            .filter(WeightEntry.user_id == user.id)
-            .order_by(WeightEntry.recorded_date)
-            .all()
-        )
-        return JSONResponse([
-            {
-                "id": str(r.id),
-                "weight_kg": float(r.weight_kg),
-                "recorded_date": str(r.recorded_date),
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ])
-
-
-@app.post("/api/weight", status_code=201)
-def post_weight(body: WeightEntryIn, user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        entry = WeightEntry(
-            user_id=user.id,
-            weight_kg=body.weight_kg,
-            recorded_date=body.recorded_date,
-        )
-        session.add(entry)
-        try:
-            session.commit()
-        except sa_exc.IntegrityError:
-            session.rollback()
-            return JSONResponse(
-                status_code=409,
-                content={"error": "Entry exists for this date"},
-            )
-        session.refresh(entry)
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(entry.id),
-                "weight_kg": float(entry.weight_kg),
-                "recorded_date": str(entry.recorded_date),
-                "created_at": entry.created_at.isoformat() if entry.created_at else None,
-            },
-        )
-
-
-@app.delete("/api/weight/{entry_id}", status_code=204)
-def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        if entry.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        session.delete(entry)
-        session.commit()
-    return Response(status_code=204)
-
-
-class WeightEntryPatch(BaseModel):
-    weight_kg: Optional[float] = None
-    recorded_date: Optional[str] = None  # YYYY-MM-DD
-
-
-@app.patch("/api/weight/{entry_id}")
-def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(resolve_user)):
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-    if body.weight_kg is not None and body.weight_kg <= 0:
-        raise HTTPException(status_code=422, detail="weight_kg must be positive")
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        if entry.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        if body.weight_kg is not None:
-            entry.weight_kg = body.weight_kg
-        if body.recorded_date is not None:
-            entry.recorded_date = body.recorded_date
-        try:
-            session.commit()
-        except sa_exc.IntegrityError:
-            session.rollback()
-            return JSONResponse(
-                status_code=409,
-                content={"error": "Entry exists for this date"},
-            )
-        session.refresh(entry)
-        return JSONResponse({
-            "id": str(entry.id),
-            "weight_kg": float(entry.weight_kg),
-            "recorded_date": str(entry.recorded_date),
-            "created_at": entry.created_at.isoformat() if entry.created_at else None,
-        })
-
-
 # ── Weight entries CRUD endpoints ─────────────────────────────────────────────
 
 class WeightEntriesCreateIn(BaseModel):
-    user_id: str
     entry_date: str  # YYYY-MM-DD
     entry_time: Optional[str] = None  # HH:MM or HH:MM:SS
     weight_kg: float
@@ -710,11 +605,8 @@ def _parse_entry_time(entry_time_str: str):
 
 
 @app.post("/api/weight-entries", status_code=201)
-def create_weight_entry(body: WeightEntriesCreateIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolve_user)):
+    uid = user.id
 
     if not (20 <= body.weight_kg <= 300):
         raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
@@ -725,16 +617,12 @@ def create_weight_entry(body: WeightEntriesCreateIn):
         entry_date = _date.fromisoformat(body.entry_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
-    if entry_date > _date.today() + _timedelta(days=1):
+    if entry_date > _today_bkk() + _timedelta(days=1):
         raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
 
     entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
 
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         entry = WeightEntry(
             user_id=uid,
             entry_date=entry_date,
@@ -770,14 +658,11 @@ def create_weight_entry(body: WeightEntriesCreateIn):
 
 @app.get("/api/weight-entries")
 def list_weight_entries(
-    user_id: str = Query(...),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     today = _date.today()
     if from_date is None and to_date is None:
@@ -841,7 +726,7 @@ def list_weight_entries(
 
 
 @app.patch("/api/weight-entries/{entry_id}")
-def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn):
+def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn, user: User = Depends(resolve_user)):
     if "user_id" in body.model_fields_set or "entry_date" in body.model_fields_set:
         raise HTTPException(status_code=422, detail="user_id and entry_date cannot be changed")
 
@@ -852,7 +737,7 @@ def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn):
 
     with Session(engine) as session:
         entry = session.get(WeightEntry, eid)
-        if entry is None:
+        if entry is None or entry.user_id != user.id:
             raise HTTPException(status_code=404, detail="Entry not found")
 
         if "weight_kg" in body.model_fields_set and body.weight_kg is not None:
@@ -881,7 +766,7 @@ def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn):
 
 
 @app.delete("/api/weight-entries/{entry_id}")
-def delete_weight_entry(entry_id: str):
+def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
     try:
         eid = _uuid.UUID(entry_id)
     except ValueError:
@@ -889,7 +774,7 @@ def delete_weight_entry(entry_id: str):
 
     with Session(engine) as session:
         entry = session.get(WeightEntry, eid)
-        if entry is None:
+        if entry is None or entry.user_id != user.id:
             raise HTTPException(status_code=404, detail="Entry not found")
         session.delete(entry)
         session.commit()
@@ -899,7 +784,6 @@ def delete_weight_entry(entry_id: str):
 # ── Weight target endpoints ───────────────────────────────────────────────────
 
 class WeightTargetCreateIn(BaseModel):
-    user_id: str
     start_weight_kg: float
     start_date: str        # YYYY-MM-DD
     target_weight_kg: float
@@ -1050,11 +934,8 @@ def _weight_target_history_dict(t: WeightTarget) -> dict:
 
 
 @app.post("/api/weight-targets", status_code=201)
-def create_weight_target(body: WeightTargetCreateIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolve_user)):
+    uid = user.id
 
     if not (20 <= body.start_weight_kg <= 300):
         raise HTTPException(status_code=422, detail="start_weight_kg must be between 20 and 300")
@@ -1079,10 +960,6 @@ def create_weight_target(body: WeightTargetCreateIn):
         raise HTTPException(status_code=422, detail="target_date cannot be more than 5 years after start_date")
 
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         existing_active = (
             session.query(WeightTarget)
             .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
@@ -1130,17 +1007,9 @@ def create_weight_target(body: WeightTargetCreateIn):
 
 
 @app.get("/api/weight-targets/active")
-def get_active_weight_target(user_id: str = Query(...)):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
+def get_active_weight_target(user: User = Depends(resolve_user)):
+    uid = user.id
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         target = (
             session.query(WeightTarget)
             .filter(WeightTarget.user_id == uid, WeightTarget.status == "active")
@@ -1154,19 +1023,11 @@ def get_active_weight_target(user_id: str = Query(...)):
 
 @app.get("/api/weight-targets/history")
 def get_weight_target_history(
-    user_id: str = Query(...),
     status: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
+    uid = user.id
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         q = session.query(WeightTarget).filter(
             WeightTarget.user_id == uid,
             WeightTarget.status != "active",
@@ -1179,18 +1040,11 @@ def get_weight_target_history(
 
 
 @app.get("/api/weight-targets/history-summary")
-def get_weight_target_history_summary(user_id: str = Query(...)):
+def get_weight_target_history_summary(user: User = Depends(resolve_user)):
     """All-time stats, past attempts comparison, completed target rows, and total entry count."""
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
+    uid = user.id
     from sqlalchemy import func as _sa_func
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
 
         completed_targets = (
             session.query(WeightTarget)
@@ -1296,7 +1150,7 @@ def get_weight_target_history_summary(user_id: str = Query(...)):
 
 
 @app.patch("/api/weight-targets/{target_id}")
-def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
+def patch_weight_target(target_id: str, body: WeightTargetPatchIn, user: User = Depends(resolve_user)):
     if "start_weight_kg" in body.model_fields_set or "start_date" in body.model_fields_set:
         raise HTTPException(status_code=422, detail="start_weight_kg and start_date cannot be changed")
 
@@ -1307,7 +1161,7 @@ def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
 
     with Session(engine) as session:
         target = session.get(WeightTarget, tid)
-        if target is None:
+        if target is None or target.user_id != user.id:
             raise HTTPException(status_code=404, detail="Target not found")
         if target.status != "active":
             raise HTTPException(status_code=422, detail="Only active targets can be edited")
@@ -1333,7 +1187,7 @@ def patch_weight_target(target_id: str, body: WeightTargetPatchIn):
 
 
 @app.post("/api/weight-targets/{target_id}/end")
-def end_weight_target(target_id: str, body: WeightTargetEndIn):
+def end_weight_target(target_id: str, body: WeightTargetEndIn, user: User = Depends(resolve_user)):
     if body.status not in ("achieved", "abandoned"):
         raise HTTPException(status_code=422, detail="status must be 'achieved' or 'abandoned'")
 
@@ -1344,7 +1198,7 @@ def end_weight_target(target_id: str, body: WeightTargetEndIn):
 
     with Session(engine) as session:
         target = session.get(WeightTarget, tid)
-        if target is None:
+        if target is None or target.user_id != user.id:
             raise HTTPException(status_code=404, detail="Target not found")
         if target.status != "active":
             raise HTTPException(status_code=422, detail="Only active targets can be ended")
@@ -1392,22 +1246,17 @@ def _advance_one_month(d: _date) -> _date:
 
 @app.get("/api/weight-chart")
 def get_weight_chart(
-    user_id: Optional[str] = Query(default=None),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
     include_target: bool = Query(default=True),
     range_token: Optional[str] = Query(default=None, alias="range"),
     include_future_zone: bool = Query(default=False),
+    user: User = Depends(resolve_user),
 ):
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
-    today = _date.today()
+    today = _today_bkk()
     if range_token is not None:
         if range_token not in _VALID_RANGE_TOKENS:
             raise HTTPException(
@@ -4056,7 +3905,7 @@ def get_active_streak(user_id: str):
         rows = session.execute(
             _sql_text("""
                 SELECT DISTINCT d FROM (
-                    SELECT recorded_date AS d FROM weight_entries WHERE user_id = :uid
+                    SELECT entry_date AS d FROM weight_entries WHERE user_id = :uid
                     UNION
                     SELECT log_date AS d FROM habit_logs WHERE user_id = :uid
                     UNION
@@ -4181,12 +4030,12 @@ def get_calendar_month(
             session.query(WeightEntry)
             .filter(
                 WeightEntry.user_id == uid,
-                WeightEntry.recorded_date >= from_d,
-                WeightEntry.recorded_date <= to_d,
+                WeightEntry.entry_date >= from_d,
+                WeightEntry.entry_date <= to_d,
             )
             .all()
         )
-        weight_by_date = {str(w.recorded_date): float(w.weight_kg) for w in weight_rows}
+        weight_by_date = {str(w.entry_date): float(w.weight_kg) for w in weight_rows}
 
         # Habit log counts per date
         log_rows = (
@@ -4438,9 +4287,14 @@ def get_workouts(
         to_d = _date.fromisoformat(to_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
         workouts = (
             session.query(Workout)
+            .options(
+                joinedload(Workout.strava_activity),
+                joinedload(Workout.stryd_activity),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -4449,14 +4303,23 @@ def get_workouts(
             .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
             .all()
         )
-        result = []
-        for w in workouts:
-            count = (
-                session.query(WorkoutExercise)
-                .filter(WorkoutExercise.workout_id == w.id)
-                .count()
+        workout_ids = [w.id for w in workouts]
+        exercise_counts: dict = {}
+        if workout_ids:
+            rows = (
+                session.query(
+                    WorkoutExercise.workout_id,
+                    _sa_func.count().label("cnt"),
+                )
+                .filter(WorkoutExercise.workout_id.in_(workout_ids))
+                .group_by(WorkoutExercise.workout_id)
+                .all()
             )
-            result.append(_workout_list_dict(w, count))
+            exercise_counts = {row.workout_id: row.cnt for row in rows}
+        result = [
+            _workout_list_dict(w, exercise_counts.get(w.id, 0))
+            for w in workouts
+        ]
         return JSONResponse(result)
 
 
@@ -5365,7 +5228,7 @@ def export_daily_metrics_csv(
         q = session.query(DailyMetric, WeightEntry).outerjoin(
             WeightEntry,
             (WeightEntry.user_id == DailyMetric.user_id)
-            & (WeightEntry.recorded_date == DailyMetric.metric_date),
+            & (WeightEntry.entry_date == DailyMetric.metric_date),
         ).filter(DailyMetric.user_id == uid)
         if from_d is not None:
             q = q.filter(DailyMetric.metric_date >= from_d)
@@ -5469,14 +5332,11 @@ def export_workouts_csv(
 
 @app.get("/api/exports/weight-entries")
 def export_weight_entries_csv(
-    user_id: str = Query(...),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = user.id
 
     from_d: Optional[_date] = None
     to_d: Optional[_date] = None
@@ -5495,10 +5355,6 @@ def export_weight_entries_csv(
 
     from sqlalchemy import nullslast
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         q = session.query(WeightEntry).filter(WeightEntry.user_id == uid)
         if from_d is not None:
             q = q.filter(WeightEntry.entry_date >= from_d)
@@ -5535,19 +5391,11 @@ def export_weight_entries_csv(
 
 @app.get("/api/exports/weight-targets")
 def export_weight_targets_csv(
-    user_id: str = Query(...),
     status: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
+    uid = user.id
     with Session(engine) as session:
-        user = session.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
         q = session.query(WeightTarget).filter(WeightTarget.user_id == uid)
         if status is not None:
             q = q.filter(WeightTarget.status == status)
@@ -6032,6 +5880,7 @@ def get_training_log(
     types: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=False),
+    include_load_context: bool = Query(default=False),
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
@@ -6098,18 +5947,20 @@ def get_training_log(
                         },
                     })
 
-        total_workout_days = (
-            session.query(Workout.workout_date)
-            .filter(Workout.user_id == uid)
-            .distinct()
-            .count()
-        )
+        total_workout_days = 0
         today_snap = None
-        if total_workout_days >= 7:
-            today_snap = session.query(TrainingLoadSnapshot).filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == today,
-            ).first()
+        if include_load_context:
+            total_workout_days = (
+                session.query(Workout.workout_date)
+                .filter(Workout.user_id == uid)
+                .distinct()
+                .count()
+            )
+            if total_workout_days >= 7:
+                today_snap = session.query(TrainingLoadSnapshot).filter(
+                    TrainingLoadSnapshot.user_id == uid,
+                    TrainingLoadSnapshot.snapshot_date == today,
+                ).first()
 
     workout_entries = [
         {
@@ -6174,26 +6025,29 @@ def get_training_log(
             },
         })
 
-    load_context = None
-    if total_workout_days >= 7:
-        if today_snap is not None:
-            lc_ctl = round(today_snap.ctl, 1)
-            lc_atl = round(today_snap.atl, 1)
-            lc_tsb = round(today_snap.tsb, 1)
-        else:
-            _load = current_load(str(uid), as_of=today)
-            lc_ctl = round(_load["ctl"], 1)
-            lc_atl = round(_load["atl"], 1)
-            lc_tsb = round(_load["tsb"], 1)
-        load_context = {
-            "ctl": lc_ctl,
-            "atl": lc_atl,
-            "tsb": lc_tsb,
-            "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
-            "as_of": today.isoformat(),
-        }
+    response: dict = {"weeks": weeks}
+    if include_load_context:
+        load_context = None
+        if total_workout_days >= 7:
+            if today_snap is not None:
+                lc_ctl = round(today_snap.ctl, 1)
+                lc_atl = round(today_snap.atl, 1)
+                lc_tsb = round(today_snap.tsb, 1)
+            else:
+                _load = current_load(str(uid), as_of=today)
+                lc_ctl = round(_load["ctl"], 1)
+                lc_atl = round(_load["atl"], 1)
+                lc_tsb = round(_load["tsb"], 1)
+            load_context = {
+                "ctl": lc_ctl,
+                "atl": lc_atl,
+                "tsb": lc_tsb,
+                "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
+                "as_of": today.isoformat(),
+            }
+        response["load_context"] = load_context
 
-    return JSONResponse({"weeks": weeks, "load_context": load_context})
+    return JSONResponse(response)
 
 
 # ── Personal records endpoints ────────────────────────────────────────────────

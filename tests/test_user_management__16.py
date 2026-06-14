@@ -345,19 +345,22 @@ def test_ac8_delete_cascades_weight_entries(client):
     u = _create_user(client, f"CascW-{uuid.uuid4().hex[:6]}")
     # Add a weight entry
     w_res = client.post(
-        f"/api/weight?user_id={u['id']}",
-        json={"weight_kg": 70.0, "recorded_date": "2026-01-10"},
+        "/api/weight-entries",
+        json={"user_id": u["id"], "weight_kg": 70.0, "entry_date": "2026-01-10"},
     )
     assert w_res.status_code == 201, f"Failed to create weight entry: {w_res.text}"
 
-    before = client.get(f"/api/weight?user_id={u['id']}").json()
+    before_res = client.get(f"/api/weight-entries?user_id={u['id']}")
+    assert before_res.status_code == 200
+    before = before_res.json().get("entries", before_res.json())
     assert len(before) == 1, "Expected 1 weight entry before delete"
 
     client.delete(f"/api/users/{u['id']}")
 
-    after = client.get(f"/api/weight?user_id={u['id']}")
+    after = client.get(f"/api/weight-entries?user_id={u['id']}")
     if after.status_code == 200:
-        assert after.json() == [], "Weight entries must be deleted with user"
+        entries = after.json().get("entries", after.json())
+        assert entries == [], "Weight entries must be deleted with user"
 
 
 def test_ac8_delete_cascades_habits(client):

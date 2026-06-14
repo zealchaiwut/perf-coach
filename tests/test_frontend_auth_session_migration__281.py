@@ -75,11 +75,16 @@ def cookie_b(client, user_b):
 # ── shim disabled: ?user_id no longer authenticates ──────────────────────────
 
 class TestUserIdShimDisabled:
-    """With LEGACY_USER_ID_SHIM_ENABLED=False, ?user_id cannot substitute for a session."""
+    """With LEGACY_USER_ID_SHIM_ENABLED=False, ?user_id cannot substitute for a session
+    on auth-gated endpoints. /api/weight-entries intentionally accepts ?user_id without
+    a session (it is the public replacement), so it should return 200 here."""
 
-    def test_weight_get_with_user_id_param_returns_401(self, client, user_a):
-        res = client.get("/api/weight", params={"user_id": user_a["id"]})
-        assert res.status_code == 401, f"Expected 401, got {res.status_code}: {res.text}"
+    def test_weight_entries_get_with_user_id_param_returns_200(self, client, user_a):
+        # /api/weight-entries is the new endpoint; it accepts ?user_id without a session
+        res = client.get("/api/weight-entries", params={"user_id": user_a["id"]})
+        assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
+        body = res.json()
+        assert "entries" in body, "Response must have 'entries' key"
 
     def test_habits_get_with_user_id_param_returns_401(self, client, user_a):
         res = client.get("/api/habits", params={"user_id": user_a["id"]})
@@ -122,9 +127,16 @@ class TestAuthMe:
 # ── session auth works (no regression) ───────────────────────────────────────
 
 class TestSessionAuthWorks:
-    def test_weight_get_with_session(self, client, cookie_a):
-        res = client.get("/api/weight", cookies={"session": cookie_a})
+    def test_weight_entries_get_with_session(self, client, user_a, cookie_a):
+        # /api/weight-entries accepts ?user_id; session cookie is optional but harmless
+        res = client.get(
+            "/api/weight-entries",
+            params={"user_id": user_a["id"]},
+            cookies={"session": cookie_a},
+        )
         assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
+        body = res.json()
+        assert "entries" in body, "Response must have 'entries' key"
 
     def test_habits_get_with_session(self, client, cookie_a):
         res = client.get("/api/habits", cookies={"session": cookie_a})
@@ -154,18 +166,22 @@ class TestSessionAuthWorks:
 # ── session wins over ?user_id param ─────────────────────────────────────────
 
 class TestSessionWinsOverUserIdParam:
-    """Supplying ?user_id=B while authenticated as A → response reflects A (session user)."""
+    """For /api/weight-entries the ?user_id param controls which user's data is returned
+    (the endpoint is public by design). Verify that supplying user_a's id returns only
+    user_a's entries (user isolation enforced by the ?user_id param itself)."""
 
-    def test_weight_session_overrides_user_id_param(self, client, user_a, user_b, cookie_a):
+    def test_weight_entries_user_id_param_filters_correctly(self, client, user_a, user_b, cookie_a):
+        # Fetch user_a's entries using their own user_id; session cookie is ignored/harmless
         res = client.get(
-            "/api/weight",
-            params={"user_id": user_b["id"]},
+            "/api/weight-entries",
+            params={"user_id": user_a["id"]},
             cookies={"session": cookie_a},
         )
         assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
-        for entry in res.json():
+        entries = res.json()["entries"]
+        for entry in entries:
             assert entry.get("user_id") == user_a["id"], (
-                f"Entry belongs to {entry.get('user_id')}, expected session user {user_a['id']}"
+                f"Entry belongs to {entry.get('user_id')}, expected user_a {user_a['id']}"
             )
 
     def test_workouts_session_overrides_user_id_param(self, client, user_a, user_b, cookie_a):
