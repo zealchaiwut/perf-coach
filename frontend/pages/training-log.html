@@ -695,19 +695,23 @@
       .dr-panel { left: 0; right: 0; }
       #log-list { padding: 1rem; }
 
-      .entry-metric { display: none; }
-      .source-badges-wrap { display: none; }
-
-      .day-pill { min-width: 40px; padding: 0.35rem; }
-    }
-
-    @media (max-width: 380px) {
-      .entry-row { flex-wrap: wrap; gap: 0.5rem; }
+      /* issue #527: keep glanceable metrics + source badges on phones.
+         Wrap the row so distance/pace/duration + badges drop to their own
+         line instead of being hidden or forcing horizontal scroll. */
+      .entry-row { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
       .entry-date  { order: 1; }
       .entry-type  { order: 2; width: auto; }
       .entry-body  { order: 3; flex-basis: 100%; }
-      .entry-metric { order: 4; flex-basis: 100%; }
+      .entry-metric {
+        order: 4;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.4rem;
+      }
       .tss-pill, .source-badges-wrap { order: 5; }
+      .source-badges-wrap { flex-direction: row; gap: 4px; }
+
+      .day-pill { min-width: 40px; padding: 0.35rem; }
     }
 
     /* ── Layout wrapper (list + panel) ── */
