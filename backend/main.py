@@ -5,7 +5,6 @@ import hmac as _hmac
 import io as _io
 import json as _json
 import logging as _logging
-import math as _math
 import os
 import secrets as _secrets
 import threading as _threading
@@ -31,7 +30,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
-from backend.services.training_load import _ewma_alpha, compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
@@ -206,7 +205,7 @@ def get_about():
 @app.get("/api/users")
 def get_users():
     try:
-        from sqlalchemy import func, outerjoin, select
+        from sqlalchemy import func, select
         with Session(engine) as session:
             wcount_sub = (
                 select(WeightEntry.user_id, func.count().label("wcount"))
@@ -2286,7 +2285,6 @@ _HOME_SUMMARY_TOP_N = 5
 
 def _build_habits_block(uid, today_bkk, ws):
     """Return the habits block for the home summary, or None on any error."""
-    from zoneinfo import ZoneInfo as _ZI
     we = ws + _timedelta(days=6)
     week_dates = [ws + _timedelta(days=i) for i in range(7)]
 
@@ -4012,7 +4010,7 @@ def get_calendar_month(
         sleep_quality: int | null  # 1–5
       }
     """
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
     import calendar as _cal
 
     uid = user.id
@@ -8009,7 +8007,6 @@ def get_feel_summary(
     to_date: Optional[str] = Query(None, alias="to"),
     user: User = Depends(resolve_user),
 ):
-    from sqlalchemy import func as _func
 
     parsed_from = None
     if from_date is not None:
@@ -8582,7 +8579,7 @@ def admin_create_user(body: AdminUserCreateIn):
 
 @app.get("/api/admin/users", dependencies=[Depends(require_admin)])
 def admin_list_users():
-    from sqlalchemy import func, select
+    from sqlalchemy import select
     with Session(engine) as session:
         strava_sub = select(StravaToken.user_id).subquery()
         google_sub = select(GoogleOAuthCredentials.user_id).subquery()
