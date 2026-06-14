@@ -552,117 +552,6 @@ async def delete_avatar(request: Request):
 
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
 
-class WeightEntryIn(BaseModel):
-    weight_kg: float
-    recorded_date: str  # YYYY-MM-DD
-
-
-@app.get("/api/weight")
-def get_weight(user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        rows = (
-            session.query(WeightEntry)
-            .filter(WeightEntry.user_id == user.id)
-            .order_by(WeightEntry.recorded_date)
-            .all()
-        )
-        return JSONResponse([
-            {
-                "id": str(r.id),
-                "weight_kg": float(r.weight_kg),
-                "recorded_date": str(r.recorded_date),
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ])
-
-
-@app.post("/api/weight", status_code=201)
-def post_weight(body: WeightEntryIn, user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        entry = WeightEntry(
-            user_id=user.id,
-            weight_kg=body.weight_kg,
-            recorded_date=body.recorded_date,
-        )
-        session.add(entry)
-        try:
-            session.commit()
-        except sa_exc.IntegrityError:
-            session.rollback()
-            return JSONResponse(
-                status_code=409,
-                content={"error": "Entry exists for this date"},
-            )
-        session.refresh(entry)
-        return JSONResponse(
-            status_code=201,
-            content={
-                "id": str(entry.id),
-                "weight_kg": float(entry.weight_kg),
-                "recorded_date": str(entry.recorded_date),
-                "created_at": entry.created_at.isoformat() if entry.created_at else None,
-            },
-        )
-
-
-@app.delete("/api/weight/{entry_id}", status_code=204)
-def delete_weight(entry_id: str, user: User = Depends(resolve_user)):
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        if entry.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        session.delete(entry)
-        session.commit()
-    return Response(status_code=204)
-
-
-class WeightEntryPatch(BaseModel):
-    weight_kg: Optional[float] = None
-    recorded_date: Optional[str] = None  # YYYY-MM-DD
-
-
-@app.patch("/api/weight/{entry_id}")
-def patch_weight(entry_id: str, body: WeightEntryPatch, user: User = Depends(resolve_user)):
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-    if body.weight_kg is not None and body.weight_kg <= 0:
-        raise HTTPException(status_code=422, detail="weight_kg must be positive")
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        if entry.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        if body.weight_kg is not None:
-            entry.weight_kg = body.weight_kg
-        if body.recorded_date is not None:
-            entry.recorded_date = body.recorded_date
-        try:
-            session.commit()
-        except sa_exc.IntegrityError:
-            session.rollback()
-            return JSONResponse(
-                status_code=409,
-                content={"error": "Entry exists for this date"},
-            )
-        session.refresh(entry)
-        return JSONResponse({
-            "id": str(entry.id),
-            "weight_kg": float(entry.weight_kg),
-            "recorded_date": str(entry.recorded_date),
-            "created_at": entry.created_at.isoformat() if entry.created_at else None,
-        })
-
-
 # ── Weight entries CRUD endpoints ─────────────────────────────────────────────
 
 class WeightEntriesCreateIn(BaseModel):
@@ -4009,7 +3898,7 @@ def get_active_streak(user_id: str):
         rows = session.execute(
             _sql_text("""
                 SELECT DISTINCT d FROM (
-                    SELECT recorded_date AS d FROM weight_entries WHERE user_id = :uid
+                    SELECT entry_date AS d FROM weight_entries WHERE user_id = :uid
                     UNION
                     SELECT log_date AS d FROM habit_logs WHERE user_id = :uid
                     UNION
@@ -4134,12 +4023,12 @@ def get_calendar_month(
             session.query(WeightEntry)
             .filter(
                 WeightEntry.user_id == uid,
-                WeightEntry.recorded_date >= from_d,
-                WeightEntry.recorded_date <= to_d,
+                WeightEntry.entry_date >= from_d,
+                WeightEntry.entry_date <= to_d,
             )
             .all()
         )
-        weight_by_date = {str(w.recorded_date): float(w.weight_kg) for w in weight_rows}
+        weight_by_date = {str(w.entry_date): float(w.weight_kg) for w in weight_rows}
 
         # Habit log counts per date
         log_rows = (
@@ -5318,7 +5207,7 @@ def export_daily_metrics_csv(
         q = session.query(DailyMetric, WeightEntry).outerjoin(
             WeightEntry,
             (WeightEntry.user_id == DailyMetric.user_id)
-            & (WeightEntry.recorded_date == DailyMetric.metric_date),
+            & (WeightEntry.entry_date == DailyMetric.metric_date),
         ).filter(DailyMetric.user_id == uid)
         if from_d is not None:
             q = q.filter(DailyMetric.metric_date >= from_d)

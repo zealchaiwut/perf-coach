@@ -34,24 +34,26 @@ def _days_ago(n: int) -> str:
 
 def _post_weight(client, user_id, date_str, kg=70.0):
     res = client.post(
-        "/api/weight",
-        params={"user_id": user_id},
-        json={"weight_kg": kg, "recorded_date": date_str},
+        "/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": kg, "entry_date": date_str},
     )
     assert res.status_code in (201, 409), res.text
     if res.status_code == 201:
         return res.json()["id"]
     # On 409, fetch the entry id
-    entries = client.get("/api/weight", params={"user_id": user_id}).json()
+    entries = client.get(
+        "/api/weight-entries",
+        params={"user_id": user_id, "from": date_str, "to": date_str},
+    ).json()["entries"]
     for e in entries:
-        if e["recorded_date"] == date_str:
+        if e["entry_date"] == date_str:
             return e["id"]
     return None
 
 
 def _delete_weight(client, entry_id):
     if entry_id:
-        client.delete(f"/api/weight/{entry_id}")
+        client.delete(f"/api/weight-entries/{entry_id}")
 
 
 def _create_habit(client, user_id, name):

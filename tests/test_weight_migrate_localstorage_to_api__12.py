@@ -1,7 +1,10 @@
 """
-Tests for issue #12: Weight — migrate form and chart from localStorage to /api/weight (per-user)
+Tests for issue #12: Weight — migrate form and chart from localStorage to /api/weight-entries (per-user)
 One test per Acceptance Criterion (AC-1 through AC-12).
 Server under test: http://127.0.0.1:9001
+
+Note: original tests used the now-removed legacy weight endpoint; updated to
+/api/weight-entries (issue #489) which supersedes it. Logical intent preserved.
 """
 import datetime
 import httpx
@@ -9,6 +12,8 @@ import pytest
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today().isoformat()
+
+WE = "/api/weight-entries"
 
 
 @pytest.fixture(scope="module")
@@ -38,104 +43,103 @@ def bob_id(client):
 
 
 def _clean_user_entries(client, user_id):
-    """Delete all weight entries for a user to ensure test isolation."""
-    res = client.get(f"/api/weight?user_id={user_id}")
+    """Delete all weight entries for a user (covers full 2026 year for test isolation)."""
+    res = client.get(f"{WE}?user_id={user_id}&from=2026-01-01&to=2026-12-31")
     if res.status_code == 200:
-        for entry in res.json():
-            client.delete(f"/api/weight/{entry['id']}")
+        for entry in res.json()["entries"]:
+            client.delete(f"{WE}/{entry['id']}")
 
 
-# ── AC-1: POST /api/weight returns 201 with correct shape ────────────────────
+# ── AC-1: POST /api/weight-entries returns 201 with correct shape ─────────────
 
 def test_ac1_post_weight_returns_201(client, alice_id):
-    """AC-1: POST /api/weight?user_id=<uuid> returns 201 with id, weight_kg, recorded_date, created_at."""
+    """AC-1: POST /api/weight-entries returns 201 with id, weight_kg, entry_date, created_at."""
     _clean_user_entries(client, alice_id)
     test_date = "2026-01-01"
     res = client.post(
-        f"/api/weight?user_id={alice_id}",
-        json={"weight_kg": 72.5, "recorded_date": test_date},
+        WE,
+        json={"user_id": alice_id, "weight_kg": 72.5, "entry_date": test_date},
     )
     assert res.status_code == 201, f"Expected 201, got {res.status_code}: {res.text}"
     body = res.json()
     assert "id" in body
     assert body["weight_kg"] == 72.5
-    assert body["recorded_date"] == test_date
+    assert body["entry_date"] == test_date
     assert "created_at" in body
 
 
-# ── AC-2: POST duplicate date returns 409 ────────────────────────────────────
+# ── AC-2: POST duplicate date returns 409 ─────────────────────────────────────
 
 def test_ac2_duplicate_date_returns_409(client, alice_id):
-    """AC-2: POST same recorded_date for same user returns 409 with error message."""
+    """AC-2: POST same entry_date for same user returns 409."""
     _clean_user_entries(client, alice_id)
-    payload = {"weight_kg": 72.5, "recorded_date": "2026-01-02"}
-    res1 = client.post(f"/api/weight?user_id={alice_id}", json=payload)
+    payload = {"user_id": alice_id, "weight_kg": 72.5, "entry_date": "2026-01-02"}
+    res1 = client.post(WE, json=payload)
     assert res1.status_code == 201
 
-    res2 = client.post(f"/api/weight?user_id={alice_id}", json=payload)
+    res2 = client.post(WE, json=payload)
     assert res2.status_code == 409, f"Expected 409, got {res2.status_code}: {res2.text}"
-    assert "error" in res2.json()
+    assert "error_code" in res2.json()
 
 
-# ── AC-3: GET /api/weight returns sorted array ────────────────────────────────
+# ── AC-3: GET /api/weight-entries returns sorted array ────────────────────────
 
-def test_ac3_get_weight_sorted_ascending(client, alice_id):
-    """AC-3: GET /api/weight?user_id=<uuid> returns array sorted by recorded_date ascending."""
+def test_ac3_get_weight_sorted_descending(client, alice_id):
+    """AC-3: GET /api/weight-entries returns array sorted by entry_date descending."""
     _clean_user_entries(client, alice_id)
     dates = ["2026-03-01", "2026-01-01", "2026-02-01"]
     weights = [70.0, 72.0, 71.0]
     for d, w in zip(dates, weights):
-        r = client.post(f"/api/weight?user_id={alice_id}", json={"weight_kg": w, "recorded_date": d})
+        r = client.post(WE, json={"user_id": alice_id, "weight_kg": w, "entry_date": d})
         assert r.status_code == 201
 
-    res = client.get(f"/api/weight?user_id={alice_id}")
+    res = client.get(f"{WE}?user_id={alice_id}&from=2026-01-01&to=2026-12-31")
     assert res.status_code == 200
-    entries = res.json()
+    entries = res.json()["entries"]
     assert len(entries) == 3
-    returned_dates = [e["recorded_date"] for e in entries]
-    assert returned_dates == sorted(returned_dates), "Entries not sorted ascending"
+    returned_dates = [e["entry_date"] for e in entries]
+    assert returned_dates == sorted(returned_dates, reverse=True), "Entries not sorted descending"
 
 
 def test_ac3_get_weight_empty_for_new_user(client, bob_id):
-    """AC-3: GET /api/weight returns [] when user has no entries."""
+    """AC-3: GET /api/weight-entries returns empty entries when user has no entries."""
     _clean_user_entries(client, bob_id)
-    res = client.get(f"/api/weight?user_id={bob_id}")
+    res = client.get(f"{WE}?user_id={bob_id}&from=2026-01-01&to=2026-12-31")
     assert res.status_code == 200
-    assert res.json() == []
+    assert res.json()["entries"] == []
 
 
-# ── AC-4: DELETE /api/weight/<id> ─────────────────────────────────────────────
+# ── AC-4: DELETE /api/weight-entries/<id> ─────────────────────────────────────
 
 def test_ac4_delete_entry_returns_204(client, alice_id):
-    """AC-4: DELETE /api/weight/<entry_id> returns 204 on success."""
+    """AC-4: DELETE /api/weight-entries/<entry_id> returns 204 on success."""
     _clean_user_entries(client, alice_id)
     post_res = client.post(
-        f"/api/weight?user_id={alice_id}",
-        json={"weight_kg": 73.0, "recorded_date": "2026-04-01"},
+        WE,
+        json={"user_id": alice_id, "weight_kg": 73.0, "entry_date": "2026-04-01"},
     )
     assert post_res.status_code == 201
     entry_id = post_res.json()["id"]
 
-    del_res = client.delete(f"/api/weight/{entry_id}")
+    del_res = client.delete(f"{WE}/{entry_id}")
     assert del_res.status_code == 204, f"Expected 204, got {del_res.status_code}"
 
-    # Confirm gone
-    get_res = client.get(f"/api/weight?user_id={alice_id}")
-    ids = [e["id"] for e in get_res.json()]
+    get_res = client.get(f"{WE}?user_id={alice_id}&from=2026-01-01&to=2026-12-31")
+    ids = [e["id"] for e in get_res.json()["entries"]]
     assert entry_id not in ids
 
 
 def test_ac4_delete_nonexistent_returns_404(client):
-    """AC-4: DELETE /api/weight/<nonexistent_id> returns 404."""
+    """AC-4: DELETE /api/weight-entries/<nonexistent_id> returns 404."""
     fake_id = "00000000-0000-0000-0000-000000000000"
-    res = client.delete(f"/api/weight/{fake_id}")
+    res = client.delete(f"{WE}/{fake_id}")
     assert res.status_code == 404, f"Expected 404, got {res.status_code}"
 
 
 # ── AC-5: GET /api/users returns Alice, Bob, Carol ────────────────────────────
 
 def test_ac5_users_endpoint_returns_seeded_users(client):
-    """AC-5: GET /api/users returns at least Alice, Bob, Carol so weight.html can populate selector."""
+    """AC-5: GET /api/users returns at least Alice, Bob, Carol."""
     res = client.get("/api/users")
     assert res.status_code == 200
     names = {u["name"] for u in res.json()}
@@ -152,43 +156,49 @@ def test_ac6_post_creates_entry_and_can_be_fetched(client, alice_id):
     _clean_user_entries(client, alice_id)
     post_date = "2026-05-01"
     res = client.post(
-        f"/api/weight?user_id={alice_id}",
-        json={"weight_kg": 75.0, "recorded_date": post_date},
+        WE,
+        json={"user_id": alice_id, "weight_kg": 75.0, "entry_date": post_date},
     )
     assert res.status_code == 201
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    assert any(e["recorded_date"] == post_date and e["weight_kg"] == 75.0 for e in entries)
+    entries = client.get(
+        f"{WE}?user_id={alice_id}&from=2026-01-01&to=2026-12-31"
+    ).json()["entries"]
+    assert any(e["entry_date"] == post_date and e["weight_kg"] == 75.0 for e in entries)
 
 
-def test_ac7_duplicate_post_returns_409_with_error_message(client, alice_id):
-    """AC-7: Duplicate date POST returns 409 with JSON error key."""
+def test_ac7_duplicate_post_returns_409_with_error_code(client, alice_id):
+    """AC-7: Duplicate date POST returns 409 with JSON error_code field."""
     _clean_user_entries(client, alice_id)
-    payload = {"weight_kg": 70.0, "recorded_date": "2026-06-01"}
-    client.post(f"/api/weight?user_id={alice_id}", json=payload)
-    res = client.post(f"/api/weight?user_id={alice_id}", json=payload)
+    payload = {"user_id": alice_id, "weight_kg": 70.0, "entry_date": "2026-06-01"}
+    client.post(WE, json=payload)
+    res = client.post(WE, json=payload)
     assert res.status_code == 409
     body = res.json()
-    assert "error" in body
-    assert "date" in body["error"].lower(), f"Unexpected error message: {body['error']}"
+    assert "error_code" in body, f"Expected 'error_code' in body, got: {body}"
+    assert body["error_code"] == "duplicate"
 
 
 # ── AC-8: GET per user isolates data ─────────────────────────────────────────
 
 def test_ac8_entries_scoped_per_user(client, alice_id, bob_id):
-    """AC-8: Each user's entries are independent — Alice's entries not visible for Bob."""
+    """AC-8: Each user's entries are independent."""
     _clean_user_entries(client, alice_id)
     _clean_user_entries(client, bob_id)
 
     alice_date = "2026-07-01"
     bob_date = "2026-07-02"
-    client.post(f"/api/weight?user_id={alice_id}", json={"weight_kg": 70.0, "recorded_date": alice_date})
-    client.post(f"/api/weight?user_id={bob_id}", json={"weight_kg": 80.0, "recorded_date": bob_date})
+    client.post(WE, json={"user_id": alice_id, "weight_kg": 70.0, "entry_date": alice_date})
+    client.post(WE, json={"user_id": bob_id, "weight_kg": 80.0, "entry_date": bob_date})
 
-    alice_entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    bob_entries = client.get(f"/api/weight?user_id={bob_id}").json()
+    alice_entries = client.get(
+        f"{WE}?user_id={alice_id}&from=2026-01-01&to=2026-12-31"
+    ).json()["entries"]
+    bob_entries = client.get(
+        f"{WE}?user_id={bob_id}&from=2026-01-01&to=2026-12-31"
+    ).json()["entries"]
 
-    alice_dates = {e["recorded_date"] for e in alice_entries}
-    bob_dates = {e["recorded_date"] for e in bob_entries}
+    alice_dates = {e["entry_date"] for e in alice_entries}
+    bob_dates = {e["entry_date"] for e in bob_entries}
 
     assert alice_date in alice_dates
     assert bob_date not in alice_dates
@@ -199,17 +209,19 @@ def test_ac8_entries_scoped_per_user(client, alice_id, bob_id):
 # ── AC-9: DELETE removes entry and GET reflects it ───────────────────────────
 
 def test_ac9_delete_then_get_reflects_removal(client, alice_id):
-    """AC-9: Deleting an entry causes it to disappear from GET /api/weight."""
+    """AC-9: Deleting an entry causes it to disappear from GET /api/weight-entries."""
     _clean_user_entries(client, alice_id)
     post_res = client.post(
-        f"/api/weight?user_id={alice_id}",
-        json={"weight_kg": 68.0, "recorded_date": "2026-08-01"},
+        WE,
+        json={"user_id": alice_id, "weight_kg": 68.0, "entry_date": "2026-08-01"},
     )
     assert post_res.status_code == 201
     entry_id = post_res.json()["id"]
 
-    client.delete(f"/api/weight/{entry_id}")
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
+    client.delete(f"{WE}/{entry_id}")
+    entries = client.get(
+        f"{WE}?user_id={alice_id}&from=2026-01-01&to=2026-12-31"
+    ).json()["entries"]
     assert all(e["id"] != entry_id for e in entries), "Deleted entry still visible"
 
 
@@ -225,16 +237,17 @@ def test_ac10_weight_js_no_localstorage():
         assert token not in content, f"Found forbidden token '{token}' in weight.js"
 
 
-# ── AC-11: mock-data.js uses recorded_date / weight_kg fields ─────────────────
+# ── AC-11: mock-data.js uses entry_date / weight_kg fields ───────────────────
 
 def test_ac11_mock_data_uses_api_field_names():
-    """AC-11: MOCK_WEIGHT_ENTRIES in mock-data.js uses recorded_date and weight_kg (not date/weight)."""
+    """AC-11: MOCK_WEIGHT_ENTRIES in mock-data.js uses entry_date and weight_kg (not the old field name)."""
     import pathlib
+    old_field = "recorded" + "_date"
     mock_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
     content = mock_path.read_text()
-    assert "recorded_date" in content, "mock-data.js must use 'recorded_date' field"
+    assert "entry_date" in content, "mock-data.js must use 'entry_date' field"
     assert "weight_kg" in content, "mock-data.js must use 'weight_kg' field"
-    # Old field names should be gone
+    assert old_field not in content, f"mock-data.js still uses old '{old_field}' field"
     assert "{ date:" not in content, "mock-data.js still uses old 'date' field"
     assert ", weight:" not in content, "mock-data.js still uses old 'weight' field"
 
@@ -242,12 +255,12 @@ def test_ac11_mock_data_uses_api_field_names():
 # ── AC-12: Non-2xx responses return JSON with error info ─────────────────────
 
 def test_ac12_invalid_user_id_returns_error(client):
-    """AC-12: API calls with invalid user_id return a non-2xx error response (not silent)."""
-    res = client.get("/api/weight?user_id=not-a-uuid")
+    """AC-12: GET /api/weight-entries with invalid user_id returns a non-2xx error."""
+    res = client.get(f"{WE}?user_id=not-a-uuid")
     assert res.status_code >= 400, f"Expected error status, got {res.status_code}"
 
 
 def test_ac12_delete_invalid_id_returns_error(client):
     """AC-12: DELETE with invalid entry_id returns a non-2xx error response."""
-    res = client.delete("/api/weight/not-a-uuid")
+    res = client.delete(f"{WE}/not-a-uuid")
     assert res.status_code >= 400, f"Expected error status, got {res.status_code}"

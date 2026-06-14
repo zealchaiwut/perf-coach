@@ -532,8 +532,8 @@ def test_js_fetches_history():
 
 
 def test_js_fetches_weight_entries_for_prefill():
-    assert "/api/weight" in WT_JS or "/api/weight-entries" in WT_JS, \
-        "weight-targets.js must fetch recent weight entry for pre-filling start weight"
+    assert "/api/weight-entries" in WT_JS, \
+        "weight-targets.js must fetch recent weight entry via /api/weight-entries for pre-filling start weight"
 
 
 def test_js_uses_progress_pct():
