@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 59 — Weight page polish: mobile, performance, streak
+
+- #515: Fix weight chart unreadable on mobile touch devices
+- #516: Fix dead chart zones and stale width comment
+- #518: Fix inline-edit flicker and heavy cancel on weight rows
+- #519: Reduce _reload() from 5–6 calls to targeted partial reloads
+- #521: Add logging streak and adherence indicator to weight page
+
 ## Sprint 56 — Weight page redesign v2 + habits polish
 
 - #454: Allow Users to Edit Habits After Creation
