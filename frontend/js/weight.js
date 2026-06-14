@@ -122,6 +122,48 @@ async function fetchTargetHistory(status) {
   return apiFetch(url);
 }
 
+// ── Streak & Adherence ────────────────────────────────────────────────────────
+
+function _computeStreak(entries) {
+  if (!entries || !entries.length) return 0;
+  const dates = new Set(entries.map(e => e.entry_date));
+  const today = todayISO();
+  if (!dates.has(today)) return 0;
+  let streak = 0;
+  let cursor = today;
+  while (dates.has(cursor)) {
+    streak++;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
+
+function _computeAdherence(entries) {
+  if (!entries || !entries.length) return 0;
+  const today = todayISO();
+  const cutoff = addDays(today, -13); // 14-day window: cutoff to today inclusive
+  const dates = new Set(
+    entries.filter(e => e.entry_date >= cutoff && e.entry_date <= today).map(e => e.entry_date)
+  );
+  return dates.size;
+}
+
+function renderStreakAndAdherence(entries) {
+  const streakEl = document.getElementById('streak-value');
+  const adherenceEl = document.getElementById('adherence-value');
+  if (!streakEl && !adherenceEl) return;
+
+  const streak = _computeStreak(entries);
+  const adherence = _computeAdherence(entries);
+
+  if (streakEl) {
+    streakEl.textContent = streak === 1 ? '1-day streak' : `${streak}-day streak`;
+  }
+  if (adherenceEl) {
+    adherenceEl.textContent = `${adherence} / 14 days`;
+  }
+}
+
 // ── Subtitle ─────────────────────────────────────────────────────────────
 
 function renderSubtitle(summary, stats) {
@@ -1393,6 +1435,7 @@ async function _reloadEntries() {
     const entriesRes = await fetchRecentEntries();
     _recentEntries = entriesRes.entries || [];
     renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
+    renderStreakAndAdherence(_recentEntries);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
   }
@@ -1547,6 +1590,7 @@ async function _reload() {
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
     renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
+    renderStreakAndAdherence(_recentEntries);
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
