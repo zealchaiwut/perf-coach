@@ -17,8 +17,6 @@ from urllib.parse import urlencode as _urlencode
 import urllib.request as _urllib_request
 import urllib.error as _urllib_error
 
-_start_time = time.monotonic()
-
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +36,8 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+
+_start_time = time.monotonic()
 
 app = FastAPI()
 
@@ -2285,7 +2285,6 @@ _HOME_SUMMARY_TOP_N = 5
 
 def _build_habits_block(uid, today_bkk, ws):
     """Return the habits block for the home summary, or None on any error."""
-    we = ws + _timedelta(days=6)
     week_dates = [ws + _timedelta(days=i) for i in range(7)]
 
     with Session(engine) as session:
@@ -3352,7 +3351,7 @@ def post_habit_log_entry(
             .all()
         )
         week_current_value = sum(
-            float(l.value) for l in week_logs if l.value is not None
+            float(lg.value) for lg in week_logs if lg.value is not None
         )
         result = _habit_log_dict(saved_log)
         result["week_current_value"] = week_current_value
@@ -6898,6 +6897,7 @@ async def post_sync_strava(
     Falls back to synchronous execution if BackgroundTasks is unavailable.
     """
     from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
+    from sqlalchemy import select
 
     uid = user.id
 
@@ -7134,13 +7134,13 @@ def strava_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
         w_no_source_count = session.execute(
             _sel(_func.count(Workout.id))
             .where(Workout.user_id == uid)
-            .where((Workout.source == None) | (Workout.source == ""))
+            .where((Workout.source.is_(None)) | (Workout.source == ""))
         ).scalar() or 0
 
         stryd_synced_count = session.execute(
             _sel(_func.count(Workout.id))
             .where(Workout.user_id == uid)
-            .where(Workout.stryd_activity_pk != None)
+            .where(Workout.stryd_activity_pk.isnot(None))
         ).scalar() or 0
 
         # Count workouts whose start_time is within 5 minutes of another workout for the same user
@@ -8087,7 +8087,6 @@ def _make_preview(notes: str, query: str, window: int = 80) -> str:
     end = min(len(notes), idx + len(query) + window // 2)
     snippet = notes[start:end]
     # replace match within snippet (case-preserving)
-    snip_lower = snippet.lower()
     rel = idx - start
     matched_text = snippet[rel: rel + len(query)]
     preview = snippet[:rel] + f"**{matched_text}**" + snippet[rel + len(query):]
