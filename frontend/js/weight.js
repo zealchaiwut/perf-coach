@@ -609,6 +609,20 @@ function openInlineEdit(row, entryId, currentWeight, currentDate) {
   if (!row) return;
   // Works for both div-based re-row and legacy tr-based rows
   const isDiv = row.classList.contains('re-row');
+  const originalHTML = row.innerHTML;
+
+  function cancelEdit() {
+    row.removeEventListener('keydown', onEscape);
+    row.innerHTML = originalHTML;
+    const menuBtn = row.querySelector('.entry-menu-btn');
+    if (menuBtn) {
+      menuBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _toggleEntryMenu(menuBtn);
+      });
+    }
+  }
+
   if (isDiv) {
     row.innerHTML = `
       <div style="grid-column:1/-1;">
@@ -639,14 +653,14 @@ function openInlineEdit(row, entryId, currentWeight, currentDate) {
 
   weightInput.focus();
 
-  row.addEventListener('keydown', function onEscape(ev) {
+  function onEscape(ev) {
     if (ev.key === 'Escape') {
-      row.removeEventListener('keydown', onEscape);
-      _reload();
+      cancelEdit();
     }
-  });
+  }
+  row.addEventListener('keydown', onEscape);
 
-  form.querySelector('.inline-cancel-btn').addEventListener('click', () => _reload());
+  form.querySelector('.inline-cancel-btn').addEventListener('click', cancelEdit);
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -663,14 +677,18 @@ function openInlineEdit(row, entryId, currentWeight, currentDate) {
       return;
     }
     try {
-      await patchEntry(entryId, { weight_kg: val });
+      const updated = await patchEntry(entryId, { weight_kg: val });
       UIStates.showToast('Entry updated');
-      await _reload();
+      const idx = _recentEntries.findIndex(e => e.id === entryId);
+      if (idx !== -1) {
+        _recentEntries[idx] = { ..._recentEntries[idx], weight_kg: updated.weight_kg };
+      }
+      renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
     } catch (e) {
       if (e.message === 'conflict') {
         errEl.textContent = 'Date conflict with another entry.';
       } else {
-        showPageError('Save failed: ' + e.message);
+        errEl.textContent = 'Save failed: ' + e.message;
       }
     }
   });
