@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
@@ -4438,9 +4438,14 @@ def get_workouts(
         to_d = _date.fromisoformat(to_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
         workouts = (
             session.query(Workout)
+            .options(
+                joinedload(Workout.strava_activity),
+                joinedload(Workout.stryd_activity),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -4449,14 +4454,23 @@ def get_workouts(
             .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
             .all()
         )
-        result = []
-        for w in workouts:
-            count = (
-                session.query(WorkoutExercise)
-                .filter(WorkoutExercise.workout_id == w.id)
-                .count()
+        workout_ids = [w.id for w in workouts]
+        exercise_counts: dict = {}
+        if workout_ids:
+            rows = (
+                session.query(
+                    WorkoutExercise.workout_id,
+                    _sa_func.count().label("cnt"),
+                )
+                .filter(WorkoutExercise.workout_id.in_(workout_ids))
+                .group_by(WorkoutExercise.workout_id)
+                .all()
             )
-            result.append(_workout_list_dict(w, count))
+            exercise_counts = {row.workout_id: row.cnt for row in rows}
+        result = [
+            _workout_list_dict(w, exercise_counts.get(w.id, 0))
+            for w in workouts
+        ]
         return JSONResponse(result)
 
 
