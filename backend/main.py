@@ -5859,6 +5859,7 @@ def get_training_log(
     types: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=False),
+    include_load_context: bool = Query(default=False),
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
@@ -5925,18 +5926,20 @@ def get_training_log(
                         },
                     })
 
-        total_workout_days = (
-            session.query(Workout.workout_date)
-            .filter(Workout.user_id == uid)
-            .distinct()
-            .count()
-        )
+        total_workout_days = 0
         today_snap = None
-        if total_workout_days >= 7:
-            today_snap = session.query(TrainingLoadSnapshot).filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == today,
-            ).first()
+        if include_load_context:
+            total_workout_days = (
+                session.query(Workout.workout_date)
+                .filter(Workout.user_id == uid)
+                .distinct()
+                .count()
+            )
+            if total_workout_days >= 7:
+                today_snap = session.query(TrainingLoadSnapshot).filter(
+                    TrainingLoadSnapshot.user_id == uid,
+                    TrainingLoadSnapshot.snapshot_date == today,
+                ).first()
 
     workout_entries = [
         {
@@ -6001,26 +6004,29 @@ def get_training_log(
             },
         })
 
-    load_context = None
-    if total_workout_days >= 7:
-        if today_snap is not None:
-            lc_ctl = round(today_snap.ctl, 1)
-            lc_atl = round(today_snap.atl, 1)
-            lc_tsb = round(today_snap.tsb, 1)
-        else:
-            _load = current_load(str(uid), as_of=today)
-            lc_ctl = round(_load["ctl"], 1)
-            lc_atl = round(_load["atl"], 1)
-            lc_tsb = round(_load["tsb"], 1)
-        load_context = {
-            "ctl": lc_ctl,
-            "atl": lc_atl,
-            "tsb": lc_tsb,
-            "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
-            "as_of": today.isoformat(),
-        }
+    response: dict = {"weeks": weeks}
+    if include_load_context:
+        load_context = None
+        if total_workout_days >= 7:
+            if today_snap is not None:
+                lc_ctl = round(today_snap.ctl, 1)
+                lc_atl = round(today_snap.atl, 1)
+                lc_tsb = round(today_snap.tsb, 1)
+            else:
+                _load = current_load(str(uid), as_of=today)
+                lc_ctl = round(_load["ctl"], 1)
+                lc_atl = round(_load["atl"], 1)
+                lc_tsb = round(_load["tsb"], 1)
+            load_context = {
+                "ctl": lc_ctl,
+                "atl": lc_atl,
+                "tsb": lc_tsb,
+                "interpretation": _load_interpretation(lc_ctl, lc_atl, lc_tsb),
+                "as_of": today.isoformat(),
+            }
+        response["load_context"] = load_context
 
-    return JSONResponse({"weeks": weeks, "load_context": load_context})
+    return JSONResponse(response)
 
 
 # ── Personal records endpoints ────────────────────────────────────────────────
