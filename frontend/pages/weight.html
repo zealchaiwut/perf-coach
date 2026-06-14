@@ -50,6 +50,33 @@
       color: var(--text-tertiary);
     }
 
+    /* ── Streak & Adherence row ───────────────────────────────────────────── */
+    .streak-adherence-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 5px;
+      flex-wrap: wrap;
+    }
+    .streak-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.28);
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+    }
+    .adherence-label {
+      font-size: 12px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.72);
+      white-space: nowrap;
+    }
+
     /* ── Page head (renders directly on gradient) ──────────────────────────── */
     .weight-page-header {
       display: flex;
@@ -1046,6 +1073,10 @@
       <div>
         <h1>Weight</h1>
         <p class="page-subtitle" id="page-subtitle">Loading…</p>
+        <div class="streak-adherence-row">
+          <span class="streak-badge" id="streak-value">0-day streak</span>
+          <span class="adherence-label" id="adherence-value">0 / 14 days</span>
+        </div>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
