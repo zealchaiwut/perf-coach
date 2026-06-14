@@ -69,7 +69,10 @@ def test_post_with_session_missing_csrf_header_returns_403(client):
     session_token, csrf_token = _make_session_headers()
     client.cookies.set(COOKIE_NAME, session_token)
     client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
-    resp = client.post("/api/weight", json={"weight_kg": 70.0, "recorded_date": "2026-01-01"})
+    resp = client.post(
+        "/api/weight-entries",
+        json={"user_id": "00000000-0000-0000-0000-000000000001", "weight_kg": 70.0, "entry_date": "2026-01-01"},
+    )
     assert resp.status_code == 403
     assert "csrf" in resp.json()["detail"].lower()
 
@@ -80,8 +83,8 @@ def test_post_with_session_wrong_csrf_header_returns_403(client):
     client.cookies.set(COOKIE_NAME, session_token)
     client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
     resp = client.post(
-        "/api/weight",
-        json={"weight_kg": 70.0, "recorded_date": "2026-01-01"},
+        "/api/weight-entries",
+        json={"user_id": "00000000-0000-0000-0000-000000000001", "weight_kg": 70.0, "entry_date": "2026-01-01"},
         headers={"X-CSRF-Token": "invalid-token-value"},
     )
     assert resp.status_code == 403
@@ -104,7 +107,7 @@ def test_delete_with_session_missing_csrf_returns_403(client):
     session_token, csrf_token = _make_session_headers()
     client.cookies.set(COOKIE_NAME, session_token)
     client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
-    resp = client.delete("/api/weight/00000000-0000-0000-0000-000000000099")
+    resp = client.delete("/api/weight-entries/00000000-0000-0000-0000-000000000099")
     assert resp.status_code == 403
 
 
@@ -113,10 +116,10 @@ def test_post_with_session_and_correct_csrf_passes_middleware(client):
     session_token, csrf_token = _make_session_headers()
     client.cookies.set(COOKIE_NAME, session_token)
     client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
-    # Will fail auth (user not in DB) or validation, but NOT 403 from CSRF
+    # Will fail validation (user not found) or 409, but NOT 403 from CSRF
     resp = client.post(
-        "/api/weight",
-        json={"weight_kg": 70.0, "recorded_date": "2026-01-01"},
+        "/api/weight-entries",
+        json={"user_id": "00000000-0000-0000-0000-000000000001", "weight_kg": 70.0, "entry_date": "2026-01-01"},
         headers={"X-CSRF-Token": csrf_token},
     )
     assert resp.status_code != 403

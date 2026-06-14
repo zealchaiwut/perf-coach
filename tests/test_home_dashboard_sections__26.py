@@ -45,16 +45,18 @@ def bob_id(client):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _clean_weight(client, user_id):
-    res = client.get(f"/api/weight?user_id={user_id}")
+    today = datetime.date.today()
+    from_d = (today - datetime.timedelta(days=89)).isoformat()
+    res = client.get(f"/api/weight-entries?user_id={user_id}&from={from_d}&to={today.isoformat()}")
     if res.status_code == 200:
-        for e in res.json():
-            client.delete(f"/api/weight/{e['id']}")
+        for e in res.json()["entries"]:
+            client.delete(f"/api/weight-entries/{e['id']}")
 
 
 def _post_weight(client, user_id, date_str, kg):
     res = client.post(
-        f"/api/weight?user_id={user_id}",
-        json={"weight_kg": kg, "recorded_date": date_str},
+        "/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": kg, "entry_date": date_str},
     )
     assert res.status_code in (201, 409), f"POST weight failed: {res.status_code} {res.text}"
     return res
@@ -218,9 +220,13 @@ def test_ac3_weight_section_api_returns_last_14_days(client, alice_id):
     _post_weight(client, alice_id, cutoff, 70.0)
     _post_weight(client, alice_id, old_date, 69.0)
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    visible = [e for e in entries if e["recorded_date"] >= cutoff]
-    hidden = [e for e in entries if e["recorded_date"] < cutoff]
+    today = datetime.date.today()
+    from_d = (today - datetime.timedelta(days=89)).isoformat()
+    entries = client.get(
+        f"/api/weight-entries?user_id={alice_id}&from={from_d}&to={today.isoformat()}"
+    ).json()["entries"]
+    visible = [e for e in entries if e["entry_date"] >= cutoff]
+    hidden = [e for e in entries if e["entry_date"] < cutoff]
 
     assert len(visible) >= 1, "At least the 14-day-boundary entry must be visible"
     assert len(hidden) >= 1, "The 20-day-old entry must be outside the 14-day window"
@@ -484,12 +490,12 @@ def test_ac6_different_users_return_different_weight_data(client, alice_id, bob_
     _post_weight(client, alice_id, cutoff, 68.0)
 
     alice_entries = [
-        e for e in client.get(f"/api/weight?user_id={alice_id}").json()
-        if e["recorded_date"] >= cutoff
+        e for e in client.get(f"/api/weight-entries?user_id={alice_id}").json()["entries"]
+        if e["entry_date"] >= cutoff
     ]
     bob_entries = [
-        e for e in client.get(f"/api/weight?user_id={bob_id}").json()
-        if e["recorded_date"] >= cutoff
+        e for e in client.get(f"/api/weight-entries?user_id={bob_id}").json()["entries"]
+        if e["entry_date"] >= cutoff
     ]
     assert len(alice_entries) >= 1, "Alice must have at least one weight entry in last 14 days"
     assert alice_entries != bob_entries, "Alice and Bob must have different weight data"
@@ -516,7 +522,7 @@ def test_ac7_no_training_yet_text_in_js():
 
 
 def test_ac7_new_user_weight_section_shows_empty(client):
-    """A brand-new user with no weight entries returns [] from /api/weight."""
+    """A brand-new user with no weight entries returns empty entries from /api/weight-entries."""
     res = client.post("/api/users", json={"name": "__test_empty_user_26__"})
     assert res.status_code in (201, 409)
     users = client.get("/api/users").json()
@@ -524,9 +530,9 @@ def test_ac7_new_user_weight_section_shows_empty(client):
     assert test_user is not None
 
     uid = test_user["id"]
-    entries = client.get(f"/api/weight?user_id={uid}").json()
+    entries = client.get(f"/api/weight-entries?user_id={uid}").json()["entries"]
     cutoff = (TODAY - datetime.timedelta(days=13)).isoformat()
-    visible = [e for e in entries if e["recorded_date"] >= cutoff]
+    visible = [e for e in entries if e["entry_date"] >= cutoff]
     assert visible == [], "New user must have no weight entries in last 14 days"
 
 

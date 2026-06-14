@@ -10,7 +10,7 @@ AC anchors:
   (L6) JS: all main widget blocks (readiness, habits, weight, training, performance,
            recent_workouts, sleep) are populated from the single summary response
   (L7) JS: habit check action fires POST /api/habits/{id}/log (targeted write)
-  (L8) JS: weight log action fires POST /api/weight or /api/weight-entries (targeted write)
+  (L8) JS: weight log action fires POST /api/weight-entries (targeted write)
   (L9) CSS: gradient tokens (--bg-1, --bg-2) used via var() — no per-page redefinitions
             of raw hex values for the gradient background
   (L10) HTML: #home-top-row contains habits widget (left) and readiness tile (right)
@@ -24,7 +24,7 @@ AC anchors:
   (A1) API: /api/home/summary response includes all seven blocks:
             habits, weight, readiness, training_week, performance, recent_workouts, sleep
   (A2) API: habit inline log POST /api/habits/{id}/log returns 201 and logs the habit
-  (A3) API: weight inline log POST /api/weight returns 201 or 409 (conflict = update)
+  (A3) API: weight inline log POST /api/weight-entries returns 201 or 409 (conflict = update)
 """
 import pathlib
 import re
@@ -245,19 +245,16 @@ def test_L7_habit_check_fires_targeted_post():
 
 
 def test_L8_weight_log_fires_targeted_post():
-    """JS must POST to /api/weight or /api/weight-entries for weight log."""
+    """JS must POST to /api/weight-entries for weight log."""
     all_js = _all_home_js()
     assert re.search(
         r"method\s*:\s*['\"]POST['\"]",
         all_js
     ), "No POST found in home JS modules"
     assert re.search(
-        r"/api/weight\b",
-        all_js
-    ) or re.search(
         r"/api/weight-entries\b",
         all_js
-    ), "Weight log POST must target /api/weight or /api/weight-entries"
+    ), "Weight log POST must target /api/weight-entries"
 
 
 # ── API contract tests ─────────────────────────────────────────────────────────
@@ -322,10 +319,16 @@ def test_A2_habit_log_post_is_valid_endpoint(client, mock_user):
 
 
 def test_A3_weight_post_is_valid_endpoint(client, mock_user):
-    """POST /api/weight endpoint is reachable (not 405)."""
+    """POST /api/weight-entries endpoint is reachable (returns 201 or 409, not 404/405)."""
     with patch("backend.main.resolve_user", return_value=mock_user):
         resp = client.post(
-            "/api/weight",
-            json={"weight_kg": 70.0, "recorded_date": str(date.today())},
+            "/api/weight-entries",
+            json={
+                "user_id": str(mock_user.id),
+                "weight_kg": 70.0,
+                "entry_date": str(date.today()),
+            },
         )
-    assert resp.status_code != 405, "POST /api/weight returned 405 — route missing"
+    assert resp.status_code in (201, 409), (
+        f"POST /api/weight-entries returned {resp.status_code} — expected 201 or 409"
+    )

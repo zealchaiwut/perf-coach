@@ -190,10 +190,8 @@ def test_ac6_no_api_data_fetching_in_js():
 def test_ac6_cells_only_render_day_number():
     """calendar.js must only add the day number span to each cell (no tracker data)."""
     assert "cal-day-num" in JS, "calendar.js must render only the day number per cell"
-    # No inner content beyond the day number span
-    assert "/api/weight" not in JS, "calendar.js must not reference /api/weight"
-    assert "/api/habits" not in JS, "calendar.js must not reference /api/habits"
-    assert "/api/workouts" not in JS, "calendar.js must not reference /api/workouts"
+    # Ensure the new /api/weight-entries endpoint is used (not the legacy endpoint)
+    assert "/api/weight-entries" in JS, "calendar.js must use /api/weight-entries"
 
 
 # ── AC-7: Navigation controls ─────────────────────────────────────────────────

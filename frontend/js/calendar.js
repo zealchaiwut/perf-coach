@@ -55,26 +55,27 @@
     const { from, to } = monthRange(year, month);
     try {
       const [wR, hR, lR, tR, mR, rdR] = await Promise.all([
-        fetch('/api/weight'),
+        fetch(`/api/weight-entries?user_id=${currentUserId}&from=${from}&to=${to}`),
         fetch('/api/habits'),
         fetch(`/api/habits/logs?from=${from}&to=${to}`),
         fetch(`/api/workouts?from=${from}&to=${to}`),
         fetch(`/api/calendar/month?year=${year}&month=${month + 1}`),
         fetch(`/api/readiness?from=${from}&to=${to}`),
       ]);
-      const [weights, habits, logs, workouts, calMonthData, readinessData] = await Promise.all([
-        wR.ok ? wR.json() : [],
+      const [weightData, habits, logs, workouts, calMonthData, readinessData] = await Promise.all([
+        wR.ok ? wR.json() : { entries: [] },
         hR.ok ? hR.json() : [],
         lR.ok ? lR.json() : [],
         tR.ok ? tR.json() : [],
         mR.ok ? mR.json() : [],
         rdR.ok ? rdR.json() : [],
       ]);
+      const weights = weightData.entries || [];
 
       const weightMap = {};
       for (const w of weights) {
-        if (w.recorded_date >= from && w.recorded_date <= to) {
-          weightMap[w.recorded_date] = w.weight_kg;
+        if (w.entry_date >= from && w.entry_date <= to) {
+          weightMap[w.entry_date] = w.weight_kg;
         }
       }
 
@@ -435,17 +436,18 @@
 
     try {
       const [wR, hR, lR, tR] = await Promise.all([
-        fetch('/api/weight'),
+        fetch(`/api/weight-entries?user_id=${currentUserId}&from=${dateStr}&to=${dateStr}`),
         fetch('/api/habits'),
         fetch(`/api/habits/logs?from=${dateStr}&to=${dateStr}`),
         fetch(`/api/workouts?from=${dateStr}&to=${dateStr}`),
       ]);
-      const allWeights = wR.ok ? await wR.json() : [];
+      const weightData = wR.ok ? await wR.json() : { entries: [] };
+      const allWeights = weightData.entries || [];
       const habits = hR.ok ? await hR.json() : [];
       const logs = lR.ok ? await lR.json() : [];
       const workouts = tR.ok ? await tR.json() : [];
 
-      const weightEntry = allWeights.find(w => w.recorded_date === dateStr) || null;
+      const weightEntry = allWeights.find(w => w.entry_date === dateStr) || null;
       const logMap = {};
       for (const l of logs) logMap[l.habit_id] = l.id;
 
@@ -775,10 +777,10 @@
       }
       saveBtn.disabled = true;
       try {
-        const res = await fetch('/api/weight', {
+        const res = await fetch('/api/weight-entries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weight_kg: +raw, recorded_date: dateStr }),
+          body: JSON.stringify({ user_id: currentUserId, weight_kg: +raw, entry_date: dateStr }),
         });
         if (res.status === 409) {
           errEl.textContent = 'Already logged for this date.';

@@ -53,16 +53,21 @@ def carol_id(client):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _clean_weight(client, user_id):
-    res = client.get(f"/api/weight?user_id={user_id}")
-    if res.status_code == 200:
-        for e in res.json():
-            client.delete(f"/api/weight/{e['id']}")
+    # Use two year-span calls to cover all possible test dates (max range is 365 days)
+    for from_d, to_d in [("2020-01-01", "2020-12-31"), ("2021-01-01", "2021-12-31"),
+                         ("2022-01-01", "2022-12-31"), ("2023-01-01", "2023-12-31"),
+                         ("2024-01-01", "2024-12-31"), ("2025-01-01", "2025-12-31"),
+                         ("2026-01-01", "2026-12-31")]:
+        res = client.get(f"/api/weight-entries?user_id={user_id}&from={from_d}&to={to_d}")
+        if res.status_code == 200:
+            for e in res.json()["entries"]:
+                client.delete(f"/api/weight-entries/{e['id']}")
 
 
 def _post_weight(client, user_id, date_str, kg):
     res = client.post(
-        f"/api/weight?user_id={user_id}",
-        json={"weight_kg": kg, "recorded_date": date_str},
+        "/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": kg, "entry_date": date_str},
     )
     assert res.status_code in (201, 409), f"POST weight failed: {res.status_code} {res.text}"
     return res
@@ -177,8 +182,8 @@ def test_ac3_weight_card_ids_in_html():
 def test_ac3_no_weight_today_api_returns_empty(client, alice_id):
     """API returns no entry for today → weight card should show '—' / 'Not logged today'."""
     _clean_weight(client, alice_id)
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    today_entries = [e for e in entries if e["recorded_date"] == TODAY_STR]
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={TODAY_STR}&to={TODAY_STR}").json()["entries"]
+    today_entries = [e for e in entries if e["entry_date"] == TODAY_STR]
     assert today_entries == [], "Alice should have no weight entry for today after clean"
 
 
@@ -186,8 +191,8 @@ def test_ac3_weight_today_returns_correct_value(client, alice_id):
     """API returns today's weight entry; card should display it in kg."""
     _clean_weight(client, alice_id)
     _post_weight(client, alice_id, TODAY_STR, 72.3)
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    today_entry = next((e for e in entries if e["recorded_date"] == TODAY_STR), None)
+    entries = client.get(f"/api/weight-entries?user_id={alice_id}&from={TODAY_STR}&to={TODAY_STR}").json()["entries"]
+    today_entry = next((e for e in entries if e["entry_date"] == TODAY_STR), None)
     assert today_entry is not None, "Today's weight entry must appear in API response"
     assert abs(today_entry["weight_kg"] - 72.3) < 0.01, "Weight value mismatch"
 
@@ -201,11 +206,13 @@ def test_ac3_weight_diff_computed_from_last_week_average(client, alice_id):
         d = (TODAY - datetime.timedelta(days=i)).isoformat()
         _post_weight(client, alice_id, d, 73.0)
 
-    entries = client.get(f"/api/weight?user_id={alice_id}").json()
     last_week_start = (TODAY - datetime.timedelta(days=7)).isoformat()
+    entries = client.get(
+        f"/api/weight-entries?user_id={alice_id}&from={last_week_start}&to={TODAY_STR}"
+    ).json()["entries"]
     last_week_entries = [
         e for e in entries
-        if last_week_start <= e["recorded_date"] <= YESTERDAY_STR
+        if last_week_start <= e["entry_date"] <= YESTERDAY_STR
     ]
     assert len(last_week_entries) >= 1, "Need at least 1 entry in last 7 days for diff"
     avg = sum(e["weight_kg"] for e in last_week_entries) / len(last_week_entries)
@@ -217,9 +224,13 @@ def test_ac3_weight_no_prior_data_handled(client, bob_id):
     """When there is a today entry but no prior-week data, API still returns today's entry."""
     _clean_weight(client, bob_id)
     _post_weight(client, bob_id, TODAY_STR, 80.0)
-    entries = client.get(f"/api/weight?user_id={bob_id}").json()
-    today_entries = [e for e in entries if e["recorded_date"] == TODAY_STR]
-    prior_entries = [e for e in entries if e["recorded_date"] < TODAY_STR]
+    today_entries = client.get(
+        f"/api/weight-entries?user_id={bob_id}&from={TODAY_STR}&to={TODAY_STR}"
+    ).json()["entries"]
+    last_week_start = (TODAY - datetime.timedelta(days=7)).isoformat()
+    prior_entries = client.get(
+        f"/api/weight-entries?user_id={bob_id}&from={last_week_start}&to={YESTERDAY_STR}"
+    ).json()["entries"]
     assert len(today_entries) == 1
     assert len(prior_entries) == 0, "Bob should have no prior-week weight entries"
 
@@ -498,11 +509,12 @@ def test_ac7_different_users_return_different_weight_data(client, alice_id, bob_
 
     _post_weight(client, alice_id, TODAY_STR, 72.0)
 
-    alice_entries = client.get(f"/api/weight?user_id={alice_id}").json()
-    bob_entries = client.get(f"/api/weight?user_id={bob_id}").json()
-
-    alice_today = [e for e in alice_entries if e["recorded_date"] == TODAY_STR]
-    bob_today = [e for e in bob_entries if e["recorded_date"] == TODAY_STR]
+    alice_today = client.get(
+        f"/api/weight-entries?user_id={alice_id}&from={TODAY_STR}&to={TODAY_STR}"
+    ).json()["entries"]
+    bob_today = client.get(
+        f"/api/weight-entries?user_id={bob_id}&from={TODAY_STR}&to={TODAY_STR}"
+    ).json()["entries"]
 
     assert len(alice_today) == 1, "Alice must have 1 weight entry today"
     assert len(bob_today) == 0, "Bob must have 0 weight entries today"
@@ -528,16 +540,18 @@ def test_ac8_visibility_change_handler_in_js():
 
 
 def test_ac8_post_weight_immediately_visible_in_api(client, bob_id):
-    """After POSTing a weight entry, GET /api/weight immediately reflects the new entry."""
+    """After POSTing a weight entry, GET /api/weight-entries immediately reflects the new entry."""
     _clean_weight(client, bob_id)
-    before = client.get(f"/api/weight?user_id={bob_id}").json()
-    before_today = [e for e in before if e["recorded_date"] == TODAY_STR]
+    before_today = client.get(
+        f"/api/weight-entries?user_id={bob_id}&from={TODAY_STR}&to={TODAY_STR}"
+    ).json()["entries"]
     assert len(before_today) == 0
 
     _post_weight(client, bob_id, TODAY_STR, 79.0)
 
-    after = client.get(f"/api/weight?user_id={bob_id}").json()
-    after_today = [e for e in after if e["recorded_date"] == TODAY_STR]
+    after_today = client.get(
+        f"/api/weight-entries?user_id={bob_id}&from={TODAY_STR}&to={TODAY_STR}"
+    ).json()["entries"]
     assert len(after_today) == 1, "Weight entry must appear immediately in GET after POST"
 
 
@@ -571,7 +585,7 @@ def test_ac8_refresh_cards_function_exists():
 # ── AC-9: New user with no data — graceful empty state ────────────────────────
 
 def test_ac9_new_user_weight_api_empty(client):
-    """A brand-new user with no entries returns [] from /api/weight."""
+    """A brand-new user with no entries returns empty entries from /api/weight-entries."""
     # Create a temp user
     res = client.post("/api/users", json={"name": "__test_empty_user_25__"})
     assert res.status_code in (201, 409)
@@ -580,7 +594,8 @@ def test_ac9_new_user_weight_api_empty(client):
     assert test_user is not None
 
     uid = test_user["id"]
-    entries = client.get(f"/api/weight?user_id={uid}").json()
+    result = client.get(f"/api/weight-entries?user_id={uid}&from={TODAY_STR}&to={TODAY_STR}").json()
+    entries = result["entries"]
     assert entries == [], f"New user must have no weight entries, got {entries}"
 
 

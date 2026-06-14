@@ -14,7 +14,7 @@ Acceptance criteria verified:
 (k) HTML: .habit-inline-error CSS rule defined in home.html
 (l) API: POST /api/habits/logs returns 201 with id for authenticated user
 (m) API: DELETE /api/habits/logs/{id} returns 204, log is gone
-(n) API: POST /api/weight returns 201 with weight_kg, recorded_date
+(n) API: POST /api/weight-entries returns 201 with weight_kg, entry_date
 (o) API: user isolation — Alice's habit logs not visible to Bob
 (p) API: user isolation — Bob's weight entries not visible to Alice
 """
@@ -267,20 +267,25 @@ def test_delete_habit_log_returns_204_and_removes_log(alice):
     ac.delete(f"/api/habits/{habit_id}")
 
 
-# ── (n) API: POST /api/weight ─────────────────────────────────────────────────
+# ── (n) API: POST /api/weight-entries ────────────────────────────────────────
 
 def test_post_weight_returns_201_with_entry(alice):
-    ac = alice["client"]
+    user_id = alice["id"]
     test_date = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
 
-    res = ac.post("/api/weight", json={"weight_kg": 72.5, "recorded_date": test_date})
+    # /api/weight-entries: no session required; user_id in body; field is entry_date
+    res = httpx.post(
+        f"{BASE}/api/weight-entries",
+        json={"user_id": user_id, "weight_kg": 72.5, "entry_date": test_date},
+        timeout=10,
+    )
     assert res.status_code in (201, 409), res.text
     if res.status_code == 201:
         body = res.json()
         assert "id" in body
         assert body["weight_kg"] == pytest.approx(72.5)
-        assert body["recorded_date"] == test_date
-        ac.delete(f"/api/weight/{body['id']}")
+        assert body["entry_date"] == test_date
+        httpx.delete(f"{BASE}/api/weight-entries/{body['id']}", timeout=10)
 
 
 # ── (o) API: Alice's habit logs not accessible by Bob ────────────────────────
@@ -316,19 +321,30 @@ def test_habit_log_isolation(alice, bob):  # noqa: F811
 # ── (p) API: Bob's weight not visible to Alice ────────────────────────────────
 
 def test_weight_entry_isolation(alice, bob):
-    ac = alice["client"]
-    bc = bob["client"]
+    alice_id = alice["id"]
+    bob_id = bob["id"]
 
     test_date = (datetime.date.today() - datetime.timedelta(days=91)).isoformat()
-    res = bc.post("/api/weight", json={"weight_kg": 85.0, "recorded_date": test_date})
+    # POST /api/weight-entries: no session required; user_id in body
+    res = httpx.post(
+        f"{BASE}/api/weight-entries",
+        json={"user_id": bob_id, "weight_kg": 85.0, "entry_date": test_date},
+        timeout=10,
+    )
     assert res.status_code in (201, 409), res.text
     if res.status_code != 201:
         return
 
     bob_entry_id = res.json()["id"]
 
-    alice_weights = ac.get("/api/weight").json()
-    alice_ids = [e["id"] for e in alice_weights]
+    # GET /api/weight-entries?user_id=alice_id must not include Bob's entry
+    alice_res = httpx.get(
+        f"{BASE}/api/weight-entries",
+        params={"user_id": alice_id},
+        timeout=10,
+    )
+    assert alice_res.status_code == 200, alice_res.text
+    alice_ids = [e["id"] for e in alice_res.json()["entries"]]
     assert bob_entry_id not in alice_ids, "Alice must not see Bob's weight entry"
 
-    bc.delete(f"/api/weight/{bob_entry_id}")
+    httpx.delete(f"{BASE}/api/weight-entries/{bob_entry_id}", timeout=10)
