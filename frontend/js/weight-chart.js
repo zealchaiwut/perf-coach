@@ -179,6 +179,10 @@ const WeightChart = (() => {
     _VH = (window.innerWidth <= 640) ? 480 : VH;
     _CH = _VH - PAD.top - PAD.bottom;
 
+    // Persistent (always-visible) labels for current weight, plan, gap, and
+    // milestone values on narrow viewports — touch devices can't hover.
+    const isMobile = window.innerWidth <= 480;
+
     const hasTarget    = !!(data.plan_series && data.plan_series.length);
     const hasFuture    = !!(data.future_milestones && data.future_milestones.length);
 
@@ -383,8 +387,19 @@ const WeightChart = (() => {
         cx: todayX, cy: planDotY, r: '5',
         fill: '#fff', stroke: C.plan, 'stroke-width': '2',
       }));
-      // Value shown on hover (label hidden to reduce clutter)
       _activeDots.push({ cx: todayX, cy: planDotY, date: tm.date, kg: tm.plan_kg });
+      // Persistent plan label on mobile (hover not available on touch)
+      if (isMobile) {
+        const lx     = labelLeft ? todayX - 8 : todayX + 8;
+        const anchor = labelLeft ? 'end' : 'start';
+        const planLbl = _el('text', {
+          x: lx, y: planDotY - 10,
+          'text-anchor': anchor, 'font-size': '11',
+          fill: C.plan, 'font-weight': '600',
+        });
+        planLbl.textContent = tm.plan_kg.toFixed(1) + ' kg';
+        svg.appendChild(planLbl);
+      }
     }
 
     // ── 8. Blue highlighted dot + "you X kg" label ─────────────────────
@@ -395,6 +410,19 @@ const WeightChart = (() => {
         fill: C.trend, stroke: '#fff', 'stroke-width': '1.5',
       }));
       _activeDots.push({ cx: todayX, cy: trendDotY, date: tm.date, kg: tm.trend_kg });
+      // Persistent current-weight label on mobile; offset down when plan label is close
+      if (isMobile) {
+        const lx      = labelLeft ? todayX - 8 : todayX + 8;
+        const anchor  = labelLeft ? 'end' : 'start';
+        const labelOff = (planDotY != null && Math.abs(trendDotY - planDotY) < 18) ? 14 : -10;
+        const trendLbl = _el('text', {
+          x: lx, y: trendDotY + labelOff,
+          'text-anchor': anchor, 'font-size': '11',
+          fill: C.trend, 'font-weight': '600',
+        });
+        trendLbl.textContent = tm.trend_kg.toFixed(1) + ' kg';
+        svg.appendChild(trendLbl);
+      }
     }
 
     // ── 9. Red/green dashed vertical gap line + rounded gap chip ───────
@@ -414,8 +442,21 @@ const WeightChart = (() => {
         'stroke-dasharray': '3 2',
       }));
 
-      // Gap value (vs plan) shown on hover over the today markers; the chip
-      // label is hidden to reduce clutter. The dashed gap line stays as a cue.
+      // On mobile, show persistent gap label since hover isn't available.
+      // gap_kg from today_marker gives the numerical distance vs plan.
+      if (isMobile && tm && tm.gap_kg != null) {
+        const midY   = (topY + botY) / 2;
+        const lx     = labelLeft ? todayX - 8 : todayX + 8;
+        const anchor = labelLeft ? 'end' : 'start';
+        const sign   = isAhead ? '−' : '+';
+        const gapLbl = _el('text', {
+          x: lx, y: midY + 4,
+          'text-anchor': anchor, 'font-size': '10',
+          fill: gapColor, 'font-weight': '700',
+        });
+        gapLbl.textContent = sign + Math.abs(tm.gap_kg).toFixed(1) + ' kg';
+        svg.appendChild(gapLbl);
+      }
       void gapBg;
     }
 
@@ -479,8 +520,17 @@ const WeightChart = (() => {
           }));
         }
 
-        // Milestone value/date shown on hover (labels hidden to reduce clutter)
         _activeDots.push({ cx: mx, cy: my, date: m.date, kg: m.plan_kg });
+        // Persistent milestone label on mobile
+        if (isMobile) {
+          const msLbl = _el('text', {
+            x: mx, y: my - 10,
+            'text-anchor': 'middle', 'font-size': '10',
+            fill: C.plan, 'font-weight': '600',
+          });
+          msLbl.textContent = m.plan_kg.toFixed(1) + ' kg';
+          svg.appendChild(msLbl);
+        }
       });
     }
 
@@ -512,11 +562,22 @@ const WeightChart = (() => {
       else _hideTooltip();
     });
     svg.addEventListener('mouseleave', () => _hideTooltip());
+    // touchstart: tap-to-show — immediately reveals the nearest point's value.
+    // A second tap elsewhere dismisses the previous tooltip and shows the new one.
+    svg.addEventListener('touchstart', ev => {
+      if (ev.touches.length) {
+        const t   = ev.touches[0];
+        const dot = _findNearestDot(svg, t.clientX, t.clientY);
+        if (dot) _showTooltip(svg, t.clientX, t.clientY, dot.date, dot.kg);
+        else _hideTooltip();
+      }
+    }, { passive: true });
     svg.addEventListener('touchmove', ev => {
       if (ev.touches.length) {
         const t = ev.touches[0];
         const dot = _findNearestDot(svg, t.clientX, t.clientY);
         if (dot) _showTooltip(svg, t.clientX, t.clientY, dot.date, dot.kg);
+        else _hideTooltip();
       }
     }, { passive: true });
     svg.addEventListener('touchend', () => _hideTooltip());
