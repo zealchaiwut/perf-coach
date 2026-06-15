@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/weight-current-card.css">
   <style>
     /* ── Base ──────────────────────────────────────────────────────────────── */
     html, body { margin: 0; padding: 0; }
@@ -160,111 +161,9 @@
       gap: 12px;
     }
 
-    /* ── Card A: Current ──────────────────────────────────────────────────── */
-    .hca-top {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
-
-    .hca-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text-tertiary);
-    }
-
-    .hca-date-sub {
-      font-size: 12px;
-      color: var(--text-tertiary);
-      white-space: nowrap;
-    }
-
-    .hca-middle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 2px 0;
-    }
-
-    /* Side columns: a small label over its value (mock v6 cc-side) */
-    .hca-col {
-      min-width: 86px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .hca-col-label {
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text-secondary);
-    }
-
-    .hca-avg {
-      font-size: 17px;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .hca-weight {
-      font-size: 42px;
-      font-weight: 700;
-      line-height: 1;
-      letter-spacing: -0.035em;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-primary);
-      text-align: center;
-      flex: 1;
-    }
-
-    .hca-pills {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      align-items: center;
-    }
-
-    /* Delta pills */
-    .delta-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      width: fit-content;
-    }
-    .delta-pill.toward { background: var(--green-soft); color: var(--green); }
-    .delta-pill.away   { background: var(--red-soft);   color: var(--red); }
-    .delta-pill.neutral { background: #f1f4fa; color: var(--text-secondary); }
-
-    /* Legacy aliases — kept for test_weight_page_frontend__412 */
-    .delta-pill.loss { background: var(--green-soft); color: var(--green); }
-    .delta-pill.gain { background: var(--red-soft);   color: var(--red); }
-
-    /* ── Coach strip ──────────────────────────────────────────────────────── */
-    .coach-strip {
-      padding: 11px 16px;
-      border-radius: 10px;
-      font-size: 13.5px;
-      font-weight: 500;
-      line-height: 1.4;
-      backdrop-filter: blur(6px);
-    }
-
-    .coach-strip.coach-grey  { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.18); }
-    .coach-strip.coach-amber { background: var(--amber-soft); color: var(--amber); border: 1px solid rgba(107,68,8,0.12); }
-    .coach-strip.coach-green { background: var(--green-soft); color: var(--green); border: 1px solid rgba(45,94,16,0.12); }
+    /* Card A "current weight" + delta pills + coach strip CSS moved to the
+       shared file css/weight-current-card.css (linked above) so the weight
+       tab and the home page share one stylesheet. */
 
     /* ── Card B: Log Today ────────────────────────────────────────────────── */
     .hcb-top {
@@ -896,7 +795,6 @@
     @media (max-width: 480px) {
       main { padding: 12px 12px 16px; }
       .weight-page-header h1 { font-size: 20px; }
-      .hca-weight { font-size: 36px; }
       .header-actions { flex-wrap: wrap; gap: 6px; }
       .pstat-val { font-size: 15px; }
     }
@@ -1389,6 +1287,7 @@
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/weight-chart.js"></script>
+  <script src="js/lib/weight-current-card.js"></script>
   <script src="js/weight.js"></script>
 </body>
 </html>

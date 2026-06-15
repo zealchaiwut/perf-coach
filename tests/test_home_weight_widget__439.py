@@ -38,6 +38,8 @@ from backend.main import app, resolve_user
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _HOME_JS = (_ROOT / "frontend" / "js" / "home.js").read_text()
 _HOME_HTML = (_ROOT / "frontend" / "pages" / "home.html").read_text()
+# Shared "current weight" component reused by both the home page and weight tab.
+_CARD_JS = (_ROOT / "frontend" / "js" / "lib" / "weight-current-card.js").read_text()
 
 client = TestClient(app)
 _TODAY = datetime.date.today()
@@ -289,20 +291,30 @@ def test_f1_weight_widget_container_in_html():
 
 
 # ── F2: JS load function ──────────────────────────────────────────────────────
+# The home "current weight" stat block now reuses the shared component
+# (frontend/js/lib/weight-current-card.js, WeightCurrentCard) so the home page
+# and weight tab share one implementation. home.js owns the entry point that
+# mounts the shared block + the quick-log stepper.
 
-def test_f2_load_home_weight_widget_function():
-    """AC (F2): home.js defines loadHomeWeightWidget."""
-    assert "loadHomeWeightWidget" in _HOME_JS, \
-        "home.js must define loadHomeWeightWidget"
+def test_f2_render_home_weight_widget_function():
+    """AC (F2): home.js defines the weight-widget entry point."""
+    assert "_renderHomeWeightWidget" in _HOME_JS, \
+        "home.js must define _renderHomeWeightWidget"
 
 
-def test_f2_load_home_weight_widget_called_in_init():
-    """AC (F2): loadHomeWeightWidget is called inside init()."""
+def test_f2_render_home_weight_widget_called_in_init():
+    """AC (F2): the weight widget is rendered from init()."""
     init_idx = _HOME_JS.find("async function init(")
     assert init_idx != -1
     init_body = _HOME_JS[init_idx:]
-    assert "loadHomeWeightWidget" in init_body, \
-        "loadHomeWeightWidget must be called in init()"
+    assert "_renderHomeWeightWidget" in init_body, \
+        "_renderHomeWeightWidget must be called in init()"
+
+
+def test_f2_uses_shared_current_weight_component():
+    """AC (F2): home reuses the shared WeightCurrentCard component."""
+    assert "WeightCurrentCard" in _HOME_JS, \
+        "home.js must render via the shared WeightCurrentCard component"
 
 
 # ── F3: Gap pill logic ────────────────────────────────────────────────────────
@@ -317,9 +329,11 @@ def test_f3_gap_pill_ahead():
     assert "ahead" in _HOME_JS
 
 
-def test_f3_gap_pill_on_plan():
-    """AC (F3): JS shows 'on plan' for on_track status."""
-    assert "on plan" in _HOME_JS
+def test_f3_change_pills_via_shared_block():
+    """AC (F3, revised): the shared current-weight block renders week/month
+    change pills (the home-only gap pill was replaced by the shared component)."""
+    assert "hca-pill-week" in _CARD_JS and "hca-pill-month" in _CARD_JS, \
+        "shared current-weight block must render week/month change pills"
 
 
 def test_f3_gap_pill_hidden_no_data():
@@ -368,9 +382,13 @@ def test_f7_edit_reopens_stepper():
 
 # ── F8: Empty state ───────────────────────────────────────────────────────────
 
-def test_f8_empty_placeholder():
-    """AC (F8): 'Log your first weigh-in' when no data."""
-    assert "Log your first weigh-in" in _HOME_JS
+def test_f8_empty_state_via_shared_block():
+    """AC (F8, revised): with no data the shared current-weight block shows the
+    placeholder weight ('--') and the idle coach prompt (the home-only
+    'Log your first weigh-in' copy was replaced by the shared component)."""
+    assert "--" in _CARD_JS, "shared block must show '--' placeholder weight"
+    assert "No entry yet today" in _CARD_JS, \
+        "shared block must show the idle coach prompt when nothing is logged"
 
 
 # ── F9: Widget header ────────────────────────────────────────────────────────
@@ -380,28 +398,29 @@ def test_f9_header_open_link():
     assert "Open" in _HOME_JS
 
 
-# ── F10: Goal foot line ───────────────────────────────────────────────────────
+# ── F10: Open-in-weight-tab link ──────────────────────────────────────────────
+# The goal foot line / progress bar / sparkline were intentionally removed from
+# the home widget (scope: "current-weight block only"). Those live on the full
+# weight tab now; the home widget links out to it via the header "Open →".
 
-def test_f10_goal_foot_line():
-    """AC (F10): JS renders 'Goal X.X kg' foot line."""
-    assert "Goal" in _HOME_JS
-
-
-def test_f10_edit_target_link():
-    """AC (F10): 'edit target →' links to /weight/targets."""
-    assert "/weight/targets" in _HOME_JS
-    assert "edit target" in _HOME_JS.lower()
+def test_f10_links_out_to_weight_tab():
+    """AC (F10, revised): the home widget header links to the full weight tab."""
+    assert '"/weight"' in _HOME_JS or "/weight'" in _HOME_JS, \
+        "home weight widget must link to /weight for full detail (goal/progress/trend)"
 
 
-# ── F11: Progress bar ────────────────────────────────────────────────────────
+# ── F11: Shared current-weight stats ──────────────────────────────────────────
 
-def test_f11_progress_bar_present():
-    """AC (F11): JS renders progress bar (ww-progress style)."""
-    assert "ww-progress" in _HOME_JS
+def test_f11_shared_block_renders_current_and_avg():
+    """AC (F11, revised): the shared block renders current weight + 7-day avg."""
+    assert "hca-weight" in _CARD_JS and "hca-avg" in _CARD_JS, \
+        "shared current-weight block must render current weight and 7-day avg"
 
 
-# ── F12: Sparkline plan dashed line ──────────────────────────────────────────
+# ── F12: Data sourced from the same endpoints as the weight tab ───────────────
 
-def test_f12_sparkline_dashed_plan_line():
-    """AC (F12): sparkline renders dashed plan line."""
-    assert "stroke-dasharray" in _HOME_JS
+def test_f12_sources_from_weight_chart_endpoint():
+    """AC (F12, revised): home populates the shared block from the same
+    /api/weight-chart endpoint the weight tab uses, so the two stay identical."""
+    assert "/api/weight-chart" in _HOME_JS, \
+        "home must source the current-weight block from /api/weight-chart"

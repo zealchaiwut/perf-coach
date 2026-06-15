@@ -11,9 +11,14 @@ from pathlib import Path
 
 WEIGHT_HTML = Path(__file__).parent.parent / "frontend" / "pages" / "weight.html"
 WEIGHT_JS   = Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
+# Card A ("current weight") render + styling were extracted into a shared
+# component (issue: unify home + weight-tab widgets). The weight page's
+# effective source = weight.{html,js} PLUS the shared module/stylesheet.
+CARD_JS  = Path(__file__).parent.parent / "frontend" / "js" / "lib" / "weight-current-card.js"
+CARD_CSS = Path(__file__).parent.parent / "frontend" / "css" / "weight-current-card.css"
 
-html = WEIGHT_HTML.read_text()
-js   = WEIGHT_JS.read_text()
+html = WEIGHT_HTML.read_text() + "\n" + CARD_CSS.read_text()
+js   = WEIGHT_JS.read_text() + "\n" + CARD_JS.read_text()
 
 
 # ── AC: Hero renders as 2-card row with CSS grid 1.35fr / 1fr ─────────────

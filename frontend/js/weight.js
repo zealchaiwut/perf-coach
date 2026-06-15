@@ -188,106 +188,18 @@ function renderSubtitle(summary, stats) {
   el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
 }
 
-// ── Hero: Card A (Current Weight) ─────────────────────────────────────────
-
-function _relativeLoggedDate(actuals) {
-  if (!actuals || !actuals.length) return '';
-  const lastDate = actuals[actuals.length - 1].date;
-  const today = todayISO();
-  if (lastDate === today) return 'Today';
-  const yesterday = addDays(today, -1);
-  if (lastDate === yesterday) {
-    const d = new Date(lastDate + 'T00:00:00');
-    const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `Logged yesterday · ${mo}`;
-  }
-  const diffMs = new Date(today + 'T00:00:00') - new Date(lastDate + 'T00:00:00');
-  const diffDays = Math.round(diffMs / 86400000);
-  const d = new Date(lastDate + 'T00:00:00');
-  const mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `Logged ${diffDays} days ago · ${mo}`;
-}
-
-function _pillClass(delta, activeTarget) {
-  if (delta == null || Math.abs(delta) < 0.05) return 'neutral';
-  if (!activeTarget) return delta < 0 ? 'toward' : 'away';
-  const isLossGoal = activeTarget.target_weight_kg < activeTarget.start_weight_kg;
-  const towardTarget = isLossGoal ? delta < 0 : delta > 0;
-  return towardTarget ? 'toward' : 'away';
-}
+// ── Hero: Card A (Current Weight) + Coach strip ───────────────────────────
+// Rendering moved to the shared module js/lib/weight-current-card.js
+// (WeightCurrentCard.render) so the weight tab and the home page share one
+// implementation. renderHeroCardA / renderCoachStrip are thin shims kept for
+// the existing call sites below.
 
 function renderHeroCardA(chartData, activeTarget) {
-  const stats   = chartData ? chartData.stats : null;
-  const actuals = chartData ? (chartData.actuals || []) : [];
-
-  const dateSubEl = document.getElementById('hca-date-sub');
-  if (dateSubEl) dateSubEl.textContent = _relativeLoggedDate(actuals);
-
-  const avgEl = document.getElementById('hca-avg');
-  if (avgEl) {
-    avgEl.textContent = stats && stats.current_avg_kg != null
-      ? `${stats.current_avg_kg.toFixed(1)} kg`
-      : '--';
-  }
-
-  const weightEl = document.getElementById('hca-weight');
-  if (weightEl) {
-    weightEl.textContent = stats && stats.current_weight_kg != null
-      ? `${stats.current_weight_kg.toFixed(1)} kg`
-      : '--';
-  }
-
-  _renderHcaPill('hca-pill-week',  stats ? stats.delta_7d_kg  : null, 'This wk', activeTarget);
-  _renderHcaPill('hca-pill-month', stats ? stats.delta_30d_kg : null, 'This mo', activeTarget);
+  WeightCurrentCard.renderStats(chartData, activeTarget);
 }
-
-function _renderHcaPill(id, delta, label, activeTarget) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (delta == null) {
-    el.textContent = `${label}: --`;
-    el.className = 'delta-pill neutral';
-    return;
-  }
-  const isFlat = Math.abs(delta) < 0.05;
-  const arrow = isFlat ? '→' : (delta < 0 ? '↓' : '↑');
-  el.textContent = `${label}: ${arrow} ${Math.abs(delta).toFixed(1)} kg`;
-  el.className = `delta-pill ${_pillClass(delta, activeTarget)}`;
-}
-
-// ── Coach strip ────────────────────────────────────────────────────────────
 
 function renderCoachStrip(chartData, activeTarget) {
-  const strip   = document.getElementById('coach-strip');
-  const textEl  = document.getElementById('coach-text');
-  if (!strip || !textEl) return;
-
-  const loggedToday   = chartData && chartData.logged_today;
-  const todayDeltaKg  = chartData ? chartData.today_delta_kg : null;
-
-  if (!loggedToday) {
-    strip.className = 'coach-strip coach-grey';
-    textEl.textContent = '😴 No entry yet today — log your weight to wake me up';
-    return;
-  }
-
-  const isLossGoal = activeTarget
-    ? activeTarget.target_weight_kg < activeTarget.start_weight_kg
-    : true;
-
-  const isFlat = todayDeltaKg == null || Math.abs(todayDeltaKg) < 0.05;
-  const movedToward = isFlat || (isLossGoal ? todayDeltaKg < 0 : todayDeltaKg > 0);
-
-  if (movedToward) {
-    strip.className = 'coach-strip coach-green';
-    textEl.textContent = '🎉 You did well — on pace this week';
-  } else {
-    strip.className = 'coach-strip coach-amber';
-    const awayMsg = isLossGoal
-      ? '💪 Up a little — new day, keep going'
-      : '💪 Down a little — new day, keep going';
-    textEl.textContent = awayMsg;
-  }
+  WeightCurrentCard.renderCoachStrip(chartData, activeTarget);
 }
 
 // ── Chart ──────────────────────────────────────────────────────────────────
