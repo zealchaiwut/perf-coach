@@ -1468,6 +1468,184 @@
       .catch(function () { _syncSetBusy(false); });
   }
 
+  // ── Quick-add workout modal (issue #522) ────────────────────────────────────
+  // A lightweight modal on /log that posts to the existing POST /api/workouts
+  // endpoint and re-renders the list in place — no navigation to /training for
+  // the common case. The full form stays reachable via "Open full form".
+  var QA_FIELD_IDS = ['qa-date', 'qa-type', 'qa-name', 'qa-duration', 'qa-distance', 'qa-tss'];
+
+  function qaEl(id) { return document.getElementById(id); }
+
+  function clearQuickAddErrors() {
+    QA_FIELD_IDS.forEach(function (id) {
+      var input = qaEl(id);
+      if (input) input.classList.remove('is-error');
+      var err = qaEl(id + '-error');
+      if (err) { err.textContent = ''; err.classList.remove('is-visible'); }
+    });
+    var formErr = qaEl('qa-form-error');
+    if (formErr) { formErr.textContent = ''; formErr.classList.remove('is-visible'); }
+  }
+
+  function setQuickAddError(fieldId, message) {
+    var input = qaEl(fieldId);
+    if (input) input.classList.add('is-error');
+    var err = qaEl(fieldId + '-error');
+    if (err) { err.textContent = message; err.classList.add('is-visible'); }
+  }
+
+  function openQuickAdd() {
+    var modal = qaEl('quick-add-modal');
+    if (!modal) return;
+    clearQuickAddErrors();
+    var form = qaEl('qa-form');
+    if (form) form.reset();
+    // Default the date to today for the common "log today's workout" case.
+    var dateInput = qaEl('qa-date');
+    if (dateInput && !dateInput.value) dateInput.value = todayISO();
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    var nameInput = qaEl('qa-name');
+    if (nameInput) nameInput.focus();
+  }
+
+  function closeQuickAdd() {
+    var modal = qaEl('quick-add-modal');
+    if (!modal) return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function quickAddIsOpen() {
+    var modal = qaEl('quick-add-modal');
+    return !!(modal && modal.classList.contains('is-open'));
+  }
+
+  // Validate required fields (date, type, name) and numeric ranges. Returns true
+  // when the form is safe to submit; otherwise paints inline errors and returns
+  // false so the caller can short-circuit before the POST.
+  function validateQuickAdd() {
+    clearQuickAddErrors();
+    var valid = true;
+
+    var dateVal = (qaEl('qa-date').value || '').trim();
+    if (!dateVal) {
+      setQuickAddError('qa-date', 'Date is required.');
+      valid = false;
+    } else if (dateVal > todayISO()) {
+      setQuickAddError('qa-date', 'Date cannot be in the future.');
+      valid = false;
+    }
+
+    var typeVal = (qaEl('qa-type').value || '').trim();
+    if (!typeVal) {
+      setQuickAddError('qa-type', 'Type is required.');
+      valid = false;
+    }
+
+    var nameVal = (qaEl('qa-name').value || '').trim();
+    if (!nameVal) {
+      setQuickAddError('qa-name', 'Name is required.');
+      valid = false;
+    }
+
+    var durationVal = (qaEl('qa-duration').value || '').trim();
+    if (durationVal !== '' && Number(durationVal) < 0) {
+      setQuickAddError('qa-duration', 'Duration cannot be negative.');
+      valid = false;
+    }
+
+    var distanceVal = (qaEl('qa-distance').value || '').trim();
+    if (distanceVal !== '' && Number(distanceVal) < 0) {
+      setQuickAddError('qa-distance', 'Distance cannot be negative.');
+      valid = false;
+    }
+
+    var tssVal = (qaEl('qa-tss').value || '').trim();
+    if (tssVal !== '' && Number(tssVal) < 0) {
+      setQuickAddError('qa-tss', 'TSS cannot be negative.');
+      valid = false;
+    }
+
+    return valid;
+  }
+
+  function submitQuickAdd() {
+    if (!validateQuickAdd()) return;
+
+    var durationVal = (qaEl('qa-duration').value || '').trim();
+    var distanceVal = (qaEl('qa-distance').value || '').trim();
+    var tssVal = (qaEl('qa-tss').value || '').trim();
+
+    var payload = {
+      workout_date: (qaEl('qa-date').value || '').trim(),
+      workout_type: (qaEl('qa-type').value || '').trim(),
+      name: (qaEl('qa-name').value || '').trim(),
+      duration_seconds: durationVal !== '' ? Math.round(Number(durationVal) * 60) : null,
+      distance_km: distanceVal !== '' ? Number(distanceVal) : null,
+      tss: tssVal !== '' ? Number(tssVal) : null,
+      exercises: [],
+    };
+
+    var saveBtn = qaEl('qa-save-btn');
+    if (saveBtn) saveBtn.disabled = true;
+
+    fetch('/api/workouts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          var formErr = qaEl('qa-form-error');
+          var detail = (result.data && result.data.detail) || 'Save failed. Please try again.';
+          if (formErr) { formErr.textContent = detail; formErr.classList.add('is-visible'); }
+          return;
+        }
+        closeQuickAdd();
+        UIStates.showToast('Workout saved');
+        // Re-render the list in place so the new entry lands at the correct
+        // position without a full page reload (AC3).
+        fetchAndRender();
+      })
+      .catch(function () {
+        var formErr = qaEl('qa-form-error');
+        if (formErr) { formErr.textContent = 'Save failed. Please try again.'; formErr.classList.add('is-visible'); }
+      })
+      .finally(function () {
+        if (saveBtn) saveBtn.disabled = false;
+      });
+  }
+
+  function wireQuickAdd() {
+    var newBtn = qaEl('log-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () { openQuickAdd(); });
+
+    var emptyCta = qaEl('log-empty-cta');
+    if (emptyCta) emptyCta.addEventListener('click', function () { openQuickAdd(); });
+
+    var closeBtn = qaEl('qa-close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', function () { closeQuickAdd(); });
+
+    var backdrop = qaEl('qa-backdrop');
+    if (backdrop) backdrop.addEventListener('click', function () { closeQuickAdd(); });
+
+    var form = qaEl('qa-form');
+    if (form) form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitQuickAdd();
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && quickAddIsOpen()) closeQuickAdd();
+    });
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
@@ -1511,15 +1689,9 @@
       fetchAndRender();
     });
 
-    var emptyCta = document.getElementById('log-empty-cta');
-    if (emptyCta) emptyCta.addEventListener('click', function () {
-      window.location.href = '/training?return=/log';
-    });
-
-    var newBtn = document.getElementById('log-new-btn');
-    if (newBtn) newBtn.addEventListener('click', function () {
-      window.location.href = '/training?return=/log';
-    });
+    // Quick-add modal triggers ("Log workout" + empty-state CTA), close/backdrop/
+    // Esc dismissal, and form submission (issue #522).
+    wireQuickAdd();
 
     document.addEventListener('keydown', function (e) {
       var panel = document.getElementById('detail-panel');

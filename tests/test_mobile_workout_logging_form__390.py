@@ -114,8 +114,15 @@ def test_workout_logging__home_entry_points_open_full_editor():
 def test_workout_logging__training_log_entry_points_open_full_editor():
     js = _TRAINING_LOG_JS.read_text()
     assert "WorkoutForm" not in js, "training-log.js must not reference the removed modal"
-    assert "/training?return=/log" in js, \
-        "training-log Log-workout buttons must navigate to the full editor"
+    # Superseded by issue #522: the Log-workout triggers now open the inline
+    # quick-add modal instead of navigating to the full editor. The full editor
+    # remains reachable via the "Open full form" link (/training?return=/log) in
+    # the modal markup (training-log.html), not via JS navigation.
+    assert "openQuickAdd" in js, \
+        "training-log Log-workout buttons must open the quick-add modal (#522)"
+    log_html = _LOG_HTML.read_text()
+    assert "/training?return=/log" in log_html, \
+        "full editor must stay reachable from the quick-add modal (#522)"
 
 
 # ── Full editor: structured run builder ──────────────────────────────────────
