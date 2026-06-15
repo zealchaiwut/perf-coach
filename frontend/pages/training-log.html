@@ -316,6 +316,130 @@
       margin-left: auto;
     }
 
+    /* ── Training-load surfaces (issue #528) ── */
+    #load-surfaces {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    #load-surfaces:empty { display: none; }
+
+    /* Readiness widget */
+    .load-widget {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem;
+    }
+
+    .lw-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .lw-title {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+    }
+
+    .lw-interp {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--ink);
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      background: var(--tile);
+      white-space: nowrap;
+    }
+
+    .lw-interp--fresh    { background: #dff5d6; color: #2d5e10; }
+    .lw-interp--neutral  { background: #f1f4fa; color: var(--ink-2); }
+    .lw-interp--fatigued { background: #ffd9d9; color: #7a1a1a; }
+    .lw-interp--empty    { background: var(--tile); color: var(--text-sub); }
+
+    .lw-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .lw-stat {
+      background: var(--tile);
+      border-radius: 8px;
+      padding: 0.6rem 0.7rem;
+      text-align: center;
+    }
+
+    .lw-stat-val {
+      font-family: var(--mono);
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+
+    .lw-stat-label {
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      margin-top: 0.25rem;
+    }
+
+    .lw-stat-sub {
+      font-size: 0.625rem;
+      color: var(--text-sub);
+      margin-top: 0.1rem;
+    }
+
+    /* Weekly volume chart card */
+    .volume-chart-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem 1rem;
+    }
+
+    .vc-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .vc-title {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+    }
+
+    .vc-unit {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .vc-body {
+      position: relative;
+      height: 160px;
+    }
+
     /* ── Log list ── */
     #log-list {
       max-width: 800px;
@@ -695,19 +819,23 @@
       .dr-panel { left: 0; right: 0; }
       #log-list { padding: 1rem; }
 
-      .entry-metric { display: none; }
-      .source-badges-wrap { display: none; }
-
-      .day-pill { min-width: 40px; padding: 0.35rem; }
-    }
-
-    @media (max-width: 380px) {
-      .entry-row { flex-wrap: wrap; gap: 0.5rem; }
+      /* issue #527: keep glanceable metrics + source badges on phones.
+         Wrap the row so distance/pace/duration + badges drop to their own
+         line instead of being hidden or forcing horizontal scroll. */
+      .entry-row { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
       .entry-date  { order: 1; }
       .entry-type  { order: 2; width: auto; }
       .entry-body  { order: 3; flex-basis: 100%; }
-      .entry-metric { order: 4; flex-basis: 100%; }
+      .entry-metric {
+        order: 4;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.4rem;
+      }
       .tss-pill, .source-badges-wrap { order: 5; }
+      .source-badges-wrap { flex-direction: row; gap: 4px; }
+
+      .day-pill { min-width: 40px; padding: 0.35rem; }
     }
 
     /* ── Layout wrapper (list + panel) ── */
@@ -1239,6 +1367,23 @@
 
   <div id="layout-wrapper">
     <div id="list-main">
+      <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
+      <section id="load-surfaces" aria-label="Training load">
+        <!-- Readiness widget: current CTL / ATL / TSB + plain-language label -->
+        <div id="load-widget" class="load-widget" hidden></div>
+        <!-- Weekly volume chart (Chart.js) -->
+        <div id="volume-chart-card" class="volume-chart-card" hidden>
+          <div class="vc-header">
+            <span class="vc-title">Weekly volume</span>
+            <span id="volume-chart-unit" class="vc-unit"></span>
+          </div>
+          <div class="vc-body">
+            <canvas id="volume-chart" height="160" role="img"
+                    aria-label="Weekly training volume for the last 8 weeks"></canvas>
+          </div>
+        </div>
+      </section>
+
       <!-- Workout list -->
       <div id="log-list"></div>
 
@@ -1317,7 +1462,9 @@
   </div>
 
   <script src="js/nav.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
+  <script src="js/lib/training-format.js"></script>
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>

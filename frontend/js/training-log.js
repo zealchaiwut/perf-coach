@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+  // Shared format helpers (issue #531) — single home for type normalization,
+  // pace/duration formatting, and segment definitions. training-log.html loads
+  // lib/training-format.js before this script.
+  var TF = window.TrainingFormat;
+
   // ── State ─────────────────────────────────────────────────────────────────
   var filters               = { type: 'all', search: '', from: '', to: '' };
   var lastWeeks             = [];
@@ -40,13 +45,10 @@
     return s;
   }
 
+  // issue #531: empty for falsy/non-positive, else the shared h:mm:ss/m:ss form.
   function fmtDurationRow(secs) {
     if (!secs || secs <= 0) return '';
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = Math.round(secs % 60);
-    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
-    return m + ':' + pad(s);
+    return TF.formatDuration(secs);
   }
 
   function fmtTotalTime(totalMinutes) {
@@ -64,10 +66,11 @@
     return m + 'min';
   }
 
+  // issue #531: render an already-computed seconds-per-km via the shared
+  // pace formatter; '' keeps the prior empty-input behavior.
   function fmtPace(secsPerKm) {
-    if (!secsPerKm) return '';
-    var m = Math.floor(secsPerKm / 60), s = Math.round(secsPerKm % 60);
-    return m + ':' + pad(s) + ' /km';
+    var core = TF.formatPace(secsPerKm, 1);
+    return core ? core + ' /km' : '';
   }
 
   function fmtShortDate(isoStr) {
@@ -75,21 +78,18 @@
     return d.getDate() + ' ' + MONTHS[d.getMonth()];
   }
 
+  // issue #531: shared h:mm:ss/m:ss formatter; '—' for missing values.
   function fmtDurationDetail(secs) {
-    if (secs == null) return '—';
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = secs % 60;
-    if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
-    return m + ':' + pad(s);
+    return secs == null ? '—' : TF.formatDuration(secs);
   }
 
+  // issue #531: compute seconds-per-km here (the #118 contract), then render
+  // the m:ss part via the shared pace formatter; '—' when inputs are missing.
   function fmtPaceFromSec(durSeconds, distKm) {
     if (!durSeconds || !distKm || distKm === 0) return '—';
     var secsPerKm = durSeconds / distKm;
-    var pm = Math.floor(secsPerKm / 60);
-    var ps = Math.round(secsPerKm % 60);
-    return pm + ':' + pad(ps) + ' /km';
+    var core = TF.formatPace(secsPerKm, 1);
+    return core ? core + ' /km' : '—';
   }
 
   function fmtSpeedKmh(durSeconds, distKm) {
@@ -98,22 +98,13 @@
     return speed.toFixed(1) + ' km/h';
   }
 
-  // Map free-text workout_type values onto the four canonical keys.
-  // The full editor saves "Running"/"Strength"; synced workouts use "run".
-  function normalizeTypeKey(t) {
-    t = (t || '').toLowerCase().trim();
-    if (/^run(ning)?$|^race$/.test(t)) return 'run';
-    if (/^(lift|strength)/.test(t)) return 'lift';
-    if (/^(bike|ride|cycl)/.test(t)) return 'bike';
-    if (/^(wod|crossfit)/.test(t)) return 'wod';
-    return t;
-  }
+  // Map free-text workout_type values onto canonical keys (issue #531: the
+  // shared normalizer, so the log and the editor detect runs identically).
+  var normalizeTypeKey = TF.normalizeType;
 
-  // Segment label → intensity key (timeline colors + segment dots).
-  var RUN_SEGMENT_INTENSITY = {
-    'warm-up': 'warmup', 'easy run': 'easy', 'tempo': 'tempo',
-    'intervals': 'intervals', 'rest': 'rest', 'cool-down': 'cooldown',
-  };
+  // Segment label → intensity key (timeline colors + segment dots), derived
+  // from the shared segment definitions (issue #531).
+  var RUN_SEGMENT_INTENSITY = TF.segmentIntensityByLabel;
   var RUN_SEGMENT_LABELS = RUN_SEGMENT_INTENSITY; // truthy lookup by label
 
   function fmtDate(iso) {
@@ -368,6 +359,9 @@
     params.set('from', filters.from || addDays(today, -29));
     params.set('to',   filters.to   || today);
     params.set('include_rest', 'true');
+    // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
+    // readiness widget is fed from one computation (no duplicate load_context).
+    params.set('include_load_context', 'true');
 
     fetch('/api/training-log?' + params.toString())
       .then(function (res) {
@@ -380,6 +374,10 @@
         var listEl = document.getElementById('log-list');
         renderList(listEl, lastWeeks);
         updateHeaderStats(data);
+        // issue #528: re-render training-load surfaces on every fetch, so a
+        // date-range change updates them without a full page reload (AC4).
+        renderLoadWidget(data.load_context);
+        renderVolumeChart();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -393,6 +391,150 @@
       .finally(function () {
         if (loadingEl) loadingEl.hidden = true;
       });
+  }
+
+  // ── Training-load surfaces (issue #528) ─────────────────────────────────────
+  var volumeChart = null;
+
+  function fmtLoadNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return String(Math.round(v * 10) / 10);
+  }
+
+  // Readiness widget: current CTL / ATL / TSB + plain-language interpretation.
+  function renderLoadWidget(lc) {
+    var el = document.getElementById('load-widget');
+    if (!el) return;
+
+    var ctl, atl, tsb, interp, cls;
+    if (lc && typeof lc.ctl === 'number') {
+      ctl = lc.ctl; atl = lc.atl; tsb = lc.tsb;
+      interp = lc.interpretation || '—';
+      cls = tsb >= 5 ? 'fresh' : (tsb <= -15 ? 'fatigued' : 'neutral');
+    } else {
+      // AC7 zero/empty state — brand-new athlete or < 7 days of history.
+      ctl = 0; atl = 0; tsb = 0;
+      interp = 'Not enough data';
+      cls = 'empty';
+    }
+
+    function stat(val, label, sub) {
+      return '<div class="lw-stat">' +
+               '<div class="lw-stat-val">' + esc(fmtLoadNum(val)) + '</div>' +
+               '<div class="lw-stat-label">' + label + '</div>' +
+               '<div class="lw-stat-sub">' + sub + '</div>' +
+             '</div>';
+    }
+
+    el.innerHTML =
+      '<div class="lw-head">' +
+        '<span class="lw-title">Readiness</span>' +
+        '<span class="lw-interp lw-interp--' + cls + '">' + esc(interp) + '</span>' +
+      '</div>' +
+      '<div class="lw-stats">' +
+        stat(ctl, 'CTL', 'Fitness') +
+        stat(atl, 'ATL', 'Fatigue') +
+        stat(tsb, 'TSB', 'Freshness') +
+      '</div>';
+    el.hidden = false;
+  }
+
+  function volumeWeekLabel(monday) {
+    return monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  // Weekly volume chart: >= 8 weeks of distance (km) or TSS, auto-selected.
+  function renderVolumeChart() {
+    var card   = document.getElementById('volume-chart-card');
+    var canvas = document.getElementById('volume-chart');
+    var unitEl = document.getElementById('volume-chart-unit');
+    // Guard: no-op when the surfaces or Chart.js are absent (other pages).
+    if (!card || !canvas || typeof Chart === 'undefined') return;
+
+    var toISO     = filters.to || todayISO();
+    var toMonday  = getMondayOf(new Date(toISO + 'T00:00:00'));
+    // Minimum window: 8 week-buckets ending at the selected week.
+    var minStart  = new Date(toMonday);
+    minStart.setDate(minStart.getDate() - 7 * 7);
+
+    var startMonday = minStart;
+    if (filters.from) {
+      var fm = getMondayOf(new Date(filters.from + 'T00:00:00'));
+      if (fm < minStart) startMonday = fm;
+    }
+
+    var fromStr = toISODate(startMonday);
+    // Separate fetch WITHOUT include_load_context so load_context stays a
+    // single computation on the main list request (AC5).
+    fetch('/api/training-log?from=' + fromStr + '&to=' + toISO + '&include_rest=false')
+      .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function (data) {
+        var weeks = data.weeks || [];
+        var byStart = {};
+        weeks.forEach(function (w) { byStart[w.week_start] = w.summary || {}; });
+
+        var labels = [], distVals = [], tssVals = [];
+        var cur = new Date(startMonday);
+        while (cur <= toMonday) {
+          var s = byStart[toISODate(cur)] || {};
+          labels.push(volumeWeekLabel(cur));
+          // zero-fill empty/zero-activity weeks so they render as a zero bar (AC7)
+          distVals.push(Math.round((s.total_distance_km || 0) * 10) / 10);
+          tssVals.push(Math.round(s.total_tss || 0));
+          cur.setDate(cur.getDate() + 7);
+        }
+
+        // Auto-select metric: distance when any distance present, else TSS.
+        var hasDist = distVals.some(function (v) { return v > 0; });
+        var hasTss  = tssVals.some(function (v) { return v > 0; });
+        var useDist = hasDist || !hasTss;
+        var values  = useDist ? distVals : tssVals;
+        var unit    = useDist ? 'km' : 'TSS';
+        var color   = useDist ? '#3b82f6' : '#f59e0b';
+
+        if (unitEl) unitEl.textContent = unit;
+
+        if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+        volumeChart = new Chart(canvas.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: unit,
+              data: values,
+              backgroundColor: color,
+              borderRadius: 3,
+              maxBarThickness: 36,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) { return ctx.parsed.y + ' ' + unit; },
+                },
+              },
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: { font: { size: 10 }, color: '#69748c' },
+                title: { display: true, text: 'Week', color: '#69748c', font: { size: 10 } },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { font: { size: 10 }, color: '#69748c' },
+                title: { display: true, text: unit, color: '#69748c', font: { size: 10 } },
+              },
+            },
+          },
+        });
+        card.hidden = false;
+      })
+      .catch(function () { /* leave prior chart / hidden card untouched */ });
   }
 
   // ── Log list rendering ────────────────────────────────────────────────────
@@ -544,6 +686,14 @@
     return groupEl;
   }
 
+  // issue #530: a workout is Strava-sourced if its `source` is 'strava' OR it
+  // carries a Strava activity URL (some imports leave `source` unset). Shared by
+  // the list and detail views so both attribute the source identically.
+  function isStravaWorkout(workout) {
+    if (!workout) return false;
+    return workout.source === 'strava' || !!workout.strava_activity_url;
+  }
+
   function buildEntryRow(w) {
     var row = document.createElement('div');
     row.className = 'entry-row';
@@ -651,7 +801,7 @@
 
     var sourcesWrap = document.createElement('div');
     sourcesWrap.className = 'source-badges-wrap';
-    var isStrava = (w.source === 'strava');
+    var isStrava = isStravaWorkout(w);
     var isStryd = !!w.is_stryd_synced;
     if (isStrava) {
       var sbadge = document.createElement('span');
@@ -850,7 +1000,7 @@
         var returnUrl = '/log?week=' + toISODate(currentMonday);
         if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
 
-        var isStrava = (workout.source === 'strava') || !!workout.strava_activity_url;
+        var isStrava = isStravaWorkout(workout);
         if (isStrava) {
           if (stravaBtn) {
             stravaBtn.href         = workout.strava_activity_url || '#';
@@ -901,7 +1051,7 @@
     var typeLabel = typeLabels[typeKey] || (workout.workout_type || 'Workout').toUpperCase();
 
     var sourceHtml = '';
-    var dpIsStrava = (workout.source === 'strava');
+    var dpIsStrava = isStravaWorkout(workout);
     var dpIsStryd  = !!workout.is_stryd_synced;
     if (dpIsStrava) {
       sourceHtml += '<span class="dp-src-badge dp-src-badge--strava" title="strava">St</span>';
