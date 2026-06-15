@@ -96,12 +96,34 @@
     .rl-badge.sync { background: #dde6f8; color: #1e3a8a; }
     .rl-profile { display: none; margin-bottom: 12px; }
     .rl-profile.has-segs { display: block; }
-    .rl-profile-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; background: var(--rl-tile); border-radius: 10px; padding: 8px; }
+    .rl-profile-wrap { margin-bottom: 14px; }
+    .rl-profile-head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .rl-profile-title {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .rl-profile-sub {
+      font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .str-profile-wrap { margin-bottom: 12px; }
+    .rl-profile-bars { display: flex; align-items: flex-end; gap: 2px; height: 72px; background: var(--rl-tile); border-radius: 10px; padding: 8px 10px 6px; }
     .rl-pseg { border-radius: 4px 4px 2px 2px; min-width: 4px; min-height: 6px; }
     .rl-pseg.easy { background: var(--rl-easy); }
     .rl-pseg.tempo { background: var(--rl-tempo); }
     .rl-pseg.hard { background: var(--rl-hard); }
     .rl-pseg.recovery { background: var(--rl-recovery); }
+    .rl-pseg.rpe-low { background: #16a34a; }
+    .rl-pseg.rpe-mid { background: #eab308; }
+    .rl-pseg.rpe-high { background: #ea580c; }
+    .rl-pseg.rpe-max { background: #dc2626; }
+    .rl-profile-axis-x {
+      display: flex; justify-content: space-between; margin-top: 6px;
+      font-size: 9px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
     .rl-profile-legend { display: flex; gap: 12px; margin-top: 8px; font-size: 9.5px; color: var(--text-secondary); flex-wrap: wrap; }
     .rl-zlg { display: inline-flex; align-items: center; gap: 4px; }
     .rl-zlg .d { width: 9px; height: 9px; border-radius: 3px; }

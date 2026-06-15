@@ -6,6 +6,7 @@
   <title>Training log – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/training-form.css">
+  <link rel="stylesheet" href="css/training-detail.css">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -1932,7 +1933,13 @@
                 <button type="button" class="seg-tpl-chip" data-tpl="intervals">Intervals</button>
                 <button type="button" class="seg-tpl-chip" data-tpl="tempo">Tempo</button>
               </div>
-              <div class="rl-profile" id="run-profile" aria-hidden="true"></div>
+              <div class="rl-profile-wrap">
+                <div class="rl-profile-head">
+                  <span class="rl-profile-title">Session profile · Effort</span>
+                  <span class="rl-profile-sub">Height = effort</span>
+                </div>
+                <div class="rl-profile" id="run-profile" aria-hidden="true"></div>
+              </div>
               <div id="segments-list" class="segments-list" aria-label="Run segments"></div>
               <div class="seg-foot">
                 <details id="add-segment-menu" class="more-menu seg-add-menu">
@@ -2000,6 +2007,13 @@
 
             <div class="exercises-section rl-card">
               <div class="rl-card-label">Exercises</div>
+              <div class="rl-profile-wrap str-profile-wrap">
+                <div class="rl-profile-head">
+                  <span class="rl-profile-title">Session profile · RPE × duration</span>
+                  <span class="rl-profile-sub">Width = time · height = RPE</span>
+                </div>
+                <div class="rl-profile str-profile" id="str-profile" aria-hidden="true"></div>
+              </div>
               <div id="exercises-tbody" class="exercise-list"></div>
               <datalist id="exercise-name-suggestions"></datalist>
               <p id="exercises-error" class="error-msg"></p>
