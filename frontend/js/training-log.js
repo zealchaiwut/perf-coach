@@ -98,6 +98,23 @@
     return speed.toFixed(1) + ' km/h';
   }
 
+  // issue #526: parse a user-entered split duration ("m:ss" or "h:mm:ss") into
+  // whole seconds. Returns null for any malformed value so the manual split
+  // editor can surface a field-level "valid duration format" error before it
+  // ever calls the splits endpoint. Plain "0:00" parses to 0 (caller rejects
+  // non-positive durations separately).
+  function parseDurationStr(str) {
+    if (str == null) return null;
+    var t = String(str).trim();
+    if (!/^\d{1,3}(:\d{1,2}){1,2}$/.test(t)) return null;
+    var parts = t.split(':').map(Number);
+    var h = 0, m, s;
+    if (parts.length === 3) { h = parts[0]; m = parts[1]; s = parts[2]; }
+    else { m = parts[0]; s = parts[1]; }
+    if (m > 59 || s > 59) return null;
+    return h * 3600 + m * 60 + s;
+  }
+
   // Map free-text workout_type values onto canonical keys (issue #531: the
   // shared normalizer, so the log and the editor detect runs identically).
   var normalizeTypeKey = TF.normalizeType;
@@ -1310,8 +1327,12 @@
     }
 
     // ── Per-km splits section (RUN/BIKE, only if no interval exercises) ──────
+    // issue #526: manual runs/bikes get an *editable* splits authoring surface
+    // (mounted after innerHTML below); synced runs keep the read-only table.
     var splitsHtml = '';
-    if ((isRun || isBike) && !intervalsHtml && !segmentsHtml && splits && splits.length) {
+    var dpIsManual = !dpIsStrava && !dpIsStryd;
+    var splitsEditable = (isRun || isBike) && !intervalsHtml && !segmentsHtml && dpIsManual;
+    if ((isRun || isBike) && !intervalsHtml && !segmentsHtml && !splitsEditable && splits && splits.length) {
       var splitRows = '';
       splits.forEach(function (s) {
         var distKm  = parseFloat(s.distance_km);
@@ -1336,6 +1357,13 @@
             '</div>' +
             splitRows +
           '</div>' +
+        '</div>';
+    } else if (splitsEditable) {
+      // Editable mount point — filled by mountSplitsEditor() after innerHTML set.
+      splitsHtml =
+        '<div class="dp-section" id="dp-splits-section">' +
+          '<div class="dp-section-title">Per-km splits</div>' +
+          '<div id="dp-splits-mount"></div>' +
         '</div>';
     }
 
@@ -1381,6 +1409,282 @@
     }
 
     contentEl.innerHTML = heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
+
+    // issue #526: mount the editable manual-split authoring surface.
+    if (splitsEditable) mountSplitsEditor(workout, splits);
+  }
+
+  // ── Manual split authoring (issue #526) ────────────────────────────────────
+  // Editable splits surface for MANUAL runs/bikes. Reuses the synced split
+  // table component (dp-splits / dp-split-row) plus an editable variant, so
+  // there is no separate UI path (AC4). Saved splits, edit-in-place, per-row
+  // delete and an Add Split control all funnel through one full-replace POST to
+  // /api/workouts/{id}/splits (the endpoint replaces the whole set per call).
+  function mountSplitsEditor(workout, initialSplits) {
+    var mount = document.getElementById('dp-splits-mount');
+    if (!mount) return;
+
+    var totalKm = workout.distance_km != null ? parseFloat(workout.distance_km) : null;
+
+    // Working copy of the current splits (mutated locally, then persisted).
+    var rows = (initialSplits || []).map(function (s) {
+      return {
+        distance_km: parseFloat(s.distance_km),
+        duration_seconds: s.duration_seconds,
+        avg_hr: s.avg_hr != null ? s.avg_hr : null,
+      };
+    });
+
+    var editing = -1;     // index of the row in edit mode, or -1
+    var adding  = false;  // whether the new-row form is open
+    var saving  = false;  // in-flight POST guard
+
+    function sumKmExcept(exceptIdx) {
+      return rows.reduce(function (acc, r, i) {
+        return i === exceptIdx ? acc : acc + (r.distance_km || 0);
+      }, 0);
+    }
+
+    // Full-replace POST of the working set; split_index re-numbered 1..n.
+    function persist() {
+      var payload = { splits: rows.map(function (r, i) {
+        return {
+          split_index: i + 1,
+          distance_km: r.distance_km,
+          duration_seconds: r.duration_seconds,
+          avg_hr: r.avg_hr != null ? r.avg_hr : null,
+        };
+      }) };
+      return fetch('/api/workouts/' + workout.id + '/splits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(function (res) {
+        return res.json().catch(function () { return []; }).then(function (data) {
+          return { ok: res.ok, status: res.status, data: data };
+        });
+      });
+    }
+
+    function showError(msg) {
+      var errEl = mount.querySelector('.dp-split-error');
+      if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+    }
+
+    // Read + validate one edit/add form. Returns a row object or null (and
+    // surfaces a field-level message). `exceptIdx` excludes the row being
+    // edited from the running distance total.
+    function readForm(exceptIdx) {
+      var distInput = mount.querySelector('.dp-split-dist-input');
+      var durInput  = mount.querySelector('.dp-split-dur-input');
+      var hrInput   = mount.querySelector('.dp-split-hr-input');
+
+      var distKm = parseFloat((distInput && distInput.value || '').trim());
+      if (isNaN(distKm) || distKm <= 0) {
+        showError('distance_km must be > 0');
+        if (distInput) distInput.classList.add('dp-split-input--invalid');
+        return null;
+      }
+
+      var durSecs = parseDurationStr(durInput && durInput.value);
+      if (durSecs == null || durSecs <= 0) {
+        showError('Enter a valid duration (m:ss)');
+        if (durInput) durInput.classList.add('dp-split-input--invalid');
+        return null;
+      }
+
+      var hrRaw = (hrInput && hrInput.value || '').trim();
+      var hr = null;
+      if (hrRaw !== '') {
+        hr = parseInt(hrRaw, 10);
+        if (isNaN(hr) || hr < 20 || hr > 250) {
+          showError('avg_hr must be between 20 and 250');
+          if (hrInput) hrInput.classList.add('dp-split-input--invalid');
+          return null;
+        }
+      }
+
+      if (totalKm != null && (sumKmExcept(exceptIdx) + distKm) > totalKm + 1e-9) {
+        showError('Splits exceed total workout distance');
+        if (distInput) distInput.classList.add('dp-split-input--invalid');
+        return null;
+      }
+
+      return { distance_km: distKm, duration_seconds: durSecs, avg_hr: hr };
+    }
+
+    function commit(row, idx) {
+      if (saving) return;
+      saving = true;
+      var prev = rows.slice();
+      if (idx == null) rows.push(row);
+      else             rows[idx] = row;
+      persist().then(function (result) {
+        saving = false;
+        if (!result.ok) {
+          rows = prev;  // roll back the optimistic mutation
+          var detail = (result.data && result.data.detail) || 'Could not save splits.';
+          showError(typeof detail === 'string' ? detail : 'Could not save splits.');
+          return;
+        }
+        // Reflect the server's canonical set immediately (no page reload).
+        rows = (result.data || []).map(function (s) {
+          return {
+            distance_km: parseFloat(s.distance_km),
+            duration_seconds: s.duration_seconds,
+            avg_hr: s.avg_hr != null ? s.avg_hr : null,
+          };
+        });
+        editing = -1; adding = false;
+        render();
+        if (window.UIStates && UIStates.showToast) UIStates.showToast('Splits saved');
+      }).catch(function () {
+        saving = false;
+        rows = prev;
+        showError('Could not save splits.');
+      });
+    }
+
+    function removeAt(idx) {
+      if (saving) return;
+      saving = true;
+      var prev = rows.slice();
+      rows.splice(idx, 1);
+      persist().then(function (result) {
+        saving = false;
+        if (!result.ok) {
+          rows = prev;
+          var detail = (result.data && result.data.detail) || 'Could not delete split.';
+          showError(typeof detail === 'string' ? detail : 'Could not delete split.');
+          render();
+          return;
+        }
+        rows = (result.data || []).map(function (s) {
+          return {
+            distance_km: parseFloat(s.distance_km),
+            duration_seconds: s.duration_seconds,
+            avg_hr: s.avg_hr != null ? s.avg_hr : null,
+          };
+        });
+        editing = -1; adding = false;
+        render();
+        if (window.UIStates && UIStates.showToast) UIStates.showToast('Split deleted');
+      }).catch(function () {
+        saving = false;
+        rows = prev;
+        showError('Could not delete split.');
+      });
+    }
+
+    // Build the input cells shared by the edit and add forms.
+    function formCells(row) {
+      var distVal = row ? String(row.distance_km) : '';
+      var durVal  = row ? (TF.formatDuration(row.duration_seconds) || '') : '';
+      var hrVal   = (row && row.avg_hr != null) ? String(row.avg_hr) : '';
+      return '' +
+        '<input class="dp-split-input dp-split-dist-input" type="number" step="0.01" min="0" ' +
+          'placeholder="km" value="' + esc(distVal) + '" aria-label="Split distance (km)">' +
+        '<input class="dp-split-input dp-split-dur-input" type="text" ' +
+          'placeholder="m:ss" value="' + esc(durVal) + '" aria-label="Split duration (m:ss)">' +
+        '<input class="dp-split-input dp-split-hr-input" type="number" step="1" min="20" max="250" ' +
+          'placeholder="HR" value="' + esc(hrVal) + '" aria-label="Split avg HR (optional)">';
+    }
+
+    function render() {
+      var html = '<div class="dp-splits dp-splits--editable">';
+      html +=
+        '<div class="dp-split-header">' +
+          '<div>Km</div><div>Dist</div><div style="text-align:right">Pace</div><div></div>' +
+        '</div>';
+
+      rows.forEach(function (r, i) {
+        if (editing === i) {
+          html +=
+            '<div class="dp-split-row dp-split-edit-row" data-idx="' + i + '">' +
+              '<div class="dp-split-km">Km ' + (i + 1) + '</div>' +
+              formCells(r) +
+              '<div class="dp-split-row-actions">' +
+                '<button type="button" class="dp-split-btn dp-split-save" data-idx="' + i + '">Save</button>' +
+                '<button type="button" class="dp-split-btn dp-split-cancel">Cancel</button>' +
+              '</div>' +
+            '</div>';
+        } else {
+          var pace = (r.duration_seconds && r.distance_km) ? fmtPaceFromSec(r.duration_seconds, r.distance_km) : '—';
+          var distLbl = (r.distance_km != null && !isNaN(r.distance_km)) ? (parseFloat(r.distance_km.toFixed(2)) + ' km') : '—';
+          html +=
+            '<div class="dp-split-row" data-idx="' + i + '">' +
+              '<div class="dp-split-km">Km ' + (i + 1) + '</div>' +
+              '<div class="dp-split-dist">' + esc(distLbl) + '</div>' +
+              '<div class="dp-split-pace">' + esc(pace) + '</div>' +
+              '<div class="dp-split-row-actions">' +
+                '<button type="button" class="dp-split-btn dp-split-edit" data-idx="' + i + '" aria-label="Edit split">Edit</button>' +
+                '<button type="button" class="dp-split-btn dp-split-delete" data-idx="' + i + '" aria-label="Delete split">Delete</button>' +
+              '</div>' +
+            '</div>';
+        }
+      });
+
+      if (adding) {
+        html +=
+          '<div class="dp-split-row dp-split-edit-row dp-split-add-row">' +
+            '<div class="dp-split-km">Km ' + (rows.length + 1) + '</div>' +
+            formCells(null) +
+            '<div class="dp-split-row-actions">' +
+              '<button type="button" class="dp-split-btn dp-split-save-new">Save</button>' +
+              '<button type="button" class="dp-split-btn dp-split-cancel">Cancel</button>' +
+            '</div>' +
+          '</div>';
+      }
+
+      html += '</div>';  // .dp-splits
+      html += '<div class="dp-split-error" role="alert" style="display:none"></div>';
+      if (!adding && editing === -1) {
+        html += '<button type="button" class="dp-split-btn dp-split-add">+ Add Split</button>';
+      }
+      mount.innerHTML = html;
+      wire();
+    }
+
+    function wire() {
+      var addBtn = mount.querySelector('.dp-split-add');
+      if (addBtn) addBtn.addEventListener('click', function () {
+        adding = true; editing = -1; render();
+      });
+
+      var saveNew = mount.querySelector('.dp-split-save-new');
+      if (saveNew) saveNew.addEventListener('click', function () {
+        var row = readForm(null);
+        if (row) commit(row, null);
+      });
+
+      Array.prototype.forEach.call(mount.querySelectorAll('.dp-split-edit'), function (btn) {
+        btn.addEventListener('click', function () {
+          editing = parseInt(btn.getAttribute('data-idx'), 10); adding = false; render();
+        });
+      });
+
+      Array.prototype.forEach.call(mount.querySelectorAll('.dp-split-save'), function (btn) {
+        btn.addEventListener('click', function () {
+          var idx = parseInt(btn.getAttribute('data-idx'), 10);
+          var row = readForm(idx);
+          if (row) commit(row, idx);
+        });
+      });
+
+      Array.prototype.forEach.call(mount.querySelectorAll('.dp-split-delete'), function (btn) {
+        btn.addEventListener('click', function () {
+          removeAt(parseInt(btn.getAttribute('data-idx'), 10));
+        });
+      });
+
+      Array.prototype.forEach.call(mount.querySelectorAll('.dp-split-cancel'), function (btn) {
+        btn.addEventListener('click', function () {
+          editing = -1; adding = false; render();
+        });
+      });
+    }
+
+    render();
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────

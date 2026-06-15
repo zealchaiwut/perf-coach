@@ -1233,6 +1233,73 @@
       font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
+    /* ── Manual split authoring (issue #526) ── */
+    /* Editable variant of the same table component: adds an actions column. */
+    .dp-splits--editable .dp-split-header,
+    .dp-splits--editable .dp-split-row {
+      grid-template-columns: 36px 1fr 72px auto;
+    }
+    .dp-split-dist {
+      font-family: var(--mono);
+      font-size: 0.8125rem; color: var(--ink-2);
+    }
+    .dp-split-edit-row {
+      grid-template-columns: 36px 1fr 1fr 0.8fr auto !important;
+    }
+    .dp-split-input {
+      width: 100%;
+      min-width: 0;
+      padding: 5px 7px;
+      border: 1px solid rgba(13,30,67,0.18);
+      border-radius: 6px;
+      font-size: 0.8125rem;
+      font-family: var(--mono);
+      color: var(--ink);
+    }
+    .dp-split-input:focus {
+      outline: none;
+      border-color: var(--bg-1, #5a8dee);
+      box-shadow: 0 0 0 2px rgba(90,141,238,0.18);
+    }
+    .dp-split-input--invalid {
+      border-color: var(--red, #7a1a1a);
+      box-shadow: 0 0 0 2px rgba(122,26,26,0.14);
+    }
+    .dp-split-row-actions {
+      display: flex; gap: 6px; justify-content: flex-end; align-items: center;
+    }
+    .dp-split-btn {
+      appearance: none;
+      border: 1px solid rgba(13,30,67,0.14);
+      background: #fff;
+      color: var(--text-secondary, #5c6886);
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 0.75rem; font-weight: 600;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .dp-split-btn:hover { background: var(--tile, #f4f7fc); }
+    .dp-split-save,
+    .dp-split-save-new {
+      border-color: rgba(45,94,16,0.30);
+      color: var(--green, #2d5e10);
+      background: var(--green-soft, #dff5d6);
+    }
+    .dp-split-delete { color: var(--red, #7a1a1a); }
+    .dp-split-add {
+      margin-top: 8px;
+      width: 100%;
+      border-style: dashed;
+      color: var(--text-secondary, #5c6886);
+      padding: 7px 10px;
+    }
+    .dp-split-error {
+      margin-top: 8px;
+      font-size: 0.75rem; font-weight: 600;
+      color: var(--red, #7a1a1a);
+    }
+
     /* ── Exercises list ── */
     .dp-exercise-item {
       display: grid;
