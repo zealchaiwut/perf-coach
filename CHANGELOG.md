@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 61.1 — Training-log detail panel a11y and dead-UI removal
+
+- #529: Remove dead UI and fix a11y in detail panel
+
 ## Sprint 61 — Training log charts, mobile polish, Strava source parity, JS refactor
 
 - #527: Show workout metrics and badges on mobile viewports
