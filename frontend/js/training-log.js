@@ -1350,6 +1350,155 @@
       });
   }
 
+  // ── Detail view helpers (run + strength profile mockup) ─────────────────
+
+  function _parseSetsJson(ex) {
+    if (!ex.sets_json) return null;
+    try {
+      var arr = JSON.parse(ex.sets_json);
+      return Array.isArray(arr) ? arr : null;
+    } catch (e) { return null; }
+  }
+
+  function _rpeBarClass(rpe) {
+    if (rpe == null || isNaN(rpe)) return 'rpe-mid';
+    if (rpe <= 5) return 'rpe-low';
+    if (rpe <= 7) return 'rpe-mid';
+    if (rpe <= 8.5) return 'rpe-high';
+    return 'rpe-max';
+  }
+
+  function _rpeBarHeight(rpe) {
+    if (rpe == null || isNaN(rpe)) return 45;
+    return Math.max(22, Math.min(95, Math.round(18 + (rpe / 10) * 78)));
+  }
+
+  function _effortBarClass(intensity) {
+    if (intensity === 'tempo') return 'tempo';
+    if (intensity === 'intervals') return 'hard';
+    if (intensity === 'rest') return 'recovery';
+    return 'easy';
+  }
+
+  function _calcExVolume(ex) {
+    var sets = _parseSetsJson(ex);
+    if (sets && sets.length) {
+      return sets.reduce(function (v, s) {
+        return v + ((s.weight || 0) * (s.reps || 0));
+      }, 0);
+    }
+    if (ex.weight_kg != null && ex.reps != null && ex.sets != null) {
+      return ex.weight_kg * ex.reps * ex.sets;
+    }
+    return 0;
+  }
+
+  function _formatStrengthExSub(ex) {
+    var sets = _parseSetsJson(ex);
+    if (sets && sets.length) {
+      var working = sets.filter(function (s) { return s.type !== 'warmup'; });
+      var use = working.length ? working : sets;
+      var n = use.length;
+      var top = use.reduce(function (best, s) {
+        return (s.weight || 0) > (best.weight || 0) ? s : best;
+      }, use[0]);
+      var w = top.weight != null ? top.weight + ' kg' : '';
+      var reps = top.reps != null ? top.reps : '';
+      if (n && reps && w) return n + ' sets \u00d7 ' + reps + ' reps \u00b7 ' + w;
+      if (n && reps) return n + ' sets \u00d7 ' + reps + ' reps';
+    }
+    var sub = '';
+    if (ex.sets != null && ex.reps != null) sub = ex.sets + ' sets \u00d7 ' + ex.reps + ' reps';
+    else if (ex.sets != null) sub = ex.sets + ' sets';
+    if (ex.weight_kg != null) sub += (sub ? ' \u00b7 ' : '') + ex.weight_kg + ' kg';
+    return sub || '\u2014';
+  }
+
+  function _avgRpeFromEx(ex) {
+    var sets = _parseSetsJson(ex);
+    if (sets && sets.length) {
+      var withRpe = sets.filter(function (s) { return s.rpe != null; });
+      if (withRpe.length) {
+        var sum = withRpe.reduce(function (a, s) { return a + s.rpe; }, 0);
+        return (sum / withRpe.length).toFixed(1);
+      }
+    }
+    return ex.rpe != null ? String(ex.rpe) : null;
+  }
+
+  function buildEffortProfileView(segData) {
+    if (!segData || !segData.length) return '';
+    var allTime = segData.every(function (s) { return s.totSec > 0; });
+    var allDist = segData.every(function (s) { return s.totKm > 0; });
+    var axis = allTime ? 'time' : (allDist ? 'dist' : 'equal');
+    var axisTotal = segData.reduce(function (a, s) {
+      return a + (axis === 'time' ? (s.totSec || 0) : axis === 'dist' ? (s.totKm || 0) : 1);
+    }, 0) || 1;
+    var bars = segData.map(function (s) {
+      var mag = axis === 'time' ? (s.totSec || 0) : axis === 'dist' ? (s.totKm || 0) : 1;
+      var pct = Math.max(mag / axisTotal, 0.04);
+      var cls = _effortBarClass(s.intensity);
+      var h = s.intensity === 'intervals' ? 92 : s.intensity === 'tempo' ? 72 : s.intensity === 'rest' ? 26 : 40;
+      return '<div class="dp-profile-bar ' + cls + '" style="flex:' + (pct * 1000).toFixed(0) + ' 1 0;height:' + h + '%" title="' + esc(s.name) + '"></div>';
+    }).join('');
+    return '<div class="dp-profile-card">' +
+      '<div class="dp-profile-head">' +
+        '<span class="dp-profile-title">Session profile \u00b7 Effort</span>' +
+        '<span class="dp-profile-sub">Height = effort</span>' +
+      '</div>' +
+      '<div class="dp-profile-chart">' +
+        '<div class="dp-profile-bars">' + bars + '</div>' +
+        '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
+      '</div>' +
+      '<div class="dp-profile-legend">' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>Easy</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#d97706"></span>Tempo</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>Hard</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#64748b"></span>Recovery</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function buildRpeProfileView(exercises) {
+    var blocks = [];
+    (exercises || []).forEach(function (ex) {
+      var sets = _parseSetsJson(ex);
+      var name = ex.name || 'Exercise';
+      if (sets && sets.length) {
+        sets.forEach(function (s) {
+          var rpe = s.rpe != null ? s.rpe : (ex.rpe != null ? ex.rpe : 6);
+          var w = (s.rest && s.rest > 0) ? s.rest + (s.reps || 5) * 4 : (s.reps || 5) * 10 + 50;
+          blocks.push({ label: name, rpe: rpe, width: w });
+        });
+      } else if (ex.sets || ex.reps) {
+        blocks.push({ label: name, rpe: ex.rpe != null ? ex.rpe : 6, width: 80 });
+      }
+    });
+    if (!blocks.length) return '';
+    var bars = blocks.map(function (b) {
+      var cls = _rpeBarClass(b.rpe);
+      var h = _rpeBarHeight(b.rpe);
+      var tip = b.label + (b.rpe != null ? ' \u00b7 ' + b.rpe : '');
+      return '<div class="dp-profile-bar ' + cls + '" style="flex:' + b.width.toFixed(1) + ' 1 0;height:' + h + '%" title="' + esc(tip) + '"></div>';
+    }).join('');
+    return '<div class="dp-profile-card">' +
+      '<div class="dp-profile-head">' +
+        '<span class="dp-profile-title">Session profile \u00b7 RPE \u00d7 duration</span>' +
+        '<span class="dp-profile-sub">Width = time \u00b7 height = RPE</span>' +
+      '</div>' +
+      '<div class="dp-profile-chart">' +
+        '<div class="dp-profile-bars">' + bars + '</div>' +
+        '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
+      '</div>' +
+      '<div class="dp-profile-legend">' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>RPE \u22645</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#eab308"></span>6\u20137</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>8\u20139</span>' +
+        '<span class="dp-leg"><span class="dp-leg-dot" style="background:#dc2626"></span>10</span>' +
+      '</div>' +
+    '</div>';
+  }
+
   // ── Render detail content ─────────────────────────────────────────────────
   function renderDetailContent(workout, splits) {
     var contentEl = document.getElementById('dp-content');
@@ -1398,40 +1547,34 @@
     if (isRun) {
       var hasDist = workout.distance_km != null;
       var hasPace = !!(workout.duration_seconds && workout.distance_km);
-      var distVal = hasDist ? parseFloat((+workout.distance_km).toFixed(2)) : null;
+      var distVal = hasDist ? parseFloat((+workout.distance_km).toFixed(1)) : null;
       var paceVal = null;
       if (hasPace) {
         var spk = workout.duration_seconds / workout.distance_km;
         paceVal = Math.floor(spk / 60) + ':' + pad(Math.round(spk % 60));
       }
-      var m1, m2;
-      if (hasDist) {
-        m1 = { v: distVal, u: 'km', l: 'Distance' };
-        m2 = hasPace
-          ? { v: paceVal, u: '/km', l: 'Avg pace' }
-          : { v: workout.duration_seconds != null ? fmtDurationDetail(workout.duration_seconds) : '\u2014', u: '', l: 'Duration' };
-      } else {
-        m1 = { v: workout.duration_seconds != null ? fmtDurationDetail(workout.duration_seconds) : '\u2014', u: '', l: 'Duration' };
-        m2 = { v: workout.avg_hr != null ? workout.avg_hr : '\u2014', u: workout.avg_hr != null ? 'bpm' : '', l: 'Avg HR' };
-      }
-      function heroMetric(m) {
-        return '<div class="dp-hm">' +
-          '<div class="dp-hm-val">' + esc(String(m.v)) + (m.u ? '<span class="dp-hm-unit">' + m.u + '</span>' : '') + '</div>' +
-          '<div class="dp-hm-label">' + esc(m.l) + '</div>' +
-        '</div>';
-      }
-      var stripItems = [];
-      if (hasDist && workout.duration_seconds != null) stripItems.push(['Duration', fmtDurationDetail(workout.duration_seconds)]);
-      if (workout.avg_hr != null && !(m1.l === 'Avg HR' || m2.l === 'Avg HR')) stripItems.push(['HR', workout.avg_hr + ' bpm']);
-      if (workout.elevation_m != null) stripItems.push(['Elev', workout.elevation_m + ' m']);
-      if (workout.tss != null) stripItems.push(['TSS', (+workout.tss).toFixed(0)]);
-      var stripHtml = stripItems.map(function (it) {
-        return '<span class="dp-strip-item"><span class="dp-strip-k">' + esc(it[0]) + '</span> ' + esc(String(it[1])) + '</span>';
-      }).join('');
+      var m1v = hasDist ? distVal : (workout.duration_seconds != null ? fmtDurationDetail(workout.duration_seconds) : '\u2014');
+      var m1u = hasDist ? 'km' : '';
+      var m1l = hasDist ? 'Distance' : 'Duration';
+      var m2v = hasPace ? paceVal : (workout.avg_hr != null ? workout.avg_hr : '\u2014');
+      var m2u = hasPace ? '/km' : (workout.avg_hr != null ? 'bpm' : '');
+      var m2l = hasPace ? 'Avg pace' : 'Avg HR';
+      var durLine = workout.duration_seconds != null
+        ? '<div class="dp-run-duration"><span class="dp-run-duration-k">Duration</span>' + esc(fmtDurationDetail(workout.duration_seconds)) + '</div>'
+        : '';
       statsHtml =
         '<div class="dp-section">' +
-          '<div class="dp-hero-metrics">' + heroMetric(m1) + heroMetric(m2) + '</div>' +
-          (stripHtml ? '<div class="dp-stat-strip">' + stripHtml + '</div>' : '') +
+          '<div class="dp-run-hero">' +
+            '<div class="dp-run-metric">' +
+              '<div class="dp-run-metric-val">' + esc(String(m1v)) + (m1u ? '<span class="dp-run-metric-unit">' + m1u + '</span>' : '') + '</div>' +
+              '<div class="dp-run-metric-label">' + esc(m1l) + '</div>' +
+            '</div>' +
+            '<div class="dp-run-metric">' +
+              '<div class="dp-run-metric-val">' + esc(String(m2v)) + (m2u ? '<span class="dp-run-metric-unit">' + m2u + '</span>' : '') + '</div>' +
+              '<div class="dp-run-metric-label">' + esc(m2l) + '</div>' +
+            '</div>' +
+          '</div>' +
+          durLine +
         '</div>';
     } else if (isBike) {
       var distStr = workout.distance_km != null ? (+workout.distance_km).toFixed(2) + '<span class="dp-stat-unit">km</span>' : '\u2014';
@@ -1453,27 +1596,40 @@
           '</div>' +
         '</div>';
     } else {
-      // Strength / WOD — first tile: Duration
-      var durStr2  = workout.duration_seconds != null ? esc(fmtDurationDetail(workout.duration_seconds)) : '—';
+      // Strength / WOD
+      var durStr2  = workout.duration_seconds != null ? esc(fmtDurationDetail(workout.duration_seconds)) : '\u2014';
       var exCount  = exercises.length;
       var totalReps = exercises.reduce(function (s, ex) {
+        var sets = _parseSetsJson(ex);
+        if (sets && sets.length) {
+          return s + sets.reduce(function (a, set) { return a + (set.reps || 0); }, 0);
+        }
         return s + (ex.sets || 0) * (ex.reps || 0);
       }, 0);
-      var rpeExs  = exercises.filter(function (ex) { return ex.rpe != null; });
-      var avgRpe  = rpeExs.length ? (rpeExs.reduce(function (s, ex) { return s + ex.rpe; }, 0) / rpeExs.length).toFixed(1) : null;
-      var hrStr2  = workout.avg_hr != null ? esc(workout.avg_hr) + '<span class="dp-stat-unit">bpm</span>' : '—';
-      var tssStr2 = workout.tss != null ? esc((+workout.tss).toFixed(0)) : '—';
+      var rpeVals = [];
+      exercises.forEach(function (ex) {
+        var sets = _parseSetsJson(ex);
+        if (sets) sets.forEach(function (set) { if (set.rpe != null) rpeVals.push(set.rpe); });
+        else if (ex.rpe != null) rpeVals.push(ex.rpe);
+      });
+      var avgRpe  = rpeVals.length ? (rpeVals.reduce(function (a, b) { return a + b; }, 0) / rpeVals.length).toFixed(1) : null;
+      var hrStr2  = workout.avg_hr != null ? esc(String(workout.avg_hr)) : '\u2014';
+      var tssStr2 = workout.tss != null ? esc((+workout.tss).toFixed(0)) : '\u2014';
 
+      function liftStat(val, lbl, hi) {
+        return '<div class="dp-lift-stat' + (hi ? ' highlight' : '') + '">' +
+          '<div class="dp-lift-stat-val">' + val + '</div>' +
+          '<div class="dp-lift-stat-label">' + lbl + '</div></div>';
+      }
       statsHtml =
         '<div class="dp-section">' +
-          '<div class="dp-section-title">Stats</div>' +
-          '<div class="dp-stats-grid">' +
-            '<div class="dp-stat"><div class="dp-stat-label">Duration</div><div class="dp-stat-value">' + durStr2 + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">Exercises</div><div class="dp-stat-value">' + esc(String(exCount)) + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">Total reps</div><div class="dp-stat-value">' + (totalReps > 0 ? esc(String(totalReps)) : '—') + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">Avg RPE</div><div class="dp-stat-value">' + (avgRpe != null ? esc(avgRpe) : '—') + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">Avg HR</div><div class="dp-stat-value">' + hrStr2 + '</div></div>' +
-            '<div class="dp-stat"><div class="dp-stat-label">TSS</div><div class="dp-stat-value">' + tssStr2 + '</div></div>' +
+          '<div class="dp-lift-stats">' +
+            liftStat(durStr2, 'Duration', true) +
+            liftStat(esc(String(exCount)), 'Exercises', false) +
+            liftStat(totalReps > 0 ? esc(String(totalReps)) : '\u2014', 'Total reps', false) +
+            liftStat(avgRpe != null ? esc(avgRpe) : '\u2014', 'Avg RPE', false) +
+            liftStat(hrStr2, 'Avg HR', false) +
+            liftStat(tssStr2, 'TSS', false) +
           '</div>' +
         '</div>';
     }
@@ -1520,8 +1676,6 @@
             '<span class="dp-tl-label">' + esc(s.name) + '</span>' +
           '</div>';
       });
-      var timelineHtml =
-        '<div class="dp-timeline" role="img" aria-label="Session intensity by segment">' + tlBlocks + '</div>';
 
       var sgRows = '';
       var sgKm = 0, sgSec = 0, sgHrs = [], sgHrSum = 0;
@@ -1537,16 +1691,17 @@
           ? s.sets + ' \u00d7 ' + (distFmt || timeFmt || '\u2014')
           : ([distFmt, timeFmt].filter(Boolean).join(' \u00b7 ') || '\u2014');
         var paceFmt = (s.repSec && s.repKm) ? fmtPaceFromSec(s.repSec, s.repKm) : '\u2014';
-        var hrFmt   = s.hr != null ? s.hr + ' bpm' : '\u2014';
         sgRows +=
-          '<div class="dp-interval-row">' +
-            '<div class="dp-seg-dot dp-seg-dot--' + s.intensity + '" title="' + esc(s.name) + '"></div>' +
+          '<div class="dp-seg-row">' +
+            '<div class="dp-seg-dot dp-seg-dot--' + s.intensity + '"></div>' +
             '<div>' +
               '<div class="dp-interval-name">' + esc(s.name) + '</div>' +
               '<div class="dp-interval-sub">' + esc(qty) + '</div>' +
             '</div>' +
-            '<div><div class="dp-interval-pace">' + esc(paceFmt) + '</div></div>' +
-            '<div class="dp-interval-hr">' + esc(hrFmt) + '</div>' +
+            '<div class="dp-seg-pace">' +
+              (paceFmt !== '\u2014' ? '<span class="dp-seg-pace-at">@ </span>' + esc(paceFmt) : esc(paceFmt)) +
+            '</div>' +
+            '<div class="dp-interval-hr">' + (s.hr != null ? esc(s.hr + ' bpm') : '') + '</div>' +
           '</div>';
       });
 
@@ -1555,14 +1710,14 @@
       var footRight = [sgPace, sgHr].filter(Boolean).join(' \u00b7 ') || '\u2014';
 
       segmentsHtml =
+        buildEffortProfileView(segData) +
         '<div class="dp-section">' +
-          '<div class="dp-section-title">Session</div>' +
-          timelineHtml +
-          '<div class="dp-intervals" style="margin-top:12px;">' +
+          '<div class="dp-segments-card">' +
+            '<div class="dp-segments-head">Segments</div>' +
             sgRows +
-            '<div class="dp-interval-footer">' +
+            '<div class="dp-seg-footer">' +
               '<span>Avg pace \u00b7 avg HR</span>' +
-              '<span><strong>' + footRight + '</strong></span>' +
+              '<strong>' + esc(footRight) + '</strong>' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1670,31 +1825,39 @@
     // ── Exercises section (LIFT / WOD) ─────────────────────────────────────
     var exercisesHtml = '';
     if (!isCardio && exercises.length) {
-      var exRows = '';
+      var rpeProfile = buildRpeProfileView(exercises);
+      var totalVol = 0;
+      var rpeSum = 0, rpeCount = 0;
+      var exCards = '';
       exercises.forEach(function (ex) {
-        var sub = '';
-        if (ex.sets != null && ex.reps != null) sub = ex.sets + ' × ' + ex.reps;
-        else if (ex.sets != null)               sub = ex.sets + ' sets';
-        else if (ex.duration_seconds != null)   sub = fmtDurationDetail(ex.duration_seconds);
-        else if (ex.duration)                   sub = ex.duration;
-        if (ex.weight_kg != null) sub += (sub ? ' · ' : '') + ex.weight_kg + ' kg';
-
-        var rpe = ex.rpe != null ? 'RPE ' + ex.rpe : '';
-
-        exRows +=
-          '<div class="dp-exercise-item">' +
-            '<div>' +
-              '<div class="dp-exercise-name">' + esc(ex.name || '—') + '</div>' +
-              (sub ? '<div class="dp-exercise-sub">' + esc(sub) + '</div>' : '') +
+        var vol = _calcExVolume(ex);
+        totalVol += vol;
+        var rpe = _avgRpeFromEx(ex);
+        if (rpe != null) { rpeSum += parseFloat(rpe); rpeCount += 1; }
+        var volStr = vol > 0 ? Math.round(vol).toLocaleString() + ' kg' : '\u2014';
+        exCards +=
+          '<div class="dp-ex-card dp-exercise-item">' +
+            '<div class="dp-ex-card-head">' +
+              '<span class="dp-ex-card-name">' + esc(ex.name || '\u2014') + '</span>' +
+              '<span class="dp-ex-card-vol">' + esc(volStr) + '</span>' +
             '</div>' +
-            (rpe ? '<div class="dp-exercise-rpe">' + esc(rpe) + '</div>' : '<div></div>') +
+            '<div class="dp-ex-card-body">' +
+              '<span class="dp-ex-card-sub">' + esc(_formatStrengthExSub(ex)) + '</span>' +
+              (rpe ? '<span class="dp-ex-card-rpe">RPE ' + esc(rpe) + '</span>' : '') +
+            '</div>' +
           '</div>';
       });
-
+      var avgRpeFoot = rpeCount ? (rpeSum / rpeCount).toFixed(1) : '\u2014';
+      var volFoot = totalVol > 0 ? Math.round(totalVol).toLocaleString() + ' kg' : '\u2014';
       exercisesHtml =
         '<div class="dp-section">' +
+          rpeProfile +
           '<div class="dp-section-title">Exercises</div>' +
-          '<div class="dp-exercise-list">' + exRows + '</div>' +
+          '<div class="dp-ex-list">' + exCards + '</div>' +
+          '<div class="dp-seg-footer" style="margin-top:10px;border-radius:10px;">' +
+            '<span>Total volume \u00b7 avg RPE</span>' +
+            '<strong>' + esc(volFoot) + ' \u00b7 ' + esc(avgRpeFoot) + '</strong>' +
+          '</div>' +
         '</div>';
     }
 
@@ -1708,7 +1871,7 @@
         '</div>';
     }
 
-    contentEl.innerHTML = heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml;
+    contentEl.innerHTML = '<div class="dp-view-stack">' + heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml + '</div>';
 
     // issue #526: mount the editable manual-split authoring surface.
     if (splitsEditable) mountSplitsEditor(workout, splits);

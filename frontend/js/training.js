@@ -226,6 +226,7 @@
     set('str-sets-sub', working + ' working');
     var e1 = (topW && topReps) ? Math.round(topW * (1 + topReps / 30)) : null;
     set('str-e1rm', e1 ? (e1 + ' kg') : '—');
+    renderStrengthProfile();
   }
 
   function addSetRow(setTable, sd) {
@@ -317,6 +318,7 @@
     if (runSec) runSec.style.display = run ? '' : 'none';
     if (exSec) exSec.style.display = run ? 'none' : '';
     if (run) { recomputeRunPace(); recomputeSegments(); }
+    else { renderStrengthProfile(); }
   }
 
   function intFieldVal(id) {
@@ -561,11 +563,58 @@
     wrap.className = 'rl-profile has-segs';
     wrap.innerHTML =
       '<div class="rl-profile-bars">' + bars + '</div>' +
+      '<div class="rl-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       '<div class="rl-profile-legend">' +
         '<span class="rl-zlg"><span class="d" style="background:var(--rl-easy)"></span>Easy</span>' +
         '<span class="rl-zlg"><span class="d" style="background:var(--rl-tempo)"></span>Tempo</span>' +
         '<span class="rl-zlg"><span class="d" style="background:var(--rl-hard)"></span>Hard</span>' +
         '<span class="rl-zlg"><span class="d" style="background:var(--rl-recovery)"></span>Recovery</span>' +
+      '</div>';
+  }
+
+  function _rpeBarClass(rpe) {
+    if (rpe == null || isNaN(rpe)) return 'rpe-mid';
+    if (rpe <= 5) return 'rpe-low';
+    if (rpe <= 7) return 'rpe-mid';
+    if (rpe <= 8.5) return 'rpe-high';
+    return 'rpe-max';
+  }
+
+  function _rpeBarHeight(rpe) {
+    if (rpe == null || isNaN(rpe)) return 45;
+    return Math.max(22, Math.min(95, Math.round(18 + (rpe / 10) * 78)));
+  }
+
+  function renderStrengthProfile() {
+    var wrap = document.getElementById('str-profile');
+    if (!wrap) return;
+    var blocks = [];
+    document.querySelectorAll('#exercises-tbody .exercise').forEach(function (card) {
+      var name = (card.querySelector('.ex-name').value || '').trim() || 'Exercise';
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        var rpe = parseFloat(r.querySelector('.set-rpe').value);
+        var rest = parseInt(r.querySelector('.set-rest').value, 10);
+        var reps = parseInt(r.querySelector('.set-reps').value, 10) || 5;
+        var w = (isFinite(rest) && rest > 0) ? rest + reps * 4 : reps * 10 + 50;
+        blocks.push({ label: name, rpe: isFinite(rpe) ? rpe : 6, width: w });
+      });
+    });
+    if (!blocks.length) { wrap.className = 'rl-profile str-profile'; wrap.innerHTML = ''; return; }
+    var bars = blocks.map(function (b) {
+      var cls = _rpeBarClass(b.rpe);
+      var h = _rpeBarHeight(b.rpe);
+      var lbl = b.label + (b.rpe != null ? ' · ' + b.rpe : '');
+      return '<div class="rl-pseg ' + cls + '" style="flex:' + b.width.toFixed(1) + ';height:' + h + '%" title="' + lbl + '"></div>';
+    }).join('');
+    wrap.className = 'rl-profile str-profile has-segs';
+    wrap.innerHTML =
+      '<div class="rl-profile-bars">' + bars + '</div>' +
+      '<div class="rl-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
+      '<div class="rl-profile-legend">' +
+        '<span class="rl-zlg"><span class="d" style="background:#16a34a"></span>RPE ≤5</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:#eab308"></span>6–7</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:#ea580c"></span>8–9</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:#dc2626"></span>10</span>' +
       '</div>';
   }
 
@@ -708,6 +757,7 @@
     setSelectedType('Strength');
     addExerciseRow(null);
     applyDefaultWorkoutName();
+    renderStrengthProfile();
   }
 
   function fillForm(workout) {
