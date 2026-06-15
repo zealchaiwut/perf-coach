@@ -4325,6 +4325,33 @@ def get_workouts(
         return JSONResponse(result)
 
 
+@app.get("/api/workouts/recent-type")
+def get_recent_workout_type(user: User = Depends(resolve_user)):
+    """Most recently logged workout_type for the session user (issue #525).
+
+    Powers the quick-add form's default Type: the form pre-selects whatever the
+    user logged last so they don't re-pick their usual type on every quick log.
+    Returns ``{"workout_type": null}`` when the user has no workout history (the
+    form then keeps its built-in default).
+
+    The default is derived from the user's own workout history and scoped to the
+    session user via ``resolve_user`` — so it is persisted per user, not per
+    browser session, and never leaks across users.
+
+    Registered before ``/api/workouts/{workout_id}`` so the literal path is not
+    captured as a workout id.
+    """
+    with Session(engine) as session:
+        row = (
+            session.query(Workout.workout_type)
+            .filter(Workout.user_id == user.id)
+            .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+            .first()
+        )
+    workout_type = row[0] if row and row[0] and row[0].strip() else None
+    return JSONResponse({"workout_type": workout_type})
+
+
 @app.get("/api/exercises/names")
 def get_exercise_names(user: User = Depends(resolve_user)):
     """Distinct exercise names for the session user, for autocomplete (issue #531).
