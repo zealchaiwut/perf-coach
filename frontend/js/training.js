@@ -1203,6 +1203,12 @@
         .catch(function () { /* leave default new-workout form */ });
     }
 
+    // Entry point for the /log "Repeat last" action (issue #524): auto-run the
+    // existing prefill flow when arriving via /training?repeat=1.
+    if (new URLSearchParams(location.search).get('repeat')) {
+      repeatLastWorkout();
+    }
+
     document.querySelectorAll('.training-tab').forEach(function (btn) {
       btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
     });

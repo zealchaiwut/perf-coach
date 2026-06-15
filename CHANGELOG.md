@@ -11,6 +11,14 @@
 - #530: Normalize Strava source attribution across list and detail
 - #531: Extract shared JS module for training format helpers
 
+## Sprint 60 — Training log UX: quick-add modal, week-strip, duplicate workout, split authoring
+
+- #522: Add inline quick-add modal for workout logging
+- #523: Make week-strip day pills interactive and accessible
+- #524: Add repeat-last and duplicate workout to log
+- #525: Default new workout type to most recent selection
+- #526: Add manual split authoring to training log detail panel
+
 ## Sprint 59.1 — Weight chart body metrics + CSS cleanup
 
 - #520: Add body metrics and selectable moving average window

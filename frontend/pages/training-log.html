@@ -148,12 +148,39 @@
       background: #f5f5f5;
       border: 2px solid transparent;
       flex-shrink: 0;
+      /* issue #523: pills are now real <button>s — reset button chrome. */
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .day-pill:hover {
+      background: #e9eef6;
+    }
+
+    /* issue #523: AA-contrast focus indicator (var(--primary) on light bg). */
+    .day-pill:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
     }
 
     .day-pill.today {
       background: #eff6ff;
       border-color: var(--primary);
       box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+    }
+
+    /* issue #523: selected/active day — solid primary-dark (#2563eb) gives
+       white text 5.17:1 contrast, passing WCAG 2.1 AA for normal text. */
+    .day-pill.is-selected {
+      background: var(--primary-dark);
+      border-color: var(--primary-dark);
+      box-shadow: none;
+    }
+
+    .day-pill.is-selected .day-name,
+    .day-pill.is-selected .day-num {
+      color: #fff;
     }
 
     .day-name {
@@ -1206,6 +1233,73 @@
       font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
+    /* ── Manual split authoring (issue #526) ── */
+    /* Editable variant of the same table component: adds an actions column. */
+    .dp-splits--editable .dp-split-header,
+    .dp-splits--editable .dp-split-row {
+      grid-template-columns: 36px 1fr 72px auto;
+    }
+    .dp-split-dist {
+      font-family: var(--mono);
+      font-size: 0.8125rem; color: var(--ink-2);
+    }
+    .dp-split-edit-row {
+      grid-template-columns: 36px 1fr 1fr 0.8fr auto !important;
+    }
+    .dp-split-input {
+      width: 100%;
+      min-width: 0;
+      padding: 5px 7px;
+      border: 1px solid rgba(13,30,67,0.18);
+      border-radius: 6px;
+      font-size: 0.8125rem;
+      font-family: var(--mono);
+      color: var(--ink);
+    }
+    .dp-split-input:focus {
+      outline: none;
+      border-color: var(--bg-1, #5a8dee);
+      box-shadow: 0 0 0 2px rgba(90,141,238,0.18);
+    }
+    .dp-split-input--invalid {
+      border-color: var(--red, #7a1a1a);
+      box-shadow: 0 0 0 2px rgba(122,26,26,0.14);
+    }
+    .dp-split-row-actions {
+      display: flex; gap: 6px; justify-content: flex-end; align-items: center;
+    }
+    .dp-split-btn {
+      appearance: none;
+      border: 1px solid rgba(13,30,67,0.14);
+      background: #fff;
+      color: var(--text-secondary, #5c6886);
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 0.75rem; font-weight: 600;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .dp-split-btn:hover { background: var(--tile, #f4f7fc); }
+    .dp-split-save,
+    .dp-split-save-new {
+      border-color: rgba(45,94,16,0.30);
+      color: var(--green, #2d5e10);
+      background: var(--green-soft, #dff5d6);
+    }
+    .dp-split-delete { color: var(--red, #7a1a1a); }
+    .dp-split-add {
+      margin-top: 8px;
+      width: 100%;
+      border-style: dashed;
+      color: var(--text-secondary, #5c6886);
+      padding: 7px 10px;
+    }
+    .dp-split-error {
+      margin-top: 8px;
+      font-size: 0.75rem; font-weight: 600;
+      color: var(--red, #7a1a1a);
+    }
+
     /* ── Exercises list ── */
     .dp-exercise-item {
       display: grid;
@@ -1339,6 +1433,128 @@
       outline: 2px solid var(--primary);
       outline-offset: 2px;
     }
+
+    /* ── Quick-add workout modal (issue #522) ─────────────────────────────── */
+    .qa-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .qa-modal.is-open { display: flex; }
+
+    .qa-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 21, 48, 0.45);
+    }
+
+    .qa-dialog {
+      position: relative;
+      width: 100%;
+      max-width: 460px;
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(13, 30, 67, 0.25);
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+
+    .qa-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .qa-title {
+      margin: 0;
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .qa-close-btn {
+      flex-shrink: 0;
+      width: 30px;
+      height: 30px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-sub);
+      font-size: 1.125rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .qa-close-btn:hover { background: #f5f5f5; color: var(--text); }
+
+    .qa-field { margin-bottom: 0.875rem; }
+    .qa-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .qa-row .qa-field { flex: 1; }
+
+    .qa-label {
+      display: block;
+      margin-bottom: 0.3125rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+    .qa-input,
+    .qa-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.625rem;
+      font-size: 0.875rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border-input);
+      border-radius: 6px;
+    }
+    .qa-input:focus,
+    .qa-select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+    .qa-input.is-error,
+    .qa-select.is-error { border-color: var(--danger); }
+
+    .qa-error {
+      display: none;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      color: var(--danger);
+    }
+    .qa-error.is-visible { display: block; }
+
+    .qa-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+    }
+    .qa-full-form-link {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--primary);
+      text-decoration: none;
+    }
+    .qa-full-form-link:hover { text-decoration: underline; }
+
+    .qa-close-btn:focus-visible,
+    .qa-full-form-link:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
@@ -1352,6 +1568,8 @@
     <div class="log-page-header-actions">
       <button id="sync-strava-btn" class="btn-secondary" type="button">Sync Strava</button>
       <button id="sync-stryd-btn" class="btn-secondary btn-coming-soon" type="button" disabled title="Stryd sync coming soon">Sync Stryd</button>
+      <button id="log-repeat-last-btn" class="btn-secondary" type="button" disabled
+              title="No previous workout to repeat">Repeat last</button>
       <button id="log-export-btn" class="btn-secondary">Export CSV</button>
       <button id="log-new-btn" class="btn-primary">Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"
@@ -1453,12 +1671,108 @@
       <!-- Sticky action bar -->
       <div class="dp-actions-bar">
         <a id="dp-edit-btn"   class="dp-action-btn" href="#">Edit</a>
+        <button id="dp-duplicate-btn" class="dp-action-btn" type="button">Duplicate</button>
         <a id="dp-strava-btn" class="dp-action-btn dp-action-btn--strava"
            href="#" target="_blank" rel="noopener" style="display:none">Open on Strava</a>
         <button id="dp-delete-btn" class="dp-action-btn dp-action-btn--delete"
                 type="button" style="display:none">Delete</button>
       </div>
     </aside>
+  </div>
+
+  <!-- Duplicate-to-date modal (issue #524) -->
+  <div id="dup-modal" class="qa-modal" role="dialog" aria-modal="true"
+       aria-labelledby="dup-title" aria-hidden="true">
+    <div id="dup-backdrop" class="qa-backdrop"></div>
+    <div class="qa-dialog" style="max-width:360px">
+      <div class="qa-header">
+        <h2 id="dup-title" class="qa-title">Duplicate to date</h2>
+        <button id="dup-close-btn" class="qa-close-btn" type="button"
+                aria-label="Close duplicate dialog">&#x2715;</button>
+      </div>
+      <form id="dup-form" novalidate>
+        <div class="qa-field">
+          <label class="qa-label" for="dup-date-input">Date</label>
+          <input id="dup-date-input" class="qa-input" type="date" required>
+          <div id="dup-date-error" class="qa-error" role="alert"></div>
+        </div>
+        <div class="qa-actions" style="justify-content:flex-end">
+          <button id="dup-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+          <button id="dup-confirm-btn" class="btn-primary" type="submit">Duplicate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Quick-add workout modal (issue #522) -->
+  <div id="quick-add-modal" class="qa-modal" role="dialog" aria-modal="true"
+       aria-labelledby="qa-title" aria-hidden="true">
+    <div id="qa-backdrop" class="qa-backdrop"></div>
+    <div class="qa-dialog">
+      <div class="qa-header">
+        <h2 id="qa-title" class="qa-title">Log workout</h2>
+        <button id="qa-close-btn" class="qa-close-btn" type="button"
+                aria-label="Close quick-add">&#x2715;</button>
+      </div>
+
+      <form id="qa-form" novalidate>
+        <div class="qa-row">
+          <div class="qa-field">
+            <label class="qa-label" for="qa-date">Date</label>
+            <input id="qa-date" class="qa-input" type="date" required>
+            <div id="qa-date-error" class="qa-error" role="alert"></div>
+          </div>
+          <div class="qa-field">
+            <label class="qa-label" for="qa-type">Type</label>
+            <select id="qa-type" class="qa-select" required>
+              <option value="">Select…</option>
+              <option value="run">Run</option>
+              <option value="lift">Lift</option>
+              <option value="wod">WOD</option>
+              <option value="bike">Bike</option>
+            </select>
+            <div id="qa-type-error" class="qa-error" role="alert"></div>
+          </div>
+        </div>
+
+        <div class="qa-field">
+          <label class="qa-label" for="qa-name">Name</label>
+          <input id="qa-name" class="qa-input" type="text" maxlength="200"
+                 placeholder="e.g. Morning Run" autocomplete="off" required>
+          <div id="qa-name-error" class="qa-error" role="alert"></div>
+        </div>
+
+        <div class="qa-row">
+          <div class="qa-field">
+            <label class="qa-label" for="qa-duration">Duration (min)</label>
+            <input id="qa-duration" class="qa-input" type="number" min="0" step="1"
+                   inputmode="numeric" placeholder="e.g. 45">
+            <div id="qa-duration-error" class="qa-error" role="alert"></div>
+          </div>
+          <div class="qa-field">
+            <label class="qa-label" for="qa-distance">Distance (km)</label>
+            <input id="qa-distance" class="qa-input" type="number" min="0" step="0.01"
+                   inputmode="decimal" placeholder="e.g. 5.2">
+            <div id="qa-distance-error" class="qa-error" role="alert"></div>
+          </div>
+        </div>
+
+        <div class="qa-field">
+          <label class="qa-label" for="qa-tss">TSS</label>
+          <input id="qa-tss" class="qa-input" type="number" min="0" step="1"
+                 inputmode="numeric" placeholder="e.g. 60">
+          <div id="qa-tss-error" class="qa-error" role="alert"></div>
+        </div>
+
+        <div id="qa-form-error" class="qa-error" role="alert"></div>
+
+        <div class="qa-actions">
+          <a id="qa-full-form-link" class="qa-full-form-link"
+             href="/training?return=/log">Open full form →</a>
+          <button id="qa-save-btn" class="btn-primary" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script src="js/nav.js"></script>
