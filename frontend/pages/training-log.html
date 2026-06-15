@@ -1501,6 +1501,8 @@
     <div class="log-page-header-actions">
       <button id="sync-strava-btn" class="btn-secondary" type="button">Sync Strava</button>
       <button id="sync-stryd-btn" class="btn-secondary btn-coming-soon" type="button" disabled title="Stryd sync coming soon">Sync Stryd</button>
+      <button id="log-repeat-last-btn" class="btn-secondary" type="button" disabled
+              title="No previous workout to repeat">Repeat last</button>
       <button id="log-export-btn" class="btn-secondary">Export CSV</button>
       <button id="log-new-btn" class="btn-primary">Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"
@@ -1602,12 +1604,37 @@
       <!-- Sticky action bar -->
       <div class="dp-actions-bar">
         <a id="dp-edit-btn"   class="dp-action-btn" href="#">Edit</a>
+        <button id="dp-duplicate-btn" class="dp-action-btn" type="button">Duplicate</button>
         <a id="dp-strava-btn" class="dp-action-btn dp-action-btn--strava"
            href="#" target="_blank" rel="noopener" style="display:none">Open on Strava</a>
         <button id="dp-delete-btn" class="dp-action-btn dp-action-btn--delete"
                 type="button" style="display:none">Delete</button>
       </div>
     </aside>
+  </div>
+
+  <!-- Duplicate-to-date modal (issue #524) -->
+  <div id="dup-modal" class="qa-modal" role="dialog" aria-modal="true"
+       aria-labelledby="dup-title" aria-hidden="true">
+    <div id="dup-backdrop" class="qa-backdrop"></div>
+    <div class="qa-dialog" style="max-width:360px">
+      <div class="qa-header">
+        <h2 id="dup-title" class="qa-title">Duplicate to date</h2>
+        <button id="dup-close-btn" class="qa-close-btn" type="button"
+                aria-label="Close duplicate dialog">&#x2715;</button>
+      </div>
+      <form id="dup-form" novalidate>
+        <div class="qa-field">
+          <label class="qa-label" for="dup-date-input">Date</label>
+          <input id="dup-date-input" class="qa-input" type="date" required>
+          <div id="dup-date-error" class="qa-error" role="alert"></div>
+        </div>
+        <div class="qa-actions" style="justify-content:flex-end">
+          <button id="dup-cancel-btn" class="btn-secondary" type="button">Cancel</button>
+          <button id="dup-confirm-btn" class="btn-primary" type="submit">Duplicate</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Quick-add workout modal (issue #522) -->
