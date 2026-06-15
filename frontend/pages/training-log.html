@@ -1339,6 +1339,128 @@
       outline: 2px solid var(--primary);
       outline-offset: 2px;
     }
+
+    /* ── Quick-add workout modal (issue #522) ─────────────────────────────── */
+    .qa-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .qa-modal.is-open { display: flex; }
+
+    .qa-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 21, 48, 0.45);
+    }
+
+    .qa-dialog {
+      position: relative;
+      width: 100%;
+      max-width: 460px;
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(13, 30, 67, 0.25);
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+
+    .qa-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .qa-title {
+      margin: 0;
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .qa-close-btn {
+      flex-shrink: 0;
+      width: 30px;
+      height: 30px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-sub);
+      font-size: 1.125rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .qa-close-btn:hover { background: #f5f5f5; color: var(--text); }
+
+    .qa-field { margin-bottom: 0.875rem; }
+    .qa-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .qa-row .qa-field { flex: 1; }
+
+    .qa-label {
+      display: block;
+      margin-bottom: 0.3125rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+    .qa-input,
+    .qa-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.625rem;
+      font-size: 0.875rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border-input);
+      border-radius: 6px;
+    }
+    .qa-input:focus,
+    .qa-select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+    .qa-input.is-error,
+    .qa-select.is-error { border-color: var(--danger); }
+
+    .qa-error {
+      display: none;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      color: var(--danger);
+    }
+    .qa-error.is-visible { display: block; }
+
+    .qa-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+    }
+    .qa-full-form-link {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--primary);
+      text-decoration: none;
+    }
+    .qa-full-form-link:hover { text-decoration: underline; }
+
+    .qa-close-btn:focus-visible,
+    .qa-full-form-link:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
@@ -1459,6 +1581,77 @@
                 type="button" style="display:none">Delete</button>
       </div>
     </aside>
+  </div>
+
+  <!-- Quick-add workout modal (issue #522) -->
+  <div id="quick-add-modal" class="qa-modal" role="dialog" aria-modal="true"
+       aria-labelledby="qa-title" aria-hidden="true">
+    <div id="qa-backdrop" class="qa-backdrop"></div>
+    <div class="qa-dialog">
+      <div class="qa-header">
+        <h2 id="qa-title" class="qa-title">Log workout</h2>
+        <button id="qa-close-btn" class="qa-close-btn" type="button"
+                aria-label="Close quick-add">&#x2715;</button>
+      </div>
+
+      <form id="qa-form" novalidate>
+        <div class="qa-row">
+          <div class="qa-field">
+            <label class="qa-label" for="qa-date">Date</label>
+            <input id="qa-date" class="qa-input" type="date" required>
+            <div id="qa-date-error" class="qa-error" role="alert"></div>
+          </div>
+          <div class="qa-field">
+            <label class="qa-label" for="qa-type">Type</label>
+            <select id="qa-type" class="qa-select" required>
+              <option value="">Select…</option>
+              <option value="run">Run</option>
+              <option value="lift">Lift</option>
+              <option value="wod">WOD</option>
+              <option value="bike">Bike</option>
+            </select>
+            <div id="qa-type-error" class="qa-error" role="alert"></div>
+          </div>
+        </div>
+
+        <div class="qa-field">
+          <label class="qa-label" for="qa-name">Name</label>
+          <input id="qa-name" class="qa-input" type="text" maxlength="200"
+                 placeholder="e.g. Morning Run" autocomplete="off" required>
+          <div id="qa-name-error" class="qa-error" role="alert"></div>
+        </div>
+
+        <div class="qa-row">
+          <div class="qa-field">
+            <label class="qa-label" for="qa-duration">Duration (min)</label>
+            <input id="qa-duration" class="qa-input" type="number" min="0" step="1"
+                   inputmode="numeric" placeholder="e.g. 45">
+            <div id="qa-duration-error" class="qa-error" role="alert"></div>
+          </div>
+          <div class="qa-field">
+            <label class="qa-label" for="qa-distance">Distance (km)</label>
+            <input id="qa-distance" class="qa-input" type="number" min="0" step="0.01"
+                   inputmode="decimal" placeholder="e.g. 5.2">
+            <div id="qa-distance-error" class="qa-error" role="alert"></div>
+          </div>
+        </div>
+
+        <div class="qa-field">
+          <label class="qa-label" for="qa-tss">TSS</label>
+          <input id="qa-tss" class="qa-input" type="number" min="0" step="1"
+                 inputmode="numeric" placeholder="e.g. 60">
+          <div id="qa-tss-error" class="qa-error" role="alert"></div>
+        </div>
+
+        <div id="qa-form-error" class="qa-error" role="alert"></div>
+
+        <div class="qa-actions">
+          <a id="qa-full-form-link" class="qa-full-form-link"
+             href="/training?return=/log">Open full form →</a>
+          <button id="qa-save-btn" class="btn-primary" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script src="js/nav.js"></script>
