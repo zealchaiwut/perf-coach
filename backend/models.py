@@ -18,6 +18,7 @@ class User(Base):
     password_hash = Column(Text, nullable=True)
     avatar = Column(LargeBinary, nullable=True)
     avatar_mime = Column(Text, nullable=True)
+    height_cm = Column(Numeric(5, 1), nullable=True)
 
 
 class WeightEntry(Base):
