@@ -1,7 +1,5 @@
 """Tests for issue #523: Make week-strip day pills interactive and accessible (runs against UAT)"""
-import os
 import pathlib
-import pytest
 
 
 # Read source files from disk (static HTML/JS verified without needing auth)
