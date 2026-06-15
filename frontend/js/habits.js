@@ -161,19 +161,7 @@ function formatWeekRange(weekStart, weekEnd) {
   return `${MONTHS[sm-1]} ${sd}–${MONTHS[em-1]} ${ed}`;
 }
 
-// ── Polar-to-cartesian helpers (issue #432 wheel) ─────────────────────────────
-
-function polarToCartesian(cx, cy, r, angleDeg) {
-  const rad = (angleDeg - 90) * Math.PI / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function arcPath(cx, cy, r, startDeg, endDeg) {
-  const s = polarToCartesian(cx, cy, r, startDeg);
-  const e = polarToCartesian(cx, cy, r, endDeg);
-  const large = (endDeg - startDeg) > 180 ? 1 : 0;
-  return `M ${s.x.toFixed(3)} ${s.y.toFixed(3)} A ${r} ${r} 0 ${large} 1 ${e.x.toFixed(3)} ${e.y.toFixed(3)}`;
-}
+// ── Polar-to-cartesian helpers — shared wheel math lives in wheel-helpers.js ──
 
 function habitIconHTML(icon, color, size) {
   const bg = color || '#9ca3af';
@@ -360,68 +348,27 @@ function renderPageHeader() {
   subtitleEl.textContent = `Week of ${range} · day ${N} of 7 · ${doneElapsed} of ${possibleElapsed} daily checks so far`;
 }
 
-// ── Hero wheel (Card A) ───────────────────────────────────────────────────────
-
-const WHEEL_COLORS = {
-  full:    '#16a34a',
-  partial: '#f59e0b',
-  zero:    '#9ca3af',
-  today:   '#2563eb',
-  future:  '#d1d9e9',
-};
-const WHEEL_DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// ── Hero wheel (Card A) — 7 solid wedges + center hub ───────────────────────
 
 function renderHeroWheel() {
   const svg = document.getElementById('week-wheel-svg');
   const pctEl = document.getElementById('wheel-pct');
+  const daysEl = document.getElementById('wheel-days-line');
   const checksEl = document.getElementById('wheel-checks-line');
   if (!svg || !weekData) return;
 
   const wheel = weekData.wheel || [];
   const totals = weekData.week_totals;
+  const WH = window.WheelHelpers;
 
-  // Geometry constants — all dependent on viewBox "0 0 148 148"
-  const cx = 74, cy = 74;
-  const r = 52;       // ring radius
-  const sw = 11;      // stroke width
-  const arcDeg = 44;  // degrees each arc spans
-  const slotDeg = 360 / 7;  // degrees per day slot (~51.43°)
-  const letterR = 63;       // radius for day-letter placement (outside ring)
+  if (WH && WH.renderWheelDom) {
+    WH.renderWheelDom(svg, wheel);
+  }
 
-  svg.innerHTML = '';
+  const fullDays = WH ? WH.countFullDays(weekData.day_scores) : 0;
 
-  wheel.forEach((seg, i) => {
-    const slotCenter = -90 + i * slotDeg;
-    const arcStart = slotCenter - arcDeg / 2;
-    const arcEnd   = slotCenter + arcDeg / 2;
-    const isToday  = seg.state === 'today';
-
-    // Arc segment
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', arcPath(cx, cy, r, arcStart, arcEnd));
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', WHEEL_COLORS[seg.state] || WHEEL_COLORS.zero);
-    path.setAttribute('stroke-width', String(sw));
-    path.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(path);
-
-    // Day letter (outside ring)
-    const lpos = polarToCartesian(cx, cy, letterR, slotCenter);
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', lpos.x.toFixed(2));
-    txt.setAttribute('y', lpos.y.toFixed(2));
-    txt.setAttribute('text-anchor', 'middle');
-    txt.setAttribute('dominant-baseline', 'central');
-    txt.setAttribute('font-size', '8');
-    txt.setAttribute('font-family', 'Inter Tight, system-ui, sans-serif');
-    txt.setAttribute('font-weight', isToday ? '700' : '400');
-    txt.setAttribute('fill', isToday ? '#2563eb' : '#8b95ad');
-    txt.textContent = WHEEL_DAY_LETTERS[i];
-    svg.appendChild(txt);
-  });
-
-  // Center percentage
   if (pctEl) pctEl.textContent = Math.round(totals.pct_elapsed) + '%';
+  if (daysEl) daysEl.textContent = `${fullDays} of 7 days`;
 
   // Checks line (right of wheel)
   if (checksEl) {

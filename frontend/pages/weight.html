@@ -308,7 +308,54 @@
     .range-tab:hover:not(.active) { background: #f7f9fc; }
     .range-tab.active { background: #0b1530; color: #fff; }
 
-    .chart-container { position: relative; width: 100%; }
+    .chart-container { position: relative; width: 100%; overflow: visible; }
+    #weight-chart { width: 100%; }
+    #weight-chart:not([hidden]) { display: block; min-height: 200px; }
+    #weight-chart svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-width: 100%;
+    }
+
+    .chart-verdict {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--card-border);
+    }
+    .chart-verdict[hidden] { display: none; }
+    .chart-verdict-pill {
+      flex-shrink: 0;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
+    .chart-verdict-pill--ahead {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+    .chart-verdict-pill--behind {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+    .chart-verdict-pill--on-track {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .chart-verdict-text {
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: var(--text-secondary);
+    }
 
     .chart-legend {
       display: flex;
@@ -782,6 +829,15 @@
     @media (max-width: 640px) {
       .hero-2col { grid-template-columns: 1fr; }
       .target-history-grid { grid-template-columns: 1fr; }
+      .range-tab[data-range="6m"],
+      .range-tab[data-range="1y"],
+      .range-tab[data-range="all"] { display: none; }
+      .chart-verdict { flex-direction: column; gap: 6px; }
+      .chart-verdict-pill { align-self: flex-start; }
+      .chart-container { min-height: 280px; }
+      #weight-chart svg { min-height: 260px; }
+      .chart-legend { gap: 8px; }
+      .legend-chip { font-size: 11px; }
       .et-panel {
         top: auto; right: 0; left: 0; bottom: 0;
         width: 100%; max-width: 100%;
@@ -1133,6 +1189,10 @@
 
     <!-- Chart card (Graph) -->
     <div class="card chart-card">
+      <div id="chart-verdict" class="chart-verdict" hidden>
+        <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
+        <span id="chart-verdict-text" class="chart-verdict-text"></span>
+      </div>
       <div class="range-tabs" role="group" aria-label="Chart date range">
         <button class="range-tab" data-range="7d" type="button">7D</button>
         <button class="range-tab active" data-range="30d" type="button">30D</button>
@@ -1157,7 +1217,8 @@
           <span class="legend-dashed" style="border-color:#16a34a"></span>Plan
         </span>
         <span class="legend-chip" id="legend-gap" hidden>
-          <span style="display:inline-block;width:18px;height:12px;background:var(--red-soft);border-radius:5px;flex-shrink:0"></span>Gap vs plan
+          <span style="display:inline-block;width:9px;height:9px;background:#16a34a;border-radius:2px;opacity:0.7"></span>ahead
+          <span style="display:inline-block;width:9px;height:9px;background:#dc2626;border-radius:2px;opacity:0.7;margin-left:4px"></span>behind
         </span>
         <span class="legend-chip" id="legend-milestone" hidden>
           <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink:0" aria-hidden="true">

@@ -1523,6 +1523,16 @@ async function _reload() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+let _chartResizeTimer = null;
+
+function _onChartResize() {
+  if (!_chartData) return;
+  clearTimeout(_chartResizeTimer);
+  _chartResizeTimer = setTimeout(function () {
+    renderChart(_chartData, _currentRange);
+  }, 150);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Identify session user
   try {
@@ -1555,4 +1565,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await _reload();
+  window.addEventListener('resize', _onChartResize);
 });

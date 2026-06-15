@@ -57,11 +57,20 @@
     '.global-nav .gn-mark{width:30px;height:30px;border-radius:9px;',
       'background:linear-gradient(135deg,#6e90f0,#2b4ca8);color:#fff;display:flex;',
       'align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}',
-    '.global-nav .gn-links{display:flex;gap:4px;flex:1;overflow-x:auto;scrollbar-width:none;}',
+    '.global-nav .gn-links{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;}',
     '.global-nav .gn-links::-webkit-scrollbar{display:none;}',
+    '.global-nav .gn-menu-toggle{display:none;align-items:center;justify-content:center;',
+      'width:40px;height:40px;padding:0;border-radius:10px;border:1.5px solid rgba(13,30,67,0.12);',
+      'background:rgba(255,255,255,0.65);cursor:pointer;flex-shrink:0;color:#0b1530;}',
+    '.global-nav .gn-menu-toggle:hover{background:rgba(255,255,255,0.92);}',
+    '.global-nav .gn-menu-toggle[aria-expanded="true"]{background:#0b1530;border-color:#0b1530;}',
+    '.global-nav .gn-menu-toggle[aria-expanded="true"] .gn-menu-bar{background:#fff;}',
+    '.global-nav .gn-menu-bars{display:flex;flex-direction:column;gap:5px;width:18px;}',
+    '.global-nav .gn-menu-bar{display:block;height:2.5px;border-radius:2px;background:#0b1530;}',
     '.global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:500;',
-      'color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}',
-    '.global-nav .gn-link i{font-size:15px;}',
+      'color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}',
+    '.global-nav .gn-link i{font-size:15px;line-height:1;}',
+    '.global-nav .gn-mark i{font-size:16px;line-height:1;}',
     '.global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
     '.global-nav .gn-link.active{background:#0b1530;color:#fff;}',
     '.global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}',
@@ -98,15 +107,21 @@
       '.global-nav .gn-logout .gn-logout-label{display:none;}}',
     '.global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}',
     '.global-nav .gn-link-disabled i{opacity:0.7;}',
-    // Narrow widths: icon-only links that stay in the top bar (scroll if needed),
-    // so the nav is always visible instead of moving off-screen.
+    // Narrow widths: collapse inline tabs into a menu toggle with labeled dropdown.
     '@media (max-width:760px){',
       '.global-nav{padding:0 12px;gap:8px;}',
       '.global-nav .gn-brand-text{display:none;}',
       '.global-nav .gn-logout .gn-logout-label{display:none;}',
-      '.global-nav .gn-link span{display:none;}',
-      '.global-nav .gn-link{padding:8px 9px;}',
-      '.global-nav .gn-link i{font-size:17px;}',
+      '.global-nav .gn-menu-toggle{display:inline-flex;}',
+      '.global-nav .gn-links{',
+        'display:none;position:absolute;top:calc(100% + 6px);left:12px;right:12px;',
+        'flex-direction:column;align-items:stretch;gap:2px;overflow:visible;',
+        'background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:14px;',
+        'box-shadow:0 12px 36px rgba(8,18,48,0.14);padding:8px;z-index:200;}',
+      '.global-nav .gn-links.is-open{display:flex;}',
+      '.global-nav .gn-link span{display:inline !important;}',
+      '.global-nav .gn-link{width:100%;padding:12px 14px;border-radius:10px;font-size:14px;}',
+      '.global-nav .gn-link i{font-size:18px;}',
     '}'
   ].join('');
 
@@ -136,7 +151,10 @@
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css';
-    document.head.appendChild(link);
+    // Insert early so icons render before first paint on slow connections.
+    var head = document.head;
+    if (head.firstChild) head.insertBefore(link, head.firstChild);
+    else head.appendChild(link);
   }
 
   function injectStyles() {
@@ -176,7 +194,13 @@
         '<span class="gn-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>' +
         '<span class="gn-brand-text">perf-coach</span>' +
       '</a>' +
-      '<div class="gn-links">' + linksHtml + '</div>' +
+      '<button class="gn-menu-toggle" id="gn-menu-toggle" type="button" ' +
+        'aria-expanded="false" aria-controls="gn-links" aria-label="Open navigation menu">' +
+        '<span class="gn-menu-bars" aria-hidden="true">' +
+          '<span class="gn-menu-bar"></span><span class="gn-menu-bar"></span>' +
+        '</span>' +
+      '</button>' +
+      '<div class="gn-links" id="gn-links">' + linksHtml + '</div>' +
       '<div class="gn-right">' +
         '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
         '<a class="gn-avatar' + (path === '/settings' ? ' active' : '') + '" id="nav-avatar" href="/settings"' +
@@ -190,6 +214,8 @@
 
     document.body.insertBefore(nav, document.body.firstChild);
 
+    _wireMobileMenu(nav);
+
     document.getElementById('nav-logout').addEventListener('click', function () {
       var btn = this;
       btn.disabled = true;
@@ -198,6 +224,40 @@
         .catch(function () {
           btn.disabled = false;
         });
+    });
+  }
+
+  function _closeMobileMenu() {
+    var links = document.getElementById('gn-links');
+    var toggle = document.getElementById('gn-menu-toggle');
+    if (!links || !toggle) return;
+    links.classList.remove('is-open');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open navigation menu');
+  }
+
+  function _wireMobileMenu(nav) {
+    var toggle = document.getElementById('gn-menu-toggle');
+    var links = document.getElementById('gn-links');
+    if (!toggle || !links) return;
+
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = links.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+    });
+
+    links.querySelectorAll('a.gn-link').forEach(function (a) {
+      a.addEventListener('click', _closeMobileMenu);
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!nav.contains(e.target)) _closeMobileMenu();
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') _closeMobileMenu();
     });
   }
 

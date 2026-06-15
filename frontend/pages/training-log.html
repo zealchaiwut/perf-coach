@@ -5,51 +5,132 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Training log – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/training-form.css">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* ── Page header ─────────────────────────────────────────────────────── */
+    /* ── Page shell (gradient + cards, matches weight/home) ─────────────── */
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: var(--page-bg);
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    main.log-page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 22px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .log-card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+    }
+
+    .log-card--week,
+    .log-card--filters { padding: 10px 12px; }
+
+    .log-card--history { overflow: hidden; }
+
+    /* ── Page header (on gradient) ─────────────────────────────────────── */
     .log-page-header {
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: space-between;
       gap: 1rem;
-      padding: 0.875rem 2rem;
-      background: #fff;
-      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      padding: 0 2px 4px;
+      background: transparent;
+      border-bottom: none;
     }
 
     .log-page-header-info { min-width: 0; }
 
     .log-page-title {
-      margin: 0 0 0.2rem;
-      font-size: 1.25rem;
-      font-weight: 700;
-      line-height: 1.2;
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
     }
 
     .log-subtitle {
       margin: 0;
-      font-size: 0.8125rem;
-      color: var(--text-sub);
+      font-size: 13px;
+      color: rgba(255,255,255,0.78);
     }
+
+    .log-subtitle strong { color: #fff; font-weight: 600; }
 
     .log-page-header-actions {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 8px;
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
-    .btn-primary:disabled,
-    .btn-secondary:disabled {
-      background: #ccc;
-      color: var(--text-sub);
+    .log-page-header .btn-secondary {
+      height: 36px;
+      padding: 0 14px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 10px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: #fff;
+      font-family: inherit;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .log-page-header .btn-secondary:hover:not(:disabled) {
+      background: rgba(255,255,255,0.18);
+    }
+
+    .log-page-header .btn-accent {
+      height: 36px;
+      padding: 0 16px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+
+    .log-page-header .btn-accent:hover { filter: brightness(1.04); }
+
+    .log-page-header .btn-secondary:disabled,
+    .log-page-header .btn-accent:disabled {
+      opacity: 0.5;
       cursor: not-allowed;
-      opacity: 1;
     }
 
-    .btn-primary:disabled:hover,
-    .btn-secondary:disabled:hover { background: #ccc; }
+    #log-sync-feedback {
+      font-size: 12px;
+      color: rgba(255,255,255,0.75);
+    }
 
     .btn-coming-soon {
       position: relative;
@@ -72,54 +153,56 @@
     }
 
     /* ── Week strip ── */
-    #week-strip {
-      background: #fff;
-      border-bottom: 1px solid var(--border);
-      padding: 0.75rem 2rem;
-    }
+    #week-strip { padding: 2px 0; }
 
     .ws-nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 0.5rem;
+      margin-bottom: 8px;
     }
 
     .ws-label {
-      font-size: 0.8125rem;
+      font-size: 12px;
       font-weight: 600;
-      color: var(--text);
+      color: var(--text-secondary);
     }
 
     .ws-chevron {
-      background: none;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 0.15rem 0.45rem;
-      font-size: 1.125rem;
+      width: 32px;
+      height: 32px;
+      background: #fff;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0;
+      font-size: 15px;
       line-height: 1;
       cursor: pointer;
-      color: #555;
+      color: var(--text-secondary);
       transition: background 0.1s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
 
-    .ws-chevron:hover { background: #f5f5f5; color: var(--text); }
+    .ws-chevron:hover { background: #f1f4fa; color: var(--text-primary); }
 
     .ws-today-btn {
-      background: none;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 0.15rem 0.55rem;
-      font-size: 0.8125rem;
-      font-weight: 500;
+      background: #fff;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
       line-height: 1.4;
       cursor: pointer;
-      color: #555;
+      color: var(--text-secondary);
       font-family: inherit;
       transition: background 0.1s;
     }
 
-    .ws-today-btn:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
+    .ws-today-btn:hover:not(:disabled) { background: #f1f4fa; color: var(--text-primary); }
 
     .ws-today-btn:disabled {
       opacity: 0.4;
@@ -143,10 +226,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 0.375rem 0.25rem;
-      border-radius: 6px;
-      background: #f5f5f5;
-      border: 2px solid transparent;
+      padding: 7px 4px;
+      border-radius: 9px;
+      background: transparent;
+      border: 1.5px solid transparent;
       flex-shrink: 0;
       /* issue #523: pills are now real <button>s — reset button chrome. */
       font-family: inherit;
@@ -155,7 +238,7 @@
     }
 
     .day-pill:hover {
-      background: #e9eef6;
+      background: #f1f4fa;
     }
 
     /* issue #523: AA-contrast focus indicator (var(--primary) on light bg). */
@@ -165,16 +248,14 @@
     }
 
     .day-pill.today {
-      background: #eff6ff;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+      background: #f0f5ff;
+      border-color: #2b4ca8;
     }
 
-    /* issue #523: selected/active day — solid primary-dark (#2563eb) gives
-       white text 5.17:1 contrast, passing WCAG 2.1 AA for normal text. */
+    /* issue #523: selected/active day — navy bg gives white text AA contrast. */
     .day-pill.is-selected {
-      background: var(--primary-dark);
-      border-color: var(--primary-dark);
+      background: #0b1530;
+      border-color: #0b1530;
       box-shadow: none;
     }
 
@@ -219,10 +300,7 @@
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      padding: 0.75rem 2rem;
-      background: #fff;
-      border-bottom: 1px solid var(--border);
+      gap: 8px;
     }
 
     .fb-search-wrap {
@@ -230,20 +308,38 @@
       min-width: 140px;
     }
 
+    .fb-search {
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: #f7f9fd;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-tertiary);
+    }
+
+    .fb-search i { font-size: 14px; flex-shrink: 0; }
+
     #log-search {
       width: 100%;
-      padding: 0.4rem 0.75rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      background: var(--surface-2);
+      padding: 0;
+      border: none;
+      border-radius: 0;
+      font-size: 12.5px;
+      background: transparent;
       font-family: inherit;
+      color: var(--text-primary);
     }
 
     #log-search:focus {
       outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+
+    .fb-search:focus-within {
+      border-color: #2b4ca8;
+      box-shadow: 0 0 0 2px rgba(43,76,168,0.15);
       background: #fff;
     }
 
@@ -253,25 +349,27 @@
     }
 
     .type-chip {
-      padding: 0.3rem 0.75rem;
-      border: 1px solid #ccc;
-      border-radius: 999px;
-      background: #fff;
-      color: #555;
-      font-size: 0.8125rem;
+      height: 34px;
+      padding: 0 11px;
+      border: none;
+      border-radius: 8px;
+      background: #f1f4fa;
+      color: var(--text-secondary);
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
       font-family: inherit;
-      transition: background 0.1s, color 0.1s, border-color 0.1s;
+      transition: background 0.1s, color 0.1s;
+      display: inline-flex;
+      align-items: center;
     }
 
-    .type-chip:hover:not(.active) { background: #f5f5f5; color: var(--text); }
+    .type-chip:hover:not(.active) { color: var(--text-primary); }
 
     .type-chip.active {
-      background: var(--text);
+      background: #0b1530;
       color: #fff;
-      border-color: var(--text);
     }
 
     .fb-divider {
@@ -285,20 +383,24 @@
     .fb-daterange-wrap { position: relative; }
 
     .dr-chip {
-      padding: 0.3rem 0.75rem;
-      border: 1px solid #ccc;
-      border-radius: 999px;
-      background: #fff;
-      color: #555;
-      font-size: 0.8125rem;
+      height: 34px;
+      padding: 0 11px;
+      border: none;
+      border-radius: 8px;
+      background: #f1f4fa;
+      color: var(--text-secondary);
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
       font-family: inherit;
       transition: background 0.1s, color 0.1s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
 
-    .dr-chip:hover { background: #f5f5f5; color: var(--text); }
+    .dr-chip:hover { color: var(--text-primary); }
 
     .dr-panel {
       position: absolute;
@@ -345,22 +447,16 @@
 
     /* ── Training-load surfaces (issue #528) ── */
     #load-surfaces {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 1.5rem 2rem 0;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 12px;
     }
 
     #load-surfaces:empty { display: none; }
 
     /* Readiness widget */
     .load-widget {
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.9rem 1.1rem;
+      padding: 16px 18px;
     }
 
     .lw-head {
@@ -372,11 +468,11 @@
     }
 
     .lw-title {
-      font-size: 0.6875rem;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text-sub);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-transform: none;
+      color: var(--text-primary);
     }
 
     .lw-interp {
@@ -433,10 +529,7 @@
 
     /* Weekly volume chart card */
     .volume-chart-card {
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.9rem 1.1rem 1rem;
+      padding: 16px 18px 18px;
     }
 
     .vc-header {
@@ -444,34 +537,68 @@
       align-items: baseline;
       justify-content: space-between;
       gap: 0.75rem;
-      margin-bottom: 0.6rem;
+      margin-bottom: 0.35rem;
     }
 
     .vc-title {
-      font-size: 0.6875rem;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text-sub);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-transform: none;
+      color: var(--text-primary);
     }
 
-    .vc-unit {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--ink-2);
-      font-variant-numeric: tabular-nums;
+    .vc-caption {
+      font-size: 11.5px;
+      line-height: 1.45;
+      color: var(--text-secondary);
+      margin: 0 0 0.65rem;
     }
 
     .vc-body {
       position: relative;
-      height: 160px;
+      height: 220px;
+    }
+
+    /* ── History card tabs ── */
+    .log-history-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .log-history-tabs {
+      display: flex;
+      gap: 4px;
+    }
+
+    .log-history-tab {
+      height: 34px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .log-history-tab:hover { color: var(--text-primary); }
+
+    .log-history-tab.is-active {
+      color: var(--text-primary);
+      border-bottom-color: #2b4ca8;
     }
 
     /* ── Log list ── */
     #log-list {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 1.5rem 2rem;
+      padding: 8px 16px 16px;
     }
 
     .log-empty {
@@ -489,30 +616,31 @@
     }
 
     /* ── Week group ── */
-    .week-group { margin-bottom: 2rem; }
+    .week-group { margin-bottom: 1.25rem; }
+
+    .week-group:last-child { margin-bottom: 0; }
 
     .week-header {
       display: flex;
       align-items: baseline;
       flex-wrap: wrap;
       gap: 0.3rem 0.6rem;
-      padding: 0.4rem 0.25rem 0.55rem;
-      margin-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border);
+      padding: 10px 4px 8px;
+      margin-bottom: 0;
     }
 
     .week-header-title {
       margin: 0;
-      font-weight: 700;
-      font-size: 0.6875rem;
-      letter-spacing: 0.07em;
+      font-weight: 600;
+      font-size: 10.5px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--ink);
+      color: var(--text-tertiary);
     }
 
     .week-header-range {
-      font-size: 0.8125rem;
-      color: var(--text-sub);
+      font-size: 12px;
+      color: var(--text-secondary);
     }
 
     .week-header-summary {
@@ -529,15 +657,12 @@
 
     /* ── Week card (wraps all rows in the week) ── */
     .week-card {
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 8px;
       overflow: hidden;
     }
 
     .week-card > .entry-row {
       border: none;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.06);
       border-radius: 0;
       margin-bottom: 0;
     }
@@ -557,22 +682,23 @@
     .entry-row {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.65rem 0.75rem;
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 0.4rem;
+      gap: 12px;
+      padding: 12px 4px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      margin-bottom: 0;
       cursor: pointer;
-      transition: background 0.1s;
+      transition: background 0.12s;
     }
 
-    .entry-row:hover { background: var(--surface-2); }
+    .entry-row:hover { background: #fafbfd; }
 
-    /* Selected row: background tint (no side-stripe) */
+    /* Selected row */
     .entry-row.is-active {
-      background: #eff6ff;
-      box-shadow: inset 0 0 0 1px var(--primary);
+      background: #f0f5ff;
+      box-shadow: inset 3px 0 0 #2b4ca8;
+      padding-left: 1px;
     }
 
     /* Keyboard focus ring on the (button-role) rows */
@@ -587,12 +713,23 @@
       width: 2rem;
     }
 
+    .entry-chevron {
+      flex-shrink: 0;
+      color: var(--text-tertiary);
+      font-size: 16px;
+      line-height: 1;
+      margin-left: auto;
+    }
+
+    .entry-row:hover .entry-chevron { color: var(--text-secondary); }
+
     .entry-day-num {
       font-family: var(--mono);
-      font-size: 1.125rem;
-      font-weight: 600;
-      line-height: 1.1;
-      color: var(--ink);
+      font-size: 19px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
     }
 
     .entry-day-name {
@@ -717,11 +854,12 @@
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding: 0.65rem 0.75rem;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 0.4rem;
+      padding: 10px 4px;
+      background: #fafbfd;
+      border: none;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+      border-radius: 0;
+      margin-bottom: 0;
       cursor: default;
     }
 
@@ -781,8 +919,6 @@
       text-align: center;
       padding: 2.5rem 1rem;
       color: #555;
-      max-width: 800px;
-      margin: 0 auto;
     }
 
     .list-error-state p {
@@ -804,8 +940,19 @@
     .empty-state {
       text-align: center;
       padding: 3rem 1rem;
-      max-width: 800px;
-      margin: 0 auto;
+    }
+
+    .empty-state .btn-accent {
+      height: 36px;
+      padding: 0 16px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
     }
 
     .empty-state-icon {
@@ -839,12 +986,14 @@
     }
 
     @media (max-width: 599px) {
-      .log-page-header { padding: 0.75rem 1rem; }
-      #week-strip { padding: 0.75rem 1rem; }
-      #filter-bar { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
+      main.log-page { padding: 16px 16px 24px; }
+      .log-page-header { padding: 0; }
+      .log-card--week,
+      .log-card--filters { padding: 10px; }
+      #filter-bar { flex-direction: column; align-items: stretch; }
       .fb-search-wrap { flex: none; }
       .dr-panel { left: 0; right: 0; }
-      #log-list { padding: 1rem; }
+      #log-list { padding: 8px 12px 12px; }
 
       /* issue #527: keep glanceable metrics + source badges on phones.
          Wrap the row so distance/pace/duration + badges drop to their own
@@ -860,6 +1009,7 @@
         gap: 0.4rem;
       }
       .tss-pill, .source-badges-wrap { order: 5; }
+      .entry-chevron { order: 6; margin-left: auto; }
       .source-badges-wrap { flex-direction: row; gap: 4px; }
 
       .day-pill { min-width: 40px; padding: 0.35rem; }
@@ -868,11 +1018,33 @@
     /* ── Layout wrapper (list + panel) ── */
     #layout-wrapper { position: relative; }
 
+    .log-layout {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 22px 40px;
+    }
+
+    .log-page-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
     @media (min-width: 880px) {
       #layout-wrapper.has-panel {
         display: grid;
-        grid-template-columns: 1fr 520px;
+        grid-template-columns: minmax(0, 1fr) 520px;
         align-items: start;
+        max-width: none;
+        padding: 0 0 40px;
+      }
+
+      #layout-wrapper.has-panel .log-page-body {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0 22px;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       #layout-wrapper.has-panel #list-main { min-width: 0; }
@@ -984,13 +1156,21 @@
     .dp-nav-btn:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
     .dp-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-    /* icon visibility by viewport */
-    .dp-icon-close-back, .dp-icon-nav-left, .dp-icon-nav-right { display: none; }
+    /* icon visibility by viewport — block inside flex btn (inline breaks layout) */
+    .dp-icon-btn > [class*="dp-icon-"] { display: none; line-height: 1; }
+
+    .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: block; }
 
     @media (max-width: 879px) {
       .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: none; }
-      .dp-icon-close-back, .dp-icon-nav-left, .dp-icon-nav-right { display: inline; }
+      .dp-icon-close-back, .dp-icon-nav-left, .dp-icon-nav-right { display: block; }
     }
+
+    /* Form mode: simplify top bar (back + title area only) */
+    .detail-panel--form .dp-position-group,
+    .detail-panel--form .dp-topbar-end { display: none; }
+
+    .detail-panel--form .dp-topbar { justify-content: flex-start; }
 
     /* ── Detail scroll area ── */
     .dp-scroll {
@@ -1434,7 +1614,72 @@
       outline-offset: 2px;
     }
 
-    /* ── Quick-add workout modal (issue #522) ─────────────────────────────── */
+    /* ── Overflow menu (top bar ⋮) ── */
+    .dp-topbar-end {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .dp-overflow-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
+      z-index: 50;
+      min-width: 160px;
+      overflow: hidden;
+    }
+
+    .dp-overflow-menu.is-open { display: block; }
+
+    .dp-overflow-menu[hidden] { display: none !important; }
+
+    .dp-overflow-menu button,
+    .dp-overflow-menu a {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 9px 14px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary, var(--ink));
+      font-family: inherit;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+
+    .dp-overflow-menu button:hover,
+    .dp-overflow-menu a:hover { background: #f7f9fc; }
+
+    .dp-overflow-menu .dp-menu-danger { color: #b91c1c; }
+    .dp-overflow-menu .dp-menu-danger:hover { background: #fee2e2; }
+
+    /* ── Panel form title ── */
+    .dp-form-title {
+      margin: 0 0 1rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+
+    .dp-action-btn--primary {
+      background: var(--primary);
+      color: var(--accent-text, #fff);
+      border-color: var(--primary);
+    }
+
+    .dp-action-btn--primary:hover { opacity: 0.92; background: var(--primary); }
+
+    .dp-action-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Duplicate-to-date modal (kept — small picker) */
     .qa-modal {
       position: fixed;
       inset: 0;
@@ -1493,12 +1738,6 @@
     .qa-close-btn:hover { background: #f5f5f5; color: var(--text); }
 
     .qa-field { margin-bottom: 0.875rem; }
-    .qa-row {
-      display: flex;
-      gap: 0.75rem;
-    }
-    .qa-row .qa-field { flex: 1; }
-
     .qa-label {
       display: block;
       margin-bottom: 0.3125rem;
@@ -1506,8 +1745,7 @@
       font-weight: 600;
       color: var(--text-sub);
     }
-    .qa-input,
-    .qa-select {
+    .qa-input {
       width: 100%;
       box-sizing: border-box;
       padding: 0.5rem 0.625rem;
@@ -1518,15 +1756,6 @@
       border: 1px solid var(--border-input);
       border-radius: 6px;
     }
-    .qa-input:focus,
-    .qa-select:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 2px var(--focus-ring);
-    }
-    .qa-input.is-error,
-    .qa-select.is-error { border-color: var(--danger); }
-
     .qa-error {
       display: none;
       margin-top: 0.25rem;
@@ -1534,30 +1763,11 @@
       color: var(--danger);
     }
     .qa-error.is-visible { display: block; }
-
-    .qa-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      margin-top: 1.25rem;
-    }
-    .qa-full-form-link {
-      font-size: 0.8125rem;
-      font-weight: 500;
-      color: var(--primary);
-      text-decoration: none;
-    }
-    .qa-full-form-link:hover { text-decoration: underline; }
-
-    .qa-close-btn:focus-visible,
-    .qa-full-form-link:focus-visible {
-      outline: 2px solid var(--primary);
-      outline-offset: 2px;
-    }
   </style>
 </head>
 <body>
+
+  <main class="log-page">
 
   <!-- Page header: title, stats subtitle, action buttons -->
   <header class="log-page-header">
@@ -1566,54 +1776,70 @@
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
-      <button id="sync-strava-btn" class="btn-secondary" type="button">Sync Strava</button>
-      <button id="sync-stryd-btn" class="btn-secondary btn-coming-soon" type="button" disabled title="Stryd sync coming soon">Sync Stryd</button>
+      <button id="sync-strava-btn" class="btn-secondary" type="button"><i class="ti ti-refresh" aria-hidden="true"></i> Sync Strava</button>
+      <button id="sync-stryd-btn" class="btn-secondary btn-coming-soon" type="button" disabled title="Stryd sync coming soon"><i class="ti ti-refresh" aria-hidden="true"></i> Sync Stryd</button>
       <button id="log-repeat-last-btn" class="btn-secondary" type="button" disabled
-              title="No previous workout to repeat">Repeat last</button>
-      <button id="log-export-btn" class="btn-secondary">Export CSV</button>
-      <button id="log-new-btn" class="btn-primary">Log workout</button>
-      <span id="log-sync-feedback" role="status" aria-live="polite"
-            style="font-size:12px;color:var(--ink-2);align-self:center;"></span>
+              title="No previous workout to repeat"><i class="ti ti-repeat" aria-hidden="true"></i> Repeat last</button>
+      <button id="log-export-btn" class="btn-secondary" type="button"><i class="ti ti-download" aria-hidden="true"></i> Export CSV</button>
+      <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
+      <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>
   </header>
 
   <!-- Week strip (JS renders into this) -->
-  <div id="week-strip"></div>
+  <div class="log-card log-card--week">
+    <div id="week-strip"></div>
+  </div>
 
   <!-- Filter bar (JS renders into this) -->
-  <div id="filter-bar"></div>
+  <div class="log-card log-card--filters">
+    <div id="filter-bar"></div>
+  </div>
 
-  <div id="layout-wrapper">
-    <div id="list-main">
+  </main>
+
+  <div id="layout-wrapper" class="log-layout">
+    <div id="list-main" class="log-page-body">
       <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
       <section id="load-surfaces" aria-label="Training load">
         <!-- Readiness widget: current CTL / ATL / TSB + plain-language label -->
-        <div id="load-widget" class="load-widget" hidden></div>
+        <div id="load-widget" class="load-widget log-card" hidden></div>
         <!-- Weekly volume chart (Chart.js) -->
-        <div id="volume-chart-card" class="volume-chart-card" hidden>
+        <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
           <div class="vc-header">
             <span class="vc-title">Weekly volume</span>
-            <span id="volume-chart-unit" class="vc-unit"></span>
           </div>
+          <p class="vc-caption">Stacked bars = weekly TSS (run + strength). Amber line = running distance on the right axis.</p>
           <div class="vc-body">
-            <canvas id="volume-chart" height="160" role="img"
-                    aria-label="Weekly training volume for the last 8 weeks"></canvas>
+            <canvas id="volume-chart" height="220" role="img"
+                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
           </div>
         </div>
       </section>
 
-      <!-- Workout list -->
-      <div id="log-list"></div>
+      <!-- Workout history -->
+      <div class="log-card log-card--history">
+        <div class="log-history-head">
+          <div class="log-history-tabs" role="tablist" aria-label="Workout list">
+            <button type="button" class="log-history-tab is-active" data-tab="history"
+                    role="tab" aria-selected="true" id="log-tab-history">History</button>
+            <button type="button" class="log-history-tab" data-tab="new"
+                    role="tab" aria-selected="false" id="log-tab-new">New log</button>
+          </div>
+        </div>
 
-      <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
-        <p>Couldn't load workouts.</p>
-        <button id="log-retry-btn" class="btn-sm">Retry</button>
-      </div>
+        <div id="log-list"></div>
 
-      <div id="log-empty-msg" style="display:none" class="empty-state">
-        <div class="empty-state-icon">🏃</div>
-        <p>No workouts logged yet. Start tracking your training!</p>
-        <button id="log-empty-cta" class="btn-primary">Log your first workout</button>
+        <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
+          <p>Couldn't load workouts.</p>
+          <button id="log-retry-btn" class="btn-sm">Retry</button>
+        </div>
+
+        <div id="log-empty-msg" style="display:none" class="empty-state">
+          <div class="empty-state-icon">🏃</div>
+          <p>No workouts logged yet. Start tracking your training!</p>
+          <button id="log-empty-cta" class="btn-accent" type="button">Log your first workout</button>
+        </div>
       </div>
     </div>
 
@@ -1643,11 +1869,161 @@
           </button>
         </div>
 
-        <button class="dp-icon-btn" aria-label="More options" type="button">&#8942;</button>
+        <div class="dp-topbar-end">
+          <button id="dp-overflow-btn" class="dp-icon-btn" aria-label="More options"
+                  aria-haspopup="menu" aria-expanded="false" type="button">&#8942;</button>
+          <div id="dp-overflow-menu" class="dp-overflow-menu" role="menu" hidden>
+            <button id="dp-menu-edit" type="button" role="menuitem">Edit</button>
+            <button id="dp-menu-duplicate" type="button" role="menuitem">Duplicate</button>
+            <a id="dp-menu-strava" class="dp-menu-strava" href="#" target="_blank"
+               rel="noopener" role="menuitem" style="display:none">Open on Strava</a>
+            <button id="dp-menu-delete" type="button" role="menuitem"
+                    class="dp-menu-danger" style="display:none">Delete</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Scrollable body: loading / error / content -->
+      <!-- Scrollable body: loading / error / content / form -->
       <div id="dp-scroll" class="dp-scroll">
+        <div id="dp-form-wrap" style="display:none">
+          <h2 id="dp-form-title" class="dp-form-title">Log workout</h2>
+          <div class="training-form-stack">
+            <div class="rl-import">
+              <span>Logging manually, or pull this run in from a device.</span>
+              <span class="rl-import-srcs">
+                <a class="rl-src" href="/settings#integrations">Strava</a>
+                <a class="rl-src" href="/settings#integrations">Garmin</a>
+                <a class="rl-src" href="/settings#integrations">Stryd</a>
+              </span>
+            </div>
+
+            <div class="workout-meta rl-card">
+              <div class="rl-card-label">Workout basics</div>
+              <div class="meta-field full-width">
+                <label for="workout-name">Name <span style="color:var(--danger)">*</span></label>
+                <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
+                <datalist id="workout-name-suggestions"></datalist>
+                <p id="name-error" class="field-error"></p>
+              </div>
+              <div class="meta-field">
+                <label for="workout-date">Date</label>
+                <input id="workout-date" type="date">
+              </div>
+              <div class="meta-field full-width">
+                <label>Workout type</label>
+                <div id="type-chips" class="chip-group"></div>
+                <input id="custom-type-input" type="text" placeholder="Type name…" style="display:none" maxlength="50">
+              </div>
+              <div class="meta-field full-width">
+                <label for="workout-remarks">Remarks</label>
+                <textarea id="workout-remarks" placeholder="Optional notes…" rows="2" maxlength="1000"></textarea>
+              </div>
+              <div class="meta-field">
+                <label for="workout-tss">TSS <span style="font-weight:400;color:#999">(optional)</span></label>
+                <input id="workout-tss" type="number" min="0" step="1" placeholder="e.g. 85">
+              </div>
+            </div>
+
+            <div id="run-section" class="run-section rl-card" style="display:none">
+              <div class="rl-card-label">Run structure</div>
+              <div class="seg-templates">
+                <span class="seg-tpl-label">Start from:</span>
+                <button type="button" class="seg-tpl-chip" data-tpl="easy">Easy run</button>
+                <button type="button" class="seg-tpl-chip" data-tpl="intervals">Intervals</button>
+                <button type="button" class="seg-tpl-chip" data-tpl="tempo">Tempo</button>
+              </div>
+              <div class="rl-profile" id="run-profile" aria-hidden="true"></div>
+              <div id="segments-list" class="segments-list" aria-label="Run segments"></div>
+              <div class="seg-foot">
+                <details id="add-segment-menu" class="more-menu seg-add-menu">
+                  <summary class="btn-secondary btn-sm more-summary">+ Add segment <span aria-hidden="true">▾</span></summary>
+                  <div class="more-menu-list" role="menu">
+                    <button type="button" role="menuitem" data-seg="warmup">Warm-up</button>
+                    <button type="button" role="menuitem" data-seg="easy">Easy run</button>
+                    <button type="button" role="menuitem" data-seg="tempo">Tempo</button>
+                    <button type="button" role="menuitem" data-seg="intervals">Intervals</button>
+                    <button type="button" role="menuitem" data-seg="rest">Rest</button>
+                    <button type="button" role="menuitem" data-seg="cooldown">Cool-down</button>
+                  </div>
+                </details>
+                <p id="segments-sum" class="segments-sum"></p>
+              </div>
+              <div class="run-primary">
+                <div class="run-field">
+                  <label for="run-distance">Distance <span class="rl-badge auto">auto</span></label>
+                  <div class="run-input-affix">
+                    <input id="run-distance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.0">
+                    <span class="affix">km</span>
+                  </div>
+                </div>
+                <div class="run-field">
+                  <label for="run-dur-h">Duration <span class="rl-badge auto">auto</span></label>
+                  <div class="run-duration">
+                    <input id="run-dur-h" class="dur-box" type="number" inputmode="numeric" min="0" max="99" placeholder="0">
+                    <span class="dur-sep">h</span>
+                    <input id="run-dur-m" class="dur-box" type="number" inputmode="numeric" min="0" max="59" placeholder="0">
+                    <span class="dur-sep">m</span>
+                    <input id="run-dur-s" class="dur-box" type="number" inputmode="numeric" min="0" max="59" placeholder="0">
+                    <span class="dur-sep">s</span>
+                  </div>
+                </div>
+                <div class="run-field run-pace-field">
+                  <label>Avg pace <span class="rl-badge auto">auto</span></label>
+                  <output id="run-pace" class="run-pace">—</output>
+                </div>
+              </div>
+              <div class="run-secondary">
+                <div class="run-field">
+                  <label for="run-avg-hr">Avg HR <span class="rl-badge sync">sync</span></label>
+                  <div class="run-input-affix">
+                    <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <span class="affix">bpm</span>
+                  </div>
+                </div>
+                <div class="run-field">
+                  <label for="run-max-hr">Max HR <span class="rl-badge sync">sync</span></label>
+                  <div class="run-input-affix">
+                    <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <span class="affix">bpm</span>
+                  </div>
+                </div>
+                <div class="run-field">
+                  <label for="run-elevation">Elevation <span class="rl-badge sync">sync</span></label>
+                  <div class="run-input-affix">
+                    <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
+                    <span class="affix">m</span>
+                  </div>
+                </div>
+              </div>
+              <p id="run-error" class="field-error"></p>
+            </div>
+
+            <div class="exercises-section rl-card">
+              <div class="rl-card-label">Exercises</div>
+              <div id="exercises-tbody" class="exercise-list"></div>
+              <datalist id="exercise-name-suggestions"></datalist>
+              <p id="exercises-error" class="error-msg"></p>
+              <div class="ex-add-row">
+                <button id="add-exercise-btn" type="button" class="add-ex"><span aria-hidden="true">+</span> Add exercise</button>
+              </div>
+              <div class="str-totals">
+                <div class="str-tile">
+                  <div class="str-l">Volume <span class="rl-badge auto">auto</span></div>
+                  <div class="str-v"><span id="str-volume">0</span><span class="su">kg</span></div>
+                </div>
+                <div class="str-tile">
+                  <div class="str-l">Sets <span class="rl-badge auto">auto</span></div>
+                  <div class="str-v"><span id="str-sets">0</span> <span class="su" id="str-sets-sub">0 working</span></div>
+                </div>
+                <div class="str-tile">
+                  <div class="str-l">Est. e1RM <span class="rl-badge auto">auto</span></div>
+                  <div class="str-v" id="str-e1rm">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="dp-loading" style="display:none" aria-busy="true">
           <div class="dp-skeleton-title"></div>
           <div class="dp-skeleton-grid">
@@ -1668,14 +2044,10 @@
         <div id="dp-content"></div>
       </div>
 
-      <!-- Sticky action bar -->
-      <div class="dp-actions-bar">
-        <a id="dp-edit-btn"   class="dp-action-btn" href="#">Edit</a>
-        <button id="dp-duplicate-btn" class="dp-action-btn" type="button">Duplicate</button>
-        <a id="dp-strava-btn" class="dp-action-btn dp-action-btn--strava"
-           href="#" target="_blank" rel="noopener" style="display:none">Open on Strava</a>
-        <button id="dp-delete-btn" class="dp-action-btn dp-action-btn--delete"
-                type="button" style="display:none">Delete</button>
+      <!-- Sticky action bar (form mode: save / cancel) -->
+      <div id="dp-actions-form" class="dp-actions-bar" style="display:none">
+        <button id="dp-cancel-btn" class="dp-action-btn" type="button">Cancel</button>
+        <button id="dp-save-btn" class="dp-action-btn dp-action-btn--primary" type="button">Save workout</button>
       </div>
     </aside>
   </div>
@@ -1704,81 +2076,11 @@
     </div>
   </div>
 
-  <!-- Quick-add workout modal (issue #522) -->
-  <div id="quick-add-modal" class="qa-modal" role="dialog" aria-modal="true"
-       aria-labelledby="qa-title" aria-hidden="true">
-    <div id="qa-backdrop" class="qa-backdrop"></div>
-    <div class="qa-dialog">
-      <div class="qa-header">
-        <h2 id="qa-title" class="qa-title">Log workout</h2>
-        <button id="qa-close-btn" class="qa-close-btn" type="button"
-                aria-label="Close quick-add">&#x2715;</button>
-      </div>
-
-      <form id="qa-form" novalidate>
-        <div class="qa-row">
-          <div class="qa-field">
-            <label class="qa-label" for="qa-date">Date</label>
-            <input id="qa-date" class="qa-input" type="date" required>
-            <div id="qa-date-error" class="qa-error" role="alert"></div>
-          </div>
-          <div class="qa-field">
-            <label class="qa-label" for="qa-type">Type</label>
-            <select id="qa-type" class="qa-select" required>
-              <option value="">Select…</option>
-              <option value="run">Run</option>
-              <option value="lift">Lift</option>
-              <option value="wod">WOD</option>
-              <option value="bike">Bike</option>
-            </select>
-            <div id="qa-type-error" class="qa-error" role="alert"></div>
-          </div>
-        </div>
-
-        <div class="qa-field">
-          <label class="qa-label" for="qa-name">Name</label>
-          <input id="qa-name" class="qa-input" type="text" maxlength="200"
-                 placeholder="e.g. Morning Run" autocomplete="off" required>
-          <div id="qa-name-error" class="qa-error" role="alert"></div>
-        </div>
-
-        <div class="qa-row">
-          <div class="qa-field">
-            <label class="qa-label" for="qa-duration">Duration (min)</label>
-            <input id="qa-duration" class="qa-input" type="number" min="0" step="1"
-                   inputmode="numeric" placeholder="e.g. 45">
-            <div id="qa-duration-error" class="qa-error" role="alert"></div>
-          </div>
-          <div class="qa-field">
-            <label class="qa-label" for="qa-distance">Distance (km)</label>
-            <input id="qa-distance" class="qa-input" type="number" min="0" step="0.01"
-                   inputmode="decimal" placeholder="e.g. 5.2">
-            <div id="qa-distance-error" class="qa-error" role="alert"></div>
-          </div>
-        </div>
-
-        <div class="qa-field">
-          <label class="qa-label" for="qa-tss">TSS</label>
-          <input id="qa-tss" class="qa-input" type="number" min="0" step="1"
-                 inputmode="numeric" placeholder="e.g. 60">
-          <div id="qa-tss-error" class="qa-error" role="alert"></div>
-        </div>
-
-        <div id="qa-form-error" class="qa-error" role="alert"></div>
-
-        <div class="qa-actions">
-          <a id="qa-full-form-link" class="qa-full-form-link"
-             href="/training?return=/log">Open full form →</a>
-          <button id="qa-save-btn" class="btn-primary" type="submit">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <script src="js/nav.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/lib/training-format.js"></script>
+  <script src="js/training.js"></script>
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
