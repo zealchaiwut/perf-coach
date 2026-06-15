@@ -110,18 +110,18 @@ def test_ac3_renders_chart_on_tab_click():
 # ── AC4: Dual-zone layout for ≥ 90D on wide viewport ─────────────────────────
 
 def test_ac4_main_zone_65pct():
-    """AC4 (revised): 3-zone layout [past 20% | current 60% | future 20%].
+    """AC4 (revised): 3-zone layout [past ~6% | present ~88% | future ~6%].
     The current zone is derived as CW - PAST_W - FUTURE_W."""
     src = _chart_js()
-    assert 'PAST_W' in src and 'CUR_W3' in src, \
+    assert 'PAST_W' in src and 'CUR_W3' in src and 'RAIL_FR' in src, \
         "3-zone current-width constant (CUR_W3 = CW - PAST_W - FUTURE_W) not found"
 
 
 def test_ac4_future_zone_30pct():
-    """AC4 (revised): past and future zones each use ~20% of chart width."""
+    """AC4 (revised): past and future rails each use ~6% of chart width."""
     src = _chart_js()
-    assert '0.20' in src or '0.2)' in src, \
-        "20% zone width constant (PAST_W / FUTURE_W) not found in weight-chart.js"
+    assert 'RAIL_FR' in src or '0.06' in src, \
+        "6% zone width constant (RAIL_FR / 0.06) not found in weight-chart.js"
 
 
 def test_ac4_axis_break_glyph():

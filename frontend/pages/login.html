@@ -76,23 +76,106 @@
     }
     .field input {
       width: 100%;
-      padding: 10px 14px;
+      padding: 11px 14px;
       border: 1.5px solid rgba(13, 30, 67, 0.14);
-      border-radius: 10px;
+      border-radius: 12px;
       font-size: 14px;
       font-family: inherit;
       color: #0b1530;
-      background: #f7f9fd;
+      background: #fff;
       outline: none;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color 0.15s;
+      box-shadow: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .field input:invalid {
+      box-shadow: none;
     }
     .field input:focus {
       border-color: #2b4ca8;
-      background: #fff;
+    }
+    /* Hide browser autofill / keychain chips inside text fields */
+    .field input::-webkit-credentials-auto-fill-button,
+    .field input::-webkit-strong-password-auto-fill-button,
+    .field input::-webkit-contacts-auto-fill-button {
+      visibility: hidden;
+      display: none !important;
+      pointer-events: none;
     }
 
-    .error-msg {
+    /* Password row — single pill box; reveal btn nested on the right */
+    .password-wrap {
       display: flex;
+      align-items: stretch;
+      border: 1.5px solid rgba(13, 30, 67, 0.14);
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .password-wrap:focus-within {
+      border-color: #2b4ca8;
+    }
+    .password-wrap input {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 11px 8px 11px 14px;
+    }
+    .password-wrap input:focus {
+      border-color: transparent;
+    }
+    .password-wrap input::-webkit-credentials-auto-fill-button,
+    .password-wrap input::-webkit-strong-password-auto-fill-button {
+      visibility: hidden;
+      display: none !important;
+      pointer-events: none;
+    }
+    .reveal-btn {
+      flex-shrink: 0;
+      align-self: center;
+      width: 38px;
+      height: 38px;
+      margin: 4px 5px 4px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #eef2f8;
+      border: 0;
+      border-radius: 9px;
+      padding: 0;
+      cursor: pointer;
+      color: #5c6886;
+      transition: background 0.15s, color 0.15s;
+    }
+    .reveal-btn svg {
+      width: 19px;
+      height: 19px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      display: block;
+      flex-shrink: 0;
+    }
+    .reveal-btn:hover {
+      color: #0b1530;
+      background: #e4eaf4;
+    }
+    .reveal-btn:focus-visible {
+      outline: 2px solid #2b4ca8;
+      outline-offset: 1px;
+    }
+    .reveal-btn .eye-off { display: none; }
+    .reveal-btn.is-revealed .eye-on { display: none; }
+    .reveal-btn.is-revealed .eye-off { display: block; }
+
+    .error-msg {
+      display: none;
       align-items: center;
       gap: 8px;
       background: #ffd9d9;
@@ -102,6 +185,9 @@
       font-size: 13px;
       font-weight: 500;
       margin-bottom: 16px;
+    }
+    .error-msg.is-visible {
+      display: flex;
     }
     .error-msg i { font-size: 15px; flex-shrink: 0; }
 
@@ -190,9 +276,25 @@
     </div>
     <div class="field">
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <div class="password-wrap">
+        <input type="password" id="password" name="password" autocomplete="current-password"
+               autocorrect="off" autocapitalize="off" spellcheck="false"
+               data-1p-ignore data-lpignore="true" required>
+        <button type="button" id="reveal-btn" class="reveal-btn" aria-label="Show password" aria-pressed="false">
+          <svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 3l18 18"/>
+            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83"/>
+            <path d="M9.88 5.09A10.94 10.94 0 0 1 12 5c6.5 0 10 7 10 7a18.45 18.45 0 0 1-4.06 5.06"/>
+            <path d="M6.12 6.12A18.45 18.45 0 0 0 2 12s3.5 7 10 7a10.94 10.94 0 0 0 2.91-.39"/>
+          </svg>
+        </button>
+      </div>
     </div>
-    <div id="error-msg" class="error-msg" hidden>
+    <div id="error-msg" class="error-msg" role="alert">
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
       <span id="error-text"></span>
     </div>
@@ -240,12 +342,23 @@
 
   function showError(msg) {
     errorText.textContent = msg;
-    errorMsg.hidden = false;
+    errorMsg.classList.add('is-visible');
   }
 
   function hideError() {
-    errorMsg.hidden = true;
+    errorText.textContent = '';
+    errorMsg.classList.remove('is-visible');
   }
+
+  var revealBtn = document.getElementById('reveal-btn');
+  var passwordInput = document.getElementById('password');
+  revealBtn.addEventListener('click', function () {
+    var show = passwordInput.type === 'password';
+    passwordInput.type = show ? 'text' : 'password';
+    revealBtn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    revealBtn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    revealBtn.classList.toggle('is-revealed', show);
+  });
 
   fetch('/api/auth/google-status')
     .then(function (r) { return r.json(); })

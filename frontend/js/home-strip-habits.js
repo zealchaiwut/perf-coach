@@ -108,12 +108,15 @@
 
     var wheel    = habits.wheel || [];
     var pct      = habits.pct_elapsed != null ? habits.pct_elapsed : 0;
+    var fullDays = _WH
+      ? (wheel || []).filter(function (w) { return w.state === 'full'; }).length
+      : 0;
     var top3     = (habits.top_habits && habits.top_habits.length > 0
                     ? habits.top_habits : habits.daily_habits).slice(0, 3);
     var remaining = habits.remaining_count != null ? habits.remaining_count : 0;
 
     /* Wheel */
-    var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct) : '';
+    var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct, { fullDays: fullDays }) : '';
 
     /* Habit rows */
     var rowsHTML = '';

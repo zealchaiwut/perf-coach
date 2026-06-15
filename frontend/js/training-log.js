@@ -14,6 +14,8 @@
   var activeDetailWorkoutId = null;
   var activeTriggerEl       = null;
   var activeRowEl           = null;
+  var panelMode             = 'view';   // 'view' | 'edit' | 'create'
+  var cachedDetailWorkout   = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -192,6 +194,12 @@
 
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fb-search-wrap';
+    var searchInner = document.createElement('div');
+    searchInner.className = 'fb-search';
+    var searchIcon = document.createElement('i');
+    searchIcon.className = 'ti ti-search';
+    searchIcon.setAttribute('aria-hidden', 'true');
+    searchInner.appendChild(searchIcon);
     var searchInput = document.createElement('input');
     searchInput.type         = 'text';
     searchInput.id           = 'log-search';
@@ -201,7 +209,8 @@
     searchInput.value        = filters.search;
     searchInput.spellcheck   = false;
     searchInput.autocomplete = 'off';
-    searchWrap.appendChild(searchInput);
+    searchInner.appendChild(searchInput);
+    searchWrap.appendChild(searchInner);
     bar.appendChild(searchWrap);
 
     var chipsRow = document.createElement('div');
@@ -460,11 +469,35 @@
     return monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
-  // Weekly volume chart: >= 8 weeks of distance (km) or TSS, auto-selected.
+  function weekVolumeByType(workouts) {
+    var runTss = 0;
+    var strengthTss = 0;
+    var distKm = 0;
+    (workouts || []).forEach(function (w) {
+      var tss = w.tss || 0;
+      var norm = TF.normalizeType(w.type);
+      if (norm === 'run' || norm === 'bike') {
+        runTss += tss;
+      } else if (norm === 'lift' || norm === 'wod') {
+        strengthTss += tss;
+      } else if ((w.distance_km || 0) > 0) {
+        runTss += tss;
+      } else if (tss > 0) {
+        strengthTss += tss;
+      }
+      distKm += w.distance_km || 0;
+    });
+    return {
+      runTss: Math.round(runTss),
+      strengthTss: Math.round(strengthTss),
+      distKm: Math.round(distKm * 10) / 10,
+    };
+  }
+
+  // Weekly volume chart: stacked run + strength TSS bars with run-km line overlay.
   function renderVolumeChart() {
     var card   = document.getElementById('volume-chart-card');
     var canvas = document.getElementById('volume-chart');
-    var unitEl = document.getElementById('volume-chart-unit');
     // Guard: no-op when the surfaces or Chart.js are absent (other pages).
     if (!card || !canvas || typeof Chart === 'undefined') return;
 
@@ -488,63 +521,133 @@
       .then(function (data) {
         var weeks = data.weeks || [];
         var byStart = {};
-        weeks.forEach(function (w) { byStart[w.week_start] = w.summary || {}; });
+        weeks.forEach(function (w) { byStart[w.week_start] = w; });
 
-        var labels = [], distVals = [], tssVals = [];
+        var labels = [];
+        var runTssVals = [];
+        var strengthTssVals = [];
+        var distVals = [];
         var cur = new Date(startMonday);
         while (cur <= toMonday) {
-          var s = byStart[toISODate(cur)] || {};
+          var wk = byStart[toISODate(cur)] || {};
+          var agg = weekVolumeByType(wk.workouts || []);
           labels.push(volumeWeekLabel(cur));
-          // zero-fill empty/zero-activity weeks so they render as a zero bar (AC7)
-          distVals.push(Math.round((s.total_distance_km || 0) * 10) / 10);
-          tssVals.push(Math.round(s.total_tss || 0));
+          runTssVals.push(agg.runTss);
+          strengthTssVals.push(agg.strengthTss);
+          distVals.push(agg.distKm);
           cur.setDate(cur.getDate() + 7);
         }
 
-        // Auto-select metric: distance when any distance present, else TSS.
-        var hasDist = distVals.some(function (v) { return v > 0; });
-        var hasTss  = tssVals.some(function (v) { return v > 0; });
-        var useDist = hasDist || !hasTss;
-        var values  = useDist ? distVals : tssVals;
-        var unit    = useDist ? 'km' : 'TSS';
-        var color   = useDist ? '#3b82f6' : '#f59e0b';
+        var hasData = runTssVals.some(function (v) { return v > 0; })
+          || strengthTssVals.some(function (v) { return v > 0; })
+          || distVals.some(function (v) { return v > 0; });
+        if (!hasData) {
+          if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+          card.hidden = true;
+          return;
+        }
 
-        if (unitEl) unitEl.textContent = unit;
+        var tickColor = '#69748c';
+        var tickFont = { size: 10 };
 
         if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
         volumeChart = new Chart(canvas.getContext('2d'), {
           type: 'bar',
           data: {
             labels: labels,
-            datasets: [{
-              label: unit,
-              data: values,
-              backgroundColor: color,
-              borderRadius: 3,
-              maxBarThickness: 36,
-            }],
+            datasets: [
+              {
+                label: 'Run TSS',
+                data: runTssVals,
+                backgroundColor: '#3b82f6',
+                borderRadius: 4,
+                maxBarThickness: 36,
+                stack: 'tss',
+                order: 2,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Strength TSS',
+                data: strengthTssVals,
+                backgroundColor: '#8b5cf6',
+                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+                maxBarThickness: 36,
+                stack: 'tss',
+                order: 2,
+                yAxisID: 'y',
+              },
+              {
+                label: 'Run distance (km)',
+                type: 'line',
+                data: distVals,
+                borderColor: '#f59e0b',
+                backgroundColor: '#f59e0b',
+                pointBackgroundColor: '#f59e0b',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 1.5,
+                pointRadius: 4,
+                pointHoverRadius: 5,
+                borderWidth: 2,
+                tension: 0.25,
+                yAxisID: 'y1',
+                order: 1,
+              },
+            ],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
-              legend: { display: false },
+              legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                  boxWidth: 10,
+                  boxHeight: 10,
+                  font: { size: 11 },
+                  padding: 14,
+                  color: tickColor,
+                },
+              },
               tooltip: {
                 callbacks: {
-                  label: function (ctx) { return ctx.parsed.y + ' ' + unit; },
+                  label: function (ctx) {
+                    var val = ctx.parsed.y;
+                    if (ctx.dataset.yAxisID === 'y1') {
+                      return ctx.dataset.label + ': ' + val + ' km';
+                    }
+                    return ctx.dataset.label + ': ' + val + ' TSS';
+                  },
+                  footer: function (items) {
+                    if (!items.length) return '';
+                    var run = items[0].chart.data.datasets[0].data[items[0].dataIndex] || 0;
+                    var str = items[0].chart.data.datasets[1].data[items[0].dataIndex] || 0;
+                    return 'Total TSS: ' + (run + str);
+                  },
                 },
               },
             },
             scales: {
               x: {
+                stacked: true,
                 grid: { display: false },
-                ticks: { font: { size: 10 }, color: '#69748c' },
-                title: { display: true, text: 'Week', color: '#69748c', font: { size: 10 } },
+                ticks: { font: tickFont, color: tickColor },
+                title: { display: true, text: 'Week', color: tickColor, font: { size: 10 } },
               },
               y: {
+                stacked: true,
+                position: 'left',
                 beginAtZero: true,
-                ticks: { font: { size: 10 }, color: '#69748c' },
-                title: { display: true, text: unit, color: '#69748c', font: { size: 10 } },
+                ticks: { font: tickFont, color: tickColor },
+                title: { display: true, text: 'TSS', color: tickColor, font: { size: 10 } },
+              },
+              y1: {
+                position: 'right',
+                beginAtZero: true,
+                grid: { drawOnChartArea: false },
+                ticks: { font: tickFont, color: tickColor },
+                title: { display: true, text: 'km', color: tickColor, font: { size: 10 } },
               },
             },
           },
@@ -840,12 +943,18 @@
       sourcesWrap.appendChild(sbadgeM);
     }
 
+    var chevron = document.createElement('span');
+    chevron.className = 'entry-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.innerHTML = '&#8250;';
+
     row.appendChild(dateCol);
     row.appendChild(badge);
     row.appendChild(body);
     row.appendChild(metricEl);
     if (tssEl) row.appendChild(tssEl);
     row.appendChild(sourcesWrap);
+    row.appendChild(chevron);
 
     return row;
   }
@@ -924,16 +1033,8 @@
     return window.innerWidth >= 880;
   }
 
-  // ── Detail panel open / close ─────────────────────────────────────────────
-  function openDetailPanel(workoutId, triggerEl) {
-    if (activeRowEl) activeRowEl.classList.remove('is-active');
-    activeRowEl = triggerEl || null;
-    if (activeRowEl) activeRowEl.classList.add('is-active');
-
-    activeDetailWorkoutId = workoutId;
-    activeTriggerEl       = triggerEl || null;
-    activePosIndex        = findPosIndex(workoutId);
-
+  // ── Detail panel open / close / modes ─────────────────────────────────────
+  function openPanelShell(triggerEl) {
     var overlay = document.getElementById('detail-overlay');
     var panel   = document.getElementById('detail-panel');
     var wrapper = document.getElementById('layout-wrapper');
@@ -947,8 +1048,156 @@
       document.body.style.overflow = 'hidden';
     }
 
+    if (triggerEl) {
+      activeTriggerEl = triggerEl;
+    }
+  }
+
+  function resetTopbarChrome() {
+    closeOverflowMenu();
+    var panel = document.getElementById('detail-panel');
+    if (panel) panel.classList.remove('detail-panel--form');
+    var posGroup = document.querySelector('.dp-position-group');
+    var overflowBtn = document.getElementById('dp-overflow-btn');
+    var topbarEnd = document.querySelector('.dp-topbar-end');
+    if (posGroup) posGroup.style.display = '';
+    if (overflowBtn) overflowBtn.style.display = '';
+    if (topbarEnd) topbarEnd.style.display = '';
+    var navLinks = document.querySelector('.global-nav .gn-links');
+    if (navLinks) navLinks.scrollLeft = 0;
+  }
+
+  function setHistoryTab(tab) {
+    document.querySelectorAll('.log-history-tab').forEach(function (el) {
+      var active = el.dataset.tab === tab;
+      el.classList.toggle('is-active', active);
+      el.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
+  function setPanelMode(mode) {
+    panelMode = mode;
+    var panel       = document.getElementById('detail-panel');
+    var formWrap    = document.getElementById('dp-form-wrap');
+    var loadingEl   = document.getElementById('dp-loading');
+    var errorEl     = document.getElementById('dp-error');
+    var contentEl   = document.getElementById('dp-content');
+    var formActions = document.getElementById('dp-actions-form');
+    var formTitle   = document.getElementById('dp-form-title');
+    var pill        = document.getElementById('dp-position-pill');
+
+    var isForm = mode === 'edit' || mode === 'create';
+
+    if (panel) panel.classList.toggle('detail-panel--form', isForm);
+    if (formWrap)    formWrap.style.display    = isForm ? '' : 'none';
+    if (formActions) formActions.style.display = isForm ? '' : 'none';
+
+    if (isForm) {
+      closeOverflowMenu();
+      if (loadingEl) loadingEl.style.display = 'none';
+      if (errorEl)   errorEl.style.display   = 'none';
+      if (contentEl) contentEl.innerHTML     = '';
+      if (formTitle) formTitle.textContent   = mode === 'create' ? 'Log workout' : 'Edit workout';
+      if (pill) pill.textContent = mode === 'create' ? 'New' : 'Editing';
+      var saveBtn = document.getElementById('dp-save-btn');
+      if (saveBtn) saveBtn.textContent = mode === 'edit' ? 'Save changes' : 'Save workout';
+    } else if (pill) {
+      updatePositionPill();
+    }
+  }
+
+  function openDetailPanel(workoutId, triggerEl) {
+    if (activeRowEl) activeRowEl.classList.remove('is-active');
+    activeRowEl = triggerEl || null;
+    if (activeRowEl) activeRowEl.classList.add('is-active');
+
+    activeDetailWorkoutId = workoutId;
+    activeTriggerEl       = triggerEl || null;
+    activePosIndex        = findPosIndex(workoutId);
+    cachedDetailWorkout   = null;
+
+    closeOverflowMenu();
+    setPanelMode('view');
+    setHistoryTab('history');
+    openPanelShell(triggerEl);
     updatePositionPill();
     fetchAndRenderDetail(workoutId);
+  }
+
+  function createPresetDate() {
+    if (filters.from && filters.from === filters.to) return filters.from;
+    return todayISO();
+  }
+
+  function openPanelCreate(presetDate) {
+    if (activeRowEl) { activeRowEl.classList.remove('is-active'); activeRowEl = null; }
+
+    activeDetailWorkoutId = null;
+    activePosIndex        = -1;
+    cachedDetailWorkout   = null;
+
+    closeOverflowMenu();
+    var dateToUse = presetDate || createPresetDate();
+    if (window.TrainingEditor) {
+      TrainingEditor.resetForm();
+      TrainingEditor.setEditingId(null);
+      var dateEl = document.getElementById('workout-date');
+      if (dateEl) dateEl.value = dateToUse;
+      TrainingEditor.applyDefaultWorkoutName();
+    }
+    setPanelMode('create');
+    setHistoryTab('new');
+    openPanelShell(null);
+
+    var scrollEl = document.getElementById('dp-scroll');
+    if (scrollEl) scrollEl.scrollTop = 0;
+    var nameInput = document.getElementById('workout-name');
+    if (nameInput) nameInput.focus();
+  }
+
+  function switchToEditMode() {
+    if (!activeDetailWorkoutId) return;
+    closeOverflowMenu();
+    setPanelMode('edit');
+
+    function applyEdit(workout) {
+      cachedDetailWorkout = workout;
+      if (window.TrainingEditor) {
+        TrainingEditor.fillForm(workout);
+        TrainingEditor.setEditingId(workout.id);
+      }
+      var scrollEl = document.getElementById('dp-scroll');
+      if (scrollEl) scrollEl.scrollTop = 0;
+      var nameInput = document.getElementById('workout-name');
+      if (nameInput) nameInput.focus();
+    }
+
+    if (cachedDetailWorkout && cachedDetailWorkout.id === activeDetailWorkoutId) {
+      applyEdit(cachedDetailWorkout);
+      return;
+    }
+
+    fetch('/api/workouts/' + activeDetailWorkoutId)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(applyEdit)
+      .catch(function () {
+        UIStates.showToast('Could not load workout for editing.', true);
+        setPanelMode('view');
+      });
+  }
+
+  function cancelPanelForm() {
+    if (panelMode === 'create') {
+      closeDetailPanel();
+      return;
+    }
+    if (panelMode === 'edit' && activeDetailWorkoutId) {
+      setPanelMode('view');
+      fetchAndRenderDetail(activeDetailWorkoutId);
+    }
   }
 
   function closeDetailPanel() {
@@ -958,21 +1207,36 @@
     activeDetailWorkoutId = null;
     activeTriggerEl       = null;
     activePosIndex        = -1;
+    cachedDetailWorkout   = null;
+    panelMode             = 'view';
+
+    closeOverflowMenu();
+    resetTopbarChrome();
 
     var overlay = document.getElementById('detail-overlay');
     var panel   = document.getElementById('detail-panel');
     var wrapper = document.getElementById('layout-wrapper');
 
-    if (panel)   panel.classList.remove('is-open');
+    if (panel) {
+      panel.classList.remove('is-open');
+    }
     if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }
     if (wrapper) wrapper.classList.remove('has-panel');
     document.body.style.overflow = '';
+
+    var formWrap    = document.getElementById('dp-form-wrap');
+    var formActions = document.getElementById('dp-actions-form');
+    if (formWrap)    formWrap.style.display    = 'none';
+    if (formActions) formActions.style.display = 'none';
+
+    setHistoryTab('history');
 
     if (trigger) trigger.focus();
   }
 
   // ── Navigate prev / next ──────────────────────────────────────────────────
   function navigateDetail(direction) {
+    if (panelMode !== 'view') return;
     var newIndex = activePosIndex + direction;
     if (newIndex < 0 || newIndex >= flatWorkouts.length) return;
 
@@ -983,6 +1247,55 @@
     syncActiveRow();
     updatePositionPill();
     fetchAndRenderDetail(fw.id);
+  }
+
+  function updateOverflowMenu(workout) {
+    var menuEdit   = document.getElementById('dp-menu-edit');
+    var menuDup    = document.getElementById('dp-menu-duplicate');
+    var menuStrava = document.getElementById('dp-menu-strava');
+    var menuDelete = document.getElementById('dp-menu-delete');
+
+    var hasWorkout = !!workout;
+    if (menuEdit) menuEdit.style.display = hasWorkout ? '' : 'none';
+    if (menuDup)  menuDup.style.display  = hasWorkout ? '' : 'none';
+
+    var isStrava = hasWorkout && isStravaWorkout(workout);
+    if (menuStrava) {
+      if (isStrava && workout.strava_activity_url) {
+        menuStrava.href = workout.strava_activity_url;
+        menuStrava.style.display = '';
+      } else {
+        menuStrava.style.display = 'none';
+      }
+    }
+    if (menuDelete) {
+      menuDelete.style.display = (hasWorkout && !isStrava) ? '' : 'none';
+    }
+  }
+
+  function openOverflowMenu() {
+    var menu = document.getElementById('dp-overflow-menu');
+    var btn  = document.getElementById('dp-overflow-btn');
+    if (!menu) return;
+    menu.removeAttribute('hidden');
+    menu.classList.add('is-open');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeOverflowMenu() {
+    var menu = document.getElementById('dp-overflow-menu');
+    var btn  = document.getElementById('dp-overflow-btn');
+    if (!menu) return;
+    menu.classList.remove('is-open');
+    menu.setAttribute('hidden', '');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleOverflowMenu() {
+    var menu = document.getElementById('dp-overflow-menu');
+    if (!menu) return;
+    if (menu.classList.contains('is-open')) closeOverflowMenu();
+    else openOverflowMenu();
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────
@@ -997,12 +1310,7 @@
     if (contentEl) contentEl.innerHTML     = '';
     if (scrollEl)  scrollEl.scrollTop      = 0;
 
-    var editBtn   = document.getElementById('dp-edit-btn');
-    var stravaBtn = document.getElementById('dp-strava-btn');
-    var deleteBtn = document.getElementById('dp-delete-btn');
-
-    if (stravaBtn) stravaBtn.style.display = 'none';
-    if (deleteBtn) deleteBtn.style.display = 'none';
+    updateOverflowMenu(null);
 
     fetch('/api/workouts/' + workoutId)
       .then(function (res) {
@@ -1010,22 +1318,12 @@
         return res.json();
       })
       .then(function (workout) {
+        cachedDetailWorkout = workout;
+        updateOverflowMenu(workout);
+
         var _tk    = normalizeTypeKey(workout.workout_type);
         var isRun  = _tk === 'run';
         var isBike = _tk === 'bike';
-
-        var returnUrl = '/log?week=' + toISODate(currentMonday);
-        if (editBtn) editBtn.href = '/training?edit=' + workout.id + '&return=' + encodeURIComponent(returnUrl);
-
-        var isStrava = isStravaWorkout(workout);
-        if (isStrava) {
-          if (stravaBtn) {
-            stravaBtn.href         = workout.strava_activity_url || '#';
-            stravaBtn.style.display = '';
-          }
-        } else {
-          if (deleteBtn) deleteBtn.style.display = '';
-        }
 
         if (isRun || isBike) {
           fetch('/api/workouts/' + workoutId + '/splits')
@@ -1041,6 +1339,8 @@
         }
       })
       .catch(function (_) {
+        cachedDetailWorkout = null;
+        updateOverflowMenu(null);
         if (loadingEl) loadingEl.style.display = 'none';
         if (errorEl)   errorEl.style.display   = '';
         var retryBtn = document.getElementById('dp-retry-btn');
@@ -1772,212 +2072,84 @@
       .catch(function () { _syncSetBusy(false); });
   }
 
-  // ── Quick-add workout modal (issue #522) ────────────────────────────────────
-  // A lightweight modal on /log that posts to the existing POST /api/workouts
-  // endpoint and re-renders the list in place — no navigation to /training for
-  // the common case. The full form stays reachable via "Open full form".
-  var QA_FIELD_IDS = ['qa-date', 'qa-type', 'qa-name', 'qa-duration', 'qa-distance', 'qa-tss'];
+  function handleEditorSaved(result) {
+    if (!result || !result.ok) return;
 
-  function qaEl(id) { return document.getElementById(id); }
-
-  function clearQuickAddErrors() {
-    QA_FIELD_IDS.forEach(function (id) {
-      var input = qaEl(id);
-      if (input) input.classList.remove('is-error');
-      var err = qaEl(id + '-error');
-      if (err) { err.textContent = ''; err.classList.remove('is-visible'); }
-    });
-    var formErr = qaEl('qa-form-error');
-    if (formErr) { formErr.textContent = ''; formErr.classList.remove('is-visible'); }
-  }
-
-  function setQuickAddError(fieldId, message) {
-    var input = qaEl(fieldId);
-    if (input) input.classList.add('is-error');
-    var err = qaEl(fieldId + '-error');
-    if (err) { err.textContent = message; err.classList.add('is-visible'); }
-  }
-
-  // issue #525: pre-select the Type field with the user's most recently logged
-  // workout type so they don't re-pick their usual type on every quick log. The
-  // default comes from the server (the user's own workout history via
-  // /api/workouts/recent-type), so it is persisted per user — not per browser
-  // session — and never leaks across users. With no history the request returns
-  // null and the select keeps its built-in default. The raw stored type is run
-  // through the shared normalizer so values like "Running"/"Strength" map onto
-  // the canonical option keys (run/lift/wod/bike). Only the select's value is
-  // set — no marker/indicator — so a pre-selected type looks identical to a
-  // manual one, and the user can freely override it before submitting.
-  function prefillDefaultWorkoutType() {
-    var typeSel = qaEl('qa-type');
-    if (!typeSel) return;
-    fetch('/api/workouts/recent-type')
-      .then(function (res) { return res.ok ? res.json() : null; })
-      .then(function (data) {
-        if (!data || !data.workout_type) return;
-        // Bail if the user already touched the field while the request was in
-        // flight, so we never clobber an in-progress manual selection.
-        if (typeSel.value) return;
-        var key = normalizeTypeKey(data.workout_type);
-        var hasOption = Array.prototype.some.call(typeSel.options, function (o) {
-          return o.value === key;
-        });
-        if (hasOption) typeSel.value = key;
-      })
-      .catch(function () { /* non-fatal: keep the built-in default */ });
-  }
-
-  function openQuickAdd() {
-    var modal = qaEl('quick-add-modal');
-    if (!modal) return;
-    clearQuickAddErrors();
-    var form = qaEl('qa-form');
-    if (form) form.reset();
-    // Default the date to today for the common "log today's workout" case.
-    var dateInput = qaEl('qa-date');
-    if (dateInput && !dateInput.value) dateInput.value = todayISO();
-    // Default the Type to the user's most recently logged type (issue #525).
-    prefillDefaultWorkoutType();
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
-    var nameInput = qaEl('qa-name');
-    if (nameInput) nameInput.focus();
-  }
-
-  function closeQuickAdd() {
-    var modal = qaEl('quick-add-modal');
-    if (!modal) return;
-    modal.classList.remove('is-open');
-    modal.setAttribute('aria-hidden', 'true');
-  }
-
-  function quickAddIsOpen() {
-    var modal = qaEl('quick-add-modal');
-    return !!(modal && modal.classList.contains('is-open'));
-  }
-
-  // Validate required fields (date, type, name) and numeric ranges. Returns true
-  // when the form is safe to submit; otherwise paints inline errors and returns
-  // false so the caller can short-circuit before the POST.
-  function validateQuickAdd() {
-    clearQuickAddErrors();
-    var valid = true;
-
-    var dateVal = (qaEl('qa-date').value || '').trim();
-    if (!dateVal) {
-      setQuickAddError('qa-date', 'Date is required.');
-      valid = false;
-    } else if (dateVal > todayISO()) {
-      setQuickAddError('qa-date', 'Date cannot be in the future.');
-      valid = false;
+    if (result.isEdit && activeDetailWorkoutId) {
+      setPanelMode('view');
+      fetchAndRenderDetail(activeDetailWorkoutId);
+      fetchAndRender();
+    } else {
+      var newId = result.data && result.data.id;
+      closeDetailPanel();
+      fetchAndRender();
+      if (newId) {
+        setTimeout(function () {
+          var row = document.querySelector('.entry-row[data-workout-id="' + newId + '"]');
+          openDetailPanel(newId, row);
+        }, 100);
+      }
     }
-
-    var typeVal = (qaEl('qa-type').value || '').trim();
-    if (!typeVal) {
-      setQuickAddError('qa-type', 'Type is required.');
-      valid = false;
-    }
-
-    var nameVal = (qaEl('qa-name').value || '').trim();
-    if (!nameVal) {
-      setQuickAddError('qa-name', 'Name is required.');
-      valid = false;
-    }
-
-    var durationVal = (qaEl('qa-duration').value || '').trim();
-    if (durationVal !== '' && Number(durationVal) < 0) {
-      setQuickAddError('qa-duration', 'Duration cannot be negative.');
-      valid = false;
-    }
-
-    var distanceVal = (qaEl('qa-distance').value || '').trim();
-    if (distanceVal !== '' && Number(distanceVal) < 0) {
-      setQuickAddError('qa-distance', 'Distance cannot be negative.');
-      valid = false;
-    }
-
-    var tssVal = (qaEl('qa-tss').value || '').trim();
-    if (tssVal !== '' && Number(tssVal) < 0) {
-      setQuickAddError('qa-tss', 'TSS cannot be negative.');
-      valid = false;
-    }
-
-    return valid;
+    refreshRepeatAvailability();
   }
 
-  function submitQuickAdd() {
-    if (!validateQuickAdd()) return;
+  function wirePanelForm() {
+    var newBtn = document.getElementById('log-new-btn');
+    if (newBtn) newBtn.addEventListener('click', function () { openPanelCreate(createPresetDate()); });
 
-    var durationVal = (qaEl('qa-duration').value || '').trim();
-    var distanceVal = (qaEl('qa-distance').value || '').trim();
-    var tssVal = (qaEl('qa-tss').value || '').trim();
+    var emptyCta = document.getElementById('log-empty-cta');
+    if (emptyCta) emptyCta.addEventListener('click', function () { openPanelCreate(createPresetDate()); });
 
-    var payload = {
-      workout_date: (qaEl('qa-date').value || '').trim(),
-      workout_type: (qaEl('qa-type').value || '').trim(),
-      name: (qaEl('qa-name').value || '').trim(),
-      duration_seconds: durationVal !== '' ? Math.round(Number(durationVal) * 60) : null,
-      distance_km: distanceVal !== '' ? Number(distanceVal) : null,
-      tss: tssVal !== '' ? Number(tssVal) : null,
-      exercises: [],
-    };
-
-    var saveBtn = qaEl('qa-save-btn');
-    if (saveBtn) saveBtn.disabled = true;
-
-    fetch('/api/workouts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-      .then(function (res) {
-        return res.json().catch(function () { return {}; }).then(function (data) {
-          return { ok: res.ok, data: data };
-        });
-      })
-      .then(function (result) {
-        if (!result.ok) {
-          var formErr = qaEl('qa-form-error');
-          var detail = (result.data && result.data.detail) || 'Save failed. Please try again.';
-          if (formErr) { formErr.textContent = detail; formErr.classList.add('is-visible'); }
-          return;
+    document.querySelectorAll('.log-history-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        if (tab.dataset.tab === 'new') {
+          openPanelCreate(createPresetDate());
+        } else {
+          setHistoryTab('history');
         }
-        closeQuickAdd();
-        UIStates.showToast('Workout saved');
-        // Re-render the list in place so the new entry lands at the correct
-        // position without a full page reload (AC3).
-        fetchAndRender();
-      })
-      .catch(function () {
-        var formErr = qaEl('qa-form-error');
-        if (formErr) { formErr.textContent = 'Save failed. Please try again.'; formErr.classList.add('is-visible'); }
-      })
-      .finally(function () {
-        if (saveBtn) saveBtn.disabled = false;
       });
-  }
-
-  function wireQuickAdd() {
-    var newBtn = qaEl('log-new-btn');
-    if (newBtn) newBtn.addEventListener('click', function () { openQuickAdd(); });
-
-    var emptyCta = qaEl('log-empty-cta');
-    if (emptyCta) emptyCta.addEventListener('click', function () { openQuickAdd(); });
-
-    var closeBtn = qaEl('qa-close-btn');
-    if (closeBtn) closeBtn.addEventListener('click', function () { closeQuickAdd(); });
-
-    var backdrop = qaEl('qa-backdrop');
-    if (backdrop) backdrop.addEventListener('click', function () { closeQuickAdd(); });
-
-    var form = qaEl('qa-form');
-    if (form) form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      submitQuickAdd();
     });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && quickAddIsOpen()) closeQuickAdd();
+    var saveBtn = document.getElementById('dp-save-btn');
+    if (saveBtn && window.TrainingEditor) {
+      saveBtn.addEventListener('click', function () { TrainingEditor.saveWorkout(); });
+    }
+
+    var cancelBtn = document.getElementById('dp-cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', cancelPanelForm);
+
+    if (window.TrainingEditor) {
+      TrainingEditor.setHooks({ onSaved: handleEditorSaved });
+    }
+
+    var overflowBtn = document.getElementById('dp-overflow-btn');
+    if (overflowBtn) {
+      overflowBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleOverflowMenu();
+      });
+    }
+
+    var menuEdit = document.getElementById('dp-menu-edit');
+    if (menuEdit) menuEdit.addEventListener('click', switchToEditMode);
+
+    var menuDup = document.getElementById('dp-menu-duplicate');
+    if (menuDup) menuDup.addEventListener('click', function () {
+      closeOverflowMenu();
+      openDuplicateModal();
+    });
+
+    var menuDelete = document.getElementById('dp-menu-delete');
+    if (menuDelete) menuDelete.addEventListener('click', function () {
+      closeOverflowMenu();
+      if (activeDetailWorkoutId) deleteWorkout(activeDetailWorkoutId);
+    });
+
+    document.addEventListener('click', function (e) {
+      var menu = document.getElementById('dp-overflow-menu');
+      var btn  = document.getElementById('dp-overflow-btn');
+      if (menu && btn && (menu.contains(e.target) || btn.contains(e.target))) return;
+      closeOverflowMenu();
     });
   }
 
@@ -2097,9 +2269,6 @@
       if (!repeatBtn.disabled) repeatLastEntryPoint();
     });
 
-    var dupBtn = document.getElementById('dp-duplicate-btn');
-    if (dupBtn) dupBtn.addEventListener('click', openDuplicateModal);
-
     var dupCloseBtn  = document.getElementById('dup-close-btn');
     if (dupCloseBtn) dupCloseBtn.addEventListener('click', closeDuplicateModal);
     var dupCancelBtn = document.getElementById('dup-cancel-btn');
@@ -2122,7 +2291,10 @@
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);
 
     var closeBtn = document.getElementById('dp-close-btn');
-    if (closeBtn) closeBtn.addEventListener('click', closeDetailPanel);
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      if (panelMode === 'edit' || panelMode === 'create') cancelPanelForm();
+      else closeDetailPanel();
+    });
 
     var prevBtn = document.getElementById('dp-prev-btn');
     if (prevBtn) prevBtn.addEventListener('click', function () { navigateDetail(-1); });
@@ -2131,28 +2303,27 @@
     if (nextBtn) nextBtn.addEventListener('click', function () { navigateDetail(1); });
 
     var overlay = document.getElementById('detail-overlay');
-    if (overlay) overlay.addEventListener('click', closeDetailPanel);
+    if (overlay) overlay.addEventListener('click', function () {
+      if (panelMode === 'edit' || panelMode === 'create') cancelPanelForm();
+      else closeDetailPanel();
+    });
 
-    var deleteBtn = document.getElementById('dp-delete-btn');
-    if (deleteBtn) {
-      deleteBtn.addEventListener('click', function () {
-        if (activeDetailWorkoutId) deleteWorkout(activeDetailWorkoutId);
-      });
-    }
+    wirePanelForm();
 
     var listRetryBtn = document.getElementById('log-retry-btn');
     if (listRetryBtn) listRetryBtn.addEventListener('click', function () {
       fetchAndRender();
     });
 
-    // Quick-add modal triggers ("Log workout" + empty-state CTA), close/backdrop/
-    // Esc dismissal, and form submission (issue #522).
-    wireQuickAdd();
-
     document.addEventListener('keydown', function (e) {
       var panel = document.getElementById('detail-panel');
       if (!panel || !panel.classList.contains('is-open')) return;
-      if (e.key === 'Escape') closeDetailPanel();
+      if (e.key === 'Escape') {
+        if (panelMode === 'edit' || panelMode === 'create') cancelPanelForm();
+        else closeDetailPanel();
+        return;
+      }
+      if (panelMode !== 'view') return;
       if (e.key === 'ArrowUp'   || e.key === 'ArrowLeft')  navigateDetail(-1);
       if (e.key === 'ArrowDown' || e.key === 'ArrowRight') navigateDetail(1);
     });

@@ -42,9 +42,10 @@ def test_ac1_weight_chart_js_exists():
 
 
 def test_ac1_svg_viewbox_900_280():
-    """AC1: SVG viewBox must contain '0 0 900 280'."""
-    assert '0 0 900 280' in _chart_js(), \
-        "viewBox '0 0 900 280' not found in weight-chart.js"
+    """AC1: SVG viewBox is 900 wide; height is render-time (_VH)."""
+    src = _chart_js()
+    assert "'0 0 ' + VW + ' ' + _VH" in src or '0 0 900 280' in src, \
+        "viewBox (width 900, render-time _VH height) not found in weight-chart.js"
 
 
 # ── AC2: Chart.js CDN removed; weight-chart.js loaded ────────────────────────
@@ -87,10 +88,10 @@ def test_ac4_axis_break_present():
 
 
 def test_ac4_axis_break_two_ticks():
-    """AC4: Axis-break renders exactly two slanted ticks via a two-element array."""
+    """AC4 (revised): zones divided by thin vertical separators (PAST/FUTURE rails)."""
     src = _chart_js()
-    assert re.search(r'\[-\d+,\s*\d+\]', src), \
-        "Two-tick offset array not found in weight-chart.js (e.g. [-12, 12])"
+    assert 'C_SEP' in src or 'PAST' in src, \
+        "Zone separator or PAST/FUTURE rail labels not found in weight-chart.js"
 
 
 # ── AC5: Future zone tint + MILESTONES AHEAD tag ─────────────────────────────
@@ -102,9 +103,10 @@ def test_ac5_future_zone_color():
 
 
 def test_ac5_milestones_ahead_tag():
-    """AC5: 'MILESTONES AHEAD' text must be rendered in the future zone."""
-    assert 'MILESTONES AHEAD' in _chart_js(), \
-        "'MILESTONES AHEAD' tag text not found in weight-chart.js"
+    """AC5 (revised): future rail shows next milestone + goal (not all milestones)."""
+    src = _chart_js()
+    assert "kind === 'goal'" in src and '_renderGapFill' in src, \
+        "Future rail goal/next-milestone or gap fill not found in weight-chart.js"
 
 
 # ── AC6: Y-axis bounds formula ────────────────────────────────────────────────
@@ -234,9 +236,9 @@ def test_ac10_legend_plan():
 
 
 def test_ac10_legend_gap_vs_plan():
-    """AC10: Legend contains 'Gap vs plan' item."""
-    assert 'Gap vs plan' in html or ('Gap' in html and 'plan' in html), \
-        "'Gap vs plan' not found in weight.html legend"
+    """AC10: Legend contains ahead/behind gap fill key."""
+    assert 'ahead' in html and 'behind' in html and 'legend-gap' in html, \
+        "ahead/behind gap legend not found in weight.html"
 
 
 def test_ac10_legend_milestone():

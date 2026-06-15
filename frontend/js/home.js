@@ -1048,172 +1048,10 @@
     } catch (_) { /* network error, skip stale banner check */ }
   }
 
-  /* ---- Home Weight Widget ---- */
-
-  function _hwwSparkline(sparkline, plan) {
-    var W = 300, H = 52, PAD = 4;
-    if (!sparkline || !sparkline.length) {
-      return '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"></svg>';
-    }
-    // Combine sparkline and plan to get a shared scale
-    var allVals = sparkline.map(function (d) { return d.value; });
-    if (plan && plan.length) plan.forEach(function (d) { allVals.push(d.value); });
-    var minV = Math.min.apply(null, allVals);
-    var maxV = Math.max.apply(null, allVals);
-    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
-
-    function normY(v) {
-      return H - PAD - ((v - minV) / (maxV - minV)) * (H - 2 * PAD);
-    }
-
-    // Get all dates involved for x-axis
-    var dates = sparkline.map(function (d) { return d.date; });
-    if (plan && plan.length) {
-      plan.forEach(function (d) { if (dates.indexOf(d.date) === -1) dates.push(d.date); });
-    }
-    dates.sort();
-    var n = dates.length;
-    function xForDate(dateStr) {
-      var idx = dates.indexOf(dateStr);
-      return n > 1 ? (idx / (n - 1)) * W : W / 2;
-    }
-
-    var uid = 'hwwg' + Math.random().toString(36).slice(2, 7);
-
-    var out = '<svg class="hww-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
-    out += '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0%" stop-color="#2b4ca8" stop-opacity="0.25"/>' +
-      '<stop offset="100%" stop-color="#2b4ca8" stop-opacity="0"/>' +
-      '</linearGradient></defs>';
-
-    // Trend area + line
-    var pts = sparkline.map(function (d) {
-      return { x: xForDate(d.date), y: normY(d.value) };
-    });
-    if (pts.length >= 2) {
-      var linePath = pts.map(function (p, i) {
-        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-      }).join(' ');
-      var last = pts[pts.length - 1];
-      var areaPath = linePath + ' L' + last.x.toFixed(1) + ',' + H + ' L' + pts[0].x.toFixed(1) + ',' + H + ' Z';
-      out += '<path d="' + areaPath + '" fill="url(#' + uid + ')" stroke="none"/>';
-      out += '<path d="' + linePath + '" fill="none" stroke="#2b4ca8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-      out += '<circle cx="' + last.x.toFixed(1) + '" cy="' + last.y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
-    } else if (pts.length === 1) {
-      out += '<circle cx="' + pts[0].x.toFixed(1) + '" cy="' + pts[0].y.toFixed(1) + '" r="3" fill="#2b4ca8"/>';
-    }
-
-    // Plan line (dashed green) when plan data present
-    if (plan && plan.length >= 2) {
-      var planPts = plan.map(function (d) {
-        return { x: xForDate(d.date), y: normY(d.value) };
-      });
-      var planPath = planPts.map(function (p, i) {
-        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
-      }).join(' ');
-      out += '<path d="' + planPath + '" fill="none" stroke="#2d5e10" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7" stroke-linecap="round"/>';
-    }
-
-    out += '</svg>';
-    return out;
-  }
-
-  function _hwwGapPill(statusLabel, gapKg) {
-    if (!statusLabel || statusLabel === 'no_data') return '';
-    if (statusLabel === 'on_track') {
-      return '<span class="hww-gap-pill hww-gap--flat">on plan</span>';
-    }
-    var absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : null;
-    if (statusLabel === 'behind') {
-      var text = absGap != null ? '+' + absGap + ' behind' : 'behind';
-      return '<span class="hww-gap-pill hww-gap--behind">' + text + '</span>';
-    }
-    if (statusLabel === 'ahead') {
-      var text2 = absGap != null ? absGap + ' ahead' : 'ahead';
-      return '<span class="hww-gap-pill hww-gap--ahead">' + text2 + '</span>';
-    }
-    return '';
-  }
-
-  function _hwwGoalLine(target) {
-    if (!target) return '';
-    var parts = [];
-    parts.push('Goal ' + Number(target.target_weight_kg).toFixed(1) + ' kg');
-    if (target.kg_to_go != null) parts.push(Number(target.kg_to_go).toFixed(1) + ' kg to go');
-    if (target.target_date) {
-      var dp = target.target_date.split('-');
-      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      parts.push(months[parseInt(dp[1],10)-1] + ' ' + parseInt(dp[2],10));
-    }
-    return '<div class="hww-goal-line">' +
-      parts.join(' · ') +
-      ' · <a href="/weight/targets">edit target →</a>' +
-    '</div>';
-  }
-
-  function _hwwRenderMain(el, summary, userId) {
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</div>' +
-        '<a href="/weight">Open →</a>' +
-      '</div>';
-
-    if (!summary || summary.current_weight == null) {
-      el.innerHTML = header +
-        '<div class="hww-layout">' +
-          '<div class="hww-main">' +
-            '<div class="hww-no-data">Log your first weigh-in to start tracking your progress.</div>' +
-          '</div>' +
-          '<div class="hww-stepper" id="hww-stepper-area"></div>' +
-        '</div>';
-      _hwwInitStepper(el, summary, userId);
-      return;
-    }
-
-    var rateClass = 'hww-rate--flat';
-    var rateText = '—';
-    if (summary.weekly_rate_kg != null) {
-      var r = summary.weekly_rate_kg;
-      var absR = Math.abs(r).toFixed(1);
-      var sign = r > 0 ? '+' : '−';
-      rateText = sign + absR + ' kg / wk';
-      var target = summary.target;
-      if (target) {
-        var isGoalDir = (target.direction === 'down' && r < 0) || (target.direction === 'up' && r > 0);
-        rateClass = isGoalDir ? 'hww-rate--goal' : 'hww-rate--flat';
-      }
-    }
-
-    var progressHTML = '';
-    if (summary.target) {
-      var pct = Math.max(0, Math.min(100, summary.target.progress_pct || 0));
-      progressHTML =
-        '<div class="hww-progress-wrap">' +
-          '<div class="hww-progress-bar">' +
-            '<div class="hww-progress-fill" style="width:' + pct.toFixed(1) + '%"></div>' +
-          '</div>' +
-        '</div>';
-    }
-
-    el.innerHTML = header +
-      '<div class="hww-layout">' +
-        '<div class="hww-main">' +
-          '<div class="hww-top-row">' +
-            '<span class="hww-current">' + Number(summary.current_weight).toFixed(1) + '</span>' +
-            '<span class="hww-unit">kg</span>' +
-            _hwwGapPill(summary.status_label, summary.gap_kg) +
-          '</div>' +
-          _hwwSparkline(summary.sparkline, summary.plan) +
-          '<div class="hww-avg">' + (summary.avg_7d != null ? '7-day avg ' + Number(summary.avg_7d).toFixed(1) : '') + '</div>' +
-          '<div class="hww-rate ' + rateClass + '">' + rateText + '</div>' +
-          progressHTML +
-          _hwwGoalLine(summary.target) +
-        '</div>' +
-        '<div class="hww-stepper" id="hww-stepper-area"></div>' +
-      '</div>';
-
-    _hwwInitStepper(el, summary, userId);
-  }
+  /* ---- Home Weight Widget ----
+     The "current weight" stat block is rendered by the shared component
+     js/lib/weight-current-card.js (same one the weight tab uses). This file
+     only owns the quick-log stepper below. */
 
   function _hwwInitStepper(el, summary, userId) {
     var stepperArea = el.querySelector('#hww-stepper-area');
@@ -1303,8 +1141,8 @@
           }
           loggedEntryId = entryId;
           _renderCompact(val.toFixed(1));
-          // Refresh widget data
-          loadHomeWeightWidget(userId);
+          // Refresh the shared current-weight block after logging.
+          _hwwLoadCurrentCard();
         } catch (_) {
           logBtn.disabled = false;
         }
@@ -1360,7 +1198,39 @@
       container.appendChild(card);
     }
 
-    _hwwRenderMain(card, _weightSummaryAdapter(weightBlock), userId);
+    // Left: shared "current weight" block (same component as the weight tab,
+    // js/lib/weight-current-card.js). Right: home's own quick-log stepper.
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</div>' +
+        '<a href="/weight">Open →</a>' +
+      '</div>';
+    card.innerHTML = header +
+      '<div class="hww-layout">' +
+        '<div class="hww-main">' + WeightCurrentCard.MARKUP + '</div>' +
+        '<div class="hww-stepper" id="hww-stepper-area"></div>' +
+      '</div>';
+
+    _hwwInitStepper(card, _weightSummaryAdapter(weightBlock), userId);
+    _hwwLoadCurrentCard();
+  }
+
+  // Populate the shared current-weight block from the SAME endpoints the
+  // weight tab uses, so the two widgets stay byte-for-byte identical.
+  function _hwwLoadCurrentCard() {
+    if (!window.WeightCurrentCard) return;
+    var to = new Date().toISOString().slice(0, 10);
+    var f = new Date();
+    f.setDate(f.getDate() - 90);
+    var from = f.toISOString().slice(0, 10);
+    Promise.all([
+      fetch('/api/weight-chart?from=' + from + '&to=' + to + '&include_target=true')
+        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch('/api/weight-targets/active')
+        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+    ]).then(function (res) {
+      WeightCurrentCard.render(res[0], res[1]);
+    });
   }
 
   /* ---- Init ---- */

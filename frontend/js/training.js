@@ -12,6 +12,19 @@
   var dragSrcIdx = null;
   var WORKOUT_TYPES = ['Strength', 'Running', 'Race', 'Yoga'];
 
+  function isEmbedded() {
+    return !!document.getElementById('dp-form-wrap');
+  }
+
+  function getSaveBtn() {
+    return document.getElementById('dp-save-btn') || document.getElementById('save-workout-btn');
+  }
+
+  function setSaveBtnLabel(text) {
+    var btn = getSaveBtn();
+    if (btn) btn.textContent = text;
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function todayIso() {
@@ -95,6 +108,7 @@
     customInput.style.display = value === '__custom__' ? 'block' : 'none';
     if (value !== '__custom__') customInput.value = '';
     updateRunVisibility();
+    maybeRefreshAutoName();
   }
 
   function getSelectedType() {
@@ -107,6 +121,9 @@
   }
 
   function setSelectedType(type) {
+    var key = TF.normalizeType(type);
+    if (key === 'run') type = 'Running';
+    else if (key === 'lift') type = 'Strength';
     var known = WORKOUT_TYPES.indexOf(type) !== -1;
     if (known) {
       selectChip(type);
@@ -652,6 +669,31 @@
 
   // ── Form reset / fill ─────────────────────────────────────────────────────────
 
+  function formatDateForWorkoutName(isoDate) {
+    if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate || '';
+    var p = isoDate.split('-');
+    return p[2] + '-' + p[1] + '-' + p[0];
+  }
+
+  function defaultWorkoutName(type, isoDate) {
+    var d = isoDate || todayIso();
+    return (type || 'Workout') + ' ' + formatDateForWorkoutName(d);
+  }
+
+  function applyDefaultWorkoutName() {
+    var dateEl = document.getElementById('workout-date');
+    var nameEl = document.getElementById('workout-name');
+    if (!nameEl) return;
+    var iso = dateEl && dateEl.value ? dateEl.value : todayIso();
+    nameEl.value = defaultWorkoutName(getSelectedType(), iso);
+    nameEl.dataset.autoName = '1';
+  }
+
+  function maybeRefreshAutoName() {
+    var nameEl = document.getElementById('workout-name');
+    if (nameEl && nameEl.dataset.autoName === '1') applyDefaultWorkoutName();
+  }
+
   function resetForm() {
     editingWorkoutId = null;
     document.getElementById('workout-name').value = '';
@@ -661,22 +703,25 @@
     document.getElementById('exercises-tbody').innerHTML = '';
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
-    document.getElementById('save-workout-btn').textContent = 'Save workout';
+    setSaveBtnLabel('Save workout');
     resetRunFields();
     setSelectedType('Strength');
     addExerciseRow(null);
+    applyDefaultWorkoutName();
   }
 
   function fillForm(workout) {
     editingWorkoutId = workout.id;
-    document.getElementById('workout-name').value = workout.name;
+    var nameEl = document.getElementById('workout-name');
+    nameEl.value = workout.name;
+    delete nameEl.dataset.autoName;
     document.getElementById('workout-date').value = workout.workout_date;
     document.getElementById('workout-remarks').value = workout.remarks || '';
     document.getElementById('workout-tss').value = workout.tss != null ? workout.tss : '';
     document.getElementById('exercises-tbody').innerHTML = '';
     document.getElementById('exercises-error').textContent = '';
     document.getElementById('name-error').textContent = '';
-    document.getElementById('save-workout-btn').textContent = 'Save changes';
+    setSaveBtnLabel('Save changes');
     resetRunFields();
     setSelectedType(workout.workout_type);
     if (isRunType(workout.workout_type)) {
@@ -1039,8 +1084,8 @@
       payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
     }
 
-    var btn = document.getElementById('save-workout-btn');
-    btn.disabled = true;
+    var btn = getSaveBtn();
+    if (btn) btn.disabled = true;
 
     try {
       var res;
@@ -1064,7 +1109,18 @@
         return;
       }
 
+      var saved = await res.json().catch(function () { return {}; });
       showToast(editingWorkoutId ? 'Workout updated!' : 'Workout saved!');
+
+      if (isEmbedded() && window.TrainingEditor && window.TrainingEditor._hooks.onSaved) {
+        window.TrainingEditor._hooks.onSaved({
+          ok: true,
+          data: saved,
+          isEdit: !!editingWorkoutId,
+        });
+        return;
+      }
+
       resetForm();
       var returnParam = new URLSearchParams(location.search).get('return');
       var dest = (returnParam && /^\//.test(returnParam)) ? returnParam : '/log';
@@ -1072,7 +1128,7 @@
     } catch (e) {
       showToast('Save failed: ' + e.message, true);
     } finally {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -1188,12 +1244,94 @@
     }
   }
 
+  // ── Form wiring (shared by /training page and /log side pane) ───────────────
+
+  function wireFormEvents() {
+    var addExBtn = document.getElementById('add-exercise-btn');
+    if (addExBtn) addExBtn.addEventListener('click', function () { addExerciseRow(null); });
+
+    ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s'].forEach(function (id) {
+      var e = document.getElementById(id);
+      if (e) e.addEventListener('input', function () {
+        _totalsTouched = true;
+        recomputeRunPace();
+        recomputeSegments();
+      });
+    });
+
+    document.querySelectorAll('.seg-tpl-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () { seedTemplate(chip.dataset.tpl); });
+    });
+
+    var addSegMenu = document.getElementById('add-segment-menu');
+    if (addSegMenu) {
+      addSegMenu.querySelectorAll('[data-seg]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          addSegMenu.removeAttribute('open');
+          var row = addSegmentRow(b.dataset.seg, null);
+          recomputeSegments();
+          if (row) { var first = row.querySelector('input'); if (first) first.focus(); }
+        });
+      });
+      document.addEventListener('click', function (e) {
+        if (addSegMenu.hasAttribute('open') && !addSegMenu.contains(e.target)) {
+          addSegMenu.removeAttribute('open');
+        }
+      });
+    }
+
+    var customType = document.getElementById('custom-type-input');
+    if (customType) {
+      customType.addEventListener('input', function () {
+        updateRunVisibility();
+        maybeRefreshAutoName();
+      });
+    }
+
+    var dateEl = document.getElementById('workout-date');
+    if (dateEl) dateEl.addEventListener('change', maybeRefreshAutoName);
+
+    var nameEl = document.getElementById('workout-name');
+    if (nameEl) {
+      nameEl.addEventListener('input', function () {
+        if (nameEl.dataset.autoName === '1') delete nameEl.dataset.autoName;
+      });
+    }
+  }
+
+  function initFormCore() {
+    initChips();
+    var dateEl = document.getElementById('workout-date');
+    if (dateEl && !dateEl.value) dateEl.value = todayIso();
+    var exList = document.getElementById('exercises-tbody');
+    if (exList && !exList.children.length) addExerciseRow(null);
+  }
+
+  window.TrainingEditor = {
+    _hooks: {},
+    setHooks: function (hooks) { this._hooks = hooks || {}; },
+    resetForm: resetForm,
+    fillForm: fillForm,
+    applyDefaultWorkoutName: applyDefaultWorkoutName,
+    defaultWorkoutName: defaultWorkoutName,
+    saveWorkout: saveWorkout,
+    setEditingId: function (id) { editingWorkoutId = id; },
+    init: function () { initFormCore(); wireFormEvents(); },
+    loadSuggestions: loadSuggestions,
+  };
+
   // ── Init ──────────────────────────────────────────────────────────────────────
 
   document.addEventListener('DOMContentLoaded', function () {
-    initChips();
-    document.getElementById('workout-date').value = todayIso();
-    addExerciseRow(null);
+    var onTrainingPage = !!document.getElementById('view-new');
+    var onLogPane      = !!document.getElementById('dp-form-wrap');
+
+    if (onTrainingPage || onLogPane) {
+      initFormCore();
+      wireFormEvents();
+    }
+
+    if (!onTrainingPage) return;
 
     var editId = new URLSearchParams(location.search).get('edit');
     if (editId) {
@@ -1213,48 +1351,14 @@
       btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
     });
 
-    document.getElementById('add-exercise-btn').addEventListener('click', function () {
-      addExerciseRow(null);
-    });
+    var repeatBtn = document.getElementById('repeat-last-btn');
+    if (repeatBtn) repeatBtn.addEventListener('click', repeatLastWorkout);
 
-    // Run details: live pace; typing totals directly stops segment auto-fill
-    ['run-distance', 'run-dur-h', 'run-dur-m', 'run-dur-s'].forEach(function (id) {
-      var e = document.getElementById(id);
-      if (e) e.addEventListener('input', function () {
-        _totalsTouched = true;
-        recomputeRunPace();
-        recomputeSegments();
-      });
-    });
+    var saveTemplateBtn = document.getElementById('save-template-btn');
+    if (saveTemplateBtn) saveTemplateBtn.addEventListener('click', saveTemplate);
 
-    // Segment builder: template chips + add-segment menu
-    document.querySelectorAll('.seg-tpl-chip').forEach(function (chip) {
-      chip.addEventListener('click', function () { seedTemplate(chip.dataset.tpl); });
-    });
-    var addSegMenu = document.getElementById('add-segment-menu');
-    if (addSegMenu) {
-      addSegMenu.querySelectorAll('[data-seg]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          addSegMenu.removeAttribute('open');
-          var row = addSegmentRow(b.dataset.seg, null);
-          recomputeSegments();
-          if (row) { var first = row.querySelector('input'); if (first) first.focus(); }
-        });
-      });
-      document.addEventListener('click', function (e) {
-        if (addSegMenu.hasAttribute('open') && !addSegMenu.contains(e.target)) {
-          addSegMenu.removeAttribute('open');
-        }
-      });
-    }
-
-    document.getElementById('custom-type-input').addEventListener('input', updateRunVisibility);
-
-    document.getElementById('repeat-last-btn').addEventListener('click', repeatLastWorkout);
-
-    document.getElementById('save-template-btn').addEventListener('click', saveTemplate);
-
-    document.getElementById('template-picker-btn').addEventListener('click', openTemplatePicker);
+    var templatePickerBtn = document.getElementById('template-picker-btn');
+    if (templatePickerBtn) templatePickerBtn.addEventListener('click', openTemplatePicker);
 
     // More menu: close after choosing an item or clicking outside
     var moreMenu = document.getElementById('more-menu');
@@ -1269,27 +1373,39 @@
       });
     }
 
-    document.getElementById('template-modal-close').addEventListener('click', function () {
-      document.getElementById('template-modal').style.display = 'none';
-    });
+    var templateModalClose = document.getElementById('template-modal-close');
+    if (templateModalClose) {
+      templateModalClose.addEventListener('click', function () {
+        document.getElementById('template-modal').style.display = 'none';
+      });
+    }
 
-    document.getElementById('template-modal').addEventListener('click', function (e) {
-      if (e.target === this) this.style.display = 'none';
-    });
+    var templateModal = document.getElementById('template-modal');
+    if (templateModal) {
+      templateModal.addEventListener('click', function (e) {
+        if (e.target === this) this.style.display = 'none';
+      });
+    }
 
-    document.getElementById('save-workout-btn').addEventListener('click', saveWorkout);
+    var saveWorkoutBtn = document.getElementById('save-workout-btn');
+    if (saveWorkoutBtn) saveWorkoutBtn.addEventListener('click', saveWorkout);
 
-    document.getElementById('cancel-btn').addEventListener('click', function () {
-      resetForm();
-    });
+    var cancelBtn = document.getElementById('cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { resetForm(); });
 
-    document.getElementById('detail-close-btn').addEventListener('click', function () {
-      document.getElementById('detail-modal').style.display = 'none';
-    });
+    var detailCloseBtn = document.getElementById('detail-close-btn');
+    if (detailCloseBtn) {
+      detailCloseBtn.addEventListener('click', function () {
+        document.getElementById('detail-modal').style.display = 'none';
+      });
+    }
 
-    document.getElementById('detail-modal').addEventListener('click', function (e) {
-      if (e.target === this) this.style.display = 'none';
-    });
+    var detailModal = document.getElementById('detail-modal');
+    if (detailModal) {
+      detailModal.addEventListener('click', function (e) {
+        if (e.target === this) this.style.display = 'none';
+      });
+    }
   });
 
   window.addEventListener('userReady', function (e) {
@@ -1300,6 +1416,7 @@
   window.addEventListener('userChanged', function (e) {
     currentUserId = e.detail.userId;
     loadSuggestions();
+    if (isEmbedded()) return;
     if (currentView === 'history') {
       loadHistory();
     } else {

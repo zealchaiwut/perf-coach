@@ -10,12 +10,21 @@ from pathlib import Path
 
 WEIGHT_HTML = Path(__file__).parent.parent / "frontend" / "pages" / "weight.html"
 WEIGHT_JS   = Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
+# Card A ("current weight") render + styling were extracted into a shared
+# component so the home page and weight tab share one implementation. The
+# weight page's effective source = weight.{html,js} PLUS the shared files.
+CARD_JS  = Path(__file__).parent.parent / "frontend" / "js" / "lib" / "weight-current-card.js"
+CARD_CSS = Path(__file__).parent.parent / "frontend" / "css" / "weight-current-card.css"
 
-html = WEIGHT_HTML.read_text()
-js   = WEIGHT_JS.read_text()
+_weight_html = WEIGHT_HTML.read_text()
+_card_css    = CARD_CSS.read_text()
+html = _weight_html + "\n" + _card_css
+js   = WEIGHT_JS.read_text() + "\n" + CARD_JS.read_text()
 html_lower = html.lower()
-css_block  = re.search(r"<style>(.*?)</style>", html, re.DOTALL)
-css_text   = css_block.group(1) if css_block else ""
+# css_text spans the weight page's inline <style> plus the shared stylesheet,
+# since Card A's rules now live in the shared file.
+css_block  = re.search(r"<style>(.*?)</style>", _weight_html, re.DOTALL)
+css_text   = (css_block.group(1) if css_block else "") + "\n" + _card_css
 
 
 # ── Layout & Responsive ─────────────────────────────────────────────────────

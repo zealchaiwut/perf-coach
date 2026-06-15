@@ -8,12 +8,14 @@ const WeightChart = (() => {
   const CW  = VW - PAD.left - PAD.right;  // 834
   const CH  = VH - PAD.top  - PAD.bottom; // 232
 
-  // Zone layout: [past 20%][current 60%][future 20%] when a target exists.
-  // Without a target the current range fills the full width. Thin separators
-  // divide the zones.
-  const PAST_W   = Math.round(CW * 0.20);
-  const FUTURE_W = Math.round(CW * 0.20);
-  const CUR_W3   = CW - PAST_W - FUTURE_W;   // current-zone width in 3-zone mode
+  // Zone layout: [past ~6%][present ~88%][future ~6%] when a target exists (desktop).
+  // On mobile/tablet (≤880px) rails are dropped — present fills full width.
+  const RAIL_FR  = 0.06;
+  const MOBILE_CHART_H = 640; // taller viewBox height below this width (issue #515)
+  const MOBILE_LAYOUT_W = 880; // drop past/future rails below this width
+  const PAST_W   = Math.round(CW * RAIL_FR);
+  const FUTURE_W = Math.round(CW * RAIL_FR);
+  const CUR_W3   = CW - PAST_W - FUTURE_W;
 
   const PAST_L   = PAD.left;
   const PAST_R   = PAST_L + PAST_W;
@@ -34,6 +36,8 @@ const WeightChart = (() => {
     gap_ahead:    '#16a34a',
     gap_bg_behind:'#fee2e2',
     gap_bg_ahead: '#dcfce7',
+    fill_ahead:   'rgba(22, 163, 74, 0.17)',
+    fill_behind:  'rgba(220, 38, 38, 0.17)',
   };
 
   let _tooltip   = null;
@@ -117,6 +121,125 @@ const WeightChart = (() => {
     if (_tooltip) _tooltip.style.display = 'none';
   }
 
+  function _isLossGoal(data) {
+    const t = data.target;
+    if (!t || t.start_weight_kg == null || t.target_weight_kg == null) return true;
+    return t.start_weight_kg > t.target_weight_kg;
+  }
+
+  function _trendAhead(trendKg, planKg, isLoss) {
+    if (isLoss) return trendKg <= planKg;
+    return trendKg >= planKg;
+  }
+
+  function _crossPoint(a, b) {
+    const denom = (b.t - a.t) - (b.p - a.p);
+    if (Math.abs(denom) < 1e-6) return { x: b.x, t: b.t, p: b.p };
+    const frac = Math.max(0, Math.min(1, (a.p - a.t) / denom));
+    return {
+      x: a.x + frac * (b.x - a.x),
+      t: a.t + frac * (b.t - a.t),
+      p: a.p + frac * (b.p - a.p),
+    };
+  }
+
+  function _drawGapPolygon(svg, pts, yFn, ahead) {
+    if (pts.length < 2) return;
+    let d = 'M ' + pts[0].x.toFixed(2) + ' ' + yFn(pts[0].t).toFixed(2);
+    for (let k = 1; k < pts.length; k++) {
+      d += ' L ' + pts[k].x.toFixed(2) + ' ' + yFn(pts[k].t).toFixed(2);
+    }
+    for (let k = pts.length - 1; k >= 0; k--) {
+      d += ' L ' + pts[k].x.toFixed(2) + ' ' + yFn(pts[k].p).toFixed(2);
+    }
+    d += ' Z';
+    svg.appendChild(_el('path', {
+      d,
+      fill: ahead ? C.fill_ahead : C.fill_behind,
+      stroke: 'none',
+    }));
+  }
+
+  function _renderGapFill(svg, data, xIdx, y) {
+    if (!data.plan_series || !data.plan_series.length) return;
+    const planByDate = {};
+    data.plan_series.forEach(p => { planByDate[p.date] = p.plan_kg; });
+    const isLoss = _isLossGoal(data);
+
+    const segs = [];
+    let cur = [];
+    (data.trend || []).forEach((p, idx) => {
+      if (p.weight_kg == null) {
+        if (cur.length >= 2) segs.push(cur);
+        cur = [];
+      } else {
+        const plan = planByDate[p.date];
+        if (plan != null) {
+          cur.push({ x: xIdx(idx), t: p.weight_kg, p: plan });
+        }
+      }
+    });
+    if (cur.length >= 2) segs.push(cur);
+
+    segs.forEach(seg => {
+      let i = 0;
+      while (i < seg.length - 1) {
+        const ahead = _trendAhead(seg[i].t, seg[i].p, isLoss);
+        let j = i + 1;
+        while (j < seg.length && _trendAhead(seg[j].t, seg[j].p, isLoss) === ahead) j++;
+        const poly = seg.slice(i, j);
+        if (j < seg.length) poly.push(_crossPoint(seg[j - 1], seg[j]));
+        _drawGapPolygon(svg, poly, y, ahead);
+        i = j < seg.length ? j : seg.length;
+      }
+    });
+  }
+
+  function _updateVerdictBanner(data) {
+    const wrap = document.getElementById('chart-verdict');
+    const pill = document.getElementById('chart-verdict-pill');
+    const text = document.getElementById('chart-verdict-text');
+    if (!wrap || !pill || !text) return;
+
+    const tm = data.today_marker;
+    const dir = tm && tm.gap_direction;
+    if (!tm || !dir || dir === 'no_data' || tm.gap_kg == null) {
+      wrap.hidden = true;
+      return;
+    }
+
+    wrap.hidden = false;
+    const isAhead  = dir === 'ahead';
+    const isBehind = dir === 'behind';
+    const absGap   = Math.abs(tm.gap_kg).toFixed(1);
+    const sign     = isAhead ? '−' : '+';
+
+    pill.className = 'chart-verdict-pill' +
+      (isAhead ? ' chart-verdict-pill--ahead' :
+       isBehind ? ' chart-verdict-pill--behind' : ' chart-verdict-pill--on-track');
+    pill.textContent = isAhead
+      ? 'AHEAD ' + sign + absGap + ' kg'
+      : isBehind
+        ? 'BEHIND ' + sign + absGap + ' kg'
+        : 'ON TRACK';
+
+    const trendStr = tm.trend_kg != null ? tm.trend_kg.toFixed(1) : '—';
+    const planStr  = tm.plan_kg  != null ? tm.plan_kg.toFixed(1)  : '—';
+    const sideWord = isAhead ? 'below' : (isBehind ? 'above' : 'on');
+    const fillWord = isAhead ? 'green' : 'red';
+    let summary = 'Trend sits ' + sideWord + ' the plan line — gap shaded ' + fillWord +
+      '. 7-day avg ' + trendStr + ' vs plan ' + planStr;
+
+    const tgt = data.target;
+    if (tgt && tgt.target_date) {
+      const goalD = new Date(tgt.target_date + 'T00:00:00');
+      const goalLbl = goalD.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      summary += ' · goal ' + (tgt.target_weight_kg != null ? tgt.target_weight_kg.toFixed(0) : '') +
+        ' kg by ' + goalLbl;
+    }
+    text.textContent = summary;
+  }
+
   function _findNearestDot(svgEl, clientX, clientY) {
     const rect   = svgEl.getBoundingClientRect();
     const scaleX = VW / (rect.width  || 1);
@@ -176,19 +299,21 @@ const WeightChart = (() => {
 
     // Taller plot on mobile so the trend has vertical room to read (≈3.2:1
     // desktop sliver → ~1.9:1 on phones).
-    _VH = (window.innerWidth <= 640) ? 480 : VH;
+    const narrow = window.innerWidth <= MOBILE_LAYOUT_W;
+    _VH = (window.innerWidth <= MOBILE_CHART_H) ? 520 : (narrow ? 400 : VH);
     _CH = _VH - PAD.top - PAD.bottom;
 
     // Persistent (always-visible) labels for current weight, plan, gap, and
     // milestone values on narrow viewports — touch devices can't hover.
     const isMobile = window.innerWidth <= 480;
+    const isMobileChart = narrow;
 
     const hasTarget    = !!(data.plan_series && data.plan_series.length);
     const hasFuture    = !!(data.future_milestones && data.future_milestones.length);
 
-    // Three-zone layout whenever a target exists: [past][current][future].
-    const threeZone     = hasTarget;
-    const hasFutureZone = threeZone;  // reused by the milestone-rendering branch
+    // Three-zone on desktop when a target exists; mobile drops rails.
+    const threeZone     = hasTarget && !isMobileChart;
+    const hasFutureZone = threeZone;
     const curL = threeZone ? CUR_L3 : PAD.left;
     const curR = threeZone ? CUR_R3 : (PAD.left + CW - 80);
     const curW = curR - curL;
@@ -205,6 +330,11 @@ const WeightChart = (() => {
       role: 'img',
     });
     svg.setAttribute('width', '100%');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.display = 'block';
+    svg.style.width = '100%';
+    svg.style.height = 'auto';
+    svg.style.aspectRatio = VW + ' / ' + _VH;
     container.appendChild(svg);
 
     _activeDots = [];
@@ -245,6 +375,18 @@ const WeightChart = (() => {
           x1: sx, y1: PAD.top, x2: sx, y2: PAD.top + _CH,
           stroke: C_SEP, 'stroke-width': '1',
         }));
+      });
+      // Rail labels
+      ['PAST', 'FUTURE'].forEach((lbl, zi) => {
+        const cx = zi === 0 ? (PAST_L + PAST_R) / 2 : (FUTURE_L + FUTURE_R) / 2;
+        const t = _el('text', {
+          x: cx, y: PAD.top + 11,
+          'text-anchor': 'middle', 'font-size': '7.5',
+          fill: '#b0b8cc', 'font-weight': '600',
+          'letter-spacing': '0.08em',
+        });
+        t.textContent = lbl;
+        svg.appendChild(t);
       });
     }
 
@@ -290,6 +432,9 @@ const WeightChart = (() => {
       }
     }
 
+    // ── Gap-vs-plan area fill (green ahead / red behind; pauses on null gaps) ──
+    _renderGapFill(svg, data, xIdx, y);
+
     // ── Past zone: thin grey line through earlier weigh-ins (no dots) ────
     if (threeZone && (data.past_actuals || []).length) {
       const pa = data.past_actuals;
@@ -317,13 +462,14 @@ const WeightChart = (() => {
       }
     }
 
-    // ── 5. Gray weigh-in dots ───────────────────────────────────────────
+    // ── 5. Gray weigh-in dots (one per actual entry in present window) ─────
+    const dotR = isMobileChart ? '5' : '3.5';
     (data.actuals || []).forEach(p => {
       const px = xDate(p.date);
       if (px == null) return;
       const py = y(p.weight_kg);
       svg.appendChild(_el('circle', {
-        cx: px, cy: py, r: '3.5', fill: C.actual,
+        cx: px, cy: py, r: dotR, fill: C.actual,
       }));
       _activeDots.push({ cx: px, cy: py, date: p.date, kg: p.weight_kg });
     });
@@ -462,76 +608,66 @@ const WeightChart = (() => {
 
     // (Zone boundaries are drawn as thin separators above; no axis-break glyph.)
 
-    // ── Future zone content ─────────────────────────────────────────────
+    // ── Future zone: next milestone diamond + goal dot only ───────────────
     if (hasFutureZone) {
-      // "MILESTONES AHEAD" tag — only when the future strip is wide enough.
-      if (FUTURE_W >= 110) {
-        const tagW = 96, tagH = 16;
-        const tagY = PAD.top + 6;
-        const tagX = FUTURE_L + (FUTURE_W - tagW) / 2;
-        svg.appendChild(_el('rect', {
-          x: tagX, y: tagY, width: tagW, height: tagH, rx: '4',
-          fill: '#dbeafe',
+      const milestones = data.future_milestones || [];
+      const goalMs = milestones.find(m => m.kind === 'goal');
+      const nextMs = milestones.find(m => m.kind !== 'goal');
+
+      const tmPlan = data.today_marker ? data.today_marker.plan_kg : null;
+      const fpts = [];
+      if (tmPlan != null) fpts.push(curR + ',' + y(tmPlan));
+
+      const nextX = FUTURE_L + FUTURE_W * 0.38;
+      const goalX = FUTURE_R - 8;
+
+      if (nextMs) {
+        fpts.push(nextX + ',' + y(nextMs.plan_kg));
+        const my = y(nextMs.plan_kg);
+        const s = 6;
+        svg.appendChild(_el('polygon', {
+          points: nextX + ',' + (my - s) + ' ' + (nextX + s) + ',' + my + ' ' +
+            nextX + ',' + (my + s) + ' ' + (nextX - s) + ',' + my,
+          fill: '#fff', stroke: C.plan, 'stroke-width': '2',
         }));
-        const tagT = _el('text', {
-          x: FUTURE_L + FUTURE_W / 2, y: tagY + tagH / 2,
-          'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          'font-size': '8', fill: '#1d4ed8', 'font-weight': '700',
-        });
-        tagT.textContent = 'MILESTONES AHEAD';
-        svg.appendChild(tagT);
+        _activeDots.push({ cx: nextX, cy: my, date: nextMs.date, kg: nextMs.plan_kg });
       }
 
-      // Milestone markers (evenly spaced x-positions)
-      const milestones = data.future_milestones;
-      const mc = milestones.length;
+      if (goalMs) {
+        fpts.push(goalX + ',' + y(goalMs.plan_kg));
+        const gy = y(goalMs.plan_kg);
+        svg.appendChild(_el('circle', {
+          cx: goalX, cy: gy, r: '6',
+          fill: C.plan, stroke: '#fff', 'stroke-width': '1.5',
+        }));
+        _activeDots.push({ cx: goalX, cy: gy, date: goalMs.date, kg: goalMs.plan_kg });
+      }
 
-      // Green dotted line: today's plan point → each future milestone
-      const fpts = [];
-      const tmPlan = data.today_marker ? data.today_marker.plan_kg : null;
-      if (tmPlan != null) fpts.push(`${curR},${y(tmPlan)}`);
-      milestones.forEach((m, i) => {
-        fpts.push(`${FUTURE_L + ((i + 1) / (mc + 1)) * FUTURE_W},${y(m.plan_kg)}`);
-      });
       if (fpts.length >= 2) {
         svg.appendChild(_el('polyline', {
           points: fpts.join(' '), fill: 'none', stroke: C.plan,
           'stroke-width': '1.5', 'stroke-dasharray': '2 3',
         }));
       }
+    }
 
-      milestones.forEach((m, i) => {
-        const mx = FUTURE_L + ((i + 1) / (mc + 1)) * FUTURE_W;
-        const my = y(m.plan_kg);
-        const isGoal = m.kind === 'goal';
-
-        if (isGoal) {
-          // Solid green circle for goal
-          svg.appendChild(_el('circle', {
-            cx: mx, cy: my, r: '6',
-            fill: C.plan, stroke: '#fff', 'stroke-width': '1.5',
-          }));
-        } else {
-          // White-filled green diamond for intermediate milestone
-          const s = 6;
-          svg.appendChild(_el('polygon', {
-            points: `${mx},${my - s} ${mx + s},${my} ${mx},${my + s} ${mx - s},${my}`,
-            fill: '#fff', stroke: C.plan, 'stroke-width': '2',
-          }));
-        }
-
-        _activeDots.push({ cx: mx, cy: my, date: m.date, kg: m.plan_kg });
-        // Persistent milestone label on mobile
-        if (isMobile) {
-          const msLbl = _el('text', {
-            x: mx, y: my - 10,
-            'text-anchor': 'middle', 'font-size': '10',
-            fill: C.plan, 'font-weight': '600',
-          });
-          msLbl.textContent = m.plan_kg.toFixed(1) + ' kg';
-          svg.appendChild(msLbl);
-        }
+    // ── Mobile: goal chip pinned at right edge on plan line ───────────────
+    if (isMobileChart && hasTarget && data.target && data.target.target_weight_kg != null) {
+      const gx = curR - 4;
+      const gy = y(data.target.target_weight_kg);
+      const chipW = 62, chipH = 20;
+      svg.appendChild(_el('rect', {
+        x: gx - chipW, y: gy - chipH / 2, width: chipW, height: chipH, rx: '6',
+        fill: '#fff', stroke: C.plan, 'stroke-width': '1',
+      }));
+      const chipT = _el('text', {
+        x: gx - chipW / 2, y: gy,
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': '9', fill: C.plan, 'font-weight': '700',
+        'font-family': 'JetBrains Mono, monospace',
       });
+      chipT.textContent = data.target.target_weight_kg.toFixed(0) + ' · goal';
+      svg.appendChild(chipT);
     }
 
     // ── "milestones ↓" link (shown when future zone is suppressed but target exists) ──
@@ -581,6 +717,8 @@ const WeightChart = (() => {
       }
     }, { passive: true });
     svg.addEventListener('touchend', () => _hideTooltip());
+
+    _updateVerdictBanner(data);
   }
 
   return { render };
