@@ -4150,6 +4150,10 @@ class WorkoutPatch(BaseModel):
     strava_activity_url: Optional[str] = None
 
 
+class WorkoutDuplicateIn(BaseModel):
+    workout_date: str  # YYYY-MM-DD — the date the copy should land on
+
+
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
     sets: Optional[int] = None
@@ -4569,6 +4573,98 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
     return Response(status_code=204)
+
+
+@app.post("/api/workouts/{workout_id}/duplicate", status_code=201)
+def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = Depends(resolve_user)):
+    """Create a full, independent copy of an existing workout on a new date.
+
+    The copy carries over the workout's manual fields and every exercise
+    (sets/reps/weights/etc.). It is recorded as a fresh manual entry: source is
+    cleared and any Strava/Stryd links are dropped so the copy is independently
+    editable and not subject to sync reconciliation (issue #524).
+    """
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    try:
+        new_date = _date.fromisoformat(body.workout_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
+    if new_date > _date.today():
+        raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
+
+    with Session(engine) as session:
+        src = session.get(Workout, wid)
+        if src is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if src.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        src_exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+
+        copy = Workout(
+            user_id=user.id,
+            name=src.name,
+            workout_date=new_date,
+            workout_type=src.workout_type,
+            remarks=src.remarks,
+            tss=src.tss,
+            tss_source='manual' if src.tss is not None else None,
+            distance_km=src.distance_km,
+            duration_seconds=src.duration_seconds,
+            avg_hr=src.avg_hr,
+            max_hr=src.max_hr,
+            elevation_m=src.elevation_m,
+            zone2_minutes=src.zone2_minutes,
+            source='manual',
+        )
+        session.add(copy)
+        session.flush()
+
+        new_exercises = []
+        for ex in src_exercises:
+            e = WorkoutExercise(
+                workout_id=copy.id,
+                display_order=ex.display_order,
+                name=ex.name,
+                sets=ex.sets,
+                reps=ex.reps,
+                weight_kg=ex.weight_kg,
+                duration=ex.duration,
+                rpe=ex.rpe,
+                distance_km=ex.distance_km,
+                duration_seconds=ex.duration_seconds,
+                avg_hr=ex.avg_hr,
+                sets_json=ex.sets_json,
+            )
+            session.add(e)
+            new_exercises.append(e)
+
+        session.commit()
+        session.refresh(copy)
+        for e in new_exercises:
+            session.refresh(e)
+
+        try:
+            daily_update(str(user.id), new_date)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", user.id, new_date, _exc, exc_info=True
+            )
+        try:
+            _recompute_autofill(user.id, _week_start_bangkok(new_date))
+        except Exception as _af_exc:
+            _logging.getLogger(__name__).warning(
+                "autofill recompute failed for user %s week %s: %s", user.id, new_date, _af_exc
+            )
+        return JSONResponse(status_code=201, content=_workout_dict(copy, new_exercises))
 
 
 @app.post("/api/workouts/{workout_id}/exercises/reorder", status_code=200)
