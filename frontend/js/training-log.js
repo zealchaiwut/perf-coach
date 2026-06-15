@@ -1646,17 +1646,138 @@
     });
   }
 
+  // ── Repeat last workout (issue #524) ──────────────────────────────────────
+  // The /log page surfaces the action; the prefill itself reuses the existing
+  // repeatLastWorkout entry point on the form page (out of scope to duplicate).
+  function repeatLastEntryPoint() {
+    window.location.href = '/training?repeat=1';
+  }
+
+  // Enable the button only when a previous workout exists; otherwise disable it
+  // with an explanatory empty-state title (AC6). Checks a long window so a user
+  // with history but an empty current week still sees it enabled.
+  function refreshRepeatAvailability() {
+    var btn = document.getElementById('log-repeat-last-btn');
+    if (!btn) return;
+    var to = todayISO();
+    var from = addDays(to, -1095); // ~3 years, matches the form-side repeat window
+    fetch('/api/workouts?from=' + from + '&to=' + to)
+      .then(function (res) { return res.ok ? res.json() : []; })
+      .then(function (workouts) {
+        var has = Array.isArray(workouts) && workouts.length > 0;
+        btn.disabled = !has;
+        btn.title = has
+          ? 'Repeat your most recent workout'
+          : 'No previous workout to repeat';
+      })
+      .catch(function () { /* leave the button disabled on error */ });
+  }
+
+  // ── Duplicate to date (issue #524) ────────────────────────────────────────
+  function openDuplicateModal() {
+    if (!activeDetailWorkoutId) return;
+    var modal = document.getElementById('dup-modal');
+    var input = document.getElementById('dup-date-input');
+    var err   = document.getElementById('dup-date-error');
+    if (err) err.textContent = '';
+    if (input) {
+      input.max   = todayISO();   // no future dates (mirrors the backend rule)
+      input.value = todayISO();
+    }
+    if (modal) {
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+    if (input) input.focus();
+  }
+
+  function closeDuplicateModal() {
+    var modal = document.getElementById('dup-modal');
+    if (!modal) return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function dupModalIsOpen() {
+    var modal = document.getElementById('dup-modal');
+    return !!(modal && modal.classList.contains('is-open'));
+  }
+
+  function confirmDuplicate() {
+    var input = document.getElementById('dup-date-input');
+    var err   = document.getElementById('dup-date-error');
+    var btn   = document.getElementById('dup-confirm-btn');
+    if (!activeDetailWorkoutId || !input) return;
+    var date = input.value;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      if (err) err.textContent = 'Pick a valid date.';
+      return;
+    }
+    if (date > todayISO()) {
+      if (err) err.textContent = 'Date cannot be in the future.';
+      return;
+    }
+    if (btn) btn.disabled = true;
+    fetch('/api/workouts/' + activeDetailWorkoutId + '/duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workout_date: date }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function () {
+        closeDuplicateModal();
+        closeDetailPanel();
+        UIStates.showToast('Workout duplicated');
+        fetchAndRender();
+        refreshRepeatAvailability();
+      })
+      .catch(function () {
+        if (err) err.textContent = 'Could not duplicate. Please try again.';
+      })
+      .finally(function () {
+        if (btn) btn.disabled = false;
+      });
+  }
+
   // ── Init ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function () {
     readURLParams();
     buildFilterBar();
     fetchAndRender();
     initSwipe();
+    refreshRepeatAvailability();
 
     _syncPollStatus();
 
     window.addEventListener('userChanged', function () {
       fetchAndRender();
+      refreshRepeatAvailability();
+    });
+
+    var repeatBtn = document.getElementById('log-repeat-last-btn');
+    if (repeatBtn) repeatBtn.addEventListener('click', function () {
+      if (!repeatBtn.disabled) repeatLastEntryPoint();
+    });
+
+    var dupBtn = document.getElementById('dp-duplicate-btn');
+    if (dupBtn) dupBtn.addEventListener('click', openDuplicateModal);
+
+    var dupCloseBtn  = document.getElementById('dup-close-btn');
+    if (dupCloseBtn) dupCloseBtn.addEventListener('click', closeDuplicateModal);
+    var dupCancelBtn = document.getElementById('dup-cancel-btn');
+    if (dupCancelBtn) dupCancelBtn.addEventListener('click', closeDuplicateModal);
+    var dupBackdrop  = document.getElementById('dup-backdrop');
+    if (dupBackdrop) dupBackdrop.addEventListener('click', closeDuplicateModal);
+    var dupForm = document.getElementById('dup-form');
+    if (dupForm) dupForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      confirmDuplicate();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && dupModalIsOpen()) closeDuplicateModal();
     });
 
     var syncStravaBtn = document.getElementById('sync-strava-btn');
