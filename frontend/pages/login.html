@@ -91,6 +91,29 @@
       background: #fff;
     }
 
+    .password-wrap { position: relative; }
+    .password-wrap input { padding-right: 44px; }
+    .reveal-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+      width: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      color: #8a93ab;
+      font-size: 18px;
+      transition: color 0.15s;
+    }
+    .reveal-btn:hover { color: #2b4ca8; }
+    .reveal-btn:focus-visible { outline: 2px solid #2b4ca8; outline-offset: -2px; border-radius: 8px; }
+
     .error-msg {
       display: flex;
       align-items: center;
@@ -190,7 +213,12 @@
     </div>
     <div class="field">
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <div class="password-wrap">
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="button" id="reveal-btn" class="reveal-btn" aria-label="Show password" aria-pressed="false">
+          <i class="ti ti-eye" aria-hidden="true"></i>
+        </button>
+      </div>
     </div>
     <div id="error-msg" class="error-msg" hidden>
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
@@ -246,6 +274,16 @@
   function hideError() {
     errorMsg.hidden = true;
   }
+
+  var revealBtn = document.getElementById('reveal-btn');
+  var passwordInput = document.getElementById('password');
+  revealBtn.addEventListener('click', function () {
+    var show = passwordInput.type === 'password';
+    passwordInput.type = show ? 'text' : 'password';
+    revealBtn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    revealBtn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    revealBtn.querySelector('i').className = show ? 'ti ti-eye-off' : 'ti ti-eye';
+  });
 
   fetch('/api/auth/google-status')
     .then(function (r) { return r.json(); })
