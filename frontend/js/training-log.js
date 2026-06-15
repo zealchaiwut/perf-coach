@@ -1805,12 +1805,17 @@
     var todayStr = toISODate(today);
     var isCurrentWeek = weekContainsToday(monday);
 
+    // A pill is "selected" only when the list filter is pinned to exactly that
+    // single day (filters.from === filters.to === the pill's date). issue #523
+    var isDayFilter = !!filters.from && filters.from === filters.to;
+
     var pillsHtml = '';
     for (var i = 0; i < 7; i++) {
       var d = new Date(monday);
       d.setDate(d.getDate() + i);
       var dateStr = toISODate(d);
       var isToday = dateStr === todayStr;
+      var isSelected = isDayFilter && filters.from === dateStr;
 
       var typesForDay = dotsByDate[dateStr] || [];
       var dotsHtml = TYPE_ORDER
@@ -1820,12 +1825,21 @@
         })
         .join('');
 
+      // Full, human-readable date for screen readers, e.g. "Monday, June 9".
+      var ariaLabel = d.toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric'
+      });
+
       pillsHtml +=
-        '<div class="day-pill' + (isToday ? ' today' : '') + '">' +
+        '<button type="button" class="day-pill' +
+            (isToday ? ' today' : '') + (isSelected ? ' is-selected' : '') + '"' +
+          ' data-date="' + dateStr + '"' +
+          ' aria-pressed="' + (isSelected ? 'true' : 'false') + '"' +
+          ' aria-label="' + esc(ariaLabel) + '">' +
           '<span class="day-name">' + DAY_NAMES[i] + '</span>' +
           '<span class="day-num">' + d.getDate() + '</span>' +
           '<div class="wd-dots">' + dotsHtml + '</div>' +
-        '</div>';
+        '</button>';
     }
 
     strip.innerHTML =
@@ -1856,6 +1870,63 @@
       pushWeekParam(currentMonday);
       loadAndRender(currentMonday);
     });
+
+    // issue #523: wire each (native, keyboard-operable) day pill to the
+    // selection handler. Real <button>s already fire click on Enter & Space,
+    // so no extra keydown handling is needed.
+    var pillEls = strip.querySelectorAll('.day-pill');
+    Array.prototype.forEach.call(pillEls, function (pill) {
+      pill.addEventListener('click', function () {
+        selectDay(pill.getAttribute('data-date'));
+      });
+    });
+
+    // issue #523: on load (and re-render) bring the selected pill — or today's
+    // pill on the current week — into view regardless of viewport width.
+    var focusDate = (isDayFilter && filters.from) ? filters.from
+                  : (isCurrentWeek ? todayStr : null);
+    if (focusDate) {
+      var target = strip.querySelector('.day-pill[data-date="' + focusDate + '"]');
+      if (target) scrollPillIntoView(target);
+    }
+  }
+
+  // Centre a pill within the horizontally-scrolling strip without disturbing
+  // vertical page scroll. issue #523 (AC3 — works on all screen widths).
+  function scrollPillIntoView(pill) {
+    var container = pill.parentElement; // .ws-pills
+    if (!container) return;
+    var offset = pill.offsetLeft - (container.clientWidth - pill.clientWidth) / 2;
+    container.scrollLeft = Math.max(0, offset);
+  }
+
+  // issue #523: tapping a day pill filters the log list to that single date.
+  // Tapping the already-selected pill clears the filter (back to full list).
+  function selectDay(dateStr) {
+    if (!dateStr) return;
+    var alreadySelected = !!filters.from && filters.from === filters.to
+                          && filters.from === dateStr;
+    if (alreadySelected) {
+      filters.from = '';
+      filters.to = '';
+    } else {
+      filters.from = dateStr;
+      filters.to = dateStr;
+    }
+    writeURLParams();
+    syncDateRangeChip();
+    fetchAndRender();          // re-render the log list in place
+    loadAndRender(currentMonday); // re-render the strip to update selection
+  }
+
+  // Keep the date-range chip / inputs in sync when a pill drives the filter.
+  function syncDateRangeChip() {
+    var chip = document.getElementById('dr-chip');
+    if (chip) chip.textContent = drLabel() + ' ▾';
+    var fromInput = document.getElementById('dr-from');
+    if (fromInput) fromInput.value = filters.from;
+    var toInput = document.getElementById('dr-to');
+    if (toInput) toInput.value = filters.to;
   }
 
   document.addEventListener('DOMContentLoaded', function () {
