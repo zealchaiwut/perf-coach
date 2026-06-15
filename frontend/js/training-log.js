@@ -1494,6 +1494,35 @@
     if (err) { err.textContent = message; err.classList.add('is-visible'); }
   }
 
+  // issue #525: pre-select the Type field with the user's most recently logged
+  // workout type so they don't re-pick their usual type on every quick log. The
+  // default comes from the server (the user's own workout history via
+  // /api/workouts/recent-type), so it is persisted per user — not per browser
+  // session — and never leaks across users. With no history the request returns
+  // null and the select keeps its built-in default. The raw stored type is run
+  // through the shared normalizer so values like "Running"/"Strength" map onto
+  // the canonical option keys (run/lift/wod/bike). Only the select's value is
+  // set — no marker/indicator — so a pre-selected type looks identical to a
+  // manual one, and the user can freely override it before submitting.
+  function prefillDefaultWorkoutType() {
+    var typeSel = qaEl('qa-type');
+    if (!typeSel) return;
+    fetch('/api/workouts/recent-type')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.workout_type) return;
+        // Bail if the user already touched the field while the request was in
+        // flight, so we never clobber an in-progress manual selection.
+        if (typeSel.value) return;
+        var key = normalizeTypeKey(data.workout_type);
+        var hasOption = Array.prototype.some.call(typeSel.options, function (o) {
+          return o.value === key;
+        });
+        if (hasOption) typeSel.value = key;
+      })
+      .catch(function () { /* non-fatal: keep the built-in default */ });
+  }
+
   function openQuickAdd() {
     var modal = qaEl('quick-add-modal');
     if (!modal) return;
@@ -1503,6 +1532,8 @@
     // Default the date to today for the common "log today's workout" case.
     var dateInput = qaEl('qa-date');
     if (dateInput && !dateInput.value) dateInput.value = todayISO();
+    // Default the Type to the user's most recently logged type (issue #525).
+    prefillDefaultWorkoutType();
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
     var nameInput = qaEl('qa-name');
