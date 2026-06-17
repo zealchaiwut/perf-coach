@@ -1,13 +1,13 @@
 """Golden fixture regression tests for workout metrics (issue #577).
 
 Acceptance criteria covered:
-  AC-fixture        — tests/fixtures/golden_run.json exists and is well-formed
-  AC-expected       — tests/fixtures/golden_run_expected.json exists with required keys
-  AC-np-value       — normalized_power result matches expected within ±0.01 (exact int match)
-  AC-np-exact       — final_value matches expected within ±0.1% relative tolerance
-  AC-tss-skip       — tss placeholder is explicitly skipped with a future-ticket note
-  AC-profile-skip   — detected_profile placeholder is explicitly skipped with a future-ticket note
-  AC-regression     — a deliberate mutation to the formula produces a detectable diff
+  AC-fixture      — tests/fixtures/golden_run.json exists and is well-formed
+  AC-expected     — tests/fixtures/golden_run_expected.json exists w/ required keys
+  AC-np-value     — normalized_power result matches expected within ±0.01
+  AC-np-exact     — final_value matches expected within ±0.1% relative tolerance
+  AC-tss-skip     — tss placeholder is explicitly skipped with future-ticket note
+  AC-profile-skip — detected_profile placeholder skipped with future-ticket note
+  AC-regression   — a deliberate mutation to the formula produces a detectable diff
 """
 
 import json
@@ -74,7 +74,7 @@ def test_fixture_streams_present(golden_run):
 
 
 def test_fixture_no_zeroed_streams(golden_run):
-    """AC-fixture: no stream channel should be all zeros (would indicate synthetic data)."""
+    """AC-fixture: no stream channel should be all zeros (synthetic data check)."""
     for channel, values in golden_run["streams"].items():
         if channel == "time_offset_seconds":
             continue
@@ -108,22 +108,22 @@ def test_expected_has_normalized_power_key(golden_expected):
 
 
 def test_expected_has_tss_placeholder(golden_expected):
-    """AC-expected: expected-outputs must have a 'tss' key with null value and placeholder note."""
+    """AC-expected: 'tss' key with null value and placeholder note must exist."""
     assert "tss" in golden_expected
     entry = golden_expected["tss"]
     assert entry["value"] is None
     assert "PLACEHOLDER" in entry.get("placeholder_note", ""), (
-        "tss entry must contain a 'placeholder_note' with the word PLACEHOLDER"
+        "tss entry must have 'placeholder_note' with word PLACEHOLDER"
     )
 
 
 def test_expected_has_detected_profile_placeholder(golden_expected):
-    """AC-expected: expected-outputs must have 'detected_profile' with null value and placeholder note."""
+    """AC-expected: 'detected_profile' key with null and placeholder note exists."""
     assert "detected_profile" in golden_expected
     entry = golden_expected["detected_profile"]
     assert entry["value"] is None
     assert "PLACEHOLDER" in entry.get("placeholder_note", ""), (
-        "detected_profile entry must contain a 'placeholder_note' with the word PLACEHOLDER"
+        "detected_profile entry must have 'placeholder_note' with word PLACEHOLDER"
     )
 
 
@@ -131,11 +131,11 @@ def test_expected_has_detected_profile_placeholder(golden_expected):
 
 
 def test_normalized_power_matches_expected_value(golden_run, golden_expected):
-    """AC-np-value: compute_normalized_power on the fixture must match expected value within ±0.01.
+    """AC-np-value: compute_normalized_power on fixture matches expected ±0.01.
 
-    Tolerance choice: normalized_power is returned as a rounded integer (watts).
-    An absolute tolerance of ±0.01 on an integer is effectively exact equality —
-    any formula change that shifts the rounded result by ≥1 W will fail this test.
+    Tolerance: normalized_power is returned as rounded integer (watts).
+    Absolute tolerance ±0.01 on integer is effectively exact equality —
+    any formula change shifting rounded result by ≥1 W will fail this test.
     """
     power_stream = golden_run["streams"]["power_w"]
     sample_interval = golden_run["metadata"]["sample_interval_seconds"]
@@ -144,18 +144,22 @@ def test_normalized_power_matches_expected_value(golden_run, golden_expected):
 
     np_val, _ = compute_normalized_power(power_stream, sample_interval)
 
-    assert np_val is not None, "compute_normalized_power returned None — fixture data may be too short"
+    assert np_val is not None, (
+        "compute_normalized_power returned None — fixture data may be too short"
+    )
     assert abs(np_val - expected_np) <= tolerance, (
         f"normalized_power mismatch: got {np_val}, expected {expected_np} "
         f"(tolerance ±{tolerance}). "
-        "If this is intentional, regenerate via `make regen-golden` and get peer review."
+        "If intentional, regenerate via `make regen-golden` and get peer review."
     )
 
 
-def test_normalized_power_final_value_within_relative_tolerance(golden_run, golden_expected):
-    """AC-np-exact: unrounded final_value must match expected within ±0.1% relative.
+def test_normalized_power_final_value_within_relative_tolerance(
+    golden_run, golden_expected
+):
+    """AC-np-exact: unrounded final_value matches expected within ±0.1% relative.
 
-    Tolerance choice: ±0.1% relative covers floating-point implementation drift
+    Tolerance: ±0.1% relative covers floating-point implementation drift
     across Python versions without masking a real formula change.
     """
     power_stream = golden_run["streams"]["power_w"]
@@ -207,8 +211,10 @@ def test_tss_matches_expected(golden_run, golden_expected):
     )
 )
 def test_detected_profile_matches_expected(golden_run, golden_expected):
-    """AC-profile-skip: placeholder — will assert detected_profile == expected once implemented."""
-    raise NotImplementedError("Workout profile detection not implemented in this sprint")
+    """AC-profile-skip: placeholder — asserts detected_profile == expected when done."""
+    raise NotImplementedError(
+        "Workout profile detection not implemented in this sprint"
+    )
 
 
 # ── AC-regression: a formula mutation is detectable ──────────────────────────
