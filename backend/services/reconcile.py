@@ -90,6 +90,65 @@ def _sync_splits(session, workout, act) -> None:
         ))
 
 
+def _ingest_streams(session, all_acts, existing_workouts) -> None:
+    """Write activity_streams rows for every workout that has stream data.
+
+    Called after session.flush() so all workouts have UUIDs.  Failures on
+    individual activities are logged and skipped — they must not abort the
+    surrounding reconcile transaction.
+    """
+    from backend.services.activity_streams import (
+        extract_strava_streams,
+        extract_stryd_streams,
+        write_activity_stream,
+    )
+    import logging
+    _log = logging.getLogger(__name__)
+
+    for source_type, act in all_acts:
+        try:
+            if source_type == "strava":
+                streams_payload = getattr(act, "streams_payload", None)
+                if not streams_payload:
+                    continue
+                row_data, reason = extract_strava_streams(streams_payload, source="strava")
+            else:
+                streams_payload = getattr(act, "streams_payload", None)
+                if not streams_payload:
+                    continue
+                row_data, reason = extract_stryd_streams(streams_payload, source="stryd")
+
+            if reason:
+                _log.debug("streams skipped", extra={"source": source_type, "reason": reason})
+                continue
+
+            # Find the workout that corresponds to this activity
+            workout = _find_workout_for_activity(act, source_type, existing_workouts)
+            if workout is None or workout.id is None:
+                continue
+
+            write_activity_stream(workout.id, row_data, session)
+        except Exception as exc:
+            _log.warning(
+                "activity_streams ingest failed",
+                extra={"source": source_type, "activity_id": getattr(act, "id", None), "error": str(exc)},
+            )
+
+
+def _find_workout_for_activity(act, source_type: str, existing_workouts: list):
+    """Return the workout matched to this activity, or None."""
+    pk = act.id
+    if source_type == "strava":
+        for w in existing_workouts:
+            if getattr(w, "strava_activity_pk", None) == pk:
+                return w
+    else:
+        for w in existing_workouts:
+            if getattr(w, "stryd_activity_pk", None) == pk:
+                return w
+    return None
+
+
 def _merge_source(current: str | None, new_source: str) -> str:
     if not current or current == new_source:
         return new_source
@@ -176,10 +235,13 @@ def reconcile_workouts(job_id, user_id) -> None:
 
             sync_jobs.increment(uid, current=1)
 
-        # Flush so newly-created workouts have ids, then (re)build their splits.
+        # Flush so newly-created workouts have ids, then (re)build their splits
+        # and ingest activity streams into activity_streams.
         session.flush()
         for workout, act in stryd_pairs:
             _sync_splits(session, workout, act)
+
+        _ingest_streams(session, all_acts, existing_workouts)
 
         session.commit()
 

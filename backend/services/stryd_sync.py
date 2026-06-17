@@ -301,11 +301,16 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
                         fm["np_w"] = np
                     if powers:
                         fm["max_power_w"] = round(max(powers))
-                    vals = {}
+                    vals: dict = {}
                     if splits:
                         vals["splits"] = splits
                     if fm:
                         vals["form_metrics"] = fm
+                    # Store raw streams (timestamp_list + channel *_list) before
+                    # _slim_payload stripped them — reconcile reads this to populate
+                    # activity_streams after workout_id is known.
+                    if streams.get("timestamp_list"):
+                        vals["streams_payload"] = streams
                     if vals:
                         with Session(engine) as session:
                             session.query(StrydActivity).filter(
