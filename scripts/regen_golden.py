@@ -17,7 +17,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend.services.normalized_power import compute_normalized_power
+from backend.services.normalized_power import compute_normalized_power  # noqa: E402
 
 FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "golden_run.json"
 EXPECTED_PATH = REPO_ROOT / "tests" / "fixtures" / "golden_run_expected.json"
