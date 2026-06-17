@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
+from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
@@ -4636,6 +4637,12 @@ def get_workout_full(
             .order_by(WorkoutSplit.split_index)
             .all()
         )
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == workout.user_id)
+            .first()
+        )
+        tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         strava = _strava_source_dict(getattr(workout, "strava_activity", None))
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
@@ -4661,6 +4668,9 @@ def get_workout_full(
             "unified": unified,
             "computed": computed,
             "field_coverage": coverage,
+            "tss": tss_result["tss"],
+            "tss_method": tss_result["method"],
+            "tss_partial": tss_result["partial"],
         })
 
 
