@@ -340,7 +340,8 @@ class StrydCredentials(Base):
     stryd_password_encrypted = Column(Text, nullable=False)
     session_token = Column(Text, nullable=True)
     session_token_expires_at = Column(DateTime(timezone=True), nullable=True)
-    athlete_id = Column(BigInteger, nullable=True)
+    # Stryd athlete id is a UUID string (not numeric like Strava's).
+    athlete_id = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 

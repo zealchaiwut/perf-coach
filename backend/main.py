@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
@@ -6958,7 +6958,7 @@ def _upsert_stryd_credentials(
     password_encrypted: str,
     session_token: str,
     session_token_expires_at: _datetime,
-    athlete_id: int,
+    athlete_id: str | None,
 ) -> None:
     now = _datetime.now(tz=_timezone.utc)
     with Session(engine) as db_session:
@@ -6996,7 +6996,9 @@ def stryd_connect(body: _StrydConnectIn, user: User = Depends(resolve_user)):
     password_encrypted = _encrypt_value(body.password)
     now = _datetime.now(tz=_timezone.utc)
     session_token_expires_at = now + _timedelta(days=25)
-    athlete_id = int(resp.get("id") or resp.get("athlete_id") or 0)
+    # Stryd athlete id is a UUID string (not numeric) — store as-is, no int cast.
+    athlete_id = resp.get("id") or resp.get("athlete_id") or None
+    athlete_id = str(athlete_id) if athlete_id is not None else None
     session_token = str(resp.get("token") or resp.get("session_token") or "")
     user_id = str(user.id)
 
@@ -7295,6 +7297,50 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     return JSONResponse({"started": True}, status_code=202)
 
 
+def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
+    """Background daemon thread: pull Stryd activities, upsert, then reconcile."""
+    from datetime import date as _date_cls
+    from backend.services import stryd_sync as _stryd_sync
+    uid = _uuid.UUID(user_id)
+    since = None
+    if since_date:
+        try:
+            since = _date_cls.fromisoformat(since_date)
+        except ValueError:
+            pass
+    try:
+        _sync_jobs.set_phase(uid, "pulling_stryd")
+        result = _stryd_sync.sync_stryd_activities(user_id, since_date=since)
+        _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
+        _sync_jobs.set_phase(uid, "reconciling")
+        _reconcile.reconcile_workouts(uid, uid)
+        _sync_jobs.mark_success(uid)
+    except Exception as exc:  # noqa: BLE001
+        _sync_jobs.mark_error(uid, str(exc))
+
+
+class _StrydSyncBody(BaseModel):
+    since_date: Optional[str] = None
+
+
+@app.post("/api/stryd/sync")
+def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(resolve_user)):
+    """Start an async Stryd pull; returns 202 immediately. Optional since_date (YYYY-MM-DD)."""
+    uid = user.id
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).one_or_none()
+    if cred is None:
+        raise HTTPException(status_code=422, detail="Connect Stryd first")
+    since = body.since_date if body is not None else None
+    try:
+        _sync_jobs.start(uid, "stryd")
+    except _sync_jobs.SyncInProgress:
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+    t = _threading.Thread(target=_stryd_sync_worker, args=(str(uid), since), daemon=True)
+    t.start()
+    return JSONResponse({"started": True}, status_code=202)
+
+
 class _SyncStravaTriggerBody(BaseModel):
     since_date: Optional[str] = None
     force_full: bool = False
@@ -7575,6 +7621,84 @@ def strava_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
         "workouts_without_source_count": int(w_no_source_count),
         "is_stryd_synced_count": int(stryd_synced_count),
         "potential_dupes_count": int(potential_dupes),
+    })
+
+
+@app.get("/api/sync/stryd/latest")
+def stryd_sync_latest(
+    user: User = Depends(resolve_user),
+    user_id: Optional[_uuid.UUID] = Query(None),
+):
+    """Most recent Stryd sync. With user_id: full latest SyncJob (any status);
+    without: completed-only summary for the session user."""
+    from sqlalchemy import select
+    target = user_id if user_id is not None else user.id
+    with Session(engine) as session:
+        if user_id is not None:
+            job = session.execute(
+                select(SyncJob).where(SyncJob.user_id == target)
+                .where(SyncJob.source == "stryd")
+                .order_by(SyncJob.created_at.desc()).limit(1)
+            ).scalar_one_or_none()
+            if job is None:
+                raise HTTPException(status_code=404, detail="No sync jobs found for this user")
+            return JSONResponse({
+                "id": str(job.id), "status": job.status, "job_type": job.job_type,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "activities_fetched": job.activities_fetched,
+                "activities_created": job.activities_created,
+                "activities_updated": job.activities_updated,
+                "error_message": job.error_message,
+            })
+        job = session.execute(
+            select(SyncJob).where(SyncJob.user_id == target)
+            .where(SyncJob.source == "stryd").where(SyncJob.status == "completed")
+            .order_by(SyncJob.completed_at.desc()).limit(1)
+        ).scalar_one_or_none()
+    if job is None:
+        return JSONResponse({"synced_at": None, "activities_synced": 0, "new_workouts": 0})
+    return JSONResponse({
+        "synced_at": job.completed_at.isoformat() if job.completed_at else None,
+        "activities_synced": (job.activities_created or 0) + (job.activities_updated or 0),
+        "new_workouts": job.activities_created or 0,
+    })
+
+
+@app.get("/api/sync/stryd/data-quality")
+def stryd_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
+    """Data-quality counts for a user's Stryd/workout sync state."""
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    from sqlalchemy import func as _func, select as _sel, text as _text
+    uid = user_id
+    with Session(engine) as session:
+        stryd_count = session.execute(
+            _sel(_func.count(StrydActivity.id)).where(StrydActivity.user_id == uid)
+        ).scalar() or 0
+        w_stryd_count = session.execute(
+            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            .where(Workout.stryd_activity_pk.isnot(None))
+        ).scalar() or 0
+        w_strava_synced = session.execute(
+            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            .where(Workout.strava_activity_pk.isnot(None))
+        ).scalar() or 0
+        w_both = session.execute(
+            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            .where(Workout.stryd_activity_pk.isnot(None))
+            .where(Workout.strava_activity_pk.isnot(None))
+        ).scalar() or 0
+        w_tss = session.execute(
+            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            .where(Workout.tss.isnot(None))
+        ).scalar() or 0
+    return JSONResponse({
+        "stryd_activities_count": int(stryd_count),
+        "workouts_with_stryd_source_count": int(w_stryd_count),
+        "workouts_with_strava_source_count": int(w_strava_synced),
+        "workouts_with_both_count": int(w_both),
+        "workouts_with_tss_count": int(w_tss),
     })
 
 
