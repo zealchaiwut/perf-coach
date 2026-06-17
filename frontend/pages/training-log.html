@@ -1215,6 +1215,25 @@
       letter-spacing: -0.02em; color: var(--ink);
     }
 
+    /* Workout-id + copy (dev/testing helper) */
+    .dp-id-row {
+      margin-top: 4px; display: flex; align-items: center; gap: 6px;
+    }
+    .dp-id {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.6875rem; color: #9aa3b2; letter-spacing: 0;
+      word-break: break-all;
+    }
+    .dp-id-copy {
+      flex: none; display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; padding: 0;
+      border: 1px solid var(--border); border-radius: 5px;
+      background: #fff; color: #9aa3b2; cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .dp-id-copy:hover { color: var(--ink-2); border-color: #c4ccd8; }
+    .dp-id-copy--done { color: #15803d; border-color: #15803d; background: #f0fdf4; }
+
     .dp-hero-meta {
       margin-top: 6px; font-size: 0.8125rem; color: var(--ink-2);
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

@@ -100,10 +100,34 @@ def get_athlete_activities(
 
 
 def get_activity_detail(user_id: str, activity_id: int | str) -> dict:
-    """Return raw Strava activity dict (includes splits_metric, segment_efforts)."""
+    """Return raw Strava activity dict (includes splits_metric, laps, segment_efforts)."""
     token = refresh_token_if_needed(user_id)
     req = urllib.request.Request(
         f"{_STRAVA_BASE}/activities/{activity_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return _fetch(req)
+
+
+# All stream types Strava exposes. key_by_type returns a dict keyed by stream name.
+_STREAM_KEYS = (
+    "time,latlng,distance,altitude,velocity_smooth,heartrate,"
+    "cadence,watts,temp,moving,grade_smooth"
+)
+
+
+def get_activity_streams(
+    user_id: str, activity_id: int | str, keys: str = _STREAM_KEYS
+) -> dict:
+    """Return per-point streams for an activity (GPS latlng, HR, pace, watts, …).
+
+    Response is keyed by stream type (key_by_type=true). Returns {} when the
+    activity has no streams (e.g. manually-entered, no recorded track).
+    """
+    token = refresh_token_if_needed(user_id)
+    params = urlencode({"keys": keys, "key_by_type": "true"})
+    req = urllib.request.Request(
+        f"{_STRAVA_BASE}/activities/{activity_id}/streams?{params}",
         headers={"Authorization": f"Bearer {token}"},
     )
     return _fetch(req)

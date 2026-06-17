@@ -361,10 +361,16 @@ class StravaActivity(Base):
     elevation_m = Column(Integer, nullable=True)
     avg_power_w = Column(Integer, nullable=True)
     max_power_w = Column(Integer, nullable=True)
+    avg_cadence = Column(Numeric(6, 2), nullable=True)
+    suffer_score = Column(Integer, nullable=True)
     device_name = Column(String(255), nullable=True)
     external_id = Column(String(255), nullable=True)
     is_stryd_synced = Column(Boolean, server_default=text("false"), nullable=False)
     raw_payload = Column(JSONB, nullable=False)
+    # Full-capture blobs — everything Strava exposes per activity (decide what to
+    # surface later). detail_payload = /activities/{id}; streams_payload = its /streams.
+    detail_payload = Column(JSONB, nullable=True)
+    streams_payload = Column(JSONB, nullable=True)
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (

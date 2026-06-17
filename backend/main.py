@@ -4254,6 +4254,190 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
     }
 
 
+def _strava_source_dict(sa) -> dict | None:
+    """Full Strava capture for a workout: promoted columns + everything inside the
+    detail_payload (laps, per-km splits, best efforts, GPS polyline) and the raw
+    per-point streams. Nothing dropped — the union endpoint surfaces all of it."""
+    if sa is None:
+        return None
+    detail = sa.detail_payload or {}
+    streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
+    raw = sa.raw_payload or {}
+    map_obj = detail.get("map") or raw.get("map") or {}
+    return {
+        "strava_activity_id": sa.strava_activity_id,
+        "name": sa.name,
+        "activity_type": sa.activity_type,
+        "start_time": sa.start_time.isoformat() if sa.start_time else None,
+        "distance_km": float(sa.distance_km) if sa.distance_km is not None else None,
+        "duration_seconds": sa.duration_seconds,
+        "avg_hr": sa.avg_hr,
+        "max_hr": sa.max_hr,
+        "elevation_m": sa.elevation_m,
+        "avg_power_w": sa.avg_power_w,
+        "max_power_w": sa.max_power_w,
+        "avg_cadence": float(sa.avg_cadence) if sa.avg_cadence is not None else None,
+        "suffer_score": sa.suffer_score,
+        "device_name": sa.device_name,
+        "external_id": sa.external_id,
+        "is_stryd_synced": sa.is_stryd_synced,
+        # full nested capture (Tier 2 detail)
+        "laps": detail.get("laps") or [],
+        "splits_metric": detail.get("splits_metric") or [],
+        "best_efforts": detail.get("best_efforts") or [],
+        "segment_efforts": detail.get("segment_efforts") or [],
+        "calories": detail.get("calories"),
+        "description": detail.get("description"),
+        "gear": detail.get("gear"),
+        "map_polyline": map_obj.get("polyline") or map_obj.get("summary_polyline"),
+        # Tier 3 streams
+        "stream_types": sorted(streams.keys()),
+        "streams": streams,
+    }
+
+
+def _stryd_source_dict(sta) -> dict | None:
+    """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
+    if sta is None:
+        return None
+    return {
+        "stryd_activity_id": sta.stryd_activity_id,
+        "name": sta.name,
+        "start_time": sta.start_time.isoformat() if sta.start_time else None,
+        "distance_km": float(sta.distance_km) if sta.distance_km is not None else None,
+        "duration_seconds": sta.duration_seconds,
+        "avg_power_w": sta.avg_power_w,
+        "avg_hr": sta.avg_hr,
+        "tss": sta.tss,
+        "form_metrics": sta.form_metrics or {},
+        "power_zones": sta.power_zones or {},
+        "splits": sta.splits or [],
+    }
+
+
+def _unified_workout_dict(w: Workout, strava: dict | None, stryd: dict | None) -> dict:
+    """Best-of union across sources — one merged running view with provenance.
+
+    Precedence: workout row (already best-merged by reconcile) wins for core
+    fields; Stryd wins for power/TSS/dynamics; Strava wins for laps/GPS/effort.
+    """
+    def _pick(*vals):
+        for v in vals:
+            if v is not None:
+                return v
+        return None
+
+    laps = strava["laps"] if strava else []
+    # Per-distance splits: prefer Stryd power splits, else Strava per-km splits.
+    splits = (stryd["splits"] if stryd and stryd["splits"] else (strava["splits_metric"] if strava else []))
+    return {
+        "distance_km": float(w.distance_km) if w.distance_km is not None else _pick(
+            stryd and stryd["distance_km"], strava and strava["distance_km"]),
+        "duration_seconds": _pick(w.duration_seconds, stryd and stryd["duration_seconds"], strava and strava["duration_seconds"]),
+        "avg_hr": _pick(w.avg_hr, stryd and stryd["avg_hr"], strava and strava["avg_hr"]),
+        "max_hr": _pick(w.max_hr, strava and strava["max_hr"]),
+        "avg_power_w": _pick(stryd and stryd["avg_power_w"], strava and strava["avg_power_w"]),
+        "max_power_w": _pick(strava and strava["max_power_w"]),
+        "avg_cadence": _pick(strava and strava["avg_cadence"]),
+        "elevation_m": _pick(w.elevation_m, strava and strava["elevation_m"]),
+        "calories": _pick(strava and strava["calories"]),
+        "tss": _pick(w.tss, stryd and stryd["tss"]),
+        "tss_source": _pick(w.tss_source, "stryd" if (stryd and stryd["tss"] is not None) else None),
+        "relative_effort": _pick(strava and strava["suffer_score"]),
+        "laps": laps,
+        "splits": splits,
+        "gps_polyline": _pick(strava and strava["map_polyline"]),
+        "has_gps_stream": bool(strava and "latlng" in strava["stream_types"]),
+        "dynamics": stryd["form_metrics"] if stryd else {},
+        "power_zones": stryd["power_zones"] if stryd else {},
+        "best_efforts": strava["best_efforts"] if strava else [],
+    }
+
+
+def _downsample_streams(streams: dict, mode: str, target: int = 120) -> dict:
+    """Shrink raw per-point streams for transport.
+
+    mode='none' → {} ; 'full' → untouched ; 'summary' (default) → each series
+    downsampled to ~target points plus min/max/avg (latlng/bool series keep
+    points only). Keeps /full chart-ready without shipping thousands of points.
+    """
+    if not isinstance(streams, dict) or mode == "none":
+        return {}
+    if mode == "full":
+        return streams
+    out: dict = {}
+    for k, v in streams.items():
+        data = v.get("data") if isinstance(v, dict) else None
+        if not isinstance(data, list) or not data:
+            out[k] = {"n": 0, "data": []}
+            continue
+        n = len(data)
+        step = max(1, n // target)
+        entry = {"n": n, "data": data[::step]}
+        if k != "latlng":
+            nums = [x for x in data if isinstance(x, (int, float)) and not isinstance(x, bool)]
+            if nums:
+                entry["min"] = min(nums)
+                entry["max"] = max(nums)
+                entry["avg"] = round(sum(nums) / len(nums), 2)
+        out[k] = entry
+    return out
+
+
+def _compute_derived(strava: dict | None, stryd: dict | None) -> dict:
+    """Server-derived running metrics from the raw streams + sources.
+
+    Assumptions are explicit in `_assumptions`: NP/IF treat the power stream as
+    ~1 Hz and IF uses Stryd critical power when present. All keys omitted when
+    their input stream is absent — never fabricated.
+    """
+    out: dict = {}
+    streams = (strava or {}).get("streams") or {}
+
+    def _series(name):
+        v = streams.get(name)
+        data = v.get("data") if isinstance(v, dict) else None
+        return [x for x in data if isinstance(x, (int, float)) and not isinstance(x, bool)] if isinstance(data, list) else []
+
+    watts = _series("watts")
+    if watts:
+        avg = sum(watts) / len(watts)
+        win = min(30, len(watts))
+        roll = [sum(watts[i:i + win]) / win for i in range(0, max(1, len(watts) - win + 1))]
+        np_ = round((sum(p ** 4 for p in roll) / len(roll)) ** 0.25, 1) if roll else None
+        out["normalized_power_w"] = np_
+        out["avg_power_w"] = round(avg, 1)
+        if np_ and avg:
+            out["variability_index"] = round(np_ / avg, 3)
+        cp = ((stryd or {}).get("power_zones") or {}).get("critical_power_w")
+        if np_ and cp:
+            out["intensity_factor"] = round(np_ / cp, 3)
+
+    hr = _series("heartrate")
+    vel = _series("velocity_smooth")
+    if hr and vel and len(hr) == len(vel) and len(hr) >= 4:
+        half = len(hr) // 2
+
+        def _ratio(hs, vs):
+            vv = [x for x in vs if x > 0]
+            if not hs or not vv:
+                return None
+            return (sum(hs) / len(hs)) / (sum(vv) / len(vv))
+
+        r1 = _ratio(hr[:half], vel[:half])
+        r2 = _ratio(hr[half:], vel[half:])
+        if r1 and r2:
+            out["hr_decoupling_pct"] = round((r2 / r1 - 1) * 100, 1)
+
+    pz = {k: v for k, v in ((stryd or {}).get("power_zones") or {}).items() if str(k).startswith("z")}
+    if pz:
+        out["time_in_power_zone_s"] = pz
+
+    if out:
+        out["_assumptions"] = "NP/IF assume ~1Hz power stream; IF uses Stryd critical power."
+    return out
+
+
 def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
     return {
         "id": str(w.id),
@@ -4394,6 +4578,77 @@ def get_workout(workout_id: str, user: User = Depends(resolve_user)):
             .all()
         )
         return JSONResponse(_workout_dict(workout, exercises))
+
+
+@app.get("/api/workouts/{workout_id}/full")
+def get_workout_full(
+    workout_id: str,
+    streams: str = Query("summary"),
+    user: User = Depends(resolve_user),
+):
+    """Maximal union of a workout across every source.
+
+    Returns the core workout, per-source blocks (full Strava detail+streams,
+    full Stryd dynamics), a best-of merged `unified` view, a server-`computed`
+    metrics block (Normalized Power, IF, HR decoupling, …), and `field_coverage`
+    showing which source(s) supplied each metric. This is the read model the
+    running-log detail UI will draw from — capture is complete; what to surface
+    is a frontend decision.
+
+    `streams` controls per-point payload size: `summary` (default, downsampled +
+    min/max/avg), `full` (every point), or `none`.
+    """
+    if streams not in ("summary", "full", "none"):
+        raise HTTPException(status_code=422, detail="streams must be one of: summary, full, none")
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        workout = (
+            session.query(Workout)
+            .options(
+                joinedload(Workout.strava_activity),
+                joinedload(Workout.stryd_activity),
+            )
+            .filter(Workout.id == wid)
+            .one_or_none()
+        )
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+        strava = _strava_source_dict(getattr(workout, "strava_activity", None))
+        stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
+        unified = _unified_workout_dict(workout, strava, stryd)
+        # Derive metrics from the full streams BEFORE downsampling for transport.
+        computed = _compute_derived(strava, stryd)
+        if strava is not None:
+            strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
+        coverage = {
+            "strava": bool(strava),
+            "stryd": bool(stryd),
+            "has_laps": bool(unified["laps"]),
+            "has_splits": bool(unified["splits"]),
+            "has_gps": bool(unified["gps_polyline"]) or unified["has_gps_stream"],
+            "has_streams": bool(strava and strava["stream_types"]),
+            "has_dynamics": bool(unified["dynamics"]),
+            "has_power": unified["avg_power_w"] is not None,
+            "has_tss": unified["tss"] is not None,
+        }
+        return JSONResponse({
+            "workout": _workout_dict(workout, exercises),
+            "sources": {"strava": strava, "stryd": stryd},
+            "unified": unified,
+            "computed": computed,
+            "field_coverage": coverage,
+        })
 
 
 @app.post("/api/workouts", status_code=201)
@@ -6775,7 +7030,14 @@ def _get_default_user_id() -> str:
 @app.get("/api/strava/status")
 def strava_status(user: User = Depends(resolve_user)):
     """Return Strava connection status; refresh token if near expiry."""
-    _null_response = {"connected": False, "athlete_name": None, "scope": None, "expires_at": None}
+    _null_response = {
+        "connected": False,
+        "athlete_name": None,
+        "athlete_id": None,
+        "profile": None,
+        "scope": None,
+        "expires_at": None,
+    }
     user_id = str(user.id)
 
     with Session(engine) as session:
@@ -6785,6 +7047,7 @@ def strava_status(user: User = Depends(resolve_user)):
         scope = token_row.scope
         expires_at = token_row.expires_at
         athlete_data = token_row.athlete_data or {}
+        athlete_id = token_row.athlete_id
 
     athlete_name = None
     first = athlete_data.get("firstname") or ""
@@ -6792,6 +7055,8 @@ def strava_status(user: User = Depends(resolve_user)):
     full = (first + " " + last).strip()
     if full:
         athlete_name = full
+    # Strava athlete profile avatar (medium); used for the debug/identity row.
+    profile = athlete_data.get("profile_medium") or athlete_data.get("profile") or None
 
     try:
         refresh_token_if_needed(user_id)
@@ -6807,6 +7072,8 @@ def strava_status(user: User = Depends(resolve_user)):
     return JSONResponse({
         "connected": True,
         "athlete_name": athlete_name,
+        "athlete_id": athlete_id,
+        "profile": profile,
         "scope": scope,
         "expires_at": expires_at.isoformat() if expires_at else None,
     })

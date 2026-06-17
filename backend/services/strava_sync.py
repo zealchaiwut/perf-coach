@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.models import StravaActivity, SyncJob
 from backend.services.strava import detect_stryd_origin
-from backend.services.strava_client import get_athlete_activities
+from backend.services.strava_client import (
+    get_activity_detail,
+    get_activity_streams,
+    get_athlete_activities,
+)
 from backend.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -46,12 +50,38 @@ def _map_fields(raw: dict, user_id: str, is_stryd: bool) -> dict:
         "elevation_m": raw.get("total_elevation_gain"),
         "avg_power_w": raw.get("average_watts"),
         "max_power_w": raw.get("max_watts"),
+        "avg_cadence": raw.get("average_cadence"),
+        "suffer_score": raw.get("suffer_score"),
         "device_name": raw.get("device_name"),
         "external_id": raw.get("external_id"),
         "is_stryd_synced": is_stryd,
         "raw_payload": raw,
         "synced_at": datetime.now(tz=timezone.utc),
     }
+
+
+def _enrich_activity(user_id: str, activity_id: int) -> tuple[dict | None, dict | None]:
+    """Fetch full detail + streams for one activity. Best-effort: a failure on
+    either (rate limit, no GPS track, transient error) logs and returns None for
+    that piece rather than failing the whole sync — the summary row still upserts.
+    """
+    detail = None
+    streams = None
+    try:
+        detail = get_activity_detail(user_id, activity_id)
+    except Exception as exc:
+        logger.warning(
+            "strava detail fetch failed",
+            extra={"activity_id": activity_id, "error": str(exc)},
+        )
+    try:
+        streams = get_activity_streams(user_id, activity_id)
+    except Exception as exc:
+        logger.warning(
+            "strava streams fetch failed",
+            extra={"activity_id": activity_id, "error": str(exc)},
+        )
+    return detail, streams
 
 
 def _job_summary(job: SyncJob) -> dict:
@@ -135,13 +165,31 @@ def sync_strava_activities(
 
     try:
         for raw in get_athlete_activities(user_id, after_epoch=after_epoch, before_epoch=None):
+            activity_id = raw["id"]
             is_stryd = detect_stryd_origin(raw)
             fields = _map_fields(raw, user_id, is_stryd)
+
+            # Capture full detail + streams once per activity. Skip re-fetch if we
+            # already have the detail blob cached (keeps re-syncs cheap on the
+            # per-activity Strava rate limit). Done outside the DB session so the
+            # network round-trips don't hold a pooled connection.
+            with Session(engine) as session:
+                cached = session.execute(
+                    select(StravaActivity.detail_payload).where(
+                        StravaActivity.strava_activity_id == activity_id
+                    )
+                ).scalar_one_or_none()
+            if cached is None:
+                detail, streams = _enrich_activity(user_id, activity_id)
+                if detail is not None:
+                    fields["detail_payload"] = detail
+                if streams is not None:
+                    fields["streams_payload"] = streams
 
             with Session(engine) as session:
                 existing = session.execute(
                     select(StravaActivity).where(
-                        StravaActivity.strava_activity_id == raw["id"]
+                        StravaActivity.strava_activity_id == activity_id
                     )
                 ).scalar_one_or_none()
 

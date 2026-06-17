@@ -1500,6 +1500,21 @@
   }
 
   // ── Render detail content ─────────────────────────────────────────────────
+  // Clipboard fallback for non-secure contexts / older browsers.
+  function _fallbackCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { /* no-op */ }
+  }
+
   function renderDetailContent(workout, splits) {
     var contentEl = document.getElementById('dp-content');
     if (!contentEl) return;
@@ -1536,6 +1551,14 @@
           '<span class="dp-type-pill">' + esc(typeLabel) + '</span>' +
         '</div>' +
         '<h1 id="dp-title">' + esc(workout.name || 'Workout') + '</h1>' +
+        (workout.id ?
+          '<div class="dp-id-row">' +
+            '<code class="dp-id" id="dp-id-value">' + esc(workout.id) + '</code>' +
+            '<button type="button" class="dp-id-copy" id="dp-id-copy" aria-label="Copy workout ID" title="Copy ID">' +
+              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+            '</button>' +
+          '</div>'
+          : '') +
         '<div class="dp-hero-meta">' +
           esc(fmtDate(workout.workout_date)) +
           (sourceHtml ? '<span class="dp-hero-sources">' + sourceHtml + '</span>' : '') +
@@ -1872,6 +1895,28 @@
     }
 
     contentEl.innerHTML = '<div class="dp-view-stack">' + heroHtml + statsHtml + segmentsHtml + intervalsHtml + splitsHtml + exercisesHtml + notesHtml + '</div>';
+
+    // Workout-id copy button (dev/testing helper — grab the id for /api/workouts/{id}/full).
+    var copyBtn = document.getElementById('dp-id-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        var wid = workout.id || '';
+        var flash = function () {
+          copyBtn.classList.add('dp-id-copy--done');
+          copyBtn.setAttribute('title', 'Copied!');
+          setTimeout(function () {
+            copyBtn.classList.remove('dp-id-copy--done');
+            copyBtn.setAttribute('title', 'Copy ID');
+          }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(wid).then(flash).catch(function () { _fallbackCopy(wid); flash(); });
+        } else {
+          _fallbackCopy(wid);
+          flash();
+        }
+      });
+    }
 
     // issue #526: mount the editable manual-split authoring surface.
     if (splitsEditable) mountSplitsEditor(workout, splits);
