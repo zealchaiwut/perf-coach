@@ -53,7 +53,7 @@ def fetch_stryd_activities(
     url = f"{_STRYD_API_BASE}/users/{athlete_id}/calendar?{urlencode(params)}"
     req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with _urllib_request.urlopen(req) as resp:
+        with _urllib_request.urlopen(req, timeout=30) as resp:
             data = _json.loads(resp.read())
     except _urllib_error.HTTPError as exc:
         body = ""
@@ -74,6 +74,78 @@ def fetch_stryd_activities(
         extra={"keys": list(data) if isinstance(data, dict) else type(data).__name__},
     )
     return []
+
+
+def fetch_stryd_activity_streams(token: str, activity_id) -> dict:
+    """Full per-point streams for one activity: GET /activities/{id}
+    (timestamp_list, total_power_list, heart_rate_list, cadence_list,
+    stride_length_list, distance_list, speed_list, …). Verified live."""
+    url = f"{_STRYD_API_BASE}/activities/{activity_id}"
+    req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with _urllib_request.urlopen(req, timeout=30) as resp:
+        return _json.loads(resp.read())
+
+
+def _mean(xs):
+    xs = [x for x in xs if isinstance(x, (int, float))]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _normalized_power(power_list, window: int = 30):
+    """Coggan NP: 4th root of the mean of 30s-rolling-avg power^4. Stream is ~1 Hz."""
+    p = [x for x in power_list if isinstance(x, (int, float))]
+    if len(p) < 2:
+        return None
+    w = min(window, len(p))
+    roll = [sum(p[i:i + w]) / w for i in range(0, len(p) - w + 1)] or p
+    return round((sum(x ** 4 for x in roll) / len(roll)) ** 0.25)
+
+
+def compute_km_splits(streams: dict) -> list[dict]:
+    """Bucket the per-point streams into 1 km splits with avg HR/power/cadence/stride.
+    Cadence is normalised to steps/min (×2 when the stream is per-leg)."""
+    dist = streams.get("distance_list") or []        # cumulative metres
+    ts = streams.get("timestamp_list") or []
+    hr = streams.get("heart_rate_list") or []
+    pw = streams.get("total_power_list") or []
+    cad = streams.get("cadence_list") or []
+    stride = streams.get("stride_length_list") or []
+    n = min(len(dist), len(ts)) if dist and ts else 0
+    if n < 2:
+        return []
+
+    buckets: dict[int, dict] = {}
+    for i in range(n):
+        km = int(dist[i] // 1000)
+        b = buckets.setdefault(km, {"t0": ts[i], "t1": ts[i], "hr": [], "pw": [], "cad": [], "stride": [], "d0": dist[i], "d1": dist[i]})
+        b["t1"] = ts[i]
+        b["d1"] = dist[i]
+        if i < len(hr):
+            b["hr"].append(hr[i])
+        if i < len(pw):
+            b["pw"].append(pw[i])
+        if i < len(cad):
+            b["cad"].append(cad[i])
+        if i < len(stride):
+            b["stride"].append(stride[i])
+
+    out = []
+    for km in sorted(buckets):
+        b = buckets[km]
+        cad_mean = _mean(b["cad"])
+        if cad_mean is not None and cad_mean < 120:   # per-leg → steps/min
+            cad_mean *= 2
+        dist_km = round((b["d1"] - b["d0"]) / 1000, 3) or 1.0
+        out.append({
+            "split_index": km + 1,
+            "distance_km": dist_km,
+            "duration_seconds": int(b["t1"] - b["t0"]) or None,
+            "avg_hr": round(_mean(b["hr"])) if b["hr"] else None,
+            "avg_power": round(_mean(b["pw"])) if b["pw"] else None,
+            "cadence_spm": round(cad_mean) if cad_mean is not None else None,
+            "stride_length_m": round(_mean(b["stride"]), 2) if b["stride"] else None,
+        })
+    return out
 
 
 def _first(d: dict, *keys):
@@ -138,7 +210,7 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "tss": int(raw["stress"]) if raw.get("stress") else None,
         "form_metrics": form or None,
         "power_zones": power_zones,
-        "splits": _first(raw, "lap_events", "custom_lap_events"),
+        "splits": None,   # filled by enrichment (compute_km_splits) at sync time
         "raw_payload": _slim_payload(raw),
         "synced_at": datetime.now(tz=timezone.utc),
     }
@@ -175,6 +247,36 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
 
         if mapped:
             ids = [m["stryd_activity_id"] for m in mapped]
+
+            # Enrich each activity with per-km splits + NP + max power from its
+            # stream (1 call/activity). Skip rows already enriched (splits is a
+            # list of dicts) so re-syncs stay cheap.
+            with Session(engine) as session:
+                rows = session.execute(
+                    select(StrydActivity.stryd_activity_id, StrydActivity.splits)
+                    .where(StrydActivity.stryd_activity_id.in_(ids))
+                ).all()
+            enriched = {sid for sid, sp in rows if isinstance(sp, list) and sp and isinstance(sp[0], dict)}
+            for m in mapped:
+                if m["stryd_activity_id"] in enriched:
+                    continue
+                try:
+                    streams = fetch_stryd_activity_streams(token, m["stryd_activity_id"])
+                    splits = compute_km_splits(streams)
+                    if splits:
+                        m["splits"] = splits
+                    powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
+                    fm = dict(m.get("form_metrics") or {})
+                    np = _normalized_power(powers)
+                    if np is not None:
+                        fm["np_w"] = np
+                    if powers:
+                        fm["max_power_w"] = round(max(powers))
+                    if fm:
+                        m["form_metrics"] = fm
+                except Exception as exc:
+                    logger.warning("stryd enrich failed", extra={"activity_id": m["stryd_activity_id"], "error": str(exc)})
+
             with Session(engine) as session:
                 existing = set(session.execute(
                     select(StrydActivity.stryd_activity_id)

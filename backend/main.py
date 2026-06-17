@@ -4248,6 +4248,12 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "elevation_m": w.elevation_m,
         "zone2_minutes": w.zone2_minutes,
         "avg_power_w": strava_act.avg_power_w if strava_act else None,
+        # Workout-level Stryd aggregates (null → render "—").
+        "avg_power": w.avg_power,
+        "max_power": w.max_power,
+        "np": w.np,
+        "avg_cadence_spm": w.avg_cadence_spm,
+        "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -4624,6 +4630,12 @@ def get_workout_full(
             .order_by(WorkoutExercise.display_order)
             .all()
         )
+        split_rows = (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id == wid)
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        )
         strava = _strava_source_dict(getattr(workout, "strava_activity", None))
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
@@ -4644,6 +4656,7 @@ def get_workout_full(
         }
         return JSONResponse({
             "workout": _workout_dict(workout, exercises),
+            "splits": [_split_dict(s) for s in split_rows],
             "sources": {"strava": strava, "stryd": stryd},
             "unified": unified,
             "computed": computed,
@@ -5193,6 +5206,9 @@ def _split_dict(s: WorkoutSplit) -> dict:
         "distance_km": str(s.distance_km),
         "duration_seconds": s.duration_seconds,
         "avg_hr": s.avg_hr,
+        "avg_power": s.avg_power,
+        "cadence_spm": s.cadence_spm,
+        "stride_length_m": float(s.stride_length_m) if s.stride_length_m is not None else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
