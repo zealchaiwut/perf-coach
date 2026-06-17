@@ -11,7 +11,6 @@ Reconcile reads both and writes to activity_streams after workout_id is known.
 import uuid
 from unittest.mock import patch
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
