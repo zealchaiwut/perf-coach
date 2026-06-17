@@ -96,12 +96,16 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
     Called after session.flush() so all workouts have UUIDs.  Failures on
     individual activities are logged and skipped — they must not abort the
     surrounding reconcile transaction.
+
+    Also computes and persists Normalized Power from the power_w channel when
+    present, using compute_normalized_power (pure; no DB access inside that fn).
     """
     from backend.services.activity_streams import (
         extract_strava_streams,
         extract_stryd_streams,
         write_activity_stream,
     )
+    from backend.services.normalized_power import compute_normalized_power
     import logging
     _log = logging.getLogger(__name__)
 
@@ -128,6 +132,16 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
                 continue
 
             write_activity_stream(workout.id, row_data, session)
+
+            # Compute NP from the power stream and persist on the workout.
+            # sample_interval_seconds comes from row_data (never hardcoded here).
+            power_samples = row_data.get("power_w")
+            if power_samples:
+                sample_interval = row_data.get("sample_interval_seconds", 1)
+                np_val, _ = compute_normalized_power(power_samples, sample_interval)
+                if np_val is not None:
+                    workout.np = np_val
+
         except Exception as exc:
             _log.warning(
                 "activity_streams ingest failed",
