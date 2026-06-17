@@ -3957,6 +3957,8 @@ _PAGES = {
     "training": "training.html",
     "trends": "trends.html",
     "settings": "settings.html",
+    "run-view": "run-view.html",
+    "run-builder": "run-builder.html",
 }
 
 
@@ -4132,6 +4134,12 @@ class WorkoutIn(BaseModel):
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
+    # Stryd workout-level aggregates (Run Builder SYNC fields)
+    avg_power: Optional[int] = None
+    max_power: Optional[int] = None
+    np: Optional[int] = None
+    avg_cadence_spm: Optional[int] = None
+    avg_stride_m: Optional[float] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -4148,6 +4156,12 @@ class WorkoutPatch(BaseModel):
     zone2_minutes: Optional[int] = None
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
+    # Stryd workout-level aggregates (Run Builder SYNC fields)
+    avg_power: Optional[int] = None
+    max_power: Optional[int] = None
+    np: Optional[int] = None
+    avg_cadence_spm: Optional[int] = None
+    avg_stride_m: Optional[float] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -4711,6 +4725,11 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             zone2_minutes=body.zone2_minutes,
             source=body.source,
             strava_activity_url=body.strava_activity_url,
+            avg_power=body.avg_power,
+            max_power=body.max_power,
+            np=body.np,
+            avg_cadence_spm=body.avg_cadence_spm,
+            avg_stride_m=body.avg_stride_m,
         )
         session.add(workout)
         session.flush()
@@ -4821,6 +4840,16 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.source = body.source
         if 'strava_activity_url' in body.model_fields_set:
             workout.strava_activity_url = body.strava_activity_url
+        if 'avg_power' in body.model_fields_set:
+            workout.avg_power = body.avg_power
+        if 'max_power' in body.model_fields_set:
+            workout.max_power = body.max_power
+        if 'np' in body.model_fields_set:
+            workout.np = body.np
+        if 'avg_cadence_spm' in body.model_fields_set:
+            workout.avg_cadence_spm = body.avg_cadence_spm
+        if 'avg_stride_m' in body.model_fields_set:
+            workout.avg_stride_m = body.avg_stride_m
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -5192,6 +5221,10 @@ class SplitIn(BaseModel):
     distance_km: float
     duration_seconds: int
     avg_hr: Optional[int] = None
+    avg_power: Optional[int] = None
+    cadence_spm: Optional[int] = None
+    stride_length_m: Optional[float] = None
+    lap_type: Optional[str] = "auto"
 
 
 class SplitsIn(BaseModel):
@@ -5209,6 +5242,7 @@ def _split_dict(s: WorkoutSplit) -> dict:
         "avg_power": s.avg_power,
         "cadence_spm": s.cadence_spm,
         "stride_length_m": float(s.stride_length_m) if s.stride_length_m is not None else None,
+        "lap_type": s.lap_type if s.lap_type is not None else "auto",
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -5248,6 +5282,8 @@ def replace_splits(workout_id: str, body: SplitsIn, user: User = Depends(resolve
             raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
         if s.avg_hr is not None and not (20 <= s.avg_hr <= 250):
             raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
+        if s.lap_type is not None and s.lap_type not in ("auto", "manual"):
+            raise HTTPException(status_code=422, detail="lap_type must be 'auto' or 'manual'")
     with Session(engine) as session:
         workout = session.get(Workout, wid)
         if workout is None:
@@ -5263,6 +5299,10 @@ def replace_splits(workout_id: str, body: SplitsIn, user: User = Depends(resolve
                 distance_km=s.distance_km,
                 duration_seconds=s.duration_seconds,
                 avg_hr=s.avg_hr,
+                avg_power=s.avg_power,
+                cadence_spm=s.cadence_spm,
+                stride_length_m=s.stride_length_m,
+                lap_type=s.lap_type if s.lap_type is not None else "auto",
             )
             session.add(split)
             new_splits.append(split)

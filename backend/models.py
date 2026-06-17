@@ -234,6 +234,7 @@ class WorkoutSplit(Base):
     avg_power = Column(Integer, nullable=True)
     cadence_spm = Column(Integer, nullable=True)
     stride_length_m = Column(Numeric(4, 2), nullable=True)
+    lap_type = Column(String(10), nullable=True, server_default=text("'auto'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
