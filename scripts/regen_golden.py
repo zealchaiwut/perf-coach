@@ -70,8 +70,8 @@ def main():
 
     print(f"normalized_power.value        = {np_val}")
     print(f"normalized_power.final_value  = {info['final_value']:.10f}")
-    print(f"tss                           = null (placeholder)")
-    print(f"detected_profile              = null (placeholder)")
+    print("tss                           = null (placeholder)")
+    print("detected_profile              = null (placeholder)")
 
     if args.dry_run:
         print("\n[dry-run] No file written.")

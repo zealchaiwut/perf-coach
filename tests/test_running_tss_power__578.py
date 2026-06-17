@@ -19,7 +19,6 @@ Acceptance criteria covered:
 """
 import pathlib
 
-import pytest
 
 from backend.services.running_tss_power import calculate_running_tss_power
 
