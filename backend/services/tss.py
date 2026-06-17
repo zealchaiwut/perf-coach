@@ -211,6 +211,160 @@ def compute_running_tss(workout, splits, prefs) -> dict:
     return {"tss": None, "method": "none", "partial": False}
 
 
+def calculate_hr_tss(
+    duration_seconds,
+    avg_hr,
+    threshold_hr,
+    laps=None,
+) -> dict:
+    """Compute HR-based Training Stress Score (TSS) for a running workout.
+
+    All required inputs must be supplied by the caller. No default thresholds
+    are assumed; if threshold_hr is not set in user preferences the caller must
+    pass None and the function will return a null result with a reason string.
+
+    Parameters
+    ----------
+    duration_seconds:
+        Total workout duration in seconds (int or float). Required.
+    avg_hr:
+        Workout-level average heart rate in beats per minute. Used as a
+        fallback when per-lap HR data are absent or incomplete.
+    threshold_hr:
+        The athlete's heart-rate threshold (lactate-threshold HR) in beats
+        per minute, read from user_preferences by the caller. Must not be
+        hardcoded here; pass None if the value is not set.
+    laps:
+        Optional iterable of lap objects (or dicts) each with avg_hr
+        (beats per minute) and duration_seconds attributes. When all laps
+        carry a valid avg_hr, a duration-weighted average HR is derived from
+        the laps and used instead of the workout-level avg_hr.
+
+    Returns
+    -------
+    dict with exactly three keys:
+
+        tss (int or None):
+            Rounded Training Stress Score, or None when a required input is
+            absent.
+
+        method (str):
+            "hr" when TSS was successfully computed; "none" otherwise.
+
+        debug (dict):
+            Diagnostic values. Always contains:
+              intensity_factor — avg_hr divided by threshold_hr (float or None)
+              duration_hours   — duration_seconds divided by 3600 (float or None)
+            When a required input is absent, also contains:
+              reason — human-readable string describing which input is missing.
+
+    Formula
+    -------
+    Step 1 — Determine effective average HR.
+        When all laps supply avg_hr, compute a duration-weighted average:
+            weighted_avg_hr = sum(lap_avg_hr * lap_duration) / total_duration.
+        When per-lap HR is absent or incomplete, fall back to the
+        workout-level avg_hr argument.
+
+    Step 2 — Compute intensity factor (IF).
+        IF = effective_avg_hr divided by threshold_hr.
+        This ratio expresses how hard the effort was relative to the athlete's
+        heart-rate threshold.
+
+    Step 3 — Compute duration in hours.
+        duration_hours = duration_seconds divided by 3600.
+
+    Step 4 — Compute TSS.
+        TSS = duration_hours times IF squared times 100.
+        Round to the nearest whole integer.
+
+    Worked example
+    --------------
+    A runner completes a 60-minute run at exactly their threshold heart rate.
+
+        threshold_hr    = 170 bpm
+        avg_hr          = 170 bpm
+        duration_seconds = 3600
+
+    Step 1 — No lap data; effective_avg_hr = 170.
+    Step 2 — intensity_factor = 170 / 170 = 1.0.
+    Step 3 — duration_hours = 3600 / 3600 = 1.0.
+    Step 4 — TSS = 1.0 * 1.0 * 1.0 * 100 = 100.
+
+    Return value:
+        {
+            "tss": 100,
+            "method": "hr",
+            "debug": {"intensity_factor": 1.0, "duration_hours": 1.0},
+        }
+    """
+    def _get(obj, key):
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    # Compute duration_hours where possible (used in debug regardless of outcome)
+    duration_hours = duration_seconds / 3600 if duration_seconds is not None else None
+
+    # Missing threshold_hr — cannot compute IF or TSS
+    if threshold_hr is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {
+                "intensity_factor": None,
+                "duration_hours": duration_hours,
+                "reason": "threshold_hr not set in user preferences",
+            },
+        }
+
+    # Missing duration_seconds — cannot compute TSS
+    if duration_seconds is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {
+                "intensity_factor": None,
+                "duration_hours": None,
+                "reason": "duration_seconds is missing",
+            },
+        }
+
+    # Resolve effective average HR from per-lap data when available
+    effective_avg_hr = None
+    lap_list = list(laps) if laps else []
+    if lap_list:
+        lap_hrs = [_get(lap, "avg_hr") for lap in lap_list]
+        lap_durs = [_get(lap, "duration_seconds") or 0 for lap in lap_list]
+        if all(h is not None for h in lap_hrs) and sum(lap_durs) > 0:
+            effective_avg_hr = sum(h * d for h, d in zip(lap_hrs, lap_durs)) / sum(lap_durs)
+
+    if effective_avg_hr is None:
+        effective_avg_hr = avg_hr
+
+    # Missing HR — cannot compute TSS
+    if effective_avg_hr is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {
+                "intensity_factor": None,
+                "duration_hours": duration_hours,
+                "reason": "avg_hr is missing",
+            },
+        }
+
+    intensity_factor = effective_avg_hr / threshold_hr
+    tss = round(duration_hours * intensity_factor ** 2 * 100)
+
+    return {
+        "tss": tss,
+        "method": "hr",
+        "debug": {
+            "intensity_factor": intensity_factor,
+            "duration_hours": duration_hours,
+        },
+    }
+
+
 def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
     ftp_w, threshold_hr, threshold_pace = get_user_thresholds(user_id, db)
 
