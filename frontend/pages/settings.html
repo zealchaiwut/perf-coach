@@ -1267,7 +1267,27 @@
           </div>
           <div class="integration-meta" id="stryd-meta"></div>
           <div id="stryd-form-wrap"></div>
+          <div class="integration-last-synced" id="stryd-last-synced"></div>
           <div class="integration-actions" id="stryd-actions"></div>
+
+          <button class="strava-history-toggle" id="stryd-history-toggle" type="button" aria-expanded="false" style="display:none">
+            <span class="toggle-arrow">&#8250;</span> Sync history
+          </button>
+          <div id="stryd-history-panel" role="region" aria-label="Stryd sync history"></div>
+
+          <div class="strava-data-quality" id="stryd-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid">
+              <div class="strava-data-quality-row"><span>Stryd activities</span><span class="strava-data-quality-val" id="dq-stryd-activities">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Stryd</span><span class="strava-data-quality-val" id="dq-workouts-stryd">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Strava</span><span class="strava-data-quality-val" id="dq-workouts-strava2">—</span></div>
+              <div class="strava-data-quality-row"><span>Merged (both)</span><span class="strava-data-quality-val" id="dq-workouts-both">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ TSS</span><span class="strava-data-quality-val" id="dq-workouts-tss">—</span></div>
+            </div>
+          </div>
+
           <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
         </div>
 
@@ -2279,6 +2299,9 @@
         document.getElementById('stryd-badge').textContent = 'Disconnected';
         document.getElementById('stryd-badge').className = 'integration-badge integration-badge--disconnected';
         document.getElementById('stryd-meta').textContent = '';
+        var _ls = document.getElementById('stryd-last-synced'); if (_ls) _ls.textContent = '';
+        var _ht = document.getElementById('stryd-history-toggle'); if (_ht) _ht.style.display = 'none';
+        var _dq = document.getElementById('stryd-data-quality'); if (_dq) _dq.style.display = 'none';
 
         document.getElementById('stryd-form-wrap').innerHTML =
           '<div class="stryd-form" id="stryd-cred-form">' +
@@ -2296,6 +2319,118 @@
         actions.appendChild(btn);
       }
 
+      function loadStrydSyncLatest() {
+        var el = document.getElementById('stryd-last-synced');
+        if (!el) return;
+        fetch('/api/sync/stryd/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d || !d.synced_at) { el.textContent = d ? 'Never synced' : ''; return; }
+            el.textContent = 'Last synced ' + new Date(d.synced_at).toLocaleString() +
+              ': ' + d.activities_synced + ' activities (' + d.new_workouts + ' new)';
+          })
+          .catch(function () { el.textContent = ''; });
+      }
+
+      function loadStrydDataQuality() {
+        if (!_stravaUserId) return;
+        fetch('/api/sync/stryd/data-quality?user_id=' + encodeURIComponent(_stravaUserId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (dq) {
+            if (!dq) return;
+            var panel = document.getElementById('stryd-data-quality');
+            if (panel) panel.style.display = '';
+            function _set(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
+            _set('dq-stryd-activities', dq.stryd_activities_count);
+            _set('dq-workouts-stryd', dq.workouts_with_stryd_source_count);
+            _set('dq-workouts-strava2', dq.workouts_with_strava_source_count);
+            _set('dq-workouts-both', dq.workouts_with_both_count);
+            _set('dq-workouts-tss', dq.workouts_with_tss_count);
+          })
+          .catch(function () {});
+      }
+
+      function loadStrydHistory() {
+        var panel = document.getElementById('stryd-history-panel');
+        if (!panel) return;
+        panel.innerHTML = '<div class="strava-sync-progress">Loading…</div>';
+        fetch('/api/sync/history?source=stryd&limit=5')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (jobs) {
+            if (!Array.isArray(jobs) || !jobs.length) {
+              panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+              return;
+            }
+            var tbl = '<table class="strava-history-table"><thead><tr>' +
+              '<th>Time</th><th>Type</th><th>Status</th><th>Counters</th></tr></thead><tbody>';
+            jobs.forEach(function (job) {
+              var counters = '+' + (job.activities_created || 0) + ' upd:' + (job.activities_updated || 0);
+              var err = job.status === 'failed' && job.error_message
+                ? '<br><span class="sync-history-error-msg">' + job.error_message + '</span>' : '';
+              tbl += '<tr><td>' + (job.started_at ? new Date(job.started_at).toLocaleString() : '—') + '</td>' +
+                '<td>' + (job.job_type || '—') + '</td>' +
+                '<td><span class="sync-status-badge sync-status-badge--' + (job.status || 'pending') + '">' + (job.status || '?') + '</span></td>' +
+                '<td>' + counters + err + '</td></tr>';
+            });
+            panel.innerHTML = tbl + '</tbody></table>';
+          })
+          .catch(function () { panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>'; });
+      }
+
+      (function _initStrydHistoryToggle() {
+        var toggle = document.getElementById('stryd-history-toggle');
+        var panel = document.getElementById('stryd-history-panel');
+        if (!toggle || !panel) return;
+        var open = false;
+        toggle.addEventListener('click', function () {
+          open = !open;
+          panel.classList.toggle('open', open);
+          toggle.classList.toggle('open', open);
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) loadStrydHistory();
+        });
+      })();
+
+      function strydSync() {
+        var btn = document.getElementById('stryd-sync-now-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+        window.intLog('stryd', 'info', 'Sync started');
+        fetch('/api/stryd/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .then(function (r) {
+            if (r.status === 409) throw new Error('Sync already in progress');
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
+            return r.json();
+          })
+          .then(function () { _pollStrydSync(0); })
+          .catch(function (err) {
+            window.intLog('stryd', 'error', err.message || 'Sync failed');
+            if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+          });
+      }
+
+      function _pollStrydSync(attempt) {
+        fetch('/api/sync/status')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (job) {
+            var btn = document.getElementById('stryd-sync-now-btn');
+            var status = job && job.status || 'idle';
+            if (status === 'running') {
+              window.intLog('stryd', 'info', 'Phase: ' + (job.phase || '…') + ' (' + (job.items_synced || 0) + ' synced)');
+              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            } else if (status === 'success') {
+              window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
+              loadStrydSyncLatest(); loadStrydDataQuality();
+              if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+            } else if (status === 'error') {
+              window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
+              if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+            } else if (attempt < 4) {
+              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            } else if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+          })
+          .catch(function () { if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000); });
+      }
+
       function renderStrydConnected(email, expiresAt) {
         var badgeText = 'Connected' + (email ? ' — ' + email : '');
         document.getElementById('stryd-badge').textContent = badgeText;
@@ -2308,13 +2443,27 @@
         document.getElementById('stryd-meta').textContent = meta;
         document.getElementById('stryd-form-wrap').innerHTML = '';
 
+        loadStrydSyncLatest();
+        loadStrydDataQuality();
+        var histToggle = document.getElementById('stryd-history-toggle');
+        if (histToggle) histToggle.style.display = '';
+
         var actions = document.getElementById('stryd-actions');
         actions.innerHTML = '';
+
+        var syncBtn = document.createElement('button');
+        syncBtn.className = 'integration-btn integration-btn--secondary';
+        syncBtn.id = 'stryd-sync-now-btn';
+        syncBtn.textContent = 'Sync now';
+        syncBtn.addEventListener('click', strydSync);
+
         var btn = document.createElement('button');
         btn.className = 'integration-btn integration-btn--danger';
         btn.id = 'stryd-disconnect-btn';
         btn.textContent = 'Disconnect';
         btn.addEventListener('click', strydDisconnect);
+
+        actions.appendChild(syncBtn);
         actions.appendChild(btn);
       }
 
@@ -2347,16 +2496,26 @@
         if (btn) btn.disabled = true;
         if (emailEl) emailEl.disabled = true;
         if (pwEl) pwEl.disabled = true;
+        window.intLog('stryd', 'info', 'Connect attempt', { email: email });
+        var _status = 0;
         fetch('/api/stryd/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email, password: password }),
         })
           .then(function (r) {
-            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Connection failed'); });
+            _status = r.status;
+            if (!r.ok) {
+              return r.text().then(function (t) {
+                var detail = t;
+                try { detail = JSON.parse(t).detail || t; } catch (e) {}
+                return Promise.reject({ status: r.status, detail: detail });
+              });
+            }
             return r.json();
           })
           .then(function (d) {
+            window.intLog('stryd', 'success', 'Connected (HTTP ' + _status + ')', { athlete_id: d.athlete_id, email: d.stryd_user_email });
             intFeedback('stryd-feedback', 'Stryd connected!', 'success');
             renderStrydConnected(d.stryd_user_email, null);
           })
@@ -2364,7 +2523,10 @@
             if (btn) btn.disabled = false;
             if (emailEl) emailEl.disabled = false;
             if (pwEl) pwEl.disabled = false;
-            intFeedback('stryd-feedback', typeof err === 'string' ? err : 'Connection failed', 'error');
+            var msg = (err && err.detail) ? err.detail : (typeof err === 'string' ? err : 'Connection failed');
+            var code = (err && err.status) ? err.status : _status;
+            window.intLog('stryd', 'error', 'Connect failed (HTTP ' + (code || '?') + ')', { detail: msg });
+            intFeedback('stryd-feedback', typeof msg === 'string' ? msg : 'Connection failed', 'error');
           });
       }
 
