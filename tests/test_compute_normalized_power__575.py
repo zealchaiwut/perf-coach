@@ -12,9 +12,7 @@ Acceptance criteria covered:
   AC-window      — window_size derived from sample_interval_seconds (0.5 s → 60-sample window)
 """
 
-import math
 
-import pytest
 
 from backend.services.normalized_power import compute_normalized_power
 
