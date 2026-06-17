@@ -8,12 +8,11 @@ Runs against UAT environment at UAT_BASE_URL.
 """
 import os
 import pytest
-import httpx
-from sqlalchemy import create_engine, select as sql_select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend.models import Workout, StravaActivity, StrydActivity, ActivityStream
-from backend.services.channel_select import apply_channel_selection, select_channels
+from backend.services.channel_select import apply_channel_selection
 
 
 # Resolve UAT database connection
