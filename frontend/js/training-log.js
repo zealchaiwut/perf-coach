@@ -1325,7 +1325,17 @@
         var isRun  = _tk === 'run';
         var isBike = _tk === 'bike';
 
-        if (isRun || isBike) {
+        if (isRun) {
+          // Redesigned run view draws from the union endpoint (power/splits/etc).
+          fetch('/api/workouts/' + workoutId + '/full?streams=none')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; })
+            .then(function (full) {
+              if (loadingEl) loadingEl.style.display = 'none';
+              if (full && full.workout) renderRunView(full);
+              else renderDetailContent(workout, []);
+            });
+        } else if (isBike) {
           fetch('/api/workouts/' + workoutId + '/splits')
             .then(function (r) { return r.ok ? r.json() : []; })
             .catch(function () { return []; })
@@ -1513,6 +1523,222 @@
       document.execCommand('copy');
       document.body.removeChild(ta);
     } catch (e) { /* no-op */ }
+  }
+
+  // ── Run VIEW (read-only, mock-matched) ─────────────────────────────────────
+  // Zone-2 HR band. HARDCODED for now — will be replaced by a per-user zone
+  // setting; kept here as named constants so it is a one-line swap later.
+  var ZONE2_HR_MIN = 130;
+  var ZONE2_HR_MAX = 155;
+
+  function _fmtPace(secPerKm) {
+    if (!secPerKm || !isFinite(secPerKm)) return '—';
+    return Math.floor(secPerKm / 60) + ':' + pad(Math.round(secPerKm % 60));
+  }
+  function _dash(v, suffix) {
+    if (v == null || v === '') return '—';
+    return suffix ? v + suffix : '' + v;
+  }
+  function _effortClass(norm) {
+    if (norm == null) return 'recovery';
+    if (norm < 0.25) return 'recovery';
+    if (norm < 0.55) return 'easy';
+    if (norm < 0.80) return 'tempo';
+    return 'hard';
+  }
+
+  function renderRunView(full) {
+    var contentEl = document.getElementById('dp-content');
+    if (!contentEl) return;
+    var w = full.workout || {};
+    var splits = (full.splits || []).slice().sort(function (a, b) { return a.split_index - b.split_index; });
+    var srcStrava = (w.source || '').indexOf('strava') >= 0;
+    var srcStryd  = (w.source || '').indexOf('stryd') >= 0;
+    var stravaUrl = w.strava_activity_url || null;
+
+    // ── derived ──
+    var paceSec = (w.duration_seconds && w.distance_km) ? (w.duration_seconds / w.distance_km) : null;
+    var startHHMM = w.start_time ? new Date(w.start_time).toTimeString().slice(0, 5) : null;
+
+    // per-split effort normalisation (avg_power preferred, else speed)
+    var effVals = splits.map(function (s) {
+      if (s.avg_power != null) return s.avg_power;
+      if (s.distance_km && s.duration_seconds) return s.distance_km / s.duration_seconds;
+      return null;
+    });
+    var present = effVals.filter(function (v) { return v != null; });
+    var emin = present.length ? Math.min.apply(null, present) : 0;
+    var emax = present.length ? Math.max.apply(null, present) : 1;
+    function _norm(v) { return (v == null || emax === emin) ? 0.5 : (v - emin) / (emax - emin); }
+
+    splits.forEach(function (s, i) {
+      s._norm = _norm(effVals[i]);
+      s._tier = _effortClass(s._norm);
+      s._paceSec = (s.distance_km && s.duration_seconds) ? (s.duration_seconds / s.distance_km) : null;
+      s._zone2 = (s.avg_hr != null && s.avg_hr >= ZONE2_HR_MIN && s.avg_hr <= ZONE2_HR_MAX);
+    });
+
+    // ── 1) HEADER ──
+    var srcBadges =
+      (srcStrava ? '<span class="rv-srcbadge rv-srcbadge--strava">&#8595; Strava</span>' : '') +
+      (srcStryd ? '<span class="rv-srcbadge rv-srcbadge--stryd">&#9889; Stryd</span>' : '');
+    var header =
+      '<div class="rv-card rv-header">' +
+        '<div class="rv-head-top">' +
+          '<div class="rv-typebadge"><span class="rv-run-ico">🏃</span><span class="rv-type-pill">RUN</span></div>' +
+          '<div class="rv-srcbadges">' + srcBadges + '</div>' +
+        '</div>' +
+        '<h1 class="rv-title">' + esc(w.name || 'Run') + '</h1>' +
+        (w.id ?
+          '<div class="rv-idrow"><code class="rv-id">' + esc(String(w.id).slice(0, 8) + '…' + String(w.id).slice(-6)) + '</code>' +
+          '<button type="button" class="rv-idcopy" id="rv-idcopy" title="Copy ID" aria-label="Copy workout ID">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>' : '') +
+        '<div class="rv-date">' + esc(fmtDate(w.workout_date)) + '</div>' +
+        '<div class="rv-basic-tiles">' +
+          '<div class="rv-tile rv-tile--basic"><div class="rv-tile-val">' + (w.distance_km != null ? parseFloat((+w.distance_km).toFixed(1)) : '—') + '<span class="rv-tile-unit">km</span></div><div class="rv-tile-lbl">Distance</div></div>' +
+          '<div class="rv-tile rv-tile--basic"><div class="rv-tile-val">' + _fmtPace(paceSec) + '<span class="rv-tile-unit">/km</span></div><div class="rv-tile-lbl">Avg pace</div></div>' +
+        '</div>' +
+        '<div class="rv-duration">Duration <strong>' + (w.duration_seconds != null ? fmtDurationDetail(w.duration_seconds) : '—') + '</strong>' +
+          (startHHMM ? ' · started ' + startHHMM : '') + '</div>' +
+      '</div>';
+
+    // ── 2) LOAD & INTENSITY ──
+    function tile(lbl, val, unit, opts) {
+      opts = opts || {};
+      return '<div class="rv-itile' + (opts.hero ? ' rv-itile--hero' : '') + (opts.dot ? ' rv-itile--' + opts.dot : '') + '">' +
+        '<div class="rv-itile-lbl">' + (opts.dot ? '<span class="rv-dot rv-dot--' + opts.dot + '"></span>' : '') + lbl +
+        (opts.stryd ? ' <span class="rv-stryd-tag">STRYD</span>' : '') + '</div>' +
+        '<div class="rv-itile-val">' + val + (unit ? '<span class="rv-itile-unit">' + unit + '</span>' : '') + '</div></div>';
+    }
+    var load =
+      '<div class="rv-card">' +
+        '<div class="rv-sec-title">Load &amp; intensity</div>' +
+        '<div class="rv-igrid">' +
+          tile('TSS', _dash(w.tss != null ? Math.round(w.tss) : null), '', { hero: true }) +
+          tile('Zone 2', _dash(w.zone2_minutes), w.zone2_minutes != null ? 'min' : '') +
+          tile('Elevation', _dash(w.elevation_m), w.elevation_m != null ? 'm' : '') +
+          tile('Avg HR', _dash(w.avg_hr), w.avg_hr != null ? 'bpm' : '', { dot: 'hr' }) +
+          tile('Max HR', _dash(w.max_hr), w.max_hr != null ? 'bpm' : '', { dot: 'hr' }) +
+          tile('Avg power', _dash(w.avg_power), w.avg_power != null ? 'W' : '', { dot: 'pwr', stryd: true }) +
+          tile('Max power', _dash(w.max_power), w.max_power != null ? 'W' : '', { dot: 'pwr', stryd: true }) +
+          tile('Length', _dash(w.avg_stride_m), w.avg_stride_m != null ? 'm' : '', { dot: 'pwr', stryd: true }) +
+          tile('Cadence', _dash(w.avg_cadence_spm), w.avg_cadence_spm != null ? 'spm' : '', { dot: 'pwr', stryd: true }) +
+        '</div>' +
+        '<div class="rv-foot">' + (w.np != null ? 'NP ' + w.np + ' W · ' : '') + 'stride length = avg per step · cadence = steps/min · HR zones auto-calc</div>' +
+      '</div>';
+
+    // ── 3) SESSION PROFILE · EFFORT (derived from splits) ──
+    var profile = '';
+    if (splits.length) {
+      var totalDist = splits.reduce(function (a, s) { return a + (s.distance_km || 0); }, 0) || 1;
+      var bars = splits.map(function (s) {
+        var h = 35 + Math.round(s._norm * 60);
+        var wpc = ((s.distance_km || 0) / totalDist * 100).toFixed(2);
+        return '<div class="rv-eff-bar rv-eff--' + s._tier + (s._zone2 ? ' rv-eff--z2' : '') + '" style="flex:' + wpc + ' 1 0;height:' + h + '%"></div>';
+      }).join('');
+      profile =
+        '<div class="rv-card">' +
+          '<div class="rv-sec-title">Session profile · effort</div>' +
+          '<div class="rv-eff-axis"><span>START</span><span>HEIGHT = EFFORT</span><span>FINISH</span></div>' +
+          '<div class="rv-eff-track">' + bars + '</div>' +
+          '<div class="rv-eff-legend">' +
+            '<span><i class="rv-dot rv-dot--easy"></i>Easy</span>' +
+            '<span><i class="rv-dot rv-dot--tempo"></i>Tempo</span>' +
+            '<span><i class="rv-dot rv-dot--hard"></i>Hard</span>' +
+            '<span><i class="rv-dot rv-dot--recovery"></i>Recovery</span>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── 4) LAPS · 1 km splits ──
+    var laps = '';
+    if (splits.length) {
+      laps =
+        '<div class="rv-card">' +
+          '<div class="rv-laps-head"><div class="rv-sec-title">Laps · 1 km splits</div>' +
+            '<div class="rv-metric-toggle" id="rv-metric-toggle">' +
+              '<button class="rv-mt-btn rv-mt-btn--on" data-metric="pace">Pace</button>' +
+              '<button class="rv-mt-btn" data-metric="hr">HR</button>' +
+              '<button class="rv-mt-btn" data-metric="power">Power</button>' +
+            '</div></div>' +
+          '<div class="rv-lap-chart" id="rv-lap-chart"></div>' +
+          '<div class="rv-z2-note"><span class="rv-z2-swatch"></span> Highlighted laps = <strong>Zone 2</strong> (HR ' + ZONE2_HR_MIN + '–' + ZONE2_HR_MAX + ' · range will come from settings)</div>' +
+          '<div class="rv-lap-tablewrap"><table class="rv-lap-table"><thead><tr>' +
+            '<th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>Len</th><th>Cad</th><th>Pwr</th></tr></thead><tbody>' +
+            splits.map(function (s) {
+              return '<tr class="' + (s._zone2 ? 'rv-lap-z2' : '') + '">' +
+                '<td class="rv-lap-n">' + s.split_index + (s._zone2 ? ' <span class="rv-z2-pill">Z2</span>' : '') + '</td>' +
+                '<td>' + (s.distance_km != null ? (+s.distance_km).toFixed(1) : '—') + '<span class="rv-u">km</span></td>' +
+                '<td>' + _fmtPace(s._paceSec) + '</td>' +
+                '<td>' + _dash(s.avg_hr) + '</td>' +
+                '<td>' + (s.stride_length_m != null ? (+s.stride_length_m).toFixed(2) : '—') + '<span class="rv-u">m</span></td>' +
+                '<td>' + _dash(s.cadence_spm) + (s.cadence_spm != null ? '<span class="rv-u">spm</span>' : '') + '</td>' +
+                '<td>' + _dash(s.avg_power) + (s.avg_power != null ? '<span class="rv-u">W</span>' : '') + '</td>' +
+                '</tr>';
+            }).join('') +
+          '</tbody></table></div>' +
+        '</div>';
+    }
+
+    // ── 5) ROUTE ──
+    var hasGps = full.field_coverage && full.field_coverage.has_gps;
+    var route = hasGps ? '' :
+      '<div class="rv-card"><div class="rv-sec-title">Route</div>' +
+        '<div class="rv-map-placeholder"><div class="rv-map-emoji">🗺️</div>' +
+        '<div class="rv-map-title">Map appears once GPS sync is added</div>' +
+        '<div class="rv-map-sub">Strava/Stryd route data not stored yet</div></div></div>';
+
+    // ── 6) SOURCE & SYNC ──
+    var nSources = (srcStrava ? 1 : 0) + (srcStryd ? 1 : 0);
+    var srcStrip =
+      '<div class="rv-card rv-srcstrip">' +
+        '<div class="rv-sec-title">Source &amp; sync</div>' +
+        '<div class="rv-srcstrip-row">' +
+          (stravaUrl ? '<a class="rv-srcbtn rv-srcbtn--strava" href="' + esc(stravaUrl) + '" target="_blank" rel="noopener">&#8595; View on Strava</a>' : '') +
+          (srcStryd ? '<span class="rv-srcbtn rv-srcbtn--stryd">&#9889; Stryd power</span>' : '') +
+          '<span class="rv-srcnote">merged from ' + nSources + ' source' + (nSources === 1 ? '' : 's') +
+            (startHHMM ? ' · last sync ' + startHHMM : '') + '</span>' +
+        '</div>' +
+      '</div>';
+
+    contentEl.innerHTML = '<div class="rv-stack">' + header + load + profile + laps + route + srcStrip + '</div>';
+
+    // copy button
+    var cp = document.getElementById('rv-idcopy');
+    if (cp) cp.addEventListener('click', function () {
+      var t = w.id || '';
+      var done = function () { cp.classList.add('rv-idcopy--done'); setTimeout(function () { cp.classList.remove('rv-idcopy--done'); }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(function () { _fallbackCopy(t); done(); });
+      else { _fallbackCopy(t); done(); }
+    });
+
+    // lap chart + metric toggle
+    function _drawLapChart(metric) {
+      var chart = document.getElementById('rv-lap-chart');
+      if (!chart) return;
+      var vals = splits.map(function (s) {
+        if (metric === 'hr') return s.avg_hr;
+        if (metric === 'power') return s.avg_power;
+        return s._paceSec ? -s._paceSec : null;  // faster (smaller pace) → taller
+      });
+      var nums = vals.filter(function (v) { return v != null; });
+      var mn = nums.length ? Math.min.apply(null, nums) : 0;
+      var mx = nums.length ? Math.max.apply(null, nums) : 1;
+      chart.innerHTML = splits.map(function (s, i) {
+        var v = vals[i];
+        var h = (v == null || mx === mn) ? 30 : 20 + Math.round((v - mn) / (mx - mn) * 78);
+        return '<div class="rv-lapbar rv-eff--' + s._tier + (s._zone2 ? ' rv-lapbar--z2' : '') + '" style="height:' + h + '%" title="Lap ' + s.split_index + '"></div>';
+      }).join('');
+    }
+    _drawLapChart('pace');
+    var toggle = document.getElementById('rv-metric-toggle');
+    if (toggle) toggle.addEventListener('click', function (e) {
+      var btn = e.target.closest('.rv-mt-btn');
+      if (!btn) return;
+      toggle.querySelectorAll('.rv-mt-btn').forEach(function (b) { b.classList.remove('rv-mt-btn--on'); });
+      btn.classList.add('rv-mt-btn--on');
+      _drawLapChart(btn.getAttribute('data-metric'));
+    });
   }
 
   function renderDetailContent(workout, splits) {

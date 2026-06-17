@@ -147,6 +147,12 @@ class Workout(Base):
     stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="SET NULL"), nullable=True)
     manual_overrides = Column(JSONB, nullable=True)
     zone2_minutes = Column(Integer, nullable=True)
+    # Workout-level Stryd power/cadence/stride aggregates (nullable; manual runs → null).
+    avg_power = Column(Integer, nullable=True)
+    max_power = Column(Integer, nullable=True)
+    np = Column(Integer, nullable=True)
+    avg_cadence_spm = Column(Integer, nullable=True)
+    avg_stride_m = Column(Numeric(4, 2), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
@@ -224,6 +230,10 @@ class WorkoutSplit(Base):
     distance_km = Column(Numeric(6, 3), nullable=False)
     duration_seconds = Column(Integer, nullable=False)
     avg_hr = Column(Integer, nullable=True)
+    # Per-km Stryd metrics (nullable; manual/Strava-only splits → null).
+    avg_power = Column(Integer, nullable=True)
+    cadence_spm = Column(Integer, nullable=True)
+    stride_length_m = Column(Numeric(4, 2), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 

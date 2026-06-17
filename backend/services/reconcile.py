@@ -52,6 +52,44 @@ def _apply_best(workout, best: dict) -> None:
         workout.tss = best["best_tss"]
 
 
+def _apply_stryd_metrics(workout, act) -> None:
+    """Copy workout-level Stryd power/cadence/stride aggregates onto the workout."""
+    fm = getattr(act, "form_metrics", None) or {}
+    if getattr(act, "avg_power_w", None) is not None:
+        workout.avg_power = int(act.avg_power_w)
+    if fm.get("max_power_w") is not None:
+        workout.max_power = int(fm["max_power_w"])
+    if fm.get("np_w") is not None:
+        workout.np = int(fm["np_w"])
+    if fm.get("cadence_spm") is not None:
+        workout.avg_cadence_spm = int(round(fm["cadence_spm"]))
+    if fm.get("stride_length_m") is not None:
+        workout.avg_stride_m = round(float(fm["stride_length_m"]), 2)
+
+
+def _sync_splits(session, workout, act) -> None:
+    """Replace a workout's splits from the Stryd activity's computed km-splits."""
+    from backend.models import WorkoutSplit
+    splits = getattr(act, "splits", None)
+    if not isinstance(splits, list) or not splits or not isinstance(splits[0], dict):
+        return
+    session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == workout.id).delete()
+    session.flush()
+    # Index by position (1-based) so it is always unique, regardless of the
+    # source dict's own index field. Fields read defensively across split shapes.
+    for i, s in enumerate(splits, start=1):
+        session.add(WorkoutSplit(
+            workout_id=workout.id,
+            split_index=i,
+            distance_km=s.get("distance_km") or 0,
+            duration_seconds=s.get("duration_seconds") or 0,
+            avg_hr=s.get("avg_hr"),
+            avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
+            cadence_spm=s.get("cadence_spm"),
+            stride_length_m=s.get("stride_length_m"),
+        ))
+
+
 def _merge_source(current: str | None, new_source: str) -> str:
     if not current or current == new_source:
         return new_source
@@ -97,6 +135,7 @@ def reconcile_workouts(job_id, user_id) -> None:
 
         sync_jobs.reset_progress(uid, total=len(all_acts))
 
+        stryd_pairs = []
         for source_type, act in all_acts:
             matched = _find_in_memory(act.start_time, existing_workouts, _TOLERANCE)
             proxy = _make_proxy(act, source_type, matched)
@@ -110,6 +149,7 @@ def reconcile_workouts(job_id, user_id) -> None:
                     matched.stryd_activity_pk = act.id
                     matched.source = _merge_source(matched.source, "stryd")
                 _apply_best(matched, best)
+                target = matched
             else:
                 wdate = act.start_time.astimezone(timezone.utc).date() if act.start_time else date.today()
                 wtype = getattr(act, "activity_type", None) or "Run"
@@ -128,7 +168,17 @@ def reconcile_workouts(job_id, user_id) -> None:
                 _apply_best(w, best)
                 session.add(w)
                 existing_workouts.append(w)
+                target = w
+
+            if source_type == "stryd":
+                _apply_stryd_metrics(target, act)
+                stryd_pairs.append((target, act))
 
             sync_jobs.increment(uid, current=1)
+
+        # Flush so newly-created workouts have ids, then (re)build their splits.
+        session.flush()
+        for workout, act in stryd_pairs:
+            _sync_splits(session, workout, act)
 
         session.commit()
