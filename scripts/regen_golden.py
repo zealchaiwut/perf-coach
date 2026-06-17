@@ -37,34 +37,46 @@ def main():
 
     np_val, info = compute_normalized_power(power_stream, sample_interval)
     if np_val is None:
-        print(f"ERROR: compute_normalized_power returned None: {info['reason']}", file=sys.stderr)
+        print(
+            f"ERROR: compute_normalized_power returned None: {info['reason']}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     expected = {
         "_comment": (
-            "Hand-verified expected outputs for the golden_run.json fixture (issue #577). "
-            "Regenerate ONLY after an intentional formula change using scripts/regen_golden.py. "
-            "A second engineer must manually verify new values before merging. "
-            "See docs/REGENERATING_GOLDEN.md for the full regeneration workflow."
+            "Hand-verified expected outputs for the golden_run.json fixture "
+            "(issue #577). Regenerate ONLY after an intentional formula change "
+            "using scripts/regen_golden.py. A second engineer must manually verify "
+            "new values before merging. See docs/REGENERATING_GOLDEN.md for the "
+            "full regeneration workflow."
         ),
         "normalized_power": {
             "value": np_val,
             "tolerance": 0.01,
             "tolerance_note": (
                 "Absolute tolerance of ±0.01 W on the rounded integer result. "
-                "Since the result is always an integer, the effective tolerance is exact equality."
+                "Since the result is always an integer, tolerance is exact equality."
             ),
             "final_value_exact": round(info["final_value"], 10),
             "final_value_tolerance_relative": 0.001,
-            "final_value_tolerance_note": "±0.1% relative tolerance on the unrounded final_value.",
+            "final_value_tolerance_note": (
+                "±0.1% relative tolerance on the unrounded final_value."
+            ),
         },
         "tss": {
             "value": None,
-            "placeholder_note": "PLACEHOLDER: implement in [ticket reference — Running TSS calculation]",
+            "placeholder_note": (
+                "PLACEHOLDER: implement in [ticket reference — Running TSS "
+                "calculation]"
+            ),
         },
         "detected_profile": {
             "value": None,
-            "placeholder_note": "PLACEHOLDER: implement in [ticket reference — workout profile detection]",
+            "placeholder_note": (
+                "PLACEHOLDER: implement in [ticket reference — workout profile "
+                "detection]"
+            ),
         },
     }
 
@@ -83,8 +95,10 @@ def main():
 
     print(f"\nWrote {EXPECTED_PATH}")
     print(
-        "\n*** IMPORTANT: Before committing, have a second engineer manually verify ***\n"
-        "***            the new expected values. See docs/REGENERATING_GOLDEN.md.  ***"
+        "\n*** IMPORTANT: Before committing, have a second engineer manually "
+        "verify ***\n"
+        "***            the new expected values. "
+        "See docs/REGENERATING_GOLDEN.md.  ***"
     )
 
 
