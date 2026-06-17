@@ -14,7 +14,6 @@ Acceptance criteria verified:
         (c) no GPS source, (d) empty/null channel set.
 - AC10: Function does not run unless both source streams exist.
 """
-import pytest
 
 from backend.services.channel_select import select_channels
 
@@ -348,9 +347,8 @@ def test_select_channels_has_docstring():
 
 def test_no_db_import_at_module_level():
     """AC7: channel_select module does not import DB machinery at top level."""
-    import importlib, sys
+    import importlib
     # Reload the module to catch top-level imports
-    import backend.services.channel_select as cs_module
     src = importlib.util.find_spec("backend.services.channel_select").origin
     with open(src) as fh:
         lines = fh.readlines()
