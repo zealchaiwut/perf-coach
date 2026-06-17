@@ -1,0 +1,19 @@
+{
+  "_comment": "Hand-verified expected outputs for the golden_run.json fixture (issue #577). Regenerate ONLY after an intentional formula change using scripts/regen_golden.py. A second engineer must manually verify new values before merging. See docs/REGENERATING_GOLDEN.md for the full regeneration workflow.",
+  "normalized_power": {
+    "value": 268,
+    "tolerance": 0.01,
+    "tolerance_note": "Absolute tolerance of \u00b10.01 W on the rounded integer result. Since the result is always an integer, the effective tolerance is exact equality.",
+    "final_value_exact": 268.2544869303,
+    "final_value_tolerance_relative": 0.001,
+    "final_value_tolerance_note": "\u00b10.1% relative tolerance on the unrounded final_value."
+  },
+  "tss": {
+    "value": null,
+    "placeholder_note": "PLACEHOLDER: implement in [ticket reference \u2014 Running TSS calculation]"
+  },
+  "detected_profile": {
+    "value": null,
+    "placeholder_note": "PLACEHOLDER: implement in [ticket reference \u2014 workout profile detection]"
+  }
+}
