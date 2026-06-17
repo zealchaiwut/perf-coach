@@ -600,10 +600,11 @@ class ActivityStream(Base):
     altitude_m = Column(JSONB, nullable=True)
     latitude = Column(JSONB, nullable=True)
     longitude = Column(JSONB, nullable=True)
+    channel_attribution = Column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
-            "source IS NULL OR source IN ('strava', 'stryd')",
+            "source IS NULL OR source IN ('strava', 'stryd', 'merged')",
             name="ck_activity_streams_source_values",
         ),
     )
