@@ -152,7 +152,7 @@ Child tables: `workout_exercises`, `workout_splits`.
 
 ---
 
-## workout_splits
+## workout_splits _(lap_type added Sprint 63)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -162,6 +162,10 @@ Child tables: `workout_exercises`, `workout_splits`.
 | distance_km | numeric(6,3) | |
 | duration_seconds | int | |
 | avg_hr | int | nullable |
+| avg_power | int | nullable |
+| cadence_spm | int | nullable |
+| stride_length_m | numeric(4,2) | nullable |
+| lap_type | varchar(10) | nullable; `auto` (1-km auto-split) or `manual`; default `auto` |
 | created_at / updated_at | timestamptz | |
 
 Unique: `(workout_id, split_index)`.
@@ -255,7 +259,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## strava_activities
+## strava_activities _(detail_payload and streams_payload added Sprint 63)_
 
 Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 
@@ -273,11 +277,13 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 | device_name / external_id | varchar | nullable |
 | is_stryd_synced | bool | default false |
 | raw_payload | jsonb | |
+| detail_payload | jsonb | nullable — full `/activities/{id}` detail blob |
+| streams_payload | jsonb | nullable — raw `/activities/{id}/streams` response; used by reconcile to populate `activity_streams` |
 | synced_at | timestamptz | |
 
 ---
 
-## stryd_activities
+## stryd_activities _(streams_payload added Sprint 63)_
 
 Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 
@@ -292,6 +298,7 @@ Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 | avg_power_w / avg_hr | int | nullable |
 | tss | int | nullable |
 | form_metrics / power_zones / splits | jsonb | nullable |
+| streams_payload | jsonb | nullable — raw per-point streams (timestamp_list, total_power_list, etc.); used by reconcile to populate `activity_streams` |
 | raw_payload | jsonb | |
 | synced_at | timestamptz | |
 
@@ -309,6 +316,28 @@ Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 | session_token_expires_at | timestamptz | nullable |
 | athlete_id | bigint | nullable |
 | created_at / updated_at | timestamptz | |
+
+---
+
+## activity_streams _(added Sprint 63)_
+
+Per-sample time-series channel data for a workout. One row per workout; absence of a row means no stream data exists for that workout (e.g. a manual strength session). Populated during Strava/Stryd reconcile from `strava_activities.streams_payload` or `stryd_activities.streams_payload`.
+
+| column | type | notes |
+|--------|------|-------|
+| workout_id | UUID PK FK→workouts | CASCADE |
+| sample_interval_seconds | int | nullable |
+| source | varchar(20) | nullable; `strava` or `stryd` |
+| time_offset_seconds | jsonb | nullable — array of integer offsets |
+| power_w | jsonb | nullable — array of power samples (watts) |
+| heart_rate_bpm | jsonb | nullable — array of HR samples |
+| pace_seconds_per_km | jsonb | nullable — array of pace samples |
+| cadence_spm | jsonb | nullable — array of cadence samples |
+| altitude_m | jsonb | nullable — array of altitude samples |
+| latitude | jsonb | nullable — array of GPS latitude samples |
+| longitude | jsonb | nullable — array of GPS longitude samples |
+
+Check: `source IN ('strava', 'stryd')`.
 
 ---
 
