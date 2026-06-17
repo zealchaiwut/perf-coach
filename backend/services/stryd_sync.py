@@ -247,36 +247,6 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
 
         if mapped:
             ids = [m["stryd_activity_id"] for m in mapped]
-
-            # Enrich each activity with per-km splits + NP + max power from its
-            # stream (1 call/activity). Skip rows already enriched (splits is a
-            # list of dicts) so re-syncs stay cheap.
-            with Session(engine) as session:
-                rows = session.execute(
-                    select(StrydActivity.stryd_activity_id, StrydActivity.splits)
-                    .where(StrydActivity.stryd_activity_id.in_(ids))
-                ).all()
-            enriched = {sid for sid, sp in rows if isinstance(sp, list) and sp and isinstance(sp[0], dict)}
-            for m in mapped:
-                if m["stryd_activity_id"] in enriched:
-                    continue
-                try:
-                    streams = fetch_stryd_activity_streams(token, m["stryd_activity_id"])
-                    splits = compute_km_splits(streams)
-                    if splits:
-                        m["splits"] = splits
-                    powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
-                    fm = dict(m.get("form_metrics") or {})
-                    np = _normalized_power(powers)
-                    if np is not None:
-                        fm["np_w"] = np
-                    if powers:
-                        fm["max_power_w"] = round(max(powers))
-                    if fm:
-                        m["form_metrics"] = fm
-                except Exception as exc:
-                    logger.warning("stryd enrich failed", extra={"activity_id": m["stryd_activity_id"], "error": str(exc)})
-
             with Session(engine) as session:
                 existing = set(session.execute(
                     select(StrydActivity.stryd_activity_id)
@@ -285,6 +255,9 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
             created = sum(1 for m in mapped if m["stryd_activity_id"] not in existing)
             updated = len(mapped) - created
 
+            # 1) Bulk-upsert the base summaries. splits + form_metrics are owned by
+            #    the enrichment step below (excluded here so re-syncs never clobber
+            #    the per-km splits / NP we computed from the streams).
             now = datetime.now(tz=timezone.utc)
             with Session(engine) as session:
                 ins = _pg_insert(StrydActivity).values(mapped)
@@ -297,15 +270,50 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
                         "avg_power_w": ins.excluded.avg_power_w,
                         "avg_hr": ins.excluded.avg_hr,
                         "tss": ins.excluded.tss,
-                        "form_metrics": ins.excluded.form_metrics,
                         "power_zones": ins.excluded.power_zones,
-                        "splits": ins.excluded.splits,
                         "raw_payload": ins.excluded.raw_payload,
                         "synced_at": now,
                     },
                 )
                 session.execute(stmt)
                 session.commit()
+
+            # 2) Enrich each activity (per-km splits + NP + max power) with a
+            #    direct per-row UPDATE. Skip rows already enriched (splits is a
+            #    list of dicts) so re-syncs stay cheap.
+            with Session(engine) as session:
+                rows = session.execute(
+                    select(StrydActivity.stryd_activity_id, StrydActivity.splits)
+                    .where(StrydActivity.stryd_activity_id.in_(ids))
+                ).all()
+            already = {sid for sid, sp in rows if isinstance(sp, list) and sp and isinstance(sp[0], dict)}
+            base_form = {m["stryd_activity_id"]: (m.get("form_metrics") or {}) for m in mapped}
+            for aid in ids:
+                if aid in already:
+                    continue
+                try:
+                    streams = fetch_stryd_activity_streams(token, aid)
+                    splits = compute_km_splits(streams)
+                    powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
+                    fm = dict(base_form.get(aid) or {})
+                    np = _normalized_power(powers)
+                    if np is not None:
+                        fm["np_w"] = np
+                    if powers:
+                        fm["max_power_w"] = round(max(powers))
+                    vals = {}
+                    if splits:
+                        vals["splits"] = splits
+                    if fm:
+                        vals["form_metrics"] = fm
+                    if vals:
+                        with Session(engine) as session:
+                            session.query(StrydActivity).filter(
+                                StrydActivity.stryd_activity_id == aid
+                            ).update(vals, synchronize_session=False)
+                            session.commit()
+                except Exception as exc:
+                    logger.warning("stryd enrich failed", extra={"activity_id": aid, "error": str(exc)})
 
         with Session(engine) as session:
             jr = session.get(SyncJob, job_db_id)
