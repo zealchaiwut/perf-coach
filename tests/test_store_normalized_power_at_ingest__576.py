@@ -10,12 +10,11 @@ Acceptance criteria covered:
 """
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from backend.services.normalized_power import compute_normalized_power
-from backend.services.reconcile import _ingest_streams, _find_workout_for_activity
+from backend.services.reconcile import _ingest_streams
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
