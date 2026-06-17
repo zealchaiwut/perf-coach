@@ -157,7 +157,7 @@ class Workout(Base):
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
-        CheckConstraint("tss_source IS NULL OR tss_source IN ('manual', 'calculated')", name="ck_workouts_tss_source_values"),
+        CheckConstraint("tss_source IS NULL OR tss_source IN ('manual', 'calculated', 'stryd', 'power', 'pace', 'hr', 'duration_only')", name="ck_workouts_tss_source_values"),
         CheckConstraint("source IS NULL OR source IN ('manual', 'strava', 'stryd', 'strava,stryd', 'stryd,strava', 'both')", name="ck_workouts_source_values"),
         CheckConstraint("distance_km IS NULL OR distance_km >= 0", name="ck_workouts_distance_non_negative"),
         CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workouts_duration_non_negative"),
@@ -516,6 +516,10 @@ class UserPreferences(Base):
     ftp_w = Column(Integer, nullable=True)
     threshold_hr = Column(Integer, nullable=True)
     threshold_pace_seconds_per_km = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+    zone2_hr_min = Column(Integer, nullable=True)
+    zone2_hr_max = Column(Integer, nullable=True)
+    weekly_zone2_target_min = Column(Integer, nullable=True)
     preferred_units = Column(String(20), nullable=False, server_default=text("'metric'"))
     timezone = Column(String(100), nullable=False, server_default=text("'Asia/Bangkok'"))
     week_start_day = Column(Integer, nullable=False, server_default=text("1"))

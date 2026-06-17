@@ -182,3 +182,57 @@ def reconcile_workouts(job_id, user_id) -> None:
             _sync_splits(session, workout, act)
 
         session.commit()
+
+    # Derive TSS (fallback) + Zone-2 minutes for runs from the now-current splits.
+    compute_run_metrics(user_id)
+
+
+def compute_run_metrics(user_id) -> None:
+    """Per-run: fill zone2_minutes (time in the user's Zone-2 HR band) from the
+    km-splits, and TSS via tss.py when a run has none (no Stryd stress).
+
+    Thresholds + Zone-2 band come from user_preferences (defaults applied here)."""
+    from backend.db import engine
+    from backend.models import UserPreferences, Workout, WorkoutSplit
+    from backend.services.tss import estimate_tss_for_workout
+    from types import SimpleNamespace
+
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+    with _Session(engine) as session:
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        z_min = (prefs.zone2_hr_min if prefs and prefs.zone2_hr_min is not None else 130)
+        z_max = (prefs.zone2_hr_max if prefs and prefs.zone2_hr_max is not None else 155)
+
+        runs = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
+            .all()
+        )
+        run_ids = [w.id for w in runs]
+        splits_by: dict = {}
+        if run_ids:
+            for s in session.query(WorkoutSplit).filter(WorkoutSplit.workout_id.in_(run_ids)).all():
+                splits_by.setdefault(s.workout_id, []).append(s)
+
+        for w in runs:
+            sp = splits_by.get(w.id, [])
+            if sp:
+                z2s = sum((s.duration_seconds or 0) for s in sp
+                          if s.avg_hr is not None and z_min <= s.avg_hr <= z_max)
+                w.zone2_minutes = round(z2s / 60)
+            elif w.avg_hr is not None and w.duration_seconds and z_min <= w.avg_hr <= z_max:
+                w.zone2_minutes = round(w.duration_seconds / 60)
+
+            if w.tss is None and w.duration_seconds:
+                proxy = SimpleNamespace(
+                    duration_seconds=w.duration_seconds,
+                    avg_power_w=w.avg_power,
+                    avg_hr=w.avg_hr,
+                    distance_km=float(w.distance_km) if w.distance_km is not None else None,
+                    avg_pace_seconds_per_km=None,
+                )
+                tss, src = estimate_tss_for_workout(proxy, uid, session)
+                w.tss = tss
+                w.tss_source = src
+
+        session.commit()

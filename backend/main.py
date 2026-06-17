@@ -9366,6 +9366,10 @@ _PREFS_DEFAULTS = {
     "ftp_w": 280,
     "threshold_hr": 170,
     "threshold_pace_seconds_per_km": 270,
+    "max_hr": 190,
+    "zone2_hr_min": 130,
+    "zone2_hr_max": 155,
+    "weekly_zone2_target_min": 150,
 }
 
 _PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
@@ -9378,6 +9382,10 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "ftp_w": prefs.ftp_w,
         "threshold_hr": prefs.threshold_hr,
         "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
+        "max_hr": prefs.max_hr,
+        "zone2_hr_min": prefs.zone2_hr_min,
+        "zone2_hr_max": prefs.zone2_hr_max,
+        "weekly_zone2_target_min": prefs.weekly_zone2_target_min,
         "display_name": prefs.display_name,
         "week_start_day": prefs.week_start_day,
         "timezone": prefs.timezone,
@@ -9430,6 +9438,10 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     ftp_w = body.get("ftp_w", _PREFS_SENTINEL)
     threshold_hr = body.get("threshold_hr", _PREFS_SENTINEL)
     threshold_pace = body.get("threshold_pace_seconds_per_km", _PREFS_SENTINEL)
+    max_hr = body.get("max_hr", _PREFS_SENTINEL)
+    zone2_hr_min = body.get("zone2_hr_min", _PREFS_SENTINEL)
+    zone2_hr_max = body.get("zone2_hr_max", _PREFS_SENTINEL)
+    weekly_zone2_target = body.get("weekly_zone2_target_min", _PREFS_SENTINEL)
     display_name = body.get("display_name", _PREFS_SENTINEL)
     week_start_day = body.get("week_start_day", _PREFS_SENTINEL)
     timezone = body.get("timezone", _PREFS_SENTINEL)
@@ -9444,6 +9456,18 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     if threshold_pace is not _PREFS_SENTINEL and threshold_pace is not None:
         if not isinstance(threshold_pace, int) or not (180 <= threshold_pace <= 540):
             errors.append({"field": "threshold_pace_seconds_per_km", "msg": "threshold_pace_seconds_per_km must be between 180 and 540"})
+    if max_hr is not _PREFS_SENTINEL and max_hr is not None:
+        if not isinstance(max_hr, int) or not (120 <= max_hr <= 230):
+            errors.append({"field": "max_hr", "msg": "max_hr must be between 120 and 230"})
+    if zone2_hr_min is not _PREFS_SENTINEL and zone2_hr_min is not None:
+        if not isinstance(zone2_hr_min, int) or not (80 <= zone2_hr_min <= 200):
+            errors.append({"field": "zone2_hr_min", "msg": "zone2_hr_min must be between 80 and 200"})
+    if zone2_hr_max is not _PREFS_SENTINEL and zone2_hr_max is not None:
+        if not isinstance(zone2_hr_max, int) or not (80 <= zone2_hr_max <= 210):
+            errors.append({"field": "zone2_hr_max", "msg": "zone2_hr_max must be between 80 and 210"})
+    if weekly_zone2_target is not _PREFS_SENTINEL and weekly_zone2_target is not None:
+        if not isinstance(weekly_zone2_target, int) or not (0 <= weekly_zone2_target <= 2000):
+            errors.append({"field": "weekly_zone2_target_min", "msg": "weekly_zone2_target_min must be between 0 and 2000"})
     if display_name is not _PREFS_SENTINEL and display_name is not None:
         if not isinstance(display_name, str) or len(display_name) > 100:
             errors.append({"field": "display_name", "msg": "display_name must be ≤ 100 characters"})
@@ -9471,6 +9495,14 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs.threshold_hr = threshold_hr
         if threshold_pace is not _PREFS_SENTINEL:
             prefs.threshold_pace_seconds_per_km = threshold_pace
+        if max_hr is not _PREFS_SENTINEL:
+            prefs.max_hr = max_hr
+        if zone2_hr_min is not _PREFS_SENTINEL:
+            prefs.zone2_hr_min = zone2_hr_min
+        if zone2_hr_max is not _PREFS_SENTINEL:
+            prefs.zone2_hr_max = zone2_hr_max
+        if weekly_zone2_target is not _PREFS_SENTINEL:
+            prefs.weekly_zone2_target_min = weekly_zone2_target
         if display_name is not _PREFS_SENTINEL:
             prefs.display_name = display_name
         if week_start_day is not _PREFS_SENTINEL:
