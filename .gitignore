@@ -15,3 +15,8 @@ snapshots/
 
 # impeccable skill local state (critique snapshots)
 .impeccable/
+
+# runtime artifacts
+dashboard.db
+uat.pid
+uat.log

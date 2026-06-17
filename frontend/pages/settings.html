@@ -655,6 +655,81 @@
     }
     .strava-data-quality-val--warn { color: #e05c2a; }
 
+    /* ── Shared integration sync/debug log ── */
+    .integration-log {
+      border: 1px solid #21262d;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      background: #0d1117;
+      overflow: hidden;
+    }
+    .integration-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #161b22;
+      border-bottom: 1px solid #21262d;
+    }
+    .integration-log-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #8b949e;
+    }
+    .integration-log-clear {
+      font-size: 11px;
+      color: #8b949e;
+      background: none;
+      border: 1px solid #30363d;
+      border-radius: 5px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+    .integration-log-clear:hover { color: #c9d1d9; border-color: #8b949e; }
+    .integration-log-body {
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #c9d1d9;
+    }
+    .integration-log-empty { color: #6e7681; font-style: italic; }
+    .integration-log-entry { white-space: pre-wrap; word-break: break-word; margin-bottom: 2px; }
+    .integration-log-ts { color: #6e7681; }
+    .integration-log-src { font-weight: 700; }
+    .integration-log-src--strava { color: #fc8d62; }
+    .integration-log-src--stryd { color: #6ea8fe; }
+    .integration-log-src--system { color: #8b949e; }
+    .integration-log-lvl--error { color: #ff7b72; }
+    .integration-log-lvl--success { color: #3fb950; }
+    .integration-log-data { color: #79c0ff; }
+
+    /* Strava identity / debug row (athlete name + id) */
+    .integration-identity {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: #4b5563;
+    }
+    .integration-identity img {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid #e2e5e9;
+    }
+    .integration-identity code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px;
+      color: #6b7280;
+    }
+
     /* ── About section ── */
     .about-grid {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -1098,6 +1173,17 @@
       <div id="section-integrations" class="settings-section">
         <h1>Integrations</h1>
 
+        <!-- Shared sync/debug log — reused by every integration (Strava, Stryd, …) -->
+        <div class="integration-log" id="integration-log">
+          <div class="integration-log-header">
+            <span class="integration-log-title">Sync log</span>
+            <button type="button" class="integration-log-clear" id="integration-log-clear">Clear</button>
+          </div>
+          <div class="integration-log-body" id="integration-log-body" aria-live="polite">
+            <div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>
+          </div>
+        </div>
+
         <!-- Strava -->
         <div class="integration-card" id="strava-card">
           <div class="integration-header">
@@ -1113,6 +1199,7 @@
             <span class="integration-badge integration-badge--disconnected" id="strava-badge">Loading…</span>
           </div>
           <div class="integration-meta" id="strava-meta"></div>
+          <div class="integration-identity" id="strava-identity" style="display:none"></div>
           <div class="integration-last-synced" id="strava-last-synced"></div>
           <div class="integration-actions" id="strava-actions"></div>
           <div id="strava-sync-panel"></div>
@@ -1633,6 +1720,60 @@
         card.classList.add('integration-card--placeholder');
       }
 
+      // ── Shared integration sync/debug log ───────────────────────────────────
+      // window.intLog(source, level, msg, data) — source: 'strava'|'stryd'|'system',
+      // level: 'info'|'success'|'error'. Reused by every integration.
+      var _intLogEntries = [];
+
+      function _intLogEsc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function _renderIntLog() {
+        var body = document.getElementById('integration-log-body');
+        if (!body) return;
+        if (!_intLogEntries.length) {
+          body.innerHTML = '<div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>';
+          return;
+        }
+        var html = '';
+        _intLogEntries.forEach(function (e) {
+          var dataStr = '';
+          if (e.data !== undefined && e.data !== null) {
+            var raw;
+            try { raw = typeof e.data === 'string' ? e.data : JSON.stringify(e.data); }
+            catch (x) { raw = '[unserializable]'; }
+            dataStr = ' <span class="integration-log-data">' + _intLogEsc(raw) + '</span>';
+          }
+          html += '<div class="integration-log-entry">' +
+            '<span class="integration-log-ts">' + e.ts + '</span> ' +
+            '<span class="integration-log-src integration-log-src--' + e.source + '">[' + e.source + ']</span> ' +
+            '<span class="integration-log-lvl--' + e.level + '">' + _intLogEsc(e.msg) + '</span>' + dataStr +
+            '</div>';
+        });
+        body.innerHTML = html;
+        body.scrollTop = body.scrollHeight;
+      }
+
+      window.intLog = function (source, level, msg, data) {
+        var ts;
+        try { ts = new Date().toLocaleTimeString(); } catch (x) { ts = ''; }
+        _intLogEntries.push({
+          ts: ts,
+          source: source || 'system',
+          level: level || 'info',
+          msg: msg || '',
+          data: data,
+        });
+        if (_intLogEntries.length > 200) _intLogEntries.shift();
+        _renderIntLog();
+      };
+
+      (function _initIntLogClear() {
+        var btn = document.getElementById('integration-log-clear');
+        if (btn) btn.addEventListener('click', function () { _intLogEntries = []; _renderIntLog(); });
+      })();
+
       // ── Strava ─────────────────────────────────────────────────────────────
 
       var _stravaUserId = null;
@@ -1754,6 +1895,9 @@
           .then(function (d) {
             if (!resultEl) return;
             var rows = d.preview || [];
+            window.intLog('strava', rows.length ? 'info' : 'info',
+              'Preview: ' + rows.length + ' activit' + (rows.length === 1 ? 'y' : 'ies') + ' (since ' + (since || '90d') + ')',
+              rows);
             if (!rows.length) {
               resultEl.innerHTML = '<div class="strava-sync-progress">No activities to preview for this date range.</div>';
               return;
@@ -1782,6 +1926,7 @@
         var resultEl = document.getElementById('strava-panel-result');
         if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Starting sync…</div>';
         var since = _sinceDate();
+        window.intLog('strava', 'info', 'Sync started', { since_date: since || null });
         var body = since ? JSON.stringify({ since_date: since }) : '{}';
         fetch('/api/strava/sync', {
           method: 'POST',
@@ -1822,6 +1967,9 @@
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (d) {
                   var n = d && d.new_workouts ? d.new_workouts : 0;
+                  window.intLog('strava', 'success', 'Sync complete', {
+                    activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
+                  });
                   if (resultEl) {
                     resultEl.innerHTML =
                       '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
@@ -1830,6 +1978,7 @@
                 });
             } else if (status === 'error') {
               var errMsg = job.error || 'Sync failed';
+              window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
               if (resultEl) {
                 resultEl.innerHTML =
                   '<div class="strava-sync-error">' + errMsg + '</div>' +
@@ -1957,6 +2106,8 @@
         document.getElementById('strava-badge').textContent = 'Disconnected';
         document.getElementById('strava-badge').className = 'integration-badge integration-badge--disconnected';
         document.getElementById('strava-meta').textContent = '';
+        var idRow = document.getElementById('strava-identity');
+        if (idRow) { idRow.innerHTML = ''; idRow.style.display = 'none'; }
         var lastSynced = document.getElementById('strava-last-synced');
         if (lastSynced) lastSynced.textContent = '';
         var panel = document.getElementById('strava-sync-panel');
@@ -1971,7 +2122,7 @@
         actions.appendChild(btn);
       }
 
-      function renderStravaConnected(athleteName, expiresAt) {
+      function renderStravaConnected(athleteName, expiresAt, athleteId, profile) {
         var badgeText = 'Connected' + (athleteName ? ' — ' + athleteName : '');
         document.getElementById('strava-badge').textContent = badgeText;
         document.getElementById('strava-badge').className = 'integration-badge integration-badge--connected';
@@ -1981,6 +2132,21 @@
           meta = 'Token expires ' + exp.toLocaleDateString();
         }
         document.getElementById('strava-meta').textContent = meta;
+
+        // Identity / debug row: avatar + athlete name + profile id.
+        var idRow = document.getElementById('strava-identity');
+        if (idRow) {
+          if (athleteName || athleteId) {
+            var img = profile ? '<img src="' + profile + '" alt="" referrerpolicy="no-referrer">' : '';
+            idRow.innerHTML = img +
+              '<span>' + (athleteName ? _intLogEsc(athleteName) : 'Unknown athlete') + '</span>' +
+              (athleteId ? ' <code>id: ' + _intLogEsc(athleteId) + '</code>' : '');
+            idRow.style.display = '';
+          } else {
+            idRow.innerHTML = '';
+            idRow.style.display = 'none';
+          }
+        }
 
         loadStravaSyncLatest();
         loadStravaDataQuality();
@@ -2042,13 +2208,20 @@
             if (!r.ok) { renderComingSoon('strava-card'); return; }
             return r.json().then(function (st) {
               if (st.connected) {
-                renderStravaConnected(st.athlete_name, st.expires_at);
+                window.intLog('strava', 'success', 'Connected', {
+                  athlete: st.athlete_name, athlete_id: st.athlete_id, scope: st.scope, expires_at: st.expires_at,
+                });
+                renderStravaConnected(st.athlete_name, st.expires_at, st.athlete_id, st.profile);
               } else {
+                window.intLog('strava', 'info', 'Not connected');
                 renderStravaDisconnected();
               }
             });
           })
-          .catch(function () { renderComingSoon('strava-card'); });
+          .catch(function () {
+            window.intLog('strava', 'error', 'Status check failed');
+            renderComingSoon('strava-card');
+          });
       }
 
       function stravaConnect() {
@@ -2088,6 +2261,7 @@
             return r.json();
           })
           .then(function () {
+            window.intLog('strava', 'success', 'Disconnected — token deleted from server');
             renderStravaDisconnected();
             intFeedback('strava-feedback', 'Strava disconnected.', 'success');
           })
