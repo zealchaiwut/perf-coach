@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 67 — Race targets, fitness projections, and race readiness endpoint
+
+- #604: Add races table and SQLAlchemy model
+- #605: Add CRUD endpoints for user race targets
+- #606: Add performance_curve pure function to fitness model
+- #607: Add forward form projection to a target date
+- #608: Add taper_recommendation function for race-day form targeting
+- #609: Add peak-line on-track assessment to form tracking
+- #610: Add race specificity progress tracker function
+- #611: Add GET /api/races/{id}/readiness combined endpoint
+
 ## Sprint 64 — Running TSS persistence, lap classification, and session profile detection
 
 - #581: Add compute_running_tss service with priority-based method selection
