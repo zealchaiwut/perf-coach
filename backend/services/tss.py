@@ -18,6 +18,17 @@ THRESHOLD_PACE_SEC_PER_KM = 270  # ~4:30/km
 THRESHOLD_HR = 170
 FTP_W = 280
 
+# Strength TSS per-set constants.
+# STRENGTH_TSS_SCALE: multiplier applied to the raw set-stress sum so that a
+# representative hard 45-minute strength session (e.g. 3 sets at RPE 8-10)
+# yields a TSS between 50 and 70.  Value 5.85 produces ~60 for the
+# docstring worked example (raw_sum=10.25 → scaled≈59.96).
+STRENGTH_TSS_SCALE = 5.85
+
+# STRENGTH_TSS_MAX: upper bound applied after scaling, before rounding.
+# Prevents runaway scores from unusually high rep counts or RPE entries.
+STRENGTH_TSS_MAX = 150
+
 _log = logging.getLogger(__name__)
 
 
@@ -516,6 +527,144 @@ def calculate_hr_tss(
     }
 
 
+def calc_strength_tss(
+    session_rpe,
+    duration_minutes,
+    sets=None,
+    user_preferences=None,
+) -> dict:
+    """Compute session-RPE Training Stress Score (TSS) for a strength session.
+
+    All required inputs are supplied by the caller. No threshold defaults are
+    assumed or hardcoded; any user-configurable values must be passed via
+    user_preferences. This function performs no database reads or writes.
+
+    Parameters
+    ----------
+    session_rpe:
+        Athlete's perceived exertion for the whole session (0–10 scale), or
+        None. When None, a derived value is computed from sets if available.
+    duration_minutes:
+        Total session duration in minutes (int or float), or None. Required
+        for any TSS result; returns null when absent.
+    sets:
+        Optional list of set objects (dicts or objects) each with ``rpe``
+        and ``reps`` attributes. Used to derive session RPE via a
+        reps-weighted average when session_rpe is not supplied. Entries
+        missing either ``rpe`` or ``reps`` are silently excluded.
+    user_preferences:
+        Reserved for caller-supplied user-configurable values. Not used by
+        the current formula but accepted for forward compatibility.
+
+    Returns
+    -------
+    dict with exactly four keys:
+
+        tss (int or None):
+            Rounded Training Stress Score, or None when a required input
+            is absent.
+
+        method (str):
+            "session_rpe" when TSS was successfully computed; "none" otherwise.
+
+        is_estimate (bool):
+            Always True when method is "session_rpe".
+
+        debug (dict):
+            Diagnostic values. On success contains:
+              session_rpe_source — "direct" or "derived"
+              session_rpe        — RPE value used in the calculation
+              duration_minutes   — duration used
+              session_intensity  — session_rpe divided by 10
+            On failure also contains:
+              reason — human-readable string describing what is missing.
+
+    Formula
+    -------
+    Step 1 — Resolve session RPE.
+        Use session_rpe directly (source: "direct"). If absent but sets
+        contain at least one entry with both rpe and reps, compute a
+        reps-weighted average across valid sets (source: "derived").
+
+    Step 2 — Compute session intensity (SI).
+        SI = session_rpe divided by 10.
+        This maps the 0–10 RPE scale to a 0–1 intensity ratio.
+
+    Step 3 — Compute TSS.
+        TSS = SI squared times (duration_minutes divided by 60) times 100.
+        Round to the nearest whole integer.
+
+    Worked examples
+    ---------------
+    Example 1 — 60 minutes at RPE 10 gives session_intensity of 1.0 and TSS of 100:
+        session_rpe=10, duration_minutes=60
+        SI = 10 / 10 = 1.0
+        TSS = 1.0^2 × (60/60) × 100 = 100
+
+    Example 2 — 60 minutes at RPE 7 gives session_intensity of 0.7 and TSS of 49:
+        session_rpe=7, duration_minutes=60
+        SI = 7 / 10 = 0.7
+        TSS = 0.7^2 × (60/60) × 100 = 49
+    """
+    def _get(obj, key):
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    # Resolve effective session RPE
+    effective_rpe = session_rpe
+    rpe_source = "direct"
+
+    if effective_rpe is None:
+        valid_sets = []
+        for s in (sets or []):
+            rpe_val = _get(s, "rpe")
+            reps_val = _get(s, "reps")
+            if rpe_val is not None and reps_val is not None:
+                valid_sets.append((rpe_val, reps_val))
+
+        if valid_sets:
+            total_reps = sum(r for _, r in valid_sets)
+            if total_reps > 0:
+                effective_rpe = sum(rpe * reps for rpe, reps in valid_sets) / total_reps
+                rpe_source = "derived"
+
+    # Missing duration — cannot compute TSS
+    if duration_minutes is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "is_estimate": False,
+            "debug": {
+                "reason": "duration_minutes is missing",
+            },
+        }
+
+    # Missing RPE (both direct and derivable from sets) — cannot compute TSS
+    if effective_rpe is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "is_estimate": False,
+            "debug": {
+                "reason": "session_rpe is missing and no valid sets available to derive it",
+            },
+        }
+
+    session_intensity = effective_rpe / 10
+    tss = round(session_intensity ** 2 * (duration_minutes / 60) * 100)
+
+    return {
+        "tss": tss,
+        "method": "session_rpe",
+        "is_estimate": True,
+        "debug": {
+            "session_rpe_source": rpe_source,
+            "session_rpe": effective_rpe,
+            "duration_minutes": duration_minutes,
+            "session_intensity": session_intensity,
+        },
+    }
+
+
 def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
     ftp_w, threshold_hr, threshold_pace = get_user_thresholds(user_id, db)
 
@@ -541,6 +690,346 @@ def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
         return compute_tss(intensity_factor_from_hr(avg_hr, threshold_hr), duration), "hr"
 
     return compute_tss(0.7, duration), "duration_only"
+
+
+def calculate_strength_tss_per_set(sets) -> dict:
+    """Compute Training Stress Score for a strength session using per-set RPE data.
+
+    Each set contributes a stress value equal to reps multiplied by the square of
+    the RPE fraction (rpe divided by 10).  The contributions are summed, multiplied
+    by STRENGTH_TSS_SCALE, clamped to STRENGTH_TSS_MAX, and rounded to a whole
+    integer.
+
+    Parameters
+    ----------
+    sets:
+        List of dicts, each with keys ``reps`` (int) and ``rpe`` (int or float,
+        1–10 scale).  The caller fetches this data from the database; this
+        function performs no DB access.
+
+    Returns
+    -------
+    dict with exactly three keys:
+
+        tss (int or None):
+            Rounded TSS, or None when any required input is absent or invalid.
+
+        method (str):
+            ``"per_set"`` when TSS was successfully computed; ``"none"``
+            otherwise.
+
+        debug (dict):
+            Diagnostic values:
+              per_set_contributions — list of set_stress floats, one per set
+              raw_sum               — sum of per_set_contributions (float)
+              scaled_sum            — raw_sum * STRENGTH_TSS_SCALE (float)
+              clamped               — min(scaled_sum, STRENGTH_TSS_MAX) (float)
+            On failure, also contains:
+              reason — human-readable string describing the invalid input.
+
+    Formula (per set)
+    -----------------
+        set_stress = reps × (rpe ÷ 10) × (rpe ÷ 10)
+        raw_sum    = Σ set_stress
+        scaled_sum = raw_sum × STRENGTH_TSS_SCALE
+        clamped    = min(scaled_sum, STRENGTH_TSS_MAX)
+        tss        = round(clamped)
+
+    Worked example (three sets)
+    ---------------------------
+    Inputs: [
+      { reps: 5, rpe: 8 },
+      { reps: 5, rpe: 9 },
+      { reps: 3, rpe: 10 }
+    ]
+
+    Set 1 stress: 5 × (8 ÷ 10) × (8 ÷ 10) = 5 × 0.64 = 3.20
+    Set 2 stress: 5 × (9 ÷ 10) × (9 ÷ 10) = 5 × 0.81 = 4.05
+    Set 3 stress: 3 × (10 ÷ 10) × (10 ÷ 10) = 3 × 1.00 = 3.00
+
+    Raw sum: 3.20 + 4.05 + 3.00 = 10.25
+    Scaled sum: 10.25 × STRENGTH_TSS_SCALE (5.85) ≈ 59.96
+    Clamped: min(59.96, STRENGTH_TSS_MAX) = 59.96
+    tss (whole number): 60
+    """
+    def _fail(reason):
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {"reason": reason},
+        }
+
+    try:
+        if not sets:
+            return _fail("set list is empty or None")
+
+        contributions = []
+        for i, s in enumerate(sets):
+            if s is None:
+                return _fail(f"set {i} is None")
+            reps = s.get("reps") if isinstance(s, dict) else getattr(s, "reps", None)
+            rpe = s.get("rpe") if isinstance(s, dict) else getattr(s, "rpe", None)
+
+            if reps is None:
+                return _fail(f"set {i} is missing reps")
+            if rpe is None:
+                return _fail(f"set {i} is missing rpe")
+
+            reps_f = float(reps)
+            rpe_f = float(rpe)
+            stress = reps_f * (rpe_f / 10) * (rpe_f / 10)
+            contributions.append(stress)
+
+    except (TypeError, ValueError) as exc:
+        return _fail(f"invalid input value: {exc}")
+
+    raw_sum = sum(contributions)
+    scaled_sum = raw_sum * STRENGTH_TSS_SCALE
+    clamped = min(scaled_sum, STRENGTH_TSS_MAX)
+    tss = round(clamped)
+
+    return {
+        "tss": tss,
+        "method": "per_set",
+        "debug": {
+            "per_set_contributions": contributions,
+            "raw_sum": raw_sum,
+            "scaled_sum": scaled_sum,
+            "clamped": clamped,
+        },
+    }
+
+
+def compute_strength_tss(workout, exercises, prefs) -> dict:
+    """Compute TSS for a strength workout from plain data objects (no DB access).
+
+    Tries two methods in priority order — per_set → session_rpe — and returns
+    the result from the first method that has all required inputs. Returns
+    ``{"tss": None, "method": "none", "partial": False, "debug": {"reason": ...}}``
+    when no method can run.
+
+    Parameters
+    ----------
+    workout:
+        Object with attributes ``duration_seconds`` (int|None) and optionally
+        ``session_rpe`` (int 1–10|None) for session-level RPE fallback.
+        Dict access also accepted.
+    exercises:
+        Iterable of exercise objects (or dicts) with attributes ``rpe``
+        (int 1–10|None), ``reps`` (int|None), ``weight_kg`` (float|None),
+        ``sets`` (int|None), and ``sets_json`` (str|None — JSON array of
+        per-set dicts, each optionally carrying ``reps``, ``rpe``,
+        ``weight_kg``). May be None or empty.
+    prefs:
+        Object (or dict) with ``strength_tss_scale`` (float|None) and
+        ``strength_tss_max`` (int|None), both read from user_preferences by
+        the caller. None means the threshold is unset; no defaults are assumed.
+
+    Returns
+    -------
+    dict with keys:
+        tss        — whole integer or None
+        method     — "per_set" | "session_rpe" | "none"
+        partial    — True when TSS is from an incomplete set of per-set records
+                     (some sets were missing RPE and therefore excluded)
+        debug      — diagnostic dict; always present; contains a "reason" string
+                     when method is "none"
+
+    Method selection
+    ----------------
+    per_set:
+        Any exercise provides set-level volume data (rpe AND reps, with or
+        without weight_kg). Data may come from sets_json (per-set detail) or
+        from exercise-level rpe + reps + optional sets count. When not all
+        sets carry complete rpe+reps data, TSS is computed from the sets that
+        do and ``partial`` is set to True.
+
+    session_rpe:
+        No set-level volume data exists, but a session RPE is available
+        (from ``workout.session_rpe`` or averaged from exercise-level RPEs
+        when those exercises carry rpe without reps/weight) and the workout
+        has a positive ``duration_seconds``.
+
+    none:
+        Neither RPE nor duration is available; ``tss`` is null and
+        ``debug.reason`` explains which inputs are missing.
+
+    Formulas
+    --------
+    per_set:
+        For each set i with reps_i and rpe_i:
+            set_stress_i = reps_i × (rpe_i / 10)²
+        raw_sum = Σ set_stress_i
+        scaled_sum = raw_sum × strength_tss_scale     (from prefs)
+        clamped = min(scaled_sum, strength_tss_max)   (from prefs)
+        tss = round(clamped)
+
+    session_rpe:
+        IF = session_rpe / 10
+        raw_tss = (duration_seconds / 3600) × IF² × 100
+        clamped = min(raw_tss, strength_tss_max)      (from prefs)
+        tss = round(clamped)
+
+    Worked examples
+    ---------------
+    Example 1 – per_set method (three sets, strength_tss_scale=5.85, max=150):
+        sets = [{reps:5, rpe:8}, {reps:5, rpe:9}, {reps:3, rpe:10}]
+
+        Step 1 — set stresses:
+            set1: 5 × (8/10)² = 5 × 0.64 = 3.20
+            set2: 5 × (9/10)² = 5 × 0.81 = 4.05
+            set3: 3 × (10/10)² = 3 × 1.00 = 3.00
+
+        Step 2 — raw_sum: 3.20 + 4.05 + 3.00 = 10.25
+
+        Step 3 — scaled_sum: 10.25 × 5.85 = 59.9625
+
+        Step 4 — clamped: min(59.9625, 150) = 59.9625
+
+        Step 5 — tss: round(59.9625) = 60
+
+    Example 2 – session_rpe method (45 min, session_rpe=8, strength_tss_max=150):
+        Step 1 — IF = 8 / 10 = 0.8
+
+        Step 2 — raw_tss = (2700 / 3600) × 0.8² × 100
+                         = 0.75 × 0.64 × 100 = 48.0
+
+        Step 3 — clamped: min(48.0, 150) = 48.0
+
+        Step 4 — tss: round(48.0) = 48
+    """
+    import json as _json
+
+    def _g(obj, key):
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    strength_tss_scale = _g(prefs, "strength_tss_scale")
+    strength_tss_max = _g(prefs, "strength_tss_max")
+    duration = _g(workout, "duration_seconds") or 0
+    exercise_list = list(exercises) if exercises else []
+
+    # ── Collect all sets from exercises ────────────────────────────────────────
+    # Each entry: dict with reps, rpe, weight_kg (all may be None)
+    all_sets = []
+    exercise_rpes = []  # RPEs from exercises without volume data (for session_rpe fallback)
+
+    for ex in exercise_list:
+        sets_json_raw = _g(ex, "sets_json")
+        ex_rpe = _g(ex, "rpe")
+        ex_reps = _g(ex, "reps")
+        ex_weight = _g(ex, "weight_kg")
+        ex_sets_count = _g(ex, "sets") or 1
+
+        if sets_json_raw is not None:
+            try:
+                parsed = _json.loads(sets_json_raw) if isinstance(sets_json_raw, str) else sets_json_raw
+                if isinstance(parsed, list):
+                    for s in parsed:
+                        all_sets.append({
+                            "reps": s.get("reps") if isinstance(s, dict) else None,
+                            "rpe": s.get("rpe") if isinstance(s, dict) else None,
+                            "weight_kg": s.get("weight_kg") if isinstance(s, dict) else None,
+                        })
+            except (ValueError, TypeError):
+                pass
+        elif ex_rpe is not None or ex_reps is not None or ex_weight is not None:
+            if ex_rpe is not None and (ex_reps is not None or ex_weight is not None):
+                # Exercise has volume data — treat as N identical sets
+                for _ in range(int(ex_sets_count)):
+                    all_sets.append({"reps": ex_reps, "rpe": ex_rpe, "weight_kg": ex_weight})
+            elif ex_rpe is not None:
+                # RPE present but no volume — contributes to session_rpe fallback
+                exercise_rpes.append(ex_rpe)
+
+    # ── Determine which sets can be scored (have rpe + reps) ──────────────────
+    scored_sets = [s for s in all_sets if s.get("rpe") is not None and s.get("reps") is not None]
+    has_per_set = bool(scored_sets) or bool(
+        # unscored sets that still have reps or weight (volume exists but rpe missing)
+        [s for s in all_sets if (s.get("reps") is not None or s.get("weight_kg") is not None)]
+    )
+    unscored_volume_sets = [
+        s for s in all_sets
+        if (s.get("reps") is not None or s.get("weight_kg") is not None)
+        and s.get("rpe") is None
+    ]
+
+    # ── Method 1: per_set ─────────────────────────────────────────────────────
+    if has_per_set:
+        if strength_tss_scale is None:
+            return {
+                "tss": None,
+                "method": "none",
+                "partial": False,
+                "debug": {"reason": "strength_tss_scale not set in user preferences"},
+            }
+        if strength_tss_max is None:
+            return {
+                "tss": None,
+                "method": "none",
+                "partial": False,
+                "debug": {"reason": "strength_tss_max not set in user preferences"},
+            }
+
+        partial = bool(unscored_volume_sets)
+        per_set_contributions = [
+            s["reps"] * (s["rpe"] / 10) ** 2 for s in scored_sets
+        ]
+        raw_sum = sum(per_set_contributions)
+        scaled_sum = raw_sum * strength_tss_scale
+        clamped = min(scaled_sum, strength_tss_max)
+        return {
+            "tss": round(clamped),
+            "method": "per_set",
+            "partial": partial,
+            "debug": {
+                "per_set_contributions": per_set_contributions,
+                "raw_sum": raw_sum,
+                "scaled_sum": scaled_sum,
+                "clamped": clamped,
+            },
+        }
+
+    # ── Method 2: session_rpe ─────────────────────────────────────────────────
+    session_rpe = _g(workout, "session_rpe")
+    if session_rpe is None and exercise_rpes:
+        session_rpe = round(sum(exercise_rpes) / len(exercise_rpes))
+
+    if session_rpe is not None and duration > 0:
+        if strength_tss_max is None:
+            return {
+                "tss": None,
+                "method": "none",
+                "partial": False,
+                "debug": {"reason": "strength_tss_max not set in user preferences"},
+            }
+        if_val = session_rpe / 10
+        raw_tss = (duration / 3600) * if_val ** 2 * 100
+        clamped = min(raw_tss, strength_tss_max)
+        return {
+            "tss": round(clamped),
+            "method": "session_rpe",
+            "partial": False,
+            "debug": {
+                "session_rpe": session_rpe,
+                "intensity_factor": if_val,
+                "duration_hours": duration / 3600,
+                "raw_tss": raw_tss,
+                "clamped": clamped,
+            },
+        }
+
+    # ── No usable data ─────────────────────────────────────────────────────────
+    missing = []
+    if session_rpe is None and not exercise_rpes:
+        missing.append("no RPE data")
+    if duration <= 0:
+        missing.append("no duration")
+    reason = "; ".join(missing) if missing else "insufficient data for strength TSS"
+    return {
+        "tss": None,
+        "method": "none",
+        "partial": False,
+        "debug": {"reason": reason},    }
 
 
 def persist_running_tss(workout_id, session) -> dict:

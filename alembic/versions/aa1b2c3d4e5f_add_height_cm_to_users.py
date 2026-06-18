@@ -1,6 +1,6 @@
 """Add height_cm column to users table for BMI calculation.
 
-Revision ID: aa1b2c3d4e5f
+Revision ID: aa1b2c3d4e5g
 Revises: a0o1p2q3r4s5
 Create Date: 2026-06-15
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from helpers import column_exists
 
-revision = "aa1b2c3d4e5f"
+revision = "aa1b2c3d4e5g"
 down_revision = "a0o1p2q3r4s5"
 branch_labels = None
 depends_on = None
