@@ -577,10 +577,10 @@ def test_ac10_required_fields_not_provided(client, session_cookie):
         "distance_km": 5.0,
         # Deliberately omit required fields to verify no hardcoded defaults
     }
-    r = client.post("/api/races", json=payload, cookies={"session": session_cookie})
+    resp = client.post("/api/races", json=payload, cookies={"session": session_cookie})
     # The endpoint should reject or handle this appropriately
     # (422 for missing required, or uses provided schema defaults)
-    # This test verifies the behavior is explicit
+    assert resp.status_code in (200, 201, 422)
 
 
 # ── AC11: All DB access in route handler (thin-caller convention) ──────────────
