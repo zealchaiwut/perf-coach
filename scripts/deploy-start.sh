@@ -46,6 +46,8 @@ nohup bash -c '
   source .venv/bin/activate
   echo "[deploy-start] applying migrations (alembic upgrade head)…"
   uv run alembic upgrade head
+  echo "[deploy-start] checking schema drift (models vs DB)…"
+  uv run python scripts/check_schema_drift.py
   echo "[deploy-start] launching uvicorn on :'"$PORT"'…"
   exec uv run uvicorn backend.main:app --host 0.0.0.0 --port '"$PORT"'
 ' > "$LOG_FILE" 2>&1 &
