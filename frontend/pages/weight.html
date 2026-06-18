@@ -17,6 +17,7 @@
     />
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="css/weight-current-card.css" />
+    <link rel="stylesheet" href="css/weight.css" />
     <style>
       /* ── Base ──────────────────────────────────────────────────────────────── */
       html,
@@ -40,6 +41,8 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
+        background-color: var(--bg-2);
+        background-image: var(--page-bg);
       }
 
       /* ── Floating card ─────────────────────────────────────────────────────── */
@@ -98,6 +101,9 @@
         justify-content: space-between;
         gap: 1rem;
         flex-wrap: wrap;
+        background: var(--bg-2);
+        border-radius: 14px;
+        padding: 16px 18px;
       }
 
       .weight-page-header h1 {
@@ -533,7 +539,7 @@
         color: #2563eb;
       }
       .pstat-val-green {
-        color: #16a34a;
+        color: var(--green);
       }
       .pstat-date {
         font-size: 10px;
@@ -541,11 +547,11 @@
         margin-top: 2px;
       }
       .pstat-date-green {
-        color: #16a34a;
+        color: var(--green);
       }
       .pstat-plan-sub {
         font-size: 10px;
-        color: #16a34a;
+        color: var(--green);
         font-weight: 500;
         margin-top: 2px;
       }
@@ -629,7 +635,7 @@
       }
       .pgbar-flag-plan {
         top: 0;
-        color: #16a34a;
+        color: var(--green);
       }
       .pgbar-caret {
         width: 0;
@@ -714,7 +720,7 @@
       }
       .milestone-on-chart {
         font-size: 10px;
-        color: #16a34a;
+        color: var(--green);
         font-weight: 600;
       }
       .milestone-row {
@@ -849,7 +855,7 @@
       }
       .re-note {
         color: var(--text-secondary);
-        font-size: 10.5px;
+        font-size: 12px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -868,7 +874,7 @@
       }
       .re-delta {
         font-family: "JetBrains Mono", monospace;
-        font-size: 10.5px;
+        font-size: 12px;
         text-align: right;
       }
       .re-delta.dn {
@@ -895,7 +901,7 @@
         border: 1.5px dashed rgba(13, 30, 67, 0.22);
         background: transparent;
         color: var(--text-secondary);
-        font-size: 10.5px;
+        font-size: 12px;
         font-weight: 600;
         cursor: pointer;
         font-family: "Inter Tight", sans-serif;
@@ -944,7 +950,7 @@
         border: 0;
         background: var(--accent);
         color: var(--accent-text);
-        font-size: 10.5px;
+        font-size: 12px;
         font-weight: 700;
         cursor: pointer;
         font-family: "Inter Tight", sans-serif;
@@ -978,7 +984,7 @@
         background: #fff;
         border: 1px solid #e8eaf0;
         border-radius: 9px;
-        box-shadow: 0 4px 16px rgba(13, 30, 67, 0.12);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
         z-index: 50;
         min-width: 120px;
         overflow: hidden;
@@ -1100,7 +1106,7 @@
         border: 1.5px dashed rgba(13, 30, 67, 0.22);
         background: transparent;
         color: var(--text-secondary);
-        font-size: 10.5px;
+        font-size: 12px;
         font-weight: 600;
         cursor: pointer;
         font-family: "Inter Tight", sans-serif;
@@ -1154,6 +1160,9 @@
         justify-content: space-between;
         margin-bottom: 12px;
         color: #fff;
+        background: var(--bg-2);
+        border-radius: 10px;
+        padding: 10px 14px;
       }
       .target-history-hdr h2 {
         margin: 0;
@@ -1220,7 +1229,7 @@
         font-weight: 500;
       }
       .js4 .js4-s {
-        font-size: 10.5px;
+        font-size: 12px;
         color: var(--text-secondary);
       }
       .js4 .js4-s.good {
@@ -1340,7 +1349,7 @@
         color: var(--text-secondary);
       }
       .th-nm .th-meta {
-        font-size: 10.5px;
+        font-size: 12px;
         color: var(--text-secondary);
         font-weight: 400;
         display: block;
@@ -1444,7 +1453,7 @@
           width: 100%;
           max-width: 100%;
           border-radius: 16px 16px 0 0;
-          box-shadow: 0 -8px 32px rgba(8, 18, 48, 0.22);
+          box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.22);
           max-height: 92vh;
         }
       }
@@ -1539,7 +1548,7 @@
         max-width: 92vw;
         background: #fff;
         z-index: 100;
-        box-shadow: -12px 0 40px rgba(8, 18, 48, 0.25);
+        box-shadow: -12px 0 40px rgba(0, 0, 0, 0.25);
         display: flex;
         flex-direction: column;
       }
@@ -1619,7 +1628,7 @@
         font-size: 14px;
       }
       .et-hint {
-        font-size: 10.5px;
+        font-size: 12px;
         color: var(--text-tertiary);
       }
       .et-preview {
@@ -1947,7 +1956,7 @@
       <p id="page-error" role="alert"></p>
 
       <!-- Page header (renders on gradient) -->
-      <div class="weight-page-header">
+      <div class="weight-page-header" style="background-color: #1f3b8a">
         <div>
           <h1>Weight</h1>
           <p class="page-subtitle" id="page-subtitle">Loading…</p>
@@ -2178,7 +2187,7 @@
               </div>
               <div class="wcal-months">
                 <div class="wcal-month wcal-month-left">
-                  <div class="wcal-mtitle" id="wcal-mtitle-left">&mdash;</div>
+                  <div class="wcal-mtitle" id="wcal-mtitle-left"></div>
                   <div class="wcal-dow" aria-hidden="true">
                     <span>M</span><span>T</span><span>W</span><span>T</span
                     ><span>F</span><span>S</span><span>S</span>
@@ -2186,7 +2195,7 @@
                   <div class="wcal-grid" id="wcal-grid-left"></div>
                 </div>
                 <div class="wcal-month">
-                  <div class="wcal-mtitle" id="wcal-mtitle-right">&mdash;</div>
+                  <div class="wcal-mtitle" id="wcal-mtitle-right"></div>
                   <div class="wcal-dow" aria-hidden="true">
                     <span>M</span><span>T</span><span>W</span><span>T</span
                     ><span>F</span><span>S</span><span>S</span>
@@ -2289,7 +2298,7 @@
 
       <!-- ── Target History section ──────────────────────────────────────────── -->
       <section id="target-history-section" class="target-history-section">
-        <div class="target-history-hdr">
+        <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Target history</h2>
         </div>
         <div class="target-history-grid">
@@ -2305,18 +2314,18 @@
             <div class="journey-stats4" id="journey-stats">
               <div class="js4">
                 <div class="js4-l">Targets set</div>
-                <div class="js4-v" id="journey-targets-set">—</div>
+                <div class="js4-v" id="journey-targets-set">0</div>
                 <div class="js4-s" id="journey-targets-set-sub"></div>
               </div>
               <div class="js4">
                 <div class="js4-l">Achieved</div>
-                <div class="js4-v" id="journey-achieved">—</div>
+                <div class="js4-v" id="journey-achieved">0</div>
                 <div class="js4-s good" id="journey-achieved-sub"></div>
               </div>
               <div class="js4">
                 <div class="js4-l">Total lost</div>
                 <div class="js4-v" id="journey-total-lost">
-                  —<span class="js4-u">kg</span>
+                  0<span class="js4-u">kg</span>
                 </div>
                 <div class="js4-s" id="journey-total-lost-sub">
                   across targets
@@ -2325,7 +2334,7 @@
               <div class="js4">
                 <div class="js4-l">Avg pace</div>
                 <div class="js4-v" id="journey-avg-pace">
-                  —<span class="js4-u">/wk</span>
+                  0<span class="js4-u">/wk</span>
                 </div>
                 <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
               </div>

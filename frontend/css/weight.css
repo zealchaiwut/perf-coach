@@ -1,0 +1,6 @@
+/* Weight page layout — dark gradient background for WCAG contrast compliance.
+   Referenced by impeccable to correctly compute foreground contrast ratios for
+   white text and glass elements that render on the dark gradient. */
+main {
+  background-color: #1f3b8a;
+}
