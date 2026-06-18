@@ -18,6 +18,11 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Running TSS** — `compute_running_tss` service computes TSS automatically via three fallback methods: Power (NP/FTP), Pace (per-lap threshold pace), or HR (avg HR / threshold HR); result surfaced on `GET /api/workouts/{id}/full` as `tss`, `tss_method`, and `tss_partial`
 - **Normalized power** — `compute_normalized_power` pure function computes NP from a 1-second power stream; stored on the workout record (`np` column) at ingest time
 - **Activity streams** — Strava and Stryd syncs now fetch and store per-sample time-series data (power, HR, pace, cadence, altitude, GPS) in the `activity_streams` table; used for NP calculation and Run View charting
+- **Strength TSS** — `calc_strength_tss` pure function computes session-RPE TSS for strength sessions; per-set RPE refinement via `calculate_strength_tss_per_set` derives session RPE from a reps-weighted average across sets; consolidated into `compute_strength_tss` in `backend/services/tss.py`
+- **Duration curves** — `backend/services/duration_curves.py` computes best-average power and pace for standard durations (5 min, 10 min, 20 min, 30 min, 60 min) across all workouts and splits
+- **Auto-threshold suggestions** — `backend/services/threshold_suggestions.py` derives suggested FTP, threshold HR, and threshold pace from a user's duration curve and recent run history; `GET /api/thresholds/suggestions` returns pending suggestions (those not yet accepted)
+- **Accept-suggestion flow** — `POST /api/thresholds/suggestions/accept` writes accepted threshold values to `user_preferences` with `source = "user_accepted"`; accepted suggestions are suppressed from future GET calls
+- **Unified daily training load series** — `backend/services/daily_load.py` pure function aggregates workout TSS by calendar day; exposed via `GET /api/training/daily-load`
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
 - **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
@@ -132,6 +137,9 @@ Each script:
 | `GET /api/sync/strava/data-quality` | Return data quality counts for a user's Strava/workout sync state |
 | `POST /api/sync/strava/reconcile` | Reconcile unlinked `strava_activities` into `workouts` rows; returns counts |
 | `GET /api/sync/history` | Return paginated SyncJob history for the session user (last 5 by default) |
+| `GET /api/training/daily-load` | Unified daily training load series; params: `athlete_id` (UUID), `start`, `end` (ISO dates); returns one entry per calendar day with `daily_load` (sum TSS), `workout_count`, `has_unscored`, and a `debug.contributing_workouts` list |
+| `GET /api/thresholds/suggestions` | Returns pending threshold suggestions (`ftp_w`, `threshold_hr`, `threshold_pace_seconds_per_km`) derived from the user's duration curve and recent runs; empty when none are pending or data is insufficient |
+| `POST /api/thresholds/suggestions/accept` | Accept a subset of threshold suggestions; body: `{"keys": [...]}` — writes values to `user_preferences` with `source = "user_accepted"`; returns `{"written": {...}, "skipped": [...]}` |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 

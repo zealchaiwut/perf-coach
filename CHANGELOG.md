@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 65 — Strength TSS, duration curves, threshold suggestions, and daily load series
+
+- #588: Compute power and pace duration curves per workout
+- #590: Add auto-threshold suggestion from duration curve
+- #591: Add accept-suggestion flow for threshold values
+- #592: Add session-RPE TSS method for strength sessions
+- #593: Implement per-set RPE refinement for strength TSS
+- #594: Combine Strength TSS Calculation into Single Service
+- #595: Add unified daily training load series
+
 ## Sprint 63.1 — Activity streams table and channel selection
 
 - #572: Add activity_streams table and SQLAlchemy model

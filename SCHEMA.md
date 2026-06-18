@@ -226,15 +226,18 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences
+## user_preferences _(source columns added Sprint 65)_
 
 | column | type | notes |
 |--------|------|-------|
 | id | UUID PK | |
 | user_id | UUID FK→users | CASCADE, unique |
 | ftp_w | int | nullable |
+| ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |
 | threshold_hr | int | nullable |
+| threshold_hr_source | varchar(30) | nullable; `user_accepted` or `manual` |
 | threshold_pace_seconds_per_km | int | nullable |
+| threshold_pace_seconds_per_km_source | varchar(30) | nullable; `user_accepted` or `manual` |
 | preferred_units | varchar(20) | `metric` (default) |
 | timezone | varchar(100) | default `Asia/Bangkok` |
 | week_start_day | int | default 1 (Monday) |
