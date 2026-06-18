@@ -18,9 +18,9 @@ from backend.services.channel_select import apply_channel_selection
 # Resolve UAT database connection
 DATABASE_URL = os.environ.get("DATABASE_URL_UAT") or os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL_UAT or DATABASE_URL not set. "
-        "Set env vars before running integration tests."
+    pytest.skip(
+        "DATABASE_URL_UAT or DATABASE_URL not set — skipping DB integration tests",
+        allow_module_level=True,
     )
 
 engine = create_engine(DATABASE_URL)
@@ -44,7 +44,7 @@ def test_apply_channel_selection_with_both_sources_present():
         if not user:
             pytest.skip("No active user in UAT database for integration test")
 
-        # Create a Strava activity with streams payload
+        # Create a Strava activity with streams payload (Strava API format)
         strava_act = StravaActivity(
             strava_id=999001,
             user_id=user.id,
@@ -52,17 +52,16 @@ def test_apply_channel_selection_with_both_sources_present():
             activity_type="Run",
             name="Test Strava Run",
             streams_payload={
-                "time_offset_seconds": [0, 1, 2, 3],
-                "heart_rate_bpm": [140.0, 142.0, 141.0, 143.0],
-                "latitude": [1.23, 1.2301, 1.2302, 1.2303],
-                "longitude": [103.8, 103.8001, 103.8002, 103.8003],
-                "altitude_m": [50.0, 51.0, 52.0, 51.0],
+                "time": {"data": [0, 1, 2, 3]},
+                "heartrate": {"data": [140.0, 142.0, 141.0, 143.0]},
+                "latlng": {"data": [[1.23, 103.8], [1.2301, 103.8001], [1.2302, 103.8002], [1.2303, 103.8003]]},
+                "altitude": {"data": [50.0, 51.0, 52.0, 51.0]},
             },
         )
         session.add(strava_act)
         session.flush()
 
-        # Create a Stryd activity with streams payload
+        # Create a Stryd activity with streams payload (Stryd API format)
         stryd_act = StrydActivity(
             stryd_id=999002,
             user_id=user.id,
@@ -70,10 +69,10 @@ def test_apply_channel_selection_with_both_sources_present():
             activity_type="Run",
             name="Test Stryd Run",
             streams_payload={
-                "time_offset_seconds": [0, 1, 2],
-                "heart_rate_bpm": [139.0, 141.0, 140.0],
-                "power_w": [250.0, 255.0, 252.0],
-                "cadence_spm": [178.0, 180.0, 179.0],
+                "timestamp_list": [0, 1, 2],
+                "heart_rate_list": [139.0, 141.0, 140.0],
+                "total_power_list": [250.0, 255.0, 252.0],
+                "cadence_list": [178.0, 180.0, 179.0],
             },
         )
         session.add(stryd_act)
@@ -107,12 +106,12 @@ def test_apply_channel_selection_with_both_sources_present():
         assert merged_stream is not None, "Merged stream not persisted"
 
         # Verify the merged stream has expected channels and attribution
-        assert "power_w" in merged_stream.data_dict
-        assert merged_stream.data_dict["power_w"] == [250.0, 255.0, 252.0]
+        assert merged_stream.power_w is not None
+        assert merged_stream.power_w == [250.0, 255.0, 252.0]
 
-        assert "latitude" in merged_stream.data_dict
-        assert "longitude" in merged_stream.data_dict
-        assert merged_stream.data_dict["latitude"] == [1.23, 1.2301, 1.2302, 1.2303]
+        assert merged_stream.latitude is not None
+        assert merged_stream.longitude is not None
+        assert merged_stream.latitude == [1.23, 1.2301, 1.2302, 1.2303]
 
         # Verify channel_attribution map
         assert merged_stream.channel_attribution is not None
