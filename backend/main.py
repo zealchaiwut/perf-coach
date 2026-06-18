@@ -4482,6 +4482,7 @@ def _compute_derived(strava: dict | None, stryd: dict | None) -> dict:
 
 
 def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
+    src = w.source or ""
     return {
         "id": str(w.id),
         "workout_date": str(w.workout_date),
@@ -4491,6 +4492,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "tss": w.tss,
         "tss_source": w.tss_source,
         "source": w.source,
+        "has_strava": "strava" in src or w.strava_activity_pk is not None,
+        "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -6493,6 +6496,8 @@ def get_training_log(
             "source": w.source or w.tss_source or "manual",
             "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
             "is_stryd_synced": w.stryd_activity_pk is not None,
+            "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
+            "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
             "weight_context": w.remarks,
         }
