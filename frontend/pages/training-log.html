@@ -620,40 +620,26 @@
       height: 220px;
     }
 
-    /* ── History card tabs ── */
-    .log-history-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px 0;
-      border-bottom: 1px solid var(--card-border);
+    /* ── Day-grouped list (issue #637) ── */
+    .day-group { }
+
+    .day-group-header {
+      padding: 8px 4px 6px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+      margin: 0;
     }
 
-    .log-history-tabs {
-      display: flex;
-      gap: 4px;
+    .day-group-rows .entry-row {
+      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
     }
 
-    .log-history-tab {
-      height: 34px;
-      padding: 0 14px;
-      border: none;
-      border-radius: 8px 8px 0 0;
-      background: transparent;
-      color: var(--text-secondary);
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-
-    .log-history-tab:hover { color: var(--text-primary); }
-
-    .log-history-tab.is-active {
-      color: var(--text-primary);
-      border-bottom-color: #2b4ca8;
+    .day-group-rows .entry-row:last-child {
+      border-bottom: none;
     }
 
     /* ── Log list ── */
@@ -2028,18 +2014,13 @@
         </div>
       </section>
 
-      <!-- Workout history -->
+      <!-- Workout history (Log sub-tab) — issue #637 -->
       <div class="log-card log-card--history">
-        <div class="log-history-head">
-          <div class="log-history-tabs" role="tablist" aria-label="Workout list">
-            <button type="button" class="log-history-tab is-active" data-tab="history"
-                    role="tab" aria-selected="true" id="log-tab-history">History</button>
-            <button type="button" class="log-history-tab" data-tab="new"
-                    role="tab" aria-selected="false" id="log-tab-new">New log</button>
-          </div>
-        </div>
-
         <div id="log-list"></div>
+
+        <div id="log-empty-filter" style="display:none" class="log-empty" role="status">
+          No workouts match this filter.
+        </div>
 
         <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
           <p>Couldn't load workouts.</p>
