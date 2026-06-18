@@ -365,6 +365,144 @@ def calculate_hr_tss(
     }
 
 
+def calc_strength_tss(
+    session_rpe,
+    duration_minutes,
+    sets=None,
+    user_preferences=None,
+) -> dict:
+    """Compute session-RPE Training Stress Score (TSS) for a strength session.
+
+    All required inputs are supplied by the caller. No threshold defaults are
+    assumed or hardcoded; any user-configurable values must be passed via
+    user_preferences. This function performs no database reads or writes.
+
+    Parameters
+    ----------
+    session_rpe:
+        Athlete's perceived exertion for the whole session (0–10 scale), or
+        None. When None, a derived value is computed from sets if available.
+    duration_minutes:
+        Total session duration in minutes (int or float), or None. Required
+        for any TSS result; returns null when absent.
+    sets:
+        Optional list of set objects (dicts or objects) each with ``rpe``
+        and ``reps`` attributes. Used to derive session RPE via a
+        reps-weighted average when session_rpe is not supplied. Entries
+        missing either ``rpe`` or ``reps`` are silently excluded.
+    user_preferences:
+        Reserved for caller-supplied user-configurable values. Not used by
+        the current formula but accepted for forward compatibility.
+
+    Returns
+    -------
+    dict with exactly four keys:
+
+        tss (int or None):
+            Rounded Training Stress Score, or None when a required input
+            is absent.
+
+        method (str):
+            "session_rpe" when TSS was successfully computed; "none" otherwise.
+
+        is_estimate (bool):
+            Always True when method is "session_rpe".
+
+        debug (dict):
+            Diagnostic values. On success contains:
+              session_rpe_source — "direct" or "derived"
+              session_rpe        — RPE value used in the calculation
+              duration_minutes   — duration used
+              session_intensity  — session_rpe divided by 10
+            On failure also contains:
+              reason — human-readable string describing what is missing.
+
+    Formula
+    -------
+    Step 1 — Resolve session RPE.
+        Use session_rpe directly (source: "direct"). If absent but sets
+        contain at least one entry with both rpe and reps, compute a
+        reps-weighted average across valid sets (source: "derived").
+
+    Step 2 — Compute session intensity (SI).
+        SI = session_rpe divided by 10.
+        This maps the 0–10 RPE scale to a 0–1 intensity ratio.
+
+    Step 3 — Compute TSS.
+        TSS = SI squared times (duration_minutes divided by 60) times 100.
+        Round to the nearest whole integer.
+
+    Worked examples
+    ---------------
+    Example 1 — 60 minutes at RPE 10 gives session_intensity of 1.0 and TSS of 100:
+        session_rpe=10, duration_minutes=60
+        SI = 10 / 10 = 1.0
+        TSS = 1.0^2 × (60/60) × 100 = 100
+
+    Example 2 — 60 minutes at RPE 7 gives session_intensity of 0.7 and TSS of 49:
+        session_rpe=7, duration_minutes=60
+        SI = 7 / 10 = 0.7
+        TSS = 0.7^2 × (60/60) × 100 = 49
+    """
+    def _get(obj, key):
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    # Resolve effective session RPE
+    effective_rpe = session_rpe
+    rpe_source = "direct"
+
+    if effective_rpe is None:
+        valid_sets = []
+        for s in (sets or []):
+            rpe_val = _get(s, "rpe")
+            reps_val = _get(s, "reps")
+            if rpe_val is not None and reps_val is not None:
+                valid_sets.append((rpe_val, reps_val))
+
+        if valid_sets:
+            total_reps = sum(r for _, r in valid_sets)
+            if total_reps > 0:
+                effective_rpe = sum(rpe * reps for rpe, reps in valid_sets) / total_reps
+                rpe_source = "derived"
+
+    # Missing duration — cannot compute TSS
+    if duration_minutes is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "is_estimate": False,
+            "debug": {
+                "reason": "duration_minutes is missing",
+            },
+        }
+
+    # Missing RPE (both direct and derivable from sets) — cannot compute TSS
+    if effective_rpe is None:
+        return {
+            "tss": None,
+            "method": "none",
+            "is_estimate": False,
+            "debug": {
+                "reason": "session_rpe is missing and no valid sets available to derive it",
+            },
+        }
+
+    session_intensity = effective_rpe / 10
+    tss = round(session_intensity ** 2 * (duration_minutes / 60) * 100)
+
+    return {
+        "tss": tss,
+        "method": "session_rpe",
+        "is_estimate": True,
+        "debug": {
+            "session_rpe_source": rpe_source,
+            "session_rpe": effective_rpe,
+            "duration_minutes": duration_minutes,
+            "session_intensity": session_intensity,
+        },
+    }
+
+
 def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
     ftp_w, threshold_hr, threshold_pace = get_user_thresholds(user_id, db)
 
