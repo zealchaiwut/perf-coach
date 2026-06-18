@@ -3000,6 +3000,24 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
     )
     from sqlalchemy import func as _sa_func
     with Session(engine) as session:
+        if body.auto_fill_source is not None:
+            existing = (
+                session.query(Habit)
+                .filter(
+                    Habit.user_id == user.id,
+                    Habit.auto_fill_source == body.auto_fill_source,
+                    Habit.is_archived.is_(False),
+                )
+                .first()
+            )
+            if existing is not None:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "A habit with this auto_fill_source already exists",
+                        "existing_habit_id": str(existing.id),
+                    },
+                )
         max_order = (
             session.query(_sa_func.max(Habit.sort_order))
             .filter(Habit.user_id == user.id)

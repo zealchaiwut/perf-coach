@@ -1099,6 +1099,15 @@
         <div class="thresholds-info-card">
           Changing these will recompute TSS for new workouts only. Past workouts keep their original TSS values (no retro recompute in this sprint).
         </div>
+
+        <!-- Track Zone 2 habit opt-in -->
+        <div id="provision-zone2-card" style="margin-top:24px;padding:16px 20px;border:1px solid #e5e5e5;border-radius:8px;background:#f9fafb;">
+          <p style="margin:0 0 10px;font-size:14px;font-weight:500;color:#1a1a1a;">Track Zone 2 in habits</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#8b95ad;">Provision a pre-configured Zone 2 habit seeded from your weekly target above. The habit tracks weekly Zone 2 minutes auto-filled from workout data.</p>
+          <div id="provision-zone2-existing" style="display:none;font-size:13px;color:#4b7cf6;margin-bottom:10px;" aria-live="polite"></div>
+          <div id="provision-zone2-success" style="display:none;font-size:13px;color:#2d9e2d;margin-bottom:10px;" aria-live="polite"></div>
+          <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn" style="font-size:13px;padding:7px 16px;">Track Zone 2 in habits</button>
+        </div>
       </div>
 
       <div id="section-personal-records" class="settings-section">
@@ -1852,8 +1861,114 @@
       var tSaveBtn = document.getElementById('thresholds-save-btn');
       if (tSaveBtn) tSaveBtn.addEventListener('click', _tHandleSave);
 
+      // ── Zone 2 habit opt-in provision button ──────────────────────────────
+      function _updateProvisionZone2UI(existingHabit) {
+        var btn = document.getElementById('thresholds-provision-zone2-btn');
+        var existingEl = document.getElementById('provision-zone2-existing');
+        var successEl = document.getElementById('provision-zone2-success');
+        if (!btn) return;
+        if (existingHabit) {
+          btn.disabled = true;
+          btn.style.opacity = '0.45';
+          if (existingEl) {
+            existingEl.style.display = '';
+            existingEl.innerHTML = 'A Zone 2 habit already exists. <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
+          }
+        } else {
+          btn.disabled = false;
+          btn.style.opacity = '';
+          if (existingEl) {
+            existingEl.style.display = 'none';
+            existingEl.innerHTML = '';
+          }
+          if (successEl) successEl.style.display = 'none';
+        }
+      }
+
+      function _checkZone2HabitExists(callback) {
+        fetch('/api/habits')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (habits) {
+            var found = habits.find(function (h) {
+              return h.auto_fill_source === 'workout.zone2_minutes';
+            });
+            callback(found || null);
+          })
+          .catch(function () { callback(null); });
+      }
+
+      function _handleProvisionZone2Click() {
+        var btn = document.getElementById('thresholds-provision-zone2-btn');
+        var successEl = document.getElementById('provision-zone2-success');
+        if (btn) btn.disabled = true;
+
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = (data && data.row) || {};
+            var defs = (data && data.defaults) || {};
+            var target = row.weekly_zone2_target_min != null
+              ? row.weekly_zone2_target_min
+              : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : 150);
+
+            var csrf = '';
+            var metaEl = document.querySelector('meta[name="csrf-token"]');
+            if (metaEl) csrf = metaEl.getAttribute('content');
+            if (!csrf) {
+              document.cookie.split(';').forEach(function (c) {
+                var pair = c.trim();
+                if (pair.startsWith('csrf-token=')) csrf = pair.slice('csrf-token='.length);
+              });
+            }
+
+            return fetch('/api/habits', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+              body: JSON.stringify({
+                name: 'Zone 2',
+                tracking_type: 'weekly_minutes',
+                auto_fill_source: 'workout.zone2_minutes',
+                unit: 'min',
+                weekly_target: target,
+              }),
+            });
+          })
+          .then(function (r) {
+            if (r.status === 409) {
+              // Already exists — refresh UI state
+              _checkZone2HabitExists(_updateProvisionZone2UI);
+              return null;
+            }
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function (habit) {
+            if (!habit) return;
+            if (successEl) {
+              successEl.style.display = '';
+              successEl.innerHTML = 'Zone 2 habit created! <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
+            }
+            _updateProvisionZone2UI(habit);
+          })
+          .catch(function () {
+            if (btn) {
+              btn.disabled = false;
+              btn.style.opacity = '';
+            }
+            var existingEl = document.getElementById('provision-zone2-existing');
+            if (existingEl) {
+              existingEl.style.display = '';
+              existingEl.textContent = 'Failed to create habit. Please try again.';
+            }
+          });
+      }
+
+      var provBtn = document.getElementById('thresholds-provision-zone2-btn');
+      if (provBtn) provBtn.addEventListener('click', _handleProvisionZone2Click);
+
       window.addEventListener('userReady', function () {
         _tLoadPrefs();
+        _checkZone2HabitExists(_updateProvisionZone2UI);
       });
     }());
   </script>
