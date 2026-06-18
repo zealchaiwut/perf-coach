@@ -33,6 +33,12 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.models import TrainingLoadSnapshot
 
+# ── EWMA time constants ───────────────────────────────────────────────────────
+# Chronic Training Load time constant (days).  The standard Banister value.
+CTL_DAYS: int = 42
+# Acute Training Load time constant (days).  Must be less than CTL_DAYS.
+ATL_DAYS: int = 7
+
 # ── Form-zone band constants ───────────────────────────────────────────────────
 # TSB (Training Stress Balance) below this threshold = overreached / buried.
 FORM_BURIED_CEILING: float = -10.0
@@ -92,8 +98,8 @@ def daily_tss_series(
 
 def compute_load_curves(
     daily_series: list[tuple[date, int]],
-    ctl_days: int = 42,
-    atl_days: int = 7,
+    ctl_days: int = CTL_DAYS,
+    atl_days: int = ATL_DAYS,
 ) -> list[dict]:
     """Compute CTL, ATL, TSB for each day in daily_series using EWMA.
 
@@ -313,3 +319,193 @@ def performance_curve(fitness_series) -> dict:
         "today_zone": today_zone,
         "reason": "",
     }
+
+
+def project_form(
+    fitness_state,
+    planned_daily_load,
+    target_date,
+    *,
+    recent_avg_load=None,
+) -> dict:
+    """Project CTL, ATL, and form (TSB) forward to a target date.
+
+    This is a pure function — it performs no database access and raises no
+    exceptions for invalid input.  The calling layer is responsible for
+    supplying fitness_state and recent_avg_load (when needed) from the database.
+
+    The same exponential update rule used by compute_load_curves applies here:
+
+        new = prev + (load - prev) * alpha
+
+    where alpha is derived from the shared CTL_DAYS and ATL_DAYS constants via
+    _ewma_alpha.  form (TSB) is ctl minus atl on each projected day.
+
+    Args:
+        fitness_state:
+            Dict containing at minimum ``ctl``, ``atl``, and ``date``.  ``date``
+            is the anchor day; the projection starts from anchor + 1.
+        planned_daily_load:
+            A single scalar applied uniformly each day, an ordered list of
+            per-day load values (one element per projected day, padded with 0
+            if shorter than needed), or None to use ``recent_avg_load``.
+        target_date:
+            The last day of the projection window (inclusive).  Must be after
+            ``fitness_state["date"]``.
+        recent_avg_load:
+            Caller-supplied recent average daily load.  Required when
+            ``planned_daily_load`` is None; ignored otherwise.
+
+    Returns:
+        Dict with two keys:
+
+        ``days``
+            List of day objects from anchor + 1 through target_date, each with
+            ``date``, ``ctl``, ``atl``, ``form`` (CTL minus ATL), and
+            ``assumed_load`` (True when load was not explicitly planned).
+        ``reason``
+            Empty string on success; a machine-readable explanation when the
+            input was invalid or missing.
+
+    Worked example:
+
+        Starting state: ctl=50.0, atl=60.0, anchor_date=2024-01-01.
+        assumed_load=30 (below both ctl and atl).
+
+        ATL_DAYS is shorter than CTL_DAYS, so ATL adjusts toward the load
+        value faster than CTL.  Since the load is below atl, both values
+        decrease over time, but ATL decreases faster — the gap (ctl minus atl)
+        therefore grows, which means form rises.
+
+        Anchor: ctl=50.0, atl=60.0, form=-10.0.
+
+        Day 1 (2024-01-02):
+            ctl decreases by roughly (50 minus 30) times alpha_ctl, about 0.47,
+            reaching approximately 49.5.
+            atl decreases by roughly (60 minus 30) times alpha_atl, about 4.0,
+            reaching approximately 56.0.
+            form rises to approximately minus 6.5.
+
+        Day 2 (2024-01-03):
+            ctl decreases a further 0.46 to approximately 49.1.
+            atl decreases a further 3.5 to approximately 52.5.
+            form rises to approximately minus 3.4.
+
+        Day 3 (2024-01-04):
+            ctl approximately 48.6, atl approximately 49.5.
+            form rises to approximately minus 0.9.
+
+        As fatigue (atl) decays faster than fitness (ctl), form continues to
+        rise each day until the assumed load matches ctl and the system reaches
+        a new equilibrium.
+    """
+    _empty: dict = {"days": [], "reason": ""}
+
+    if fitness_state is None:
+        return {**_empty, "reason": "fitness_state is required"}
+    if target_date is None:
+        return {**_empty, "reason": "target_date is required"}
+
+    try:
+        anchor_ctl = float(fitness_state["ctl"])
+        anchor_atl = float(fitness_state["atl"])
+        anchor_date = fitness_state["date"]
+    except (KeyError, TypeError, ValueError):
+        return {**_empty, "reason": "fitness_state must contain ctl, atl, and date"}
+
+    if not isinstance(anchor_date, date):
+        return {**_empty, "reason": "fitness_state.date must be a date object"}
+
+    if target_date <= anchor_date:
+        return {**_empty, "reason": "target_date must be after fitness_state.date (anchor date)"}
+
+    n_days = (target_date - anchor_date).days
+
+    if planned_daily_load is None:
+        if recent_avg_load is None:
+            return {**_empty, "reason": "recent_avg_load is required when planned_daily_load is None"}
+        load_schedule = [float(recent_avg_load)] * n_days
+        assumed = [True] * n_days
+    elif isinstance(planned_daily_load, (int, float)):
+        load_schedule = [float(planned_daily_load)] * n_days
+        assumed = [False] * n_days
+    else:
+        try:
+            loads = [float(v) for v in planned_daily_load]
+        except (TypeError, ValueError):
+            return {**_empty, "reason": "planned_daily_load list contains invalid values"}
+        n_provided = len(loads)
+        if n_provided >= n_days:
+            load_schedule = loads[:n_days]
+            assumed = [False] * n_days
+        else:
+            load_schedule = loads + [0.0] * (n_days - n_provided)
+            assumed = [False] * n_provided + [True] * (n_days - n_provided)
+
+    ctl_alpha = _ewma_alpha(CTL_DAYS)
+    atl_alpha = _ewma_alpha(ATL_DAYS)
+
+    ctl = anchor_ctl
+    atl = anchor_atl
+    days = []
+
+    for i in range(n_days):
+        day_date = anchor_date + timedelta(days=i + 1)
+        tss = load_schedule[i]
+        ctl = ctl + (tss - ctl) * ctl_alpha
+        atl = atl + (tss - atl) * atl_alpha
+        days.append({
+            "date": day_date,
+            "ctl": round(ctl, 2),
+            "atl": round(atl, 2),
+            "form": round(ctl - atl, 2),
+            "assumed_load": assumed[i],
+        })
+
+    return {"days": days, "reason": ""}
+
+
+def get_projected_form(
+    user_id: str,
+    planned_daily_load,
+    target_date: date,
+) -> dict:
+    """Thin caller: fetch fitness state and recent avg load from DB, then project form.
+
+    Responsibilities:
+    - Calls current_load(user_id) to obtain today's CTL, ATL, and anchor date.
+    - When planned_daily_load is None, queries the last 28 days of TSS to
+      compute a recent average daily load for the assumed-load fallback.
+    - Delegates all projection math to project_form (pure function).
+
+    Args:
+        user_id: the authenticated user's ID.
+        planned_daily_load: scalar, per-day list, or None for assumed load.
+        target_date: projection horizon (must be after today).
+
+    Returns:
+        Same dict shape as project_form: {days, reason}.
+    """
+    today = date.today()
+    load_state = current_load(user_id)
+    fitness_state = {
+        "ctl": load_state["ctl"],
+        "atl": load_state["atl"],
+        "date": load_state["date"],
+    }
+
+    recent_avg: Optional[float] = None
+    if planned_daily_load is None:
+        window_start = today - timedelta(days=27)
+        series = daily_tss_series(user_id, window_start, today)
+        if series:
+            recent_avg = sum(tss for _, tss in series) / len(series)
+        else:
+            recent_avg = 0.0
+
+    return project_form(
+        fitness_state,
+        planned_daily_load,
+        target_date,
+        recent_avg_load=recent_avg,
+    )
