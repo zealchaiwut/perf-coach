@@ -13,6 +13,11 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
 - **Training log** — workout log with type badges, TSS, distance, HR, and pace; training load (CTL/ATL/TSB) widget and weekly volume bar chart on the log page; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users
+- **Run View** — per-workout run detail page (`/run-view`) showing pace, power, HR, cadence, and stride-length per km split; supports both auto (1-km) and manually-entered lap rows (`lap_type`)
+- **Run Builder** — run planning page (`/run-builder`) for composing structured runs with Stryd aggregate fields (avg power, max power, normalized power, cadence, stride)
+- **Running TSS** — `compute_running_tss` service computes TSS automatically via three fallback methods: Power (NP/FTP), Pace (per-lap threshold pace), or HR (avg HR / threshold HR); result surfaced on `GET /api/workouts/{id}/full` as `tss`, `tss_method`, and `tss_partial`
+- **Normalized power** — `compute_normalized_power` pure function computes NP from a 1-second power stream; stored on the workout record (`np` column) at ingest time
+- **Activity streams** — Strava and Stryd syncs now fetch and store per-sample time-series data (power, HR, pace, cadence, altitude, GPS) in the `activity_streams` table; used for NP calculation and Run View charting
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
 - **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records

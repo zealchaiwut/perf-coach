@@ -1,4 +1,3 @@
-import uuid
 from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, Time, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
@@ -234,6 +233,7 @@ class WorkoutSplit(Base):
     avg_power = Column(Integer, nullable=True)
     cadence_spm = Column(Integer, nullable=True)
     stride_length_m = Column(Numeric(4, 2), nullable=True)
+    lap_type = Column(String(10), nullable=True, server_default=text("'auto'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -426,6 +426,7 @@ class StrydActivity(Base):
     form_metrics = Column(JSONB, nullable=True)
     power_zones = Column(JSONB, nullable=True)
     splits = Column(JSONB, nullable=True)
+    streams_payload = Column(JSONB, nullable=True)
     raw_payload = Column(JSONB, nullable=False)
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
@@ -569,4 +570,59 @@ class SyncJob(Base):
 
     __table_args__ = (
         Index("ix_sync_jobs_user_source_started_at", "user_id", "source", "started_at"),
+    )
+
+
+class ActivityStream(Base):
+    """Per-sample time-series channel data for a workout.
+
+    One row per workout; the absence of a row is the canonical signal that a
+    workout has no stream data (e.g. a manual strength session). Each channel
+    column is independently nullable — a row may exist with only workout_id and
+    source set.
+
+    Worked example::
+
+        from sqlalchemy.orm import Session
+        from backend.db import engine
+        from backend.models import ActivityStream
+
+        with Session(engine) as session:
+            stream = ActivityStream(
+                workout_id=some_workout_uuid,
+                source="strava",
+                sample_interval_seconds=1,
+                time_offset_seconds=[0, 1, 2, 3],
+                power_w=[250, 260, 245, 255],
+                heart_rate_bpm=[145, 147, 146, 148],
+            )
+            session.add(stream)
+            session.commit()
+    """
+
+    __tablename__ = "activity_streams"
+
+    workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    sample_interval_seconds = Column(Integer, nullable=True)
+    source = Column(String(20), nullable=True)
+    time_offset_seconds = Column(JSONB, nullable=True)
+    power_w = Column(JSONB, nullable=True)
+    heart_rate_bpm = Column(JSONB, nullable=True)
+    pace_seconds_per_km = Column(JSONB, nullable=True)
+    cadence_spm = Column(JSONB, nullable=True)
+    altitude_m = Column(JSONB, nullable=True)
+    latitude = Column(JSONB, nullable=True)
+    longitude = Column(JSONB, nullable=True)
+    channel_attribution = Column(JSONB, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IS NULL OR source IN ('strava', 'stryd', 'merged')",
+            name="ck_activity_streams_source_values",
+        ),
     )

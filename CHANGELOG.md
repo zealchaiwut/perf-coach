@@ -1,5 +1,21 @@
 # Changelog
 
+## Sprint 63.1 — Activity streams table and channel selection
+
+- #572: Add activity_streams table and SQLAlchemy model
+- #574: Select stream channels when merging two workout sources
+
+## Sprint 63 — Activity streams, running TSS, normalized power, Run View/Builder
+
+- #567: Add Run View and Run Builder screens with Stryd/lap support
+- #568: Add running TSS computation service
+- #573: Ingest activity streams on Strava and Stryd sync
+- #575: Add compute_normalized_power pure calculation function
+- #576: Store normalized power on workout record at ingest
+- #577: Add golden fixture and regression tests for workout metrics
+- #578: Add pure power-branch running TSS calculation
+- #580: Add HR-based TSS pure function for running
+
 ## Sprint 61.1 — Training-log detail panel a11y and dead-UI removal
 
 - #529: Remove dead UI and fix a11y in detail panel
