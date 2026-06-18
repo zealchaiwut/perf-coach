@@ -11,6 +11,16 @@
 - #610: Add race specificity progress tracker function
 - #611: Add GET /api/races/{id}/readiness combined endpoint
 
+## Sprint 65 — Strength TSS, duration curves, threshold suggestions, and daily load series
+
+- #588: Compute power and pace duration curves per workout
+- #590: Add auto-threshold suggestion from duration curve
+- #591: Add accept-suggestion flow for threshold values
+- #592: Add session-RPE TSS method for strength sessions
+- #593: Implement per-set RPE refinement for strength TSS
+- #594: Combine Strength TSS Calculation into Single Service
+- #595: Add unified daily training load series
+
 ## Sprint 64 — Running TSS persistence, lap classification, and session profile detection
 
 - #581: Add compute_running_tss service with priority-based method selection

@@ -48,6 +48,7 @@ from backend.services.training_load import (
     PEAK_TRACKING_TOLERANCE,
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
+from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
@@ -55,6 +56,7 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 
 _start_time = time.monotonic()
@@ -9135,6 +9137,66 @@ def backfill_training_load(
     })
 
 
+# ── Daily load series ─────────────────────────────────────────────────────────
+
+@app.get("/api/training/daily-load")
+def get_training_daily_load(
+    athlete_id: str,
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        return JSONResponse(status_code=400, content={"results": [], "reason": "athlete_id is not a valid UUID"})
+
+    if start is None or end is None:
+        missing = []
+        if start is None:
+            missing.append("start")
+        if end is None:
+            missing.append("end")
+        reason = f"Missing required query parameter(s): {', '.join(missing)}"
+        return JSONResponse(status_code=400, content={"results": [], "reason": reason})
+
+    try:
+        start_d = _date.fromisoformat(start)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"results": [], "reason": f"start is not a valid ISO-8601 date: {start!r}"})
+
+    try:
+        end_d = _date.fromisoformat(end)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"results": [], "reason": f"end is not a valid ISO-8601 date: {end!r}"})
+
+    if start_d > end_d:
+        reason = f"start ({start}) must not be after end ({end})"
+        return JSONResponse(status_code=400, content={"results": [], "reason": reason})
+
+    with Session(engine) as session:
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= start_d,
+                Workout.workout_date <= end_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+        workouts = [
+            {
+                "id": str(r.id),
+                "date": r.workout_date.isoformat(),
+                "tss": float(r.tss) if r.tss is not None else None,
+            }
+            for r in rows
+        ]
+
+    result = _daily_load_series(workouts, start, end)
+    return JSONResponse(result)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
@@ -10013,3 +10075,247 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             response["taper_recommendation"] = taper_rec
 
     return JSONResponse(response)
+
+
+# ── Threshold suggestions ──────────────────────────────────────────────────────
+
+_SUGGESTION_KEYS = ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+
+# Standard power durations (seconds) used when building the user's power curve.
+_POWER_DURATION_LADDER = [300, 600, 1200, 1800, 3600]
+
+
+def _build_user_power_curve(session, user_id) -> dict:
+    """Return a {duration_seconds: best_avg_power_watts} dict for the user.
+
+    For each duration D the value is the highest workout-level avg_power found
+    across all workouts whose total duration is at least D seconds.  Splits with
+    a shorter individual duration than the full workout can also contribute
+    (same ≥ D rule applied to split.duration_seconds).
+    """
+    from sqlalchemy import func as _sa_func
+
+    curve: dict = {}
+    for d in _POWER_DURATION_LADDER:
+        # Workout-level aggregate power
+        w_best = (
+            session.query(_sa_func.max(Workout.avg_power))
+            .filter(
+                Workout.user_id == user_id,
+                Workout.duration_seconds >= d,
+                Workout.avg_power.isnot(None),
+            )
+            .scalar()
+        )
+        # Split-level power (can be higher than workout average)
+        s_best = (
+            session.query(_sa_func.max(WorkoutSplit.avg_power))
+            .join(Workout, WorkoutSplit.workout_id == Workout.id)
+            .filter(
+                Workout.user_id == user_id,
+                WorkoutSplit.duration_seconds >= d,
+                WorkoutSplit.avg_power.isnot(None),
+            )
+            .scalar()
+        )
+        candidates = [v for v in (w_best, s_best) if v is not None]
+        if candidates:
+            curve[d] = float(max(candidates))
+    return curve
+
+
+def _build_user_recent_runs(session, user_id, limit: int = 30) -> list:
+    """Return a list of run dicts for the user's most recent runs.
+
+    Each dict has ``duration_seconds``, ``avg_pace_seconds_per_km``, and
+    ``avg_hr_bpm``.  Only runs with both distance and duration set are included.
+    """
+    workouts = (
+        session.query(Workout)
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_type == "run",
+            Workout.duration_seconds.isnot(None),
+            Workout.distance_km.isnot(None),
+        )
+        .order_by(Workout.workout_date.desc())
+        .limit(limit)
+        .all()
+    )
+    runs = []
+    for w in workouts:
+        if w.distance_km and float(w.distance_km) > 0:
+            runs.append({
+                "duration_seconds": w.duration_seconds,
+                "avg_pace_seconds_per_km": w.duration_seconds / float(w.distance_km),
+                "avg_hr_bpm": w.avg_hr,
+            })
+    return runs
+
+
+def _pending_suggestions(session, user_id) -> dict:
+    """Compute suggestions and filter out already-accepted ones.
+
+    Returns a dict of ``{key: {"value": ..., "high_confidence": ...}}`` for
+    threshold keys that are not yet marked ``source = "user_accepted"`` in
+    ``user_preferences``.
+    """
+    from backend.services.threshold_suggestions import suggest_thresholds
+
+    duration_curve = _build_user_power_curve(session, user_id)
+    recent_runs = _build_user_recent_runs(session, user_id)
+    result = suggest_thresholds(duration_curve, recent_runs)
+
+    # Insufficient-data sentinel
+    if "suggestions" in result:
+        return {}
+
+    prefs = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_id)
+        .first()
+    )
+
+    pending = {}
+    for key in _SUGGESTION_KEYS:
+        if key not in result:
+            continue
+        source_attr = f"{key}_source"
+        existing_source = getattr(prefs, source_attr, None) if prefs else None
+        if existing_source != "user_accepted":
+            pending[key] = result[key]
+    return pending
+
+
+@app.get("/api/thresholds/suggestions")
+def get_threshold_suggestions(user: User = Depends(resolve_user)):
+    """Return pending threshold suggestions for the authenticated user.
+
+    A suggestion is pending when ``suggest_thresholds`` returns a value for
+    that key and the user has not yet accepted it (``source != "user_accepted"``
+    in ``user_preferences``).  Returns HTTP 200 with an empty list when no
+    suggestions exist — never 404 or 500 for the no-suggestions state.
+    """
+    with Session(engine) as session:
+        pending = _pending_suggestions(session, user.id)
+        return JSONResponse({"pending": pending})
+
+
+@app.post("/api/thresholds/suggestions/accept")
+async def accept_threshold_suggestions(
+    request: Request,
+    user: User = Depends(resolve_user),
+):
+    """Accept a subset of suggested threshold values and persist them.
+
+    Payload: ``{"keys": ["ftp_w", "threshold_hr", ...]}``
+
+    Only the keys listed in ``keys`` are written to ``user_preferences``.
+    Threshold values that exist in ``user_preferences`` with any source are
+    not overwritten unless the caller explicitly includes that key in the
+    payload.  Each written record gets ``source = "user_accepted"``.
+
+    Returns ``{"written": {key: value, ...}, "skipped": [key, ...]}`` — a
+    structured confirmation of which keys were persisted and their new values.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+    keys_to_accept = body.get("keys", [])
+    if not isinstance(keys_to_accept, list):
+        raise HTTPException(status_code=422, detail="'keys' must be a list")
+
+    # Validate requested keys are recognised threshold keys
+    unknown = [k for k in keys_to_accept if k not in _SUGGESTION_KEYS]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown threshold keys: {unknown}. Valid keys: {list(_SUGGESTION_KEYS)}",
+        )
+
+    from backend.services.threshold_suggestions import suggest_thresholds
+
+    with Session(engine) as session:
+        duration_curve = _build_user_power_curve(session, user.id)
+        recent_runs = _build_user_recent_runs(session, user.id)
+        result = suggest_thresholds(duration_curve, recent_runs)
+
+        # No suggestions available
+        if "suggestions" in result:
+            return JSONResponse({"written": {}, "skipped": keys_to_accept})
+
+        # Get or create user preferences row
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .first()
+        )
+        if prefs is None:
+            prefs = UserPreferences(user_id=user.id)
+            session.add(prefs)
+
+        written: dict = {}
+        skipped: list = []
+        for key in keys_to_accept:
+            if key not in result:
+                skipped.append(key)
+                continue
+            value = result[key]["value"]
+            setattr(prefs, key, value)
+            setattr(prefs, f"{key}_source", "user_accepted")
+            written[key] = value
+
+        prefs.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        return JSONResponse({"written": written, "skipped": skipped})
+
+
+# ── Athlete duration curve ────────────────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/duration-curve")
+def get_athlete_duration_curve(athlete_id: str):
+    """Return the per-athlete best-effort duration curve across all run workouts.
+
+    Returns 200 with an empty curve and a ``reason`` field when the athlete exists
+    but has no runs on record. Returns 404 when the athlete ID does not exist.
+    """
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        curve_data = _get_athlete_duration_curve(uid, session)
+
+    if not curve_data:
+        return JSONResponse({
+            "athleteId": athlete_id,
+            "curve": [],
+            "debug": [],
+            "reason": "No runs found for athlete",
+        })
+
+    curve_entries = sorted(
+        [
+            {
+                "duration": int(dur),
+                "bestValue": entry["best_value"],
+                "workoutId": entry["workout_id"],
+                "date": entry["date"],
+            }
+            for dur, entry in curve_data.items()
+        ],
+        key=lambda e: e["duration"],
+    )
+
+    return JSONResponse({
+        "athleteId": athlete_id,
+        "curve": curve_entries,
+        "debug": curve_entries,
+    })
