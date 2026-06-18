@@ -515,8 +515,11 @@ class UserPreferences(Base):
         unique=True,
     )
     ftp_w = Column(Integer, nullable=True)
+    ftp_w_source = Column(String(30), nullable=True)
     threshold_hr = Column(Integer, nullable=True)
+    threshold_hr_source = Column(String(30), nullable=True)
     threshold_pace_seconds_per_km = Column(Integer, nullable=True)
+    threshold_pace_seconds_per_km_source = Column(String(30), nullable=True)
     max_hr = Column(Integer, nullable=True)
     zone2_hr_min = Column(Integer, nullable=True)
     zone2_hr_max = Column(Integer, nullable=True)
