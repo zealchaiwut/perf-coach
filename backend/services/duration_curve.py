@@ -206,8 +206,18 @@ def fetch_and_compute_curves(workout_id, db):
         return {
             "power_curve": [],
             "pace_curve": [],
-            "power_debug": {"stream_length_seconds": 0, "durations_from_stream": [], "durations_from_aggregates": [], "durations_skipped": []},
-            "pace_debug": {"stream_length_seconds": 0, "durations_from_stream": [], "durations_from_aggregates": [], "durations_skipped": []},
+            "power_debug": {
+                "stream_length_seconds": 0,
+                "durations_from_stream": [],
+                "durations_from_aggregates": [],
+                "durations_skipped": [],
+            },
+            "pace_debug": {
+                "stream_length_seconds": 0,
+                "durations_from_stream": [],
+                "durations_from_aggregates": [],
+                "durations_skipped": [],
+            },
         }
 
     stream_row = db.get(ActivityStream, workout_id)
