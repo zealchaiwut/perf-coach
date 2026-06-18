@@ -956,7 +956,9 @@
   // issue #601: uses substring includes() so merged 'strava,stryd' source is detected.
   function isStravaWorkout(workout) {
     if (!workout) return false;
-    return (workout.source || "").includes("strava") || !!workout.strava_activity_url;
+    return (
+      (workout.source || "").includes("strava") || !!workout.strava_activity_url
+    );
   }
 
   function buildEntryRow(w) {
