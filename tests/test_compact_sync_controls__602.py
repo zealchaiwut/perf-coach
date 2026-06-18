@@ -4,7 +4,6 @@ Each test class is anchored to one Acceptance Criterion item.
 Integration tests hit a live server at http://127.0.0.1:9001.
 """
 import uuid
-import re
 
 import httpx
 import pytest
