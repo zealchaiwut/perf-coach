@@ -422,9 +422,64 @@
       '<div class="lw-stats">' +
         stat(ctl, 'CTL', 'Fitness') +
         stat(atl, 'ATL', 'Fatigue') +
-        stat(tsb, 'TSB', 'Freshness') +
+        stat(tsb, 'TSB', 'Form') +
       '</div>';
     el.hidden = false;
+  }
+
+  // ── Readiness widget (issue #640) ────────────────────────────────────────────
+  // Fetches /api/readiness/current and renders Fitness/Fatigue/Form tiles
+  // with a recovery hint. Widget is hidden on error or non-200 response.
+
+  function renderReadinessWidget(data) {
+    var el = document.getElementById('readiness-widget');
+    if (!el) return;
+
+    if (data.building_baseline) {
+      el.innerHTML =
+        '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+        '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Form scores.</p>';
+      el.hidden = false;
+      return;
+    }
+
+    function tile(val, abbr, label) {
+      return '<div class="rw-tile">' +
+               '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
+               '<div class="rw-tile-label">' + abbr + '</div>' +
+               '<div class="rw-tile-sub">' + label + '</div>' +
+             '</div>';
+    }
+
+    el.innerHTML =
+      '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+      '<div class="rw-tiles">' +
+        tile(data.ctl, 'CTL', 'Fitness') +
+        tile(data.atl, 'ATL', 'Fatigue') +
+        tile(data.tsb, 'TSB', 'Form') +
+      '</div>' +
+      '<p class="rw-hint">' + esc(data.recovery_hint || '') + '</p>';
+    el.hidden = false;
+  }
+
+  function fetchReadinessWidget() {
+    var el = document.getElementById('readiness-widget');
+    if (!el) return;
+    fetch('/api/readiness/current')
+      .then(function (res) {
+        if (!res.ok) {
+          el.hidden = true;
+          return null;
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        renderReadinessWidget(data);
+      })
+      .catch(function () {
+        if (el) el.hidden = true;
+      });
   }
 
   function volumeWeekLabel(monday) {
@@ -2694,6 +2749,7 @@
     readURLParams();
     buildFilterBar();
     fetchAndRender();
+    fetchReadinessWidget();
     initSwipe();
     refreshRepeatAvailability();
 

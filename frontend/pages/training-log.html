@@ -514,78 +514,103 @@
 
     #load-surfaces:empty { display: none; }
 
-    /* Readiness widget */
-    .load-widget {
+    /* Readiness widget (issue #640) */
+    .readiness-widget {
       padding: 16px 18px;
     }
 
-    .lw-head {
+    .rw-header {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
-      margin-bottom: 0.7rem;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
     }
 
-    .lw-title {
+    .rw-title {
       font-size: 14px;
       font-weight: 600;
       letter-spacing: -0.01em;
-      text-transform: none;
       color: var(--text-primary);
     }
 
-    .lw-interp {
-      font-size: 0.8125rem;
-      font-weight: 600;
-      color: var(--ink);
-      padding: 0.2rem 0.6rem;
-      border-radius: 999px;
-      background: var(--tile);
-      white-space: nowrap;
-    }
-
-    .lw-interp--fresh    { background: #dff5d6; color: #2d5e10; }
-    .lw-interp--neutral  { background: #f1f4fa; color: var(--ink-2); }
-    .lw-interp--fatigued { background: #ffd9d9; color: #7a1a1a; }
-    .lw-interp--empty    { background: var(--tile); color: var(--text-sub); }
-
-    .lw-stats {
+    .rw-tiles {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 0.5rem;
     }
 
-    .lw-stat {
-      background: var(--tile);
+    .rw-tile {
+      background: var(--tile, #f4f7fc);
       border-radius: 8px;
-      padding: 0.6rem 0.7rem;
+      padding: 0.65rem 0.5rem;
       text-align: center;
     }
 
-    .lw-stat-val {
-      font-family: var(--mono);
+    .rw-tile-val {
+      font-family: var(--mono, 'JetBrains Mono', monospace);
       font-size: 1.35rem;
       font-weight: 600;
-      color: var(--ink);
+      color: var(--ink, var(--text-primary));
       line-height: 1.05;
       letter-spacing: -0.02em;
     }
 
-    .lw-stat-label {
+    .rw-tile-label {
       font-size: 0.625rem;
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--text-sub);
+      color: var(--text-secondary);
       margin-top: 0.25rem;
     }
 
-    .lw-stat-sub {
+    .rw-tile-sub {
       font-size: 0.625rem;
-      color: var(--text-sub);
+      color: var(--text-tertiary);
       margin-top: 0.1rem;
     }
+
+    .rw-hint {
+      margin-top: 0.625rem;
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+    .rw-baseline-msg {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      text-align: center;
+      padding: 0.5rem 0;
+    }
+
+    @media (max-width: 480px) {
+      .rw-tiles {
+        gap: 0.375rem;
+      }
+      .rw-tile {
+        padding: 0.5rem 0.25rem;
+      }
+      .rw-tile-val {
+        font-size: 1.1rem;
+      }
+    }
+
+    /* Legacy load-widget (kept for volume chart section; readiness widget moved to #readiness-widget) */
+    .load-widget { padding: 16px 18px; }
+    .lw-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.7rem; }
+    .lw-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+    .lw-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+    .lw-stat { background: var(--tile, #f4f7fc); border-radius: 8px; padding: 0.6rem 0.7rem; text-align: center; }
+    .lw-stat-val { font-family: var(--mono); font-size: 1.35rem; font-weight: 600; color: var(--ink, var(--text-primary)); line-height: 1.05; letter-spacing: -0.02em; }
+    .lw-stat-label { font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); margin-top: 0.25rem; }
+    .lw-stat-sub { font-size: 0.625rem; color: var(--text-tertiary); margin-top: 0.1rem; }
+    .lw-interp { font-size: 0.8125rem; font-weight: 600; color: var(--ink, var(--text-primary)); padding: 0.2rem 0.6rem; border-radius: 999px; background: var(--tile, #f4f7fc); white-space: nowrap; }
+    .lw-interp--fresh    { background: var(--green-soft); color: var(--green); }
+    .lw-interp--neutral  { background: var(--shell-1); color: var(--text-secondary); }
+    .lw-interp--fatigued { background: var(--red-soft); color: var(--red); }
+    .lw-interp--empty    { background: var(--tile, #f4f7fc); color: var(--text-tertiary); }
 
     /* Weekly volume chart card */
     .volume-chart-card {
@@ -1999,7 +2024,9 @@
     <div id="list-main" class="log-page-body">
       <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
       <section id="load-surfaces" aria-label="Training load">
-        <!-- Readiness widget: current CTL / ATL / TSB + plain-language label -->
+        <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
+        <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
+        <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
         <div id="load-widget" class="load-widget log-card" hidden></div>
         <!-- Weekly volume chart (Chart.js) -->
         <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
