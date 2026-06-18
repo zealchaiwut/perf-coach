@@ -187,32 +187,12 @@
     subtitleEl.textContent = parts.join(' · ');
   }
 
-  // ── Build filter bar ──────────────────────────────────────────────────────
+  // ── Build filter bar (issue #637: type pills + search, client-side) ─────────
   function buildFilterBar() {
     var bar = document.getElementById('filter-bar');
     if (!bar) return;
 
-    var searchWrap = document.createElement('div');
-    searchWrap.className = 'fb-search-wrap';
-    var searchInner = document.createElement('div');
-    searchInner.className = 'fb-search';
-    var searchIcon = document.createElement('i');
-    searchIcon.className = 'ti ti-search';
-    searchIcon.setAttribute('aria-hidden', 'true');
-    searchInner.appendChild(searchIcon);
-    var searchInput = document.createElement('input');
-    searchInput.type         = 'text';
-    searchInput.id           = 'log-search';
-    searchInput.placeholder  = 'Search workouts';
-    searchInput.setAttribute('aria-label', 'Search workouts');
-    searchInput.setAttribute('type', 'search');
-    searchInput.value        = filters.search;
-    searchInput.spellcheck   = false;
-    searchInput.autocomplete = 'off';
-    searchInner.appendChild(searchInput);
-    searchWrap.appendChild(searchInner);
-    bar.appendChild(searchWrap);
-
+    // Type pills row — All / Run / Lift / WOD / Bike
     var chipsRow = document.createElement('div');
     chipsRow.className = 'fb-chips-row';
     var TYPE_OPTS   = ['all','run','lift','wod','bike'];
@@ -229,61 +209,32 @@
           c.classList.toggle('active', c.dataset.type === t);
         });
         writeURLParams();
-        fetchAndRender();
+        applyClientFilter();
       });
       chipsRow.appendChild(chip);
     });
     bar.appendChild(chipsRow);
 
-    var divider = document.createElement('div');
-    divider.className = 'fb-divider';
-    divider.setAttribute('aria-hidden', 'true');
-    bar.appendChild(divider);
-
-    var drWrap = document.createElement('div');
-    drWrap.className = 'fb-daterange-wrap';
-
-    var drChip = document.createElement('button');
-    drChip.type      = 'button';
-    drChip.id        = 'dr-chip';
-    drChip.className = 'dr-chip';
-    drChip.setAttribute('aria-expanded', 'false');
-    drChip.textContent = drLabel() + ' ▾';
-
-    var drPanel = document.createElement('div');
-    drPanel.id      = 'dr-panel';
-    drPanel.className = 'dr-panel';
-    drPanel.hidden  = true;
-
-    var fromLabel = document.createElement('label');
-    fromLabel.textContent = 'From';
-    fromLabel.htmlFor = 'dr-from';
-    var fromInput = document.createElement('input');
-    fromInput.type  = 'date';
-    fromInput.id    = 'dr-from';
-    fromInput.value = filters.from;
-
-    var toLabel = document.createElement('label');
-    toLabel.textContent = 'To';
-    toLabel.htmlFor = 'dr-to';
-    var toInput = document.createElement('input');
-    toInput.type  = 'date';
-    toInput.id    = 'dr-to';
-    toInput.value = filters.to;
-
-    var applyBtn = document.createElement('button');
-    applyBtn.type      = 'button';
-    applyBtn.className = 'btn-sm';
-    applyBtn.textContent = 'Apply';
-
-    drPanel.appendChild(fromLabel);
-    drPanel.appendChild(fromInput);
-    drPanel.appendChild(toLabel);
-    drPanel.appendChild(toInput);
-    drPanel.appendChild(applyBtn);
-    drWrap.appendChild(drChip);
-    drWrap.appendChild(drPanel);
-    bar.appendChild(drWrap);
+    // Search field
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'fb-search-wrap';
+    var searchInner = document.createElement('div');
+    searchInner.className = 'fb-search';
+    var searchIcon = document.createElement('i');
+    searchIcon.className = 'ti ti-search';
+    searchIcon.setAttribute('aria-hidden', 'true');
+    searchInner.appendChild(searchIcon);
+    var searchInput = document.createElement('input');
+    searchInput.type         = 'search';
+    searchInput.id           = 'log-search';
+    searchInput.placeholder  = 'Search workouts';
+    searchInput.setAttribute('aria-label', 'Search workouts');
+    searchInput.value        = filters.search;
+    searchInput.spellcheck   = false;
+    searchInput.autocomplete = 'off';
+    searchInner.appendChild(searchInput);
+    searchWrap.appendChild(searchInner);
+    bar.appendChild(searchWrap);
 
     var loadingEl = document.createElement('span');
     loadingEl.id        = 'log-loading-indicator';
@@ -300,33 +251,43 @@
       searchTimer = setTimeout(function () {
         filters.search = searchInput.value;
         writeURLParams();
-        fetchAndRender();
-      }, 300);
+        applyClientFilter();
+      }, 200);
+    });
+  }
+
+  // ── Client-side filter (issue #637) ──────────────────────────────────────
+  function applyClientFilter() {
+    var typeKey    = (filters.type || 'all').toLowerCase();
+    var searchTerm = (filters.search || '').toLowerCase().trim();
+    var anyVisible = false;
+
+    document.querySelectorAll('.day-group').forEach(function (group) {
+      var groupHasVisible = false;
+      group.querySelectorAll('.entry-row').forEach(function (row) {
+        var matchesType = typeKey === 'all' ||
+          (row.dataset.workoutType || '').toLowerCase() === typeKey;
+        var matchesSearch = !searchTerm ||
+          (row.dataset.workoutTitle || '').toLowerCase().indexOf(searchTerm) !== -1;
+        var visible = matchesType && matchesSearch;
+        row.style.display = visible ? '' : 'none';
+        if (visible) groupHasVisible = true;
+      });
+      group.style.display = groupHasVisible ? '' : 'none';
+      if (groupHasVisible) anyVisible = true;
     });
 
-    drChip.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var nowOpen = drPanel.hidden;
-      drPanel.hidden = !nowOpen;
-      drChip.setAttribute('aria-expanded', String(nowOpen));
-    });
+    var filterEmpty = document.getElementById('log-empty-filter');
+    var mainEmpty   = document.getElementById('log-empty-msg');
+    var listEl      = document.getElementById('log-list');
+    var hasAnyRows  = listEl && listEl.querySelector('.entry-row') !== null;
 
-    applyBtn.addEventListener('click', function () {
-      filters.from = fromInput.value;
-      filters.to   = toInput.value;
-      drPanel.hidden = true;
-      drChip.setAttribute('aria-expanded', 'false');
-      drChip.textContent = drLabel() + ' ▾';
-      writeURLParams();
-      fetchAndRender();
-    });
-
-    document.addEventListener('click', function (e) {
-      if (!drPanel.hidden && !drPanel.contains(e.target) && e.target !== drChip) {
-        drPanel.hidden = true;
-        drChip.setAttribute('aria-expanded', 'false');
-      }
-    });
+    if (filterEmpty) {
+      filterEmpty.style.display = (hasAnyRows && !anyVisible) ? '' : 'none';
+    }
+    if (mainEmpty) {
+      mainEmpty.style.display = (!hasAnyRows && !anyVisible) ? '' : 'none';
+    }
   }
 
   // ── List state helpers ────────────────────────────────────────────────────
@@ -370,6 +331,8 @@
   }
 
   // ── Fetch & render ────────────────────────────────────────────────────────
+  // issue #637: load full history (from 2010-01-01 to today); filtering is
+  // client-side via applyClientFilter() so no type/search params are sent.
   function fetchAndRender() {
     var loadingEl = document.getElementById('log-loading-indicator');
     if (loadingEl) loadingEl.hidden = false;
@@ -380,11 +343,9 @@
     var today = todayISO();
     var params = new URLSearchParams();
 
-    if (filters.type && filters.type !== 'all') params.set('types', filters.type);
-    if (filters.search) params.set('search', filters.search);
-    params.set('from', filters.from || addDays(today, -29));
-    params.set('to',   filters.to   || today);
-    params.set('include_rest', 'true');
+    params.set('from', '2010-01-01');
+    params.set('to',   today);
+    params.set('include_rest', 'false');
     // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
     // readiness widget is fed from one computation (no duplicate load_context).
     params.set('include_load_context', 'true');
@@ -400,10 +361,11 @@
         var listEl = document.getElementById('log-list');
         renderList(listEl, lastWeeks);
         updateHeaderStats(data);
-        // issue #528: re-render training-load surfaces on every fetch, so a
-        // date-range change updates them without a full page reload (AC4).
+        // issue #528: re-render training-load surfaces on every fetch.
         renderLoadWidget(data.load_context);
         renderVolumeChart();
+        // Apply current type/search client filter after rendering
+        applyClientFilter();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -658,27 +620,68 @@
   }
 
   // ── Log list rendering ────────────────────────────────────────────────────
-  function renderList(container, weeks) {
+
+  // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
+  function renderDayGroupedList(container, weeks) {
     if (!container) return;
     container.innerHTML = '';
 
-    var hasFilters = filters.type !== 'all' || !!filters.search || !!filters.from || !!filters.to;
+    // Flatten all workout entries from all weeks, newest-first (API already orders by date desc).
+    var entries = [];
+    (weeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type !== 'rest') entries.push(entry);
+      });
+    });
 
-    if (!weeks.length) {
-      if (!hasFilters) {
-        var emptyEl = document.getElementById('log-empty-msg');
-        if (emptyEl) emptyEl.style.display = '';
-      } else {
-        var msg = document.createElement('p');
-        msg.className   = 'log-empty';
-        msg.textContent = 'No workouts in this range — try widening your date filter.';
-        container.appendChild(msg);
-      }
+    if (!entries.length) {
+      var emptyEl = document.getElementById('log-empty-msg');
+      if (emptyEl) emptyEl.style.display = '';
       return;
     }
 
     hideListMessages();
-    weeks.forEach(function (week) { container.appendChild(buildWeekGroup(week)); });
+
+    // Group by calendar date (ISO string), preserving newest-first order.
+    var days = [];
+    var dayMap = {};
+    entries.forEach(function (entry) {
+      var date = entry.date || '';
+      if (!dayMap[date]) {
+        dayMap[date] = [];
+        days.push(date);
+      }
+      dayMap[date].push(entry);
+    });
+    // Ensure newest-first day order.
+    days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
+
+    days.forEach(function (dateStr) {
+      var d = new Date(dateStr + 'T00:00:00');
+      var dayGroup = document.createElement('div');
+      dayGroup.className = 'day-group';
+      dayGroup.dataset.date = dateStr;
+
+      var header = document.createElement('div');
+      header.className = 'day-group-header';
+      var dayLabel = isNaN(d.getDay()) ? dateStr :
+        DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+      header.textContent = dayLabel;
+      dayGroup.appendChild(header);
+
+      var rowsEl = document.createElement('div');
+      rowsEl.className = 'day-group-rows';
+      dayMap[dateStr].forEach(function (entry) {
+        rowsEl.appendChild(buildEntryRow(entry));
+      });
+      dayGroup.appendChild(rowsEl);
+
+      container.appendChild(dayGroup);
+    });
+  }
+
+  function renderList(container, weeks) {
+    renderDayGroupedList(container, weeks);
   }
 
   function renderRestDayRow(entry) {
@@ -862,6 +865,9 @@
     var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
     var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
     row.classList.add('entry-row--' + typeSlug);
+    // issue #637: data attributes for client-side filtering
+    row.dataset.workoutType  = typeKey;
+    row.dataset.workoutTitle = (w.title || '').toLowerCase();
     var badge = document.createElement('span');
     badge.className = 'entry-type entry-type--' + typeSlug;
     var dot = document.createElement('span');
