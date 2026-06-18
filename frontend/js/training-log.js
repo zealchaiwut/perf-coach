@@ -1327,14 +1327,19 @@
 
         if (isRun) {
           // Redesigned run view draws from the union endpoint (power/splits/etc).
-          fetch('/api/workouts/' + workoutId + '/full?streams=none')
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .catch(function () { return null; })
-            .then(function (full) {
-              if (loadingEl) loadingEl.style.display = 'none';
-              if (full && full.workout) renderRunView(full);
-              else renderDetailContent(workout, []);
-            });
+          // Combine with the cached prefs fetch so Zone 2 band reflects user settings.
+          Promise.all([
+            fetch('/api/workouts/' + workoutId + '/full?streams=none')
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .catch(function () { return null; }),
+            _userPrefsFetch
+          ]).then(function (results) {
+            var full  = results[0];
+            var prefs = results[1];
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (full && full.workout) renderRunView(full, prefs);
+            else renderDetailContent(workout, []);
+          });
         } else if (isBike) {
           fetch('/api/workouts/' + workoutId + '/splits')
             .then(function (r) { return r.ok ? r.json() : []; })
@@ -1526,10 +1531,16 @@
   }
 
   // ── Run VIEW (read-only, mock-matched) ─────────────────────────────────────
-  // Zone-2 HR band. HARDCODED for now — will be replaced by a per-user zone
-  // setting; kept here as named constants so it is a one-line swap later.
+  // Zone-2 HR band. Module constants are the fallback; user-saved values from
+  // GET /api/user-preferences take precedence when present (issue #598).
   var ZONE2_HR_MIN = 130;
   var ZONE2_HR_MAX = 155;
+
+  // Fetch user preferences once per page load and cache the promise.
+  // renderRunView reads zone2_hr_min/max from the resolved value.
+  var _userPrefsFetch = fetch('/api/user-preferences')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; });
 
   function _fmtPace(secPerKm) {
     if (!secPerKm || !isFinite(secPerKm)) return '—';
@@ -1547,7 +1558,7 @@
     return 'hard';
   }
 
-  function renderRunView(full) {
+  function renderRunView(full, prefs) {
     var contentEl = document.getElementById('dp-content');
     if (!contentEl) return;
     var w = full.workout || {};
@@ -1555,6 +1566,11 @@
     var srcStrava = (w.source || '').indexOf('strava') >= 0;
     var srcStryd  = (w.source || '').indexOf('stryd') >= 0;
     var stravaUrl = w.strava_activity_url || null;
+
+    // ── effective Zone 2 band (user preference takes precedence; AC #598) ──
+    var prefsRow = (prefs && prefs.row) ? prefs.row : {};
+    var z2min = prefsRow.zone2_hr_min != null ? prefsRow.zone2_hr_min : ZONE2_HR_MIN;
+    var z2max = prefsRow.zone2_hr_max != null ? prefsRow.zone2_hr_max : ZONE2_HR_MAX;
 
     // ── derived ──
     var paceSec = (w.duration_seconds && w.distance_km) ? (w.duration_seconds / w.distance_km) : null;
@@ -1575,7 +1591,7 @@
       s._norm = _norm(effVals[i]);
       s._tier = _effortClass(s._norm);
       s._paceSec = (s.distance_km && s.duration_seconds) ? (s.duration_seconds / s.distance_km) : null;
-      s._zone2 = (s.avg_hr != null && s.avg_hr >= ZONE2_HR_MIN && s.avg_hr <= ZONE2_HR_MAX);
+      s._zone2 = (s.avg_hr != null && s.avg_hr >= z2min && s.avg_hr <= z2max);
     });
 
     // ── 1) HEADER ──
@@ -1662,7 +1678,7 @@
               '<button class="rv-mt-btn" data-metric="power">Power</button>' +
             '</div></div>' +
           '<div class="rv-lap-chart" id="rv-lap-chart"></div>' +
-          '<div class="rv-z2-note"><span class="rv-z2-swatch"></span> Highlighted laps = <strong>Zone 2</strong> (HR ' + ZONE2_HR_MIN + '–' + ZONE2_HR_MAX + ' · range will come from settings)</div>' +
+          '<div class="rv-z2-note"><span class="rv-z2-swatch"></span> Highlighted laps = <strong>Zone 2</strong> (HR ' + z2min + '–' + z2max + ')</div>' +
           '<div class="rv-lap-tablewrap"><table class="rv-lap-table"><thead><tr>' +
             '<th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>Len</th><th>Cad</th><th>Pwr</th></tr></thead><tbody>' +
             splits.map(function (s) {
