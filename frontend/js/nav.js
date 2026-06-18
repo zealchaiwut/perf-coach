@@ -140,9 +140,9 @@
     '#sync-status-bar .ssb-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     '#sync-status-bar .ssb-dismiss{margin-left:auto;padding:2px 10px;border-radius:999px;',
       'font-size:11.5px;font-weight:500;cursor:pointer;background:none;color:inherit;flex-shrink:0;',
-      'border:1.5px solid rgba(201,42,42,0.3);',
+      'border:1.5px solid rgba(13,30,67,0.2);',
       "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
-    '#sync-status-bar .ssb-dismiss:hover{background:rgba(201,42,42,0.08);}',
+    '#sync-status-bar .ssb-dismiss:hover{background:rgba(13,30,67,0.08);}',
     '@media(max-width:880px){#sync-status-bar{padding:5px 14px;}}'
   ].join('');
 
@@ -285,8 +285,8 @@
   window.navRefreshAvatar = function () { updateAvatar(true); };
 
   var _PHASE_LABELS = {
-    pulling_strava: 'Pulling Strava history…',
-    pulling_stryd: 'Pulling Stryd history…',
+    pulling_strava: 'Syncing Strava…',
+    pulling_stryd: 'Syncing Stryd…',
     reconciling: 'Reconciling activities…'
   };
 
@@ -323,11 +323,7 @@
   }
 
   function _ssbRunning(data) {
-    var provider = data.provider
-      ? data.provider.charAt(0).toUpperCase() + data.provider.slice(1)
-      : '';
-    var phase = _PHASE_LABELS[data.phase] || data.phase || '';
-    var label = [provider, phase].filter(Boolean).join(' — ');
+    var label = _PHASE_LABELS[data.phase] || (data.provider ? data.provider + ' sync…' : 'Syncing…');
     var count = '';
     if (data.current > 0) {
       count = data.total != null
@@ -336,17 +332,25 @@
     }
     _ssbShow('running',
       '<span class="ssb-spinner" aria-hidden="true"></span>' +
-      '<span class="ssb-msg">' + escAttr(label) + escAttr(count) + '</span>'
+      '<span class="ssb-msg">' + escAttr(label) + escAttr(count) + '</span>' +
+      '<button class="ssb-dismiss" type="button" aria-label="Dismiss">×</button>'
     );
+    var dismiss = document.querySelector('#sync-status-bar .ssb-dismiss');
+    if (dismiss) dismiss.addEventListener('click', function () { _syncStopPoll(); _ssbHide(); });
   }
 
   function _ssbSuccess(data) {
     var n = data.items_synced != null ? data.items_synced : 0;
-    _ssbShow('success', '<span class="ssb-msg">Synced ✓ ' + n + ' activities</span>');
+    _ssbShow('success',
+      '<span class="ssb-msg">Sync complete — ' + n + ' workouts updated</span>' +
+      '<button class="ssb-dismiss" type="button" aria-label="Dismiss">×</button>'
+    );
+    var dismiss = document.querySelector('#sync-status-bar .ssb-dismiss');
+    if (dismiss) dismiss.addEventListener('click', _ssbHide);
     setTimeout(function () {
       var bar = document.getElementById('sync-status-bar');
       if (bar && bar.className === 'ssb-state-success') _ssbHide();
-    }, 4000);
+    }, 5000);
   }
 
   function _ssbError(data) {
