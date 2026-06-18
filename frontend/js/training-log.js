@@ -950,12 +950,13 @@
     return groupEl;
   }
 
-  // issue #530: a workout is Strava-sourced if its `source` is 'strava' OR it
+  // issue #530: a workout is Strava-sourced if its `source` contains 'strava' OR it
   // carries a Strava activity URL (some imports leave `source` unset). Shared by
   // the list and detail views so both attribute the source identically.
+  // issue #601: uses substring includes() so merged 'strava,stryd' source is detected.
   function isStravaWorkout(workout) {
     if (!workout) return false;
-    return workout.source === "strava" || !!workout.strava_activity_url;
+    return (workout.source || "").includes("strava") || !!workout.strava_activity_url;
   }
 
   function buildEntryRow(w) {
@@ -1072,8 +1073,8 @@
 
     var sourcesWrap = document.createElement("div");
     sourcesWrap.className = "source-badges-wrap";
-    var isStrava = isStravaWorkout(w);
-    var isStryd = !!w.is_stryd_synced;
+    var isStrava = !!w.has_strava;
+    var isStryd = !!w.has_stryd;
     if (isStrava) {
       var sbadge = document.createElement("span");
       sbadge.className = "source-badge source-badge--strava";
