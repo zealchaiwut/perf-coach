@@ -629,3 +629,46 @@ class ActivityStream(Base):
             name="ck_activity_streams_source_values",
         ),
     )
+
+
+class AthleteDurationCurve(Base):
+    """Per-athlete best-effort duration curve aggregated across all run workouts.
+
+    One row per athlete. The ``curve_data`` JSONB stores a dict keyed by
+    str(duration_seconds) mapping to the best observed value at that window and
+    the workout it came from. Absence of a row means no runs have been processed
+    for that athlete yet.
+
+    Worked example::
+
+        from sqlalchemy.orm import Session
+        from backend.db import engine
+        from backend.models import AthleteDurationCurve
+        import uuid
+
+        with Session(engine) as session:
+            curve = AthleteDurationCurve(
+                user_id=some_user_uuid,
+                curve_data={
+                    "60": {"best_value": 270.0, "workout_id": str(uuid.uuid4()),
+                           "date": "2026-01-15", "confidence": "measured"},
+                    "300": {"best_value": 255.0, "workout_id": str(uuid.uuid4()),
+                            "date": "2026-01-15", "confidence": "measured"},
+                },
+            )
+            session.add(curve)
+            session.commit()
+    """
+
+    __tablename__ = "athlete_duration_curves"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    curve_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    user = relationship("User", foreign_keys=[user_id])
