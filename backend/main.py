@@ -39,6 +39,7 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 
 _start_time = time.monotonic()
 
@@ -4680,6 +4681,7 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
+        detected_profile = _get_session_profile(workout, split_rows, prefs)
         return JSONResponse({
             "workout": _workout_dict(workout, exercises),
             "splits": [_split_dict(s) for s in split_rows],
@@ -4691,6 +4693,7 @@ def get_workout_full(
             "tss_method": tss_result["method"],
             "tss_partial": tss_result["partial"],
             "computed_tss": tss_result["tss"],
+            "detected_profile": detected_profile,
         })
 
 

@@ -121,14 +121,13 @@ def test_expected_has_tss_entry(golden_expected):
     assert "method" in entry, "tss entry must include 'method' field"
 
 
-def test_expected_has_detected_profile_placeholder(golden_expected):
-    """AC-expected: 'detected_profile' key with null and placeholder note exists."""
+def test_expected_has_detected_profile_entry(golden_expected):
+    """AC-expected: 'detected_profile' key with actual detection results exists."""
     assert "detected_profile" in golden_expected
     entry = golden_expected["detected_profile"]
-    assert entry["value"] is None
-    assert "PLACEHOLDER" in entry.get("placeholder_note", ""), (
-        "detected_profile entry must have 'placeholder_note' with word PLACEHOLDER"
-    )
+    assert "phases" in entry, "detected_profile entry must have 'phases' list"
+    assert "basis" in entry, "detected_profile entry must have 'basis' field"
+    assert "confident" in entry, "detected_profile entry must have 'confident' field"
 
 
 # ── AC-np-value: normalized_power matches expected ───────────────────────────
@@ -247,21 +246,65 @@ def test_tss_matches_expected(golden_run, golden_expected):
     assert isinstance(result["tss"], int), "TSS must be a whole integer"
 
 
-# ── AC-profile-skip: detected_profile is not yet implemented ─────────────────
+# ── AC-profile: detected_profile matches golden expected values ───────────────
 
 
-@pytest.mark.skip(
-    reason=(
-        "Workout profile detection not yet implemented — "
-        "see placeholder in golden_run_expected.json "
-        "(PLACEHOLDER: implement in [ticket reference — workout profile detection])"
-    )
-)
 def test_detected_profile_matches_expected(golden_run, golden_expected):
-    """AC-profile-skip: placeholder — asserts detected_profile == expected when done."""
-    raise NotImplementedError(
-        "Workout profile detection not implemented in this sprint"
+    """AC-profile: detect_session_profile on the golden fixture matches expected-outputs.
+
+    Uses fixture_prefs and fixture_lap_type recorded in golden_run_expected.json
+    so the test is deterministic.  Compares phase labels, bands, and top-level
+    fields; avg_pace floating-point values are not checked for exact equality.
+    """
+    from backend.services.session_profile import detect_session_profile
+
+    profile_section = golden_expected["detected_profile"]
+    fixture_prefs = profile_section["fixture_prefs"]
+    fixture_lap_type = profile_section["fixture_lap_type"]
+    expected_phases = profile_section["phases"]
+
+    laps = golden_run["laps"]
+    split_objects = [
+        types.SimpleNamespace(
+            avg_power=round(lap["avg_power_w"]),
+            duration_seconds=lap["duration_seconds"],
+            distance_km=lap["distance_km"],
+            avg_hr=round(lap["avg_hr_bpm"]) if "avg_hr_bpm" in lap else None,
+        )
+        for lap in laps
+    ]
+
+    splits_container = types.SimpleNamespace(
+        laps=split_objects,
+        lap_type=fixture_lap_type,
     )
+
+    result = detect_session_profile(splits_container, fixture_prefs)
+
+    assert result["confident"] is True, (
+        f"detection should be confident on the golden fixture; got: {result.get('debug')}"
+    )
+    assert result["basis"] == profile_section["basis"], (
+        f"basis mismatch: got {result['basis']!r}, expected {profile_section['basis']!r}"
+    )
+    assert result["reps_detected"] == profile_section["reps_detected"]
+    assert result["sets_detected"] == profile_section["sets_detected"]
+
+    actual_phases = result["phases"]
+    assert len(actual_phases) == len(expected_phases), (
+        f"phase count mismatch: got {len(actual_phases)}, expected {len(expected_phases)}"
+    )
+    for i, (actual, expected) in enumerate(zip(actual_phases, expected_phases)):
+        assert actual["label"] == expected["label"], (
+            f"phase {i} label mismatch: got {actual['label']!r}, expected {expected['label']!r}"
+        )
+        assert actual["band"] == expected["band"], (
+            f"phase {i} band mismatch: got {actual['band']!r}, expected {expected['band']!r}"
+        )
+        assert actual["lap_indexes"] == expected["lap_indexes"], (
+            f"phase {i} lap_indexes mismatch: got {actual['lap_indexes']}, "
+            f"expected {expected['lap_indexes']}"
+        )
 
 
 # ── AC-regression: a formula mutation is detectable ──────────────────────────
