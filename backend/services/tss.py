@@ -541,3 +541,71 @@ def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
         return compute_tss(intensity_factor_from_hr(avg_hr, threshold_hr), duration), "hr"
 
     return compute_tss(0.7, duration), "duration_only"
+
+
+def persist_running_tss(workout_id, session) -> dict:
+    """Thin caller: load workout, splits, and user prefs from session; persist running TSS.
+
+    No math or hardcoded thresholds — all computation is delegated to
+    compute_running_tss.  Only writes the computed value to workout.tss when
+    that field is currently null (a manually-entered TSS is never overwritten).
+    Always writes workout.tss_method so the UI can show the computation method
+    even when a manual override is in place.
+
+    The caller is responsible for calling session.commit() after this function
+    returns so that multiple writes can be batched in one round-trip.
+
+    Returns the compute_running_tss result dict (tss, method, partial, debug)
+    so the caller can surface the computed value for comparison display without
+    reading it back from the database.
+    """
+    from backend.models import Workout, WorkoutSplit, UserPreferences
+
+    workout = session.get(Workout, workout_id)
+    if workout is None:
+        return {"tss": None, "method": "none", "partial": False, "debug": {}}
+
+    splits = (
+        session.query(WorkoutSplit)
+        .filter(WorkoutSplit.workout_id == workout_id)
+        .order_by(WorkoutSplit.split_index)
+        .all()
+    )
+    prefs = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == workout.user_id)
+        .first()
+    )
+
+    result = compute_running_tss(workout, splits, prefs or UserPreferences())
+
+    # Always persist the computation method (enables comparison display in UI)
+    if result["method"] != "none":
+        workout.tss_method = result["method"]
+
+    # Only write computed value when no TSS is currently stored — manual entry wins
+    if workout.tss is None and result["tss"] is not None:
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+
+    return result
+
+
+def recompute_user_running_tss(user_id, session) -> None:
+    """Recompute TSS for every running workout owned by user_id.
+
+    Called when the user's threshold preferences change so that all stored TSS
+    values reflect the new thresholds on next fetch.  Only workouts with
+    workout_type matching 'run' (case-insensitive) are processed.  The caller
+    must commit the session after this function returns.
+    """
+    from backend.models import Workout
+
+    workouts = (
+        session.query(Workout)
+        .filter(Workout.user_id == user_id)
+        .filter(Workout.workout_type.ilike("run%"))
+        .all()
+    )
+    for w in workouts:
+        persist_running_tss(w.id, session)
