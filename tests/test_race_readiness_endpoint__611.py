@@ -28,10 +28,7 @@ Peak-tracking function tests (AC9 purity, AC10 constants, AC13 unit coverage):
 import ast
 import inspect
 import textwrap
-import types
 import uuid
-import os
-import pathlib
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -342,7 +339,6 @@ def test_endpoint_building_baseline_true_omits_projected_form():
         mock_db.execute.return_value.fetchall.return_value = []
         MockSession.return_value = mock_db
 
-        from fastapi.responses import JSONResponse
         import json
         result = get_race_readiness(str(race.id), user)
         body = json.loads(result.body)
