@@ -9564,3 +9564,198 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         session.commit()
         session.refresh(prefs)
         return JSONResponse(_prefs_row_dict(prefs))
+
+
+# ── Threshold suggestions ──────────────────────────────────────────────────────
+
+_SUGGESTION_KEYS = ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+
+# Standard power durations (seconds) used when building the user's power curve.
+_POWER_DURATION_LADDER = [300, 600, 1200, 1800, 3600]
+
+
+def _build_user_power_curve(session, user_id) -> dict:
+    """Return a {duration_seconds: best_avg_power_watts} dict for the user.
+
+    For each duration D the value is the highest workout-level avg_power found
+    across all workouts whose total duration is at least D seconds.  Splits with
+    a shorter individual duration than the full workout can also contribute
+    (same ≥ D rule applied to split.duration_seconds).
+    """
+    from sqlalchemy import func as _sa_func
+
+    curve: dict = {}
+    for d in _POWER_DURATION_LADDER:
+        # Workout-level aggregate power
+        w_best = (
+            session.query(_sa_func.max(Workout.avg_power))
+            .filter(
+                Workout.user_id == user_id,
+                Workout.duration_seconds >= d,
+                Workout.avg_power.isnot(None),
+            )
+            .scalar()
+        )
+        # Split-level power (can be higher than workout average)
+        s_best = (
+            session.query(_sa_func.max(WorkoutSplit.avg_power))
+            .join(Workout, WorkoutSplit.workout_id == Workout.id)
+            .filter(
+                Workout.user_id == user_id,
+                WorkoutSplit.duration_seconds >= d,
+                WorkoutSplit.avg_power.isnot(None),
+            )
+            .scalar()
+        )
+        candidates = [v for v in (w_best, s_best) if v is not None]
+        if candidates:
+            curve[d] = float(max(candidates))
+    return curve
+
+
+def _build_user_recent_runs(session, user_id, limit: int = 30) -> list:
+    """Return a list of run dicts for the user's most recent runs.
+
+    Each dict has ``duration_seconds``, ``avg_pace_seconds_per_km``, and
+    ``avg_hr_bpm``.  Only runs with both distance and duration set are included.
+    """
+    workouts = (
+        session.query(Workout)
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_type == "run",
+            Workout.duration_seconds.isnot(None),
+            Workout.distance_km.isnot(None),
+        )
+        .order_by(Workout.workout_date.desc())
+        .limit(limit)
+        .all()
+    )
+    runs = []
+    for w in workouts:
+        if w.distance_km and float(w.distance_km) > 0:
+            runs.append({
+                "duration_seconds": w.duration_seconds,
+                "avg_pace_seconds_per_km": w.duration_seconds / float(w.distance_km),
+                "avg_hr_bpm": w.avg_hr,
+            })
+    return runs
+
+
+def _pending_suggestions(session, user_id) -> dict:
+    """Compute suggestions and filter out already-accepted ones.
+
+    Returns a dict of ``{key: {"value": ..., "high_confidence": ...}}`` for
+    threshold keys that are not yet marked ``source = "user_accepted"`` in
+    ``user_preferences``.
+    """
+    from backend.services.threshold_suggestions import suggest_thresholds
+
+    duration_curve = _build_user_power_curve(session, user_id)
+    recent_runs = _build_user_recent_runs(session, user_id)
+    result = suggest_thresholds(duration_curve, recent_runs)
+
+    # Insufficient-data sentinel
+    if "suggestions" in result:
+        return {}
+
+    prefs = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_id)
+        .first()
+    )
+
+    pending = {}
+    for key in _SUGGESTION_KEYS:
+        if key not in result:
+            continue
+        source_attr = f"{key}_source"
+        existing_source = getattr(prefs, source_attr, None) if prefs else None
+        if existing_source != "user_accepted":
+            pending[key] = result[key]
+    return pending
+
+
+@app.get("/api/thresholds/suggestions")
+def get_threshold_suggestions(user: User = Depends(resolve_user)):
+    """Return pending threshold suggestions for the authenticated user.
+
+    A suggestion is pending when ``suggest_thresholds`` returns a value for
+    that key and the user has not yet accepted it (``source != "user_accepted"``
+    in ``user_preferences``).  Returns HTTP 200 with an empty list when no
+    suggestions exist — never 404 or 500 for the no-suggestions state.
+    """
+    with Session(engine) as session:
+        pending = _pending_suggestions(session, user.id)
+        return JSONResponse({"pending": pending})
+
+
+@app.post("/api/thresholds/suggestions/accept")
+async def accept_threshold_suggestions(
+    request: Request,
+    user: User = Depends(resolve_user),
+):
+    """Accept a subset of suggested threshold values and persist them.
+
+    Payload: ``{"keys": ["ftp_w", "threshold_hr", ...]}``
+
+    Only the keys listed in ``keys`` are written to ``user_preferences``.
+    Threshold values that exist in ``user_preferences`` with any source are
+    not overwritten unless the caller explicitly includes that key in the
+    payload.  Each written record gets ``source = "user_accepted"``.
+
+    Returns ``{"written": {key: value, ...}, "skipped": [key, ...]}`` — a
+    structured confirmation of which keys were persisted and their new values.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+    keys_to_accept = body.get("keys", [])
+    if not isinstance(keys_to_accept, list):
+        raise HTTPException(status_code=422, detail="'keys' must be a list")
+
+    # Validate requested keys are recognised threshold keys
+    unknown = [k for k in keys_to_accept if k not in _SUGGESTION_KEYS]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown threshold keys: {unknown}. Valid keys: {list(_SUGGESTION_KEYS)}",
+        )
+
+    from backend.services.threshold_suggestions import suggest_thresholds
+
+    with Session(engine) as session:
+        duration_curve = _build_user_power_curve(session, user.id)
+        recent_runs = _build_user_recent_runs(session, user.id)
+        result = suggest_thresholds(duration_curve, recent_runs)
+
+        # No suggestions available
+        if "suggestions" in result:
+            return JSONResponse({"written": {}, "skipped": keys_to_accept})
+
+        # Get or create user preferences row
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .first()
+        )
+        if prefs is None:
+            prefs = UserPreferences(user_id=user.id)
+            session.add(prefs)
+
+        written: dict = {}
+        skipped: list = []
+        for key in keys_to_accept:
+            if key not in result:
+                skipped.append(key)
+                continue
+            value = result[key]["value"]
+            setattr(prefs, key, value)
+            setattr(prefs, f"{key}_source", "user_accepted")
+            written[key] = value
+
+        prefs.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        return JSONResponse({"written": written, "skipped": skipped})
