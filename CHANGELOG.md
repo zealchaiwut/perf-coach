@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 64 — Running TSS persistence, lap classification, and session profile detection
+
+- #581: Add compute_running_tss service with priority-based method selection
+- #582: Persist and expose computed running TSS on workouts
+- #583: Classify lap intensity bands for session-profile detection
+- #584: Add phase grouping for session profile detection
+- #585: Add interval and set detection to session-profile pipeline
+- #586: Implement detect_session_profile with precedence and data-quality gate
+- #587: Expose detected session profile on full workout endpoint
+
 ## Sprint 63.1 — Activity streams table and channel selection
 
 - #572: Add activity_streams table and SQLAlchemy model

@@ -104,7 +104,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -116,6 +116,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | remarks | text | nullable |
 | tss | float | nullable; ≥0 |
 | tss_source | varchar(20) | nullable; `manual`/`calculated` |
+| tss_method | varchar(20) | nullable; `power`/`pace`/`hr` — method used when TSS was auto-computed |
 | source | varchar(20) | nullable; `manual`/`strava`/`stryd`/`both` |
 | distance_km | numeric(8,3) | nullable; ≥0 |
 | duration_seconds | int | nullable; ≥0 |

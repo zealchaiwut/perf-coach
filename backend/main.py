@@ -29,6 +29,8 @@ from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
+from backend.services.tss import persist_running_tss as _persist_running_tss
+from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
@@ -37,6 +39,7 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 
 _start_time = time.monotonic()
 
@@ -4250,8 +4253,9 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
         "remarks": w.remarks,
-        "tss": w.tss,
+        "tss": int(w.tss) if w.tss is not None else None,
         "tss_source": w.tss_source,
+        "tss_method": w.tss_method,
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -4675,6 +4679,9 @@ def get_workout_full(
             "has_power": unified["avg_power_w"] is not None,
             "has_tss": unified["tss"] is not None,
         }
+        # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
+        authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
+        detected_profile = _get_session_profile(workout, split_rows, prefs)
         return JSONResponse({
             "workout": _workout_dict(workout, exercises),
             "splits": [_split_dict(s) for s in split_rows],
@@ -4682,9 +4689,11 @@ def get_workout_full(
             "unified": unified,
             "computed": computed,
             "field_coverage": coverage,
-            "tss": tss_result["tss"],
+            "tss": authoritative_tss,
             "tss_method": tss_result["method"],
             "tss_partial": tss_result["partial"],
+            "computed_tss": tss_result["tss"],
+            "detected_profile": detected_profile,
         })
 
 
@@ -4765,6 +4774,14 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         session.refresh(workout)
         for e in exercises:
             session.refresh(e)
+        try:
+            _persist_running_tss(workout.id, session)
+            session.commit()
+            session.refresh(workout)
+        except Exception as _tss_exc:
+            _logging.getLogger(__name__).warning(
+                "persist_running_tss failed for workout %s: %s", workout.id, _tss_exc, exc_info=True
+            )
         try:
             daily_update(str(uid), workout_date)
         except Exception as _exc:
@@ -4868,6 +4885,14 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             .all()
         )
         session.refresh(workout)
+        try:
+            _persist_running_tss(wid, session)
+            session.commit()
+            session.refresh(workout)
+        except Exception as _tss_exc:
+            _logging.getLogger(__name__).warning(
+                "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
+            )
         try:
             daily_update(str(workout.user_id), workout.workout_date)
         except Exception as _exc:
@@ -5320,6 +5345,13 @@ def replace_splits(workout_id: str, body: SplitsIn, user: User = Depends(resolve
         for split in new_splits:
             session.refresh(split)
         new_splits.sort(key=lambda x: x.split_index)
+        try:
+            _persist_running_tss(wid, session)
+            session.commit()
+        except Exception as _tss_exc:
+            _logging.getLogger(__name__).warning(
+                "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
+            )
         return JSONResponse(status_code=201, content=[_split_dict(s) for s in new_splits])
 
 
@@ -9561,6 +9593,17 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs.timezone = timezone
 
         prefs.updated_at = _datetime.now(_timezone.utc)
+        _threshold_fields_changed = any(
+            f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
+        )
         session.commit()
         session.refresh(prefs)
+        if _threshold_fields_changed:
+            try:
+                _recompute_user_running_tss(uid, session)
+                session.commit()
+            except Exception as _tss_exc:
+                _logging.getLogger(__name__).warning(
+                    "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
+                )
         return JSONResponse(_prefs_row_dict(prefs))

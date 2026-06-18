@@ -9,11 +9,32 @@
     "final_value_tolerance_note": "\u00b10.1% relative tolerance on the unrounded final_value."
   },
   "tss": {
-    "value": null,
-    "placeholder_note": "PLACEHOLDER: implement in [ticket reference \u2014 Running TSS calculation]"
+    "value": 69,
+    "method": "power",
+    "fixture_prefs": {
+      "ftp_w": 280,
+      "threshold_pace_seconds_per_km": 300,
+      "threshold_hr": 170
+    },
+    "tolerance_note": "Exact integer equality \u2014 TSS rounds to a whole number.",
+    "verification_note": "Hand-verified against compute_running_tss with ftp_w=280, NP=268 (from streams), duration=2700s. IF=268/280=0.9571, TSS=round(0.75*0.9571^2*100)=69."
   },
   "detected_profile": {
-    "value": null,
-    "placeholder_note": "PLACEHOLDER: implement in [ticket reference \u2014 workout profile detection]"
+    "phases": [
+      {"label": "Warm-up", "band": "steady", "lap_indexes": [0]},
+      {"label": "Tempo",   "band": "tempo",  "lap_indexes": [1]},
+      {"label": "hard",    "band": "hard",   "lap_indexes": [2]}
+    ],
+    "reps_detected": null,
+    "sets_detected": null,
+    "basis": "power",
+    "confident": true,
+    "fixture_prefs": {
+      "ftp_w": 280,
+      "threshold_pace_seconds_per_km": 300,
+      "threshold_hr": 170
+    },
+    "fixture_lap_type": "manual",
+    "verification_note": "Hand-verified against detect_session_profile (issue #587): 3 manual laps with ftp_w=280. Lap 1 (avg_power=225, ratio=0.80) -> steady -> Warm-up. Lap 2 (avg_power=265, ratio=0.95) -> tempo -> Tempo (900s >= 480s threshold). Lap 3 (avg_power=298, ratio=1.06) -> hard -> generic label 'hard'. No alternating interval cycles found."
   }
 }
