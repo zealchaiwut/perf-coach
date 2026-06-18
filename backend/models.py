@@ -580,6 +580,24 @@ class ActivityStream(Base):
     workout has no stream data (e.g. a manual strength session). Each channel
     column is independently nullable — a row may exist with only workout_id and
     source set.
+
+    Worked example::
+
+        from sqlalchemy.orm import Session
+        from backend.db import engine
+        from backend.models import ActivityStream
+
+        with Session(engine) as session:
+            stream = ActivityStream(
+                workout_id=some_workout_uuid,
+                source="strava",
+                sample_interval_seconds=1,
+                time_offset_seconds=[0, 1, 2, 3],
+                power_w=[250, 260, 245, 255],
+                heart_rate_bpm=[145, 147, 146, 148],
+            )
+            session.add(stream)
+            session.commit()
     """
 
     __tablename__ = "activity_streams"
@@ -600,10 +618,11 @@ class ActivityStream(Base):
     altitude_m = Column(JSONB, nullable=True)
     latitude = Column(JSONB, nullable=True)
     longitude = Column(JSONB, nullable=True)
+    channel_attribution = Column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
-            "source IS NULL OR source IN ('strava', 'stryd')",
+            "source IS NULL OR source IN ('strava', 'stryd', 'merged')",
             name="ck_activity_streams_source_values",
         ),
     )
