@@ -15,7 +15,6 @@ Acceptance criteria verified:
   AC12 — unit tests: 300W→285W, 30-min fallback, pace+HR same effort, thin history, None inputs.
 """
 
-import pytest
 
 from backend.services.suggest_thresholds import suggest_thresholds
 
