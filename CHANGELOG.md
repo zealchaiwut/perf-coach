@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 67 — Race targets, fitness projections, and race readiness endpoint
+
+- #604: Add races table and SQLAlchemy model
+- #605: Add CRUD endpoints for user race targets
+- #606: Add performance_curve pure function to fitness model
+- #607: Add forward form projection to a target date
+- #608: Add taper_recommendation function for race-day form targeting
+- #609: Add peak-line on-track assessment to form tracking
+- #610: Add race specificity progress tracker function
+- #611: Add GET /api/races/{id}/readiness combined endpoint
+
 ## Sprint 66.1 — Dual source badges, compact sync controls, and weight chart redesign
 
 - #601: Show both Strava and Stryd badges on merged workouts (has_strava/has_stryd on training-log and workout-list responses)
@@ -12,6 +23,16 @@
 - #597: Add Threshold Pace, Zone 2 HR band, and Weekly Zone 2 Target to Settings (user_preferences)
 - #598: Use user-preference HR band for Zone 2 detection in Run view (replaces hardcoded 130–155 bpm)
 - #599: Add 'Track Zone 2' opt-in button to provision a Zone 2 habit from Settings (with server-side duplicate guard)
+
+## Sprint 65 — Strength TSS, duration curves, threshold suggestions, and daily load series
+
+- #588: Compute power and pace duration curves per workout
+- #590: Add auto-threshold suggestion from duration curve
+- #591: Add accept-suggestion flow for threshold values
+- #592: Add session-RPE TSS method for strength sessions
+- #593: Implement per-set RPE refinement for strength TSS
+- #594: Combine Strength TSS Calculation into Single Service
+- #595: Add unified daily training load series
 
 ## Sprint 64 — Running TSS persistence, lap classification, and session profile detection
 

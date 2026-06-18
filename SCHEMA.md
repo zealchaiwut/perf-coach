@@ -227,16 +227,19 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65)_
 
 | column | type | notes |
 |--------|------|-------|
 | id | UUID PK | |
 | user_id | UUID FK→users | CASCADE, unique |
 | ftp_w | int | nullable |
+| ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |
 | threshold_hr | int | nullable |
 | max_hr | int | nullable — max heart rate (bpm); default 190 when null |
+| threshold_hr_source | varchar(30) | nullable; `user_accepted` or `manual` |
 | threshold_pace_seconds_per_km | int | nullable |
+| threshold_pace_seconds_per_km_source | varchar(30) | nullable; `user_accepted` or `manual` |
 | zone2_hr_min | int | nullable — Zone 2 lower HR bound; default 130 when null |
 | zone2_hr_max | int | nullable — Zone 2 upper HR bound; default 155 when null |
 | weekly_zone2_target_min | int | nullable — weekly Zone 2 minutes goal; default 150 when null |
@@ -452,3 +455,25 @@ Unique: `(user_id, source, source_identifier)`.
 | name | varchar(200) | |
 | exercises | jsonb | |
 | created_at | timestamptz | |
+
+---
+
+## races _(added Sprint 67)_
+
+User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| name | varchar(200) | |
+| race_date | date | |
+| distance_km | numeric(8,3) | >0 |
+| goal_time_seconds | int | nullable; >0 |
+| goal_pace_seconds_per_km | int | nullable; derived from goal_time_seconds / distance_km |
+| priority | varchar(10) | `A` / `B` / `C` |
+| status | varchar(20) | `planned` / `done` / `abandoned` |
+| created_at | timestamptz | |
+| updated_at | timestamptz | nullable |
+
+Index: `ix_races_user_id`. Migration: `ll2a3b4c5d6e`.

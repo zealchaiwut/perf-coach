@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeo
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 environment = os.getenv("ENVIRONMENT", "local").lower()
 

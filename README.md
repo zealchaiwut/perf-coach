@@ -19,6 +19,18 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Session profile detection** — `detect_session_profile` classifies workout intent from lap data through a pipeline of pure functions: `classify_laps` (lap intensity bands), `group_laps_into_phases` (phase grouping), `detect_intervals` / `detect_sets` (interval and set recognition); result exposed on `GET /api/workouts/{id}/full` as `detected_profile`
 - **Normalized power** — `compute_normalized_power` pure function computes NP from a 1-second power stream; stored on the workout record (`np` column) at ingest time
 - **Activity streams** — Strava and Stryd syncs now fetch and store per-sample time-series data (power, HR, pace, cadence, altitude, GPS) in the `activity_streams` table; used for NP calculation and Run View charting
+- **Race targets** — CRUD for user target races (`POST/GET/PUT /api/races`); each race stores distance, goal time, priority (A/B/C), and status (planned/done/abandoned); goal pace is derived automatically from goal time and distance
+- **Race readiness** — `GET /api/races/{id}/readiness` returns a combined readiness report: 180-day form curve with zone labels (accumulated_fatigue / optimal / freshness), projected form to race day, taper start recommendation, on-track assessment versus the planned taper trajectory, and specificity progress (recent run distances vs race distance); all thresholds configurable via AppConfig
+- **Performance curve** — `performance_curve` pure function in `training_load.py` produces a CTL/ATL/TSB projection from a historical TSS series
+- **Form projection** — `project_form` projects CTL/ATL/TSB forward to a target date given a constant daily TSS assumption
+- **Taper recommendation** — `taper_recommendation` computes the optimal taper start date to hit a target TSB range on race day
+- **Peak tracking** — `peak_tracking` compares current TSB to the planned taper curve and returns an on-track / ahead / behind status with gap
+- **Race specificity progress** — `specificity_progress` service compares the athlete's recent long-run distances to the target race distance to assess training specificity
+- **Strength TSS** — `calc_strength_tss` pure function computes session-RPE TSS for strength sessions; per-set RPE refinement via `calculate_strength_tss_per_set` derives session RPE from a reps-weighted average across sets; consolidated into `compute_strength_tss` in `backend/services/tss.py`
+- **Duration curves** — `backend/services/duration_curves.py` computes best-average power and pace for standard durations (5 min, 10 min, 20 min, 30 min, 60 min) across all workouts and splits
+- **Auto-threshold suggestions** — `backend/services/threshold_suggestions.py` derives suggested FTP, threshold HR, and threshold pace from a user's duration curve and recent run history; `GET /api/thresholds/suggestions` returns pending suggestions (those not yet accepted)
+- **Accept-suggestion flow** — `POST /api/thresholds/suggestions/accept` writes accepted threshold values to `user_preferences` with `source = "user_accepted"`; accepted suggestions are suppressed from future GET calls
+- **Unified daily training load series** — `backend/services/daily_load.py` pure function aggregates workout TSS by calendar day; exposed via `GET /api/training/daily-load`
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation; compact sync controls with last-sync timestamps in Settings → Integrations
 - **Stryd integration** — encrypted credential storage; workouts merged from both Strava and Stryd show both source badges simultaneously in the training log (`has_strava` / `has_stryd` fields on list and detail responses)
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
@@ -133,6 +145,9 @@ Each script:
 | `GET /api/sync/strava/data-quality` | Return data quality counts for a user's Strava/workout sync state |
 | `POST /api/sync/strava/reconcile` | Reconcile unlinked `strava_activities` into `workouts` rows; returns counts |
 | `GET /api/sync/history` | Return paginated SyncJob history for the session user (last 5 by default) |
+| `GET /api/training/daily-load` | Unified daily training load series; params: `athlete_id` (UUID), `start`, `end` (ISO dates); returns one entry per calendar day with `daily_load` (sum TSS), `workout_count`, `has_unscored`, and a `debug.contributing_workouts` list |
+| `GET /api/thresholds/suggestions` | Returns pending threshold suggestions (`ftp_w`, `threshold_hr`, `threshold_pace_seconds_per_km`) derived from the user's duration curve and recent runs; empty when none are pending or data is insufficient |
+| `POST /api/thresholds/suggestions/accept` | Accept a subset of threshold suggestions; body: `{"keys": [...]}` — writes values to `user_preferences` with `source = "user_accepted"`; returns `{"written": {...}, "skipped": [...]}` |
 
 The frontend reads `/api/environment` on every page load to display the environment badge in the header. No hostname/port heuristic is used.
 
