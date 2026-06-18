@@ -8,9 +8,14 @@ const WeightChart = (() => {
   const CW  = VW - PAD.left - PAD.right;  // 834
   const CH  = VH - PAD.top  - PAD.bottom; // 232
 
-  // Zone layout: [past ~6%][present ~88%][future ~6%] when a target exists (desktop).
+  // Zone layout: [past 5%][present 90%][future 5%] when a target exists (desktop).
   // On mobile/tablet (≤880px) rails are dropped — present fills full width.
-  const RAIL_FR  = 0.06;
+  const RAIL_FR  = 0.05;
+
+  // Vertical zones: top 10% rail (out-of-range highs) / center 80% band (present data) / bottom 10% rail (goal).
+  const V_TOP_RAIL = 0.10;
+  const V_BAND     = 0.80;
+  const V_BOT_RAIL = 0.10;
   const MOBILE_CHART_H = 640; // taller viewBox height below this width (issue #515)
   const MOBILE_LAYOUT_W = 880; // drop past/future rails below this width
   const PAST_W   = Math.round(CW * RAIL_FR);
@@ -86,6 +91,66 @@ const WeightChart = (() => {
       yMin: Math.floor(Math.min(goalKg, lo) - 1),
       yMax: Math.ceil(hi + 1),
     };
+  }
+
+  // ── Present-band bounds (visible data in selected range) ──────────────
+  // present_min = min(visible) - 10%*spread, present_max = max(visible) + 10%*spread
+
+  function _computePresentBounds(data) {
+    const vals = [];
+    (data.actuals || []).forEach(p => vals.push(p.weight_kg));
+    (data.trend   || []).forEach(p => { if (p.weight_kg != null) vals.push(p.weight_kg); });
+    if (data.today_marker) {
+      if (data.today_marker.trend_kg != null) vals.push(data.today_marker.trend_kg);
+      if (data.today_marker.plan_kg  != null) vals.push(data.today_marker.plan_kg);
+    }
+    if (!vals.length) return { presentMin: 60, presentMax: 100 };
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const spread = hi - lo || 1;
+    const buffer = spread * 0.10;
+    return { presentMin: lo - buffer, presentMax: hi + buffer };
+  }
+
+  function _computeGlobalBounds(data, presentMin, presentMax) {
+    const vals = [presentMin - 0.5, presentMax + 0.5];
+    (data.past_actuals || []).forEach(p => vals.push(p.weight_kg));
+    if (data.target && data.target.target_weight_kg != null) {
+      vals.push(data.target.target_weight_kg);
+    }
+    return {
+      globalMin: Math.min(...vals),
+      globalMax: Math.max(...vals),
+    };
+  }
+
+  // ── Three-zone Y coordinate mapping ───────────────────────────────────
+  // Top rail (V_TOP_RAIL): compresses values above presentMax.
+  // Center band (V_BAND): linear scale between presentMin and presentMax.
+  // Bottom rail (V_BOT_RAIL): compresses values below presentMin (incl. goal).
+
+  function _yCoord3Zone(val, presentMin, presentMax, globalMin, globalMax) {
+    const bandTop = PAD.top + _CH * V_TOP_RAIL;
+    const bandBot = PAD.top + _CH * (V_TOP_RAIL + V_BAND);
+
+    if (val >= presentMin && val <= presentMax) {
+      const frac = (val - presentMin) / (presentMax - presentMin);
+      return bandBot - frac * (bandBot - bandTop);
+    } else if (val > presentMax) {
+      // Top rail: compressed
+      const railH   = _CH * V_TOP_RAIL;
+      const railFrac = globalMax > presentMax
+        ? Math.min((val - presentMax) / (globalMax - presentMax), 1)
+        : 0;
+      return bandTop - railFrac * railH;
+    } else {
+      // Bottom rail: compressed (val < presentMin)
+      const railH   = _CH * V_BOT_RAIL;
+      const railFrac = presentMin > globalMin
+        ? Math.min((presentMin - val) / (presentMin - globalMin), 1)
+        : 0;
+      return bandBot + railFrac * railH;
+    }
   }
 
   // ── Tooltip ────────────────────────────────────────────────────────────
@@ -339,9 +404,11 @@ const WeightChart = (() => {
 
     _activeDots = [];
 
-    // Y scale
-    const { yMin, yMax } = _computeYBounds(data);
-    const y = (val) => _yCoord(val, yMin, yMax);
+    // Y scale — three-zone system: top 10% rail / center 80% present band / bottom 10% rail.
+    const { yMin, yMax } = _computeYBounds(data);   // kept for legacy tests
+    const { presentMin, presentMax } = _computePresentBounds(data);
+    const { globalMin, globalMax }   = _computeGlobalBounds(data, presentMin, presentMax);
+    const y = (val) => _yCoord3Zone(val, presentMin, presentMax, globalMin, globalMax);
 
     const trendDates = (data.trend || []).map(p => p.date);
     const n = trendDates.length;
@@ -390,8 +457,8 @@ const WeightChart = (() => {
       });
     }
 
-    // ── 2. Gridlines (every 2 kg) ───────────────────────────────────────
-    for (let kg = Math.ceil(yMin / 2) * 2; kg <= yMax; kg += 2) {
+    // ── 2. Gridlines — integer ticks within the present band (every 2 kg) ─
+    for (let kg = Math.ceil(presentMin / 2) * 2; kg <= presentMax; kg += 2) {
       const gy = y(kg);
       svg.appendChild(_el('line', {
         x1: gridLeft, y1: gy, x2: gridRight, y2: gy,
@@ -404,16 +471,6 @@ const WeightChart = (() => {
       });
       lbl.textContent = String(kg);
       svg.appendChild(lbl);
-    }
-
-    // ── 3. Dotted target line (goal weight, full width) ─────────────────
-    if (data.target && data.target.target_weight_kg != null) {
-      const tgy = y(data.target.target_weight_kg);
-      svg.appendChild(_el('line', {
-        x1: gridLeft, y1: tgy, x2: gridRight, y2: tgy,
-        stroke: C.plan, 'stroke-width': '1',
-        'stroke-dasharray': '3 4', opacity: '0.35',
-      }));
     }
 
     // ── 4. Green dashed plan line ───────────────────────────────────────
@@ -651,11 +708,15 @@ const WeightChart = (() => {
       }
     }
 
-    // ── Mobile: goal chip pinned at right edge on plan line ───────────────
-    if (isMobileChart && hasTarget && data.target && data.target.target_weight_kg != null) {
-      const gx = curR - 4;
-      const gy = y(data.target.target_weight_kg);
-      const chipW = 62, chipH = 20;
+    // ── Goal chip — bottom rail, always visible (desktop + mobile) ──────────
+    // The three-zone Y mapping places the goal in the bottom 10% rail when it is
+    // below the present band, keeping it visible without distorting the main scale.
+    if (hasTarget && data.target && data.target.target_weight_kg != null) {
+      const goalKg = data.target.target_weight_kg;
+      const gy     = y(goalKg);
+      const gx     = threeZone ? FUTURE_R - 8 : curR - 4;
+      const chipW  = 68;
+      const chipH  = 22;
       svg.appendChild(_el('rect', {
         x: gx - chipW, y: gy - chipH / 2, width: chipW, height: chipH, rx: '6',
         fill: '#fff', stroke: C.plan, 'stroke-width': '1',
@@ -666,8 +727,9 @@ const WeightChart = (() => {
         'font-size': '9', fill: C.plan, 'font-weight': '700',
         'font-family': 'JetBrains Mono, monospace',
       });
-      chipT.textContent = data.target.target_weight_kg.toFixed(0) + ' · goal';
+      chipT.textContent = goalKg.toFixed(0) + ' · goal';
       svg.appendChild(chipT);
+      _activeDots.push({ cx: gx - chipW / 2, cy: gy, date: (data.target.target_date || ''), kg: goalKg });
     }
 
     // ── "milestones ↓" link (shown when future zone is suppressed but target exists) ──
