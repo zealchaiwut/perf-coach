@@ -15,5 +15,33 @@
   "detected_profile": {
     "value": null,
     "placeholder_note": "PLACEHOLDER: implement in [ticket reference \u2014 workout profile detection]"
+  },
+  "strength_per_set": {
+    "_comment": "Hand-verified strength TSS fixture using per_set method (issue #594). Three sets: 5\u00d7RPE8, 5\u00d7RPE9, 3\u00d7RPE10. raw_sum=10.25, scaled=59.9625, tss=60.",
+    "tss": 60,
+    "method": "per_set",
+    "partial": false,
+    "debug_keys": ["per_set_contributions", "raw_sum", "scaled_sum", "clamped"],
+    "inputs": {
+      "sets": [
+        {"reps": 5, "rpe": 8},
+        {"reps": 5, "rpe": 9},
+        {"reps": 3, "rpe": 10}
+      ],
+      "strength_tss_scale": 5.85,
+      "strength_tss_max": 150
+    }
+  },
+  "strength_session_rpe": {
+    "_comment": "Hand-verified strength TSS fixture using session_rpe method (issue #594). 45 min at session RPE=8. IF=0.8, raw_tss=48.0, tss=48.",
+    "tss": 48,
+    "method": "session_rpe",
+    "partial": false,
+    "debug_keys": ["session_rpe", "intensity_factor", "duration_hours", "raw_tss", "clamped"],
+    "inputs": {
+      "duration_seconds": 2700,
+      "session_rpe": 8,
+      "strength_tss_max": 150
+    }
   }
 }
