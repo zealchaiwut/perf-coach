@@ -55,6 +55,11 @@ TARGET_FORM_UPPER: float = 25.0
 # Default taper window length in days (two calendar weeks).
 DEFAULT_TAPER_DAYS: int = 14
 
+# ── Peak tracking constants ───────────────────────────────────────────────────
+# Tolerance band (in TSB units) within which an athlete is considered "on track"
+# with the projected taper curve.  Outside this band, status is "ahead" or "behind".
+PEAK_TRACKING_TOLERANCE: float = 5.0
+
 
 def _ewma_alpha(days: int) -> float:
     """Exponential weighted moving average alpha factor."""
@@ -672,3 +677,102 @@ def get_taper_recommendation(
         "date": load_state["date"],
     }
     return taper_recommendation(fitness_state, race_date, target_form)
+
+
+def peak_tracking(
+    current_form,
+    projected_form_for_today_from_plan,
+    *,
+    tolerance: float = PEAK_TRACKING_TOLERANCE,
+) -> dict:
+    """Compare actual form (TSB) to today's expected value from the taper plan.
+
+    This is a pure, side-effect-free function — it accepts only the two
+    pre-resolved numeric inputs and a tolerance value.  No database access
+    is performed here; the calling layer is responsible for supplying both
+    values from the appropriate sources (current_load for actual form;
+    project_form applied to the taper-start fitness state for the projected
+    value).
+
+    The ``gap`` is defined as ``current_form minus projected_form_for_today_from_plan``.
+    A positive gap means the athlete is ahead of the plan; a negative gap means
+    they are behind.
+
+    The ``tolerance`` band defines the width (in TSB units) within which the
+    athlete is considered "on track".  Outside this band, status is "ahead" or
+    "behind" depending on the sign of the gap.  The tolerance defaults to the
+    module-level ``PEAK_TRACKING_TOLERANCE`` constant — never a bare literal
+    in the function body.
+
+    Status labels:
+        "on track" — gap is within the tolerance band (|gap| <= tolerance)
+        "ahead"    — gap is above the tolerance band (gap > tolerance)
+        "behind"   — gap is below the tolerance band (gap < -tolerance)
+
+    Args:
+        current_form: today's actual TSB value (float or int).  Returns a null
+            result with a reason string when None or non-numeric.
+        projected_form_for_today_from_plan: today's expected TSB according to
+            the taper plan projection.  Returns a null result when None.
+        tolerance: the half-width of the "on track" band in TSB units.
+            Defaults to PEAK_TRACKING_TOLERANCE (5.0).  Callers that read
+            this value from configuration must pass it explicitly.
+
+    Returns:
+        On invalid input:
+            Dict with ``status=None``, ``gap=None``, and a non-empty
+            ``reason`` string.
+        On valid input:
+            Dict with:
+            ``status``  -- "on track", "ahead", or "behind"
+            ``gap``     -- float, current_form minus projected_form_for_today_from_plan
+            ``reason``  -- empty string on success
+
+    Worked example 1 — Athlete ahead of plan:
+        current_form = 85, projected_form_for_today_from_plan = 70, tolerance = 5
+        gap = 85 - 70 = 15
+        gap (15) > tolerance (5) → status = "ahead"
+        Expected output: {"status": "ahead", "gap": 15.0, "reason": ""}
+
+    Worked example 2 — Athlete on track:
+        current_form = 72, projected_form_for_today_from_plan = 70, tolerance = 5
+        gap = 72 - 70 = 2
+        |gap| (2) <= tolerance (5) → status = "on track"
+        Expected output: {"status": "on track", "gap": 2.0, "reason": ""}
+
+    Worked example 3 — Athlete at lower on-track boundary:
+        current_form = 65, projected_form_for_today_from_plan = 70, tolerance = 5
+        gap = 65 - 70 = -5
+        |gap| (5) <= tolerance (5) → status = "on track"
+        Expected output: {"status": "on track", "gap": -5.0, "reason": ""}
+
+    Worked example 4 — Athlete behind plan:
+        current_form = 55, projected_form_for_today_from_plan = 70, tolerance = 5
+        gap = 55 - 70 = -15
+        gap (-15) < -tolerance (-5) → status = "behind"
+        Expected output: {"status": "behind", "gap": -15.0, "reason": ""}
+    """
+    _null = {"status": None, "gap": None, "reason": ""}
+
+    if current_form is None:
+        return {**_null, "reason": "current_form is required"}
+    if projected_form_for_today_from_plan is None:
+        return {**_null, "reason": "projected_form_for_today_from_plan is required"}
+
+    try:
+        cf = float(current_form)
+        pf = float(projected_form_for_today_from_plan)
+    except (TypeError, ValueError):
+        return {**_null, "reason": "current_form and projected_form_for_today_from_plan must be numeric"}
+
+    # gap: positive = ahead of plan, negative = behind plan
+    gap = cf - pf
+
+    if gap > tolerance:
+        status = "ahead"
+    elif gap < -tolerance:
+        status = "behind"
+    else:
+        status = "on track"
+
+    return {"status": status, "gap": round(gap, 2), "reason": ""}
