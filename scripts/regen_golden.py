@@ -13,14 +13,24 @@ import argparse
 import json
 import pathlib
 import sys
+import types
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from backend.services.normalized_power import compute_normalized_power  # noqa: E402
+from backend.services.tss import compute_running_tss  # noqa: E402
 
 FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "golden_run.json"
 EXPECTED_PATH = REPO_ROOT / "tests" / "fixtures" / "golden_run_expected.json"
+
+# Reference prefs used for the golden TSS computation.  These are not production
+# thresholds — they are fixed values chosen so the fixture result is reproducible
+# across environments.  Update fixture_prefs in the expected file and re-verify
+# manually if you change them.
+_GOLDEN_FTP_W = 280
+_GOLDEN_THRESHOLD_PACE = 300
+_GOLDEN_THRESHOLD_HR = 170
 
 
 def main():
@@ -41,6 +51,34 @@ def main():
             f"ERROR: compute_normalized_power returned None: {info['reason']}",
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    laps = fixture.get("laps", [])
+    splits = [
+        types.SimpleNamespace(
+            duration_seconds=lap["duration_seconds"],
+            distance_km=lap["distance_km"],
+            avg_hr=round(lap["avg_hr_bpm"]) if "avg_hr_bpm" in lap else None,
+        )
+        for lap in laps
+    ]
+    workout = types.SimpleNamespace(
+        np=np_val,
+        avg_hr=None,
+        distance_km=fixture["metadata"]["total_distance_km"],
+        duration_seconds=fixture["metadata"]["duration_seconds"],
+    )
+    prefs = types.SimpleNamespace(
+        ftp_w=_GOLDEN_FTP_W,
+        threshold_pace_seconds_per_km=_GOLDEN_THRESHOLD_PACE,
+        threshold_hr=_GOLDEN_THRESHOLD_HR,
+    )
+    tss_result = compute_running_tss(workout, splits, prefs)
+    tss_val = tss_result["tss"]
+    tss_method = tss_result["method"]
+
+    if tss_val is None:
+        print("ERROR: compute_running_tss returned None — check fixture data", file=sys.stderr)
         sys.exit(1)
 
     expected = {
@@ -65,10 +103,20 @@ def main():
             ),
         },
         "tss": {
-            "value": None,
-            "placeholder_note": (
-                "PLACEHOLDER: implement in [ticket reference — Running TSS "
-                "calculation]"
+            "value": tss_val,
+            "method": tss_method,
+            "fixture_prefs": {
+                "ftp_w": _GOLDEN_FTP_W,
+                "threshold_pace_seconds_per_km": _GOLDEN_THRESHOLD_PACE,
+                "threshold_hr": _GOLDEN_THRESHOLD_HR,
+            },
+            "tolerance_note": "Exact integer equality — TSS rounds to a whole number.",
+            "verification_note": (
+                f"Hand-verified against compute_running_tss with ftp_w={_GOLDEN_FTP_W}, "
+                f"NP={np_val} (from streams), duration={fixture['metadata']['duration_seconds']}s. "
+                f"IF={np_val}/{_GOLDEN_FTP_W}={np_val/_GOLDEN_FTP_W:.4f}, "
+                f"TSS=round({fixture['metadata']['duration_seconds']/3600:.4f}"
+                f"*{(np_val/_GOLDEN_FTP_W)**2:.4f}*100)={tss_val}."
             ),
         },
         "detected_profile": {
@@ -82,7 +130,8 @@ def main():
 
     print(f"normalized_power.value        = {np_val}")
     print(f"normalized_power.final_value  = {info['final_value']:.10f}")
-    print("tss                           = null (placeholder)")
+    print(f"tss.value                     = {tss_val}")
+    print(f"tss.method                    = {tss_method}")
     print("detected_profile              = null (placeholder)")
 
     if args.dry_run:
