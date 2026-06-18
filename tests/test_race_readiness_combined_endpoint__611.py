@@ -2,7 +2,7 @@
 import os
 import pytest
 import httpx
-from datetime import date, timedelta
+from datetime import date
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -48,7 +48,7 @@ def _ensure_test_race_with_sufficient_history(client, user_id):
     """
     # For UAT, we rely on pre-seeded test data.
     # Fallback: query for an existing race owned by this user with a future date.
-    r = client.get(f"/api/races")
+    r = client.get("/api/races")
     if r.status_code != 200:
         pytest.skip(f"GET /api/races failed with {r.status_code}")
 
@@ -72,7 +72,7 @@ def _ensure_test_race_with_insufficient_history(client, user_id):
     """
     # Query for races of a lightly-active user or create one.
     # For UAT, assume a "light_user" or similar fixture exists.
-    r = client.get(f"/api/races")
+    r = client.get("/api/races")
     if r.status_code != 200:
         pytest.skip(f"GET /api/races failed with {r.status_code}")
 
@@ -148,7 +148,7 @@ def test_race_readiness__response_includes_projected_form_sufficient_history(cli
 
 
 def test_race_readiness__response_includes_taper_recommendation_sufficient_history(client):
-    """AC4: Response includes taper_recommendation (with start date and plain-English message) when building_baseline=false."""
+    """AC4: Response includes taper_recommendation (start date, plain-English message) when building_baseline=false."""
     user_id, client = _login_and_get_user_id(client)
     race_id = _ensure_test_race_with_sufficient_history(client, user_id)
 
@@ -229,7 +229,9 @@ def test_race_readiness__building_baseline_true_omits_projection_and_taper(clien
 
     # When building_baseline is true, these fields must be ABSENT entirely
     assert "projected_form" not in data, "projected_form must be absent when building_baseline=true (not null)"
-    assert "taper_recommendation" not in data, "taper_recommendation must be absent when building_baseline=true (not null)"
+    assert "taper_recommendation" not in data, (
+        "taper_recommendation must be absent when building_baseline=true (not null)"
+    )
 
 
 def test_race_readiness__building_baseline_false_includes_both_projections(client):
@@ -281,7 +283,7 @@ def test_race_readiness__403_access_denied_different_user(client):
     user_id, client = _login_and_get_user_id(client, username="testuser")
 
     # Get any race (belongs to testuser)
-    r = client.get(f"/api/races")
+    r = client.get("/api/races")
     if r.status_code != 200 or not r.json():
         pytest.skip("Cannot fetch races for testuser; test data may not be seeded")
 
@@ -306,7 +308,7 @@ def test_race_readiness__invalid_race_id_format(client):
     """AC10 (edge case): Returns 404 when race id is not a valid UUID format."""
     user_id, client = _login_and_get_user_id(client)
 
-    r = client.get(f"/api/races/not-a-uuid/readiness")
+    r = client.get("/api/races/not-a-uuid/readiness")
 
     assert r.status_code == 404, f"Expected 404 for invalid UUID, got {r.status_code}"
 

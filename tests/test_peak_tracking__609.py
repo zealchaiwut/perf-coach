@@ -32,7 +32,7 @@ def test_peak_tracking__ahead_status(client):
     # via a public API endpoint. If no endpoint exposes it yet, we skip and mark MANUAL.
     # For now, we verify the function exists in the codebase.
     try:
-        from backend.services.training_load import peak_tracking, PEAK_TRACKING_TOLERANCE
+        from backend.services.training_load import peak_tracking
         status, gap = peak_tracking(85.0, 70.0)
         assert status == "ahead", f"Expected 'ahead', got '{status}'"
         assert gap == 15.0, f"Expected gap=15.0, got {gap}"
