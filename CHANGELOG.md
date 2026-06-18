@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 66 — Performance Thresholds settings expansion and Zone 2 habit provisioning
+
+- #596: Add Max HR field to Performance Thresholds settings (user_preferences.max_hr, default 190 bpm)
+- #597: Add Threshold Pace, Zone 2 HR band, and Weekly Zone 2 Target to Settings (user_preferences)
+- #598: Use user-preference HR band for Zone 2 detection in Run view (replaces hardcoded 130–155 bpm)
+- #599: Add 'Track Zone 2' opt-in button to provision a Zone 2 habit from Settings (with server-side duplicate guard)
+
 ## Sprint 64 — Running TSS persistence, lap classification, and session profile detection
 
 - #581: Add compute_running_tss service with priority-based method selection
