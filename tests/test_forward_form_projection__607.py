@@ -26,7 +26,6 @@ Acceptance criteria verified:
 """
 import ast
 import inspect
-import math
 import textwrap
 from datetime import date, timedelta
 from unittest.mock import patch
