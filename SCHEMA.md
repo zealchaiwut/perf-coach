@@ -319,7 +319,7 @@ Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 
 ---
 
-## activity_streams _(added Sprint 63)_
+## activity_streams _(added Sprint 63; channel_attribution added Sprint 63.1)_
 
 Per-sample time-series channel data for a workout. One row per workout; absence of a row means no stream data exists for that workout (e.g. a manual strength session). Populated during Strava/Stryd reconcile from `strava_activities.streams_payload` or `stryd_activities.streams_payload`.
 
@@ -327,7 +327,7 @@ Per-sample time-series channel data for a workout. One row per workout; absence 
 |--------|------|-------|
 | workout_id | UUID PK FK→workouts | CASCADE |
 | sample_interval_seconds | int | nullable |
-| source | varchar(20) | nullable; `strava` or `stryd` |
+| source | varchar(20) | nullable; `strava`, `stryd`, or `merged` |
 | time_offset_seconds | jsonb | nullable — array of integer offsets |
 | power_w | jsonb | nullable — array of power samples (watts) |
 | heart_rate_bpm | jsonb | nullable — array of HR samples |
@@ -336,8 +336,9 @@ Per-sample time-series channel data for a workout. One row per workout; absence 
 | altitude_m | jsonb | nullable — array of altitude samples |
 | latitude | jsonb | nullable — array of GPS latitude samples |
 | longitude | jsonb | nullable — array of GPS longitude samples |
+| channel_attribution | jsonb | nullable — per-channel source map produced by `select_channels` when a workout has data from two devices, e.g. `{"power_w": "stryd", "latitude": "strava"}`; present only when `source = 'merged'` |
 
-Check: `source IN ('strava', 'stryd')`.
+Check: `source IN ('strava', 'stryd', 'merged')`.
 
 ---
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 63.1 — Activity streams table and channel selection
+
+- #572: Add activity_streams table and SQLAlchemy model
+- #574: Select stream channels when merging two workout sources
+
 ## Sprint 63 — Activity streams, running TSS, normalized power, Run View/Builder
 
 - #567: Add Run View and Run Builder screens with Stryd/lap support
