@@ -16,18 +16,25 @@ Acceptance criteria verified:
 - AC13: Consistent JSON error shapes on validation failure.
 """
 import os
+import pathlib
 import uuid
 
 import httpx
 import pytest
+from dotenv import dotenv_values
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 
-from backend.auth import hash_password as _hash_pw
-from backend.db import engine as _engine
+from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import Race as _Race, User as _UserModel
 
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "races605-test-pw"
+
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_env_vals = dotenv_values(_ROOT / ".env")
+_uat_url = _env_vals.get("DATABASE_URL_UAT")
+_engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 
 @pytest.fixture(scope="module")
@@ -56,13 +63,25 @@ def user_id(client):
 
 
 @pytest.fixture(scope="module")
-def session_cookie(client, user_id):
+def authed(user_id):
+    """Authenticated httpx.Client with session + CSRF pre-configured."""
     with _OrmSess(_engine) as db:
         u = db.get(_UserModel, uuid.UUID(user_id))
         name = u.name
-    res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
+    # Use a temporary bare client so the shared client stays cookie-free
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
+        res = bare.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
     assert res.status_code == 200, res.text
-    return res.cookies.get("session")
+    session_cookie = res.cookies.get("session")
+    csrf_token = res.cookies.get(CSRF_COOKIE_NAME)
+    c = httpx.Client(
+        base_url=BASE_URL,
+        timeout=10.0,
+        cookies={"session": session_cookie, CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    yield c
+    c.close()
 
 
 @pytest.fixture(scope="module")
@@ -86,18 +105,30 @@ def other_user_id(client):
 
 
 @pytest.fixture(scope="module")
-def other_session_cookie(client, other_user_id):
+def other_authed(other_user_id):
+    """Authenticated httpx.Client for the other test user."""
     with _OrmSess(_engine) as db:
         u = db.get(_UserModel, uuid.UUID(other_user_id))
         name = u.name
-    res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
+    # Use a temporary bare client so the shared client stays cookie-free
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
+        res = bare.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
     assert res.status_code == 200, res.text
-    return res.cookies.get("session")
+    session_cookie = res.cookies.get("session")
+    csrf_token = res.cookies.get(CSRF_COOKIE_NAME)
+    c = httpx.Client(
+        base_url=BASE_URL,
+        timeout=10.0,
+        cookies={"session": session_cookie, CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    yield c
+    c.close()
 
 
 # ── AC1: POST /api/races creates race target, returns 201 ─────────────────────
 
-def test_ac1_post_races_creates_record_and_returns_201(client, session_cookie):
+def test_ac1_post_races_creates_record_and_returns_201(authed):
     """AC1: POST /api/races creates a race target and returns HTTP 201 with the created record."""
     payload = {
         "race_date": "2026-10-04",
@@ -107,7 +138,7 @@ def test_ac1_post_races_creates_record_and_returns_201(client, session_cookie):
         "priority": "A",
         "status": "planned",
     }
-    r = client.post("/api/races", json=payload, cookies={"session": session_cookie})
+    r = authed.post("/api/races", json=payload)
     assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.text}"
     data = r.json()
     assert "id" in data, "Response must include 'id'"
@@ -124,7 +155,7 @@ def test_ac1_post_races_creates_record_and_returns_201(client, session_cookie):
             db.commit()
 
 
-def test_ac1_post_races_without_goal_time_returns_201(client, session_cookie):
+def test_ac1_post_races_without_goal_time_returns_201(authed):
     """AC1: POST /api/races without goal_time_seconds returns 201 (UAT Step 2)."""
     payload = {
         "race_date": "2026-06-21",
@@ -133,7 +164,7 @@ def test_ac1_post_races_without_goal_time_returns_201(client, session_cookie):
         "priority": "B",
         "status": "planned",
     }
-    r = client.post("/api/races", json=payload, cookies={"session": session_cookie})
+    r = authed.post("/api/races", json=payload)
     assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.text}"
     data = r.json()
     assert "id" in data
@@ -162,32 +193,32 @@ def test_ac1_post_races_unauthenticated_returns_401(client):
 
 # ── AC2: GET /api/races returns only caller's races ───────────────────────────
 
-def test_ac2_get_races_returns_only_callers_races(client, session_cookie, other_session_cookie):
+def test_ac2_get_races_returns_only_callers_races(authed, other_authed):
     """AC2: GET /api/races returns only races belonging to the authenticated user."""
     # Create a race for the primary user
-    r1 = client.post("/api/races", json={
+    r1 = authed.post("/api/races", json={
         "race_date": "2026-09-01",
         "distance_km": 21.0975,
         "name": "Half Marathon",
         "priority": "B",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     my_race_id = r1.json()["id"]
 
     # Create a race for the other user
-    r2 = client.post("/api/races", json={
+    r2 = other_authed.post("/api/races", json={
         "race_date": "2026-08-01",
         "distance_km": 5.0,
         "name": "Other's 5K",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": other_session_cookie})
+    })
     assert r2.status_code == 201, r2.text
     other_race_id = r2.json()["id"]
 
     # List races for the primary user
-    r = client.get("/api/races", cookies={"session": session_cookie})
+    r = authed.get("/api/races")
     assert r.status_code == 200, r.text
     races = r.json()
     race_ids = [race["id"] for race in races]
@@ -211,19 +242,19 @@ def test_ac2_get_races_unauthenticated_returns_401(client):
 
 # ── AC3: GET /api/athletes/{id}/races ─────────────────────────────────────────
 
-def test_ac3_get_athlete_races_returns_races_for_athlete(client, user_id, session_cookie):
+def test_ac3_get_athlete_races_returns_races_for_athlete(authed, user_id):
     """AC3: GET /api/athletes/{id}/races returns race targets for the specified athlete."""
-    r1 = client.post("/api/races", json={
+    r1 = authed.post("/api/races", json={
         "race_date": "2026-11-15",
         "distance_km": 42.195,
         "name": "Athlete Races Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     race_id = r1.json()["id"]
 
-    r = client.get(f"/api/athletes/{user_id}/races", cookies={"session": session_cookie})
+    r = authed.get(f"/api/athletes/{user_id}/races")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     races = r.json()
     race_ids = [race["id"] for race in races]
@@ -237,22 +268,23 @@ def test_ac3_get_athlete_races_returns_races_for_athlete(client, user_id, sessio
             db.commit()
 
 
-def test_ac3_get_athlete_races_other_user_not_accessible(client, user_id, other_user_id, session_cookie, other_session_cookie):
-    """AC3: GET /api/athletes/{id}/races for another user returns 403 or only that user's races (auth/ownership check)."""
+def test_ac3_get_athlete_races_other_user_not_accessible(
+    authed, other_authed, user_id, other_user_id
+):
+    """AC3: GET /api/athletes/{id}/races for another user returns 403 (auth/ownership check)."""
     # Create a race for the other user
-    r1 = client.post("/api/races", json={
+    r1 = other_authed.post("/api/races", json={
         "race_date": "2026-07-04",
         "distance_km": 10.0,
         "name": "Other User Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": other_session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     other_race_id = r1.json()["id"]
 
     # Attempt to fetch other user's races as the primary user
-    r = client.get(f"/api/athletes/{other_user_id}/races", cookies={"session": session_cookie})
-    # Should return 403 (forbidden) since the caller is not the athlete
+    r = authed.get(f"/api/athletes/{other_user_id}/races")
     assert r.status_code == 403, (
         f"Expected 403 when fetching another user's races, got {r.status_code}: {r.text}"
     )
@@ -273,20 +305,20 @@ def test_ac3_get_athlete_races_unauthenticated_returns_401(client, user_id):
 
 # ── AC4: GET /api/races/{id} ──────────────────────────────────────────────────
 
-def test_ac4_get_race_by_id_returns_correct_record(client, session_cookie):
+def test_ac4_get_race_by_id_returns_correct_record(authed):
     """AC4: GET /api/races/{id} returns the correct race record (UAT Step 5)."""
-    r1 = client.post("/api/races", json={
+    r1 = authed.post("/api/races", json={
         "race_date": "2026-10-04",
         "distance_km": 42.195,
         "goal_time_seconds": 10800,
         "name": "Fetch Single Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     race_id = r1.json()["id"]
 
-    r = client.get(f"/api/races/{race_id}", cookies={"session": session_cookie})
+    r = authed.get(f"/api/races/{race_id}")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     data = r.json()
     assert data["id"] == race_id
@@ -301,28 +333,28 @@ def test_ac4_get_race_by_id_returns_correct_record(client, session_cookie):
             db.commit()
 
 
-def test_ac4_get_race_by_id_returns_404_for_nonexistent(client, session_cookie):
+def test_ac4_get_race_by_id_returns_404_for_nonexistent(authed):
     """AC4: GET /api/races/{id} returns 404 for a non-existent race."""
     fake_id = str(uuid.uuid4())
-    r = client.get(f"/api/races/{fake_id}", cookies={"session": session_cookie})
+    r = authed.get(f"/api/races/{fake_id}")
     assert r.status_code == 404, f"Expected 404, got {r.status_code}"
 
 
-def test_ac4_get_race_by_id_returns_404_for_other_users_race(client, session_cookie, other_session_cookie):
+def test_ac4_get_race_by_id_returns_404_for_other_users_race(authed, other_authed):
     """AC4: GET /api/races/{id} returns 404 when the race belongs to a different user (UAT Step 9)."""
     # Create a race as the other user
-    r1 = client.post("/api/races", json={
+    r1 = other_authed.post("/api/races", json={
         "race_date": "2026-05-15",
         "distance_km": 5.0,
         "name": "Other User's Secret Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": other_session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     other_race_id = r1.json()["id"]
 
     # Primary user tries to fetch other user's race → should get 404
-    r = client.get(f"/api/races/{other_race_id}", cookies={"session": session_cookie})
+    r = authed.get(f"/api/races/{other_race_id}")
     assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
 
     # Cleanup
@@ -341,21 +373,20 @@ def test_ac4_get_race_by_id_unauthenticated_returns_401(client):
 
 # ── AC5: PUT /api/races/{id} updates race target ─────────────────────────────
 
-def test_ac5_put_races_updates_record_and_returns_updated(client, session_cookie):
+def test_ac5_put_races_updates_record_and_returns_updated(authed):
     """AC5: PUT /api/races/{id} updates the race and returns the updated record (UAT Step 6)."""
-    r1 = client.post("/api/races", json={
+    r1 = authed.post("/api/races", json={
         "race_date": "2026-10-04",
         "distance_km": 42.195,
         "goal_time_seconds": 10800,
         "name": "Update Test Race",
         "priority": "B",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     race_id = r1.json()["id"]
 
-    r = client.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900},
-                   cookies={"session": session_cookie})
+    r = authed.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900})
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     data = r.json()
     assert data["goal_time_seconds"] == 9900
@@ -368,28 +399,26 @@ def test_ac5_put_races_updates_record_and_returns_updated(client, session_cookie
             db.commit()
 
 
-def test_ac5_put_races_returns_404_for_nonexistent(client, session_cookie):
+def test_ac5_put_races_returns_404_for_nonexistent(authed):
     """AC5: PUT /api/races/{id} returns 404 for non-existent race."""
     fake_id = str(uuid.uuid4())
-    r = client.put(f"/api/races/{fake_id}", json={"goal_time_seconds": 9900},
-                   cookies={"session": session_cookie})
+    r = authed.put(f"/api/races/{fake_id}", json={"goal_time_seconds": 9900})
     assert r.status_code == 404, f"Expected 404, got {r.status_code}"
 
 
-def test_ac5_put_races_returns_404_for_other_users_race(client, session_cookie, other_session_cookie):
+def test_ac5_put_races_returns_404_for_other_users_race(authed, other_authed):
     """AC5: PUT /api/races/{id} returns 404 when race belongs to another user."""
-    r1 = client.post("/api/races", json={
+    r1 = other_authed.post("/api/races", json={
         "race_date": "2026-12-01",
         "distance_km": 10.0,
         "name": "Other User PUT Test",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": other_session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     other_race_id = r1.json()["id"]
 
-    r = client.put(f"/api/races/{other_race_id}", json={"goal_time_seconds": 1800},
-                   cookies={"session": session_cookie})
+    r = authed.put(f"/api/races/{other_race_id}", json={"goal_time_seconds": 1800})
     assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
 
     # Cleanup
@@ -402,16 +431,16 @@ def test_ac5_put_races_returns_404_for_other_users_race(client, session_cookie, 
 
 # ── AC6: goal_pace_seconds_per_km computed when both fields present ───────────
 
-def test_ac6_goal_pace_computed_when_both_fields_present(client, session_cookie):
-    """AC6: goal_pace_seconds_per_km is computed as goal_time_seconds/distance_km when both present (UAT Step 1)."""
-    r = client.post("/api/races", json={
+def test_ac6_goal_pace_computed_when_both_fields_present(authed):
+    """AC6: goal_pace_seconds_per_km is computed as goal_time_seconds/distance_km when both present."""
+    r = authed.post("/api/races", json={
         "race_date": "2026-10-04",
         "distance_km": 42.195,
         "goal_time_seconds": 10800,
         "name": "Pace Computation Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 201, r.text
     data = r.json()
     # 10800 / 42.195 ≈ 255.97 → rounds to 256
@@ -428,22 +457,21 @@ def test_ac6_goal_pace_computed_when_both_fields_present(client, session_cookie)
             db.commit()
 
 
-def test_ac6_goal_pace_recomputed_on_update(client, session_cookie):
-    """AC6: goal_pace_seconds_per_km is recomputed using stored distance_km when goal_time updated (UAT Step 6)."""
-    r1 = client.post("/api/races", json={
+def test_ac6_goal_pace_recomputed_on_update(authed):
+    """AC6: goal_pace_seconds_per_km is recomputed using stored distance_km when goal_time updated."""
+    r1 = authed.post("/api/races", json={
         "race_date": "2026-10-04",
         "distance_km": 42.195,
         "goal_time_seconds": 10800,
         "name": "Recompute Pace Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r1.status_code == 201, r1.text
     race_id = r1.json()["id"]
 
     # Update with new goal_time_seconds; distance_km unchanged
-    r = client.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900},
-                   cookies={"session": session_cookie})
+    r = authed.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900})
     assert r.status_code == 200, r.text
     data = r.json()
     # 9900 / 42.195 ≈ 234.6 → rounds to 235
@@ -461,15 +489,15 @@ def test_ac6_goal_pace_recomputed_on_update(client, session_cookie):
 
 # ── AC7: goal_pace_seconds_per_km is null when either field absent ────────────
 
-def test_ac7_goal_pace_null_when_goal_time_absent(client, session_cookie):
+def test_ac7_goal_pace_null_when_goal_time_absent(authed):
     """AC7: goal_pace_seconds_per_km is null when goal_time_seconds is not provided (UAT Step 2)."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-06-21",
         "distance_km": 10,
         "name": "No Goal Time Race",
         "priority": "B",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 201, r.text
     data = r.json()
     assert data["goal_pace_seconds_per_km"] is None, (
@@ -484,16 +512,16 @@ def test_ac7_goal_pace_null_when_goal_time_absent(client, session_cookie):
             db.commit()
 
 
-def test_ac7_goal_pace_null_when_goal_time_explicitly_null(client, session_cookie):
+def test_ac7_goal_pace_null_when_goal_time_explicitly_null(authed):
     """AC7: goal_pace_seconds_per_km is null when goal_time_seconds is explicitly null."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-09-01",
         "distance_km": 21.1,
         "goal_time_seconds": None,
         "name": "Explicit Null Goal Time",
         "priority": "B",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 201, r.text
     data = r.json()
     assert data["goal_pace_seconds_per_km"] is None, (
@@ -510,30 +538,30 @@ def test_ac7_goal_pace_null_when_goal_time_explicitly_null(client, session_cooki
 
 # ── AC8: race_date validated as real calendar date ────────────────────────────
 
-def test_ac8_invalid_race_date_returns_422(client, session_cookie):
-    """AC8: Invalid race_date (e.g. 2026-13-99) returns HTTP 422 referencing race_date (UAT Step 7)."""
-    r = client.post("/api/races", json={
+def test_ac8_invalid_race_date_returns_422(authed):
+    """AC8: Invalid race_date (e.g. 2026-13-99) returns HTTP 422 referencing race_date."""
+    r = authed.post("/api/races", json={
         "race_date": "2026-13-99",
         "distance_km": 5,
         "name": "Bad Date Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422 for invalid date, got {r.status_code}: {r.text}"
     detail = r.json().get("detail", "")
     detail_str = str(detail).lower()
     assert "race_date" in detail_str, f"Error must reference race_date: {detail}"
 
 
-def test_ac8_impossible_date_returns_422(client, session_cookie):
+def test_ac8_impossible_date_returns_422(authed):
     """AC8: February 30 returns HTTP 422 (impossible calendar date)."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-02-30",
         "distance_km": 5,
         "name": "Feb 30 Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422 for Feb 30, got {r.status_code}: {r.text}"
     detail = r.json().get("detail", "")
     assert "race_date" in str(detail).lower(), f"Error must reference race_date: {detail}"
@@ -541,29 +569,29 @@ def test_ac8_impossible_date_returns_422(client, session_cookie):
 
 # ── AC9: distance_km validated as positive ────────────────────────────────────
 
-def test_ac9_negative_distance_returns_422(client, session_cookie):
+def test_ac9_negative_distance_returns_422(authed):
     """AC9: Negative distance_km returns HTTP 422 referencing distance_km (UAT Step 8)."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-09-15",
         "distance_km": -1,
         "name": "Negative Distance Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422 for negative distance, got {r.status_code}: {r.text}"
     detail = r.json().get("detail", "")
     assert "distance_km" in str(detail).lower(), f"Error must reference distance_km: {detail}"
 
 
-def test_ac9_zero_distance_returns_422(client, session_cookie):
+def test_ac9_zero_distance_returns_422(authed):
     """AC9: Zero distance_km returns HTTP 422 referencing distance_km."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-09-15",
         "distance_km": 0,
         "name": "Zero Distance Race",
         "priority": "C",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422 for zero distance, got {r.status_code}: {r.text}"
     detail = r.json().get("detail", "")
     assert "distance_km" in str(detail).lower(), f"Error must reference distance_km: {detail}"
@@ -571,30 +599,30 @@ def test_ac9_zero_distance_returns_422(client, session_cookie):
 
 # ── AC13: Consistent JSON error shapes on validation failure ──────────────────
 
-def test_ac13_error_response_is_json(client, session_cookie):
+def test_ac13_error_response_is_json(authed):
     """AC13: Validation failure returns consistent JSON error shape."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "not-a-date",
         "distance_km": 10,
         "name": "JSON Error Shape Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422, got {r.status_code}"
     body = r.json()
     assert isinstance(body, dict), "Error response must be a JSON object"
     assert "detail" in body, "Error response must have a 'detail' field"
 
 
-def test_ac13_distance_error_response_is_json(client, session_cookie):
+def test_ac13_distance_error_response_is_json(authed):
     """AC13: distance_km validation failure returns consistent JSON error shape."""
-    r = client.post("/api/races", json={
+    r = authed.post("/api/races", json={
         "race_date": "2026-09-15",
         "distance_km": 0,
         "name": "JSON Error Test",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r.status_code == 422, f"Expected 422, got {r.status_code}"
     body = r.json()
     assert isinstance(body, dict), "Error response must be a JSON object"
@@ -603,49 +631,48 @@ def test_ac13_distance_error_response_is_json(client, session_cookie):
 
 # ── AC2: GET /api/races returns JSON list ─────────────────────────────────────
 
-def test_ac2_get_races_returns_json_list(client, session_cookie):
+def test_ac2_get_races_returns_json_list(authed):
     """AC2: GET /api/races returns a JSON array (UAT Step 3)."""
-    r = client.get("/api/races", cookies={"session": session_cookie})
+    r = authed.get("/api/races")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     assert isinstance(r.json(), list), "GET /api/races must return a JSON array"
 
 
 # ── Full round-trip test ───────────────────────────────────────────────────────
 
-def test_full_round_trip_create_list_get_update(client, user_id, session_cookie):
+def test_full_round_trip_create_list_get_update(authed, user_id):
     """Full round-trip: create → list → get → update (UAT Steps 1–6)."""
     # Create
-    r_create = client.post("/api/races", json={
+    r_create = authed.post("/api/races", json={
         "race_date": "2026-10-04",
         "distance_km": 42.195,
         "goal_time_seconds": 10800,
         "name": "Round Trip Race",
         "priority": "A",
         "status": "planned",
-    }, cookies={"session": session_cookie})
+    })
     assert r_create.status_code == 201, r_create.text
     race_id = r_create.json()["id"]
 
     # List — race appears
-    r_list = client.get("/api/races", cookies={"session": session_cookie})
+    r_list = authed.get("/api/races")
     assert r_list.status_code == 200, r_list.text
     ids_in_list = [r["id"] for r in r_list.json()]
     assert race_id in ids_in_list
 
     # Athlete list — race appears
-    r_athlete = client.get(f"/api/athletes/{user_id}/races", cookies={"session": session_cookie})
+    r_athlete = authed.get(f"/api/athletes/{user_id}/races")
     assert r_athlete.status_code == 200, r_athlete.text
     ids_in_athlete = [r["id"] for r in r_athlete.json()]
     assert race_id in ids_in_athlete
 
     # Get single
-    r_get = client.get(f"/api/races/{race_id}", cookies={"session": session_cookie})
+    r_get = authed.get(f"/api/races/{race_id}")
     assert r_get.status_code == 200, r_get.text
     assert r_get.json()["id"] == race_id
 
     # Update
-    r_put = client.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900},
-                       cookies={"session": session_cookie})
+    r_put = authed.put(f"/api/races/{race_id}", json={"goal_time_seconds": 9900})
     assert r_put.status_code == 200, r_put.text
     assert r_put.json()["goal_time_seconds"] == 9900
 
