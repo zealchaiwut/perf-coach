@@ -30,6 +30,7 @@ from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
+from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
@@ -9085,6 +9086,66 @@ def backfill_training_load(
         "from": from_d.isoformat(),
         "to": today.isoformat(),
     })
+
+
+# ── Daily load series ─────────────────────────────────────────────────────────
+
+@app.get("/api/training/daily-load")
+def get_training_daily_load(
+    athlete_id: str,
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None),
+):
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        return JSONResponse(status_code=400, content={"results": [], "reason": "athlete_id is not a valid UUID"})
+
+    if start is None or end is None:
+        missing = []
+        if start is None:
+            missing.append("start")
+        if end is None:
+            missing.append("end")
+        reason = f"Missing required query parameter(s): {', '.join(missing)}"
+        return JSONResponse(status_code=400, content={"results": [], "reason": reason})
+
+    try:
+        start_d = _date.fromisoformat(start)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"results": [], "reason": f"start is not a valid ISO-8601 date: {start!r}"})
+
+    try:
+        end_d = _date.fromisoformat(end)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"results": [], "reason": f"end is not a valid ISO-8601 date: {end!r}"})
+
+    if start_d > end_d:
+        reason = f"start ({start}) must not be after end ({end})"
+        return JSONResponse(status_code=400, content={"results": [], "reason": reason})
+
+    with Session(engine) as session:
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= start_d,
+                Workout.workout_date <= end_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+        workouts = [
+            {
+                "id": str(r.id),
+                "date": r.workout_date.isoformat(),
+                "tss": float(r.tss) if r.tss is not None else None,
+            }
+            for r in rows
+        ]
+
+    result = _daily_load_series(workouts, start, end)
+    return JSONResponse(result)
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────
