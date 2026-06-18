@@ -1038,6 +1038,18 @@
           <div class="profile-field-error" id="thresholds-hr-error"></div>
         </div>
 
+        <!-- Max HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-max-hr">Max Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-max-hr" class="profile-input thresholds-input"
+              min="120" max="230" placeholder="(default: 190 bpm)">
+            <button type="button" class="thresholds-default-btn" data-field="max-hr">Use default</button>
+          </div>
+          <p class="thresholds-desc">Your maximum heart rate (bpm). Used to define training zones. Estimate as 220 − age, or from a maximal-effort test.</p>
+          <div class="profile-field-error" id="thresholds-max-hr-error"></div>
+        </div>
+
         <!-- Threshold Pace -->
         <div class="profile-form-group">
           <label class="profile-label" for="thresholds-pace">Threshold Pace</label>
@@ -1515,9 +1527,10 @@
   <script>
     (function () {
       // Performance Thresholds section
-
-      // Stored server values (null = use default)
-      var _tBaseline = { ftp_w: null, threshold_hr: null, threshold_pace_seconds_per_km: null };
+      // Baseline holds the displayed value for each field (row[field] ?? defaults[field]).
+      // PATCH sends only fields that differ from the baseline so unchanged values are omitted.
+      var _tBaseline = { ftp_w: null, threshold_hr: null, max_hr: null, threshold_pace_seconds_per_km: null };
+      var _tDefaults = { ftp_w: 280, threshold_hr: 170, max_hr: 190, threshold_pace_seconds_per_km: 270 };
 
       function _secsToMMSS(secs) {
         if (secs == null) return '';
@@ -1539,7 +1552,7 @@
       }
 
       function _tClearErrors() {
-        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-pace-error']
+        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-max-hr-error', 'thresholds-pace-error']
           .forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.textContent = '';
@@ -1558,25 +1571,36 @@
           .then(function (r) { return r.json(); })
           .then(function (data) {
             var row = data.row || {};
+            var defs = data.defaults || _tDefaults;
+
+            // Prefill each input with row value when present, otherwise system default (AC3).
+            // Baseline is the displayed value so the dirty-check in _tValidateAndBuildPatch
+            // only includes fields the user actually changed (AC4).
+            var displayFtp   = row.ftp_w != null ? row.ftp_w : (defs.ftp_w != null ? defs.ftp_w : _tDefaults.ftp_w);
+            var displayHr    = row.threshold_hr != null ? row.threshold_hr : (defs.threshold_hr != null ? defs.threshold_hr : _tDefaults.threshold_hr);
+            var displayMaxHr = row.max_hr != null ? row.max_hr : (defs.max_hr != null ? defs.max_hr : _tDefaults.max_hr);
+            var displayPace  = row.threshold_pace_seconds_per_km != null
+              ? row.threshold_pace_seconds_per_km
+              : (defs.threshold_pace_seconds_per_km != null ? defs.threshold_pace_seconds_per_km : _tDefaults.threshold_pace_seconds_per_km);
+
             _tBaseline = {
-              ftp_w: row.ftp_w != null ? row.ftp_w : null,
-              threshold_hr: row.threshold_hr != null ? row.threshold_hr : null,
-              threshold_pace_seconds_per_km: row.threshold_pace_seconds_per_km != null
-                ? row.threshold_pace_seconds_per_km : null,
+              ftp_w: displayFtp,
+              threshold_hr: displayHr,
+              max_hr: displayMaxHr,
+              threshold_pace_seconds_per_km: displayPace,
             };
 
             var ftpEl = document.getElementById('thresholds-ftp');
-            if (ftpEl) ftpEl.value = _tBaseline.ftp_w != null ? String(_tBaseline.ftp_w) : '';
+            if (ftpEl) ftpEl.value = String(displayFtp);
 
             var hrEl = document.getElementById('thresholds-hr');
-            if (hrEl) hrEl.value = _tBaseline.threshold_hr != null ? String(_tBaseline.threshold_hr) : '';
+            if (hrEl) hrEl.value = String(displayHr);
+
+            var maxHrEl = document.getElementById('thresholds-max-hr');
+            if (maxHrEl) maxHrEl.value = String(displayMaxHr);
 
             var paceEl = document.getElementById('thresholds-pace');
-            if (paceEl) {
-              paceEl.value = _tBaseline.threshold_pace_seconds_per_km != null
-                ? _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km'
-                : '';
-            }
+            if (paceEl) paceEl.value = _secsToMMSS(displayPace) + '/km';
           })
           .catch(function () {
             _tSetFeedback('Failed to load thresholds.', 'error');
@@ -1586,54 +1610,73 @@
       function _tValidateAndBuildPatch() {
         _tClearErrors();
         var patch = {};
-        var valid = true;
+        var hasError = false;
 
+        // FTP
         var ftpEl = document.getElementById('thresholds-ftp');
         var ftpVal = ftpEl ? ftpEl.value.trim() : '';
         if (ftpVal === '') {
-          patch.ftp_w = null;
+          if (_tBaseline.ftp_w !== null) patch.ftp_w = null;
         } else {
           var ftpNum = parseInt(ftpVal, 10);
           if (isNaN(ftpNum) || ftpNum < 50 || ftpNum > 600) {
-            var errEl = document.getElementById('thresholds-ftp-error');
-            if (errEl) errEl.textContent = 'FTP must be between 50 and 600 W';
-            valid = false;
-          } else {
+            var ftpErrEl = document.getElementById('thresholds-ftp-error');
+            if (ftpErrEl) ftpErrEl.textContent = 'FTP must be between 50 and 600 W';
+            hasError = true;
+          } else if (ftpNum !== _tBaseline.ftp_w) {
             patch.ftp_w = ftpNum;
           }
         }
 
+        // Threshold HR
         var hrEl = document.getElementById('thresholds-hr');
         var hrVal = hrEl ? hrEl.value.trim() : '';
         if (hrVal === '') {
-          patch.threshold_hr = null;
+          if (_tBaseline.threshold_hr !== null) patch.threshold_hr = null;
         } else {
           var hrNum = parseInt(hrVal, 10);
           if (isNaN(hrNum) || hrNum < 100 || hrNum > 220) {
             var hrErrEl = document.getElementById('thresholds-hr-error');
             if (hrErrEl) hrErrEl.textContent = 'Threshold HR must be between 100 and 220 bpm';
-            valid = false;
-          } else {
+            hasError = true;
+          } else if (hrNum !== _tBaseline.threshold_hr) {
             patch.threshold_hr = hrNum;
           }
         }
 
+        // Max HR
+        var maxHrEl = document.getElementById('thresholds-max-hr');
+        var maxHrVal = maxHrEl ? maxHrEl.value.trim() : '';
+        if (maxHrVal === '') {
+          if (_tBaseline.max_hr !== null) patch.max_hr = null;
+        } else {
+          var maxHrNum = parseInt(maxHrVal, 10);
+          if (isNaN(maxHrNum) || maxHrNum < 120 || maxHrNum > 230) {
+            var maxHrErrEl = document.getElementById('thresholds-max-hr-error');
+            if (maxHrErrEl) maxHrErrEl.textContent = 'Max HR must be between 120 and 230 bpm';
+            hasError = true;
+          } else if (maxHrNum !== _tBaseline.max_hr) {
+            patch.max_hr = maxHrNum;
+          }
+        }
+
+        // Threshold Pace
         var paceEl = document.getElementById('thresholds-pace');
         var paceVal = paceEl ? paceEl.value.trim() : '';
         if (paceVal === '') {
-          patch.threshold_pace_seconds_per_km = null;
+          if (_tBaseline.threshold_pace_seconds_per_km !== null) patch.threshold_pace_seconds_per_km = null;
         } else {
           var paceSecs = _parsePace(paceVal);
           if (paceSecs === null || paceSecs < 180 || paceSecs > 540) {
             var paceErrEl = document.getElementById('thresholds-pace-error');
             if (paceErrEl) paceErrEl.textContent = 'Enter pace as M:SS/km (e.g. 4:30/km), range 3:00–9:00/km';
-            valid = false;
-          } else {
+            hasError = true;
+          } else if (paceSecs !== _tBaseline.threshold_pace_seconds_per_km) {
             patch.threshold_pace_seconds_per_km = paceSecs;
           }
         }
 
-        return valid ? patch : null;
+        return hasError ? null : patch;
       }
 
       function _tHandleSave() {
@@ -1643,6 +1686,12 @@
         var patch = _tValidateAndBuildPatch();
         if (patch === null) {
           _tSetFeedback('Fix the errors above and try again.', 'error');
+          return;
+        }
+
+        // No fields changed — nothing to save
+        if (!Object.keys(patch).length) {
+          _tSetFeedback('No changes to save.', '');
           return;
         }
 
@@ -1657,20 +1706,18 @@
             return r.json();
           })
           .then(function (saved) {
+            var defs = _tDefaults;
             _tBaseline = {
-              ftp_w: saved.ftp_w != null ? saved.ftp_w : null,
-              threshold_hr: saved.threshold_hr != null ? saved.threshold_hr : null,
+              ftp_w: saved.ftp_w != null ? saved.ftp_w : defs.ftp_w,
+              threshold_hr: saved.threshold_hr != null ? saved.threshold_hr : defs.threshold_hr,
+              max_hr: saved.max_hr != null ? saved.max_hr : defs.max_hr,
               threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km != null
-                ? saved.threshold_pace_seconds_per_km : null,
+                ? saved.threshold_pace_seconds_per_km : defs.threshold_pace_seconds_per_km,
             };
             // Normalise pace display to M:SS/km after save
             var paceEl = document.getElementById('thresholds-pace');
-            if (paceEl) {
-              paceEl.value = _tBaseline.threshold_pace_seconds_per_km != null
-                ? _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km'
-                : '';
-            }
-            _tSetFeedback('Saved.', 'success');
+            if (paceEl) paceEl.value = _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km';
+            _tSetFeedback('Preferences saved.', 'success');
           })
           .catch(function (errData) {
             var detail = errData && errData.detail;
@@ -1690,7 +1737,7 @@
           });
       }
 
-      // "Use default" buttons clear their field
+      // "Use default" buttons clear their field (signals "revert to system default")
       document.querySelectorAll('.thresholds-default-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           var field = btn.getAttribute('data-field');
