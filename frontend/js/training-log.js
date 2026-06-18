@@ -1332,12 +1332,16 @@
             fetch('/api/workouts/' + workoutId + '/full?streams=none')
               .then(function (r) { return r.ok ? r.json() : null; })
               .catch(function () { return null; }),
-            _userPrefsFetch
+            _userPrefsFetch,
+            fetch('/api/sync/strava/latest').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+            fetch('/api/sync/stryd/latest').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
           ]).then(function (results) {
-            var full  = results[0];
-            var prefs = results[1];
+            var full         = results[0];
+            var prefs        = results[1];
+            var stravaLatest = results[2];
+            var strydLatest  = results[3];
             if (loadingEl) loadingEl.style.display = 'none';
-            if (full && full.workout) renderRunView(full, prefs);
+            if (full && full.workout) renderRunView(full, prefs, stravaLatest, strydLatest);
             else renderDetailContent(workout, []);
           });
         } else if (isBike) {
@@ -1558,7 +1562,7 @@
     return 'hard';
   }
 
-  function renderRunView(full, prefs) {
+  function renderRunView(full, prefs, stravaLatest, strydLatest) {
     var contentEl = document.getElementById('dp-content');
     if (!contentEl) return;
     var w = full.workout || {};
@@ -1706,14 +1710,17 @@
 
     // ── 6) SOURCE & SYNC ──
     var nSources = (srcStrava ? 1 : 0) + (srcStryd ? 1 : 0);
+    var syncNoteParts = [];
+    if (srcStrava && stravaLatest && stravaLatest.synced_at) syncNoteParts.push('Strava ' + _relTime(stravaLatest.synced_at));
+    if (srcStryd  && strydLatest  && strydLatest.synced_at)  syncNoteParts.push('Stryd '  + _relTime(strydLatest.synced_at));
+    var syncNote = syncNoteParts.length ? ' · last sync ' + syncNoteParts.join(', ') : '';
     var srcStrip =
       '<div class="rv-card rv-srcstrip">' +
         '<div class="rv-sec-title">Source &amp; sync</div>' +
         '<div class="rv-srcstrip-row">' +
           (stravaUrl ? '<a class="rv-srcbtn rv-srcbtn--strava" href="' + esc(stravaUrl) + '" target="_blank" rel="noopener">&#8595; View on Strava</a>' : '') +
           (srcStryd ? '<span class="rv-srcbtn rv-srcbtn--stryd">&#9889; Stryd power</span>' : '') +
-          '<span class="rv-srcnote">merged from ' + nSources + ' source' + (nSources === 1 ? '' : 's') +
-            (startHHMM ? ' · last sync ' + startHHMM : '') + '</span>' +
+          '<span class="rv-srcnote">merged from ' + nSources + ' source' + (nSources === 1 ? '' : 's') + syncNote + '</span>' +
         '</div>' +
       '</div>';
 
@@ -2479,11 +2486,36 @@
   // ── Sync button state ─────────────────────────────────────────────────────
   var _syncPollTimer = null;
 
+  function _relTime(isoStr) {
+    if (!isoStr) return 'Never';
+    var diff = Date.now() - new Date(isoStr).getTime();
+    var secs = Math.floor(diff / 1000);
+    if (secs < 60) return 'just now';
+    var mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    return Math.floor(hrs / 24) + 'd ago';
+  }
+
+  function _loadSyncChip() {
+    var elStrava = document.getElementById('sync-time-strava');
+    var elStryd  = document.getElementById('sync-time-stryd');
+    Promise.all([
+      fetch('/api/sync/strava/latest').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch('/api/sync/stryd/latest').then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+    ]).then(function (results) {
+      if (elStrava) elStrava.textContent = _relTime(results[0] && results[0].synced_at);
+      if (elStryd)  elStryd.textContent  = _relTime(results[1] && results[1].synced_at);
+    });
+  }
+
   function _syncSetBusy(busy) {
+    var allBtn = document.getElementById('sync-all-btn');
+    if (allBtn) allBtn.disabled = busy;
+    // Legacy: also disable old Strava-only button if it exists
     var stravaBtn = document.getElementById('sync-strava-btn');
     if (stravaBtn) stravaBtn.disabled = busy;
-    // Stryd stays disabled regardless; we only manage the aria/visual state for
-    // the Strava button. Stryd's disabled attr is set in HTML and never cleared.
   }
 
   function _syncPollStatus() {
@@ -2499,6 +2531,7 @@
         } else {
           _syncStopStatusPoll();
           _syncSetBusy(false);
+          _loadSyncChip();
         }
       })
       .catch(function () { _syncStopStatusPoll(); _syncSetBusy(false); });
@@ -2508,18 +2541,24 @@
     if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
   }
 
-  function _onSyncStravaClick() {
+  function _onSyncAllClick() {
     _syncSetBusy(true);
-    fetch('/api/strava/sync', { method: 'POST' })
-      .then(function (res) {
-        if (res.status === 202 || res.status === 409) {
-          if (window.syncBarRefresh) window.syncBarRefresh();
-          _syncPollStatus();
-        } else {
-          _syncSetBusy(false);
-        }
-      })
-      .catch(function () { _syncSetBusy(false); });
+    Promise.all([
+      fetch('/api/strava/sync', { method: 'POST' }).catch(function () { return { status: 0 }; }),
+      fetch('/api/stryd/sync', { method: 'POST' }).catch(function () { return { status: 0 }; }),
+    ]).then(function (results) {
+      var anyStarted = results.some(function (r) { return r.status === 202 || r.status === 409; });
+      if (anyStarted) {
+        if (window.syncBarRefresh) window.syncBarRefresh();
+        _syncPollStatus();
+      } else {
+        _syncSetBusy(false);
+      }
+    });
+  }
+
+  function _onSyncStravaClick() {
+    _onSyncAllClick();
   }
 
   function handleEditorSaved(result) {
@@ -2736,6 +2775,11 @@
 
     var syncStravaBtn = document.getElementById('sync-strava-btn');
     if (syncStravaBtn) syncStravaBtn.addEventListener('click', _onSyncStravaClick);
+
+    var syncAllBtn = document.getElementById('sync-all-btn');
+    if (syncAllBtn) syncAllBtn.addEventListener('click', _onSyncAllClick);
+
+    _loadSyncChip();
 
     var exportBtn = document.getElementById('log-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', exportCSV);
