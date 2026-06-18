@@ -185,7 +185,6 @@ _needs_db = pytest.mark.skipif(
 if _DB_URL:
     import httpx
     from sqlalchemy import create_engine, text
-    from sqlalchemy.orm import Session as _Session
 
     _engine = create_engine(_DB_URL)
     BASE = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
