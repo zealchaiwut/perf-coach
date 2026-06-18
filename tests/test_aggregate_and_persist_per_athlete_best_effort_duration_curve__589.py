@@ -14,7 +14,6 @@ Acceptance criteria covered:
 """
 
 import uuid
-import pytest
 
 from backend.services.duration_curve_best_effort import merge_best_effort
 
@@ -244,7 +243,8 @@ def test_athlete_duration_curves_user_id_is_primary_key():
 
 def test_endpoint_returns_404_for_nonexistent_athlete():
     """AC7: GET /api/athletes/{id}/duration-curve returns 404 for unknown ID."""
-    import httpx, os
+    import httpx
+    import os
     base = os.environ.get("UAT_BASE_URL", f"http://localhost:{os.environ.get('UAT_PORT', '9001')}")
     with httpx.Client(base_url=base, timeout=10) as client:
         fake_id = str(uuid.uuid4())
@@ -254,7 +254,8 @@ def test_endpoint_returns_404_for_nonexistent_athlete():
 
 def test_endpoint_returns_200_and_empty_curve_for_athlete_without_runs():
     """AC4: athlete with no runs → 200 with empty curve and reason field."""
-    import httpx, os
+    import httpx
+    import os
     from sqlalchemy import text
     from sqlalchemy.orm import Session
     from backend.db import engine
@@ -287,7 +288,8 @@ def test_endpoint_returns_200_and_empty_curve_for_athlete_without_runs():
 
 def test_endpoint_returns_required_fields_for_athlete_with_curve():
     """AC6: endpoint returns athleteId, curve, debug fields with correct shape."""
-    import httpx, os
+    import httpx
+    import os
     from sqlalchemy.orm import Session
     from sqlalchemy import text
     from backend.db import engine
