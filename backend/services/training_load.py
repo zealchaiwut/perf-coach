@@ -33,6 +33,12 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.models import TrainingLoadSnapshot
 
+# ── Form-zone band constants ───────────────────────────────────────────────────
+# TSB (Training Stress Balance) below this threshold = overreached / buried.
+FORM_BURIED_CEILING: float = -10.0
+# TSB above this threshold = well-rested / fresh.
+FORM_FRESH_FLOOR: float = 5.0
+
 
 def _ewma_alpha(days: int) -> float:
     """Exponential weighted moving average alpha factor."""
@@ -209,4 +215,101 @@ def daily_update(
         "ctl": row["ctl"],
         "atl": row["atl"],
         "tsb": row["tsb"],
+    }
+
+
+def _classify_zone(tsb: float) -> str:
+    """Return the zone name for a single TSB value using named band constants."""
+    if tsb < FORM_BURIED_CEILING:
+        return "buried"
+    if tsb >= FORM_FRESH_FLOOR:
+        return "fresh"
+    return "neutral"
+
+
+def performance_curve(fitness_series) -> dict:
+    """Reinterpret a fitness series into per-day form zones and today's summary.
+
+    This is a pure function: it reads the TSB values already present in
+    fitness_series and classifies each day into a zone. It does not recompute
+    CTL, ATL, or TSB, and it does not access the database.
+
+    Zone bands (defined by FORM_BURIED_CEILING and FORM_FRESH_FLOOR):
+        buried  -- form is below the buried ceiling (athlete is over-reached)
+        neutral -- form is at or above the buried ceiling and below the fresh floor
+        fresh   -- form is at or above the fresh floor (athlete is well-rested)
+
+    Args:
+        fitness_series: a list of dicts, each containing at least 'date' and
+            'tsb' keys -- typically the output of compute_load_curves(). The
+            'ctl' and 'atl' fields are accepted but not required for zone
+            classification. A thin caller can perform the DB access and series
+            computation, then pass the result directly to this function.
+
+    Returns:
+        A dict with:
+            curve       -- list of per-day records, each with 'date', 'form'
+                          (the TSB value, unmodified), and 'zone' (one of
+                          'buried', 'neutral', 'fresh').
+            today_form  -- TSB value for today's date, or None if today is not
+                          present in the series.
+            today_zone  -- zone string for today's date, or None if today is not
+                          present in the series.
+            reason      -- empty string on success; a human-readable explanation
+                          when the input was invalid or missing.
+
+        On any invalid input (None, empty list, or missing required columns) the
+        function returns an empty result with a non-empty reason string. It never
+        raises an exception.
+
+    Worked example:
+
+        Suppose three consecutive days have TSB values of -15, 0, and 10.
+        FORM_BURIED_CEILING is -10 and FORM_FRESH_FLOOR is 5.
+
+        Day 1: TSB is -15, which is below the buried ceiling of -10.
+               Zone is 'buried'.
+        Day 2: TSB is 0, which is at or above the buried ceiling and below the
+               fresh floor of 5.
+               Zone is 'neutral'.
+        Day 3: TSB is 10, which is at or above the fresh floor of 5.
+               Zone is 'fresh'.
+
+        If Day 3 is today, today_form is 10 and today_zone is 'fresh'.
+    """
+    _empty = {"curve": [], "today_form": None, "today_zone": None, "reason": ""}
+
+    if not fitness_series:
+        return {**_empty, "reason": "fitness_series is None or empty"}
+
+    first = fitness_series[0]
+    if not isinstance(first, dict):
+        return {**_empty, "reason": "fitness_series items must be dicts"}
+    if "tsb" not in first:
+        return {**_empty, "reason": "fitness_series items are missing required 'tsb' column"}
+    if "date" not in first:
+        return {**_empty, "reason": "fitness_series items are missing required 'date' column"}
+
+    today = date.today()
+    today_form = None
+    today_zone = None
+    curve = []
+
+    for row in fitness_series:
+        try:
+            day = row["date"]
+            tsb = row["tsb"]
+        except (KeyError, TypeError):
+            return {**_empty, "reason": "fitness_series contains rows with missing date or tsb"}
+        zone = _classify_zone(tsb)
+        curve.append({"date": day, "form": tsb, "zone": zone})
+        if day == today:
+            today_form = tsb
+            today_zone = zone
+
+    return {
+        "curve": curve,
+        "today_form": today_form,
+        "today_zone": today_zone,
+        "reason": "",
     }
