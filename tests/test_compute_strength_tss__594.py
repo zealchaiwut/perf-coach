@@ -23,8 +23,6 @@ import json
 import pathlib
 import types
 
-import pytest
-
 from backend.services.tss import compute_strength_tss
 
 

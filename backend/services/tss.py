@@ -792,7 +792,6 @@ def compute_strength_tss(workout, exercises, prefs) -> dict:
 
     # ── Determine which sets can be scored (have rpe + reps) ──────────────────
     scored_sets = [s for s in all_sets if s.get("rpe") is not None and s.get("reps") is not None]
-    has_any_volume_set = bool(all_sets)  # at least one set with some exercise data
     has_per_set = bool(scored_sets) or bool(
         # unscored sets that still have reps or weight (volume exists but rpe missing)
         [s for s in all_sets if (s.get("reps") is not None or s.get("weight_kg") is not None)]
