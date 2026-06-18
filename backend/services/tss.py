@@ -18,6 +18,17 @@ THRESHOLD_PACE_SEC_PER_KM = 270  # ~4:30/km
 THRESHOLD_HR = 170
 FTP_W = 280
 
+# Strength TSS per-set constants.
+# STRENGTH_TSS_SCALE: multiplier applied to the raw set-stress sum so that a
+# representative hard 45-minute strength session (e.g. 3 sets at RPE 8-10)
+# yields a TSS between 50 and 70.  Value 5.85 produces ~60 for the
+# docstring worked example (raw_sum=10.25 → scaled≈59.96).
+STRENGTH_TSS_SCALE = 5.85
+
+# STRENGTH_TSS_MAX: upper bound applied after scaling, before rounding.
+# Prevents runaway scores from unusually high rep counts or RPE entries.
+STRENGTH_TSS_MAX = 150
+
 _log = logging.getLogger(__name__)
 
 
@@ -390,3 +401,111 @@ def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
         return compute_tss(intensity_factor_from_hr(avg_hr, threshold_hr), duration), "hr"
 
     return compute_tss(0.7, duration), "duration_only"
+
+
+def calculate_strength_tss_per_set(sets) -> dict:
+    """Compute Training Stress Score for a strength session using per-set RPE data.
+
+    Each set contributes a stress value equal to reps multiplied by the square of
+    the RPE fraction (rpe divided by 10).  The contributions are summed, multiplied
+    by STRENGTH_TSS_SCALE, clamped to STRENGTH_TSS_MAX, and rounded to a whole
+    integer.
+
+    Parameters
+    ----------
+    sets:
+        List of dicts, each with keys ``reps`` (int) and ``rpe`` (int or float,
+        1–10 scale).  The caller fetches this data from the database; this
+        function performs no DB access.
+
+    Returns
+    -------
+    dict with exactly three keys:
+
+        tss (int or None):
+            Rounded TSS, or None when any required input is absent or invalid.
+
+        method (str):
+            ``"per_set"`` when TSS was successfully computed; ``"none"``
+            otherwise.
+
+        debug (dict):
+            Diagnostic values:
+              per_set_contributions — list of set_stress floats, one per set
+              raw_sum               — sum of per_set_contributions (float)
+              scaled_sum            — raw_sum * STRENGTH_TSS_SCALE (float)
+              clamped               — min(scaled_sum, STRENGTH_TSS_MAX) (float)
+            On failure, also contains:
+              reason — human-readable string describing the invalid input.
+
+    Formula (per set)
+    -----------------
+        set_stress = reps × (rpe ÷ 10) × (rpe ÷ 10)
+        raw_sum    = Σ set_stress
+        scaled_sum = raw_sum × STRENGTH_TSS_SCALE
+        clamped    = min(scaled_sum, STRENGTH_TSS_MAX)
+        tss        = round(clamped)
+
+    Worked example (three sets)
+    ---------------------------
+    Inputs: [
+      { reps: 5, rpe: 8 },
+      { reps: 5, rpe: 9 },
+      { reps: 3, rpe: 10 }
+    ]
+
+    Set 1 stress: 5 × (8 ÷ 10) × (8 ÷ 10) = 5 × 0.64 = 3.20
+    Set 2 stress: 5 × (9 ÷ 10) × (9 ÷ 10) = 5 × 0.81 = 4.05
+    Set 3 stress: 3 × (10 ÷ 10) × (10 ÷ 10) = 3 × 1.00 = 3.00
+
+    Raw sum: 3.20 + 4.05 + 3.00 = 10.25
+    Scaled sum: 10.25 × STRENGTH_TSS_SCALE (5.85) ≈ 59.96
+    Clamped: min(59.96, STRENGTH_TSS_MAX) = 59.96
+    tss (whole number): 60
+    """
+    def _fail(reason):
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {"reason": reason},
+        }
+
+    try:
+        if not sets:
+            return _fail("set list is empty or None")
+
+        contributions = []
+        for i, s in enumerate(sets):
+            if s is None:
+                return _fail(f"set {i} is None")
+            reps = s.get("reps") if isinstance(s, dict) else getattr(s, "reps", None)
+            rpe = s.get("rpe") if isinstance(s, dict) else getattr(s, "rpe", None)
+
+            if reps is None:
+                return _fail(f"set {i} is missing reps")
+            if rpe is None:
+                return _fail(f"set {i} is missing rpe")
+
+            reps_f = float(reps)
+            rpe_f = float(rpe)
+            stress = reps_f * (rpe_f / 10) * (rpe_f / 10)
+            contributions.append(stress)
+
+    except (TypeError, ValueError) as exc:
+        return _fail(f"invalid input value: {exc}")
+
+    raw_sum = sum(contributions)
+    scaled_sum = raw_sum * STRENGTH_TSS_SCALE
+    clamped = min(scaled_sum, STRENGTH_TSS_MAX)
+    tss = round(clamped)
+
+    return {
+        "tss": tss,
+        "method": "per_set",
+        "debug": {
+            "per_set_contributions": contributions,
+            "raw_sum": raw_sum,
+            "scaled_sum": scaled_sum,
+            "clamped": clamped,
+        },
+    }
