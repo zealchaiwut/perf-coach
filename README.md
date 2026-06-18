@@ -4,7 +4,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 
 ## Features
 
-- **Weight tracking** — daily log; gradient-design weight page with two-card hero (current weight + log-today); custom SVG trend chart with range tabs (7D / 30D / 90D / 6M / 1Y / All); plan overlay, milestones, projected goal-hit date (7-day pace), and slide-in target-edit panel; `/weight/targets` removed — target editing is now inline on the weight page; logging streak badge and 14-day adherence counter shown below the hero; mobile touch: tap-to-reveal tooltip on chart, persistent labels for current weight, plan, gap, and milestone values
+- **Weight tracking** — daily log; gradient-design weight page with two-card hero (current weight + log-today); custom SVG trend chart (v8) with three-zone BMI axes, moving average, range tabs (7D / 30D / 90D / 6M / 1Y / All); plan overlay, milestones, projected goal-hit date (7-day pace), and slide-in target-edit panel; `/weight/targets` removed — target editing is now inline on the weight page; logging streak badge and 14-day adherence counter shown below the hero; mobile touch: tap-to-reveal tooltip on chart, persistent labels for current weight, plan, gap, and milestone values
 - **Habit tracking** — redesigned habits page with gradient design language; 7-segment week wheel, tap-to-check daily grid with day-score footer row, weekly habits progress bars with auto-sync badges; auto-fill sources, weekly targets, archive/restore, and drag-to-reorder; edit existing habits (tracking type locked after creation); 35-icon library organised by category
 - **Zone 2 tracking** — `zone2_minutes` on workouts auto-fills Zone 2 habit progress
 - **Weekly habits widget** — Mon–Sun progress grid on home page with streak badges; week boundary computed in Bangkok timezone (Asia/Bangkok)
@@ -19,8 +19,8 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Session profile detection** — `detect_session_profile` classifies workout intent from lap data through a pipeline of pure functions: `classify_laps` (lap intensity bands), `group_laps_into_phases` (phase grouping), `detect_intervals` / `detect_sets` (interval and set recognition); result exposed on `GET /api/workouts/{id}/full` as `detected_profile`
 - **Normalized power** — `compute_normalized_power` pure function computes NP from a 1-second power stream; stored on the workout record (`np` column) at ingest time
 - **Activity streams** — Strava and Stryd syncs now fetch and store per-sample time-series data (power, HR, pace, cadence, altitude, GPS) in the `activity_streams` table; used for NP calculation and Run View charting
-- **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation
-- **Stryd integration** — encrypted credential storage; Stryd-matched workouts show a dual badge in the training log
+- **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation; compact sync controls with last-sync timestamps in Settings → Integrations
+- **Stryd integration** — encrypted credential storage; workouts merged from both Strava and Stryd show both source badges simultaneously in the training log (`has_strava` / `has_stryd` fields on list and detail responses)
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
 - **Multi-user** — session-based auth, per-user data isolation
 - **Health check** — `GET /api/healthz` returns `{ok, version, env}` for Render health probes
