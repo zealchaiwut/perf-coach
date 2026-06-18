@@ -5,13 +5,15 @@ Acceptance criteria covered:
   AC-expected     — tests/fixtures/golden_run_expected.json exists w/ required keys
   AC-np-value     — normalized_power result matches expected within ±0.01
   AC-np-exact     — final_value matches expected within ±0.1% relative tolerance
-  AC-tss-skip     — tss placeholder is explicitly skipped with future-ticket note
+  AC-tss          — tss matches expected value and method (implemented in issue #582)
   AC-profile-skip — detected_profile placeholder skipped with future-ticket note
   AC-regression   — a deliberate mutation to the formula produces a detectable diff
 """
 
 import json
 import pathlib
+import types
+
 import pytest
 
 from backend.services.normalized_power import compute_normalized_power
@@ -107,24 +109,25 @@ def test_expected_has_normalized_power_key(golden_expected):
     assert golden_expected["normalized_power"]["value"] is not None
 
 
-def test_expected_has_tss_placeholder(golden_expected):
-    """AC-expected: 'tss' key with null value and placeholder note must exist."""
+def test_expected_has_tss_entry(golden_expected):
+    """AC-expected: 'tss' key with a non-null value must exist (implemented in issue #582)."""
     assert "tss" in golden_expected
     entry = golden_expected["tss"]
-    assert entry["value"] is None
-    assert "PLACEHOLDER" in entry.get("placeholder_note", ""), (
-        "tss entry must have 'placeholder_note' with word PLACEHOLDER"
+    assert entry.get("value") is not None, (
+        "tss.value must not be null — TSS is now implemented (issue #582). "
+        "Run scripts/regen_golden.py to regenerate the expected value."
     )
+    assert isinstance(entry["value"], int), "tss.value must be a whole integer"
+    assert "method" in entry, "tss entry must include 'method' field"
 
 
-def test_expected_has_detected_profile_placeholder(golden_expected):
-    """AC-expected: 'detected_profile' key with null and placeholder note exists."""
+def test_expected_has_detected_profile_entry(golden_expected):
+    """AC-expected: 'detected_profile' key with actual detection results exists."""
     assert "detected_profile" in golden_expected
     entry = golden_expected["detected_profile"]
-    assert entry["value"] is None
-    assert "PLACEHOLDER" in entry.get("placeholder_note", ""), (
-        "detected_profile entry must have 'placeholder_note' with word PLACEHOLDER"
-    )
+    assert "phases" in entry, "detected_profile entry must have 'phases' list"
+    assert "basis" in entry, "detected_profile entry must have 'basis' field"
+    assert "confident" in entry, "detected_profile entry must have 'confident' field"
 
 
 # ── AC-np-value: normalized_power matches expected ───────────────────────────
@@ -185,36 +188,123 @@ def test_normalized_power_is_integer(golden_run):
     assert isinstance(np_val, int), f"Expected int, got {type(np_val)}"
 
 
-# ── AC-tss-skip: TSS is not yet implemented ──────────────────────────────────
+# ── AC-tss: TSS matches expected value (implemented in issue #582) ────────────
 
 
-@pytest.mark.skip(
-    reason=(
-        "TSS calculation not yet implemented — "
-        "see placeholder in golden_run_expected.json "
-        "(PLACEHOLDER: implement in [ticket reference — Running TSS calculation])"
-    )
-)
 def test_tss_matches_expected(golden_run, golden_expected):
-    """AC-tss-skip: placeholder — will assert tss == expected once implemented."""
-    raise NotImplementedError("TSS calculation not implemented in this sprint")
+    """AC-tss: compute_running_tss on the golden fixture matches the hand-verified expected value.
 
+    Uses the fixture_prefs recorded in golden_run_expected.json so the test is
+    deterministic: ftp_w=280, threshold_pace=300, threshold_hr=170.  The power
+    method wins because NP is available; expected TSS=69.
+    """
+    from backend.services.tss import compute_running_tss
 
-# ── AC-profile-skip: detected_profile is not yet implemented ─────────────────
+    tss_section = golden_expected.get("tss", {})
+    expected_value = tss_section.get("value")
+    expected_method = tss_section.get("method")
+    fixture_prefs = tss_section.get("fixture_prefs", {})
 
+    if expected_value is None:
+        pytest.skip("tss.value is still a placeholder in golden_run_expected.json")
 
-@pytest.mark.skip(
-    reason=(
-        "Workout profile detection not yet implemented — "
-        "see placeholder in golden_run_expected.json "
-        "(PLACEHOLDER: implement in [ticket reference — workout profile detection])"
+    from backend.services.normalized_power import compute_normalized_power
+    power_stream = golden_run["streams"]["power_w"]
+    sample_interval = golden_run["metadata"]["sample_interval_seconds"]
+    np_val, _ = compute_normalized_power(power_stream, sample_interval)
+
+    laps = golden_run.get("laps", [])
+    splits = [
+        types.SimpleNamespace(
+            duration_seconds=lap["duration_seconds"],
+            distance_km=lap["distance_km"],
+            avg_hr=round(lap["avg_hr_bpm"]) if "avg_hr_bpm" in lap else None,
+        )
+        for lap in laps
+    ]
+    workout = types.SimpleNamespace(
+        np=np_val,
+        avg_hr=None,
+        distance_km=golden_run["metadata"]["total_distance_km"],
+        duration_seconds=golden_run["metadata"]["duration_seconds"],
     )
-)
+    prefs = types.SimpleNamespace(
+        ftp_w=fixture_prefs.get("ftp_w"),
+        threshold_pace_seconds_per_km=fixture_prefs.get("threshold_pace_seconds_per_km"),
+        threshold_hr=fixture_prefs.get("threshold_hr"),
+    )
+
+    result = compute_running_tss(workout, splits, prefs)
+
+    assert result["tss"] == expected_value, (
+        f"golden fixture TSS mismatch: got {result['tss']}, expected {expected_value}. "
+        "Regenerate expected-outputs via `make regen-golden` after an intentional formula change."
+    )
+    assert result["method"] == expected_method, (
+        f"golden fixture method mismatch: got {result['method']!r}, expected {expected_method!r}"
+    )
+    assert isinstance(result["tss"], int), "TSS must be a whole integer"
+
+
+# ── AC-profile: detected_profile matches golden expected values ───────────────
+
+
 def test_detected_profile_matches_expected(golden_run, golden_expected):
-    """AC-profile-skip: placeholder — asserts detected_profile == expected when done."""
-    raise NotImplementedError(
-        "Workout profile detection not implemented in this sprint"
+    """AC-profile: detect_session_profile on the golden fixture matches expected-outputs.
+
+    Uses fixture_prefs and fixture_lap_type recorded in golden_run_expected.json
+    so the test is deterministic.  Compares phase labels, bands, and top-level
+    fields; avg_pace floating-point values are not checked for exact equality.
+    """
+    from backend.services.session_profile import detect_session_profile
+
+    profile_section = golden_expected["detected_profile"]
+    fixture_prefs = profile_section["fixture_prefs"]
+    fixture_lap_type = profile_section["fixture_lap_type"]
+    expected_phases = profile_section["phases"]
+
+    laps = golden_run["laps"]
+    split_objects = [
+        types.SimpleNamespace(
+            avg_power=round(lap["avg_power_w"]),
+            duration_seconds=lap["duration_seconds"],
+            distance_km=lap["distance_km"],
+            avg_hr=round(lap["avg_hr_bpm"]) if "avg_hr_bpm" in lap else None,
+        )
+        for lap in laps
+    ]
+
+    splits_container = types.SimpleNamespace(
+        laps=split_objects,
+        lap_type=fixture_lap_type,
     )
+
+    result = detect_session_profile(splits_container, fixture_prefs)
+
+    assert result["confident"] is True, (
+        f"detection should be confident on the golden fixture; got: {result.get('debug')}"
+    )
+    assert result["basis"] == profile_section["basis"], (
+        f"basis mismatch: got {result['basis']!r}, expected {profile_section['basis']!r}"
+    )
+    assert result["reps_detected"] == profile_section["reps_detected"]
+    assert result["sets_detected"] == profile_section["sets_detected"]
+
+    actual_phases = result["phases"]
+    assert len(actual_phases) == len(expected_phases), (
+        f"phase count mismatch: got {len(actual_phases)}, expected {len(expected_phases)}"
+    )
+    for i, (actual, expected) in enumerate(zip(actual_phases, expected_phases)):
+        assert actual["label"] == expected["label"], (
+            f"phase {i} label mismatch: got {actual['label']!r}, expected {expected['label']!r}"
+        )
+        assert actual["band"] == expected["band"], (
+            f"phase {i} band mismatch: got {actual['band']!r}, expected {expected['band']!r}"
+        )
+        assert actual["lap_indexes"] == expected["lap_indexes"], (
+            f"phase {i} lap_indexes mismatch: got {actual['lap_indexes']}, "
+            f"expected {expected['lap_indexes']}"
+        )
 
 
 # ── AC-regression: a formula mutation is detectable ──────────────────────────

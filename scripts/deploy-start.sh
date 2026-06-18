@@ -46,6 +46,21 @@ nohup bash -c '
   source .venv/bin/activate
   echo "[deploy-start] applying migrations (alembic upgrade head)…"
   uv run alembic upgrade head
+  echo "[deploy-start] checking schema drift (models vs DB)…"
+  # Use the project venv directly: `uv run python` resolves the parent ~/dev
+  # workspace env, which lacks the app deps. Abort the deploy ONLY on real
+  # drift (exit 1); a guard-internal failure (exit 2 / crash) must warn but
+  # never block a deploy.
+  if .venv/bin/python scripts/check_schema_drift.py; then
+    :
+  else
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+      echo "[deploy-start] ABORT: schema drift detected (see above)." >&2
+      exit 1
+    fi
+    echo "[deploy-start] WARN: schema-drift check could not run (exit $rc); continuing." >&2
+  fi
   echo "[deploy-start] launching uvicorn on :'"$PORT"'…"
   exec uv run uvicorn backend.main:app --host 0.0.0.0 --port '"$PORT"'
 ' > "$LOG_FILE" 2>&1 &

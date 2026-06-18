@@ -96,130 +96,281 @@ def get_user_thresholds(user_id, db) -> tuple[int, int, int]:
 
 
 def compute_running_tss(workout, splits, prefs) -> dict:
-    """Compute TSS for a running workout from plain data objects (no DB access).
+    """Compute TSS for a running workout using priority-based method selection (no DB access).
 
-    Tries three methods in priority order — Power → Pace → HR — and returns
-    the result from the first method that has all required inputs. Returns
-    ``{"tss": None, "method": "none", "partial": False}`` when no method can
-    run.
+    Tries three methods in order — Power → Pace → HR — and returns the result
+    from the first method whose required inputs are all present. Each skipped
+    method is recorded in ``debug`` with a human-readable explanation.
 
     Parameters
     ----------
     workout:
-        Object with attributes ``np`` (normalized power, int|None),
+        Object (or dict) with ``np`` (normalized power, int|None),
         ``avg_hr`` (int|None), ``distance_km`` (float|None),
-        ``duration_seconds`` (int|None). Dict access also accepted.
+        ``duration_seconds`` (int|None).
     splits:
         Iterable of objects (or dicts) with ``duration_seconds``,
         ``distance_km``, and ``avg_hr``. May be None or empty.
     prefs:
         Object (or dict) with ``ftp_w``, ``threshold_pace_seconds_per_km``,
-        ``threshold_hr`` — all int|None. None means the threshold is unset;
-        no defaults are assumed.
+        ``threshold_hr`` — all int|None. None means unset; no defaults assumed.
 
     Returns
     -------
-    dict with keys:
-        tss        — whole integer or None
-        method     — "power" | "pace" | "hr" | "none"
-        partial    — True when workout-level average was used instead of
-                     per-lap data because laps were absent or incomplete
+    dict with exactly four keys:
+        tss     — whole integer when computable, None when no method succeeds
+        method  — "power" | "pace" | "hr" | "none" ("none" only when tss is None)
+        partial — True when the chosen method worked from incomplete data
+                  (e.g. whole-workout average instead of per-lap data, or
+                  splits that cover less than 95 % of the total duration)
+        debug   — dict keyed by method name; value is "used", "not attempted",
+                  or a "skipped: <reason>" string for each method tried
 
-    Formulas (all methods share the same TSS equation)
-    ---------------------------------------------------
-    TSS = (duration_s × IF² / 3600) × 100
-    where IF = intensity factor for the chosen method:
-        Power: IF = NP / FTP_W
-        Pace:  IF = threshold_pace_s_per_km / lap_pace_s_per_km
-        HR:    IF = avg_hr / threshold_hr
+    Formulas (all methods share TSS = hours × IF² × 100)
+    -----------------------------------------------------
+    Power: IF = normalized_power / ftp_w
+    Pace:  IF = threshold_pace_s_per_km / lap_pace_s_per_km
+    HR:    IF = avg_hr / threshold_hr
 
     Worked examples
     ---------------
-    Example 1 – Power method (60 min at FTP = 100):
+    Example 1 – Power method, 60 min at FTP:
         ftp_w=280, np=280, duration=3600 s
         IF = 280/280 = 1.0
-        TSS = (3600 × 1.0² / 3600) × 100 = 100  ✓
+        TSS = (3600/3600) × 1.0² × 100 = 100
+        → {tss: 100, method: "power", partial: False}
 
-    Example 2 – Pace method per-lap (60 min at threshold pace = 100):
-        threshold_pace=300 s/km, single lap: 12 km in 3600 s
-        lap_pace = 3600/12 = 300 s/km  →  IF = 300/300 = 1.0
-        lap_tss = (3600/3600) × 1.0² × 100 = 100  →  total TSS = 100  ✓
+    Example 2 – Pace method, 60 min at threshold pace (single lap):
+        threshold_pace=300 s/km, 12 km in 3600 s → lap_pace=300 s/km
+        IF = 300/300 = 1.0
+        lap_tss = (3600/3600) × 1.0² × 100 = 100
+        → {tss: 100, method: "pace", partial: False}
 
-    Example 3 – HR method (60 min at threshold HR = 100):
+    Example 3 – HR method, 60 min at threshold HR:
         threshold_hr=170, avg_hr=170, duration=3600 s
         IF = 170/170 = 1.0
-        TSS = (3600 × 1.0² / 3600) × 100 = 100  ✓
+        TSS = (3600/3600) × 1.0² × 100 = 100
+        → {tss: 100, method: "hr", partial: True} (partial because no per-lap HR)
+
+    Example 4 – No method succeeds (all prefs absent):
+        → {tss: None, method: "none", partial: False,
+           debug: {power: "skipped: …", pace: "skipped: …", hr: "skipped: …"}}
     """
+    from backend.services.running_tss_power import calculate_running_tss_power
+
     def _g(obj, key):
         return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
 
-    duration = _g(workout, "duration_seconds") or 0
-    if duration <= 0:
-        return {"tss": None, "method": "none", "partial": False}
+    debug: dict = {}
 
+    duration = _g(workout, "duration_seconds") or 0
     ftp_w = _g(prefs, "ftp_w")
     threshold_pace = _g(prefs, "threshold_pace_seconds_per_km")
     threshold_hr = _g(prefs, "threshold_hr")
     np_val = _g(workout, "np")
     avg_hr = _g(workout, "avg_hr")
     distance_km = _g(workout, "distance_km")
-
     split_list = list(splits) if splits else []
 
-    # ── Method 1: Power ────────────────────────────────────────────────────────
-    if ftp_w and np_val:
-        if_val = np_val / ftp_w
-        return {"tss": round((duration * if_val ** 2 / 3600) * 100), "method": "power", "partial": False}
+    # ── Method 1: Power ───────────────────────────────────────────────────────
+    # Delegate to the dedicated power module; it validates duration, np, and ftp_w
+    power_result = calculate_running_tss_power(
+        duration_seconds=duration if duration > 0 else None,
+        np=np_val,
+        ftp_w=ftp_w,
+    )
+    if power_result["tss"] is not None:
+        # Power method succeeded — mark pace and hr as never reached
+        debug["power"] = "used"
+        debug["pace"] = "not attempted"
+        debug["hr"] = "not attempted"
+        return {"tss": power_result["tss"], "method": "power", "partial": False, "debug": debug}
+    # Record why power was skipped (e.g. "normalized_power missing" or "ftp_w missing or invalid")
+    debug["power"] = "skipped: " + power_result["debug"].get("reason", "missing required input")
 
-    # ── Method 2: Pace ─────────────────────────────────────────────────────────
-    if threshold_pace:
-        if split_list:
-            total = 0.0
-            valid = True
-            for s in split_list:
-                lap_dur = _g(s, "duration_seconds") or 0
-                lap_dist_raw = _g(s, "distance_km")
-                try:
-                    lap_dist = float(lap_dist_raw) if lap_dist_raw is not None else None
-                except (TypeError, ValueError):
-                    lap_dist = None
-                if not lap_dur or not lap_dist or lap_dist <= 0:
-                    valid = False
-                    break
-                lap_pace = lap_dur / lap_dist
-                lap_if = threshold_pace / lap_pace
-                total += (lap_dur / 3600) * lap_if ** 2 * 100
-            if valid:
-                return {"tss": round(total), "method": "pace", "partial": False}
+    if duration <= 0:
+        # No meaningful duration → pace and hr also cannot run
+        debug["pace"] = "skipped: duration missing or zero"
+        debug["hr"] = "skipped: duration missing or zero"
+        return {"tss": None, "method": "none", "partial": False, "debug": debug}
 
-        # Fallback: whole-workout average pace
+    # ── Method 2: Pace ────────────────────────────────────────────────────────
+    if not threshold_pace:
+        debug["pace"] = "skipped: threshold_pace_seconds_per_km not set in prefs"
+    else:
+        # Try per-lap computation: each lap contributes its own TSS slice
+        valid_laps = []
+        total_tss = 0.0
+        for s in split_list:
+            lap_dur = _g(s, "duration_seconds") or 0
+            lap_dist_raw = _g(s, "distance_km")
+            try:
+                lap_dist = float(lap_dist_raw) if lap_dist_raw is not None else None
+            except (TypeError, ValueError):
+                lap_dist = None
+            if not lap_dur or not lap_dist or lap_dist <= 0:
+                # Skip invalid laps silently; they will affect partial flag
+                continue
+            # lap pace: seconds elapsed for each km covered in this lap
+            lap_pace = lap_dur / lap_dist
+            # intensity: how fast relative to threshold (faster → value > 1.0)
+            lap_if = threshold_pace / lap_pace
+            # lap TSS = fraction of an hour × intensity squared × 100
+            total_tss += (lap_dur / 3600) * lap_if ** 2 * 100
+            valid_laps.append(lap_dur)
+
+        if valid_laps:
+            # Determine whether laps cover substantially all of the workout
+            # (coverage < 95 % means GPS dropout or incomplete data → partial)
+            coverage = sum(valid_laps) / duration
+            partial = coverage < 0.95
+            debug["pace"] = "used"
+            debug["hr"] = "not attempted"
+            return {"tss": round(total_tss), "method": "pace", "partial": partial, "debug": debug}
+
+        # Fallback: synthesise a single lap from whole-workout average pace
         try:
             dist_f = float(distance_km) if distance_km is not None else None
         except (TypeError, ValueError):
             dist_f = None
-        if dist_f and dist_f > 0:
-            avg_pace = duration / dist_f
-            if_val = threshold_pace / avg_pace
-            return {"tss": round((duration * if_val ** 2 / 3600) * 100), "method": "pace", "partial": True}
 
-    # ── Method 3: HR ───────────────────────────────────────────────────────────
-    if threshold_hr:
+        if dist_f and dist_f > 0:
+            # average pace = total seconds / total km for the whole run
+            avg_pace = duration / dist_f
+            # intensity = threshold pace / average pace
+            if_val = threshold_pace / avg_pace
+            # TSS = hours × intensity squared × 100
+            tss = round((duration / 3600) * if_val ** 2 * 100)
+            debug["pace"] = "used"
+            debug["hr"] = "not attempted"
+            return {"tss": tss, "method": "pace", "partial": True, "debug": debug}
+
+        debug["pace"] = "skipped: no valid split data and distance_km not available"
+
+    # ── Method 3: HR ─────────────────────────────────────────────────────────
+    if not threshold_hr:
+        debug["hr"] = "skipped: threshold_hr not set in prefs"
+    else:
+        # Try per-lap HR: use duration-weighted average heart rate across laps
         if split_list:
             lap_hrs = [_g(s, "avg_hr") for s in split_list]
-            if all(hr is not None for hr in lap_hrs):
-                total = 0.0
+            if all(h is not None for h in lap_hrs):
+                total_tss = 0.0
                 for s, hr in zip(split_list, lap_hrs):
                     lap_dur = _g(s, "duration_seconds") or 0
+                    # intensity = lap HR / threshold HR
                     lap_if = hr / threshold_hr
-                    total += (lap_dur / 3600) * lap_if ** 2 * 100
-                return {"tss": round(total), "method": "hr", "partial": False}
+                    # lap TSS = fraction of an hour × intensity squared × 100
+                    total_tss += (lap_dur / 3600) * lap_if ** 2 * 100
+                debug["hr"] = "used"
+                return {"tss": round(total_tss), "method": "hr", "partial": False, "debug": debug}
 
-        # Fallback: workout-level avg_hr
+        # Fallback: workout-level avg_hr (less precise, hence partial=True)
         if avg_hr:
+            # intensity = workout average HR / threshold HR
             if_val = avg_hr / threshold_hr
-            return {"tss": round((duration * if_val ** 2 / 3600) * 100), "method": "hr", "partial": True}
+            # TSS = hours × intensity squared × 100
+            tss = round((duration / 3600) * if_val ** 2 * 100)
+            debug["hr"] = "used"
+            return {"tss": tss, "method": "hr", "partial": True, "debug": debug}
 
-    return {"tss": None, "method": "none", "partial": False}
+        debug["hr"] = "skipped: avg_hr not present in workout and no per-lap HR available"
+
+    return {"tss": None, "method": "none", "partial": False, "debug": debug}
+
+
+def calculate_pace_tss(
+    splits,
+    threshold_pace_seconds_per_km,
+    workout_duration_seconds,
+    workout_avg_pace_seconds_per_km,
+) -> dict:
+    """Compute TSS for a running workout using pace only (no DB access).
+
+    Intensity for each lap is the ratio of threshold pace to lap pace.
+    Because pace is in seconds-per-km, a *faster* lap (lower s/km) produces
+    an intensity factor greater than 1.
+
+    Formula per lap
+    ---------------
+    lap_pace     = lap_duration_seconds / lap_distance_km
+    lap_intensity = threshold_pace_seconds_per_km / lap_pace
+    lap_tss       = (lap_duration_seconds / 3600) × lap_intensity² × 100
+    tss           = round(sum of all lap_tss)
+
+    When ``splits`` is absent or empty the function synthesises a single lap
+    from ``workout_duration_seconds`` and ``workout_avg_pace_seconds_per_km``.
+
+    Worked two-lap example
+    ----------------------
+    threshold = 330 s/km (5:30/km)
+    Lap 1: 1080 s, 3.00 km → lap_pace = 360 s/km
+        lap_intensity = 330 / 360 ≈ 0.9167
+        lap_tss = (1080/3600) × 0.9167² × 100 ≈ 25.21
+    Lap 2: 1080 s, 3.60 km → lap_pace = 300 s/km
+        lap_intensity = 330 / 300 = 1.1
+        lap_tss = (1080/3600) × 1.1² × 100 = 36.30
+    tss = round(25.21 + 36.30) = round(61.51) = 62
+    """
+    def _g(obj, key):
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    # Guard: threshold required to compute any intensity factor
+    if not threshold_pace_seconds_per_km:
+        return {
+            "tss": None,
+            "method": "none",
+            "debug": {"laps": [], "reason": "missing threshold_pace_seconds_per_km"},
+        }
+
+    split_list = list(splits) if splits else []
+    laps = []
+
+    for s in split_list:
+        lap_dur = _g(s, "duration_seconds") or 0
+        lap_dist_raw = _g(s, "distance_km")
+        try:
+            lap_dist = float(lap_dist_raw) if lap_dist_raw is not None else None
+        except (TypeError, ValueError):
+            lap_dist = None
+        if not lap_dur or not lap_dist or lap_dist <= 0:
+            continue
+        # lap pace in seconds per km
+        lap_pace = lap_dur / lap_dist
+        # intensity: threshold pace divided by actual lap pace
+        lap_intensity = threshold_pace_seconds_per_km / lap_pace
+        # lap TSS = fraction of an hour × intensity squared × 100
+        lap_tss = (lap_dur / 3600) * lap_intensity ** 2 * 100
+        laps.append({
+            "lap_duration_seconds": lap_dur,
+            "lap_pace_seconds_per_km": lap_pace,
+            "lap_intensity": lap_intensity,
+            "lap_tss": lap_tss,
+        })
+
+    if not laps:
+        # Fallback: synthetic single lap from whole-workout average pace
+        avg_pace = workout_avg_pace_seconds_per_km
+        dur = workout_duration_seconds or 0
+        if not avg_pace or not dur:
+            return {
+                "tss": None,
+                "method": "none",
+                "debug": {"laps": [], "reason": "missing pace data"},
+            }
+        # intensity from workout average pace
+        lap_intensity = threshold_pace_seconds_per_km / avg_pace
+        # TSS for the whole workout treated as one lap
+        lap_tss = (dur / 3600) * lap_intensity ** 2 * 100
+        laps.append({
+            "lap_duration_seconds": dur,
+            "lap_pace_seconds_per_km": avg_pace,
+            "lap_intensity": lap_intensity,
+            "lap_tss": lap_tss,
+        })
+
+    tss = round(sum(lap["lap_tss"] for lap in laps))
+    return {"tss": tss, "method": "pace", "debug": {"laps": laps}}
 
 
 def calculate_hr_tss(
@@ -879,3 +1030,71 @@ def compute_strength_tss(workout, exercises, prefs) -> dict:
         "method": "none",
         "partial": False,
         "debug": {"reason": reason},    }
+
+
+def persist_running_tss(workout_id, session) -> dict:
+    """Thin caller: load workout, splits, and user prefs from session; persist running TSS.
+
+    No math or hardcoded thresholds — all computation is delegated to
+    compute_running_tss.  Only writes the computed value to workout.tss when
+    that field is currently null (a manually-entered TSS is never overwritten).
+    Always writes workout.tss_method so the UI can show the computation method
+    even when a manual override is in place.
+
+    The caller is responsible for calling session.commit() after this function
+    returns so that multiple writes can be batched in one round-trip.
+
+    Returns the compute_running_tss result dict (tss, method, partial, debug)
+    so the caller can surface the computed value for comparison display without
+    reading it back from the database.
+    """
+    from backend.models import Workout, WorkoutSplit, UserPreferences
+
+    workout = session.get(Workout, workout_id)
+    if workout is None:
+        return {"tss": None, "method": "none", "partial": False, "debug": {}}
+
+    splits = (
+        session.query(WorkoutSplit)
+        .filter(WorkoutSplit.workout_id == workout_id)
+        .order_by(WorkoutSplit.split_index)
+        .all()
+    )
+    prefs = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == workout.user_id)
+        .first()
+    )
+
+    result = compute_running_tss(workout, splits, prefs or UserPreferences())
+
+    # Always persist the computation method (enables comparison display in UI)
+    if result["method"] != "none":
+        workout.tss_method = result["method"]
+
+    # Only write computed value when no TSS is currently stored — manual entry wins
+    if workout.tss is None and result["tss"] is not None:
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+
+    return result
+
+
+def recompute_user_running_tss(user_id, session) -> None:
+    """Recompute TSS for every running workout owned by user_id.
+
+    Called when the user's threshold preferences change so that all stored TSS
+    values reflect the new thresholds on next fetch.  Only workouts with
+    workout_type matching 'run' (case-insensitive) are processed.  The caller
+    must commit the session after this function returns.
+    """
+    from backend.models import Workout
+
+    workouts = (
+        session.query(Workout)
+        .filter(Workout.user_id == user_id)
+        .filter(Workout.workout_type.ilike("run%"))
+        .all()
+    )
+    for w in workouts:
+        persist_running_tss(w.id, session)
