@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 66.1 — Dual source badges, compact sync controls, and weight chart redesign
+
+- #601: Show both Strava and Stryd badges on merged workouts (has_strava/has_stryd on training-log and workout-list responses)
+- #602: Add compact sync controls with real last-sync times to Settings → Integrations
+- #633: Redesign weight trend chart with three-zone axes (BMI zones, moving average, custom SVG v8)
+
 ## Sprint 66 — Performance Thresholds settings expansion and Zone 2 habit provisioning
 
 - #596: Add Max HR field to Performance Thresholds settings (user_preferences.max_hr, default 190 bpm)
