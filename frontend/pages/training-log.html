@@ -133,6 +133,65 @@
       color: rgba(255,255,255,0.75);
     }
 
+    /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
+    .training-sub-tabs {
+      display: inline-flex;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 999px;
+      padding: 3px;
+      margin: 0;
+    }
+
+    .training-sub-tab {
+      padding: 6px 18px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      font-family: inherit;
+      margin: 0;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .training-sub-tab.active {
+      background: #fff;
+      color: var(--text-primary);
+    }
+
+    .training-sub-tab:hover:not(.active) {
+      background: rgba(255,255,255,0.12);
+    }
+
+    /* ── Placeholder panels (Plan / Performance) ── */
+    .tab-panel-placeholder {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 22px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .tab-coming-soon {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 56px 24px;
+      text-align: center;
+    }
+
+    .tab-coming-soon-text {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+    }
+
     .btn-coming-soon {
       position: relative;
     }
@@ -1917,17 +1976,38 @@
     </div>
   </header>
 
-  <!-- Week strip (JS renders into this) -->
+  <!-- Sub-tab bar: Log / Plan / Performance -->
+  <nav class="training-sub-tabs" id="training-sub-tabs" aria-label="Training sub-tabs">
+    <button class="training-sub-tab active" data-tab="log" type="button" aria-selected="true">Log</button>
+    <button class="training-sub-tab" data-tab="plan" type="button" aria-selected="false">Plan</button>
+    <button class="training-sub-tab" data-tab="performance" type="button" aria-selected="false">Performance</button>
+  </nav>
+
+  <!-- Week strip (JS renders into this) — Log tab content -->
   <div class="log-card log-card--week">
     <div id="week-strip"></div>
   </div>
 
-  <!-- Filter bar (JS renders into this) -->
+  <!-- Filter bar (JS renders into this) — Log tab content -->
   <div class="log-card log-card--filters">
     <div id="filter-bar"></div>
   </div>
 
   </main>
+
+  <!-- Plan panel placeholder (hidden by default) -->
+  <div id="training-panel-plan" class="tab-panel-placeholder" hidden>
+    <div class="tab-coming-soon">
+      <p class="tab-coming-soon-text">Coming soon</p>
+    </div>
+  </div>
+
+  <!-- Performance panel placeholder (hidden by default) -->
+  <div id="training-panel-performance" class="tab-panel-placeholder" hidden>
+    <div class="tab-coming-soon">
+      <p class="tab-coming-soon-text">Coming soon</p>
+    </div>
+  </div>
 
   <div id="layout-wrapper" class="log-layout">
     <div id="list-main" class="log-page-body">
@@ -2228,5 +2308,62 @@
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
+  <script>
+  /* Sub-tab switching — no page reload, panel swap only */
+  (function () {
+    'use strict';
+    var TABS = ['log', 'plan', 'performance'];
+
+    var layoutWrapper = document.getElementById('layout-wrapper');
+    var mainCards = document.querySelectorAll('main .log-card');
+    var panelPlan = document.getElementById('training-panel-plan');
+    var panelPerf = document.getElementById('training-panel-performance');
+    var logNewBtn = document.getElementById('log-new-btn');
+
+    function getActiveTab() {
+      var hash = window.location.hash.replace('#', '');
+      return TABS.indexOf(hash) !== -1 ? hash : 'log';
+    }
+
+    function activateTab(tab) {
+      var isLog = tab === 'log';
+      // Update tab button states
+      document.querySelectorAll('.training-sub-tab').forEach(function (btn) {
+        var active = btn.getAttribute('data-tab') === tab;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      // Show/hide the Log content (cards in main + layout-wrapper)
+      mainCards.forEach(function (el) { el.style.display = isLog ? '' : 'none'; });
+      if (layoutWrapper) layoutWrapper.style.display = isLog ? '' : 'none';
+      // Show/hide placeholder panels
+      if (panelPlan) panelPlan.hidden = tab !== 'plan';
+      if (panelPerf) panelPerf.hidden = tab !== 'performance';
+      // Hide "Log workout" button when not on Log tab
+      if (logNewBtn) logNewBtn.style.display = isLog ? '' : 'none';
+    }
+
+    // Handle clicks without triggering a page reload
+    var tabNav = document.getElementById('training-sub-tabs');
+    if (tabNav) {
+      tabNav.addEventListener('click', function (e) {
+        var btn = e.target.closest('.training-sub-tab');
+        if (!btn) return;
+        var tab = btn.getAttribute('data-tab');
+        if (!tab) return;
+        var newUrl = window.location.pathname + window.location.search +
+                     (tab === 'log' ? '' : '#' + tab);
+        history.pushState({ tab: tab }, '', newUrl);
+        activateTab(tab);
+      });
+    }
+
+    // Restore tab on back/forward navigation
+    window.addEventListener('popstate', function () { activateTab(getActiveTab()); });
+
+    // Initialize on load (handles direct URLs with hash)
+    activateTab(getActiveTab());
+  }());
+  </script>
 </body>
 </html>
