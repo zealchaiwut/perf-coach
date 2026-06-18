@@ -48,11 +48,13 @@ def test_sync_bar_hidden_by_default():
 # ── Phase labels ──────────────────────────────────────────────────────────────
 
 def test_phase_label_pulling_strava():
-    assert "Pulling Strava history" in NAV_JS
+    # Updated by issue #600: label changed from "Pulling Strava history" to "Syncing Strava"
+    assert "Syncing Strava" in NAV_JS
 
 
 def test_phase_label_pulling_stryd():
-    assert "Pulling Stryd history" in NAV_JS
+    # Updated by issue #600: label changed from "Pulling Stryd history" to "Syncing Stryd"
+    assert "Syncing Stryd" in NAV_JS
 
 
 def test_phase_label_reconciling():
@@ -108,7 +110,8 @@ def test_running_state_shows_progress_count():
 
 def test_success_state_shows_synced_count():
     assert "items_synced" in NAV_JS
-    assert "Synced" in NAV_JS
+    # Updated by issue #600: message changed to "Sync complete — N workouts updated"
+    assert "Sync complete" in NAV_JS
 
 
 def test_success_auto_hides():

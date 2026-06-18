@@ -227,7 +227,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(source columns added Sprint 65)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -236,15 +236,21 @@ Unique: `(user_id, date)`.
 | ftp_w | int | nullable |
 | ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |
 | threshold_hr | int | nullable |
+| max_hr | int | nullable — max heart rate (bpm); default 190 when null |
 | threshold_hr_source | varchar(30) | nullable; `user_accepted` or `manual` |
 | threshold_pace_seconds_per_km | int | nullable |
 | threshold_pace_seconds_per_km_source | varchar(30) | nullable; `user_accepted` or `manual` |
+| zone2_hr_min | int | nullable — Zone 2 lower HR bound; default 130 when null |
+| zone2_hr_max | int | nullable — Zone 2 upper HR bound; default 155 when null |
+| weekly_zone2_target_min | int | nullable — weekly Zone 2 minutes goal; default 150 when null |
 | preferred_units | varchar(20) | `metric` (default) |
 | timezone | varchar(100) | default `Asia/Bangkok` |
 | week_start_day | int | default 1 (Monday) |
 | display_name | varchar(100) | nullable |
 | date_format | varchar(20) | default `YYYY-MM-DD` |
 | created_at / updated_at | timestamptz | |
+
+`GET /api/user-preferences` returns both a `row` (stored overrides, null when unset) and a `defaults` object with system default values for all threshold fields. `PATCH /api/user-preferences` accepts any subset of the nullable columns; omitted fields are unchanged.
 
 ---
 

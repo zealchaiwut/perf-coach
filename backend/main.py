@@ -3018,6 +3018,24 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
     )
     from sqlalchemy import func as _sa_func
     with Session(engine) as session:
+        if body.auto_fill_source is not None:
+            existing = (
+                session.query(Habit)
+                .filter(
+                    Habit.user_id == user.id,
+                    Habit.auto_fill_source == body.auto_fill_source,
+                    Habit.is_archived.is_(False),
+                )
+                .first()
+            )
+            if existing is not None:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "A habit with this auto_fill_source already exists",
+                        "existing_habit_id": str(existing.id),
+                    },
+                )
         max_order = (
             session.query(_sa_func.max(Habit.sort_order))
             .filter(Habit.user_id == user.id)
@@ -4482,6 +4500,7 @@ def _compute_derived(strava: dict | None, stryd: dict | None) -> dict:
 
 
 def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
+    src = w.source or ""
     return {
         "id": str(w.id),
         "workout_date": str(w.workout_date),
@@ -4491,6 +4510,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "tss": w.tss,
         "tss_source": w.tss_source,
         "source": w.source,
+        "has_strava": "strava" in src or w.strava_activity_pk is not None,
+        "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
@@ -6493,6 +6514,8 @@ def get_training_log(
             "source": w.source or w.tss_source or "manual",
             "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
             "is_stryd_synced": w.stryd_activity_pk is not None,
+            "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
+            "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
             "weight_context": w.remarks,
         }
