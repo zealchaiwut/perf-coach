@@ -1,6 +1,5 @@
 """Tests for issue #590: Add auto-threshold suggestion from duration curve (runs against UAT)"""
 import os
-import pytest
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
