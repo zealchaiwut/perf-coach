@@ -14,7 +14,7 @@
     html, body { margin: 0; padding: 0; }
 
     body {
-      font-family: 'Inter Tight', system-ui, sans-serif;
+      font-family: "Inter Tight", system-ui, sans-serif;
       background: var(--page-bg);
       min-height: 100vh;
       color: var(--text-primary);
@@ -131,6 +131,60 @@
     #log-sync-feedback {
       font-size: 12px;
       color: rgba(255,255,255,0.75);
+    }
+
+    /* ── Sync chip ── */
+    .sync-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px 4px 11px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 20px;
+      backdrop-filter: blur(8px);
+      font-size: 11.5px;
+      color: rgba(255,255,255,0.80);
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .sync-chip-label {
+      font-weight: 500;
+    }
+
+    .sync-chip-time {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+    }
+
+    .sync-chip-sep {
+      opacity: 0.35;
+      font-size: 10px;
+    }
+
+    .sync-chip-btn {
+      margin-left: 3px;
+      padding: 3px 9px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      line-height: 1;
+      transition: background 0.1s;
+    }
+
+    .sync-chip-btn:hover:not(:disabled) {
+      background: rgba(255,255,255,0.24);
+    }
+
+    .sync-chip-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .btn-coming-soon {
@@ -505,7 +559,7 @@
     }
 
     .lw-stat-val {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 1.35rem;
       font-weight: 600;
       color: var(--ink);
@@ -566,7 +620,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px 0;
+      padding: 12px 16px 8px;
       border-bottom: 1px solid var(--card-border);
     }
 
@@ -587,7 +641,7 @@
       font-weight: 600;
       cursor: pointer;
       border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
+      margin-bottom: -9px;
     }
 
     .log-history-tab:hover { color: var(--text-primary); }
@@ -725,7 +779,7 @@
     .entry-row:hover .entry-chevron { color: var(--text-secondary); }
 
     .entry-day-num {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 19px;
       font-weight: 700;
       line-height: 1;
@@ -763,8 +817,8 @@
 
     .entry-type--run  .entry-type-dot { background: #3b82f6; }
     .entry-type--run  .entry-type-label { color: #1d4ed8; }
-    .entry-type--lift .entry-type-dot { background: #8b5cf6; }
-    .entry-type--lift .entry-type-label { color: #6d28d9; }
+    .entry-type--lift .entry-type-dot { background: #64748b; }
+    .entry-type--lift .entry-type-label { color: #475569; }
     .entry-type--wod  .entry-type-dot { background: #f59e0b; }
     .entry-type--wod  .entry-type-label { color: #b45309; }
     .entry-type--bike .entry-type-dot { background: #14b8a6; }
@@ -801,14 +855,14 @@
     }
 
     .entry-metric-primary {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.9375rem;
       font-weight: 600;
       color: var(--ink);
     }
 
     .entry-metric-secondary {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.75rem;
       color: var(--text-sub);
       margin-top: 0.05rem;
@@ -1112,7 +1166,7 @@
     /* ── Detail top bar ── */
     .dp-topbar {
       height: 52px;
-      padding: 0 10px;
+      padding: 8px 10px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
@@ -1138,7 +1192,7 @@
     }
 
     .dp-position {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.75rem; font-weight: 600;
       color: #555; background: #f1f4fa;
       padding: 4px 10px; border-radius: 999px;
@@ -1198,7 +1252,7 @@
     }
 
     .dp-icon-pill--run  { background: #dbeafe; color: #1d4ed8; }
-    .dp-icon-pill--lift { background: #ede9fe; color: #6d28d9; }
+    .dp-icon-pill--lift { background: #f1f5f9; color: #475569; }
     .dp-icon-pill--wod  { background: #fef3c7; color: #b45309; }
     .dp-icon-pill--bike { background: #ccfbf1; color: #0f766e; }
     .dp-icon-pill--other { background: #f0f0f0; color: #555; }
@@ -1281,7 +1335,7 @@
     }
     .dp-hm { background: var(--tile); border-radius: 10px; padding: 13px 14px; }
     .dp-hm-val {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 1.65rem; font-weight: 600; color: var(--ink);
       line-height: 1.05; letter-spacing: -0.02em;
     }
@@ -1294,7 +1348,7 @@
       display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 2px 2px 0;
       font-size: 0.8125rem; color: var(--ink-2);
     }
-    .dp-strip-item { font-family: var(--mono); }
+    .dp-strip-item { font-family: "JetBrains Mono", monospace; }
     .dp-strip-k {
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 0.625rem; font-weight: 600; color: var(--text-sub);
@@ -1328,7 +1382,7 @@
     }
 
     .dp-stat-value {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 1rem; font-weight: 600; color: var(--ink);
       line-height: 1.1;
     }
@@ -1360,7 +1414,7 @@
       width: 24px; height: 20px; border-radius: 5px;
       background: #dbeafe; color: #1d4ed8;
       display: flex; align-items: center; justify-content: center;
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.6875rem; font-weight: 700; flex-shrink: 0;
     }
 
@@ -1368,7 +1422,7 @@
     .dp-interval-sub  { font-size: 0.75rem; color: var(--text-sub); margin-top: 1px; }
 
     .dp-interval-pace {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.8125rem; font-weight: 600;
       color: var(--ink); text-align: right;
     }
@@ -1376,7 +1430,7 @@
     .dp-interval-pace-sub { font-size: 0.625rem; color: var(--text-sub); text-align: right; margin-top: 1px; }
 
     .dp-interval-hr {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
@@ -1390,7 +1444,7 @@
 
     .dp-interval-footer strong {
       color: var(--ink);
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
     }
 
     /* ── Per-km splits table ── */
@@ -1423,13 +1477,13 @@
     .dp-split-km { font-weight: 600; color: var(--ink-2); font-size: 0.8125rem; }
 
     .dp-split-pace {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.8125rem; font-weight: 600;
       color: var(--ink); text-align: right;
     }
 
     .dp-split-hr {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.75rem; color: var(--ink-2); text-align: right;
     }
 
@@ -1440,7 +1494,7 @@
       grid-template-columns: 36px 1fr 72px auto;
     }
     .dp-split-dist {
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       font-size: 0.8125rem; color: var(--ink-2);
     }
     .dp-split-edit-row {
@@ -1453,7 +1507,7 @@
       border: 1px solid rgba(13,30,67,0.18);
       border-radius: 6px;
       font-size: 0.8125rem;
-      font-family: var(--mono);
+      font-family: "JetBrains Mono", monospace;
       color: var(--ink);
     }
     .dp-split-input:focus {
@@ -1648,7 +1702,7 @@
       background: #fff;
       border: 1px solid #e0e0e0;
       border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(13,30,67,0.12);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
       z-index: 50;
       min-width: 160px;
       overflow: hidden;
@@ -1726,7 +1780,7 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
-      box-shadow: 0 12px 40px rgba(13, 30, 67, 0.25);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
       padding: 1.25rem 1.5rem 1.5rem;
     }
 
@@ -1788,7 +1842,7 @@
     .rv-stack { display: flex; flex-direction: column; gap: 16px; }
     .rv-card {
       background: #fff; border-radius: 14px; padding: 20px;
-      box-shadow: 0 6px 20px rgba(8, 18, 48, 0.16);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
     }
     .rv-sec-title {
       font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.09em;
@@ -1813,7 +1867,7 @@
     .rv-srcbadge--stryd  { background: #0f1830; }
     .rv-title { margin: 14px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
     .rv-idrow { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-    .rv-id { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.75rem; color: #9aa3b2; }
+    .rv-id { font-family: "JetBrains Mono", monospace; font-size: 0.75rem; color: #9aa3b2; }
     .rv-idcopy {
       width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 5px;
       background: #fff; color: #9aa3b2; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
@@ -1823,18 +1877,18 @@
     .rv-date { margin-top: 8px; font-size: 0.875rem; color: var(--ink-2); }
     .rv-basic-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
     .rv-tile--basic { background: #f6f8fc; border-radius: 12px; padding: 18px 20px; }
-    .rv-tile-val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 2.25rem; font-weight: 700; color: var(--ink); line-height: 1; }
+    .rv-tile-val { font-family: "JetBrains Mono", monospace; font-size: 2.25rem; font-weight: 700; color: var(--ink); line-height: 1; }
     .rv-tile-unit { font-size: 0.9375rem; color: #9aa3b2; font-weight: 600; margin-left: 3px; }
     .rv-tile-lbl { margin-top: 8px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa3b2; }
     .rv-duration { margin-top: 16px; font-size: 0.875rem; color: var(--ink-2); }
-    .rv-duration strong { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--ink); }
+    .rv-duration strong { font-family: "JetBrains Mono", monospace; color: var(--ink); }
 
     /* load grid */
     .rv-igrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #eef1f6; border-radius: 12px; overflow: hidden; }
     .rv-itile { background: #fff; padding: 16px 18px; }
     .rv-itile--hero { background: linear-gradient(135deg, #eef3ff, #f6f9ff); }
     .rv-itile-lbl { font-size: 0.625rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #9aa3b2; display: flex; align-items: center; gap: 5px; }
-    .rv-itile-val { margin-top: 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.5rem; font-weight: 700; color: var(--ink); }
+    .rv-itile-val { margin-top: 8px; font-family: "JetBrains Mono", monospace; font-size: 1.5rem; font-weight: 700; color: var(--ink); }
     .rv-itile--hero .rv-itile-val { font-size: 2rem; color: #3b6fe0; }
     .rv-itile-unit { font-size: 0.8125rem; color: #9aa3b2; font-weight: 600; margin-left: 2px; }
     .rv-stryd-tag { font-size: 0.5rem; font-weight: 800; color: #7c5cff; background: #f0ecff; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.04em; }
@@ -1842,7 +1896,7 @@
     .rv-dot--hr { background: #e0414b; }
     .rv-dot--pwr, .rv-dot--easy { }
     .rv-dot--pwr { background: #7c5cff; }
-    .rv-foot { margin-top: 14px; font-size: 0.75rem; color: #9aa3b2; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .rv-foot { margin-top: 14px; font-size: 0.75rem; color: #9aa3b2; font-family: "JetBrains Mono", monospace; }
 
     /* effort profile */
     .rv-eff-axis { display: flex; justify-content: space-between; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; color: #b3bccb; margin-bottom: 8px; }
@@ -1876,7 +1930,7 @@
     .rv-lap-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
     .rv-lap-table th { text-align: right; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa3b2; padding: 8px 10px; border-bottom: 1px solid var(--border); }
     .rv-lap-table th:first-child { text-align: left; }
-    .rv-lap-table td { text-align: right; padding: 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--ink); border-bottom: 1px solid #f1f4fa; white-space: nowrap; }
+    .rv-lap-table td { text-align: right; padding: 10px; font-family: "JetBrains Mono", monospace; color: var(--ink); border-bottom: 1px solid #f1f4fa; white-space: nowrap; }
     .rv-lap-table td:first-child { text-align: left; font-weight: 700; }
     .rv-lap-table tr.rv-lap-z2 td { background: #ecfbf7; }
     .rv-lap-n { color: #5a6577; }
@@ -1894,7 +1948,7 @@
     .rv-srcbtn { font-size: 0.8125rem; font-weight: 700; padding: 9px 16px; border-radius: 999px; color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
     .rv-srcbtn--strava { background: #fc4c02; }
     .rv-srcbtn--stryd { background: #0f1830; }
-    .rv-srcnote { font-size: 0.8125rem; color: #9aa3b2; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .rv-srcnote { font-size: 0.8125rem; color: #9aa3b2; font-family: "JetBrains Mono", monospace; }
     @media (max-width: 560px) {
       .rv-igrid { grid-template-columns: repeat(2, 1fr); }
       .rv-basic-tiles { grid-template-columns: 1fr; }
@@ -1906,12 +1960,20 @@
   <main class="log-page">
 
   <!-- Page header: title, stats subtitle, action buttons -->
-  <header class="log-page-header">
+  <header class="log-page-header" style="background-color: #1f3b8a">
     <div class="log-page-header-info">
       <h1 class="log-page-title">Training log</h1>
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
+      <div id="sync-chip" class="sync-chip" aria-label="Sync status">
+        <span class="sync-chip-label">Strava</span>
+        <span id="sync-time-strava" class="sync-chip-time">…</span>
+        <span class="sync-chip-sep">·</span>
+        <span class="sync-chip-label">Stryd</span>
+        <span id="sync-time-stryd" class="sync-chip-time">…</span>
+        <button id="sync-all-btn" class="sync-chip-btn" type="button">Sync</button>
+      </div>
       <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>
