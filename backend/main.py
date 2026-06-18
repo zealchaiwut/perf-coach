@@ -26,7 +26,8 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import derive_goal_pace as _derive_goal_pace
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
@@ -7768,7 +7769,7 @@ def stryd_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
     """Data-quality counts for a user's Stryd/workout sync state."""
     if user_id is None:
         raise HTTPException(status_code=400, detail="user_id is required")
-    from sqlalchemy import func as _func, select as _sel, text as _text
+    from sqlalchemy import func as _func, select as _sel
     uid = user_id
     with Session(engine) as session:
         stryd_count = session.execute(
@@ -9607,3 +9608,165 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
         return JSONResponse(_prefs_row_dict(prefs))
+
+
+# ── Races ─────────────────────────────────────────────────────────────────────
+
+class _RaceCreateBody(BaseModel):
+    race_date: str
+    distance_km: float
+    goal_time_seconds: Optional[int] = None
+    name: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+class _RaceUpdateBody(BaseModel):
+    race_date: Optional[str] = None
+    distance_km: Optional[float] = None
+    goal_time_seconds: Optional[int] = None
+    name: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _race_dict(race: Race) -> dict:
+    return {
+        "id": str(race.id),
+        "user_id": str(race.user_id),
+        "name": race.name,
+        "race_date": str(race.race_date),
+        "distance_km": float(race.distance_km),
+        "goal_time_seconds": race.goal_time_seconds,
+        "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
+        "priority": race.priority,
+        "status": race.status,
+        "created_at": race.created_at.isoformat() if race.created_at else None,
+        "updated_at": race.updated_at.isoformat() if race.updated_at else None,
+    }
+
+
+def _validate_race_date(race_date_str: str) -> _date:
+    try:
+        return _date.fromisoformat(race_date_str)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "race_date", "error": "race_date must be a valid YYYY-MM-DD date"},
+        )
+
+
+def _validate_distance_km(distance_km: float) -> None:
+    if distance_km <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "distance_km", "error": "distance_km must be a positive number (> 0)"},
+        )
+
+
+@app.post("/api/races", status_code=201)
+def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
+    race_date = _validate_race_date(body.race_date)
+    _validate_distance_km(body.distance_km)
+
+    pace = _derive_goal_pace(body.goal_time_seconds, body.distance_km)
+
+    with Session(engine) as session:
+        race = Race(
+            user_id=user.id,
+            name=body.name if body.name is not None else "",
+            race_date=race_date,
+            distance_km=body.distance_km,
+            goal_time_seconds=body.goal_time_seconds,
+            priority=body.priority if body.priority is not None else "A",
+            status=body.status if body.status is not None else "planned",
+        )
+        race.goal_pace_seconds_per_km = pace
+        session.add(race)
+        session.commit()
+        session.refresh(race)
+        return JSONResponse(status_code=201, content=_race_dict(race))
+
+
+@app.get("/api/races")
+def list_races(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        rows = (
+            session.query(Race)
+            .filter(Race.user_id == user.id)
+            .order_by(Race.race_date)
+            .all()
+        )
+        return JSONResponse([_race_dict(r) for r in rows])
+
+
+@app.get("/api/athletes/{athlete_id}/races")
+def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
+    try:
+        aid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid athlete_id")
+    if aid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with Session(engine) as session:
+        rows = (
+            session.query(Race)
+            .filter(Race.user_id == aid)
+            .order_by(Race.race_date)
+            .all()
+        )
+        return JSONResponse([_race_dict(r) for r in rows])
+
+
+@app.get("/api/races/{race_id}")
+def get_race(race_id: str, user: User = Depends(resolve_user)):
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+        return JSONResponse(_race_dict(race))
+
+
+@app.put("/api/races/{race_id}")
+def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve_user)):
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    if body.race_date is not None:
+        _validate_race_date(body.race_date)
+    if body.distance_km is not None:
+        _validate_distance_km(body.distance_km)
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        if body.race_date is not None:
+            race.race_date = _date.fromisoformat(body.race_date)
+        if body.distance_km is not None:
+            race.distance_km = body.distance_km
+        if "goal_time_seconds" in body.model_fields_set:
+            race.goal_time_seconds = body.goal_time_seconds
+        if body.name is not None:
+            race.name = body.name
+        if body.priority is not None:
+            race.priority = body.priority
+        if body.status is not None:
+            race.status = body.status
+
+        race.goal_pace_seconds_per_km = _derive_goal_pace(
+            race.goal_time_seconds,
+            float(race.distance_km) if race.distance_km is not None else None,
+        )
+        race.updated_at = _datetime.now(_timezone.utc)
+
+        session.commit()
+        session.refresh(race)
+        return JSONResponse(_race_dict(race))
