@@ -351,8 +351,8 @@ def _skip_reason_power(duration, stream, laps, aggregates):
     else:
         base = f"stream length {stream_len}s is shorter than {duration}s window"
     lap_count = len([
-        l for l in laps
-        if l.get("avg_power") is not None and (l.get("duration_seconds") or 0) >= duration
+        lap for lap in laps
+        if lap.get("avg_power") is not None and (lap.get("duration_seconds") or 0) >= duration
     ])
     if lap_count == 0:
         return f"{base} and no lap longer than {duration}s with power data"
