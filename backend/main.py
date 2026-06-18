@@ -7769,7 +7769,7 @@ def stryd_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
     """Data-quality counts for a user's Stryd/workout sync state."""
     if user_id is None:
         raise HTTPException(status_code=400, detail="user_id is required")
-    from sqlalchemy import func as _func, select as _sel, text as _text
+    from sqlalchemy import func as _func, select as _sel
     uid = user_id
     with Session(engine) as session:
         stryd_count = session.execute(
