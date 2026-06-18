@@ -26,12 +26,28 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import derive_goal_pace as _derive_goal_pace
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
-from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
+from backend.services.training_load import (
+    _ewma_alpha,
+    current_load,
+    daily_tss_series,
+    daily_update,
+    compute_load_curves,
+    project_form,
+    taper_recommendation,
+    peak_tracking,
+    FORM_BURIED_CEILING,
+    FORM_FRESH_FLOOR,
+    DEFAULT_TAPER_DAYS,
+    TARGET_FORM_LOWER,
+    PEAK_TRACKING_TOLERANCE,
+)
+from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
@@ -9669,6 +9685,396 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
         return JSONResponse(_prefs_row_dict(prefs))
+
+
+# ── Races ─────────────────────────────────────────────────────────────────────
+
+class _RaceCreateBody(BaseModel):
+    race_date: str
+    distance_km: float
+    goal_time_seconds: Optional[int] = None
+    name: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+class _RaceUpdateBody(BaseModel):
+    race_date: Optional[str] = None
+    distance_km: Optional[float] = None
+    goal_time_seconds: Optional[int] = None
+    name: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _race_dict(race: Race) -> dict:
+    return {
+        "id": str(race.id),
+        "user_id": str(race.user_id),
+        "name": race.name,
+        "race_date": str(race.race_date),
+        "distance_km": float(race.distance_km),
+        "goal_time_seconds": race.goal_time_seconds,
+        "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
+        "priority": race.priority,
+        "status": race.status,
+        "created_at": race.created_at.isoformat() if race.created_at else None,
+        "updated_at": race.updated_at.isoformat() if race.updated_at else None,
+    }
+
+
+def _validate_race_date(race_date_str: str) -> _date:
+    try:
+        return _date.fromisoformat(race_date_str)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "race_date", "error": "race_date must be a valid YYYY-MM-DD date"},
+        )
+
+
+def _validate_distance_km(distance_km: float) -> None:
+    if distance_km <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "distance_km", "error": "distance_km must be a positive number (> 0)"},
+        )
+
+
+@app.post("/api/races", status_code=201)
+def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
+    race_date = _validate_race_date(body.race_date)
+    _validate_distance_km(body.distance_km)
+
+    pace = _derive_goal_pace(body.goal_time_seconds, body.distance_km)
+
+    with Session(engine) as session:
+        race = Race(
+            user_id=user.id,
+            name=body.name if body.name is not None else "",
+            race_date=race_date,
+            distance_km=body.distance_km,
+            goal_time_seconds=body.goal_time_seconds,
+            priority=body.priority if body.priority is not None else "A",
+            status=body.status if body.status is not None else "planned",
+        )
+        race.goal_pace_seconds_per_km = pace
+        session.add(race)
+        session.commit()
+        session.refresh(race)
+        return JSONResponse(status_code=201, content=_race_dict(race))
+
+
+@app.get("/api/races")
+def list_races(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        rows = (
+            session.query(Race)
+            .filter(Race.user_id == user.id)
+            .order_by(Race.race_date)
+            .all()
+        )
+        return JSONResponse([_race_dict(r) for r in rows])
+
+
+@app.get("/api/athletes/{athlete_id}/races")
+def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
+    try:
+        aid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid athlete_id")
+    if aid != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with Session(engine) as session:
+        rows = (
+            session.query(Race)
+            .filter(Race.user_id == aid)
+            .order_by(Race.race_date)
+            .all()
+        )
+        return JSONResponse([_race_dict(r) for r in rows])
+
+
+@app.get("/api/races/{race_id}")
+def get_race(race_id: str, user: User = Depends(resolve_user)):
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+        return JSONResponse(_race_dict(race))
+
+
+@app.put("/api/races/{race_id}")
+def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve_user)):
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    if body.race_date is not None:
+        _validate_race_date(body.race_date)
+    if body.distance_km is not None:
+        _validate_distance_km(body.distance_km)
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        if body.race_date is not None:
+            race.race_date = _date.fromisoformat(body.race_date)
+        if body.distance_km is not None:
+            race.distance_km = body.distance_km
+        if "goal_time_seconds" in body.model_fields_set:
+            race.goal_time_seconds = body.goal_time_seconds
+        if body.name is not None:
+            race.name = body.name
+        if body.priority is not None:
+            race.priority = body.priority
+        if body.status is not None:
+            race.status = body.status
+
+        race.goal_pace_seconds_per_km = _derive_goal_pace(
+            race.goal_time_seconds,
+            float(race.distance_km) if race.distance_km is not None else None,
+        )
+        race.updated_at = _datetime.now(_timezone.utc)
+
+        session.commit()
+        session.refresh(race)
+        return JSONResponse(_race_dict(race))
+
+
+# ── Race readiness config keys ────────────────────────────────────────────────
+# These AppConfig keys control the thresholds used by GET /api/races/{id}/readiness.
+# Absent keys fall back to the named constants from training_load.
+_RDNS_CFG_BURIED_CEILING = "readiness.form_buried_ceiling"
+_RDNS_CFG_FRESH_FLOOR = "readiness.form_fresh_floor"
+_RDNS_CFG_MIN_HISTORY_WEEKS = "readiness.min_history_weeks"
+_RDNS_CFG_PEAK_TOLERANCE = "readiness.peak_tracking_tolerance"
+
+# How many distinct workout days per minimum-history week are required on average
+# before a projection is considered meaningful.  At 1.0, the athlete must have
+# logged at least one workout for every week in the minimum-history window.
+_RDNS_MIN_WORKOUT_DAYS_PER_WEEK = 1
+
+
+def _rdns_cfg_float(key: str, default: float) -> float:
+    """Read a float from AppConfig; return default if absent or unparseable."""
+    val = _get_app_config(key, "")
+    if not val:
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def _rdns_cfg_int(key: str, default: int) -> int:
+    """Read an int from AppConfig; return default if absent or unparseable."""
+    val = _get_app_config(key, "")
+    if not val:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def _rdns_classify_zone(tsb: float, buried_ceiling: float, fresh_floor: float) -> str:
+    """Classify a TSB value into a zone using configurable thresholds.
+
+    Zones:
+        accumulated_fatigue — TSB is below buried_ceiling (athlete is over-reached)
+        freshness           — TSB is at or above fresh_floor (athlete is well-rested)
+        optimal             — TSB is between the two thresholds
+    """
+    if tsb < buried_ceiling:
+        return "accumulated_fatigue"
+    if tsb >= fresh_floor:
+        return "freshness"
+    return "optimal"
+
+
+@app.get("/api/races/{race_id}/readiness")
+def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
+    """Return combined race-readiness data for the given race.
+
+    Aggregates form_curve, projected_form, taper_recommendation, on_track, and
+    specificity_progress in a single response.  All thresholds are read from
+    AppConfig; no numeric constant is hardcoded in this function body.
+
+    Returns:
+        200 with readiness dict on success.
+        403 when the race belongs to a different user.
+        404 when the race_id does not exist or is invalid.
+    """
+    # ── 1. Parse and resolve race ─────────────────────────────────────────────
+    try:
+        rid = _uuid.UUID(race_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="race not found")
+
+    with Session(engine) as db:
+        race = db.get(Race, rid)
+
+    if race is None:
+        raise HTTPException(status_code=404, detail="race not found")
+    if race.user_id != user.id:
+        raise HTTPException(status_code=403, detail="access denied: race belongs to a different user")
+
+    # ── 2. Read all thresholds from configuration ─────────────────────────────
+    buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
+    fresh_floor = _rdns_cfg_float(_RDNS_CFG_FRESH_FLOOR, FORM_FRESH_FLOOR)
+    min_history_weeks = _rdns_cfg_int(_RDNS_CFG_MIN_HISTORY_WEEKS, 8)
+    peak_tolerance = _rdns_cfg_float(_RDNS_CFG_PEAK_TOLERANCE, PEAK_TRACKING_TOLERANCE)
+
+    today = _date.today()
+
+    # ── 3. Load historical TSS series for form_curve (6-month warmup window) ──
+    warmup_start = today - _timedelta(days=180)
+    tss_series = daily_tss_series(str(user.id), warmup_start, today)
+    load_curves = compute_load_curves(tss_series)
+
+    # ── 4. Build form_curve with configurable zone labels ─────────────────────
+    form_curve = [
+        {
+            "date": row["date"].isoformat(),
+            "form": row["tsb"],
+            "zone": _rdns_classify_zone(row["tsb"], buried_ceiling, fresh_floor),
+        }
+        for row in load_curves
+    ]
+
+    # ── 5. Determine building_baseline ───────────────────────────────────────
+    # Count distinct days with non-zero TSS within the minimum-history window.
+    # If fewer than (min_history_weeks * _RDNS_MIN_WORKOUT_DAYS_PER_WEEK) days
+    # have workouts, there is not enough history to project meaningfully.
+    history_window_start = today - _timedelta(days=min_history_weeks * 7)
+    workout_days_in_window = sum(
+        1 for d, tss in tss_series
+        if tss > 0 and d >= history_window_start
+    )
+    required_workout_days = min_history_weeks * _RDNS_MIN_WORKOUT_DAYS_PER_WEEK
+    building_baseline = workout_days_in_window < required_workout_days
+
+    # ── 6. Today's fitness state (CTL, ATL, TSB) from end of load curves ─────
+    last_row = load_curves[-1]
+    fitness_state = {
+        "ctl": last_row["ctl"],
+        "atl": last_row["atl"],
+        "date": last_row["date"],
+    }
+    current_tsb = last_row["tsb"]
+
+    # ── 7. projected_form and taper_recommendation (only when sufficient history) ──
+    projected_form: Optional[dict] = None
+    taper_rec: Optional[dict] = None
+
+    if not building_baseline:
+        race_date = race.race_date
+        proj = project_form(fitness_state, 0.0, race_date)
+        if not proj["reason"]:
+            projected_form = {
+                day["date"].isoformat(): day["form"]
+                for day in proj["days"]
+            }
+
+        taper_raw = taper_recommendation(fitness_state, race_date, TARGET_FORM_LOWER)
+        if not taper_raw["reason"]:
+            taper_rec = {
+                "taper_start_date": taper_raw["taper_start_date"].isoformat()
+                if taper_raw["taper_start_date"] else None,
+                "message": taper_raw["message"],
+                "achievable": taper_raw["achievable"],
+            }
+
+    # ── 8. on_track via peak_tracking ────────────────────────────────────────
+    # Derive the projected form for today from the taper plan.
+    # The plan: taper started DEFAULT_TAPER_DAYS before race_date at whatever
+    # fitness state the athlete had on that date.
+    # If we are within the taper window (today >= taper_start) and history is
+    # sufficient, compute the planned form for today by projecting from the
+    # fitness state at taper_start with zero load.
+    on_track_result = peak_tracking(None, None)  # default: insufficient data
+    taper_start = race.race_date - _timedelta(days=DEFAULT_TAPER_DAYS)
+
+    if not building_baseline and today >= taper_start:
+        # Compute fitness state at taper_start by running load curves up to that date
+        taper_start_series = daily_tss_series(str(user.id), warmup_start, taper_start)
+        taper_start_curves = compute_load_curves(taper_start_series)
+        taper_start_state = {
+            "ctl": taper_start_curves[-1]["ctl"],
+            "atl": taper_start_curves[-1]["atl"],
+            "date": taper_start_curves[-1]["date"],
+        }
+        # Project forward from taper_start to today with zero load (taper assumption)
+        plan_proj = project_form(taper_start_state, 0.0, today)
+        if not plan_proj["reason"] and plan_proj["days"]:
+            projected_today = plan_proj["days"][-1]["form"]
+            on_track_result = peak_tracking(current_tsb, projected_today, tolerance=peak_tolerance)
+
+    on_track_status = on_track_result.get("status")
+    on_track_bool = on_track_status in ("on track", "ahead") if on_track_status else None
+
+    # ── 9. specificity_progress ───────────────────────────────────────────────
+    # Fetch recent runs (last 90 days) from workouts table for this user.
+    run_window_start = today - _timedelta(days=90)
+    with Session(engine) as db:
+        from sqlalchemy import text as _text
+        recent_runs_rows = db.execute(
+            _text(
+                """
+                SELECT distance_km, duration_seconds
+                FROM workouts
+                WHERE user_id = :uid
+                  AND workout_date >= :since
+                  AND workout_type IN ('run', 'running', 'race')
+                  AND distance_km IS NOT NULL
+                  AND duration_seconds IS NOT NULL
+                ORDER BY workout_date DESC
+                """
+            ),
+            {"uid": str(user.id), "since": run_window_start},
+        ).fetchall()
+
+    import types as _types
+
+    recent_runs = [
+        _types.SimpleNamespace(
+            distance_km=float(r[0]),
+            duration_seconds=int(r[1]),
+        )
+        for r in recent_runs_rows
+        if r[0] and r[1]
+    ]
+
+    spec_result = _specificity_progress(race, recent_runs)
+
+    # ── 10. Assemble response ─────────────────────────────────────────────────
+    response: dict = {
+        "race_id": str(race.id),
+        "building_baseline": building_baseline,
+        "form_curve": form_curve,
+        "on_track": {
+            "on_track": on_track_bool,
+            "status_summary": on_track_status or on_track_result.get("reason") or "insufficient data",
+            "gap": on_track_result.get("gap"),
+        },
+        "specificity_progress": spec_result,
+    }
+
+    if not building_baseline:
+        if projected_form is not None:
+            response["projected_form"] = projected_form
+        if taper_rec is not None:
+            response["taper_recommendation"] = taper_rec
+
+    return JSONResponse(response)
 
 
 # ── Threshold suggestions ──────────────────────────────────────────────────────

@@ -449,3 +449,25 @@ Unique: `(user_id, source, source_identifier)`.
 | name | varchar(200) | |
 | exercises | jsonb | |
 | created_at | timestamptz | |
+
+---
+
+## races _(added Sprint 67)_
+
+User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| name | varchar(200) | |
+| race_date | date | |
+| distance_km | numeric(8,3) | >0 |
+| goal_time_seconds | int | nullable; >0 |
+| goal_pace_seconds_per_km | int | nullable; derived from goal_time_seconds / distance_km |
+| priority | varchar(10) | `A` / `B` / `C` |
+| status | varchar(20) | `planned` / `done` / `abandoned` |
+| created_at | timestamptz | |
+| updated_at | timestamptz | nullable |
+
+Index: `ix_races_user_id`. Migration: `ll2a3b4c5d6e`.

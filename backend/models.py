@@ -5,6 +5,27 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+def derive_goal_pace(goal_time_seconds, distance_km):
+    """Compute goal pace in seconds per kilometre.
+
+    Divides *goal_time_seconds* by *distance_km* and rounds to the nearest
+    whole second.
+
+    Returns ``None`` (with the implicit reason: missing or zero input) when
+    either argument is absent or when *distance_km* is zero — division by
+    zero is undefined and a zero-distance race has no meaningful pace.
+
+    :param goal_time_seconds: Total goal race time in seconds, or ``None``.
+    :param distance_km: Race distance in kilometres, or ``None``.
+    :returns: Rounded pace as ``int``, or ``None``.
+    """
+    if goal_time_seconds is None or distance_km is None:
+        return None
+    if distance_km == 0:
+        return None
+    return round(goal_time_seconds / distance_km)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -630,6 +651,69 @@ class ActivityStream(Base):
             name="ck_activity_streams_source_values",
         ),
     )
+
+
+# Valid priority and status values — referenced by the Race model and migration.
+RACE_PRIORITY_VALUES = ("A", "B", "C")
+RACE_STATUS_VALUES = ("planned", "done", "abandoned")
+
+
+class Race(Base):
+    """A target race entry for a user.
+
+    ``goal_pace_seconds_per_km`` is derived automatically at instantiation from
+    ``goal_time_seconds`` and ``distance_km`` via :func:`derive_goal_pace` and
+    is left ``NULL`` when either input is absent or ``distance_km`` is zero.
+    """
+
+    __tablename__ = "races"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(200), nullable=False)
+    race_date = Column(Date, nullable=False)
+    distance_km = Column(Numeric(8, 3), nullable=False)
+    goal_time_seconds = Column(Integer, nullable=True)
+    goal_pace_seconds_per_km = Column(Integer, nullable=True)
+    priority = Column(String(10), nullable=False)
+    status = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_races_user_id", "user_id"),
+        CheckConstraint(
+            "priority IN ('A', 'B', 'C')",
+            name="ck_races_priority_values",
+        ),
+        CheckConstraint(
+            "status IN ('planned', 'done', 'abandoned')",
+            name="ck_races_status_values",
+        ),
+        CheckConstraint(
+            "distance_km > 0",
+            name="ck_races_distance_positive",
+        ),
+        CheckConstraint(
+            "goal_time_seconds IS NULL OR goal_time_seconds > 0",
+            name="ck_races_goal_time_positive",
+        ),
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.goal_pace_seconds_per_km = derive_goal_pace(
+            self.goal_time_seconds,
+            float(self.distance_km) if self.distance_km is not None else None,
+        )
+
+    def __repr__(self):
+        return (
+            f"<Race id={self.id} name={self.name!r} date={self.race_date} "
+            f"distance_km={self.distance_km} priority={self.priority} status={self.status}>"
+        )
 
 
 class AthleteDurationCurve(Base):
