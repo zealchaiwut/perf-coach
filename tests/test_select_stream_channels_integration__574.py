@@ -45,12 +45,14 @@ def test_apply_channel_selection_with_both_sources_present():
             pytest.skip("No active user in UAT database for integration test")
 
         # Create a Strava activity with streams payload (Strava API format)
+        from datetime import datetime
         strava_act = StravaActivity(
-            strava_id=999001,
+            strava_activity_id=999001,
             user_id=user.id,
-            activity_date="2026-06-18",
+            start_time=datetime(2026, 6, 18, 10, 0, 0),
             activity_type="Run",
             name="Test Strava Run",
+            raw_payload={"id": 999001, "name": "Test Strava Run"},
             streams_payload={
                 "time": {"data": [0, 1, 2, 3]},
                 "heartrate": {"data": [140.0, 142.0, 141.0, 143.0]},
@@ -63,11 +65,12 @@ def test_apply_channel_selection_with_both_sources_present():
 
         # Create a Stryd activity with streams payload (Stryd API format)
         stryd_act = StrydActivity(
-            stryd_id=999002,
+            stryd_activity_id=999002,
             user_id=user.id,
-            activity_date="2026-06-18",
+            start_time=datetime(2026, 6, 18, 10, 0, 0),
             activity_type="Run",
             name="Test Stryd Run",
+            raw_payload={"id": 999002, "name": "Test Stryd Run"},
             streams_payload={
                 "timestamp_list": [0, 1, 2],
                 "heart_rate_list": [139.0, 141.0, 140.0],
@@ -88,11 +91,12 @@ def test_apply_channel_selection_with_both_sources_present():
             stryd_activity_pk=stryd_act.id,
         )
         session.add(workout)
-        session.commit()
+        session.flush()
 
         # Run apply_channel_selection
         success, reason = apply_channel_selection(workout.id, session)
         assert success, f"apply_channel_selection failed: {reason}"
+        session.commit()
 
         # Verify the merged stream was persisted
         merged_stream = (
@@ -126,17 +130,19 @@ def test_apply_channel_selection_fails_when_one_source_missing():
     """AC10: apply_channel_selection returns (False, reason) when a source is missing."""
     with Session(engine) as session:
         from backend.models import User
+        from datetime import datetime
         user = session.query(User).filter(User.is_active).first()
         if not user:
             pytest.skip("No active user in UAT database for integration test")
 
         # Create only a Strava activity (no Stryd)
         strava_act = StravaActivity(
-            strava_id=999003,
+            strava_activity_id=999003,
             user_id=user.id,
-            activity_date="2026-06-18",
+            start_time=datetime(2026, 6, 18, 10, 0, 0),
             activity_type="Run",
             name="Strava Only",
+            raw_payload={"id": 999003, "name": "Strava Only"},
             streams_payload={
                 "time_offset_seconds": [0, 1, 2],
                 "heart_rate_bpm": [140.0, 142.0, 141.0],
@@ -155,7 +161,7 @@ def test_apply_channel_selection_fails_when_one_source_missing():
             stryd_activity_pk=None,  # No Stryd
         )
         session.add(workout)
-        session.commit()
+        session.flush()
 
         # Run apply_channel_selection — should fail
         success, reason = apply_channel_selection(workout.id, session)
@@ -170,28 +176,31 @@ def test_apply_channel_selection_fails_when_streams_payload_missing():
     """AC10: apply_channel_selection returns (False, reason) when streams payload is empty."""
     with Session(engine) as session:
         from backend.models import User
+        from datetime import datetime
         user = session.query(User).filter(User.is_active).first()
         if not user:
             pytest.skip("No active user in UAT database for integration test")
 
         # Create activities but without streams_payload
         strava_act = StravaActivity(
-            strava_id=999004,
+            strava_activity_id=999004,
             user_id=user.id,
-            activity_date="2026-06-18",
+            start_time=datetime(2026, 6, 18, 10, 0, 0),
             activity_type="Run",
             name="Strava No Streams",
+            raw_payload={"id": 999004, "name": "Strava No Streams"},
             streams_payload=None,  # No streams
         )
         session.add(strava_act)
         session.flush()
 
         stryd_act = StrydActivity(
-            stryd_id=999005,
+            stryd_activity_id=999005,
             user_id=user.id,
-            activity_date="2026-06-18",
+            start_time=datetime(2026, 6, 18, 10, 0, 0),
             activity_type="Run",
             name="Stryd With Streams",
+            raw_payload={"id": 999005, "name": "Stryd With Streams"},
             streams_payload={
                 "time_offset_seconds": [0, 1],
                 "power_w": [250.0, 255.0],
@@ -210,7 +219,7 @@ def test_apply_channel_selection_fails_when_streams_payload_missing():
             stryd_activity_pk=stryd_act.id,
         )
         session.add(workout)
-        session.commit()
+        session.flush()
 
         # Run apply_channel_selection — should fail (Strava streams missing)
         success, reason = apply_channel_selection(workout.id, session)
