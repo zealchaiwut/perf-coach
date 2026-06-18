@@ -511,7 +511,7 @@
     };
   }
 
-  // Weekly volume chart: stacked run + strength TSS bars with run-km line overlay.
+  // Weekly volume chart: stacked run + lift TSS bars with run-km line overlay.
   function renderVolumeChart() {
     var card   = document.getElementById('volume-chart-card');
     var canvas = document.getElementById('volume-chart');
@@ -544,15 +544,21 @@
         var runTssVals = [];
         var strengthTssVals = [];
         var distVals = [];
+        var nowMondayStr = toISODate(getMondayOf(new Date()));
+        var currentWeekIdx = -1;
         var cur = new Date(startMonday);
+        var wkIdx = 0;
         while (cur <= toMonday) {
-          var wk = byStart[toISODate(cur)] || {};
+          var wkIso = toISODate(cur);
+          if (wkIso === nowMondayStr) currentWeekIdx = wkIdx;
+          var wk = byStart[wkIso] || {};
           var agg = weekVolumeByType(wk.workouts || []);
           labels.push(volumeWeekLabel(cur));
           runTssVals.push(agg.runTss);
           strengthTssVals.push(agg.strengthTss);
           distVals.push(agg.distKm);
           cur.setDate(cur.getDate() + 7);
+          wkIdx++;
         }
 
         var hasData = runTssVals.some(function (v) { return v > 0; })
@@ -564,8 +570,27 @@
           return;
         }
 
-        var tickColor = '#69748c';
-        var tickFont = { size: 10 };
+        // Read tick colour from CSS structural token (--text-tertiary).
+        var rootStyle = getComputedStyle(document.documentElement);
+        var tickColor = rootStyle.getPropertyValue('--text-tertiary').trim() || '#69748c';
+        var tickFont  = { size: 10 };
+
+        // Gradient background factory for stacked bars with current-week emphasis.
+        // Scriptable: Chart.js calls this per data-point so gradients are recreated
+        // on resize — keeping the chart responsive.
+        function makeBarBg(hiA, loA, hiB, loB) {
+          return function (context) {
+            var area = context.chart.chartArea;
+            var isCurrent = context.dataIndex === currentWeekIdx;
+            if (!area) {
+              return isCurrent ? loA : loB;
+            }
+            var g = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+            g.addColorStop(0, isCurrent ? hiA : hiB);
+            g.addColorStop(1, isCurrent ? loA : loB);
+            return g;
+          };
+        }
 
         if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
         volumeChart = new Chart(canvas.getContext('2d'), {
@@ -576,7 +601,10 @@
               {
                 label: 'Run TSS',
                 data: runTssVals,
-                backgroundColor: '#3b82f6',
+                backgroundColor: makeBarBg(
+                  'rgba(96,165,250,0.95)', 'rgba(37,99,235,0.88)',
+                  'rgba(96,165,250,0.38)', 'rgba(37,99,235,0.28)'
+                ),
                 borderRadius: 4,
                 maxBarThickness: 36,
                 stack: 'tss',
@@ -584,9 +612,12 @@
                 yAxisID: 'y',
               },
               {
-                label: 'Strength TSS',
+                label: 'Lift TSS',
                 data: strengthTssVals,
-                backgroundColor: '#8b5cf6',
+                backgroundColor: makeBarBg(
+                  'rgba(167,139,250,0.95)', 'rgba(109,40,217,0.88)',
+                  'rgba(167,139,250,0.38)', 'rgba(109,40,217,0.28)'
+                ),
                 borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
                 maxBarThickness: 36,
                 stack: 'tss',
@@ -594,7 +625,7 @@
                 yAxisID: 'y',
               },
               {
-                label: 'Run distance (km)',
+                label: 'km',
                 type: 'line',
                 data: distVals,
                 borderColor: '#f59e0b',
