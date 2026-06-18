@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, AthleteDurationCurve, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.training_load import _ewma_alpha, current_load, daily_tss_series, daily_update
@@ -38,6 +38,7 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 
 _start_time = time.monotonic()
 
@@ -9820,3 +9821,52 @@ async def accept_threshold_suggestions(
         prefs.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         return JSONResponse({"written": written, "skipped": skipped})
+
+
+# ── Athlete duration curve ────────────────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/duration-curve")
+def get_athlete_duration_curve(athlete_id: str):
+    """Return the per-athlete best-effort duration curve across all run workouts.
+
+    Returns 200 with an empty curve and a ``reason`` field when the athlete exists
+    but has no runs on record. Returns 404 when the athlete ID does not exist.
+    """
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        curve_data = _get_athlete_duration_curve(uid, session)
+
+    if not curve_data:
+        return JSONResponse({
+            "athleteId": athlete_id,
+            "curve": [],
+            "debug": [],
+            "reason": "No runs found for athlete",
+        })
+
+    curve_entries = sorted(
+        [
+            {
+                "duration": int(dur),
+                "bestValue": entry["best_value"],
+                "workoutId": entry["workout_id"],
+                "date": entry["date"],
+            }
+            for dur, entry in curve_data.items()
+        ],
+        key=lambda e: e["duration"],
+    )
+
+    return JSONResponse({
+        "athleteId": athlete_id,
+        "curve": curve_entries,
+        "debug": curve_entries,
+    })
