@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <!--
   Issue #633 — Weight trend chart three-zone axes redesign (v8 mockup)
   Visual reference for desktop + mobile portrait layout.
@@ -13,325 +13,886 @@
     present_max = max(visible) + 10% × spread
 -->
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Weight trend chart — three-zone axes (v8 mockup)</title>
-<style>
-  :root {
-    --bg-1: #5a8dee; --bg-2: #1f3b8a;
-    --green: #2d5e10; --green-soft: #dff5d6;
-    --red: #7a1a1a; --red-soft: #ffd9d9;
-    --card-bg: #fff; --card-border: rgba(13,30,67,.06);
-    --text-primary: #0b1530; --text-secondary: #5c6886;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-    background: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
-    min-height: 100vh;
-    padding: 24px;
-    color: var(--text-primary);
-  }
-  h2 { color: #fff; margin-bottom: 20px; font-size: 18px; font-weight: 600; }
-  .layout { display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weight trend chart — three-zone axes (v8 mockup)</title>
+    <style>
+      :root {
+        --bg-1: #5a8dee;
+        --bg-2: #1f3b8a;
+        --green: #2d5e10;
+        --green-soft: #dff5d6;
+        --red: #7a1a1a;
+        --red-soft: #ffd9d9;
+        --card-bg: #fff;
+        --card-border: rgba(13, 30, 67, 0.06);
+        --text-primary: #0b1530;
+        --text-secondary: #5c6886;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+        background: radial-gradient(
+          ellipse at top left,
+          var(--bg-1) 0%,
+          var(--bg-2) 70%
+        );
+        min-height: 100vh;
+        padding: 24px;
+        color: var(--text-primary);
+      }
+      h2 {
+        color: #fff;
+        margin-bottom: 20px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .layout {
+        display: flex;
+        gap: 32px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
 
-  /* ── Card ── */
-  .card {
-    background: var(--card-bg);
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 4px 20px rgba(0,0,0,.15);
-  }
+      /* ── Card ── */
+      .card {
+        background: var(--card-bg);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      }
 
-  /* ── Verdict banner ── */
-  .verdict {
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 10px 12px; border-radius: 10px; margin-bottom: 12px;
-    background: #f8fafc; border: 1px solid var(--card-border);
-  }
-  .verdict-pill {
-    flex-shrink: 0; padding: 4px 10px; border-radius: 999px;
-    font-size: 11px; font-weight: 700; letter-spacing: .02em;
-    font-family: 'JetBrains Mono', monospace; white-space: nowrap;
-    background: var(--green-soft); color: var(--green);
-  }
-  .verdict-text { font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); }
+      /* ── Verdict banner ── */
+      .verdict {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        background: #f8fafc;
+        border: 1px solid var(--card-border);
+      }
+      .verdict-pill {
+        flex-shrink: 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        font-family: "JetBrains Mono", monospace;
+        white-space: nowrap;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .verdict-text {
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: var(--text-secondary);
+      }
 
-  /* ── Range tabs ── */
-  .range-tabs {
-    display: inline-flex; border: 1px solid #e8eaf0;
-    border-radius: 8px; overflow: hidden; margin-bottom: 12px;
-  }
-  .range-tab {
-    padding: 5px 13px; background: #fff; border: none;
-    border-right: 1px solid #e8eaf0; font-size: 12.5px; font-weight: 500;
-    cursor: pointer; color: var(--text-secondary);
-  }
-  .range-tab:last-child { border-right: none; }
-  .range-tab.active { background: #0b1530; color: #fff; }
+      /* ── Range tabs ── */
+      .range-tabs {
+        display: inline-flex;
+        border: 1px solid #e8eaf0;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+      .range-tab {
+        padding: 5px 13px;
+        background: #fff;
+        border: none;
+        border-right: 1px solid #e8eaf0;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        color: var(--text-secondary);
+      }
+      .range-tab:last-child {
+        border-right: none;
+      }
+      .range-tab.active {
+        background: #0b1530;
+        color: #fff;
+      }
 
-  /* ── Chart SVG container ── */
-  .chart-wrap { width: 100%; }
-  .chart-wrap svg { display: block; width: 100%; height: auto; }
+      /* ── Chart SVG container ── */
+      .chart-wrap {
+        width: 100%;
+      }
+      .chart-wrap svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
 
-  /* ── Legend ── */
-  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
-  .lc { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
-  .ld { width: 9px; height: 9px; border-radius: 50%; }
-  .ll { width: 20px; height: 2px; }
-  .ldash { width: 20px; height: 0; border-top: 2px dashed; }
+      /* ── Legend ── */
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 10px;
+      }
+      .lc {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .ld {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .ll {
+        width: 20px;
+        height: 2px;
+      }
+      .ldash {
+        width: 20px;
+        height: 0;
+        border-top: 2px dashed;
+      }
 
-  /* ── Desktop card ── */
-  .desktop-card { width: 680px; }
+      /* ── Desktop card ── */
+      .desktop-card {
+        width: 680px;
+      }
 
-  /* ── Annotation ── */
-  .annotation {
-    margin-top: 16px; padding: 12px; background: #f0f4ff;
-    border-radius: 8px; border-left: 3px solid #5a8dee;
-    font-size: 12px; line-height: 1.6; color: #374151;
-  }
-  .annotation strong { color: #1f3b8a; }
+      /* ── Annotation ── */
+      .annotation {
+        margin-top: 16px;
+        padding: 12px;
+        background: #f0f4ff;
+        border-radius: 8px;
+        border-left: 3px solid #5a8dee;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #374151;
+      }
+      .annotation strong {
+        color: #1f3b8a;
+      }
 
-  /* ── Mobile card ── */
-  .mobile-card { width: 380px; }
-  .mobile-card .range-tabs .range-tab[data-range="6m"],
-  .mobile-card .range-tabs .range-tab[data-range="all"] { display: none; }
-  .mobile-verdict { font-size: 11px; padding: 6px 10px; }
-  .mobile-verdict .verdict-pill { font-size: 10px; }
-  .mobile-verdict .verdict-text { font-size: 11px; }
-</style>
-</head>
-<body>
-<h2>Issue #633 · Weight trend chart — three-zone axes (v8 mockup)</h2>
-<div class="layout">
+      /* ── Mobile card ── */
+      .mobile-card {
+        width: 380px;
+      }
+      .mobile-card .range-tabs .range-tab[data-range="6m"],
+      .mobile-card .range-tabs .range-tab[data-range="all"] {
+        display: none;
+      }
+      .mobile-verdict {
+        font-size: 11px;
+        padding: 6px 10px;
+      }
+      .mobile-verdict .verdict-pill {
+        font-size: 10px;
+      }
+      .mobile-verdict .verdict-text {
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Issue #633 · Weight trend chart — three-zone axes (v8 mockup)</h2>
+    <div class="layout">
+      <!-- ── DESKTOP ── -->
+      <div class="card desktop-card">
+        <div
+          style="
+            font-size: 12px;
+            font-weight: 600;
+            color: #9ca3af;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+          "
+        >
+          DESKTOP · 30D
+        </div>
 
-  <!-- ── DESKTOP ── -->
-  <div class="card desktop-card">
-    <div style="font-size:12px;font-weight:600;color:#9ca3af;letter-spacing:.06em;margin-bottom:8px;">DESKTOP · 30D</div>
+        <div class="verdict">
+          <span class="verdict-pill">AHEAD −1.1 kg</span>
+          <span class="verdict-text">
+            Present band auto-fits the 30D data (87–89.2) plus a 10% buffer.
+            7-day avg <strong>88.0</strong> vs plan <strong>89.0</strong>
+          </span>
+        </div>
 
-    <div class="verdict">
-      <span class="verdict-pill">AHEAD −1.1 kg</span>
-      <span class="verdict-text">
-        Present band auto-fits the 30D data (87–89.2) plus a 10% buffer.
-        7-day avg <strong>88.0</strong> vs plan <strong>89.0</strong>
-      </span>
-    </div>
+        <div class="range-tabs">
+          <button class="range-tab" data-range="7d">7D</button>
+          <button class="range-tab active" data-range="30d">30D</button>
+          <button class="range-tab" data-range="90d">90D</button>
+          <button class="range-tab" data-range="6m">6M</button>
+          <button class="range-tab" data-range="1y">1Y</button>
+          <button class="range-tab" data-range="all">ALL</button>
+        </div>
 
-    <div class="range-tabs">
-      <button class="range-tab" data-range="7d">7D</button>
-      <button class="range-tab active" data-range="30d">30D</button>
-      <button class="range-tab" data-range="90d">90D</button>
-      <button class="range-tab" data-range="6m">6M</button>
-      <button class="range-tab" data-range="1y">1Y</button>
-      <button class="range-tab" data-range="all">ALL</button>
-    </div>
-
-    <div class="chart-wrap">
-      <!-- 900×280 viewBox. Horizontal: past 5% | present 90% | future 5%
+        <div class="chart-wrap">
+          <!-- 900×280 viewBox. Horizontal: past 5% | present 90% | future 5%
            Vertical: top rail 10% | center band 80% | bottom rail 10% -->
-      <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" aria-label="Weight trend chart (three-zone axes mockup)">
-        <!-- Zones -->
-        <defs>
-          <pattern id="diag" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" y2="6" stroke="#dde3f0" stroke-width="1"/>
-          </pattern>
-        </defs>
+          <svg
+            viewBox="0 0 900 280"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-label="Weight trend chart (three-zone axes mockup)"
+          >
+            <!-- Zones -->
+            <defs>
+              <pattern
+                id="diag"
+                patternUnits="userSpaceOnUse"
+                width="6"
+                height="6"
+                patternTransform="rotate(45)"
+              >
+                <line
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="6"
+                  stroke="#dde3f0"
+                  stroke-width="1"
+                />
+              </pattern>
+            </defs>
 
-        <!-- PAST rail (5% = ~41px of 834px CW, starting at x=50) -->
-        <rect x="50" y="18" width="42" height="232" fill="#f3f4f6" opacity=".7"/>
-        <!-- FUTURE rail (5% = ~42px) -->
-        <rect x="858" y="18" width="42" height="232" fill="#f3f7ff"/>
+            <!-- PAST rail (5% = ~41px of 834px CW, starting at x=50) -->
+            <rect
+              x="50"
+              y="18"
+              width="42"
+              height="232"
+              fill="#f3f4f6"
+              opacity=".7"
+            />
+            <!-- FUTURE rail (5% = ~42px) -->
+            <rect x="858" y="18" width="42" height="232" fill="#f3f7ff" />
 
-        <!-- Zone separators -->
-        <line x1="92" y1="18" x2="92" y2="250" stroke="#e5e7eb" stroke-width="1"/>
-        <line x1="858" y1="18" x2="858" y2="250" stroke="#e5e7eb" stroke-width="1"/>
+            <!-- Zone separators -->
+            <line
+              x1="92"
+              y1="18"
+              x2="92"
+              y2="250"
+              stroke="#e5e7eb"
+              stroke-width="1"
+            />
+            <line
+              x1="858"
+              y1="18"
+              x2="858"
+              y2="250"
+              stroke="#e5e7eb"
+              stroke-width="1"
+            />
 
-        <!-- Rail micro-labels -->
-        <text x="71" y="29" text-anchor="middle" font-size="7.5" fill="#b0b8cc" font-weight="600" letter-spacing=".08em">PAST</text>
-        <text x="879" y="29" text-anchor="middle" font-size="7.5" fill="#b0b8cc" font-weight="600" letter-spacing=".08em">FUTURE</text>
+            <!-- Rail micro-labels -->
+            <text
+              x="71"
+              y="29"
+              text-anchor="middle"
+              font-size="7.5"
+              fill="#b0b8cc"
+              font-weight="600"
+              letter-spacing=".08em"
+            >
+              PAST
+            </text>
+            <text
+              x="879"
+              y="29"
+              text-anchor="middle"
+              font-size="7.5"
+              fill="#b0b8cc"
+              font-weight="600"
+              letter-spacing=".08em"
+            >
+              FUTURE
+            </text>
 
-        <!-- ── Vertical zones (illustrative) ─────────────────────────────── -->
-        <!-- Top rail zone boundary (10% of 232 = ~23px from top) -->
-        <!-- Center band: y=41 to y=227 (80%) -->
-        <!-- Bottom rail: y=227 to y=250 (10%) -->
+            <!-- ── Vertical zones (illustrative) ─────────────────────────────── -->
+            <!-- Top rail zone boundary (10% of 232 = ~23px from top) -->
+            <!-- Center band: y=41 to y=227 (80%) -->
+            <!-- Bottom rail: y=227 to y=250 (10%) -->
 
-        <!-- Gridlines — integer kg values within present band (87–90) -->
-        <!-- present_min ≈ 86.7, present_max ≈ 89.5 → ticks at 88, 90 every 2 kg -->
-        <line x1="50" y1="227" x2="900" y2="227" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="227" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">87</text>
-        <line x1="50" y1="180" x2="900" y2="180" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="180" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">88</text>
-        <line x1="50" y1="134" x2="900" y2="134" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="134" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">89</text>
+            <!-- Gridlines — integer kg values within present band (87–90) -->
+            <!-- present_min ≈ 86.7, present_max ≈ 89.5 → ticks at 88, 90 every 2 kg -->
+            <line
+              x1="50"
+              y1="227"
+              x2="900"
+              y2="227"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="227"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              87
+            </text>
+            <line
+              x1="50"
+              y1="180"
+              x2="900"
+              y2="180"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="180"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              88
+            </text>
+            <line
+              x1="50"
+              y1="134"
+              x2="900"
+              y2="134"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="134"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              89
+            </text>
 
-        <!-- Top rail separator hint (faint dashed) -->
-        <line x1="50" y1="41" x2="900" y2="41" stroke="#e5e7eb" stroke-width=".5" stroke-dasharray="3 4" opacity=".5"/>
-        <!-- "ABOVE" label for top-rail zone -->
-        <text x="97" y="32" font-size="8" fill="#9ca3af" font-style="italic">↑ out-of-range</text>
+            <!-- Top rail separator hint (faint dashed) -->
+            <line
+              x1="50"
+              y1="41"
+              x2="900"
+              y2="41"
+              stroke="#e5e7eb"
+              stroke-width=".5"
+              stroke-dasharray="3 4"
+              opacity=".5"
+            />
+            <!-- "ABOVE" label for top-rail zone -->
+            <text
+              x="97"
+              y="32"
+              font-size="8"
+              fill="#9ca3af"
+              font-style="italic"
+            >
+              ↑ out-of-range
+            </text>
 
-        <!-- Bottom rail separator hint -->
-        <line x1="50" y1="227" x2="900" y2="227" stroke="#e5e7eb" stroke-width=".5" opacity=".5"/>
+            <!-- Bottom rail separator hint -->
+            <line
+              x1="50"
+              y1="227"
+              x2="900"
+              y2="227"
+              stroke="#e5e7eb"
+              stroke-width=".5"
+              opacity=".5"
+            />
 
-        <!-- Past zone: thin grey past lead-in -->
-        <polyline points="50,120 65,140 80,155 92,165" fill="none" stroke="#cbd1da" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Past zone: thin grey past lead-in -->
+            <polyline
+              points="50,120 65,140 80,155 92,165"
+              fill="none"
+              stroke="#cbd1da"
+              stroke-width="1.2"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
 
-        <!-- Gap-area fill (green = ahead) in present band -->
-        <path d="M 92,190 L 200,185 L 300,180 L 400,175 L 500,178 L 600,182 L 700,184 L 800,186 L 858,188
+            <!-- Gap-area fill (green = ahead) in present band -->
+            <path
+              d="M 92,190 L 200,185 L 300,180 L 400,175 L 500,178 L 600,182 L 700,184 L 800,186 L 858,188
                  L 858,205 L 800,200 L 700,198 L 600,196 L 500,194 L 400,192 L 300,190 L 200,195 L 92,200 Z"
-              fill="rgba(22,163,74,.17)" stroke="none"/>
+              fill="rgba(22,163,74,.17)"
+              stroke="none"
+            />
 
-        <!-- Plan line (dashed green) -->
-        <polyline points="92,200 200,195 300,190 400,192 500,194 600,196 700,198 800,200 858,205"
-                  fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5 3"/>
+            <!-- Plan line (dashed green) -->
+            <polyline
+              points="92,200 200,195 300,190 400,192 500,194 600,196 700,198 800,200 858,205"
+              fill="none"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-dasharray="5 3"
+            />
 
-        <!-- Weigh-in dots (grey) -->
-        <circle cx="110" cy="188" r="3.5" fill="#9ca3af"/>
-        <circle cx="150" cy="183" r="3.5" fill="#9ca3af"/>
-        <circle cx="200" cy="179" r="3.5" fill="#9ca3af"/>
-        <circle cx="260" cy="175" r="3.5" fill="#9ca3af"/>
-        <circle cx="320" cy="172" r="3.5" fill="#9ca3af"/>
-        <circle cx="380" cy="169" r="3.5" fill="#9ca3af"/>
-        <circle cx="440" cy="174" r="3.5" fill="#9ca3af"/>
-        <circle cx="500" cy="177" r="3.5" fill="#9ca3af"/>
-        <circle cx="560" cy="181" r="3.5" fill="#9ca3af"/>
-        <circle cx="620" cy="178" r="3.5" fill="#9ca3af"/>
-        <circle cx="700" cy="182" r="3.5" fill="#9ca3af"/>
-        <circle cx="780" cy="185" r="3.5" fill="#9ca3af"/>
-        <circle cx="830" cy="183" r="3.5" fill="#9ca3af"/>
+            <!-- Weigh-in dots (grey) -->
+            <circle cx="110" cy="188" r="3.5" fill="#9ca3af" />
+            <circle cx="150" cy="183" r="3.5" fill="#9ca3af" />
+            <circle cx="200" cy="179" r="3.5" fill="#9ca3af" />
+            <circle cx="260" cy="175" r="3.5" fill="#9ca3af" />
+            <circle cx="320" cy="172" r="3.5" fill="#9ca3af" />
+            <circle cx="380" cy="169" r="3.5" fill="#9ca3af" />
+            <circle cx="440" cy="174" r="3.5" fill="#9ca3af" />
+            <circle cx="500" cy="177" r="3.5" fill="#9ca3af" />
+            <circle cx="560" cy="181" r="3.5" fill="#9ca3af" />
+            <circle cx="620" cy="178" r="3.5" fill="#9ca3af" />
+            <circle cx="700" cy="182" r="3.5" fill="#9ca3af" />
+            <circle cx="780" cy="185" r="3.5" fill="#9ca3af" />
+            <circle cx="830" cy="183" r="3.5" fill="#9ca3af" />
 
-        <!-- Trend line (blue, 7-day avg) — solid present -->
-        <polyline points="92,185 200,179 320,173 440,174 560,180 700,183 830,183"
-                  fill="none" stroke="#2563eb" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Trend line (blue, 7-day avg) — solid present -->
+            <polyline
+              points="92,185 200,179 320,173 440,174 560,180 700,183 830,183"
+              fill="none"
+              stroke="#2563eb"
+              stroke-width="2.8"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
 
-        <!-- Missing-data gap bridge (dotted, faded) — no segment here but style shown -->
+            <!-- Missing-data gap bridge (dotted, faded) — no segment here but style shown -->
 
-        <!-- Today markers -->
-        <!-- Plan dot (green stroke, white fill) -->
-        <circle cx="858" cy="205" r="5" fill="#fff" stroke="#16a34a" stroke-width="2"/>
-        <!-- Trend dot (blue fill) -->
-        <circle cx="858" cy="183" r="5" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
-        <!-- Gap line between trend and plan -->
-        <line x1="858" y1="188" x2="858" y2="200" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="3 2"/>
+            <!-- Today markers -->
+            <!-- Plan dot (green stroke, white fill) -->
+            <circle
+              cx="858"
+              cy="205"
+              r="5"
+              fill="#fff"
+              stroke="#16a34a"
+              stroke-width="2"
+            />
+            <!-- Trend dot (blue fill) -->
+            <circle
+              cx="858"
+              cy="183"
+              r="5"
+              fill="#2563eb"
+              stroke="#fff"
+              stroke-width="1.5"
+            />
+            <!-- Gap line between trend and plan -->
+            <line
+              x1="858"
+              y1="188"
+              x2="858"
+              y2="200"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-dasharray="3 2"
+            />
 
-        <!-- FUTURE zone: plan run-out to goal + goal chip -->
-        <polyline points="858,205 879,230 896,242"
-                  fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="2 3"/>
-        <!-- Goal chip in bottom rail (y≈242, compressed) -->
-        <rect x="828" y="231" width="68" height="22" rx="6" fill="#fff" stroke="#16a34a" stroke-width="1"/>
-        <text x="862" y="242" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#16a34a" font-weight="700" font-family="JetBrains Mono, monospace">75 · goal</text>
+            <!-- FUTURE zone: plan run-out to goal + goal chip -->
+            <polyline
+              points="858,205 879,230 896,242"
+              fill="none"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-dasharray="2 3"
+            />
+            <!-- Goal chip in bottom rail (y≈242, compressed) -->
+            <rect
+              x="828"
+              y="231"
+              width="68"
+              height="22"
+              rx="6"
+              fill="#fff"
+              stroke="#16a34a"
+              stroke-width="1"
+            />
+            <text
+              x="862"
+              y="242"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              font-size="9"
+              fill="#16a34a"
+              font-weight="700"
+              font-family="JetBrains Mono, monospace"
+            >
+              75 · goal
+            </text>
 
-        <!-- X-axis labels -->
-        <text x="92" y="263" text-anchor="middle" font-size="11" fill="#9ca3af">20</text>
-        <text x="92" y="275" text-anchor="middle" font-size="10" fill="#b0b6c0">May</text>
-        <text x="300" y="263" text-anchor="middle" font-size="11" fill="#9ca3af">27</text>
-        <text x="300" y="275" text-anchor="middle" font-size="10" fill="#b0b6c0">May</text>
-        <text x="500" y="263" text-anchor="middle" font-size="11" fill="#9ca3af">3</text>
-        <text x="500" y="275" text-anchor="middle" font-size="10" fill="#b0b6c0">Jun</text>
-        <text x="700" y="263" text-anchor="middle" font-size="11" fill="#9ca3af">10</text>
-        <text x="700" y="275" text-anchor="middle" font-size="10" fill="#b0b6c0">Jun</text>
-        <text x="858" y="263" text-anchor="middle" font-size="11" fill="#9ca3af">Today</text>
-      </svg>
-    </div>
+            <!-- X-axis labels -->
+            <text
+              x="92"
+              y="263"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              20
+            </text>
+            <text
+              x="92"
+              y="275"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              May
+            </text>
+            <text
+              x="300"
+              y="263"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              27
+            </text>
+            <text
+              x="300"
+              y="275"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              May
+            </text>
+            <text
+              x="500"
+              y="263"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              3
+            </text>
+            <text
+              x="500"
+              y="275"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              Jun
+            </text>
+            <text
+              x="700"
+              y="263"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              10
+            </text>
+            <text
+              x="700"
+              y="275"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              Jun
+            </text>
+            <text
+              x="858"
+              y="263"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              Today
+            </text>
+          </svg>
+        </div>
 
-    <div class="legend">
-      <div class="lc"><div class="ld" style="background:#9ca3af"></div>Weigh-in</div>
-      <div class="lc"><div class="ll" style="background:#2563eb"></div>7-day avg</div>
-      <div class="lc"><div class="ldash" style="border-color:#16a34a"></div>Plan</div>
-      <div class="lc"><div style="width:16px;height:10px;background:rgba(22,163,74,.17);border-radius:2px"></div>Gap vs plan</div>
-    </div>
+        <div class="legend">
+          <div class="lc">
+            <div class="ld" style="background: #9ca3af"></div>
+            Weigh-in
+          </div>
+          <div class="lc">
+            <div class="ll" style="background: #2563eb"></div>
+            7-day avg
+          </div>
+          <div class="lc">
+            <div class="ldash" style="border-color: #16a34a"></div>
+            Plan
+          </div>
+          <div class="lc">
+            <div
+              style="
+                width: 16px;
+                height: 10px;
+                background: rgba(22, 163, 74, 0.17);
+                border-radius: 2px;
+              "
+            ></div>
+            Gap vs plan
+          </div>
+        </div>
 
-    <div class="annotation">
-      <strong>Buffer rule:</strong> <code>present_min = min(visible) − 10% × spread</code>;
-      <code>present_max = max(visible) + 10% × spread</code>. The padded band fills the middle 80%;
-      the top 10% rail compresses anything higher (e.g. a past 95 kg reading);
-      the bottom 10% rail compresses the run-out to the 75 goal.
-      Horizontal stays past 5% / present 90% / future 5%.
-    </div>
-  </div>
+        <div class="annotation">
+          <strong>Buffer rule:</strong>
+          <code>present_min = min(visible) − 10% × spread</code>;
+          <code>present_max = max(visible) + 10% × spread</code>. The padded
+          band fills the middle 80%; the top 10% rail compresses anything higher
+          (e.g. a past 95 kg reading); the bottom 10% rail compresses the
+          run-out to the 75 goal. Horizontal stays past 5% / present 90% /
+          future 5%.
+        </div>
+      </div>
 
-  <!-- ── MOBILE ── -->
-  <div class="card mobile-card">
-    <div style="font-size:12px;font-weight:600;color:#9ca3af;letter-spacing:.06em;margin-bottom:8px;">MOBILE · PORTRAIT · 30D</div>
+      <!-- ── MOBILE ── -->
+      <div class="card mobile-card">
+        <div
+          style="
+            font-size: 12px;
+            font-weight: 600;
+            color: #9ca3af;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+          "
+        >
+          MOBILE · PORTRAIT · 30D
+        </div>
 
-    <div class="verdict mobile-verdict">
-      <span class="verdict-pill">Ahead −1.1</span>
-      <span class="verdict-text">7-day avg 88.0 vs plan 89.0</span>
-    </div>
+        <div class="verdict mobile-verdict">
+          <span class="verdict-pill">Ahead −1.1</span>
+          <span class="verdict-text">7-day avg 88.0 vs plan 89.0</span>
+        </div>
 
-    <div class="range-tabs">
-      <button class="range-tab" data-range="7d">7D</button>
-      <button class="range-tab active" data-range="30d">30D</button>
-      <button class="range-tab" data-range="90d">90D</button>
-      <button class="range-tab" data-range="6m">6M</button><!-- hidden via CSS -->
-      <button class="range-tab" data-range="1y">1Y</button>
-      <button class="range-tab" data-range="all">ALL</button><!-- hidden via CSS -->
-    </div>
+        <div class="range-tabs">
+          <button class="range-tab" data-range="7d">7D</button>
+          <button class="range-tab active" data-range="30d">30D</button>
+          <button class="range-tab" data-range="90d">90D</button>
+          <button class="range-tab" data-range="6m">6M</button
+          ><!-- hidden via CSS -->
+          <button class="range-tab" data-range="1y">1Y</button>
+          <button class="range-tab" data-range="all">ALL</button
+          ><!-- hidden via CSS -->
+        </div>
 
-    <div class="chart-wrap">
-      <!-- Mobile: taller chart (900×520), present 80% band tall, larger dots -->
-      <svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" aria-label="Weight trend chart — mobile">
-        <!-- Full-width on mobile (no horizontal rails) -->
-        <!-- Gridlines within present band -->
-        <line x1="50" y1="468" x2="884" y2="468" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="468" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">87</text>
-        <line x1="50" y1="384" x2="884" y2="384" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="384" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">88</text>
-        <line x1="50" y1="300" x2="884" y2="300" stroke="#e5e7eb" stroke-width=".75"/>
-        <text x="45" y="300" text-anchor="end" dominant-baseline="middle" font-size="12" fill="#9ca3af">89</text>
+        <div class="chart-wrap">
+          <!-- Mobile: taller chart (900×520), present 80% band tall, larger dots -->
+          <svg
+            viewBox="0 0 900 520"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-label="Weight trend chart — mobile"
+          >
+            <!-- Full-width on mobile (no horizontal rails) -->
+            <!-- Gridlines within present band -->
+            <line
+              x1="50"
+              y1="468"
+              x2="884"
+              y2="468"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="468"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              87
+            </text>
+            <line
+              x1="50"
+              y1="384"
+              x2="884"
+              y2="384"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="384"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              88
+            </text>
+            <line
+              x1="50"
+              y1="300"
+              x2="884"
+              y2="300"
+              stroke="#e5e7eb"
+              stroke-width=".75"
+            />
+            <text
+              x="45"
+              y="300"
+              text-anchor="end"
+              dominant-baseline="middle"
+              font-size="12"
+              fill="#9ca3af"
+            >
+              89
+            </text>
 
-        <!-- Gap fill -->
-        <path d="M 50,400 L 200,380 L 400,360 L 600,370 L 800,380 L 884,390
+            <!-- Gap fill -->
+            <path
+              d="M 50,400 L 200,380 L 400,360 L 600,370 L 800,380 L 884,390
                  L 884,420 L 800,415 L 600,410 L 400,400 L 200,415 L 50,430 Z"
-              fill="rgba(22,163,74,.17)" stroke="none"/>
+              fill="rgba(22,163,74,.17)"
+              stroke="none"
+            />
 
-        <!-- Plan line -->
-        <polyline points="50,430 200,415 400,400 600,410 800,415 884,420"
-                  fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5 3"/>
+            <!-- Plan line -->
+            <polyline
+              points="50,430 200,415 400,400 600,410 800,415 884,420"
+              fill="none"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-dasharray="5 3"
+            />
 
-        <!-- Weigh-in dots (bigger on mobile r=5) -->
-        <circle cx="100" cy="402" r="5" fill="#9ca3af"/>
-        <circle cx="200" cy="382" r="5" fill="#9ca3af"/>
-        <circle cx="320" cy="362" r="5" fill="#9ca3af"/>
-        <circle cx="450" cy="358" r="5" fill="#9ca3af"/>
-        <circle cx="580" cy="368" r="5" fill="#9ca3af"/>
-        <circle cx="700" cy="374" r="5" fill="#9ca3af"/>
-        <circle cx="820" cy="378" r="5" fill="#9ca3af"/>
+            <!-- Weigh-in dots (bigger on mobile r=5) -->
+            <circle cx="100" cy="402" r="5" fill="#9ca3af" />
+            <circle cx="200" cy="382" r="5" fill="#9ca3af" />
+            <circle cx="320" cy="362" r="5" fill="#9ca3af" />
+            <circle cx="450" cy="358" r="5" fill="#9ca3af" />
+            <circle cx="580" cy="368" r="5" fill="#9ca3af" />
+            <circle cx="700" cy="374" r="5" fill="#9ca3af" />
+            <circle cx="820" cy="378" r="5" fill="#9ca3af" />
 
-        <!-- Trend line -->
-        <polyline points="50,400 200,380 350,360 500,362 650,370 800,376 884,378"
-                  fill="none" stroke="#2563eb" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Trend line -->
+            <polyline
+              points="50,400 200,380 350,360 500,362 650,370 800,376 884,378"
+              fill="none"
+              stroke="#2563eb"
+              stroke-width="2.8"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
 
-        <!-- Today marker -->
-        <circle cx="884" cy="420" r="5" fill="#fff" stroke="#16a34a" stroke-width="2"/>
-        <circle cx="884" cy="378" r="5" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+            <!-- Today marker -->
+            <circle
+              cx="884"
+              cy="420"
+              r="5"
+              fill="#fff"
+              stroke="#16a34a"
+              stroke-width="2"
+            />
+            <circle
+              cx="884"
+              cy="378"
+              r="5"
+              fill="#2563eb"
+              stroke="#fff"
+              stroke-width="1.5"
+            />
 
-        <!-- Goal chip in bottom rail -->
-        <rect x="822" y="485" width="62" height="20" rx="6" fill="#fff" stroke="#16a34a" stroke-width="1"/>
-        <text x="853" y="495" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#16a34a" font-weight="700" font-family="JetBrains Mono, monospace">75 · goal</text>
+            <!-- Goal chip in bottom rail -->
+            <rect
+              x="822"
+              y="485"
+              width="62"
+              height="20"
+              rx="6"
+              fill="#fff"
+              stroke="#16a34a"
+              stroke-width="1"
+            />
+            <text
+              x="853"
+              y="495"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              font-size="9"
+              fill="#16a34a"
+              font-weight="700"
+              font-family="JetBrains Mono, monospace"
+            >
+              75 · goal
+            </text>
 
-        <!-- X-axis labels -->
-        <text x="50"  y="507" text-anchor="middle" font-size="11" fill="#9ca3af">20</text>
-        <text x="50"  y="519" text-anchor="middle" font-size="10" fill="#b0b6c0">May</text>
-        <text x="350" y="507" text-anchor="middle" font-size="11" fill="#9ca3af">3</text>
-        <text x="350" y="519" text-anchor="middle" font-size="10" fill="#b0b6c0">Jun</text>
-        <text x="884" y="507" text-anchor="middle" font-size="11" fill="#9ca3af">Today</text>
-      </svg>
+            <!-- X-axis labels -->
+            <text
+              x="50"
+              y="507"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              20
+            </text>
+            <text
+              x="50"
+              y="519"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              May
+            </text>
+            <text
+              x="350"
+              y="507"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              3
+            </text>
+            <text
+              x="350"
+              y="519"
+              text-anchor="middle"
+              font-size="10"
+              fill="#b0b6c0"
+            >
+              Jun
+            </text>
+            <text
+              x="884"
+              y="507"
+              text-anchor="middle"
+              font-size="11"
+              fill="#9ca3af"
+            >
+              Today
+            </text>
+          </svg>
+        </div>
+
+        <div class="legend">
+          <div class="lc">
+            <div class="ld" style="background: #9ca3af"></div>
+            Weigh-in
+          </div>
+          <div class="lc">
+            <div class="ll" style="background: #2563eb"></div>
+            7-day avg
+          </div>
+          <div class="lc">
+            <div class="ldash" style="border-color: #16a34a"></div>
+            Plan
+          </div>
+        </div>
+
+        <div class="annotation">
+          <strong>Mobile.</strong> Portrait: the present 80% band is tall; daily
+          movement is legible; bigger touch dots (r=5 vs r=3.5 desktop); goal
+          renders as a pinned chip in the bottom rail; range tabs trimmed to
+          7D/30D/90D/1Y. Same min/max + 10% buffer rule.
+        </div>
+      </div>
     </div>
-
-    <div class="legend">
-      <div class="lc"><div class="ld" style="background:#9ca3af"></div>Weigh-in</div>
-      <div class="lc"><div class="ll" style="background:#2563eb"></div>7-day avg</div>
-      <div class="lc"><div class="ldash" style="border-color:#16a34a"></div>Plan</div>
-    </div>
-
-    <div class="annotation">
-      <strong>Mobile.</strong> Portrait: the present 80% band is tall; daily movement is legible;
-      bigger touch dots (r=5 vs r=3.5 desktop); goal renders as a pinned chip in the bottom rail;
-      range tabs trimmed to 7D/30D/90D/1Y. Same min/max + 10% buffer rule.
-    </div>
-  </div>
-
-</div>
-</body>
+  </body>
 </html>
