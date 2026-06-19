@@ -411,13 +411,13 @@
         var listEl = document.getElementById("log-list");
         renderList(listEl, lastWeeks);
         updateHeaderStats(data);
-        // issue #528: re-render training-load surfaces on every fetch.
-        renderLoadWidget(data.load_context);
+        // issue #528: volume chart re-renders on every fetch; readiness is #640 widget only.
         renderVolumeChart();
         // issue #638: update month calendar with newly loaded data
         updateCalendar();
         // Apply current type/search client filter after rendering
         applyClientFilter();
+        fetchReadinessWidget();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -441,58 +441,10 @@
     return String(Math.round(v * 10) / 10);
   }
 
-  // Readiness widget: current CTL / ATL / TSB + plain-language interpretation.
+  // Legacy load-widget (#528): superseded by readiness-widget (#640). Keep hidden.
   function renderLoadWidget(lc) {
     var el = document.getElementById("load-widget");
-    if (!el) return;
-
-    var ctl, atl, tsb, interp, cls;
-    if (lc && typeof lc.ctl === "number") {
-      ctl = lc.ctl;
-      atl = lc.atl;
-      tsb = lc.tsb;
-      interp = lc.interpretation || "—";
-      cls = tsb >= 5 ? "fresh" : tsb <= -15 ? "fatigued" : "neutral";
-    } else {
-      // AC7 zero/empty state — brand-new athlete or < 7 days of history.
-      ctl = 0;
-      atl = 0;
-      tsb = 0;
-      interp = "Not enough data";
-      cls = "empty";
-    }
-
-    function stat(val, label, sub) {
-      return (
-        '<div class="lw-stat">' +
-        '<div class="lw-stat-val">' +
-        esc(fmtLoadNum(val)) +
-        "</div>" +
-        '<div class="lw-stat-label">' +
-        label +
-        "</div>" +
-        '<div class="lw-stat-sub">' +
-        sub +
-        "</div>" +
-        "</div>"
-      );
-    }
-
-    el.innerHTML =
-      '<div class="lw-head">' +
-      '<span class="lw-title">Readiness</span>' +
-      '<span class="lw-interp lw-interp--' +
-      cls +
-      '">' +
-      esc(interp) +
-      "</span>" +
-      "</div>" +
-      '<div class="lw-stats">' +
-        stat(ctl, 'CTL', 'Fitness') +
-        stat(atl, 'ATL', 'Fatigue') +
-        stat(tsb, 'TSB', 'Form') +
-      '</div>';
-    el.hidden = false;
+    if (el) el.hidden = true;
   }
 
   // ── Readiness widget (issue #640) ────────────────────────────────────────────
@@ -3263,7 +3215,6 @@
     readURLParams();
     buildFilterBar();
     fetchAndRender();
-    fetchReadinessWidget();
     initSwipe();
     refreshRepeatAvailability();
 
