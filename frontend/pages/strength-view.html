@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Strength View – perf-coach</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ── Page shell ─────────────────────────────────────────────────────── */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Inter Tight", system-ui, sans-serif;
+        background: var(--page-bg);
+        min-height: 100vh;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+      }
+      main.sv-main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px 16px 56px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* ── Card shell ─────────────────────────────────────────────────────── */
+      .sv-card {
+        background: var(--card-bg);
+        border-radius: 14px;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 6px 20px rgba(8, 18, 48, 0.16);
+        padding: 20px;
+      }
+
+      /* ── Typography ─────────────────────────────────────────────────────── */
+      .sv-section-title {
+        margin: 0 0 14px;
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-secondary);
+      }
+      .sv-empty {
+        color: var(--text-tertiary);
+        font-size: 13px;
+        margin: 0;
+      }
+      .sv-error {
+        background: var(--card-bg);
+        border-radius: 14px;
+        padding: 20px;
+        color: var(--danger);
+      }
+
+      /* ── Header card ────────────────────────────────────────────────────── */
+      .sv-header {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .sv-badge {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        padding: 3px 8px;
+        border-radius: 4px;
+        color: #fff;
+        align-self: flex-start;
+      }
+      .sv-workout-name {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sv-date {
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      /* ── Stats grid ─────────────────────────────────────────────────────── */
+      .sv-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      .sv-stat-tile {
+        background: var(--tile, #f7f9fd);
+        border-radius: 10px;
+        padding: 12px 10px;
+        text-align: center;
+      }
+      .sv-stat-val {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--ink, #0b1530);
+        line-height: 1.2;
+      }
+      .sv-stat-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--ink-2, #5c6886);
+        margin-top: 4px;
+      }
+
+      /* ── Session-profile bar ────────────────────────────────────────────── */
+      .sv-profile-bar {
+        display: flex;
+        align-items: flex-end;
+        height: 48px;
+        border-radius: 6px;
+        overflow: hidden;
+        gap: 2px;
+      }
+      .sv-profile-bar-seg {
+        border-radius: 3px 3px 0 0;
+        min-width: 6px;
+        flex-shrink: 0;
+      }
+
+      /* ── Exercises list ─────────────────────────────────────────────────── */
+      .sv-exercises-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .sv-ex-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        flex-wrap: wrap;
+      }
+      .sv-ex-bullet {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .sv-ex-name {
+        font-weight: 600;
+        min-width: 100px;
+        flex: 1;
+      }
+      .sv-ex-summary {
+        color: var(--text-secondary);
+        flex: 2;
+      }
+      .sv-rpe-pill {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 4px;
+        color: var(--ink, #0b1530);
+        flex-shrink: 0;
+      }
+
+      /* ── Mobile ─────────────────────────────────────────────────────────── */
+      @media (max-width: 480px) {
+        .sv-workout-name {
+          font-size: 18px;
+        }
+        .sv-stats-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .sv-ex-summary {
+          flex-basis: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="nav-placeholder"></div>
+
+    <main class="sv-main">
+      <div id="sv-root">
+        <div class="sv-card">Loading…</div>
+      </div>
+    </main>
+
+    <script src="js/nav.js"></script>
+    <script src="js/strength-view.js"></script>
+  </body>
+</html>

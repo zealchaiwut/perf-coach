@@ -1,9 +1,6 @@
 (function () {
   'use strict';
 
-  var ZONE2_HR_MIN = window.Zone2.ZONE2_HR_MIN;
-  var ZONE2_HR_MAX = window.Zone2.ZONE2_HR_MAX;
-
   // ── Preset definitions ────────────────────────────────────────────────────
   // Each preset gives a default set of effort segments.
 
@@ -258,9 +255,9 @@
     });
   }
 
-  // ── Zone 2 lap check (used when previewing/saving manual laps) ────────────
+  // ── Zone 2 lap check (delegates to zone2-constants.js for dynamic bounds) ──
   function isZone2Lap(avgHr) {
-    return typeof avgHr === 'number' && avgHr >= ZONE2_HR_MIN && avgHr <= ZONE2_HR_MAX;
+    return window.Zone2.isZone2Lap(avgHr);
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────

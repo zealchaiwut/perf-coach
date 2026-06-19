@@ -2060,6 +2060,112 @@
       background: var(--bg-1, #5a8dee);
       border-radius: 2px;
     }
+
+    /* ── Plan tab (issue #650, grafted from sprint-69) ── */
+      /* ── Plan tab: layout and sections ──────────────────────────────────── */
+      #plan-tab-panel { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+      .plan-section { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 16px 18px; }
+      .plan-section-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px; }
+      .plan-section-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+      .plan-section-header .plan-section-label { margin-bottom: 0; }
+      .plan-race-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .plan-add-btn { padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--card-border); background: var(--card-bg); color: var(--text-secondary); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+      .plan-add-btn:hover { border-color: #3563d4; color: #3563d4; }
+      .plan-add-btn--secondary { background: transparent; color: var(--text-tertiary); }
+
+      /* Race header */
+      .plan-race-hd { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+      .plan-race-hd-info { flex: 1; min-width: 0; }
+      .plan-race-hd-name { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; margin: 0 0 4px; }
+      .plan-priority-badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; font-size: 11px; font-weight: 800; background: #1e3a8a; color: #fff; margin-right: 6px; flex-shrink: 0; }
+      .plan-priority-badge.pri-a { background: #1e3a8a; }
+      .plan-priority-badge.pri-b { background: #0369a1; }
+      .plan-priority-badge.pri-c { background: #6b7280; }
+      .plan-race-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+      .plan-race-meta-item { display: flex; flex-direction: column; gap: 2px; }
+      .plan-meta-label { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
+      .plan-meta-value { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+      .plan-weeks-chip { display: inline-flex; align-items: center; gap: 4px; background: #ddf1ff; color: #0369a1; border-radius: 8px; padding: 3px 10px; font-size: 12px; font-weight: 700; }
+      .plan-no-race { color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+
+      /* Verdict banner */
+      .plan-verdict { border-radius: 10px; padding: 10px 16px; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin: 0 16px; }
+      .plan-verdict.verdict-on-track { background: #dff5d6; color: var(--green); }
+      .plan-verdict.verdict-at-risk { background: var(--amber-soft); color: var(--amber); }
+      .plan-verdict.verdict-off-track { background: var(--red-soft); color: var(--red); }
+
+      /* Performance curve */
+      .plan-curve-section .plan-section-label { margin-bottom: 10px; }
+      #plan-curve-wrap { position: relative; }
+      .plan-curve-empty, .plan-building-baseline { background: #f3f6fb; border-radius: 10px; padding: 24px 20px; text-align: center; }
+      .plan-empty-msg { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin: 0 0 4px; }
+      .plan-empty-sub { font-size: 12px; color: var(--text-tertiary); margin: 0; }
+      .plan-building-baseline { display: flex; align-items: center; gap: 10px; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+      .plan-bb-icon { font-size: 18px; flex-shrink: 0; }
+
+      /* Races list */
+      .plan-races-list { display: flex; flex-direction: column; gap: 8px; }
+      .plan-list-loading, .plan-list-empty { color: var(--text-tertiary); font-size: 13px; padding: 8px 0; }
+      .plan-race-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--card-border); border-radius: 10px; cursor: pointer; background: #f8fafd; transition: background 0.12s, border-color 0.12s; }
+      .plan-race-row:hover { background: #f0f4fd; border-color: #b3c0f0; }
+      .plan-race-row-info { flex: 1; min-width: 0; }
+      .plan-race-row-name { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin: 0 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .plan-race-row-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-secondary); }
+      .plan-race-type-badge { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
+      .plan-race-type-badge.type-race { background: #dde6f8; color: #1e3a8a; }
+      .plan-race-type-badge.type-checkpoint { background: #f0f0f0; color: #555; }
+      .plan-met-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; }
+      .plan-met-badge.met-upcoming { background: #e0f2fe; color: #0369a1; }
+      .plan-met-badge.met-met { background: #dff5d6; color: var(--green); }
+      .plan-met-badge.met-missed { background: var(--red-soft); color: var(--red); }
+
+      /* Specificity bars */
+      .plan-spec-bars { display: flex; flex-direction: column; gap: 14px; }
+      .plan-spec-bar-label { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+      .plan-spec-bar-track { background: #eef2f6; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 5px; }
+      .plan-spec-bar-fill { height: 100%; border-radius: 4px; background: #3563d4; transition: width 0.4s ease; width: 0%; }
+      .plan-spec-bar-values { display: flex; align-items: center; gap: 4px; font-size: 11.5px; }
+      .plan-spec-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text-primary); }
+      .plan-spec-target { font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
+      .plan-spec-sep { color: var(--text-tertiary); }
+      .plan-spec-unit { color: var(--text-tertiary); font-size: 10px; margin-left: 2px; }
+
+      /* Plan modal */
+      .plan-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
+      @media (min-width: 540px) { .plan-modal-overlay { align-items: center; } }
+      .plan-modal-sheet { background: #fff; border-radius: 18px 18px 0 0; width: 100%; max-width: 480px; padding: 24px 22px 32px; box-shadow: 0 -4px 32px rgba(0,0,0,0.18); max-height: 90vh; overflow-y: auto; }
+      @media (min-width: 540px) { .plan-modal-sheet { border-radius: 18px; } }
+      .plan-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+      .plan-modal-title { font-size: 17px; font-weight: 700; color: var(--text-primary); margin: 0; }
+      .plan-modal-close { background: none; border: none; font-size: 18px; color: var(--text-tertiary); cursor: pointer; line-height: 1; padding: 4px; }
+      .plan-modal-close:hover { color: var(--text-primary); }
+      .plan-modal-field { margin-bottom: 14px; }
+      .plan-modal-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 5px; }
+      .plan-modal-input { width: 100%; box-sizing: border-box; border: 1.5px solid var(--card-border); border-radius: 9px; padding: 10px 12px; font-size: 14px; font-family: inherit; color: var(--text-primary); background: #f8fafd; }
+      .plan-modal-input:focus { outline: none; border-color: #3563d4; background: #fff; }
+      .plan-modal-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; flex-wrap: wrap; gap: 10px; }
+      .plan-modal-delete { background: none; border: none; color: var(--red); font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 0; }
+      .plan-modal-delete:hover { text-decoration: underline; }
+      .plan-modal-btns { display: flex; gap: 8px; }
+      .plan-modal-cancel { padding: 9px 18px; border-radius: 9px; border: 1.5px solid var(--card-border); background: none; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+      .plan-modal-cancel:hover { background: #f3f6fb; }
+      .plan-modal-save { padding: 9px 22px; border-radius: 9px; border: none; background: #3563d4; color: #fff; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+      .plan-modal-save:hover { background: #2b4ca8; }
+      .plan-confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; }
+      .plan-confirm-box { background: #fff; border-radius: 14px; padding: 24px 22px; max-width: 360px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+      .plan-confirm-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 0 0 8px; }
+      .plan-confirm-msg { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; }
+      .plan-confirm-btns { display: flex; gap: 8px; justify-content: flex-end; }
+      .plan-confirm-cancel { padding: 8px 16px; border-radius: 8px; border: 1.5px solid var(--card-border); background: none; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+      .plan-confirm-delete { padding: 8px 18px; border-radius: 8px; border: none; background: var(--red); color: #fff; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+
+      /* Responsive */
+      @media (max-width: 600px) {
+        #plan-tab-panel { padding: 12px; gap: 12px; }
+        .plan-race-meta { gap: 10px; }
+        .plan-spec-bars { gap: 12px; }
+        .plan-race-actions { gap: 6px; }
+      }
   </style>
 </head>
 <body>
@@ -2105,11 +2211,102 @@
 
   </main>
 
-  <!-- Plan panel placeholder (hidden by default) -->
+  <!-- Plan panel (issue #650) -->
   <div id="training-panel-plan" class="tab-panel-placeholder" hidden>
-    <div class="tab-coming-soon">
-      <p class="tab-coming-soon-text">Coming soon</p>
-    </div>
+          <!-- ── Plan tab panel ─────────────────────────────────────────── -->
+          <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
+
+            <!-- Race header -->
+            <div id="plan-race-header" class="plan-section">
+              <!-- Populated by training-plan.js -->
+              <div id="plan-race-header-content"></div>
+            </div>
+
+            <!-- Verdict banner -->
+            <div id="plan-verdict" class="plan-verdict" style="display: none"></div>
+
+            <!-- Performance curve chart -->
+            <div class="plan-section plan-curve-section">
+              <div class="plan-section-label">Performance Curve</div>
+              <div id="plan-curve-empty" class="plan-curve-empty" style="display: none">
+                <p class="plan-empty-msg">Not enough history to project</p>
+                <p class="plan-empty-sub">Log at least 8 weeks of training to see the projected form curve.</p>
+              </div>
+              <div id="plan-building-baseline" class="plan-building-baseline" style="display: none">
+                <span class="plan-bb-icon">📈</span>
+                <span>Building baseline — projection unavailable until sufficient training history is established.</span>
+              </div>
+              <div id="plan-curve-wrap" style="display: none">
+                <canvas id="plan-form-curve" height="200" role="img" aria-label="Performance form curve: historical and projected form"></canvas>
+              </div>
+            </div>
+
+            <!-- Races & Checkpoints list -->
+            <div class="plan-section">
+              <div class="plan-section-header">
+                <span class="plan-section-label">Races &amp; Checkpoints</span>
+                <div class="plan-race-actions">
+                  <button id="plan-add-race-btn" class="plan-add-btn" type="button">+ Add Race</button>
+                  <button id="plan-add-checkpoint-btn" class="plan-add-btn plan-add-btn--secondary" type="button">+ Add Checkpoint</button>
+                </div>
+              </div>
+              <div id="plan-races" class="plan-races-list">
+                <div id="plan-races-loading" class="plan-list-loading">Loading…</div>
+                <div id="plan-races-empty" style="display: none" class="plan-list-empty">
+                  <p>No races or checkpoints yet.</p>
+                  <p>Add your A-race to start planning your training.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Race-Readiness Specificity Bars -->
+            <div class="plan-section" id="plan-spec-section">
+              <div class="plan-section-label">Race-Readiness Specificity</div>
+              <div id="plan-spec-empty" class="plan-list-empty" style="display: none">
+                <p>Select an A-priority race to see specificity bars.</p>
+              </div>
+              <div id="plan-spec-bars" class="plan-spec-bars">
+                <div class="plan-spec-bar" id="plan-spec-volume">
+                  <div class="plan-spec-bar-label">Goal-Pace Volume</div>
+                  <div class="plan-spec-bar-track">
+                    <div class="plan-spec-bar-fill" id="plan-spec-volume-fill"></div>
+                  </div>
+                  <div class="plan-spec-bar-values">
+                    <span id="plan-spec-volume-current" class="plan-spec-val">—</span>
+                    <span class="plan-spec-sep">/</span>
+                    <span id="plan-spec-volume-target" class="plan-spec-target">—</span>
+                    <span class="plan-spec-unit">km</span>
+                  </div>
+                </div>
+                <div class="plan-spec-bar" id="plan-spec-pace">
+                  <div class="plan-spec-bar-label">Longest-at-Pace</div>
+                  <div class="plan-spec-bar-track">
+                    <div class="plan-spec-bar-fill" id="plan-spec-pace-fill"></div>
+                  </div>
+                  <div class="plan-spec-bar-values">
+                    <span id="plan-spec-pace-current" class="plan-spec-val">—</span>
+                    <span class="plan-spec-sep">/</span>
+                    <span id="plan-spec-pace-target" class="plan-spec-target">—</span>
+                    <span class="plan-spec-unit">km</span>
+                  </div>
+                </div>
+                <div class="plan-spec-bar" id="plan-spec-slower">
+                  <div class="plan-spec-bar-label">Longest-Slower</div>
+                  <div class="plan-spec-bar-track">
+                    <div class="plan-spec-bar-fill" id="plan-spec-slower-fill"></div>
+                  </div>
+                  <div class="plan-spec-bar-values">
+                    <span id="plan-spec-slower-current" class="plan-spec-val">—</span>
+                    <span class="plan-spec-sep">/</span>
+                    <span id="plan-spec-slower-target" class="plan-spec-target">—</span>
+                    <span class="plan-spec-unit">km</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+          <!-- end Plan tab panel -->
   </div>
 
   <!-- Performance panel placeholder (hidden by default) -->
@@ -2410,6 +2607,69 @@
     </div>
   </div>
 
+  <!-- Plan tab modals (issue #650, grafted from sprint-69) -->
+    <!-- Race/Checkpoint edit modal (Plan tab) -->
+    <div id="plan-race-modal" class="plan-modal-overlay" style="display: none" role="dialog" aria-modal="true" aria-labelledby="plan-modal-title">
+      <div class="plan-modal-sheet">
+        <div class="plan-modal-header">
+          <h2 id="plan-modal-title" class="plan-modal-title">Add Race</h2>
+          <button id="plan-modal-close" class="plan-modal-close" type="button" aria-label="Close">&#x2715;</button>
+        </div>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-name">Name</label>
+          <input id="plan-modal-name" class="plan-modal-input" type="text" maxlength="200" placeholder="e.g. Bangkok Marathon" autocomplete="off">
+        </div>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-date">Date</label>
+          <input id="plan-modal-date" class="plan-modal-input" type="date">
+        </div>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-distance">Distance (km)</label>
+          <input id="plan-modal-distance" class="plan-modal-input" type="number" min="0.01" step="0.001" placeholder="e.g. 42.195">
+        </div>
+        <div class="plan-modal-field" id="plan-modal-priority-field">
+          <label class="plan-modal-label" for="plan-modal-priority">Priority</label>
+          <select id="plan-modal-priority" class="plan-modal-input">
+            <option value="A">A – Primary race</option>
+            <option value="B">B – Secondary race</option>
+            <option value="C">C – Low priority</option>
+          </select>
+        </div>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-goal-time">Goal time (optional)</label>
+          <input id="plan-modal-goal-time" class="plan-modal-input" type="text" placeholder="HH:MM:SS or MM:SS">
+        </div>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-status">Status</label>
+          <select id="plan-modal-status" class="plan-modal-input">
+            <option value="planned">Planned</option>
+            <option value="done">Done</option>
+            <option value="abandoned">Abandoned</option>
+          </select>
+        </div>
+        <div id="plan-modal-error" style="color: var(--red, #7a1a1a); font-size: 12px; min-height: 1.2em;"></div>
+        <div class="plan-modal-actions">
+          <button id="plan-modal-delete-btn" class="plan-modal-delete" type="button" style="display: none">Delete</button>
+          <div class="plan-modal-btns">
+            <button id="plan-modal-cancel" class="plan-modal-cancel" type="button">Cancel</button>
+            <button id="plan-modal-save" class="plan-modal-save" type="button">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete confirmation dialog -->
+    <div id="plan-confirm-modal" class="plan-confirm-overlay" style="display: none" role="alertdialog" aria-modal="true">
+      <div class="plan-confirm-box">
+        <p class="plan-confirm-title" id="plan-confirm-title">Delete this race?</p>
+        <p class="plan-confirm-msg" id="plan-confirm-msg">This action cannot be undone.</p>
+        <div class="plan-confirm-btns">
+          <button id="plan-confirm-cancel" class="plan-confirm-cancel" type="button">Cancel</button>
+          <button id="plan-confirm-delete" class="plan-confirm-delete" type="button">Delete</button>
+        </div>
+      </div>
+    </div>
+
   <script src="js/nav.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
@@ -2417,6 +2677,7 @@
   <script src="js/lib/run-detail-view.js"></script>
   <script src="js/training.js"></script>
   <script src="js/training-log.js"></script>
+  <script src="js/training-plan.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
   <script>
@@ -2449,6 +2710,7 @@
       if (layoutWrapper) layoutWrapper.style.display = isLog ? '' : 'none';
       // Show/hide placeholder panels
       if (panelPlan) panelPlan.hidden = tab !== 'plan';
+      if (tab === 'plan' && window.TrainingPlan && window.TrainingPlan.init) window.TrainingPlan.init();
       if (panelPerf) panelPerf.hidden = tab !== 'performance';
       // Hide "Log workout" button when not on Log tab
       if (logNewBtn) logNewBtn.style.display = isLog ? '' : 'none';
