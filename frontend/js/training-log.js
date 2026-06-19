@@ -233,42 +233,16 @@
     subtitleEl.textContent = parts.join(" · ");
   }
 
-  // ── Build filter bar ──────────────────────────────────────────────────────
+  // ── Build filter bar (issue #637: type pills + search, client-side) ─────────
   function buildFilterBar() {
     var bar = document.getElementById("filter-bar");
     if (!bar) return;
 
-    var searchWrap = document.createElement("div");
-    searchWrap.className = "fb-search-wrap";
-    var searchInner = document.createElement("div");
-    searchInner.className = "fb-search";
-    var searchIcon = document.createElement("i");
-    searchIcon.className = "ti ti-search";
-    searchIcon.setAttribute("aria-hidden", "true");
-    searchInner.appendChild(searchIcon);
-    var searchInput = document.createElement("input");
-    searchInput.type = "text";
-    searchInput.id = "log-search";
-    searchInput.placeholder = "Search workouts";
-    searchInput.setAttribute("aria-label", "Search workouts");
-    searchInput.setAttribute("type", "search");
-    searchInput.value = filters.search;
-    searchInput.spellcheck = false;
-    searchInput.autocomplete = "off";
-    searchInner.appendChild(searchInput);
-    searchWrap.appendChild(searchInner);
-    bar.appendChild(searchWrap);
-
-    var chipsRow = document.createElement("div");
-    chipsRow.className = "fb-chips-row";
-    var TYPE_OPTS = ["all", "run", "lift", "wod", "bike"];
-    var TYPE_LABELS = {
-      all: "All",
-      run: "Run",
-      lift: "Lift",
-      wod: "WOD",
-      bike: "Bike",
-    };
+    // Type pills row — All / Run / Lift / WOD / Bike
+    var chipsRow = document.createElement('div');
+    chipsRow.className = 'fb-chips-row';
+    var TYPE_OPTS   = ['all','run','lift','wod','bike'];
+    var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -281,61 +255,32 @@
           c.classList.toggle("active", c.dataset.type === t);
         });
         writeURLParams();
-        fetchAndRender();
+        applyClientFilter();
       });
       chipsRow.appendChild(chip);
     });
     bar.appendChild(chipsRow);
 
-    var divider = document.createElement("div");
-    divider.className = "fb-divider";
-    divider.setAttribute("aria-hidden", "true");
-    bar.appendChild(divider);
-
-    var drWrap = document.createElement("div");
-    drWrap.className = "fb-daterange-wrap";
-
-    var drChip = document.createElement("button");
-    drChip.type = "button";
-    drChip.id = "dr-chip";
-    drChip.className = "dr-chip";
-    drChip.setAttribute("aria-expanded", "false");
-    drChip.textContent = drLabel() + " ▾";
-
-    var drPanel = document.createElement("div");
-    drPanel.id = "dr-panel";
-    drPanel.className = "dr-panel";
-    drPanel.hidden = true;
-
-    var fromLabel = document.createElement("label");
-    fromLabel.textContent = "From";
-    fromLabel.htmlFor = "dr-from";
-    var fromInput = document.createElement("input");
-    fromInput.type = "date";
-    fromInput.id = "dr-from";
-    fromInput.value = filters.from;
-
-    var toLabel = document.createElement("label");
-    toLabel.textContent = "To";
-    toLabel.htmlFor = "dr-to";
-    var toInput = document.createElement("input");
-    toInput.type = "date";
-    toInput.id = "dr-to";
-    toInput.value = filters.to;
-
-    var applyBtn = document.createElement("button");
-    applyBtn.type = "button";
-    applyBtn.className = "btn-sm";
-    applyBtn.textContent = "Apply";
-
-    drPanel.appendChild(fromLabel);
-    drPanel.appendChild(fromInput);
-    drPanel.appendChild(toLabel);
-    drPanel.appendChild(toInput);
-    drPanel.appendChild(applyBtn);
-    drWrap.appendChild(drChip);
-    drWrap.appendChild(drPanel);
-    bar.appendChild(drWrap);
+    // Search field
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'fb-search-wrap';
+    var searchInner = document.createElement('div');
+    searchInner.className = 'fb-search';
+    var searchIcon = document.createElement('i');
+    searchIcon.className = 'ti ti-search';
+    searchIcon.setAttribute('aria-hidden', 'true');
+    searchInner.appendChild(searchIcon);
+    var searchInput = document.createElement('input');
+    searchInput.type         = 'search';
+    searchInput.id           = 'log-search';
+    searchInput.placeholder  = 'Search workouts';
+    searchInput.setAttribute('aria-label', 'Search workouts');
+    searchInput.value        = filters.search;
+    searchInput.spellcheck   = false;
+    searchInput.autocomplete = 'off';
+    searchInner.appendChild(searchInput);
+    searchWrap.appendChild(searchInner);
+    bar.appendChild(searchWrap);
 
     var loadingEl = document.createElement("span");
     loadingEl.id = "log-loading-indicator";
@@ -352,37 +297,43 @@
       searchTimer = setTimeout(function () {
         filters.search = searchInput.value;
         writeURLParams();
-        fetchAndRender();
-      }, 300);
+        applyClientFilter();
+      }, 200);
+    });
+  }
+
+  // ── Client-side filter (issue #637) ──────────────────────────────────────
+  function applyClientFilter() {
+    var typeKey    = (filters.type || 'all').toLowerCase();
+    var searchTerm = (filters.search || '').toLowerCase().trim();
+    var anyVisible = false;
+
+    document.querySelectorAll('.day-group').forEach(function (group) {
+      var groupHasVisible = false;
+      group.querySelectorAll('.entry-row').forEach(function (row) {
+        var matchesType = typeKey === 'all' ||
+          (row.dataset.workoutType || '').toLowerCase() === typeKey;
+        var matchesSearch = !searchTerm ||
+          (row.dataset.workoutTitle || '').toLowerCase().indexOf(searchTerm) !== -1;
+        var visible = matchesType && matchesSearch;
+        row.style.display = visible ? '' : 'none';
+        if (visible) groupHasVisible = true;
+      });
+      group.style.display = groupHasVisible ? '' : 'none';
+      if (groupHasVisible) anyVisible = true;
     });
 
-    drChip.addEventListener("click", function (e) {
-      e.stopPropagation();
-      var nowOpen = drPanel.hidden;
-      drPanel.hidden = !nowOpen;
-      drChip.setAttribute("aria-expanded", String(nowOpen));
-    });
+    var filterEmpty = document.getElementById('log-empty-filter');
+    var mainEmpty   = document.getElementById('log-empty-msg');
+    var listEl      = document.getElementById('log-list');
+    var hasAnyRows  = listEl && listEl.querySelector('.entry-row') !== null;
 
-    applyBtn.addEventListener("click", function () {
-      filters.from = fromInput.value;
-      filters.to = toInput.value;
-      drPanel.hidden = true;
-      drChip.setAttribute("aria-expanded", "false");
-      drChip.textContent = drLabel() + " ▾";
-      writeURLParams();
-      fetchAndRender();
-    });
-
-    document.addEventListener("click", function (e) {
-      if (
-        !drPanel.hidden &&
-        !drPanel.contains(e.target) &&
-        e.target !== drChip
-      ) {
-        drPanel.hidden = true;
-        drChip.setAttribute("aria-expanded", "false");
-      }
-    });
+    if (filterEmpty) {
+      filterEmpty.style.display = (hasAnyRows && !anyVisible) ? '' : 'none';
+    }
+    if (mainEmpty) {
+      mainEmpty.style.display = (!hasAnyRows && !anyVisible) ? '' : 'none';
+    }
   }
 
   // ── List state helpers ────────────────────────────────────────────────────
@@ -430,6 +381,8 @@
   }
 
   // ── Fetch & render ────────────────────────────────────────────────────────
+  // issue #637: load full history (from 2010-01-01 to today); filtering is
+  // client-side via applyClientFilter() so no type/search params are sent.
   function fetchAndRender() {
     var loadingEl = document.getElementById("log-loading-indicator");
     if (loadingEl) loadingEl.hidden = false;
@@ -440,12 +393,9 @@
     var today = todayISO();
     var params = new URLSearchParams();
 
-    if (filters.type && filters.type !== "all")
-      params.set("types", filters.type);
-    if (filters.search) params.set("search", filters.search);
-    params.set("from", filters.from || addDays(today, -29));
-    params.set("to", filters.to || today);
-    params.set("include_rest", "true");
+    params.set('from', '2010-01-01');
+    params.set('to',   today);
+    params.set('include_rest', 'false');
     // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
     // readiness widget is fed from one computation (no duplicate load_context).
     params.set("include_load_context", "true");
@@ -461,10 +411,13 @@
         var listEl = document.getElementById("log-list");
         renderList(listEl, lastWeeks);
         updateHeaderStats(data);
-        // issue #528: re-render training-load surfaces on every fetch, so a
-        // date-range change updates them without a full page reload (AC4).
+        // issue #528: re-render training-load surfaces on every fetch.
         renderLoadWidget(data.load_context);
         renderVolumeChart();
+        // issue #638: update month calendar with newly loaded data
+        updateCalendar();
+        // Apply current type/search client filter after rendering
+        applyClientFilter();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -535,11 +488,66 @@
       "</span>" +
       "</div>" +
       '<div class="lw-stats">' +
-      stat(ctl, "CTL", "Fitness") +
-      stat(atl, "ATL", "Fatigue") +
-      stat(tsb, "TSB", "Freshness") +
-      "</div>";
+        stat(ctl, 'CTL', 'Fitness') +
+        stat(atl, 'ATL', 'Fatigue') +
+        stat(tsb, 'TSB', 'Form') +
+      '</div>';
     el.hidden = false;
+  }
+
+  // ── Readiness widget (issue #640) ────────────────────────────────────────────
+  // Fetches /api/readiness/current and renders Fitness/Fatigue/Form tiles
+  // with a recovery hint. Widget is hidden on error or non-200 response.
+
+  function renderReadinessWidget(data) {
+    var el = document.getElementById('readiness-widget');
+    if (!el) return;
+
+    if (data.building_baseline) {
+      el.innerHTML =
+        '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+        '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Form scores.</p>';
+      el.hidden = false;
+      return;
+    }
+
+    function tile(val, abbr, label) {
+      return '<div class="rw-tile">' +
+               '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
+               '<div class="rw-tile-label">' + abbr + '</div>' +
+               '<div class="rw-tile-sub">' + label + '</div>' +
+             '</div>';
+    }
+
+    el.innerHTML =
+      '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+      '<div class="rw-tiles">' +
+        tile(data.ctl, 'CTL', 'Fitness') +
+        tile(data.atl, 'ATL', 'Fatigue') +
+        tile(data.tsb, 'TSB', 'Form') +
+      '</div>' +
+      '<p class="rw-hint">' + esc(data.recovery_hint || '') + '</p>';
+    el.hidden = false;
+  }
+
+  function fetchReadinessWidget() {
+    var el = document.getElementById('readiness-widget');
+    if (!el) return;
+    fetch('/api/readiness/current')
+      .then(function (res) {
+        if (!res.ok) {
+          el.hidden = true;
+          return null;
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        renderReadinessWidget(data);
+      })
+      .catch(function () {
+        if (el) el.hidden = true;
+      });
   }
 
   function volumeWeekLabel(monday) {
@@ -574,7 +582,7 @@
     };
   }
 
-  // Weekly volume chart: stacked run + strength TSS bars with run-km line overlay.
+  // Weekly volume chart: stacked run + lift TSS bars with run-km line overlay.
   function renderVolumeChart() {
     var card = document.getElementById("volume-chart-card");
     var canvas = document.getElementById("volume-chart");
@@ -618,15 +626,21 @@
         var runTssVals = [];
         var strengthTssVals = [];
         var distVals = [];
+        var nowMondayStr = toISODate(getMondayOf(new Date()));
+        var currentWeekIdx = -1;
         var cur = new Date(startMonday);
+        var wkIdx = 0;
         while (cur <= toMonday) {
-          var wk = byStart[toISODate(cur)] || {};
+          var wkIso = toISODate(cur);
+          if (wkIso === nowMondayStr) currentWeekIdx = wkIdx;
+          var wk = byStart[wkIso] || {};
           var agg = weekVolumeByType(wk.workouts || []);
           labels.push(volumeWeekLabel(cur));
           runTssVals.push(agg.runTss);
           strengthTssVals.push(agg.strengthTss);
           distVals.push(agg.distKm);
           cur.setDate(cur.getDate() + 7);
+          wkIdx++;
         }
 
         var hasData =
@@ -648,8 +662,27 @@
           return;
         }
 
-        var tickColor = "#69748c";
-        var tickFont = { size: 10 };
+        // Read tick colour from CSS structural token (--text-tertiary).
+        var rootStyle = getComputedStyle(document.documentElement);
+        var tickColor = rootStyle.getPropertyValue('--text-tertiary').trim() || '#69748c';
+        var tickFont  = { size: 10 };
+
+        // Gradient background factory for stacked bars with current-week emphasis.
+        // Scriptable: Chart.js calls this per data-point so gradients are recreated
+        // on resize — keeping the chart responsive.
+        function makeBarBg(hiA, loA, hiB, loB) {
+          return function (context) {
+            var area = context.chart.chartArea;
+            var isCurrent = context.dataIndex === currentWeekIdx;
+            if (!area) {
+              return isCurrent ? loA : loB;
+            }
+            var g = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+            g.addColorStop(0, isCurrent ? hiA : hiB);
+            g.addColorStop(1, isCurrent ? loA : loB);
+            return g;
+          };
+        }
 
         if (volumeChart) {
           volumeChart.destroy();
@@ -663,7 +696,10 @@
               {
                 label: "Run TSS",
                 data: runTssVals,
-                backgroundColor: "#3b82f6",
+                backgroundColor: makeBarBg(
+                  'rgba(96,165,250,0.95)', 'rgba(37,99,235,0.88)',
+                  'rgba(96,165,250,0.38)', 'rgba(37,99,235,0.28)'
+                ),
                 borderRadius: 4,
                 maxBarThickness: 36,
                 stack: "tss",
@@ -671,23 +707,21 @@
                 yAxisID: "y",
               },
               {
-                label: "Strength TSS",
+                label: 'Lift TSS',
                 data: strengthTssVals,
-                backgroundColor: "#8b5cf6",
-                borderRadius: {
-                  topLeft: 4,
-                  topRight: 4,
-                  bottomLeft: 0,
-                  bottomRight: 0,
-                },
+                backgroundColor: makeBarBg(
+                  'rgba(167,139,250,0.95)', 'rgba(109,40,217,0.88)',
+                  'rgba(167,139,250,0.38)', 'rgba(109,40,217,0.28)'
+                ),
+                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
                 maxBarThickness: 36,
                 stack: "tss",
                 order: 2,
                 yAxisID: "y",
               },
               {
-                label: "Run distance (km)",
-                type: "line",
+                label: 'km',
+                type: 'line',
                 data: distVals,
                 borderColor: "#f59e0b",
                 backgroundColor: "#f59e0b",
@@ -790,34 +824,68 @@
   }
 
   // ── Log list rendering ────────────────────────────────────────────────────
-  function renderList(container, weeks) {
+
+  // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
+  function renderDayGroupedList(container, weeks) {
     if (!container) return;
     container.innerHTML = "";
 
-    var hasFilters =
-      filters.type !== "all" ||
-      !!filters.search ||
-      !!filters.from ||
-      !!filters.to;
+    // Flatten all workout entries from all weeks, newest-first (API already orders by date desc).
+    var entries = [];
+    (weeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type !== 'rest') entries.push(entry);
+      });
+    });
 
-    if (!weeks.length) {
-      if (!hasFilters) {
-        var emptyEl = document.getElementById("log-empty-msg");
-        if (emptyEl) emptyEl.style.display = "";
-      } else {
-        var msg = document.createElement("p");
-        msg.className = "log-empty";
-        msg.textContent =
-          "No workouts in this range — try widening your date filter.";
-        container.appendChild(msg);
-      }
+    if (!entries.length) {
+      var emptyEl = document.getElementById('log-empty-msg');
+      if (emptyEl) emptyEl.style.display = '';
       return;
     }
 
     hideListMessages();
-    weeks.forEach(function (week) {
-      container.appendChild(buildWeekGroup(week));
+
+    // Group by calendar date (ISO string), preserving newest-first order.
+    var days = [];
+    var dayMap = {};
+    entries.forEach(function (entry) {
+      var date = entry.date || '';
+      if (!dayMap[date]) {
+        dayMap[date] = [];
+        days.push(date);
+      }
+      dayMap[date].push(entry);
     });
+    // Ensure newest-first day order.
+    days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
+
+    days.forEach(function (dateStr) {
+      var d = new Date(dateStr + 'T00:00:00');
+      var dayGroup = document.createElement('div');
+      dayGroup.className = 'day-group';
+      dayGroup.dataset.date = dateStr;
+
+      var header = document.createElement('div');
+      header.className = 'day-group-header';
+      var dayLabel = isNaN(d.getDay()) ? dateStr :
+        DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+      header.textContent = dayLabel;
+      dayGroup.appendChild(header);
+
+      var rowsEl = document.createElement('div');
+      rowsEl.className = 'day-group-rows';
+      dayMap[dateStr].forEach(function (entry) {
+        rowsEl.appendChild(buildEntryRow(entry));
+      });
+      dayGroup.appendChild(rowsEl);
+
+      container.appendChild(dayGroup);
+    });
+  }
+
+  function renderList(container, weeks) {
+    renderDayGroupedList(container, weeks);
   }
 
   function renderRestDayRow(entry) {
@@ -1012,13 +1080,16 @@
     dateCol.appendChild(dayNameEl);
 
     var typeKey = normalizeTypeKey(w.type);
-    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
-    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
-    row.classList.add("entry-row--" + typeSlug);
-    var badge = document.createElement("span");
-    badge.className = "entry-type entry-type--" + typeSlug;
-    var dot = document.createElement("span");
-    dot.className = "entry-type-dot";
+    var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
+    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
+    row.classList.add('entry-row--' + typeSlug);
+    // issue #637: data attributes for client-side filtering
+    row.dataset.workoutType  = typeKey;
+    row.dataset.workoutTitle = (w.title || '').toLowerCase();
+    var badge = document.createElement('span');
+    badge.className = 'entry-type entry-type--' + typeSlug;
+    var dot = document.createElement('span');
+    dot.className = 'entry-type-dot';
     badge.appendChild(dot);
     var typeLbl = document.createElement("span");
     typeLbl.className = "entry-type-label";
@@ -3587,6 +3658,7 @@
     readURLParams();
     buildFilterBar();
     fetchAndRender();
+    fetchReadinessWidget();
     initSwipe();
     refreshRepeatAvailability();
 
@@ -3740,7 +3812,8 @@
     return month + " " + monday.getDate() + " – " + sunday.getDate();
   }
 
-  var currentMonday = parseWeekParam();
+  var currentMonday    = parseWeekParam();
+  var stripSelectedDate = null;   // ISO date of the highlighted mobile strip pill
 
   async function loadAndRender(monday) {
     var sunday = new Date(monday);
@@ -3756,7 +3829,8 @@
       toStr +
       "&include_rest=false";
 
-    var dotsByDate = {};
+    var dotsByDate   = {};
+    var countsByDate = {};
     try {
       var res = await fetch(url);
       if (res.ok) {
@@ -3769,6 +3843,7 @@
               if (dotsByDate[entry.date].indexOf(t) === -1)
                 dotsByDate[entry.date].push(t);
             }
+            countsByDate[entry.date] = (countsByDate[entry.date] || 0) + 1;
           });
         });
       }
@@ -3776,21 +3851,22 @@
       // network error — render with empty dots
     }
 
-    render(monday, dotsByDate);
+    render(monday, dotsByDate, countsByDate);
   }
 
-  function render(monday, dotsByDate) {
-    var strip = document.getElementById("week-strip");
+  function render(monday, dotsByDate, countsByDate) {
+    var strip = document.getElementById('week-strip');
     if (!strip) return;
+
+    countsByDate = countsByDate || {};
 
     var today = new Date();
     today.setHours(0, 0, 0, 0);
     var todayStr = toISODate(today);
     var isCurrentWeek = weekContainsToday(monday);
 
-    // A pill is "selected" only when the list filter is pinned to exactly that
-    // single day (filters.from === filters.to === the pill's date). issue #523
-    var isDayFilter = !!filters.from && filters.from === filters.to;
+    // issue #639: track the selected day on the mobile strip independently of
+    // the list filter (strip selection scrolls, not filters the list).
 
     var pillsHtml = "";
     for (var i = 0; i < 7; i++) {
@@ -3798,7 +3874,7 @@
       d.setDate(d.getDate() + i);
       var dateStr = toISODate(d);
       var isToday = dateStr === todayStr;
-      var isSelected = isDayFilter && filters.from === dateStr;
+      var isSelected = dateStr === stripSelectedDate;
 
       var typesForDay = dotsByDate[dateStr] || [];
       var dotsHtml = TYPE_ORDER.filter(function (t) {
@@ -3813,12 +3889,14 @@
         })
         .join("");
 
-      // Full, human-readable date for screen readers, e.g. "Monday, June 9".
-      var ariaLabel = d.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
+      // Descriptive aria-label: "Wednesday June 18, 2 activities" (issue #639 AC10).
+      var ariaLabel = d.toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric'
       });
+      var actCount = countsByDate[dateStr] || 0;
+      ariaLabel += actCount > 0
+        ? ', ' + actCount + ' ' + (actCount === 1 ? 'activity' : 'activities')
+        : ', no activities';
 
       pillsHtml +=
         '<button type="button" class="day-pill' +
@@ -3883,24 +3961,19 @@
         loadAndRender(currentMonday);
       });
 
-    // issue #523: wire each (native, keyboard-operable) day pill to the
-    // selection handler. Real <button>s already fire click on Enter & Space,
-    // so no extra keydown handling is needed.
-    var pillEls = strip.querySelectorAll(".day-pill");
+    // issue #639: wire each day pill to the scroll-based selection handler.
+    // Real <button>s already fire click on Enter & Space.
+    var pillEls = strip.querySelectorAll('.day-pill');
     Array.prototype.forEach.call(pillEls, function (pill) {
-      pill.addEventListener("click", function () {
-        selectDay(pill.getAttribute("data-date"));
+      pill.addEventListener('click', function () {
+        stripSelectDay(pill.getAttribute('data-date'));
       });
     });
 
-    // issue #523: on load (and re-render) bring the selected pill — or today's
-    // pill on the current week — into view regardless of viewport width.
-    var focusDate =
-      isDayFilter && filters.from
-        ? filters.from
-        : isCurrentWeek
-          ? todayStr
-          : null;
+    // Bring the selected pill — or today's pill on the current week — into view.
+    var focusDate = stripSelectedDate
+                  ? stripSelectedDate
+                  : (isCurrentWeek ? todayStr : null);
     if (focusDate) {
       var target = strip.querySelector(
         '.day-pill[data-date="' + focusDate + '"]',
@@ -3919,23 +3992,36 @@
     container.scrollLeft = Math.max(0, offset);
   }
 
-  // issue #523: tapping a day pill filters the log list to that single date.
-  // Tapping the already-selected pill clears the filter (back to full list).
-  function selectDay(dateStr) {
-    if (!dateStr) return;
-    var alreadySelected =
-      !!filters.from && filters.from === filters.to && filters.from === dateStr;
-    if (alreadySelected) {
-      filters.from = "";
-      filters.to = "";
-    } else {
-      filters.from = dateStr;
-      filters.to = dateStr;
+  // issue #639: scroll the history list to the first entry for dateStr.
+  // If no entry exists for that exact date, scroll to the nearest preceding entry.
+  // Never filters or hides entries — full history stays visible.
+  function stripScrollToDate(dateStr) {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // Find nearest preceding day-group (groups are newest-first in DOM)
+    var groups = Array.prototype.slice.call(
+      listEl.querySelectorAll('.day-group[data-date]')
+    );
+    var nearest = null;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
     }
-    writeURLParams();
-    syncDateRangeChip();
-    fetchAndRender(); // re-render the log list in place
-    loadAndRender(currentMonday); // re-render the strip to update selection
+    if (nearest) {
+      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (groups.length) {
+      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  // issue #639: tapping a mobile week-strip pill selects it (persistent highlight)
+  // and scrolls the log list — it never filters or hides other entries.
+  function stripSelectDay(dateStr) {
+    if (!dateStr) return;
+    stripSelectedDate = dateStr;
+    loadAndRender(currentMonday); // re-render strip to update is-selected
+    stripScrollToDate(dateStr);
   }
 
   // Keep the date-range chip / inputs in sync when a pill drives the filter.
@@ -3959,4 +4045,232 @@
   window.addEventListener("userChanged", function () {
     loadAndRender(currentMonday);
   });
-})();
+
+  // ── Month Calendar (issue #638) ───────────────────────────────────────────
+  // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
+  // already in memory — no additional API calls.
+
+  var calCurrentMonth = null;   // Date at the 1st of displayed month
+  var calSelectedDate = null;   // ISO date string of the highlighted cell
+  var calDayData      = {};     // date → { types: string[], totalTss: number }
+
+  var CAL_MONTH_NAMES = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December'
+  ];
+
+  var CAL_WEEKDAY_ABBR = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+  function buildCalDayData(weeks) {
+    calDayData = {};
+    (weeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type === 'rest' || !entry.date) return;
+        var d = calDayData[entry.date];
+        if (!d) { d = { types: [], totalTss: 0 }; calDayData[entry.date] = d; }
+        var t = (entry.type || '').toLowerCase();
+        if (t && d.types.indexOf(t) === -1) d.types.push(t);
+        if (entry.tss > 0) d.totalTss += entry.tss;
+      });
+    });
+  }
+
+  function renderCalendar() {
+    var el = document.getElementById('log-calendar');
+    if (!el) return;
+
+    var now   = new Date();
+    if (!calCurrentMonth) {
+      calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    var year  = calCurrentMonth.getFullYear();
+    var month = calCurrentMonth.getMonth();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var todayStr = pad(today.getFullYear()) + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+
+    // Last day of month
+    var lastDayNum = new Date(year, month + 1, 0).getDate();
+
+    // Compute max TSS in this month for bar scaling
+    var maxTss = 0;
+    for (var d = 1; d <= lastDayNum; d++) {
+      var ds = year + '-' + pad(month + 1) + '-' + pad(d);
+      var dd = calDayData[ds];
+      if (dd && dd.totalTss > maxTss) maxTss = dd.totalTss;
+    }
+    if (maxTss < 1) maxTss = 1;
+
+    // Week starts Monday: offset = (firstDay.getDay() + 6) % 7
+    var firstDow    = new Date(year, month, 1).getDay();
+    var startOffset = (firstDow + 6) % 7;
+    var totalCells  = startOffset + lastDayNum;
+    var rows        = Math.ceil(totalCells / 7);
+
+    var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+
+    var html = '<div class="cal-nav">' +
+      '<button type="button" id="log-cal-prev" class="cal-nav-btn" aria-label="Previous month">&#8249;</button>' +
+      '<span id="log-cal-title" class="cal-month-label">' + CAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
+      '<button type="button" id="log-cal-today" class="cal-nav-btn cal-nav-btn--today"' +
+        (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
+      '<button type="button" id="log-cal-next" class="cal-nav-btn" aria-label="Next month">&#8250;</button>' +
+    '</div>' +
+    '<div class="cal-grid" role="grid" aria-label="' + CAL_MONTH_NAMES[month] + ' ' + year + '">';
+
+    // Weekday headers
+    CAL_WEEKDAY_ABBR.forEach(function (abbr) {
+      html += '<div class="cal-weekday" role="columnheader">' + esc(abbr) + '</div>';
+    });
+
+    // Day cells
+    var dayNum = 1;
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < 7; col++) {
+        var cellIdx = row * 7 + col;
+        if (cellIdx < startOffset || dayNum > lastDayNum) {
+          html += '<div class="cal-cell cal-cell--empty" aria-hidden="true"></div>';
+        } else {
+          var dStr       = year + '-' + pad(month + 1) + '-' + pad(dayNum);
+          var dd2        = calDayData[dStr];
+          var isToday    = dStr === todayStr;
+          var isSel      = dStr === calSelectedDate;
+          var isFuture   = dStr > todayStr;
+
+          var cls = 'cal-cell';
+          if (isToday)  cls += ' cal-cell--today';
+          if (isSel)    cls += ' is-selected';
+          if (isFuture) cls += ' cal-cell--future';
+
+          var ariaLbl = new Date(year, month, dayNum).toLocaleDateString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric'
+          });
+          if (dd2 && dd2.types.length) ariaLbl += '. Workouts: ' + dd2.types.join(', ');
+
+          html += '<button type="button" class="' + cls + '"' +
+            ' data-date="' + dStr + '"' +
+            ' aria-label="' + esc(ariaLbl) + '"' +
+            ' aria-pressed="' + (isSel ? 'true' : 'false') + '">';
+
+          html += '<span class="cal-day-num">' + dayNum + '</span>';
+
+          // Type dots
+          html += '<div class="cal-dots">';
+          if (dd2 && dd2.types.length) {
+            TYPE_ORDER
+              .filter(function (t) { return dd2.types.indexOf(t) !== -1; })
+              .forEach(function (t) {
+                var col2 = TYPE_COLORS[t] || '#888';
+                html += '<span class="cal-dot" style="background:' + col2 + '" aria-hidden="true"></span>';
+              });
+          }
+          html += '</div>';
+
+          // Load bar
+          html += '<div class="cal-load">';
+          if (dd2 && dd2.totalTss > 0) {
+            var barPct = Math.min(100, Math.round(dd2.totalTss / maxTss * 100));
+            html += '<div class="cal-load-bar" style="width:' + barPct + '%" aria-hidden="true"></div>';
+          }
+          html += '</div>';
+
+          html += '</button>';
+          dayNum++;
+        }
+      }
+    }
+
+    html += '</div>'; // .cal-grid
+    el.innerHTML = html;
+
+    // Wire navigation buttons
+    var prevBtn  = document.getElementById('log-cal-prev');
+    var nextBtn  = document.getElementById('log-cal-next');
+    var todayBtn = document.getElementById('log-cal-today');
+
+    if (prevBtn) prevBtn.addEventListener('click', function () {
+      calCurrentMonth = new Date(year, month - 1, 1);
+      renderCalendar();
+    });
+
+    if (nextBtn) nextBtn.addEventListener('click', function () {
+      calCurrentMonth = new Date(year, month + 1, 1);
+      renderCalendar();
+    });
+
+    if (todayBtn) todayBtn.addEventListener('click', function () {
+      var t = new Date();
+      var tStr = pad(t.getFullYear()) + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+      calCurrentMonth = new Date(t.getFullYear(), t.getMonth(), 1);
+      if (calDayData[tStr]) calSelectedDate = tStr;
+      renderCalendar();
+      if (calSelectedDate === tStr) calScrollToDate(tStr);
+    });
+
+    // Wire day cell clicks via delegation
+    var grid = el.querySelector('.cal-grid');
+    if (grid) {
+      grid.addEventListener('click', function (e) {
+        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
+        if (!cell) return;
+        var date = cell.getAttribute('data-date');
+        if (!date) return;
+        calSelectedDate = date;
+        // Update highlight in place (no full re-render)
+        el.querySelectorAll('.cal-cell').forEach(function (c) {
+          var sel = c.getAttribute('data-date') === date;
+          c.classList.toggle('is-selected', sel);
+          c.setAttribute('aria-pressed', sel ? 'true' : 'false');
+        });
+        calScrollToDate(date);
+      });
+
+      // Keyboard: Enter/Space triggers click; arrows move focus within grid
+      grid.addEventListener('keydown', function (e) {
+        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
+        if (!cell) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cell.click();
+          return;
+        }
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
+            e.key !== 'ArrowUp'   && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        var cells = Array.prototype.slice.call(
+          grid.querySelectorAll('.cal-cell:not(.cal-cell--empty)')
+        );
+        var idx = cells.indexOf(cell);
+        var delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[e.key];
+        var newIdx = idx + delta;
+        if (newIdx >= 0 && newIdx < cells.length) cells[newIdx].focus();
+      });
+    }
+  }
+
+  function calScrollToDate(dateStr) {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    // Try exact match first
+    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // Find nearest preceding entry (groups are newest-first in DOM)
+    var groups = Array.prototype.slice.call(
+      listEl.querySelectorAll('.day-group[data-date]')
+    );
+    var nearest = null;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
+    }
+    if (nearest) {
+      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (groups.length) {
+      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function updateCalendar() {
+    buildCalDayData(lastWeeks);
+    renderCalendar();
+  }
+}());

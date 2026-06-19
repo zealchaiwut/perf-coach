@@ -6367,6 +6367,47 @@ def get_readiness_range(
     return JSONResponse(result)
 
 
+@app.get("/api/readiness/current")
+def get_readiness_current(user: User = Depends(resolve_user)):
+    """Return current fitness state (CTL, ATL, TSB) and building_baseline flag.
+
+    Used by the Readiness widget on the Training > Log sub-tab.
+
+    Response when building_baseline=False:
+      { building_baseline: false, ctl, atl, tsb, recovery_hint }
+    Response when building_baseline=True:
+      { building_baseline: true }
+    """
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+    tss_series = daily_tss_series(str(user.id), warmup_start, today)
+    load_curves = compute_load_curves(tss_series)
+
+    # Require at least 7 workout days with non-zero TSS in the last 42 days.
+    history_window_start = today - _timedelta(days=42)
+    workout_days_in_window = sum(
+        1 for d, tss in tss_series
+        if tss > 0 and d >= history_window_start
+    )
+    building_baseline = workout_days_in_window < 7
+
+    if building_baseline:
+        return JSONResponse({"building_baseline": True})
+
+    last_row = load_curves[-1]
+    ctl = round(last_row["ctl"], 1)
+    atl = round(last_row["atl"], 1)
+    tsb = round(last_row["tsb"], 1)
+
+    return JSONResponse({
+        "building_baseline": False,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "recovery_hint": _load_interpretation(ctl, atl, tsb),
+    })
+
+
 # ── Training Log endpoint ─────────────────────────────────────────────────────
 
 def _week_key_and_bounds(date_obj):

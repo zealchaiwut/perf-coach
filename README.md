@@ -12,7 +12,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
-- **Training log** — workout log with type badges, TSS, distance, HR, and pace; training load (CTL/ATL/TSB) widget and weekly volume bar chart on the log page; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace; three sub-tabs (Log / Plan / Performance) with Log as the default active panel; Readiness widget (CTL/ATL/TSB Fitness/Fatigue/Form tiles with recovery hint, or "building baseline" state when fewer than 7 scored workout days exist in the past 42 days); Weekly Volume & Load bar chart with gradient fill, current-week emphasis, and Lift TSS stacked; mobile week-strip (horizontal Mon–Sun pill row) tapping a day scrolls the log list to the nearest matching date rather than filtering it; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users; nav bar label shortened to "Training"
 - **Run View** — per-workout run detail page (`/run-view`) showing pace, power, HR, cadence, and stride-length per km split; supports both auto (1-km) and manually-entered lap rows (`lap_type`)
 - **Run Builder** — run planning page (`/run-builder`) for composing structured runs with Stryd aggregate fields (avg power, max power, normalized power, cadence, stride)
 - **Running TSS** — `compute_running_tss` service computes TSS automatically via three priority-ordered fallback methods: Power (NP/FTP), Pace (per-lap threshold pace), or HR (avg HR / threshold HR); result persisted to the `workouts` record on POST/PATCH workout and PUT splits; `tss_method` stored alongside `tss` and exposed in the workout dict; updating FTP/threshold preferences triggers a bulk recompute for all user workouts; result also surfaced on `GET /api/workouts/{id}/full` as `tss`, `tss_method`, `tss_partial`, and `computed_tss`
@@ -112,6 +112,7 @@ Each script:
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |
 | `POST /api/readiness/compute` | Computes and stores today's readiness score |
+| `GET /api/readiness/current` | Returns current CTL/ATL/TSB fitness state for the Readiness widget; returns `{building_baseline: true}` when fewer than 7 workout days with non-zero TSS exist in the past 42 days, otherwise returns `{building_baseline: false, ctl, atl, tsb, recovery_hint}` |
 | `POST /api/weight-entries` | Create a weight entry; body: `user_id`, `entry_date`, `weight_kg`, optional `entry_time`, `notes`, `source` |
 | `GET /api/weight-entries` | List weight entries; `user_id` required; `from`/`to` (YYYY-MM-DD) range (default last 90 days, max 365) |
 | `PATCH /api/weight-entries/{entry_id}` | Update `weight_kg`, `entry_date`, `entry_time`, or `notes` on a single entry |
