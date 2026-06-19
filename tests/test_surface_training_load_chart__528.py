@@ -140,10 +140,9 @@ def test_ac2_widget_container_present_in_html():
 
 
 def test_ac2_widget_renders_ctl_atl_tsb_and_interpretation():
-    # widget render reads all three values + the interpretation label
+    # readiness widget (#640) reads ctl/atl/tsb + recovery_hint from /api/readiness/current
     assert "ctl" in _JS and "atl" in _JS and "tsb" in _JS
-    assert "interpretation" in _JS
-    # plain-language labels are surfaced (CTL/ATL/TSB headings)
+    assert "recovery_hint" in _JS
     assert "CTL" in _JS and "ATL" in _JS and "TSB" in _JS
 
 
@@ -176,7 +175,7 @@ def test_ac4_range_change_triggers_rerender():
     idx = _JS.index("function fetchAndRender")
     nxt = _JS.index("\n  function ", idx + 10)
     body = _JS[idx:nxt]
-    assert "renderLoadWidget" in body or "LoadWidget" in body
+    assert "fetchReadinessWidget" in body or "ReadinessWidget" in body
     assert "VolumeChart" in body or "renderVolumeChart" in body
 
 
@@ -210,7 +209,8 @@ def test_ac7_null_load_context_returns_gracefully_with_insufficient_data():
 
 
 def test_ac7_frontend_handles_null_load_context_and_empty_weeks():
-    # widget renders a zero/empty state when load_context is null
+    # readiness widget + legacy load-widget stub remain in JS
+    assert "fetchReadinessWidget" in _JS or "renderReadinessWidget" in _JS
     assert "renderLoadWidget" in _JS
     # zero-fill missing weeks so empty weeks become a zero bar (not an error)
     assert "zero" in _JS.lower() or "|| 0" in _JS

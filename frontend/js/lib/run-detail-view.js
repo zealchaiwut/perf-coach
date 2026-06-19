@@ -148,6 +148,276 @@
     return "steady";
   }
 
+  function normalizeStravaLap(lap, index) {
+    var distM = lap.distance;
+    var cad = lap.average_cadence;
+    var cadSpm =
+      cad != null ? (cad < 100 ? Math.round(cad * 2) : Math.round(cad)) : null;
+    return {
+      split_index: lap.lap_index != null ? lap.lap_index : index + 1,
+      distance_km: distM != null ? distM / 1000 : null,
+      duration_seconds:
+        lap.moving_time != null ? lap.moving_time : lap.elapsed_time,
+      avg_hr:
+        lap.average_heartrate != null
+          ? Math.round(lap.average_heartrate)
+          : null,
+      avg_power:
+        lap.average_watts != null ? Math.round(lap.average_watts) : null,
+      cadence_spm: cadSpm,
+      stride_length_m: null,
+      lap_type: "manual",
+      _lapSource: "strava",
+    };
+  }
+
+  function normalizeStrydLap(lap, index) {
+    var distKm =
+      lap.distance_km != null
+        ? +lap.distance_km
+        : lap.distance != null
+          ? lap.distance / 1000
+          : null;
+    var dur =
+      lap.duration_seconds ||
+      lap.moving_time ||
+      lap.elapsed_time ||
+      lap.duration ||
+      null;
+    return {
+      split_index:
+        lap.index != null
+          ? lap.index
+          : lap.lap_index != null
+            ? lap.lap_index
+            : index + 1,
+      distance_km: distKm,
+      duration_seconds: dur,
+      avg_hr:
+        lap.avg_hr != null
+          ? lap.avg_hr
+          : lap.average_heart_rate != null
+            ? Math.round(lap.average_heart_rate)
+            : null,
+      avg_power:
+        lap.avg_power != null
+          ? lap.avg_power
+          : lap.average_power != null
+            ? Math.round(lap.average_power)
+            : lap.avg_power_w != null
+              ? Math.round(lap.avg_power_w)
+              : null,
+      cadence_spm:
+        lap.cadence_spm != null
+          ? lap.cadence_spm
+          : lap.average_cadence != null
+            ? Math.round(lap.average_cadence)
+            : null,
+      stride_length_m:
+        lap.stride_length_m != null ? +lap.stride_length_m : null,
+      lap_type: "manual",
+      _lapSource: "stryd",
+    };
+  }
+
+  /** Manual/device laps: Stryd raw_payload.laps first, else Strava detail laps. */
+  function collectManualLapSplits(strava, stryd) {
+    var strydLaps =
+      stryd && Array.isArray(stryd.laps) && stryd.laps.length ? stryd.laps : [];
+    var stravaLaps =
+      strava && Array.isArray(strava.laps) && strava.laps.length
+        ? strava.laps
+        : [];
+    if (strydLaps.length) {
+      return strydLaps
+        .map(normalizeStrydLap)
+        .sort(function (a, b) {
+          return a.split_index - b.split_index;
+        });
+    }
+    if (stravaLaps.length) {
+      return stravaLaps
+        .map(normalizeStravaLap)
+        .sort(function (a, b) {
+          return a.split_index - b.split_index;
+        });
+    }
+    return [];
+  }
+
+  function buildTssOptions(full, w, strava, stryd) {
+    var computedTss = full.computed_tss;
+    var tssMethod = full.tss_method || w.tss_method || "computed";
+    var options = [];
+    if (computedTss != null) {
+      options.push({
+        id: "computed",
+        label: "Computed",
+        sublabel: tssMethod,
+        value: Math.round(computedTss),
+        isEffort: false,
+      });
+    }
+    if (stryd && stryd.tss != null) {
+      options.push({
+        id: "stryd",
+        label: "Stryd",
+        sublabel: "stress",
+        value: Math.round(stryd.tss),
+        isEffort: false,
+      });
+    }
+    if (strava && strava.suffer_score != null) {
+      options.push({
+        id: "strava",
+        label: "Strava",
+        sublabel: "relative effort",
+        value: Math.round(strava.suffer_score),
+        isEffort: true,
+      });
+    }
+    if (w.tss_source === "manual" && w.tss != null) {
+      options.push({
+        id: "manual",
+        label: "Manual",
+        sublabel: "user entry",
+        value: Math.round(w.tss),
+        isEffort: false,
+      });
+    }
+    return options;
+  }
+
+  function pickDefaultTssId(options) {
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].id === "computed") return "computed";
+    }
+    return options.length ? options[0].id : null;
+  }
+
+  function tssOptionById(options, id) {
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].id === id) return options[i];
+    }
+    return options[0] || null;
+  }
+
+  function renderTssTile(options, activeId) {
+    var active = tssOptionById(options, activeId);
+    if (!active) {
+      return statTile("TSS", "—", "", { hero: true });
+    }
+    var lbl =
+      active.isEffort
+        ? "Relative effort · " + active.id
+        : active.id === "computed"
+          ? "TSS · " + (active.sublabel || "computed")
+          : "TSS · " + active.id;
+    var menu = options
+      .map(function (o) {
+        var cls =
+          "rd4-tss-opt" + (o.id === activeId ? " rd4-tss-opt--on" : "");
+        var line =
+          o.isEffort
+            ? o.label + " · " + o.sublabel
+            : o.label + (o.sublabel ? " · " + o.sublabel : "");
+        return (
+          '<button type="button" class="' +
+          cls +
+          '" data-tss-source="' +
+          esc(o.id) +
+          '"><span class="rd4-tss-opt-lbl">' +
+          esc(line) +
+          '</span><span class="rd4-tss-opt-val">' +
+          o.value +
+          "</span></button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="rd4-stat rd4-stat--hero rd4-stat--tss" id="rd4-tss-tile">' +
+      '<div class="rd4-stat-lbl">' +
+      esc(lbl) +
+      ' <span class="rd4-tss-chev" aria-hidden="true">▾</span></div>' +
+      '<div class="rd4-stat-val" id="rd4-tss-val">' +
+      active.value +
+      "</div>" +
+      '<div class="rd4-tss-menu" id="rd4-tss-menu" hidden>' +
+      menu +
+      "</div></div>"
+    );
+  }
+
+  function buildTssFootnote(options, activeId) {
+    var active = tssOptionById(options, activeId);
+    if (!active || active.id !== "computed") return "";
+    var stryd = null;
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].id === "stryd") stryd = options[i];
+    }
+    if (!stryd || stryd.value === active.value) return "";
+    return (
+      '<div class="rd4-tss-note">Stryd reports <strong>' +
+      stryd.value +
+      "</strong>; " +
+      esc(active.sublabel || "computed") +
+      " method computes <strong>" +
+      active.value +
+      "</strong></div>"
+    );
+  }
+
+  function renderLapTableRows(lapMeta) {
+    return lapMeta
+      .map(function (m) {
+        var s = m.split;
+        var rowCls = "rd4-lap-row";
+        if (m.zone2) rowCls += " rd4-lap-row--z2";
+        if (m.anomaly) rowCls += " rd4-lap-row--break";
+        var pills = "";
+        if (m.zone2) pills += '<span class="rd4-z2-pill">Z2</span>';
+        if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
+        if (s._lapSource)
+          pills +=
+            '<span class="rd4-lap-src rd4-lap-src--' +
+            s._lapSource +
+            '">' +
+            s._lapSource.toUpperCase() +
+            "</span>";
+        var paceCls = m.fastest ? " rd4-fastest" : "";
+        return (
+          "<tr class=\"" +
+          rowCls +
+          '">' +
+          "<td>" +
+          m.index +
+          pills +
+          "</td>" +
+          "<td>" +
+          (s.distance_km != null ? parseFloat(s.distance_km).toFixed(2) : "—") +
+          "</td>" +
+          '<td class="' +
+          paceCls +
+          '">' +
+          fmtPace(m.paceSec) +
+          "</td>" +
+          "<td>" +
+          dash(s.avg_hr) +
+          "</td>" +
+          "<td>" +
+          dash(s.avg_power) +
+          "</td>" +
+          "<td>" +
+          dash(s.cadence_spm) +
+          "</td>" +
+          "<td>" +
+          (s.stride_length_m != null ? (+s.stride_length_m).toFixed(2) : "—") +
+          "</td></tr>"
+        );
+      })
+      .join("");
+  }
+
   function buildLapMeta(splits, z2min, z2max) {
     var powers = splits.map(function (s) {
       return s.avg_power != null ? +s.avg_power : null;
@@ -288,6 +558,7 @@
       .sort(function (a, b) {
         return a.split_index - b.split_index;
       });
+    var manualSplits = collectManualLapSplits(strava, stryd);
 
     var prefsRow = prefs && prefs.row ? prefs.row : {};
     var z2min =
@@ -321,16 +592,18 @@
       null;
     var startTime = fmtTime(startIso);
 
-    var storedTss = full.tss != null ? full.tss : w.tss;
-    var computedTss = full.computed_tss;
-    var tssMethod = full.tss_method || w.tss_method || w.tss_source || "";
-    var tssLabel = "TSS";
-    if (w.tss_source) tssLabel += " · " + w.tss_source;
-    else if ((w.source || "").indexOf("stryd") >= 0) tssLabel += " · stryd";
+    var tssOptions = buildTssOptions(full, w, strava, stryd);
+    var defaultTssId = pickDefaultTssId(tssOptions);
 
-    var laps = buildLapMeta(splits, z2min, z2max);
-    var bandMap = lapBandMap(detected, laps.length);
-    var halves = computeHalves(laps);
+    var distanceLapMeta = buildLapMeta(splits, z2min, z2max);
+    var manualLapMeta = manualSplits.length
+      ? buildLapMeta(manualSplits, z2min, z2max)
+      : [];
+    var hasDistanceLaps = distanceLapMeta.length > 0;
+    var hasManualLaps = manualLapMeta.length > 0;
+
+    var bandMap = lapBandMap(detected, distanceLapMeta.length);
+    var halves = computeHalves(distanceLapMeta);
 
     var vi =
       computed.variability_index != null
@@ -382,9 +655,7 @@
 
     // ── 2 Load & intensity ──
     var loadGrid =
-      statTile(tssLabel, storedTss != null ? Math.round(storedTss) : "—", "", {
-        hero: true,
-      }) +
+      renderTssTile(tssOptions, defaultTssId) +
       statTile("Zone 2", dash(w.zone2_minutes), w.zone2_minutes != null ? "min" : "") +
       statTile(
         "Elevation",
@@ -424,23 +695,7 @@
         { pill: w.avg_cadence_spm != null ? sourcePill("stryd") : "" },
       );
 
-    var tssNote = "";
-    if (
-      storedTss != null &&
-      computedTss != null &&
-      Math.round(storedTss) !== Math.round(computedTss)
-    ) {
-      tssNote =
-        '<div class="rd4-tss-note">' +
-        (w.tss_source === "stryd" || (w.source || "").indexOf("stryd") >= 0
-          ? "Stryd reports <strong>" + Math.round(storedTss) + "</strong>"
-          : "Stored TSS <strong>" + Math.round(storedTss) + "</strong>") +
-        "; " +
-        esc(tssMethod || "computed") +
-        " method computes <strong>" +
-        Math.round(computedTss) +
-        "</strong></div>";
-    }
+    var tssNote = buildTssFootnote(tssOptions, defaultTssId);
 
     var load =
       '<section class="rd4-card"><h2 class="rd4-sec-title">Load &amp; intensity</h2>' +
@@ -508,14 +763,14 @@
 
     // ── 4 Session profile ──
     var profileBlock = "";
-    if (laps.length) {
+    if (distanceLapMeta.length) {
       var maxPow = Math.max.apply(
         null,
-        laps.map(function (m) {
+        distanceLapMeta.map(function (m) {
           return m.power || 0;
         }),
       );
-      var bars = laps
+      var bars = distanceLapMeta
         .map(function (m) {
           var band = m.anomaly
             ? "break"
@@ -576,59 +831,36 @@
 
     // ── 5 Laps ──
     var lapsBlock = "";
-    if (laps.length) {
-      var tableRows = laps
-        .map(function (m) {
-          var s = m.split;
-          var rowCls = "rd4-lap-row";
-          if (m.zone2) rowCls += " rd4-lap-row--z2";
-          if (m.anomaly) rowCls += " rd4-lap-row--break";
-          var pills = "";
-          if (m.zone2) pills += '<span class="rd4-z2-pill">Z2</span>';
-          if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
-          var paceCls = m.fastest ? " rd4-fastest" : "";
-          return (
-            "<tr class=\"" +
-            rowCls +
-            '">' +
-            "<td>" +
-            m.index +
-            pills +
-            "</td>" +
-            "<td>" +
-            (s.distance_km != null ? parseFloat(s.distance_km).toFixed(2) : "—") +
-            "</td>" +
-            '<td class="' +
-            paceCls +
-            '">' +
-            fmtPace(m.paceSec) +
-            "</td>" +
-            "<td>" +
-            dash(s.avg_hr) +
-            "</td>" +
-            "<td>" +
-            dash(s.avg_power) +
-            "</td>" +
-            "<td>" +
-            dash(s.cadence_spm) +
-            "</td>" +
-            "<td>" +
-            (s.stride_length_m != null ? (+s.stride_length_m).toFixed(2) : "—") +
-            "</td></tr>"
-          );
-        })
-        .join("");
+    var activeLapMeta = hasDistanceLaps
+      ? distanceLapMeta
+      : manualLapMeta;
+    if (activeLapMeta.length) {
+      var lapTitle =
+        hasDistanceLaps && hasManualLaps
+          ? "Laps"
+          : hasManualLaps
+            ? "Laps · manual (" + manualLapMeta.length + ")"
+            : "Laps · 1 km splits (" + distanceLapMeta.length + ")";
+      var lapModeToggle =
+        hasDistanceLaps && hasManualLaps
+          ? '<div class="rd4-lapmode-toggle" id="rd4-lapmode-toggle">' +
+            '<button type="button" class="rd4-lm-btn rd4-lm-btn--on" data-lap-mode="distance">1 km</button>' +
+            '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
+            "</div>"
+          : "";
 
       lapsBlock =
         '<section class="rd4-card rd4-laps-card"><div class="rd4-laps-head">' +
-        '<h2 class="rd4-sec-title">Laps · 1 km splits (' +
-        laps.length +
-        ")</h2>" +
+        '<h2 class="rd4-sec-title" id="rd4-laps-title">' +
+        esc(lapTitle) +
+        "</h2>" +
+        '<div class="rd4-laps-controls">' +
+        lapModeToggle +
         '<div class="rd4-metric-toggle" id="rd4-metric-toggle">' +
         '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="power">Power</button>' +
         '<button type="button" class="rd4-mt-btn" data-metric="pace">Pace</button>' +
         '<button type="button" class="rd4-mt-btn" data-metric="hr">HR</button>' +
-        "</div></div>" +
+        "</div></div></div>" +
         '<div class="rd4-lap-chart" id="rd4-lap-chart"></div>' +
         '<div class="rv-z2-note rd4-z2-note"><span class="rd4-z2-swatch"></span> Zone 2 laps (HR ' +
         z2min +
@@ -637,8 +869,8 @@
         ") · grey = break / anomaly</div>" +
         '<div class="rd4-lap-scroll"><table class="rd4-lap-table"><thead><tr>' +
         "<th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>Pwr</th><th>Cad</th><th>Len</th>" +
-        "</tr></thead><tbody>" +
-        tableRows +
+        '</tr></thead><tbody id="rd4-lap-tbody">' +
+        renderLapTableRows(activeLapMeta) +
         "</tbody></table></div></section>";
     }
 
@@ -768,7 +1000,14 @@
         routeBlock +
         srcBlock +
         "</div>",
-      laps: laps,
+      lapSets: {
+        distance: distanceLapMeta,
+        manual: manualLapMeta,
+      },
+      hasDistanceLaps: hasDistanceLaps,
+      hasManualLaps: hasManualLaps,
+      tssOptions: tssOptions,
+      defaultTssId: defaultTssId,
       workout: w,
     };
   }
@@ -776,7 +1015,76 @@
   function wireInteractions(container, rendered) {
     if (!container) return;
     var w = rendered.workout;
-    var laps = rendered.laps;
+    var lapSets = rendered.lapSets || { distance: [], manual: [] };
+    var lapMode =
+      rendered.hasDistanceLaps
+        ? "distance"
+        : rendered.hasManualLaps
+          ? "manual"
+          : "distance";
+    var metric = "power";
+    var tssSource = rendered.defaultTssId;
+    var tssOptions = rendered.tssOptions || [];
+
+    function currentLaps() {
+      return lapMode === "manual" ? lapSets.manual : lapSets.distance;
+    }
+
+    function refreshLapsUi() {
+      var laps = currentLaps();
+      var tbody = container.querySelector("#rd4-lap-tbody");
+      if (tbody) tbody.innerHTML = renderLapTableRows(laps);
+      var title = container.querySelector("#rd4-laps-title");
+      if (title) {
+        if (lapMode === "manual") {
+          title.textContent =
+            "Laps · manual (" + lapSets.manual.length + ")";
+        } else {
+          title.textContent =
+            "Laps · 1 km splits (" + lapSets.distance.length + ")";
+        }
+      }
+      drawChart(metric);
+    }
+
+    function refreshTssUi() {
+      var tile = container.querySelector("#rd4-tss-tile");
+      if (!tile || !tssOptions.length) return;
+      var active = tssOptionById(tssOptions, tssSource);
+      if (!active) return;
+      var lblEl = tile.querySelector(".rd4-stat-lbl");
+      var valEl = container.querySelector("#rd4-tss-val");
+      var lbl =
+        active.isEffort
+          ? "Relative effort · " + active.id
+          : active.id === "computed"
+            ? "TSS · " + (active.sublabel || "computed")
+            : "TSS · " + active.id;
+      if (lblEl) {
+        lblEl.innerHTML =
+          esc(lbl) + ' <span class="rd4-tss-chev" aria-hidden="true">▾</span>';
+      }
+      if (valEl) valEl.textContent = String(active.value);
+      var note = container.querySelector(".rd4-tss-note");
+      var noteHtml = buildTssFootnote(tssOptions, tssSource);
+      if (noteHtml) {
+        if (note) note.outerHTML = noteHtml;
+        else {
+          var grid = container.querySelector(".rd4-stat-grid");
+          if (grid && grid.parentNode) {
+            grid.insertAdjacentHTML("afterend", noteHtml);
+          }
+        }
+      } else if (note) {
+        note.remove();
+      }
+      tile.querySelectorAll(".rd4-tss-opt").forEach(function (btn) {
+        btn.classList.toggle(
+          "rd4-tss-opt--on",
+          btn.getAttribute("data-tss-source") === tssSource,
+        );
+      });
+    }
 
     var cp = container.querySelector("#rd4-idcopy");
     if (cp && w.id) {
@@ -792,13 +1100,14 @@
       });
     }
 
-    function drawChart(metric) {
+    function drawChart(m) {
       var chart = container.querySelector("#rd4-lap-chart");
       if (!chart) return;
-      var vals = laps.map(function (m) {
-        if (metric === "hr") return m.split.avg_hr;
-        if (metric === "power") return m.power;
-        return m.paceSec ? -m.paceSec : null;
+      var laps = currentLaps();
+      var vals = laps.map(function (lap) {
+        if (m === "hr") return lap.split.avg_hr;
+        if (m === "power") return lap.power;
+        return lap.paceSec ? -lap.paceSec : null;
       });
       var nums = vals.filter(function (v) {
         return v != null;
@@ -806,39 +1115,79 @@
       var mn = nums.length ? Math.min.apply(null, nums) : 0;
       var mx = nums.length ? Math.max.apply(null, nums) : 1;
       chart.innerHTML = laps
-        .map(function (m, i) {
+        .map(function (lap, i) {
           var v = vals[i];
           var h =
             v == null || mx === mn
               ? 22
               : 18 + Math.round(((v - mn) / (mx - mn)) * 72);
           var cls = "rd4-lapbar";
-          if (m.zone2) cls += " rd4-lapbar--z2";
-          if (m.anomaly) cls += " rd4-lapbar--break";
+          if (lap.zone2) cls += " rd4-lapbar--z2";
+          if (lap.anomaly) cls += " rd4-lapbar--break";
           return (
             '<div class="' +
             cls +
             '" style="height:' +
             h +
             '%" title="Lap ' +
-            m.index +
+            lap.index +
             '"></div>'
           );
         })
         .join("");
     }
 
-    drawChart("power");
+    refreshLapsUi();
+
+    var lapModeToggle = container.querySelector("#rd4-lapmode-toggle");
+    if (lapModeToggle) {
+      lapModeToggle.addEventListener("click", function (e) {
+        var btn = e.target.closest(".rd4-lm-btn");
+        if (!btn) return;
+        lapMode = btn.getAttribute("data-lap-mode");
+        lapModeToggle.querySelectorAll(".rd4-lm-btn").forEach(function (b) {
+          b.classList.toggle("rd4-lm-btn--on", b === btn);
+        });
+        refreshLapsUi();
+      });
+    }
+
     var toggle = container.querySelector("#rd4-metric-toggle");
     if (toggle) {
       toggle.addEventListener("click", function (e) {
         var btn = e.target.closest(".rd4-mt-btn");
         if (!btn) return;
+        metric = btn.getAttribute("data-metric");
         toggle.querySelectorAll(".rd4-mt-btn").forEach(function (b) {
           b.classList.remove("rd4-mt-btn--on");
         });
         btn.classList.add("rd4-mt-btn--on");
-        drawChart(btn.getAttribute("data-metric"));
+        drawChart(metric);
+      });
+    }
+
+    var tssTile = container.querySelector("#rd4-tss-tile");
+    var tssMenu = container.querySelector("#rd4-tss-menu");
+    if (tssTile && tssMenu) {
+      tssTile.addEventListener("click", function (e) {
+        if (e.target.closest(".rd4-tss-opt")) return;
+        var open = !tssMenu.hidden;
+        tssMenu.hidden = open;
+        tssTile.classList.toggle("rd4-stat--tss-open", !open);
+      });
+      tssMenu.addEventListener("click", function (e) {
+        var btn = e.target.closest(".rd4-tss-opt");
+        if (!btn) return;
+        tssSource = btn.getAttribute("data-tss-source");
+        tssMenu.hidden = true;
+        tssTile.classList.remove("rd4-stat--tss-open");
+        refreshTssUi();
+      });
+      document.addEventListener("click", function (e) {
+        if (!tssTile.contains(e.target)) {
+          tssMenu.hidden = true;
+          tssTile.classList.remove("rd4-stat--tss-open");
+        }
       });
     }
   }
