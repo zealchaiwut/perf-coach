@@ -119,11 +119,24 @@
           strava: {
             strava_activity_id: 123456789,
             start_time: "2025-05-31T00:15:00+09:00",
+            suffer_score: 112,
+            laps: [
+              { lap_index: 1, distance: 5000, moving_time: 1710, average_heartrate: 158, average_watts: 255, average_cadence: 88 },
+              { lap_index: 2, distance: 5000, moving_time: 1740, average_heartrate: 165, average_watts: 248, average_cadence: 87 },
+              { lap_index: 3, distance: 5000, moving_time: 1770, average_heartrate: 168, average_watts: 242, average_cadence: 86 },
+              { lap_index: 4, distance: 6460, moving_time: 2280, average_heartrate: 162, average_watts: 238, average_cadence: 85 },
+            ],
           },
           stryd: {
             stryd_activity_id: "abc-def-123",
             tss: 238,
             start_time: "2025-05-31T00:15:00+09:00",
+            laps: [
+              { index: 1, distance: 5000, moving_time: 1710, average_heart_rate: 158, average_power: 255, average_cadence: 176 },
+              { index: 2, distance: 5000, moving_time: 1740, average_heart_rate: 165, average_power: 248, average_cadence: 174 },
+              { index: 3, distance: 5000, moving_time: 1770, average_heart_rate: 168, average_power: 242, average_cadence: 172 },
+              { index: 4, distance: 6460, moving_time: 2280, average_heart_rate: 162, average_power: 238, average_cadence: 170 },
+            ],
             power_zones: {
               ftp: 261,
               zones: [
