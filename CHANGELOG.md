@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 68.1 — Mobile week-strip and close button polish
+
+- #639: Add mobile week-strip to Training Log sub-tab
+- #642: Change Training Log close button to grey
+
 ## Sprint 68 — Training page sub-tabs, Readiness widget, and Weekly Volume chart
 
 - #636: Add Log/Plan/Performance sub-tabs to Training page
