@@ -364,6 +364,8 @@
         // issue #528: re-render training-load surfaces on every fetch.
         renderLoadWidget(data.load_context);
         renderVolumeChart();
+        // issue #638: update month calendar with newly loaded data
+        updateCalendar();
         // Apply current type/search client filter after rendering
         applyClientFilter();
         // Re-sync active row highlight if panel is still open
@@ -2917,7 +2919,8 @@
     return month + ' ' + monday.getDate() + ' – ' + sunday.getDate();
   }
 
-  var currentMonday = parseWeekParam();
+  var currentMonday    = parseWeekParam();
+  var stripSelectedDate = null;   // ISO date of the highlighted mobile strip pill
 
   async function loadAndRender(monday) {
     var sunday = new Date(monday);
@@ -2928,7 +2931,8 @@
 
     var url = '/api/training-log?from=' + fromStr + '&to=' + toStr + '&include_rest=false';
 
-    var dotsByDate = {};
+    var dotsByDate   = {};
+    var countsByDate = {};
     try {
       var res = await fetch(url);
       if (res.ok) {
@@ -2940,6 +2944,7 @@
               if (!dotsByDate[entry.date]) dotsByDate[entry.date] = [];
               if (dotsByDate[entry.date].indexOf(t) === -1) dotsByDate[entry.date].push(t);
             }
+            countsByDate[entry.date] = (countsByDate[entry.date] || 0) + 1;
           });
         });
       }
@@ -2947,21 +2952,22 @@
       // network error — render with empty dots
     }
 
-    render(monday, dotsByDate);
+    render(monday, dotsByDate, countsByDate);
   }
 
-  function render(monday, dotsByDate) {
+  function render(monday, dotsByDate, countsByDate) {
     var strip = document.getElementById('week-strip');
     if (!strip) return;
+
+    countsByDate = countsByDate || {};
 
     var today = new Date();
     today.setHours(0, 0, 0, 0);
     var todayStr = toISODate(today);
     var isCurrentWeek = weekContainsToday(monday);
 
-    // A pill is "selected" only when the list filter is pinned to exactly that
-    // single day (filters.from === filters.to === the pill's date). issue #523
-    var isDayFilter = !!filters.from && filters.from === filters.to;
+    // issue #639: track the selected day on the mobile strip independently of
+    // the list filter (strip selection scrolls, not filters the list).
 
     var pillsHtml = '';
     for (var i = 0; i < 7; i++) {
@@ -2969,7 +2975,7 @@
       d.setDate(d.getDate() + i);
       var dateStr = toISODate(d);
       var isToday = dateStr === todayStr;
-      var isSelected = isDayFilter && filters.from === dateStr;
+      var isSelected = dateStr === stripSelectedDate;
 
       var typesForDay = dotsByDate[dateStr] || [];
       var dotsHtml = TYPE_ORDER
@@ -2979,10 +2985,14 @@
         })
         .join('');
 
-      // Full, human-readable date for screen readers, e.g. "Monday, June 9".
+      // Descriptive aria-label: "Wednesday June 18, 2 activities" (issue #639 AC10).
       var ariaLabel = d.toLocaleDateString('en-US', {
         weekday: 'long', month: 'long', day: 'numeric'
       });
+      var actCount = countsByDate[dateStr] || 0;
+      ariaLabel += actCount > 0
+        ? ', ' + actCount + ' ' + (actCount === 1 ? 'activity' : 'activities')
+        : ', no activities';
 
       pillsHtml +=
         '<button type="button" class="day-pill' +
@@ -3025,19 +3035,18 @@
       loadAndRender(currentMonday);
     });
 
-    // issue #523: wire each (native, keyboard-operable) day pill to the
-    // selection handler. Real <button>s already fire click on Enter & Space,
-    // so no extra keydown handling is needed.
+    // issue #639: wire each day pill to the scroll-based selection handler.
+    // Real <button>s already fire click on Enter & Space.
     var pillEls = strip.querySelectorAll('.day-pill');
     Array.prototype.forEach.call(pillEls, function (pill) {
       pill.addEventListener('click', function () {
-        selectDay(pill.getAttribute('data-date'));
+        stripSelectDay(pill.getAttribute('data-date'));
       });
     });
 
-    // issue #523: on load (and re-render) bring the selected pill — or today's
-    // pill on the current week — into view regardless of viewport width.
-    var focusDate = (isDayFilter && filters.from) ? filters.from
+    // Bring the selected pill — or today's pill on the current week — into view.
+    var focusDate = stripSelectedDate
+                  ? stripSelectedDate
                   : (isCurrentWeek ? todayStr : null);
     if (focusDate) {
       var target = strip.querySelector('.day-pill[data-date="' + focusDate + '"]');
@@ -3054,23 +3063,36 @@
     container.scrollLeft = Math.max(0, offset);
   }
 
-  // issue #523: tapping a day pill filters the log list to that single date.
-  // Tapping the already-selected pill clears the filter (back to full list).
-  function selectDay(dateStr) {
-    if (!dateStr) return;
-    var alreadySelected = !!filters.from && filters.from === filters.to
-                          && filters.from === dateStr;
-    if (alreadySelected) {
-      filters.from = '';
-      filters.to = '';
-    } else {
-      filters.from = dateStr;
-      filters.to = dateStr;
+  // issue #639: scroll the history list to the first entry for dateStr.
+  // If no entry exists for that exact date, scroll to the nearest preceding entry.
+  // Never filters or hides entries — full history stays visible.
+  function stripScrollToDate(dateStr) {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // Find nearest preceding day-group (groups are newest-first in DOM)
+    var groups = Array.prototype.slice.call(
+      listEl.querySelectorAll('.day-group[data-date]')
+    );
+    var nearest = null;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
     }
-    writeURLParams();
-    syncDateRangeChip();
-    fetchAndRender();          // re-render the log list in place
-    loadAndRender(currentMonday); // re-render the strip to update selection
+    if (nearest) {
+      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (groups.length) {
+      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  // issue #639: tapping a mobile week-strip pill selects it (persistent highlight)
+  // and scrolls the log list — it never filters or hides other entries.
+  function stripSelectDay(dateStr) {
+    if (!dateStr) return;
+    stripSelectedDate = dateStr;
+    loadAndRender(currentMonday); // re-render strip to update is-selected
+    stripScrollToDate(dateStr);
   }
 
   // Keep the date-range chip / inputs in sync when a pill drives the filter.
@@ -3094,4 +3116,232 @@
   window.addEventListener('userChanged', function () {
     loadAndRender(currentMonday);
   });
+
+  // ── Month Calendar (issue #638) ───────────────────────────────────────────
+  // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
+  // already in memory — no additional API calls.
+
+  var calCurrentMonth = null;   // Date at the 1st of displayed month
+  var calSelectedDate = null;   // ISO date string of the highlighted cell
+  var calDayData      = {};     // date → { types: string[], totalTss: number }
+
+  var CAL_MONTH_NAMES = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December'
+  ];
+
+  var CAL_WEEKDAY_ABBR = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+  function buildCalDayData(weeks) {
+    calDayData = {};
+    (weeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (entry.type === 'rest' || !entry.date) return;
+        var d = calDayData[entry.date];
+        if (!d) { d = { types: [], totalTss: 0 }; calDayData[entry.date] = d; }
+        var t = (entry.type || '').toLowerCase();
+        if (t && d.types.indexOf(t) === -1) d.types.push(t);
+        if (entry.tss > 0) d.totalTss += entry.tss;
+      });
+    });
+  }
+
+  function renderCalendar() {
+    var el = document.getElementById('log-calendar');
+    if (!el) return;
+
+    var now   = new Date();
+    if (!calCurrentMonth) {
+      calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    var year  = calCurrentMonth.getFullYear();
+    var month = calCurrentMonth.getMonth();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var todayStr = pad(today.getFullYear()) + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+
+    // Last day of month
+    var lastDayNum = new Date(year, month + 1, 0).getDate();
+
+    // Compute max TSS in this month for bar scaling
+    var maxTss = 0;
+    for (var d = 1; d <= lastDayNum; d++) {
+      var ds = year + '-' + pad(month + 1) + '-' + pad(d);
+      var dd = calDayData[ds];
+      if (dd && dd.totalTss > maxTss) maxTss = dd.totalTss;
+    }
+    if (maxTss < 1) maxTss = 1;
+
+    // Week starts Monday: offset = (firstDay.getDay() + 6) % 7
+    var firstDow    = new Date(year, month, 1).getDay();
+    var startOffset = (firstDow + 6) % 7;
+    var totalCells  = startOffset + lastDayNum;
+    var rows        = Math.ceil(totalCells / 7);
+
+    var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+
+    var html = '<div class="cal-nav">' +
+      '<button type="button" id="log-cal-prev" class="cal-nav-btn" aria-label="Previous month">&#8249;</button>' +
+      '<span id="log-cal-title" class="cal-month-label">' + CAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
+      '<button type="button" id="log-cal-today" class="cal-nav-btn cal-nav-btn--today"' +
+        (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
+      '<button type="button" id="log-cal-next" class="cal-nav-btn" aria-label="Next month">&#8250;</button>' +
+    '</div>' +
+    '<div class="cal-grid" role="grid" aria-label="' + CAL_MONTH_NAMES[month] + ' ' + year + '">';
+
+    // Weekday headers
+    CAL_WEEKDAY_ABBR.forEach(function (abbr) {
+      html += '<div class="cal-weekday" role="columnheader">' + esc(abbr) + '</div>';
+    });
+
+    // Day cells
+    var dayNum = 1;
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < 7; col++) {
+        var cellIdx = row * 7 + col;
+        if (cellIdx < startOffset || dayNum > lastDayNum) {
+          html += '<div class="cal-cell cal-cell--empty" aria-hidden="true"></div>';
+        } else {
+          var dStr       = year + '-' + pad(month + 1) + '-' + pad(dayNum);
+          var dd2        = calDayData[dStr];
+          var isToday    = dStr === todayStr;
+          var isSel      = dStr === calSelectedDate;
+          var isFuture   = dStr > todayStr;
+
+          var cls = 'cal-cell';
+          if (isToday)  cls += ' cal-cell--today';
+          if (isSel)    cls += ' is-selected';
+          if (isFuture) cls += ' cal-cell--future';
+
+          var ariaLbl = new Date(year, month, dayNum).toLocaleDateString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric'
+          });
+          if (dd2 && dd2.types.length) ariaLbl += '. Workouts: ' + dd2.types.join(', ');
+
+          html += '<button type="button" class="' + cls + '"' +
+            ' data-date="' + dStr + '"' +
+            ' aria-label="' + esc(ariaLbl) + '"' +
+            ' aria-pressed="' + (isSel ? 'true' : 'false') + '">';
+
+          html += '<span class="cal-day-num">' + dayNum + '</span>';
+
+          // Type dots
+          html += '<div class="cal-dots">';
+          if (dd2 && dd2.types.length) {
+            TYPE_ORDER
+              .filter(function (t) { return dd2.types.indexOf(t) !== -1; })
+              .forEach(function (t) {
+                var col2 = TYPE_COLORS[t] || '#888';
+                html += '<span class="cal-dot" style="background:' + col2 + '" aria-hidden="true"></span>';
+              });
+          }
+          html += '</div>';
+
+          // Load bar
+          html += '<div class="cal-load">';
+          if (dd2 && dd2.totalTss > 0) {
+            var barPct = Math.min(100, Math.round(dd2.totalTss / maxTss * 100));
+            html += '<div class="cal-load-bar" style="width:' + barPct + '%" aria-hidden="true"></div>';
+          }
+          html += '</div>';
+
+          html += '</button>';
+          dayNum++;
+        }
+      }
+    }
+
+    html += '</div>'; // .cal-grid
+    el.innerHTML = html;
+
+    // Wire navigation buttons
+    var prevBtn  = document.getElementById('log-cal-prev');
+    var nextBtn  = document.getElementById('log-cal-next');
+    var todayBtn = document.getElementById('log-cal-today');
+
+    if (prevBtn) prevBtn.addEventListener('click', function () {
+      calCurrentMonth = new Date(year, month - 1, 1);
+      renderCalendar();
+    });
+
+    if (nextBtn) nextBtn.addEventListener('click', function () {
+      calCurrentMonth = new Date(year, month + 1, 1);
+      renderCalendar();
+    });
+
+    if (todayBtn) todayBtn.addEventListener('click', function () {
+      var t = new Date();
+      var tStr = pad(t.getFullYear()) + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+      calCurrentMonth = new Date(t.getFullYear(), t.getMonth(), 1);
+      if (calDayData[tStr]) calSelectedDate = tStr;
+      renderCalendar();
+      if (calSelectedDate === tStr) calScrollToDate(tStr);
+    });
+
+    // Wire day cell clicks via delegation
+    var grid = el.querySelector('.cal-grid');
+    if (grid) {
+      grid.addEventListener('click', function (e) {
+        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
+        if (!cell) return;
+        var date = cell.getAttribute('data-date');
+        if (!date) return;
+        calSelectedDate = date;
+        // Update highlight in place (no full re-render)
+        el.querySelectorAll('.cal-cell').forEach(function (c) {
+          var sel = c.getAttribute('data-date') === date;
+          c.classList.toggle('is-selected', sel);
+          c.setAttribute('aria-pressed', sel ? 'true' : 'false');
+        });
+        calScrollToDate(date);
+      });
+
+      // Keyboard: Enter/Space triggers click; arrows move focus within grid
+      grid.addEventListener('keydown', function (e) {
+        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
+        if (!cell) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cell.click();
+          return;
+        }
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
+            e.key !== 'ArrowUp'   && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        var cells = Array.prototype.slice.call(
+          grid.querySelectorAll('.cal-cell:not(.cal-cell--empty)')
+        );
+        var idx = cells.indexOf(cell);
+        var delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[e.key];
+        var newIdx = idx + delta;
+        if (newIdx >= 0 && newIdx < cells.length) cells[newIdx].focus();
+      });
+    }
+  }
+
+  function calScrollToDate(dateStr) {
+    var listEl = document.getElementById('log-list');
+    if (!listEl) return;
+    // Try exact match first
+    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // Find nearest preceding entry (groups are newest-first in DOM)
+    var groups = Array.prototype.slice.call(
+      listEl.querySelectorAll('.day-group[data-date]')
+    );
+    var nearest = null;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
+    }
+    if (nearest) {
+      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (groups.length) {
+      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function updateCalendar() {
+    buildCalDayData(lastWeeks);
+    renderCalendar();
+  }
 }());
