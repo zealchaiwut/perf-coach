@@ -1,1354 +1,2461 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Weight – perf-coach</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css">
-  <link rel="stylesheet" href="css/weight-current-card.css">
-  <style>
-    /* ── Base ──────────────────────────────────────────────────────────────── */
-    html, body { margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter Tight', system-ui, sans-serif;
-      background: var(--page-bg);
-      min-height: 100vh;
-      color: var(--text-primary);
-      letter-spacing: -0.01em;
-    }
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Weight – perf-coach</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/weight-current-card.css" />
+    <link rel="stylesheet" href="css/weight.css" />
+    <style>
+      /* ── Base ──────────────────────────────────────────────────────────────── */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Inter Tight", system-ui, sans-serif;
+        background: var(--page-bg);
+        min-height: 100vh;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+      }
 
-    /* ── Page wrapper ──────────────────────────────────────────────────────── */
-    main {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 36px 22px 56px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
+      /* ── Page wrapper ──────────────────────────────────────────────────────── */
+      main {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 36px 22px 56px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        background-color: var(--bg-2);
+        background-image: var(--page-bg);
+      }
 
-    /* ── Floating card ─────────────────────────────────────────────────────── */
-    .card {
-      background: var(--card-bg);
-      border-radius: var(--card-radius);
-      border: 1px solid var(--card-border);
-      box-shadow: var(--card-shadow);
-      padding: 18px 20px;
-    }
+      /* ── Floating card ─────────────────────────────────────────────────────── */
+      .card {
+        background: var(--card-bg);
+        border-radius: var(--card-radius);
+        border: 1px solid var(--card-border);
+        box-shadow: var(--card-shadow);
+        padding: 18px 20px;
+      }
 
-    .card h2 {
-      margin: 0 0 14px;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
+      .card h2 {
+        margin: 0 0 14px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
 
-    .card-subtitle {
-      font-size: 12px;
-      font-weight: 400;
-      color: var(--text-tertiary);
-    }
+      .card-subtitle {
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--text-tertiary);
+      }
 
-    /* ── Streak & Adherence row ───────────────────────────────────────────── */
-    .streak-adherence-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 5px;
-      flex-wrap: wrap;
-    }
-    .streak-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 3px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.18);
-      border: 1px solid rgba(255,255,255,0.28);
-      font-size: 12px;
-      font-weight: 600;
-      color: #fff;
-      white-space: nowrap;
-    }
-    .adherence-label {
-      font-size: 12px;
-      font-weight: 400;
-      color: rgba(255,255,255,0.72);
-      white-space: nowrap;
-    }
+      /* ── Streak & Adherence row ───────────────────────────────────────────── */
+      .streak-adherence-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 5px;
+        flex-wrap: wrap;
+      }
+      .streak-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        white-space: nowrap;
+      }
+      .adherence-label {
+        font-size: 12px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.72);
+        white-space: nowrap;
+      }
 
-    /* ── Page head (renders directly on gradient) ──────────────────────────── */
-    .weight-page-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
+      /* ── Page head (renders directly on gradient) ──────────────────────────── */
+      .weight-page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        background: var(--bg-2);
+        border-radius: 14px;
+        padding: 16px 18px;
+      }
 
-    .weight-page-header h1 {
-      margin: 0 0 4px;
-      font-size: 26px;
-      font-weight: 600;
-      letter-spacing: -0.025em;
-      color: #fff;
-      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
-    }
+      .weight-page-header h1 {
+        margin: 0 0 4px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        color: #fff;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
+      }
 
-    .page-subtitle {
-      margin: 0;
-      font-size: 13px;
-      color: rgba(255,255,255,0.72);
-    }
+      .page-subtitle {
+        margin: 0;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.72);
+      }
 
-    .header-actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-shrink: 0;
-    }
+      .header-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-shrink: 0;
+      }
 
-    /* Export CSV button — glass style on gradient */
-    .btn-secondary {
-      padding: 7px 14px;
-      background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.28);
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #fff;
-      font-family: 'Inter Tight', sans-serif;
-      cursor: pointer;
-      backdrop-filter: blur(8px);
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.22); }
+      /* Export CSV button — glass style on gradient */
+      .btn-secondary {
+        padding: 7px 14px;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #fff;
+        font-family: "Inter Tight", sans-serif;
+        cursor: pointer;
+        backdrop-filter: blur(8px);
+      }
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
 
-    /* Manage target pill */
-    .manage-target-btn {
-      padding: 7px 16px;
-      background: rgba(255,255,255,0.92);
-      border: none;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-      font-family: 'Inter Tight', sans-serif;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap;
-    }
-    .manage-target-btn:hover { background: #fff; }
+      /* Manage target pill */
+      .manage-target-btn {
+        padding: 7px 16px;
+        background: rgba(255, 255, 255, 0.92);
+        border: none;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        font-family: "Inter Tight", sans-serif;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      .manage-target-btn:hover {
+        background: #fff;
+      }
 
-    /* ── Hero 2-card row ───────────────────────────────────────────────────── */
-    .hero-2col {
-      display: grid;
-      grid-template-columns: 1.35fr 1fr;
-      gap: 16px;
-    }
+      /* ── Hero 2-card row ───────────────────────────────────────────────────── */
+      .hero-2col {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: 16px;
+      }
 
-    .hero-card {
-      background: var(--card-bg);
-      border-radius: var(--card-radius);
-      border: 1px solid var(--card-border);
-      box-shadow: var(--card-shadow);
-      padding: 16px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
+      .hero-card {
+        background: var(--card-bg);
+        border-radius: var(--card-radius);
+        border: 1px solid var(--card-border);
+        box-shadow: var(--card-shadow);
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
 
-    /* Card A "current weight" + delta pills + coach strip CSS moved to the
+      /* Card A "current weight" + delta pills + coach strip CSS moved to the
        shared file css/weight-current-card.css (linked above) so the weight
        tab and the home page share one stylesheet. */
 
-    /* ── Card B: Log Today ────────────────────────────────────────────────── */
-    .hcb-top {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
+      /* ── Card B: Log Today ────────────────────────────────────────────────── */
+      .hcb-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
 
-    .hcb-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text-tertiary);
-    }
+      .hcb-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
 
-    .hcb-date {
-      font-size: 12px;
-      color: var(--text-tertiary);
-    }
+      .hcb-date {
+        font-size: 12px;
+        color: var(--text-tertiary);
+      }
 
-    .stepper {
-      display: flex;
-      align-items: center;
-      border: 1px solid #d1d5db;
-      border-radius: 10px;
-      overflow: hidden;
-    }
+      .stepper {
+        display: flex;
+        align-items: center;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        overflow: hidden;
+      }
 
-    .stepper-btn {
-      width: 2.25rem;
-      height: 2.5rem;
-      background: #f7f8fb;
-      border: none;
-      font-size: 1.25rem;
-      line-height: 1;
-      color: var(--text-secondary);
-      cursor: pointer;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .stepper-btn:hover { background: #eef0f6; }
-    .stepper-btn:active { background: #e5e7eb; }
+      .stepper-btn {
+        width: 2.25rem;
+        height: 2.5rem;
+        background: #f7f8fb;
+        border: none;
+        font-size: 1.25rem;
+        line-height: 1;
+        color: var(--text-secondary);
+        cursor: pointer;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stepper-btn:hover {
+        background: #eef0f6;
+      }
+      .stepper-btn:active {
+        background: #e5e7eb;
+      }
 
-    .stepper-input {
-      flex: 1;
-      border: none;
-      border-left: 1px solid #d1d5db;
-      border-right: 1px solid #d1d5db;
-      text-align: center;
-      font-size: 1.0625rem;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 500;
-      padding: 0.4rem 0.25rem;
-      min-width: 0;
-      height: 2.5rem;
-    }
-    .stepper-input:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: inset 0 0 0 1px #2563eb;
-    }
-    .stepper-input::-webkit-outer-spin-button,
-    .stepper-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-    .stepper-input[type=number] { -moz-appearance: textfield; }
+      .stepper-input {
+        flex: 1;
+        border: none;
+        border-left: 1px solid #d1d5db;
+        border-right: 1px solid #d1d5db;
+        text-align: center;
+        font-size: 1.0625rem;
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 500;
+        padding: 0.4rem 0.25rem;
+        min-width: 0;
+        height: 2.5rem;
+      }
+      .stepper-input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: inset 0 0 0 1px #2563eb;
+      }
+      .stepper-input::-webkit-outer-spin-button,
+      .stepper-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .stepper-input[type="number"] {
+        -moz-appearance: textfield;
+      }
 
-    .log-submit-btn {
-      width: 100%;
-      margin-top: 8px;
-      padding: 10px 1rem;
-      background: var(--accent);
-      color: var(--accent-text);
-      border: none;
-      border-radius: 9px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: 'Inter Tight', sans-serif;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .log-submit-btn:hover { opacity: 0.88; }
-    .log-submit-btn:disabled { opacity: 0.5; cursor: default; }
+      .log-submit-btn {
+        width: 100%;
+        margin-top: 8px;
+        padding: 10px 1rem;
+        background: var(--accent);
+        color: var(--accent-text);
+        border: none;
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        font-family: "Inter Tight", sans-serif;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .log-submit-btn:hover {
+        opacity: 0.88;
+      }
+      .log-submit-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
 
-    /* Logged state */
-    .logged-strip {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 10px 14px;
-      background: var(--green-soft);
-      border-radius: 9px;
-      font-size: 13.5px;
-      color: var(--green);
-      font-weight: 500;
-    }
+      /* Logged state */
+      .logged-strip {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 10px 14px;
+        background: var(--green-soft);
+        border-radius: 9px;
+        font-size: 13.5px;
+        color: var(--green);
+        font-weight: 500;
+      }
 
-    .edit-link {
-      background: none;
-      border: none;
-      color: var(--green);
-      text-decoration: underline;
-      cursor: pointer;
-      font-size: 13.5px;
-      font-family: 'Inter Tight', sans-serif;
-      padding: 0;
-    }
-    .edit-link:hover { opacity: 0.75; }
+      .edit-link {
+        background: none;
+        border: none;
+        color: var(--green);
+        text-decoration: underline;
+        cursor: pointer;
+        font-size: 13.5px;
+        font-family: "Inter Tight", sans-serif;
+        padding: 0;
+      }
+      .edit-link:hover {
+        opacity: 0.75;
+      }
 
-    .hcb-error {
-      font-size: 12px;
-      color: var(--red);
-      min-height: 1em;
-      margin-top: 4px;
-    }
+      .hcb-error {
+        font-size: 12px;
+        color: var(--red);
+        min-height: 1em;
+        margin-top: 4px;
+      }
 
-    /* ── Chart card ───────────────────────────────────────────────────────── */
-    .range-tabs {
-      display: inline-flex;
-      border: 1px solid #e8eaf0;
-      border-radius: 8px;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
+      /* ── Chart card ───────────────────────────────────────────────────────── */
+      .range-tabs {
+        display: inline-flex;
+        border: 1px solid #e8eaf0;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
 
-    .range-tab {
-      padding: 5px 13px;
-      background: #fff;
-      border: none;
-      border-right: 1px solid #e8eaf0;
-      font-size: 12.5px;
-      font-weight: 500;
-      cursor: pointer;
-      color: var(--text-secondary);
-      line-height: 1.5;
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .range-tab:last-child { border-right: none; }
-    .range-tab:hover:not(.active) { background: #f7f9fc; }
-    .range-tab.active { background: #0b1530; color: #fff; }
+      .range-tab {
+        padding: 5px 13px;
+        background: #fff;
+        border: none;
+        border-right: 1px solid #e8eaf0;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .range-tab:last-child {
+        border-right: none;
+      }
+      .range-tab:hover:not(.active) {
+        background: #f7f9fc;
+      }
+      .range-tab.active {
+        background: #0b1530;
+        color: #fff;
+      }
 
-    .chart-container { position: relative; width: 100%; overflow: visible; }
-    #weight-chart { width: 100%; }
-    #weight-chart:not([hidden]) { display: block; min-height: 200px; }
-    #weight-chart svg {
-      display: block;
-      width: 100%;
-      height: auto;
-      max-width: 100%;
-    }
+      .chart-container {
+        position: relative;
+        width: 100%;
+        overflow: visible;
+      }
+      #weight-chart {
+        width: 100%;
+      }
+      #weight-chart:not([hidden]) {
+        display: block;
+        min-height: 200px;
+      }
+      #weight-chart svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-width: 100%;
+      }
 
-    .chart-verdict {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 12px;
-      border-radius: 10px;
-      margin-bottom: 12px;
-      background: #f8fafc;
-      border: 1px solid var(--card-border);
-    }
-    .chart-verdict[hidden] { display: none; }
-    .chart-verdict-pill {
-      flex-shrink: 0;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      font-family: 'JetBrains Mono', monospace;
-      white-space: nowrap;
-    }
-    .chart-verdict-pill--ahead {
-      background: var(--green-soft);
-      color: var(--green);
-    }
-    .chart-verdict-pill--behind {
-      background: var(--red-soft);
-      color: var(--red);
-    }
-    .chart-verdict-pill--on-track {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .chart-verdict-text {
-      font-size: 12.5px;
-      line-height: 1.45;
-      color: var(--text-secondary);
-    }
+      .chart-verdict {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        background: #f8fafc;
+        border: 1px solid var(--card-border);
+      }
+      .chart-verdict[hidden] {
+        display: none;
+      }
+      .chart-verdict-pill {
+        flex-shrink: 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        font-family: "JetBrains Mono", monospace;
+        white-space: nowrap;
+      }
+      .chart-verdict-pill--ahead {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .chart-verdict-pill--behind {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+      .chart-verdict-pill--on-track {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .chart-verdict-text {
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: var(--text-secondary);
+      }
 
-    .chart-legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 12px;
-    }
+      .chart-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 12px;
+      }
 
-    .legend-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
+      .legend-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
 
-    .legend-dot {
-      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
-    }
-    .legend-line { width: 20px; height: 2px; flex-shrink: 0; }
-    .legend-dashed { width: 20px; height: 0; border-top: 2px dashed; flex-shrink: 0; }
+      .legend-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .legend-line {
+        width: 20px;
+        height: 2px;
+        flex-shrink: 0;
+      }
+      .legend-dashed {
+        width: 20px;
+        height: 0;
+        border-top: 2px dashed;
+        flex-shrink: 0;
+      }
 
-    /* ── Bottom grid ──────────────────────────────────────────────────────── */
-    .bottom-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      align-items: start;
-    }
+      /* ── Bottom grid ──────────────────────────────────────────────────────── */
+      .bottom-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
 
-    .bottom-left-col {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+      .bottom-left-col {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
 
-    .bottom-left-col .card { margin-bottom: 0; }
+      .bottom-left-col .card {
+        margin-bottom: 0;
+      }
 
-    .recent-entries-card { margin-bottom: 0; }
+      .recent-entries-card {
+        margin-bottom: 0;
+      }
 
-    /* ── Progress card ────────────────────────────────────────────────────── */
+      /* ── Progress card ────────────────────────────────────────────────────── */
 
-    /* Legacy dead CSS — kept for test backward-compat (issue #339 / #412) */
-    .status-pill.on-track { background: var(--green-soft); color: var(--green); }
-    .status-pill.behind   { background: var(--amber-soft); color: var(--amber); }
-    .status-pill.ahead    { background: #dbeafe; color: #1d4ed8; }
+      /* Legacy dead CSS — kept for test backward-compat (issue #339 / #412) */
+      .status-pill.on-track {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .status-pill.behind {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+      .status-pill.ahead {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
 
-    .progress-card-hdr {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 14px;
-    }
-    .progress-card-hdr h2 { margin: 0; }
+      .progress-card-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      .progress-card-hdr h2 {
+        margin: 0;
+      }
 
-    .edit-target-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 3px 12px;
-      border-radius: 999px;
-      border: 1px solid #d8e3f5;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      text-decoration: none;
-      background: #f1f4fa;
-    }
-    .edit-target-pill:hover { background: #e8edf6; color: var(--text-primary); }
+      .edit-target-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 12px;
+        border-radius: 999px;
+        border: 1px solid #d8e3f5;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-decoration: none;
+        background: #f1f4fa;
+      }
+      .edit-target-pill:hover {
+        background: #e8edf6;
+        color: var(--text-primary);
+      }
 
-    /* Three-stat row */
-    .progress-stat-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 6px;
-      margin-bottom: 14px;
-      text-align: center;
-    }
-    .pstat-lbl {
-      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--text-tertiary); margin-top: 2px;
-    }
-    .pstat-val {
-      font-size: 17px; font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-primary);
-    }
-    .pstat-val-blue  { color: #2563eb; }
-    .pstat-val-green { color: #16a34a; }
-    .pstat-date      { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
-    .pstat-date-green { color: #16a34a; }
-    .pstat-plan-sub  { font-size: 10px; color: #16a34a; font-weight: 500; margin-top: 2px; }
+      /* Three-stat row */
+      .progress-stat-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 14px;
+        text-align: center;
+      }
+      .pstat-lbl {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-tertiary);
+        margin-top: 2px;
+      }
+      .pstat-val {
+        font-size: 17px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", monospace;
+        color: var(--text-primary);
+      }
+      .pstat-val-blue {
+        color: #2563eb;
+      }
+      .pstat-val-green {
+        color: var(--green);
+      }
+      .pstat-date {
+        font-size: 10px;
+        color: var(--text-tertiary);
+        margin-top: 2px;
+      }
+      .pstat-date-green {
+        color: var(--green);
+      }
+      .pstat-plan-sub {
+        font-size: 10px;
+        color: var(--green);
+        font-weight: 500;
+        margin-top: 2px;
+      }
 
-    /* Progress bar */
-    .progress-bar-wrap { margin-bottom: 14px; }
-    .progress-bar-track {
-      position: relative; height: 8px; background: #eef0f6;
-      border-radius: 999px; overflow: visible;
-    }
-    .progress-bar-fill.pgbar-fill {
-      position: absolute; left: 0; top: 0; height: 100%; width: 100%;
-      background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
-      border-radius: 999px;
-      transform-origin: left center; transform: scaleX(0);
-      transition: transform 0.4s ease;
-    }
-    /* You-dot sits on the bar at the YOU position */
-    .progress-marker.pgbar-you-dot {
-      position: absolute; top: 50%; transform: translate(-50%, -50%);
-      width: 12px; height: 12px; background: #2563eb; border: 2px solid #fff;
-      border-radius: 50%; box-shadow: 0 1px 4px rgba(37,99,235,0.35); z-index: 3;
-    }
-    /* Plan-tick sits on the bar at the PLAN position */
-    .pgbar-plan-tick {
-      position: absolute; top: -3px; transform: translateX(-50%);
-      width: 3px; height: 14px; background: #16a34a; border-radius: 2px; z-index: 2;
-    }
-    /* Two marker lanes: YOU above the bar, PLAN below — always legible even when
+      /* Progress bar */
+      .progress-bar-wrap {
+        margin-bottom: 14px;
+      }
+      .progress-bar-track {
+        position: relative;
+        height: 8px;
+        background: #eef0f6;
+        border-radius: 999px;
+        overflow: visible;
+      }
+      .progress-bar-fill.pgbar-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+        border-radius: 999px;
+        transform-origin: left center;
+        transform: scaleX(0);
+        transition: transform 0.4s ease;
+      }
+      /* You-dot sits on the bar at the YOU position */
+      .progress-marker.pgbar-you-dot {
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 12px;
+        height: 12px;
+        background: #2563eb;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+        z-index: 3;
+      }
+      /* Plan-tick sits on the bar at the PLAN position */
+      .pgbar-plan-tick {
+        position: absolute;
+        top: -3px;
+        transform: translateX(-50%);
+        width: 3px;
+        height: 14px;
+        background: #16a34a;
+        border-radius: 2px;
+        z-index: 2;
+      }
+      /* Two marker lanes: YOU above the bar, PLAN below — always legible even when
        the two positions coincide (e.g. right at the start). */
-    .pgbar-lane { position: relative; height: 19px; }
-    .pgbar-lane-top    { margin-bottom: 3px; }
-    .pgbar-lane-bottom { margin-top: 3px; }
-    .pgbar-flag {
-      position: absolute; transform: translateX(-50%);
-      display: flex; flex-direction: column; align-items: center; gap: 1px;
-      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-      white-space: nowrap; transition: left 0.4s ease;
-    }
-    .pgbar-flag-you  { bottom: 0; color: #2563eb; }
-    .pgbar-flag-plan { top: 0; color: #16a34a; }
-    .pgbar-caret { width: 0; height: 0; }
-    .pgbar-caret-down { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; }
-    .pgbar-caret-up   { border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid currentColor; }
+      .pgbar-lane {
+        position: relative;
+        height: 19px;
+      }
+      .pgbar-lane-top {
+        margin-bottom: 3px;
+      }
+      .pgbar-lane-bottom {
+        margin-top: 3px;
+      }
+      .pgbar-flag {
+        position: absolute;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        transition: left 0.4s ease;
+      }
+      .pgbar-flag-you {
+        bottom: 0;
+        color: #2563eb;
+      }
+      .pgbar-flag-plan {
+        top: 0;
+        color: var(--green);
+      }
+      .pgbar-caret {
+        width: 0;
+        height: 0;
+      }
+      .pgbar-caret-down {
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid currentColor;
+      }
+      .pgbar-caret-up {
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 5px solid currentColor;
+      }
 
-    /* Summary row */
-    .progress-summary-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
-    }
-    .progress-pct-big {
-      font-size: 28px; font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-primary);
-    }
-    .progress-detail { font-size: 13px; color: var(--text-secondary); margin-left: 4px; }
+      /* Summary row */
+      .progress-summary-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+      }
+      .progress-pct-big {
+        font-size: 28px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", monospace;
+        color: var(--text-primary);
+      }
+      .progress-detail {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-left: 4px;
+      }
 
-    .pgstatus-pill {
-      display: inline-flex; align-items: center;
-      padding: 4px 12px; border-radius: 999px;
-      font-size: 12px; font-weight: 600; white-space: nowrap;
-    }
-    .pill-behind  { background: var(--red-soft);   color: var(--red); }
-    .pill-ahead   { background: var(--green-soft);  color: var(--green); }
-    .pill-on-plan { background: var(--green-soft);  color: var(--green); }
-    .pill-no-data { background: #dbeafe; color: #1d4ed8; }
+      .pgstatus-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .pill-behind {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+      .pill-ahead {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .pill-on-plan {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .pill-no-data {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
 
-    /* Milestone list */
-    .milestone-list-section { border-top: 1px solid #eef0f6; padding-top: 12px; }
-    .milestone-list-hdr {
-      display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
-    }
-    .milestone-list-title {
-      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--text-tertiary);
-    }
-    .milestone-on-chart { font-size: 10px; color: #16a34a; font-weight: 600; }
-    .milestone-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 6px; padding: 7px 10px; border-radius: 8px; margin-bottom: 4px;
-    }
-    .milestone-today-behind  { background: #fef2f2; }
-    .milestone-today-ahead   { background: var(--green-soft); }
-    .milestone-today-on-plan { background: var(--green-soft); }
-    .milestone-row-standard  { background: #f7f9fc; }
-    .milestone-row-date { font-size: 12px; color: var(--text-secondary); min-width: 4.5rem; flex-shrink: 0; }
-    .milestone-row-center { flex: 1; min-width: 0; }
-    .milestone-row-weight {
-      font-size: 14px; font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .milestone-row-sub { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
-    .milestone-row-delta {
-      font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
-      white-space: nowrap; flex-shrink: 0;
-    }
-    .milestone-delta-behind  { background: var(--red-soft);   color: var(--red); }
-    .milestone-delta-ahead   { background: var(--green-soft); color: var(--green); }
-    .milestone-delta-neutral { background: #f1f4fa; color: var(--text-secondary); }
+      /* Milestone list */
+      .milestone-list-section {
+        border-top: 1px solid #eef0f6;
+        padding-top: 12px;
+      }
+      .milestone-list-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .milestone-list-title {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-tertiary);
+      }
+      .milestone-on-chart {
+        font-size: 10px;
+        color: var(--green);
+        font-weight: 600;
+      }
+      .milestone-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+      }
+      .milestone-today-behind {
+        background: #fef2f2;
+      }
+      .milestone-today-ahead {
+        background: var(--green-soft);
+      }
+      .milestone-today-on-plan {
+        background: var(--green-soft);
+      }
+      .milestone-row-standard {
+        background: #f7f9fc;
+      }
+      .milestone-row-date {
+        font-size: 12px;
+        color: var(--text-secondary);
+        min-width: 4.5rem;
+        flex-shrink: 0;
+      }
+      .milestone-row-center {
+        flex: 1;
+        min-width: 0;
+      }
+      .milestone-row-weight {
+        font-size: 14px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .milestone-row-sub {
+        font-size: 10px;
+        color: var(--text-secondary);
+        margin-top: 2px;
+      }
+      .milestone-row-delta {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .milestone-delta-behind {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+      .milestone-delta-ahead {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .milestone-delta-neutral {
+        background: #f1f4fa;
+        color: var(--text-secondary);
+      }
 
-    /* ── Card header row ──────────────────────────────────────────────────── */
-    .card-header-row {
-      display: flex; align-items: baseline; justify-content: space-between;
-      margin-bottom: 14px;
-    }
-    .card-header-row h2 { margin: 0; }
+      /* ── Card header row ──────────────────────────────────────────────────── */
+      .card-header-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      .card-header-row h2 {
+        margin: 0;
+      }
 
-    .view-all-link {
-      font-size: 12.5px; color: #2563eb; text-decoration: none;
-      white-space: nowrap; flex-shrink: 0;
-    }
-    .view-all-link:hover { text-decoration: underline; }
+      .view-all-link {
+        font-size: 12.5px;
+        color: #2563eb;
+        text-decoration: none;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .view-all-link:hover {
+        text-decoration: underline;
+      }
 
-    /* backward-compat selectors from issue #412 tests — kept for non-regression */
-    .entries-table {}
-    .entry-card-row {}
+      /* backward-compat selectors from issue #412 tests — kept for non-regression */
+      .entries-table {
+      }
+      .entry-card-row {
+      }
 
-    /* ── Recent entries grid rows ─────────────────────────────────────────── */
-    .re-row {
-      display: grid;
-      grid-template-columns: 86px 1fr 72px 46px 24px;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 4px;
-      border-top: 1px solid var(--card-border);
-      font-size: 12px;
-    }
-    .re-row:first-child { border-top: none; }
-    /* today row blue tint — backward-compat: entry-row-today alias kept for test_ac10 */
-    .re-row.entry-row-today,
-    .re-row.re-row-today {
-      background: linear-gradient(90deg, rgba(53,99,212,0.08) 0%, transparent 70%);
-      border-radius: 8px;
-      border-top-color: transparent;
-      padding: 6px 8px;
-    }
-    .re-row.missing-day-row { opacity: 0.65; }
-    .re-d { font-weight: 600; font-size: 12px; white-space: nowrap; }
-    .re-d .re-d-sub { color: var(--text-tertiary); font-size: 9px; font-weight: 400; display: block; }
-    .re-note {
-      color: var(--text-secondary); font-size: 10.5px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .re-w {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px; font-weight: 700; text-align: right;
-    }
-    .re-w .re-u { font-size: 8.5px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; }
-    .re-delta { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; text-align: right; }
-    .re-delta.dn  { color: var(--green); }
-    .re-delta.up  { color: var(--red); }
-    .re-delta.neu { color: var(--text-tertiary); }
-    .re-actions { position: relative; }
+      /* ── Recent entries grid rows ─────────────────────────────────────────── */
+      .re-row {
+        display: grid;
+        grid-template-columns: 86px 1fr 72px 46px 24px;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 4px;
+        border-top: 1px solid var(--card-border);
+        font-size: 12px;
+      }
+      .re-row:first-child {
+        border-top: none;
+      }
+      /* today row blue tint — backward-compat: entry-row-today alias kept for test_ac10 */
+      .re-row.entry-row-today,
+      .re-row.re-row-today {
+        background: linear-gradient(
+          90deg,
+          rgba(53, 99, 212, 0.08) 0%,
+          transparent 70%
+        );
+        border-radius: 8px;
+        border-top-color: transparent;
+        padding: 6px 8px;
+      }
+      .re-row.missing-day-row {
+        opacity: 0.65;
+      }
+      .re-d {
+        font-weight: 600;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .re-d .re-d-sub {
+        color: var(--text-tertiary);
+        font-size: 9px;
+        font-weight: 400;
+        display: block;
+      }
+      .re-note {
+        color: var(--text-secondary);
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .re-w {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        font-weight: 700;
+        text-align: right;
+      }
+      .re-w .re-u {
+        font-size: 8.5px;
+        color: var(--text-tertiary);
+        font-family: "Inter Tight", sans-serif;
+        font-weight: 500;
+      }
+      .re-delta {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        text-align: right;
+      }
+      .re-delta.dn {
+        color: var(--green);
+      }
+      .re-delta.up {
+        color: var(--red);
+      }
+      .re-delta.neu {
+        color: var(--text-tertiary);
+      }
+      .re-actions {
+        position: relative;
+      }
 
-    /* ＋ Add chip (dashed) */
-    .add-chip {
-      display: inline-flex; align-items: center; gap: 3px;
-      height: 24px; padding: 0 9px; border-radius: 999px;
-      border: 1.5px dashed rgba(13,30,67,0.22); background: transparent;
-      color: var(--text-secondary); font-size: 10.5px; font-weight: 600;
-      cursor: pointer; font-family: 'Inter Tight', sans-serif;
-    }
-    .add-chip:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+      /* ＋ Add chip (dashed) */
+      .add-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        border: 1.5px dashed rgba(13, 30, 67, 0.22);
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .add-chip:hover {
+        border-color: #2563eb;
+        color: #2563eb;
+        background: #eff6ff;
+      }
 
-    /* Inline mini-stepper (−/value/+/Log) */
-    .inline-fill { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-    .mini-step {
-      width: 24px; height: 26px; border-radius: 7px;
-      border: 1px solid var(--card-border); background: #fff;
-      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
-      cursor: pointer; color: var(--text-primary);
-    }
-    .mini-val {
-      width: 54px; height: 26px; border-radius: 7px;
-      border: 1.5px solid #3563d4; background: #fff;
-      font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 700;
-      text-align: center; color: var(--text-primary);
-    }
-    .mini-save {
-      height: 26px; padding: 0 10px; border-radius: 7px;
-      border: 0; background: var(--accent); color: var(--accent-text);
-      font-size: 10.5px; font-weight: 700; cursor: pointer;
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .mini-err { font-size: 11px; color: var(--red); width: 100%; }
+      /* Inline mini-stepper (−/value/+/Log) */
+      .inline-fill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .mini-step {
+        width: 24px;
+        height: 26px;
+        border-radius: 7px;
+        border: 1px solid var(--card-border);
+        background: #fff;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--text-primary);
+      }
+      .mini-val {
+        width: 54px;
+        height: 26px;
+        border-radius: 7px;
+        border: 1.5px solid #3563d4;
+        background: #fff;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-align: center;
+        color: var(--text-primary);
+      }
+      .mini-save {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 7px;
+        border: 0;
+        background: var(--accent);
+        color: var(--accent-text);
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .mini-err {
+        font-size: 11px;
+        color: var(--red);
+        width: 100%;
+      }
 
-    /* Actions dropdown (⋯) */
-    .entry-menu-btn {
-      background: none; border: none; color: var(--text-tertiary);
-      cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 14px; line-height: 1;
-    }
-    .entry-menu-btn:hover { background: #eef0f6; color: var(--text-primary); }
+      /* Actions dropdown (⋯) */
+      .entry-menu-btn {
+        background: none;
+        border: none;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-size: 14px;
+        line-height: 1;
+      }
+      .entry-menu-btn:hover {
+        background: #eef0f6;
+        color: var(--text-primary);
+      }
 
-    .entry-menu {
-      position: absolute; right: 0; top: calc(100% + 4px);
-      background: #fff; border: 1px solid #e8eaf0;
-      border-radius: 9px; box-shadow: 0 4px 16px rgba(13,30,67,0.12);
-      z-index: 50; min-width: 120px; overflow: hidden;
-    }
-    .entry-menu button {
-      display: block; width: 100%; text-align: left;
-      padding: 9px 14px; background: none; border: none;
-      font-size: 13px; cursor: pointer; color: var(--text-primary);
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .entry-menu button:hover { background: #f7f9fc; }
-    .entry-menu .menu-delete { color: var(--red); }
-    .entry-menu .menu-delete:hover { background: var(--red-soft); }
+      .entry-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        background: #fff;
+        border: 1px solid #e8eaf0;
+        border-radius: 9px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+        z-index: 50;
+        min-width: 120px;
+        overflow: hidden;
+      }
+      .entry-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 9px 14px;
+        background: none;
+        border: none;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-family: "Inter Tight", sans-serif;
+      }
+      .entry-menu button:hover {
+        background: #f7f9fc;
+      }
+      .entry-menu .menu-delete {
+        color: var(--red);
+      }
+      .entry-menu .menu-delete:hover {
+        background: var(--red-soft);
+      }
 
-    /* ── Inline edit form ─────────────────────────────────────────────────── */
-    .entry-edit {
-      display: block; width: 100%; text-align: left;
-      padding: 8px 14px; background: none; border: none;
-      font-size: 13px; cursor: pointer; color: var(--text-primary);
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .entry-edit:hover { background: #f7f9fc; }
+      /* ── Inline edit form ─────────────────────────────────────────────────── */
+      .entry-edit {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 8px 14px;
+        background: none;
+        border: none;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-family: "Inter Tight", sans-serif;
+      }
+      .entry-edit:hover {
+        background: #f7f9fc;
+      }
 
-    .inline-edit-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .inline-save-btn {
-      padding: 4px 12px; background: #0b1530; color: #fff;
-      border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .inline-save-btn:hover { background: #162444; }
-    .inline-cancel-btn {
-      background: none; border: none; color: var(--text-tertiary); font-size: 12px; cursor: pointer;
-    }
+      .inline-edit-form {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .inline-save-btn {
+        padding: 4px 12px;
+        background: #0b1530;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .inline-save-btn:hover {
+        background: #162444;
+      }
+      .inline-cancel-btn {
+        background: none;
+        border: none;
+        color: var(--text-tertiary);
+        font-size: 12px;
+        cursor: pointer;
+      }
 
-    .mini-stepper { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-    .stepper-value {
-      width: 5rem; text-align: center; padding: 4px 6px;
-      border: 1px solid #2563eb; border-radius: 6px;
-      font-size: 13.5px; font-variant-numeric: tabular-nums;
-      font-family: 'JetBrains Mono', monospace;
-    }
-    .stepper-log-btn {
-      padding: 4px 12px; background: #0b1530; color: #fff;
-      border: none; border-radius: 5px; font-size: 12.5px; cursor: pointer;
-      font-family: 'Inter Tight', sans-serif; white-space: nowrap;
-    }
-    .stepper-log-btn:hover { background: #162444; }
-    .stepper-log-btn:disabled { opacity: 0.55; cursor: default; }
-    .stepper-error { font-size: 12px; color: var(--red); width: 100%; }
+      .mini-stepper {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .stepper-value {
+        width: 5rem;
+        text-align: center;
+        padding: 4px 6px;
+        border: 1px solid #2563eb;
+        border-radius: 6px;
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .stepper-log-btn {
+        padding: 4px 12px;
+        background: #0b1530;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        font-size: 12.5px;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+        white-space: nowrap;
+      }
+      .stepper-log-btn:hover {
+        background: #162444;
+      }
+      .stepper-log-btn:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .stepper-error {
+        font-size: 12px;
+        color: var(--red);
+        width: 100%;
+      }
 
-    /* Backfill (legacy class names kept for backward-compat) */
-    .backfill-add-btn {
-      display: inline-flex; align-items: center; gap: 3px;
-      height: 24px; padding: 0 9px; border-radius: 999px;
-      border: 1.5px dashed rgba(13,30,67,0.22); background: transparent;
-      color: var(--text-secondary); font-size: 10.5px; font-weight: 600;
-      cursor: pointer; font-family: 'Inter Tight', sans-serif;
-    }
-    .backfill-add-btn:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+      /* Backfill (legacy class names kept for backward-compat) */
+      .backfill-add-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        border: 1.5px dashed rgba(13, 30, 67, 0.22);
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .backfill-add-btn:hover {
+        border-color: #2563eb;
+        color: #2563eb;
+        background: #eff6ff;
+      }
 
-    .backfill-inline { display: flex; align-items: center; gap: 6px; }
-    .backfill-input {
-      width: 5.5rem; padding: 4px 8px; border: 1px solid #2563eb;
-      border-radius: 6px; font-size: 13.5px;
-    }
-    .backfill-save-btn {
-      padding: 4px 12px; background: #0b1530; color: #fff;
-      border: none; border-radius: 5px; font-size: 12.5px; cursor: pointer;
-    }
-    .backfill-cancel-btn {
-      background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 12.5px;
-    }
-    .backfill-error { font-size: 12px; color: var(--red); }
+      .backfill-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .backfill-input {
+        width: 5.5rem;
+        padding: 4px 8px;
+        border: 1px solid #2563eb;
+        border-radius: 6px;
+        font-size: 13.5px;
+      }
+      .backfill-save-btn {
+        padding: 4px 12px;
+        background: #0b1530;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .backfill-cancel-btn {
+        background: none;
+        border: none;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        font-size: 12.5px;
+      }
+      .backfill-error {
+        font-size: 12px;
+        color: var(--red);
+      }
 
-    /* ── Target History section ───────────────────────────────────────────── */
-    .target-history-section {
-      margin-top: 8px;
-    }
-    .target-history-hdr {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 12px; color: #fff;
-    }
-    .target-history-hdr h2 {
-      margin: 0; font-size: 17px; font-weight: 600;
-      letter-spacing: -0.02em; color: #fff;
-    }
-    .target-history-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;
-    }
-    /* "Your weight journey" card */
-    .journey-banner {
-      background: linear-gradient(135deg, #dde6f8 0%, transparent 100%);
-      border: 1px solid #dde6f8; border-radius: 11px; padding: 11px 14px;
-      font-size: 12px; color: #1e3a8a; margin-bottom: 12px;
-      display: flex; align-items: flex-start; gap: 8px;
-    }
-    .journey-banner i { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
-    .journey-banner .jb-text { line-height: 1.5; }
-    .journey-stats4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .js4 { display: flex; flex-direction: column; gap: 3px; }
-    .js4 .js4-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-    .js4 .js4-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; color: var(--text-primary); }
-    .js4 .js4-v .js4-u { font-size: 11px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; }
-    .js4 .js4-s { font-size: 10.5px; color: var(--text-secondary); }
-    .js4 .js4-s.good { color: var(--green); font-weight: 600; }
-    /* "Past targets" card */
-    .th-card-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .th-card-title { font-size: 14px; font-weight: 600; margin: 0; }
-    .th-export-btn {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-size: 11px; font-weight: 500; color: var(--text-secondary);
-      background: none; border: 1px solid var(--card-border);
-      border-radius: 999px; padding: 4px 10px; cursor: pointer;
-      font-family: 'Inter Tight', sans-serif; text-decoration: none;
-    }
-    .th-export-btn:hover { background: #f1f4fa; }
-    .th-filter-row {
-      display: flex; gap: 4px; padding: 3px;
-      background: #f1f4fa; border-radius: 999px;
-      width: fit-content; margin-bottom: 10px;
-    }
-    .th-fb {
-      padding: 5px 11px; border-radius: 999px;
-      font-size: 11px; font-weight: 600; color: var(--text-secondary);
-      background: transparent; border: 0; cursor: pointer;
-      font-family: 'Inter Tight', sans-serif;
-    }
-    .th-fb.active { background: #0b1530; color: #fff; }
-    .th-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .th-table { width: 100%; border-collapse: collapse; }
-    .th-table th {
-      font-size: 9px; color: var(--text-tertiary); text-transform: uppercase;
-      letter-spacing: 0.06em; font-weight: 600; padding: 8px; text-align: left;
-      border-bottom: 1px solid var(--card-border);
-    }
-    .th-table th.r { text-align: right; }
-    .th-table td { padding: 10px 8px; border-bottom: 1px solid var(--card-border); font-size: 12px; }
-    .th-table tr:last-child td { border-bottom: none; }
-    .th-table td.r { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .th-badge {
-      font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-      padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;
-      white-space: nowrap;
-    }
-    .th-badge.achieved { background: var(--green-soft); color: var(--green); }
-    .th-badge.replaced { background: var(--amber-soft); color: var(--amber); }
-    .th-badge.abandoned { background: #f1f4fa; color: var(--text-secondary); }
-    .th-nm .th-meta { font-size: 10.5px; color: var(--text-secondary); font-weight: 400; display: block; }
-    .th-delta-good { color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .th-delta-bad  { color: var(--red);   font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .th-empty { text-align: center; padding: 24px; color: var(--text-tertiary); font-size: 13px; }
+      /* ── Target History section ───────────────────────────────────────────── */
+      .target-history-section {
+        margin-top: 8px;
+      }
+      .target-history-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        color: #fff;
+        background: var(--bg-2);
+        border-radius: 10px;
+        padding: 10px 14px;
+      }
+      .target-history-hdr h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #fff;
+      }
+      .target-history-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      /* "Your weight journey" card */
+      .journey-banner {
+        background: linear-gradient(135deg, #dde6f8 0%, transparent 100%);
+        border: 1px solid #dde6f8;
+        border-radius: 11px;
+        padding: 11px 14px;
+        font-size: 12px;
+        color: #1e3a8a;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .journey-banner i {
+        font-size: 15px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .journey-banner .jb-text {
+        line-height: 1.5;
+      }
+      .journey-stats4 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .js4 {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .js4 .js4-l {
+        font-size: 9px;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+      }
+      .js4 .js4-v {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--text-primary);
+      }
+      .js4 .js4-v .js4-u {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        font-family: "Inter Tight", sans-serif;
+        font-weight: 500;
+      }
+      .js4 .js4-s {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .js4 .js4-s.good {
+        color: var(--green);
+        font-weight: 600;
+      }
+      /* "Past targets" card */
+      .th-card-hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .th-card-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .th-export-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: none;
+        border: 1px solid var(--card-border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+        text-decoration: none;
+      }
+      .th-export-btn:hover {
+        background: #f1f4fa;
+      }
+      .th-filter-row {
+        display: flex;
+        gap: 4px;
+        padding: 3px;
+        background: #f1f4fa;
+        border-radius: 999px;
+        width: fit-content;
+        margin-bottom: 10px;
+      }
+      .th-fb {
+        padding: 5px 11px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        font-family: "Inter Tight", sans-serif;
+      }
+      .th-fb.active {
+        background: #0b1530;
+        color: #fff;
+      }
+      .th-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .th-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .th-table th {
+        font-size: 9px;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid var(--card-border);
+      }
+      .th-table th.r {
+        text-align: right;
+      }
+      .th-table td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--card-border);
+        font-size: 12px;
+      }
+      .th-table tr:last-child td {
+        border-bottom: none;
+      }
+      .th-table td.r {
+        text-align: right;
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 600;
+      }
+      .th-badge {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 3px 8px;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        white-space: nowrap;
+      }
+      .th-badge.achieved {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+      .th-badge.replaced {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+      .th-badge.abandoned {
+        background: #f1f4fa;
+        color: var(--text-secondary);
+      }
+      .th-nm .th-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 400;
+        display: block;
+      }
+      .th-delta-good {
+        color: var(--green);
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 600;
+      }
+      .th-delta-bad {
+        color: var(--red);
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 600;
+      }
+      .th-empty {
+        text-align: center;
+        padding: 24px;
+        color: var(--text-tertiary);
+        font-size: 13px;
+      }
 
-    /* ── Error banner ─────────────────────────────────────────────────────── */
-    #page-error {
-      color: #fff;
-      font-size: 13.5px;
-      margin: 0;
-    }
-    /* Banner only renders when there is an actual error message */
-    #page-error:not(:empty) {
-      margin-bottom: 12px;
-      background: rgba(122,26,26,0.55);
-      border-radius: 8px;
-      padding: 10px 14px;
-    }
+      /* ── Error banner ─────────────────────────────────────────────────────── */
+      #page-error {
+        color: #fff;
+        font-size: 13.5px;
+        margin: 0;
+      }
+      /* Banner only renders when there is an actual error message */
+      #page-error:not(:empty) {
+        margin-bottom: 12px;
+        background: rgba(122, 26, 26, 0.55);
+        border-radius: 8px;
+        padding: 10px 14px;
+      }
 
-    /* ── Responsive ≤880px ────────────────────────────────────────────────── */
-    @media (max-width: 880px) {
-      .milestone-list-section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    }
+      /* ── Responsive ≤880px ────────────────────────────────────────────────── */
+      @media (max-width: 880px) {
+        .milestone-list-section {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+      }
 
-    /* ── Responsive ≤820px ────────────────────────────────────────────────── */
-    @media (max-width: 820px) {
-      .bottom-grid { grid-template-columns: 1fr; }
-      .re-row { grid-template-columns: 80px 1fr 64px 40px 22px; gap: 6px; }
-    }
+      /* ── Responsive ≤820px ────────────────────────────────────────────────── */
+      @media (max-width: 820px) {
+        .bottom-grid {
+          grid-template-columns: 1fr;
+        }
+        .re-row {
+          grid-template-columns: 80px 1fr 64px 40px 22px;
+          gap: 6px;
+        }
+      }
 
-    /* ── Responsive ≤768px ────────────────────────────────────────────────── */
-    @media (max-width: 768px) {
-      main { padding: 16px 16px 20px; }
-      .weight-page-header h1 { font-size: 22px; }
-    }
+      /* ── Responsive ≤768px ────────────────────────────────────────────────── */
+      @media (max-width: 768px) {
+        main {
+          padding: 16px 16px 20px;
+        }
+        .weight-page-header h1 {
+          font-size: 22px;
+        }
+      }
 
-    /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
-    @media (max-width: 640px) {
-      .hero-2col { grid-template-columns: 1fr; }
-      .target-history-grid { grid-template-columns: 1fr; }
-      .range-tab[data-range="6m"],
-      .range-tab[data-range="1y"],
-      .range-tab[data-range="all"] { display: none; }
-      .chart-verdict { flex-direction: column; gap: 6px; }
-      .chart-verdict-pill { align-self: flex-start; }
-      .chart-container { min-height: 280px; }
-      #weight-chart svg { min-height: 260px; }
-      .chart-legend { gap: 8px; }
-      .legend-chip { font-size: 11px; }
+      /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
+      @media (max-width: 640px) {
+        .hero-2col {
+          grid-template-columns: 1fr;
+        }
+        .target-history-grid {
+          grid-template-columns: 1fr;
+        }
+        .range-tab[data-range="6m"],
+        .range-tab[data-range="all"] {
+          display: none;
+        }
+        .chart-verdict {
+          flex-direction: column;
+          gap: 6px;
+        }
+        .chart-verdict-pill {
+          align-self: flex-start;
+        }
+        .chart-container {
+          min-height: 280px;
+        }
+        #weight-chart svg {
+          min-height: 260px;
+        }
+        .chart-legend {
+          gap: 8px;
+        }
+        .legend-chip {
+          font-size: 11px;
+        }
+        .et-panel {
+          top: auto;
+          right: 0;
+          left: 0;
+          bottom: 0;
+          width: 100%;
+          max-width: 100%;
+          border-radius: 16px 16px 0 0;
+          box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.22);
+          max-height: 92vh;
+        }
+      }
+
+      /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
+      @media (max-width: 480px) {
+        main {
+          padding: 12px 12px 16px;
+        }
+        .weight-page-header h1 {
+          font-size: 20px;
+        }
+        .header-actions {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .pstat-val {
+          font-size: 15px;
+        }
+      }
+      /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
+      .stepper-btn:focus-visible,
+      .range-tab:focus-visible,
+      .log-submit-btn:focus-visible,
+      .btn-secondary:focus-visible,
+      .manage-target-btn:focus-visible,
+      .edit-target-pill:focus-visible,
+      .edit-link:focus-visible,
+      .view-all-link:focus-visible,
+      .stepper-input:focus-visible,
+      .mini-step:focus-visible,
+      .mini-val:focus-visible,
+      .mini-save:focus-visible,
+      .add-chip:focus-visible,
+      .entry-edit:focus-visible,
+      .entry-menu-btn:focus-visible {
+        outline: 2px solid var(--bg-1);
+        outline-offset: 2px;
+      }
+
+      /* Respect reduced-motion: instant progress + no transitions */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+      /* Touch devices: 44px tap targets (keyed to input method, desktop stays dense) */
+      @media (pointer: coarse) {
+        .stepper-btn {
+          width: 44px;
+          height: 44px;
+        }
+        .log-submit-btn {
+          min-height: 44px;
+        }
+        .range-tab {
+          min-height: 40px;
+          display: inline-flex;
+          align-items: center;
+        }
+        .btn-secondary,
+        .manage-target-btn,
+        .edit-target-pill,
+        .edit-link,
+        .view-all-link,
+        .add-chip,
+        .mini-step,
+        .mini-save {
+          min-height: 40px;
+          display: inline-flex;
+          align-items: center;
+        }
+      }
+
+      /* ── Edit-target slide-in panel ──────────────────────────────────────── */
+      .et-panel-scrim {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 18, 48, 0.45);
+        z-index: 90;
+      }
       .et-panel {
-        top: auto; right: 0; left: 0; bottom: 0;
-        width: 100%; max-width: 100%;
-        border-radius: 16px 16px 0 0;
-        box-shadow: 0 -8px 32px rgba(8, 18, 48, 0.22);
-        max-height: 92vh;
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 380px;
+        max-width: 92vw;
+        background: #fff;
+        z-index: 100;
+        box-shadow: -12px 0 40px rgba(0, 0, 0, 0.25);
+        display: flex;
+        flex-direction: column;
       }
-    }
-
-    /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
-    @media (max-width: 480px) {
-      main { padding: 12px 12px 16px; }
-      .weight-page-header h1 { font-size: 20px; }
-      .header-actions { flex-wrap: wrap; gap: 6px; }
-      .pstat-val { font-size: 15px; }
-    }
-    /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
-    .stepper-btn:focus-visible, .range-tab:focus-visible, .log-submit-btn:focus-visible,
-    .btn-secondary:focus-visible, .manage-target-btn:focus-visible, .edit-target-pill:focus-visible,
-    .edit-link:focus-visible, .view-all-link:focus-visible, .stepper-input:focus-visible,
-    .mini-step:focus-visible, .mini-val:focus-visible, .mini-save:focus-visible,
-    .add-chip:focus-visible, .entry-edit:focus-visible, .entry-menu-btn:focus-visible {
-      outline: 2px solid var(--bg-1);
-      outline-offset: 2px;
-    }
-
-    /* Respect reduced-motion: instant progress + no transitions */
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+      .et-panel-hdr {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--card-border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
       }
-    }
-    /* Touch devices: 44px tap targets (keyed to input method, desktop stays dense) */
-    @media (pointer: coarse) {
-      .stepper-btn { width: 44px; height: 44px; }
-      .log-submit-btn { min-height: 44px; }
-      .range-tab { min-height: 40px; display: inline-flex; align-items: center; }
-      .btn-secondary, .manage-target-btn, .edit-target-pill,
-      .edit-link, .view-all-link, .add-chip,
-      .mini-step, .mini-save { min-height: 40px; display: inline-flex; align-items: center; }
-    }
+      .et-panel-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .et-panel-close {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 0;
+        background: #f1f4fa;
+        cursor: pointer;
+        font-size: 16px;
+        color: var(--text-secondary);
+      }
+      .et-panel-body {
+        padding: 16px 18px;
+        overflow-y: auto;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .et-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .et-field label {
+        font-size: 10px;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+      }
+      .et-field-display {
+        height: 40px;
+        border-radius: 10px;
+        border: 1.5px solid var(--card-border);
+        background: #f7f9fd;
+        padding: 0 12px;
+        display: flex;
+        align-items: center;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+      .et-field input {
+        height: 40px;
+        border-radius: 10px;
+        border: 1.5px solid var(--card-border);
+        background: #f7f9fd;
+        padding: 0 12px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .et-field input:focus {
+        outline: none;
+        border-color: #3563d4;
+        background: #fff;
+      }
+      .et-field input[type="date"] {
+        font-family: "Inter Tight", sans-serif;
+        font-size: 14px;
+      }
+      .et-hint {
+        font-size: 12px;
+        color: var(--text-tertiary);
+      }
+      .et-preview {
+        background: #f7f9fd;
+        border-radius: 11px;
+        padding: 12px 14px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .et-preview-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 3px 0;
+      }
+      .et-preview-row .mono {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .et-panel-foot {
+        padding: 14px 18px;
+        border-top: 1px solid var(--card-border);
+        display: flex;
+        gap: 8px;
+      }
+      .et-save-btn {
+        flex: 1;
+        height: 40px;
+        border-radius: 10px;
+        border: 0;
+        background: var(--accent);
+        color: var(--accent-text);
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .et-save-btn:hover {
+        opacity: 0.88;
+      }
+      .et-save-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .et-end-btn {
+        height: 40px;
+        padding: 0 14px;
+        border-radius: 10px;
+        border: 1px solid var(--red-soft);
+        background: #fff;
+        color: var(--red);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .et-end-btn:hover {
+        background: var(--red-soft);
+      }
+      .et-panel-error {
+        font-size: 12px;
+        color: var(--red);
+        min-height: 1em;
+        margin-top: -6px;
+      }
+      /* ── Backfill calendar ─────────────────────────────────────────────────── */
+      /* ── Page layout: 2-col top (Current+Progress | Log+Recent) ─────────────── */
+      .top-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 10px;
+        align-items: start;
+      }
+      .top-col {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+      }
+      @media (max-width: 880px) {
+        .top-grid {
+          grid-template-columns: 1fr;
+        }
+      }
 
-    /* ── Edit-target slide-in panel ──────────────────────────────────────── */
-    .et-panel-scrim {
-      position: fixed; inset: 0;
-      background: rgba(8, 18, 48, 0.45);
-      z-index: 90;
-    }
-    .et-panel {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      width: 380px; max-width: 92vw;
-      background: #fff;
-      z-index: 100;
-      box-shadow: -12px 0 40px rgba(8, 18, 48, 0.25);
-      display: flex; flex-direction: column;
-    }
-    .et-panel-hdr {
-      padding: 16px 18px;
-      border-bottom: 1px solid var(--card-border);
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .et-panel-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
-    .et-panel-close {
-      width: 30px; height: 30px; border-radius: 8px; border: 0;
-      background: #f1f4fa; cursor: pointer;
-      font-size: 16px; color: var(--text-secondary);
-    }
-    .et-panel-body {
-      padding: 16px 18px; overflow-y: auto; flex: 1;
-      display: flex; flex-direction: column; gap: 14px;
-    }
-    .et-field { display: flex; flex-direction: column; gap: 5px; }
-    .et-field label {
-      font-size: 10px; color: var(--text-tertiary);
-      text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
-    }
-    .et-field-display {
-      height: 40px; border-radius: 10px;
-      border: 1.5px solid var(--card-border); background: #f7f9fd;
-      padding: 0 12px; display: flex; align-items: center;
-      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
-      color: var(--text-secondary);
-    }
-    .et-field input {
-      height: 40px; border-radius: 10px;
-      border: 1.5px solid var(--card-border); background: #f7f9fd;
-      padding: 0 12px;
-      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600;
-      color: var(--text-primary);
-    }
-    .et-field input:focus {
-      outline: none; border-color: #3563d4; background: #fff;
-    }
-    .et-field input[type="date"] {
-      font-family: 'Inter Tight', sans-serif; font-size: 14px;
-    }
-    .et-hint {
-      font-size: 10.5px; color: var(--text-tertiary);
-    }
-    .et-preview {
-      background: #f7f9fd; border-radius: 11px; padding: 12px 14px;
-      font-size: 12px; color: var(--text-secondary);
-    }
-    .et-preview-row {
-      display: flex; justify-content: space-between; margin: 3px 0;
-    }
-    .et-preview-row .mono {
-      font-family: 'JetBrains Mono', monospace; font-weight: 700;
-      color: var(--text-primary);
-    }
-    .et-panel-foot {
-      padding: 14px 18px; border-top: 1px solid var(--card-border);
-      display: flex; gap: 8px;
-    }
-    .et-save-btn {
-      flex: 1; height: 40px; border-radius: 10px; border: 0;
-      background: var(--accent); color: var(--accent-text);
-      font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
-    }
-    .et-save-btn:hover { opacity: 0.88; }
-    .et-save-btn:disabled { opacity: 0.5; cursor: default; }
-    .et-end-btn {
-      height: 40px; padding: 0 14px; border-radius: 10px;
-      border: 1px solid var(--red-soft); background: #fff;
-      color: var(--red); font-family: inherit; font-size: 12px;
-      font-weight: 600; cursor: pointer;
-    }
-    .et-end-btn:hover { background: var(--red-soft); }
-    .et-panel-error {
-      font-size: 12px; color: var(--red); min-height: 1em; margin-top: -6px;
-    }
-    /* ── Backfill calendar ─────────────────────────────────────────────────── */
-    /* ── Page layout: 2-col top (Current+Progress | Log+Recent) ─────────────── */
-    .top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
-    .top-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-    @media (max-width: 880px) { .top-grid { grid-template-columns: 1fr; } }
+      /* ── Backfill calendar (fills card; 2 months desktop, 1 mobile) ─────────── */
+      .wcal {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(13, 30, 67, 0.07);
+      }
+      .wcal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        gap: 8px;
+      }
+      .wcal-kicker {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .wcal-nav-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .wcal-nav {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        border: 1px solid var(--card-border);
+        background: #fff;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .wcal-nav:hover {
+        background: #f1f4fa;
+        color: var(--text-primary);
+      }
+      .wcal-nav:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+      .wcal-months {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .wcal-month {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .wcal-mtitle {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-primary);
+        text-align: center;
+        margin-bottom: 6px;
+      }
+      .wcal-dow {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 3px;
+        margin-bottom: 3px;
+      }
+      .wcal-dow span {
+        text-align: center;
+        font-size: 8.5px;
+        font-weight: 700;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+      }
+      .wcal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 3px;
+      }
+      .wcal-cell {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        border: 0;
+        background: #f7f9fd;
+        border-radius: 6px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-primary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .wcal-cell:hover:not(.future):not(.empty) {
+        background: #e8edf6;
+      }
+      .wcal-cell.empty {
+        background: transparent;
+        cursor: default;
+      }
+      .wcal-cell.future {
+        color: var(--text-tertiary);
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .wcal-cell.has-entry {
+        background: #dde6f8;
+        color: #1e3a8a;
+      }
+      .wcal-cell.today {
+        box-shadow: inset 0 0 0 1.5px var(--bg-1);
+      }
+      .wcal-cell.sel {
+        box-shadow: 0 0 0 1.5px #2563eb;
+        background: #dde6f8;
+      }
+      .wcal-dot {
+        position: absolute;
+        bottom: 3px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 3.5px;
+        height: 3.5px;
+        border-radius: 50%;
+        background: #2563eb;
+      }
+      .wcal-cell.sel .wcal-dot {
+        display: none;
+      }
+      .wcal-editor {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        background: #f1f4fa;
+        border-radius: 9px;
+      }
+      .wcal-ed-date {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .wcal-editor input {
+        width: 84px;
+        height: 34px;
+        border-radius: 8px;
+        border: 1.5px solid var(--card-border);
+        background: #fff;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+        color: var(--text-primary);
+      }
+      .wcal-save {
+        height: 34px;
+        padding: 0 15px;
+        border-radius: 8px;
+        border: 0;
+        background: var(--accent);
+        color: var(--accent-text);
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .wcal-del {
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 8px;
+        border: 1px solid var(--card-border);
+        background: #fff;
+        color: var(--red);
+        font-family: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .wcal-ed-err {
+        font-size: 11px;
+        color: var(--red);
+        width: 100%;
+      }
+      @media (max-width: 560px) {
+        .wcal-month-left {
+          display: none;
+        }
+      }
+      @media (pointer: coarse) {
+        .wcal-nav {
+          width: 32px;
+          height: 32px;
+        }
+        .wcal-save,
+        .wcal-del {
+          min-height: 38px;
+        }
+      }
+      /* ── Merged card separator + milestone markers on the progress bar ──────── */
+      .merged-sep {
+        border-top: 1px solid rgba(13, 30, 67, 0.08);
+        margin: 3px 0 12px;
+      }
+      .pgbar-ms-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .pgbar-ms {
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(45deg);
+        width: 7px;
+        height: 7px;
+        background: #fff;
+        border: 1.5px solid #16a34a;
+        border-radius: 1px;
+        pointer-events: auto;
+        cursor: help;
+        z-index: 2;
+      }
+      .pgbar-ms-goal {
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        width: 9px;
+        height: 9px;
+        background: #16a34a;
+        border-color: #16a34a;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p id="page-error" role="alert"></p>
 
-    /* ── Backfill calendar (fills card; 2 months desktop, 1 mobile) ─────────── */
-    .wcal { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(13,30,67,0.07); }
-    .wcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
-    .wcal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
-    .wcal-nav-group { display: inline-flex; align-items: center; gap: 6px; }
-    .wcal-nav { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--card-border); background: #fff; color: var(--text-secondary); cursor: pointer; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
-    .wcal-nav:hover { background: #f1f4fa; color: var(--text-primary); }
-    .wcal-nav:disabled { opacity: 0.35; cursor: not-allowed; }
-    .wcal-months { display: flex; gap: 16px; align-items: flex-start; }
-    .wcal-month { flex: 1 1 0; min-width: 0; }
-    .wcal-mtitle { font-size: 11px; font-weight: 600; color: var(--text-primary); text-align: center; margin-bottom: 6px; }
-    .wcal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; }
-    .wcal-dow span { text-align: center; font-size: 8.5px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; }
-    .wcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-    .wcal-cell { position: relative; aspect-ratio: 1 / 1; border: 0; background: #f7f9fd; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
-    .wcal-cell:hover:not(.future):not(.empty) { background: #e8edf6; }
-    .wcal-cell.empty { background: transparent; cursor: default; }
-    .wcal-cell.future { color: var(--text-tertiary); opacity: 0.4; cursor: not-allowed; }
-    .wcal-cell.has-entry { background: #dde6f8; color: #1e3a8a; }
-    .wcal-cell.today { box-shadow: inset 0 0 0 1.5px var(--bg-1); }
-    .wcal-cell.sel { box-shadow: 0 0 0 1.5px #2563eb; background: #dde6f8; }
-    .wcal-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 3.5px; height: 3.5px; border-radius: 50%; background: #2563eb; }
-    .wcal-cell.sel .wcal-dot { display: none; }
-    .wcal-editor { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: #f1f4fa; border-radius: 9px; }
-    .wcal-ed-date { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
-    .wcal-editor input { width: 84px; height: 34px; border-radius: 8px; border: 1.5px solid var(--card-border); background: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; text-align: center; color: var(--text-primary); }
-    .wcal-save { height: 34px; padding: 0 15px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-text); font-family: inherit; font-weight: 700; font-size: 12px; cursor: pointer; }
-    .wcal-del { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--card-border); background: #fff; color: var(--red); font-family: inherit; font-size: 12px; cursor: pointer; }
-    .wcal-ed-err { font-size: 11px; color: var(--red); width: 100%; }
-    @media (max-width: 560px) { .wcal-month-left { display: none; } }
-    @media (pointer: coarse) {
-      .wcal-nav { width: 32px; height: 32px; }
-      .wcal-save, .wcal-del { min-height: 38px; }
-    }
-    /* ── Merged card separator + milestone markers on the progress bar ──────── */
-    .merged-sep { border-top: 1px solid rgba(13,30,67,0.08); margin: 3px 0 12px; }
-    .pgbar-ms-layer { position: absolute; inset: 0; pointer-events: none; }
-    .pgbar-ms { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 7px; height: 7px; background: #fff; border: 1.5px solid #16a34a; border-radius: 1px; pointer-events: auto; cursor: help; z-index: 2; }
-    .pgbar-ms-goal { border-radius: 50%; transform: translate(-50%, -50%); width: 9px; height: 9px; background: #16a34a; border-color: #16a34a; }
-  </style>
-</head>
-<body>
-  <main>
-    <p id="page-error" role="alert"></p>
-
-    <!-- Page header (renders on gradient) -->
-    <div class="weight-page-header">
-      <div>
-        <h1>Weight</h1>
-        <p class="page-subtitle" id="page-subtitle">Loading…</p>
-        <div class="streak-adherence-row">
-          <span class="streak-badge" id="streak-value">0-day streak</span>
-          <span class="adherence-label" id="adherence-value">0 / 14 days</span>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="btn-secondary" id="export-csv-btn" type="button">Export CSV</button>
-        <button class="manage-target-btn" id="edit-target-header-btn" type="button">⚖ Edit target</button>
-      </div>
-    </div>
-
-    <!-- Hero: 2-card row (Card A: Current | Card B: Log Today) -->
-    <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
-    <div class="top-grid">
-      <div class="top-col">
-        <!-- Merged: Current weight + Log Today + Progress toward goal -->
-        <div class="card hero-card hero-card-a merged-card">
-        <div class="hca-top">
-          <span class="hca-label">CURRENT WEIGHT</span>
-          <span class="hca-date-sub" id="hca-date-sub"></span>
-        </div>
-        <div class="hca-middle">
-          <div class="hca-col">
-            <div class="hca-col-label">7-day avg</div>
-            <div class="hca-avg" id="hca-avg">--</div>
-          </div>
-          <div class="hca-weight" id="hca-weight">--</div>
-          <div class="hca-col hca-col-right">
-            <div class="hca-col-label">Change</div>
-            <div class="hca-pills">
-              <span class="delta-pill neutral" id="hca-pill-week">This wk: --</span>
-              <span class="delta-pill neutral" id="hca-pill-month">This mo: --</span>
-            </div>
-          </div>
-        </div>
-        <!-- Coach strip: single instance, re-evaluates on each log/edit -->
-        <div class="coach-strip coach-grey" id="coach-strip">
-          <span id="coach-text">😴 No entry yet today — log your weight to wake me up</span>
-        </div>
-          <div class="merged-sep"></div>
-        <div class="hcb-top">
-          <span class="hcb-label">LOG TODAY</span>
-          <span class="hcb-date" id="hcb-date"></span>
-        </div>
-        <!-- Stepper (shown when not yet logged today, or while editing) -->
-        <div id="stepper-wrap">
-          <div class="stepper">
-            <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
-            <input
-              class="stepper-input" id="stepper-input"
-              type="number" step="0.1" min="20" max="300"
-              inputmode="decimal" aria-label="Weight in kg"
+      <!-- Page header (renders on gradient) -->
+      <div class="weight-page-header" style="background-color: #1f3b8a">
+        <div>
+          <h1>Weight</h1>
+          <p class="page-subtitle" id="page-subtitle">Loading…</p>
+          <div class="streak-adherence-row">
+            <span class="streak-badge" id="streak-value">0-day streak</span>
+            <span class="adherence-label" id="adherence-value"
+              >0 / 14 days</span
             >
-            <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
           </div>
-          <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
-          <div class="hcb-error" id="hcb-error" role="alert"></div>
-          <!-- quicklog-error alias for test_weight_page_frontend__412 -->
-          <div id="quicklog-error" hidden></div>
         </div>
-        <!-- Logged strip (shown after successful log) -->
-        <div class="logged-strip" id="logged-strip" hidden>
-          <span id="logged-text">✓ Logged today · -- kg · </span><button class="edit-link" id="edit-link" type="button">Edit</button>
+        <div class="header-actions">
+          <button class="btn-secondary" id="export-csv-btn" type="button">
+            Export CSV
+          </button>
+          <button
+            class="manage-target-btn"
+            id="edit-target-header-btn"
+            type="button"
+          >
+            ⚖ Edit target
+          </button>
         </div>
-          <div id="progress-card" hidden>
+      </div>
+
+      <!-- Hero: 2-card row (Card A: Current | Card B: Log Today) -->
+      <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
+      <div class="top-grid">
+        <div class="top-col">
+          <!-- Merged: Current weight + Log Today + Progress toward goal -->
+          <div class="card hero-card hero-card-a merged-card">
+            <div class="hca-top">
+              <span class="hca-label">CURRENT WEIGHT</span>
+              <span class="hca-date-sub" id="hca-date-sub"></span>
+            </div>
+            <div class="hca-middle">
+              <div class="hca-col">
+                <div class="hca-col-label">7-day avg</div>
+                <div class="hca-avg" id="hca-avg">--</div>
+              </div>
+              <div class="hca-weight" id="hca-weight">--</div>
+              <div class="hca-col hca-col-right">
+                <div class="hca-col-label">Change</div>
+                <div class="hca-pills">
+                  <span class="delta-pill neutral" id="hca-pill-week"
+                    >This wk: --</span
+                  >
+                  <span class="delta-pill neutral" id="hca-pill-month"
+                    >This mo: --</span
+                  >
+                </div>
+              </div>
+            </div>
+            <!-- Coach strip: single instance, re-evaluates on each log/edit -->
+            <div class="coach-strip coach-grey" id="coach-strip">
+              <span id="coach-text"
+                >😴 No entry yet today — log your weight to wake me up</span
+              >
+            </div>
             <div class="merged-sep"></div>
-          <div class="progress-card-hdr">
-            <h2>Progress toward goal</h2>
-            <button id="edit-target-pill-btn" type="button" class="edit-target-pill">Edit target</button>
-          </div>
-          <!-- Three-stat row: Start | You | Goal -->
-          <div class="progress-stat-row">
-            <div>
-              <div class="pstat-val" id="pstat-start-val">-- kg</div>
-              <div class="pstat-lbl">Start</div>
-              <div class="pstat-date" id="pstat-start-date">--</div>
+            <div class="hcb-top">
+              <span class="hcb-label">LOG TODAY</span>
+              <span class="hcb-date" id="hcb-date"></span>
             </div>
-            <div>
-              <div class="pstat-val pstat-val-blue" id="pstat-you-val">-- kg</div>
-              <div class="pstat-lbl">You</div>
-              <div class="pstat-plan-sub" id="pstat-plan-sub">plan -- kg</div>
+            <!-- Stepper (shown when not yet logged today, or while editing) -->
+            <div id="stepper-wrap">
+              <div class="stepper">
+                <button
+                  class="stepper-btn"
+                  id="stepper-dec"
+                  type="button"
+                  aria-label="Decrease weight"
+                >
+                  −
+                </button>
+                <input
+                  class="stepper-input"
+                  id="stepper-input"
+                  type="number"
+                  step="0.1"
+                  min="20"
+                  max="300"
+                  inputmode="decimal"
+                  aria-label="Weight in kg"
+                />
+                <button
+                  class="stepper-btn"
+                  id="stepper-inc"
+                  type="button"
+                  aria-label="Increase weight"
+                >
+                  +
+                </button>
+              </div>
+              <button class="log-submit-btn" id="log-submit-btn" type="button">
+                Log -- kg
+              </button>
+              <div class="hcb-error" id="hcb-error" role="alert"></div>
+              <!-- quicklog-error alias for test_weight_page_frontend__412 -->
+              <div id="quicklog-error" hidden></div>
             </div>
-            <div>
-              <div class="pstat-val pstat-val-green" id="pstat-goal-val">-- kg</div>
-              <div class="pstat-lbl">Goal</div>
-              <div class="pstat-date pstat-date-green" id="pstat-goal-date">--</div>
+            <!-- Logged strip (shown after successful log) -->
+            <div class="logged-strip" id="logged-strip" hidden>
+              <span id="logged-text">✓ Logged today · -- kg · </span
+              ><button class="edit-link" id="edit-link" type="button">
+                Edit
+              </button>
             </div>
-          </div>
-          <!-- Progress bar -->
-          <div class="progress-bar-wrap">
-            <!-- YOU marker rides above the bar -->
-            <div class="pgbar-lane pgbar-lane-top">
-              <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
-                <span class="pgbar-flag-lbl">YOU</span>
-                <span class="pgbar-caret pgbar-caret-down"></span>
+            <div id="progress-card" hidden>
+              <div class="merged-sep"></div>
+              <div class="progress-card-hdr">
+                <h2>Progress toward goal</h2>
+                <button
+                  id="edit-target-pill-btn"
+                  type="button"
+                  class="edit-target-pill"
+                >
+                  Edit target
+                </button>
+              </div>
+              <!-- Three-stat row: Start | You | Goal -->
+              <div class="progress-stat-row">
+                <div>
+                  <div class="pstat-val" id="pstat-start-val">-- kg</div>
+                  <div class="pstat-lbl">Start</div>
+                  <div class="pstat-date" id="pstat-start-date">--</div>
+                </div>
+                <div>
+                  <div class="pstat-val pstat-val-blue" id="pstat-you-val">
+                    -- kg
+                  </div>
+                  <div class="pstat-lbl">You</div>
+                  <div class="pstat-plan-sub" id="pstat-plan-sub">
+                    plan -- kg
+                  </div>
+                </div>
+                <div>
+                  <div class="pstat-val pstat-val-green" id="pstat-goal-val">
+                    -- kg
+                  </div>
+                  <div class="pstat-lbl">Goal</div>
+                  <div class="pstat-date pstat-date-green" id="pstat-goal-date">
+                    --
+                  </div>
+                </div>
+              </div>
+              <!-- Progress bar -->
+              <div class="progress-bar-wrap">
+                <!-- YOU marker rides above the bar -->
+                <div class="pgbar-lane pgbar-lane-top">
+                  <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
+                    <span class="pgbar-flag-lbl">YOU</span>
+                    <span class="pgbar-caret pgbar-caret-down"></span>
+                  </div>
+                </div>
+                <div class="progress-bar-track" id="pgbar-track">
+                  <div
+                    class="progress-bar-fill pgbar-fill"
+                    id="pgbar-fill"
+                  ></div>
+                  <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
+                  <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
+                  <div
+                    class="progress-marker pgbar-you-dot"
+                    id="pgbar-you-dot"
+                  ></div>
+                </div>
+                <!-- PLAN marker rides below the bar -->
+                <div class="pgbar-lane pgbar-lane-bottom">
+                  <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
+                    <span class="pgbar-caret pgbar-caret-up"></span>
+                    <span class="pgbar-flag-lbl">PLAN</span>
+                  </div>
+                </div>
+              </div>
+              <!-- Summary row -->
+              <div class="progress-summary-row">
+                <div>
+                  <span class="progress-pct-big" id="progress-pct-big"
+                    >--%</span
+                  >
+                  <span class="progress-detail" id="progress-detail"
+                    >-- kg to go · -- days</span
+                  >
+                </div>
+                <!-- Hidden backward-compat elements (for test_weight_page_frontend__412) -->
+                <span id="kg-to-go" hidden></span>
+                <span class="pgstatus-pill" id="pgstatus-pill"></span>
               </div>
             </div>
-            <div class="progress-bar-track" id="pgbar-track">
-              <div class="progress-bar-fill pgbar-fill" id="pgbar-fill"></div>
-              <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
-              <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
-              <div class="progress-marker pgbar-you-dot" id="pgbar-you-dot"></div>
+          </div>
+        </div>
+        <div class="top-col">
+          <!-- Recent entries + backfill calendar -->
+          <div class="card hero-card hero-card-b merged-card">
+            <div class="card-header-row">
+              <h2>
+                Recent entries &middot;
+                <span class="card-subtitle">last 5 days</span>
+              </h2>
+              <a href="/weight/entries" class="view-all-link" id="view-all-link"
+                >View all &#x2192;</a
+              >
             </div>
-            <!-- PLAN marker rides below the bar -->
-            <div class="pgbar-lane pgbar-lane-bottom">
-              <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
-                <span class="pgbar-caret pgbar-caret-up"></span>
-                <span class="pgbar-flag-lbl">PLAN</span>
+            <div class="entries-table" id="recent-entries"></div>
+
+            <!-- Backfill calendar: two months on desktop, one on mobile -->
+            <div class="wcal" id="wcal">
+              <div class="wcal-head">
+                <span class="wcal-kicker">Backfill any date</span>
+                <span class="wcal-nav-group">
+                  <button
+                    class="wcal-nav"
+                    id="wcal-prev"
+                    type="button"
+                    aria-label="Earlier months"
+                  >
+                    &#8249;
+                  </button>
+                  <button
+                    class="wcal-nav"
+                    id="wcal-next"
+                    type="button"
+                    aria-label="Later months"
+                  >
+                    &#8250;
+                  </button>
+                </span>
+              </div>
+              <div class="wcal-months">
+                <div class="wcal-month wcal-month-left">
+                  <div class="wcal-mtitle" id="wcal-mtitle-left"></div>
+                  <div class="wcal-dow" aria-hidden="true">
+                    <span>M</span><span>T</span><span>W</span><span>T</span
+                    ><span>F</span><span>S</span><span>S</span>
+                  </div>
+                  <div class="wcal-grid" id="wcal-grid-left"></div>
+                </div>
+                <div class="wcal-month">
+                  <div class="wcal-mtitle" id="wcal-mtitle-right"></div>
+                  <div class="wcal-dow" aria-hidden="true">
+                    <span>M</span><span>T</span><span>W</span><span>T</span
+                    ><span>F</span><span>S</span><span>S</span>
+                  </div>
+                  <div class="wcal-grid" id="wcal-grid-right"></div>
+                </div>
+              </div>
+              <div class="wcal-editor" id="wcal-editor" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart card (Graph) -->
+      <div class="card chart-card">
+        <div id="chart-verdict" class="chart-verdict" hidden>
+          <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
+          <span id="chart-verdict-text" class="chart-verdict-text"></span>
+        </div>
+        <div class="range-tabs" role="group" aria-label="Chart date range">
+          <button class="range-tab" data-range="7d" type="button">7D</button>
+          <button class="range-tab active" data-range="30d" type="button">
+            30D
+          </button>
+          <button class="range-tab" data-range="90d" type="button">90D</button>
+          <button class="range-tab" data-range="6m" type="button">6M</button>
+          <button class="range-tab" data-range="1y" type="button">1Y</button>
+          <button class="range-tab" data-range="all" type="button">ALL</button>
+        </div>
+        <div class="chart-container">
+          <div
+            id="chart-loading"
+            style="
+              text-align: center;
+              padding: 40px 0;
+              color: var(--text-tertiary);
+              font-size: 13.5px;
+            "
+          >
+            Loading chart…
+          </div>
+          <div id="weight-chart" hidden></div>
+        </div>
+        <!-- Legend chips -->
+        <div class="chart-legend" id="chart-legend">
+          <span class="legend-chip">
+            <span class="legend-dot" style="background: #9ca3af"></span>Weigh-in
+          </span>
+          <span class="legend-chip">
+            <span class="legend-line" style="background: #2563eb"></span>7-day
+            avg
+          </span>
+          <span class="legend-chip" id="legend-plan" hidden>
+            <span class="legend-dashed" style="border-color: #16a34a"></span
+            >Plan
+          </span>
+          <span class="legend-chip" id="legend-gap" hidden>
+            <span
+              style="
+                display: inline-block;
+                width: 9px;
+                height: 9px;
+                background: #16a34a;
+                border-radius: 2px;
+                opacity: 0.7;
+              "
+            ></span
+            >ahead
+            <span
+              style="
+                display: inline-block;
+                width: 9px;
+                height: 9px;
+                background: #dc2626;
+                border-radius: 2px;
+                opacity: 0.7;
+                margin-left: 4px;
+              "
+            ></span
+            >behind
+          </span>
+          <span class="legend-chip" id="legend-milestone" hidden>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 12 12"
+              style="flex-shrink: 0"
+              aria-hidden="true"
+            >
+              <polygon
+                points="6,0 12,6 6,12 0,6"
+                fill="#fff"
+                stroke="#16a34a"
+                stroke-width="2"
+              /></svg
+            >Milestone
+          </span>
+        </div>
+      </div>
+
+      <!-- ── Target History section ──────────────────────────────────────────── -->
+      <section id="target-history-section" class="target-history-section">
+        <div class="target-history-hdr" style="background-color: #1f3b8a">
+          <h2>Target history</h2>
+        </div>
+        <div class="target-history-grid">
+          <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
+          <div class="card" id="journey-card">
+            <h2 style="margin-bottom: 10px">Your weight journey</h2>
+            <div class="journey-banner" id="journey-banner">
+              <i class="ti ti-info-circle"></i>
+              <span class="jb-text" id="journey-banner-text"
+                >No target history yet.</span
+              >
+            </div>
+            <div class="journey-stats4" id="journey-stats">
+              <div class="js4">
+                <div class="js4-l">Targets set</div>
+                <div class="js4-v" id="journey-targets-set">0</div>
+                <div class="js4-s" id="journey-targets-set-sub"></div>
+              </div>
+              <div class="js4">
+                <div class="js4-l">Achieved</div>
+                <div class="js4-v" id="journey-achieved">0</div>
+                <div class="js4-s good" id="journey-achieved-sub"></div>
+              </div>
+              <div class="js4">
+                <div class="js4-l">Total lost</div>
+                <div class="js4-v" id="journey-total-lost">
+                  0<span class="js4-u">kg</span>
+                </div>
+                <div class="js4-s" id="journey-total-lost-sub">
+                  across targets
+                </div>
+              </div>
+              <div class="js4">
+                <div class="js4-l">Avg pace</div>
+                <div class="js4-v" id="journey-avg-pace">
+                  0<span class="js4-u">/wk</span>
+                </div>
+                <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
               </div>
             </div>
           </div>
-          <!-- Summary row -->
-          <div class="progress-summary-row">
-            <div>
-              <span class="progress-pct-big" id="progress-pct-big">--%</span>
-              <span class="progress-detail" id="progress-detail">-- kg to go · -- days</span>
-            </div>
-            <!-- Hidden backward-compat elements (for test_weight_page_frontend__412) -->
-            <span id="kg-to-go" hidden></span>
-            <span class="pgstatus-pill" id="pgstatus-pill"></span>
-          </div>
-          </div>
-        </div>
-      </div>
-      <div class="top-col">
-        <!-- Recent entries + backfill calendar -->
-        <div class="card hero-card hero-card-b merged-card">
-        <div class="card-header-row">
-          <h2>Recent entries &middot; <span class="card-subtitle">last 5 days</span></h2>
-          <a href="/weight/entries" class="view-all-link" id="view-all-link">View all &#x2192;</a>
-        </div>
-        <div class="entries-table" id="recent-entries"></div>
 
-        <!-- Backfill calendar: two months on desktop, one on mobile -->
-        <div class="wcal" id="wcal">
-          <div class="wcal-head">
-            <span class="wcal-kicker">Backfill any date</span>
-            <span class="wcal-nav-group">
-              <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">&#8249;</button>
-              <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">&#8250;</button>
-            </span>
-          </div>
-          <div class="wcal-months">
-            <div class="wcal-month wcal-month-left">
-              <div class="wcal-mtitle" id="wcal-mtitle-left">&mdash;</div>
-              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
-              <div class="wcal-grid" id="wcal-grid-left"></div>
+          <!-- Right: Past targets table with filter pills + export -->
+          <div class="card" id="past-targets-card">
+            <div class="th-card-hdr">
+              <h2 class="th-card-title">Past targets</h2>
+              <button
+                id="export-targets-btn"
+                class="th-export-btn"
+                type="button"
+              >
+                <i class="ti ti-download" style="font-size: 11px"></i> Export
+              </button>
             </div>
-            <div class="wcal-month">
-              <div class="wcal-mtitle" id="wcal-mtitle-right">&mdash;</div>
-              <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
-              <div class="wcal-grid" id="wcal-grid-right"></div>
+            <div class="th-filter-row" id="target-filter-pills">
+              <button class="th-fb active" data-filter="all" type="button">
+                All
+              </button>
+              <button class="th-fb" data-filter="achieved" type="button">
+                Achieved
+              </button>
+              <button class="th-fb" data-filter="replaced" type="button">
+                Replaced
+              </button>
+              <button class="th-fb" data-filter="abandoned" type="button">
+                Abandoned
+              </button>
+            </div>
+            <div class="th-table-wrap">
+              <table class="th-table" id="past-targets-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Target</th>
+                    <th class="r">Result</th>
+                    <th class="r">&#x394;</th>
+                  </tr>
+                </thead>
+                <tbody id="past-targets-tbody"></tbody>
+              </table>
             </div>
           </div>
-          <div class="wcal-editor" id="wcal-editor" hidden></div>
         </div>
+        <!-- /.target-history-grid -->
+      </section>
+      <!-- /#target-history-section -->
+    </main>
+
+    <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
+    <div id="edit-scrim" class="et-panel-scrim" hidden></div>
+    <div id="edit-panel" class="et-panel" hidden>
+      <div class="et-panel-hdr">
+        <span class="et-panel-title">Edit target</span>
+        <button
+          id="edit-panel-close"
+          class="et-panel-close"
+          type="button"
+          aria-label="Close"
+        >
+          &#x2715;
+        </button>
+      </div>
+      <div class="et-panel-body">
+        <div class="et-field">
+          <label>Start weight</label>
+          <div class="et-field-display" id="et-start-weight">-- kg</div>
+          <span class="et-hint" id="et-start-date-hint"
+            >Captured when the target began</span
+          >
         </div>
+        <div class="et-field">
+          <label>Goal weight (kg)</label>
+          <input
+            type="number"
+            id="et-goal-weight"
+            step="0.1"
+            min="20"
+            max="300"
+            inputmode="decimal"
+            placeholder="e.g. 80.0"
+          />
+        </div>
+        <div class="et-field">
+          <label>Goal date</label>
+          <input type="date" id="et-goal-date" />
+          <span class="et-hint" id="et-days-hint"></span>
+        </div>
+        <div class="et-preview" id="et-preview">
+          <div class="et-preview-row">
+            <span>Pace needed</span>
+            <span class="mono" id="et-preview-pace">--</span>
+          </div>
+          <div class="et-preview-row">
+            <span>From today</span>
+            <span class="mono" id="et-preview-kg">--</span>
+          </div>
+          <div class="et-preview-row">
+            <span>Milestones</span>
+            <span class="mono" id="et-preview-ms">--</span>
+          </div>
+        </div>
+        <div class="et-panel-error" id="et-panel-error" role="alert"></div>
+      </div>
+      <div class="et-panel-foot">
+        <button id="et-end-btn" class="et-end-btn" type="button">
+          End target
+        </button>
+        <button id="et-save-btn" class="et-save-btn" type="button">
+          Save changes
+        </button>
       </div>
     </div>
 
-    <!-- Chart card (Graph) -->
-    <div class="card chart-card">
-      <div id="chart-verdict" class="chart-verdict" hidden>
-        <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
-        <span id="chart-verdict-text" class="chart-verdict-text"></span>
-      </div>
-      <div class="range-tabs" role="group" aria-label="Chart date range">
-        <button class="range-tab" data-range="7d" type="button">7D</button>
-        <button class="range-tab active" data-range="30d" type="button">30D</button>
-        <button class="range-tab" data-range="90d" type="button">90D</button>
-        <button class="range-tab" data-range="6m" type="button">6M</button>
-        <button class="range-tab" data-range="1y" type="button">1Y</button>
-        <button class="range-tab" data-range="all" type="button">ALL</button>
-      </div>
-      <div class="chart-container">
-        <div id="chart-loading" style="text-align:center;padding:40px 0;color:var(--text-tertiary);font-size:13.5px;">Loading chart…</div>
-        <div id="weight-chart" hidden></div>
-      </div>
-      <!-- Legend chips -->
-      <div class="chart-legend" id="chart-legend">
-        <span class="legend-chip">
-          <span class="legend-dot" style="background:#9ca3af"></span>Weigh-in
-        </span>
-        <span class="legend-chip">
-          <span class="legend-line" style="background:#2563eb"></span>7-day avg
-        </span>
-        <span class="legend-chip" id="legend-plan" hidden>
-          <span class="legend-dashed" style="border-color:#16a34a"></span>Plan
-        </span>
-        <span class="legend-chip" id="legend-gap" hidden>
-          <span style="display:inline-block;width:9px;height:9px;background:#16a34a;border-radius:2px;opacity:0.7"></span>ahead
-          <span style="display:inline-block;width:9px;height:9px;background:#dc2626;border-radius:2px;opacity:0.7;margin-left:4px"></span>behind
-        </span>
-        <span class="legend-chip" id="legend-milestone" hidden>
-          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink:0" aria-hidden="true">
-            <polygon points="6,0 12,6 6,12 0,6" fill="#fff" stroke="#16a34a" stroke-width="2"/>
-          </svg>Milestone
-        </span>
-      </div>
-    </div>
-
-    <!-- ── Target History section ──────────────────────────────────────────── -->
-    <section id="target-history-section" class="target-history-section">
-      <div class="target-history-hdr">
-        <h2>Target history</h2>
-      </div>
-      <div class="target-history-grid">
-
-        <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
-        <div class="card" id="journey-card">
-          <h2 style="margin-bottom:10px;">Your weight journey</h2>
-          <div class="journey-banner" id="journey-banner">
-            <i class="ti ti-info-circle"></i>
-            <span class="jb-text" id="journey-banner-text">No target history yet.</span>
-          </div>
-          <div class="journey-stats4" id="journey-stats">
-            <div class="js4">
-              <div class="js4-l">Targets set</div>
-              <div class="js4-v" id="journey-targets-set">—</div>
-              <div class="js4-s" id="journey-targets-set-sub"></div>
-            </div>
-            <div class="js4">
-              <div class="js4-l">Achieved</div>
-              <div class="js4-v" id="journey-achieved">—</div>
-              <div class="js4-s good" id="journey-achieved-sub"></div>
-            </div>
-            <div class="js4">
-              <div class="js4-l">Total lost</div>
-              <div class="js4-v" id="journey-total-lost">—<span class="js4-u">kg</span></div>
-              <div class="js4-s" id="journey-total-lost-sub">across targets</div>
-            </div>
-            <div class="js4">
-              <div class="js4-l">Avg pace</div>
-              <div class="js4-v" id="journey-avg-pace">—<span class="js4-u">/wk</span></div>
-              <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right: Past targets table with filter pills + export -->
-        <div class="card" id="past-targets-card">
-          <div class="th-card-hdr">
-            <h2 class="th-card-title">Past targets</h2>
-            <button id="export-targets-btn" class="th-export-btn" type="button">
-              <i class="ti ti-download" style="font-size:11px;"></i> Export
-            </button>
-          </div>
-          <div class="th-filter-row" id="target-filter-pills">
-            <button class="th-fb active" data-filter="all" type="button">All</button>
-            <button class="th-fb" data-filter="achieved" type="button">Achieved</button>
-            <button class="th-fb" data-filter="replaced" type="button">Replaced</button>
-            <button class="th-fb" data-filter="abandoned" type="button">Abandoned</button>
-          </div>
-          <div class="th-table-wrap">
-            <table class="th-table" id="past-targets-table">
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Target</th>
-                  <th class="r">Result</th>
-                  <th class="r">&#x394;</th>
-                </tr>
-              </thead>
-              <tbody id="past-targets-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-      </div><!-- /.target-history-grid -->
-    </section><!-- /#target-history-section -->
-
-  </main>
-
-  <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
-  <div id="edit-scrim" class="et-panel-scrim" hidden></div>
-  <div id="edit-panel" class="et-panel" hidden>
-    <div class="et-panel-hdr">
-      <span class="et-panel-title">Edit target</span>
-      <button id="edit-panel-close" class="et-panel-close" type="button" aria-label="Close">&#x2715;</button>
-    </div>
-    <div class="et-panel-body">
-      <div class="et-field">
-        <label>Start weight</label>
-        <div class="et-field-display" id="et-start-weight">-- kg</div>
-        <span class="et-hint" id="et-start-date-hint">Captured when the target began</span>
-      </div>
-      <div class="et-field">
-        <label>Goal weight (kg)</label>
-        <input type="number" id="et-goal-weight" step="0.1" min="20" max="300"
-               inputmode="decimal" placeholder="e.g. 80.0">
-      </div>
-      <div class="et-field">
-        <label>Goal date</label>
-        <input type="date" id="et-goal-date">
-        <span class="et-hint" id="et-days-hint"></span>
-      </div>
-      <div class="et-preview" id="et-preview">
-        <div class="et-preview-row">
-          <span>Pace needed</span>
-          <span class="mono" id="et-preview-pace">--</span>
-        </div>
-        <div class="et-preview-row">
-          <span>From today</span>
-          <span class="mono" id="et-preview-kg">--</span>
-        </div>
-        <div class="et-preview-row">
-          <span>Milestones</span>
-          <span class="mono" id="et-preview-ms">--</span>
-        </div>
-      </div>
-      <div class="et-panel-error" id="et-panel-error" role="alert"></div>
-    </div>
-    <div class="et-panel-foot">
-      <button id="et-end-btn" class="et-end-btn" type="button">End target</button>
-      <button id="et-save-btn" class="et-save-btn" type="button">Save changes</button>
-    </div>
-  </div>
-
-  <script src="js/nav.js"></script>
-  <script src="js/ui-states.js"></script>
-  <script src="js/weight-chart.js"></script>
-  <script src="js/lib/weight-current-card.js"></script>
-  <script src="js/weight.js"></script>
-</body>
+    <script src="js/nav.js"></script>
+    <script src="js/ui-states.js"></script>
+    <script src="js/weight-chart.js"></script>
+    <script src="js/lib/weight-current-card.js"></script>
+    <script src="js/weight.js"></script>
+  </body>
 </html>

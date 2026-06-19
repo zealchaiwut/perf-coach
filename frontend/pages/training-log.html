@@ -133,6 +133,41 @@
       color: rgba(255,255,255,0.75);
     }
 
+    /* ── Sync chip (issue #602; ported from sprint-66) ── */
+    .sync-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px 4px 11px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 20px;
+      backdrop-filter: blur(8px);
+      font-size: 11.5px;
+      color: rgba(255,255,255,0.8);
+      white-space: nowrap;
+      line-height: 1;
+    }
+    .sync-chip-label { font-weight: 500; }
+    .sync-chip-time { font-family: "JetBrains Mono", monospace; font-size: 11px; }
+    .sync-chip-sep { opacity: 0.35; font-size: 10px; }
+    .sync-chip-btn {
+      margin-left: 3px;
+      padding: 3px 9px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      line-height: 1;
+      transition: background 0.1s;
+    }
+    .sync-chip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
+    .sync-chip-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
     /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
     .training-sub-tabs {
       display: inline-flex;
@@ -2153,6 +2188,14 @@
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
+      <div id="sync-chip" class="sync-chip" aria-label="Sync status">
+        <span class="sync-chip-label">Strava</span>
+        <span id="sync-time-strava" class="sync-chip-time">…</span>
+        <span class="sync-chip-sep">·</span>
+        <span class="sync-chip-label">Stryd</span>
+        <span id="sync-time-stryd" class="sync-chip-time">…</span>
+        <button id="sync-all-btn" class="sync-chip-btn" type="button">Sync</button>
+      </div>
       <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>

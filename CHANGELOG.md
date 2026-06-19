@@ -23,6 +23,19 @@
 - #610: Add race specificity progress tracker function
 - #611: Add GET /api/races/{id}/readiness combined endpoint
 
+## Sprint 66.1 — Dual source badges, compact sync controls, and weight chart redesign
+
+- #601: Show both Strava and Stryd badges on merged workouts (has_strava/has_stryd on training-log and workout-list responses)
+- #602: Add compact sync controls with real last-sync times to Settings → Integrations
+- #633: Redesign weight trend chart with three-zone axes (BMI zones, moving average, custom SVG v8)
+
+## Sprint 66 — Performance Thresholds settings expansion and Zone 2 habit provisioning
+
+- #596: Add Max HR field to Performance Thresholds settings (user_preferences.max_hr, default 190 bpm)
+- #597: Add Threshold Pace, Zone 2 HR band, and Weekly Zone 2 Target to Settings (user_preferences)
+- #598: Use user-preference HR band for Zone 2 detection in Run view (replaces hardcoded 130–155 bpm)
+- #599: Add 'Track Zone 2' opt-in button to provision a Zone 2 habit from Settings (with server-side duplicate guard)
+
 ## Sprint 65 — Strength TSS, duration curves, threshold suggestions, and daily load series
 
 - #588: Compute power and pace duration curves per workout

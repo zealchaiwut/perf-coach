@@ -8,7 +8,7 @@
  * Do NOT hand-write <nav> markup in pages — add or change links here only.
  */
 (function () {
-  'use strict';
+  "use strict";
 
   // Patch window.fetch once to auto-attach X-CSRF-Token on mutating requests.
   if (!window._csrfFetchPatched) {
@@ -16,16 +16,23 @@
     var _origFetch = window.fetch.bind(window);
     window.fetch = function (url, opts) {
       opts = opts || {};
-      var method = (opts.method || 'GET').toUpperCase();
-      if (method === 'POST' || method === 'PATCH' || method === 'DELETE' || method === 'PUT') {
+      var method = (opts.method || "GET").toUpperCase();
+      if (
+        method === "POST" ||
+        method === "PATCH" ||
+        method === "DELETE" ||
+        method === "PUT"
+      ) {
         var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
         if (match) {
           var headers = opts.headers || {};
           if (headers instanceof Headers) {
             headers = new Headers(headers);
-            headers.set('X-CSRF-Token', decodeURIComponent(match[1]));
+            headers.set("X-CSRF-Token", decodeURIComponent(match[1]));
           } else {
-            headers = Object.assign({}, headers, { 'X-CSRF-Token': decodeURIComponent(match[1]) });
+            headers = Object.assign({}, headers, {
+              "X-CSRF-Token": decodeURIComponent(match[1]),
+            });
           }
           opts = Object.assign({}, opts, { headers: headers });
         }
@@ -48,109 +55,100 @@
   // Scoped under .global-nav so it cannot leak into page styles. Colours are the
   // literal values from the original home.html topnav (no CSS-var dependency).
   var CSS = [
-    '.global-nav{background:linear-gradient(180deg,#eaf0fb 0%,#d8e3f5 100%);',
-      'border-bottom:1px solid rgba(13,30,67,0.06);padding:0 24px;height:60px;',
-      'display:flex;align-items:center;gap:20px;position:sticky;top:0;z-index:100;',
-      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
-    '.global-nav .gn-brand{display:flex;align-items:center;gap:10px;font-weight:700;',
-      'font-size:16px;letter-spacing:-0.02em;color:#0b1530;text-decoration:none;flex-shrink:0;}',
-    '.global-nav .gn-mark{width:30px;height:30px;border-radius:9px;',
-      'background:linear-gradient(135deg,#6e90f0,#2b4ca8);color:#fff;display:flex;',
-      'align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}',
-    '.global-nav .gn-links{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;}',
-    '.global-nav .gn-links::-webkit-scrollbar{display:none;}',
-    '.global-nav .gn-menu-toggle{display:none;align-items:center;justify-content:center;',
-      'width:40px;height:40px;padding:0;border-radius:10px;border:1.5px solid rgba(13,30,67,0.12);',
-      'background:rgba(255,255,255,0.65);cursor:pointer;flex-shrink:0;color:#0b1530;}',
-    '.global-nav .gn-menu-toggle:hover{background:rgba(255,255,255,0.92);}',
+    ".global-nav{background:linear-gradient(180deg,#eaf0fb 0%,#d8e3f5 100%);",
+    "border-bottom:1px solid rgba(13,30,67,0.06);padding:0 24px;height:60px;",
+    "display:flex;align-items:center;gap:20px;position:sticky;top:0;z-index:100;",
+    "font-family:inherit;}",
+    ".global-nav .gn-brand{display:flex;align-items:center;gap:10px;font-weight:700;",
+    "font-size:16px;letter-spacing:-0.02em;color:#0b1530;text-decoration:none;flex-shrink:0;}",
+    ".global-nav .gn-mark{width:30px;height:30px;border-radius:9px;",
+    "background:linear-gradient(135deg,#6e90f0,#2b4ca8);color:#fff;display:flex;",
+    "align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}",
+    ".global-nav .gn-links{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;}",
+    ".global-nav .gn-links::-webkit-scrollbar{display:none;}",
+    ".global-nav .gn-menu-toggle{display:none;align-items:center;justify-content:center;",
+    "width:40px;height:40px;padding:0;border-radius:10px;border:1.5px solid rgba(13,30,67,0.12);",
+    "background:rgba(255,255,255,0.65);cursor:pointer;flex-shrink:0;color:#0b1530;}",
+    ".global-nav .gn-menu-toggle:hover{background:rgba(255,255,255,0.92);}",
     '.global-nav .gn-menu-toggle[aria-expanded="true"]{background:#0b1530;border-color:#0b1530;}',
     '.global-nav .gn-menu-toggle[aria-expanded="true"] .gn-menu-bar{background:#fff;}',
-    '.global-nav .gn-menu-bars{display:flex;flex-direction:column;gap:5px;width:18px;}',
-    '.global-nav .gn-menu-bar{display:block;height:2.5px;border-radius:2px;background:#0b1530;}',
-    '.global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:500;',
-      'color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}',
-    '.global-nav .gn-link i{font-size:15px;line-height:1;}',
-    '.global-nav .gn-mark i{font-size:16px;line-height:1;}',
-    '.global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
-    '.global-nav .gn-link.active{background:#0b1530;color:#fff;}',
-    '.global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}',
-    '.global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;overflow:hidden;',
-      'background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;',
-      'align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}',
+    ".global-nav .gn-menu-bars{display:flex;flex-direction:column;gap:5px;width:18px;}",
+    ".global-nav .gn-menu-bar{display:block;height:2.5px;border-radius:2px;background:#0b1530;}",
+    ".global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:500;",
+    "color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}",
+    ".global-nav .gn-link i{font-size:15px;line-height:1;}",
+    ".global-nav .gn-mark i{font-size:16px;line-height:1;}",
+    ".global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}",
+    ".global-nav .gn-link.active{background:#0b1530;color:#fff;}",
+    ".global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}",
+    ".global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;overflow:hidden;",
+    "background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;",
+    "align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}",
     // Environment badge (UAT/LOCAL). Hidden on PRD and while empty (pre-load).
-    '.global-nav .gn-env{font-size:11px;font-weight:700;letter-spacing:0.04em;color:#8a5a00;',
-      'background:#ffe6b0;border:1px solid #f0c97a;padding:2px 8px;border-radius:999px;',
-      'text-transform:uppercase;flex-shrink:0;line-height:1.5;}',
-    '.global-nav .gn-env:empty{display:none;}',
+    ".global-nav .gn-env{font-size:11px;font-weight:700;letter-spacing:0.04em;color:#8a5a00;",
+    "background:#ffe6b0;border:1px solid #f0c97a;padding:2px 8px;border-radius:999px;",
+    "text-transform:uppercase;flex-shrink:0;line-height:1.5;}",
+    ".global-nav .gn-env:empty{display:none;}",
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
-    '.global-nav a.gn-avatar{cursor:pointer;text-decoration:none;transition:box-shadow 0.12s ease;}',
-    '.global-nav a.gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}',
-    '.global-nav a.gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}',
-    // Gear icon: Settings link with hover label reveal.
-    '.global-nav .gn-settings{position:relative;display:inline-flex;align-items:center;gap:5px;',
-      'padding:7px 10px;border-radius:999px;font-size:13px;font-weight:500;color:#5c6886;',
-      'text-decoration:none;cursor:pointer;flex-shrink:0;transition:background 0.12s ease,color 0.12s ease;}',
-    '.global-nav .gn-settings i{font-size:16px;}',
-    '.global-nav .gn-settings:hover{background:rgba(13,30,67,0.05);color:#0b1530;}',
-    '.global-nav .gn-settings.active{background:#0b1530;color:#fff;}',
-    '.global-nav .gn-settings .gn-settings-label{font-size:13px;max-width:0;overflow:hidden;',
-      'white-space:nowrap;transition:max-width 0.2s ease,opacity 0.2s ease;opacity:0;}',
-    '.global-nav .gn-settings:hover .gn-settings-label{max-width:60px;opacity:1;}',
-    '.global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;',
-      'color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;',
-      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
-      'display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}',
-    '.global-nav .gn-logout:hover{background:rgba(13,30,67,0.05);color:#0b1530;border-color:rgba(13,30,67,0.2);}',
-    '.global-nav .gn-logout:disabled{opacity:0.55;cursor:default;}',
-    '@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}',
-      '.global-nav .gn-brand-text{display:none;}',
-      '.global-nav .gn-logout .gn-logout-label{display:none;}}',
-    '.global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}',
-    '.global-nav .gn-link-disabled i{opacity:0.7;}',
+    ".global-nav a.gn-avatar{cursor:pointer;text-decoration:none;transition:box-shadow 0.12s ease;}",
+    ".global-nav a.gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}",
+    ".global-nav a.gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}",
+    ".global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;",
+    "color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;",
+    "font-family:inherit;",
+    "display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}",
+    ".global-nav .gn-logout:hover{background:rgba(13,30,67,0.05);color:#0b1530;border-color:rgba(13,30,67,0.2);}",
+    ".global-nav .gn-logout:disabled{opacity:0.55;cursor:default;}",
+    "@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}",
+    ".global-nav .gn-brand-text{display:none;}",
+    ".global-nav .gn-logout .gn-logout-label{display:none;}}",
+    ".global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}",
+    ".global-nav .gn-link-disabled i{opacity:0.7;}",
     // Narrow widths: collapse inline tabs into a menu toggle with labeled dropdown.
-    '@media (max-width:760px){',
-      '.global-nav{padding:0 12px;gap:8px;}',
-      '.global-nav .gn-brand-text{display:none;}',
-      '.global-nav .gn-logout .gn-logout-label{display:none;}',
-      '.global-nav .gn-menu-toggle{display:inline-flex;}',
-      '.global-nav .gn-links{',
-        'display:none;position:absolute;top:calc(100% + 6px);left:12px;right:12px;',
-        'flex-direction:column;align-items:stretch;gap:2px;overflow:visible;',
-        'background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:14px;',
-        'box-shadow:0 12px 36px rgba(8,18,48,0.14);padding:8px;z-index:200;}',
-      '.global-nav .gn-links.is-open{display:flex;}',
-      '.global-nav .gn-link span{display:inline !important;}',
-      '.global-nav .gn-link{width:100%;padding:12px 14px;border-radius:10px;font-size:14px;}',
-      '.global-nav .gn-link i{font-size:18px;}',
-    '}'
-  ].join('');
+    "@media (max-width:760px){",
+    ".global-nav{padding:0 12px;gap:8px;}",
+    ".global-nav .gn-brand-text{display:none;}",
+    ".global-nav .gn-logout .gn-logout-label{display:none;}",
+    ".global-nav .gn-menu-toggle{display:inline-flex;}",
+    ".global-nav .gn-links{",
+    "display:none;position:absolute;top:calc(100% + 6px);left:12px;right:12px;",
+    "flex-direction:column;align-items:stretch;gap:2px;overflow:visible;",
+    "background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:14px;",
+    "box-shadow:0 12px 36px rgba(8,18,48,0.14);padding:8px;z-index:200;}",
+    ".global-nav .gn-links.is-open{display:flex;}",
+    ".global-nav .gn-link span{display:inline !important;}",
+    ".global-nav .gn-link{width:100%;padding:12px 14px;border-radius:10px;font-size:14px;}",
+    ".global-nav .gn-link i{font-size:18px;}",
+    "}",
+  ].join("");
 
   var SYNC_BAR_CSS = [
-    '#sync-status-bar{display:none;align-items:center;gap:8px;padding:5px 24px;',
-      'font-size:12px;font-weight:500;line-height:1.4;',
-      'border-bottom:1px solid rgba(13,30,67,0.08);',
-      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
-    '#sync-status-bar.ssb-state-running{background:#eef2ff;color:#3b5bdb;display:flex;}',
-    '#sync-status-bar.ssb-state-success{background:#ebfbee;color:#2f9e44;display:flex;}',
-    '#sync-status-bar.ssb-state-error{background:#fff5f5;color:#c92a2a;display:flex;}',
-    '#sync-status-bar .ssb-spinner{width:11px;height:11px;border-radius:50%;flex-shrink:0;',
-      'border:2px solid rgba(59,91,219,0.25);border-top-color:#3b5bdb;',
-      'animation:ssb-spin 0.75s linear infinite;}',
-    '@keyframes ssb-spin{to{transform:rotate(360deg)}}',
-    '#sync-status-bar .ssb-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '#sync-status-bar .ssb-dismiss{margin-left:auto;padding:2px 10px;border-radius:999px;',
-      'font-size:11.5px;font-weight:500;cursor:pointer;background:none;color:inherit;flex-shrink:0;',
-      'border:1.5px solid rgba(201,42,42,0.3);',
-      "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
-    '#sync-status-bar .ssb-dismiss:hover{background:rgba(201,42,42,0.08);}',
-    '@media(max-width:880px){#sync-status-bar{padding:5px 14px;}}'
-  ].join('');
+    "#sync-status-bar{display:none;align-items:center;gap:8px;padding:5px 24px;",
+    "font-size:12px;font-weight:500;line-height:1.4;",
+    "border-bottom:1px solid rgba(13,30,67,0.08);",
+    "font-family:inherit;}",
+    "#sync-status-bar.ssb-state-running{background:#eef2ff;color:#3b5bdb;display:flex;}",
+    "#sync-status-bar.ssb-state-success{background:#ebfbee;color:#2f9e44;display:flex;}",
+    "#sync-status-bar.ssb-state-error{background:#fff5f5;color:#c92a2a;display:flex;}",
+    "#sync-status-bar .ssb-spinner{width:11px;height:11px;border-radius:50%;flex-shrink:0;",
+    "border:2px solid rgba(59,91,219,0.25);border-top-color:#3b5bdb;",
+    "animation:ssb-spin 0.75s linear infinite;}",
+    "@keyframes ssb-spin{to{transform:rotate(360deg)}}",
+    "#sync-status-bar .ssb-msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+    "#sync-status-bar .ssb-dismiss{margin-left:auto;padding:2px 10px;border-radius:999px;",
+    "font-size:11.5px;font-weight:500;cursor:pointer;background:none;color:inherit;flex-shrink:0;",
+    "border:1.5px solid rgba(13,30,67,0.2);",
+    "font-family:inherit;}",
+    "#sync-status-bar .ssb-dismiss:hover{background:rgba(13,30,67,0.08);}",
+    "@media(max-width:880px){#sync-status-bar{padding:5px 14px;}}",
+  ].join("");
 
   function ensureIconFont() {
     if (document.querySelector('link[href*="tabler-icons"]')) return;
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css';
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href =
+      "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css";
     // Insert early so icons render before first paint on slow connections.
     var head = document.head;
     if (head.firstChild) head.insertBefore(link, head.firstChild);
@@ -158,106 +156,138 @@
   }
 
   function injectStyles() {
-    if (document.getElementById('global-nav-styles')) return;
-    var style = document.createElement('style');
-    style.id = 'global-nav-styles';
+    if (document.getElementById("global-nav-styles")) return;
+    var style = document.createElement("style");
+    style.id = "global-nav-styles";
     style.textContent = CSS;
     document.head.appendChild(style);
   }
 
   function escAttr(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
   }
 
   function buildNav() {
-    if (document.querySelector('.global-nav')) return;
+    if (document.querySelector(".global-nav")) return;
     var path = window.location.pathname;
 
     var linksHtml = LINKS.map(function (l) {
       if (l.disabled) {
-        return '<span class="gn-link gn-link-disabled" aria-disabled="true" title="Coming soon">' +
-               '<i class="ti ' + l.icon + '" aria-hidden="true"></i>' +
-               '<span>' + l.label + '</span></span>';
+        return (
+          '<span class="gn-link gn-link-disabled" aria-disabled="true" title="Coming soon">' +
+          '<i class="ti ' +
+          l.icon +
+          '" aria-hidden="true"></i>' +
+          "<span>" +
+          l.label +
+          "</span></span>"
+        );
       }
       var active = l.match.indexOf(path) !== -1;
-      return '<a class="gn-link' + (active ? ' active' : '') + '" href="' + escAttr(l.href) + '"' +
-             (active ? ' aria-current="page"' : '') + '>' +
-             '<i class="ti ' + l.icon + '" aria-hidden="true"></i>' +
-             '<span>' + l.label + '</span></a>';
-    }).join('');
+      return (
+        '<a class="gn-link' +
+        (active ? " active" : "") +
+        '" href="' +
+        escAttr(l.href) +
+        '"' +
+        (active ? ' aria-current="page"' : "") +
+        ">" +
+        '<i class="ti ' +
+        l.icon +
+        '" aria-hidden="true"></i>' +
+        "<span>" +
+        l.label +
+        "</span></a>"
+      );
+    }).join("");
 
-    var nav = document.createElement('nav');
-    nav.className = 'global-nav';
-    nav.setAttribute('aria-label', 'Primary navigation');
+    var nav = document.createElement("nav");
+    nav.className = "global-nav";
+    nav.setAttribute("aria-label", "Primary navigation");
     nav.innerHTML =
       '<a class="gn-brand" href="/home">' +
-        '<span class="gn-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>' +
-        '<span class="gn-brand-text">perf-coach</span>' +
-      '</a>' +
+      '<span class="gn-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>' +
+      '<span class="gn-brand-text">perf-coach</span>' +
+      "</a>" +
       '<button class="gn-menu-toggle" id="gn-menu-toggle" type="button" ' +
-        'aria-expanded="false" aria-controls="gn-links" aria-label="Open navigation menu">' +
-        '<span class="gn-menu-bars" aria-hidden="true">' +
-          '<span class="gn-menu-bar"></span><span class="gn-menu-bar"></span>' +
-        '</span>' +
-      '</button>' +
-      '<div class="gn-links" id="gn-links">' + linksHtml + '</div>' +
+      'aria-expanded="false" aria-controls="gn-links" aria-label="Open navigation menu">' +
+      '<span class="gn-menu-bars" aria-hidden="true">' +
+      '<span class="gn-menu-bar"></span><span class="gn-menu-bar"></span>' +
+      "</span>" +
+      "</button>" +
+      '<div class="gn-links" id="gn-links">' +
+      linksHtml +
+      "</div>" +
       '<div class="gn-right">' +
-        '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
-        '<a class="gn-avatar' + (path === '/settings' ? ' active' : '') + '" id="nav-avatar" href="/settings"' +
-          ' title="Profile and settings" aria-label="Profile and settings"' +
-          (path === '/settings' ? ' aria-current="page"' : '') + '>U</a>' +
-        '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
-          '<i class="ti ti-logout" aria-hidden="true"></i>' +
-          '<span class="gn-logout-label">Log out</span>' +
-        '</button>' +
-      '</div>';
+      '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
+      '<a class="gn-avatar' +
+      (path === "/settings" ? " active" : "") +
+      '" id="nav-avatar" href="/settings"' +
+      ' title="Profile and settings" aria-label="Profile and settings"' +
+      (path === "/settings" ? ' aria-current="page"' : "") +
+      ">U</a>" +
+      '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
+      '<i class="ti ti-logout" aria-hidden="true"></i>' +
+      '<span class="gn-logout-label">Log out</span>' +
+      "</button>" +
+      "</div>";
 
     document.body.insertBefore(nav, document.body.firstChild);
 
     _wireMobileMenu(nav);
 
-    document.getElementById('nav-logout').addEventListener('click', function () {
-      var btn = this;
-      btn.disabled = true;
-      fetch('/api/auth/logout', { method: 'POST' })
-        .then(function () { window.location.href = '/login'; })
-        .catch(function () {
-          btn.disabled = false;
-        });
-    });
+    document
+      .getElementById("nav-logout")
+      .addEventListener("click", function () {
+        var btn = this;
+        btn.disabled = true;
+        fetch("/api/auth/logout", { method: "POST" })
+          .then(function () {
+            window.location.href = "/login";
+          })
+          .catch(function () {
+            btn.disabled = false;
+          });
+      });
   }
 
   function _closeMobileMenu() {
-    var links = document.getElementById('gn-links');
-    var toggle = document.getElementById('gn-menu-toggle');
+    var links = document.getElementById("gn-links");
+    var toggle = document.getElementById("gn-menu-toggle");
     if (!links || !toggle) return;
-    links.classList.remove('is-open');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-label', 'Open navigation menu');
+    links.classList.remove("is-open");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Open navigation menu");
   }
 
   function _wireMobileMenu(nav) {
-    var toggle = document.getElementById('gn-menu-toggle');
-    var links = document.getElementById('gn-links');
+    var toggle = document.getElementById("gn-menu-toggle");
+    var links = document.getElementById("gn-links");
     if (!toggle || !links) return;
 
-    toggle.addEventListener('click', function (e) {
+    toggle.addEventListener("click", function (e) {
       e.stopPropagation();
-      var open = links.classList.toggle('is-open');
-      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      toggle.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+      var open = links.classList.toggle("is-open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      toggle.setAttribute(
+        "aria-label",
+        open ? "Close navigation menu" : "Open navigation menu",
+      );
     });
 
-    links.querySelectorAll('a.gn-link').forEach(function (a) {
-      a.addEventListener('click', _closeMobileMenu);
+    links.querySelectorAll("a.gn-link").forEach(function (a) {
+      a.addEventListener("click", _closeMobileMenu);
     });
 
-    document.addEventListener('click', function (e) {
+    document.addEventListener("click", function (e) {
       if (!nav.contains(e.target)) _closeMobileMenu();
     });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') _closeMobileMenu();
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") _closeMobileMenu();
     });
   }
 
@@ -265,44 +295,56 @@
   var _navUserId = null;
 
   function _navInitial() {
-    return (_navUserName ? (_navUserName.trim().charAt(0) || 'U') : 'U').toUpperCase();
+    return (
+      _navUserName ? _navUserName.trim().charAt(0) || "U" : "U"
+    ).toUpperCase();
   }
 
   function updateAvatar(bust) {
-    var el = document.getElementById('nav-avatar');
+    var el = document.getElementById("nav-avatar");
     if (!el) return;
     var initial = _navInitial();
-    el.innerHTML = '';
+    el.innerHTML = "";
     el.textContent = initial;
     if (!_navUserId) return;
     var img = new Image();
-    img.style.cssText = 'width:34px;height:34px;object-fit:cover;display:block;';
+    img.style.cssText =
+      "width:34px;height:34px;object-fit:cover;display:block;";
     img.alt = initial;
-    img.onload = function () { el.innerHTML = ''; el.appendChild(img); };
-    img.src = '/api/users/' + _navUserId + '/avatar' + (bust ? '?_t=' + Date.now() : '');
+    img.onload = function () {
+      el.innerHTML = "";
+      el.appendChild(img);
+    };
+    img.src =
+      "/api/users/" +
+      _navUserId +
+      "/avatar" +
+      (bust ? "?_t=" + Date.now() : "");
   }
 
-  window.navRefreshAvatar = function () { updateAvatar(true); };
+  window.navRefreshAvatar = function () {
+    updateAvatar(true);
+  };
 
   var _PHASE_LABELS = {
-    pulling_strava: 'Pulling Strava history…',
-    pulling_stryd: 'Pulling Stryd history…',
-    reconciling: 'Reconciling activities…'
+    pulling_strava: "Syncing Strava…",
+    pulling_stryd: "Syncing Stryd…",
+    reconciling: "Reconciling activities…",
   };
 
   var _syncTimer = null;
 
   function buildSyncBar() {
-    if (document.getElementById('sync-status-bar')) return;
-    var style = document.createElement('style');
-    style.id = 'sync-bar-styles';
+    if (document.getElementById("sync-status-bar")) return;
+    var style = document.createElement("style");
+    style.id = "sync-bar-styles";
     style.textContent = SYNC_BAR_CSS;
     document.head.appendChild(style);
-    var bar = document.createElement('div');
-    bar.id = 'sync-status-bar';
-    bar.setAttribute('role', 'status');
-    bar.setAttribute('aria-live', 'polite');
-    var nav = document.querySelector('.global-nav');
+    var bar = document.createElement("div");
+    bar.id = "sync-status-bar";
+    bar.setAttribute("role", "status");
+    bar.setAttribute("aria-live", "polite");
+    var nav = document.querySelector(".global-nav");
     if (nav && nav.parentNode) {
       nav.parentNode.insertBefore(bar, nav.nextSibling);
     } else {
@@ -311,73 +353,104 @@
   }
 
   function _ssbShow(state, html) {
-    var bar = document.getElementById('sync-status-bar');
+    var bar = document.getElementById("sync-status-bar");
     if (!bar) return;
-    bar.className = 'ssb-state-' + state;
+    bar.className = "ssb-state-" + state;
     bar.innerHTML = html;
   }
 
   function _ssbHide() {
-    var bar = document.getElementById('sync-status-bar');
-    if (bar) bar.className = '';
+    var bar = document.getElementById("sync-status-bar");
+    if (bar) bar.className = "";
   }
 
   function _ssbRunning(data) {
-    var provider = data.provider
-      ? data.provider.charAt(0).toUpperCase() + data.provider.slice(1)
-      : '';
-    var phase = _PHASE_LABELS[data.phase] || data.phase || '';
-    var label = [provider, phase].filter(Boolean).join(' — ');
-    var count = '';
+    var label =
+      _PHASE_LABELS[data.phase] ||
+      (data.provider ? data.provider + " sync…" : "Syncing…");
+    var count = "";
     if (data.current > 0) {
-      count = data.total != null
-        ? ' (' + data.current + ' / ' + data.total + ')'
-        : ' (' + data.current + ' activities)';
+      count =
+        data.total != null
+          ? " (" + data.current + " / " + data.total + ")"
+          : " (" + data.current + " activities)";
     }
-    _ssbShow('running',
+    _ssbShow(
+      "running",
       '<span class="ssb-spinner" aria-hidden="true"></span>' +
-      '<span class="ssb-msg">' + escAttr(label) + escAttr(count) + '</span>'
+        '<span class="ssb-msg">' +
+        escAttr(label) +
+        escAttr(count) +
+        "</span>" +
+        '<button class="ssb-dismiss" type="button" aria-label="Dismiss">×</button>',
     );
+    var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
+    if (dismiss)
+      dismiss.addEventListener("click", function () {
+        _syncStopPoll();
+        _ssbHide();
+      });
   }
 
   function _ssbSuccess(data) {
     var n = data.items_synced != null ? data.items_synced : 0;
-    _ssbShow('success', '<span class="ssb-msg">Synced ✓ ' + n + ' activities</span>');
+    _ssbShow(
+      "success",
+      '<span class="ssb-msg">Sync complete — ' +
+        n +
+        " workouts updated</span>" +
+        '<button class="ssb-dismiss" type="button" aria-label="Dismiss">×</button>',
+    );
+    var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
+    if (dismiss) dismiss.addEventListener("click", _ssbHide);
     setTimeout(function () {
-      var bar = document.getElementById('sync-status-bar');
-      if (bar && bar.className === 'ssb-state-success') _ssbHide();
-    }, 4000);
+      var bar = document.getElementById("sync-status-bar");
+      if (bar && bar.className === "ssb-state-success") _ssbHide();
+    }, 5000);
   }
 
   function _ssbError(data) {
-    var msg = data.error || 'Sync failed';
-    _ssbShow('error',
-      '<span class="ssb-msg">' + escAttr(msg) + '</span>' +
-      '<button class="ssb-dismiss" type="button">Dismiss</button>'
+    var msg = data.error || "Sync failed";
+    _ssbShow(
+      "error",
+      '<span class="ssb-msg">' +
+        escAttr(msg) +
+        "</span>" +
+        '<button class="ssb-dismiss" type="button">Dismiss</button>',
     );
-    var dismiss = document.querySelector('#sync-status-bar .ssb-dismiss');
-    if (dismiss) dismiss.addEventListener('click', _ssbHide);
+    var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
+    if (dismiss) dismiss.addEventListener("click", _ssbHide);
   }
 
   function _syncStopPoll() {
-    if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
+    if (_syncTimer) {
+      clearInterval(_syncTimer);
+      _syncTimer = null;
+    }
   }
 
   function _doPoll() {
-    fetch('/api/sync/status')
-      .then(function (res) { return res.ok ? res.json() : null; })
+    fetch("/api/sync/status")
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
       .then(function (data) {
-        if (!data) { _syncStopPoll(); return; }
-        if (data.status === 'running') {
+        if (!data) {
+          _syncStopPoll();
+          return;
+        }
+        if (data.status === "running") {
           _ssbRunning(data);
           if (!_syncTimer) _syncTimer = setInterval(_doPoll, 4000);
         } else {
           _syncStopPoll();
-          if (data.status === 'success') _ssbSuccess(data);
-          else if (data.status === 'error') _ssbError(data);
+          if (data.status === "success") _ssbSuccess(data);
+          else if (data.status === "error") _ssbError(data);
         }
       })
-      .catch(function () { _syncStopPoll(); });
+      .catch(function () {
+        _syncStopPoll();
+      });
   }
 
   window.syncBarRefresh = function () {
@@ -391,22 +464,26 @@
     buildNav();
     buildSyncBar();
     _doPoll();
-    window.addEventListener('userReady', function (e) {
-      _navUserName = (e.detail && e.detail.userName) || '';
+    window.addEventListener("userReady", function (e) {
+      _navUserName = (e.detail && e.detail.userName) || "";
       _navUserId = (e.detail && e.detail.userId) || null;
       updateAvatar(false);
     });
     // Self-fetch identity so the avatar initial is correct even on pages that
     // do not load user.js / dispatch userReady (e.g. the weight page).
-    fetch('/api/auth/me').then(function (r) { return r.ok ? r.json() : null; })
+    fetch("/api/auth/me")
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
       .then(function (u) {
         if (!u) return;
-        _navUserName = u.name || _navUserName || '';
+        _navUserName = u.name || _navUserName || "";
         _navUserId = u.id || _navUserId || null;
         updateAvatar(false);
-      }).catch(function () {});
+      })
+      .catch(function () {});
   }
 
   if (document.body) init();
-  else document.addEventListener('DOMContentLoaded', init);
-}());
+  else document.addEventListener("DOMContentLoaded", init);
+})();

@@ -83,6 +83,7 @@ def _make_session_ctx(habits=None, habit=None):
     query_m.all.return_value = habits or []
     query_m.count.return_value = len(habits) if habits else 0
     query_m.scalar.return_value = 0  # used by max(sort_order) in post_habit
+    query_m.first.return_value = None  # no duplicate by default (post_habit duplicate guard)
     query_m.delete.return_value = 0
     sess.query.return_value = query_m
 
