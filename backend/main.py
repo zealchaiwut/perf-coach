@@ -3999,6 +3999,7 @@ _PAGES = {
     "settings": "settings.html",
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
+    "strength-view": "strength-view.html",
 }
 
 
