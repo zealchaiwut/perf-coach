@@ -217,10 +217,7 @@ def select_channels(
             gps_name = name
 
     # ── 2. Power channel ──────────────────────────────────────────────────────
-    power_channel_key = next(
-        (k for k in (source_a_channels.keys() | source_b_channels.keys()) if k == "power_w"),
-        "power_w",
-    )
+    power_channel_key = "power_w"
     if power_channels is not None:
         power_vals = power_channels.get(power_channel_key)
         if power_vals:

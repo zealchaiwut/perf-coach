@@ -9,7 +9,7 @@ from backend.models import UserPreferences
 from backend.services.running_tss_power import calculate_running_tss_power
 
 
-def calculate_running_tss_power_for_user(session, user_id, np, duration_seconds):
+def calculate_running_tss_power_for_user(session, user_id, normalized_power_w, duration_seconds):
     """Read ftp_w from user_preferences, then compute power TSS.
 
     Parameters
@@ -18,7 +18,7 @@ def calculate_running_tss_power_for_user(session, user_id, np, duration_seconds)
         SQLAlchemy session.
     user_id:
         ID of the user whose ftp_w preference should be read.
-    np:
+    normalized_power_w:
         Normalized Power in watts.
     duration_seconds:
         Total workout duration in seconds.
@@ -37,6 +37,6 @@ def calculate_running_tss_power_for_user(session, user_id, np, duration_seconds)
 
     return calculate_running_tss_power(
         ftp_w=ftp_w,
-        np=np,
+        np=normalized_power_w,
         duration_seconds=duration_seconds,
     )

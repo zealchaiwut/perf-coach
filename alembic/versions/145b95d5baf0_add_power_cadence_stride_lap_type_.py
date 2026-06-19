@@ -132,19 +132,14 @@ def downgrade() -> None:
     if _constraint_exists("workout_splits", _CK_LAP_TYPE):
         op.drop_constraint(_CK_LAP_TYPE, "workout_splits", type_="check")
 
-    # Revert lap_type to nullable (only if we tightened it; always safe to relax).
-    if column_exists("workout_splits", "lap_type") and not _column_is_nullable(
-        "workout_splits", "lap_type"
-    ):
+    # Revert lap_type to nullable (upgrade always tightens it to NOT NULL).
+    if column_exists("workout_splits", "lap_type"):
         op.alter_column(
             "workout_splits",
             "lap_type",
             existing_type=sa.String(10),
             nullable=True,
         )
-    else:
-        if column_exists("workout_splits", "lap_type"):
-            op.drop_column("workout_splits", "lap_type")
 
     for col in ("stride_length_m", "cadence_spm", "avg_power"):
         if column_exists("workout_splits", col):

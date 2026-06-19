@@ -1172,6 +1172,7 @@ def compute_running_tss_pace_from_prefs(
             _log.warning(
                 "Could not query user_preferences for user %s; threshold will be None",
                 user_id,
+                exc_info=True,
             )
 
     return calculate_running_tss_pace(
