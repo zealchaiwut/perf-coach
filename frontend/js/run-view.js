@@ -186,7 +186,10 @@
 
   function renderLapTable(splits, hasStryd) {
     if (!splits || !splits.length) return '<p class="rv-empty">No lap data</p>';
-    var allAuto = splits.every(function (s) {
+    var hasManualLaps = splits.some(function (s) {
+      return s.lap_type === "manual";
+    });
+    var allAuto = !hasManualLaps && splits.every(function (s) {
       return (s.lap_type || "auto") === "auto";
     });
     var header = allAuto ? "Laps · 1 km splits" : "Laps";
@@ -307,13 +310,13 @@
     if (strydPresent) {
       parts.push('<span class="rv-src-badge rv-src-badge--stryd">Stryd</span>');
     }
-    return (
-      '<div class="rv-source-strip">' +
-      (parts.length
-        ? parts.join(" ")
-        : '<span class="rv-src-manual">Manual entry</span>') +
-      "</div>"
-    );
+    var src = (workout.source || "").toLowerCase();
+    if (src.indexOf(",") !== -1) {
+      var sources = src.split(",").map(function (s) { return s.trim(); });
+      parts.push('<span class="rv-src-merged">Merged from ' + sources.join(" + ") + "</span>");
+    }
+    if (!parts.length) return "";
+    return '<div class="rv-source-strip">' + parts.join(" ") + "</div>";
   }
 
   // ── Main render ───────────────────────────────────────────────────────────
@@ -425,11 +428,11 @@
       '<div class="rv-map-placeholder">Map appears once GPS sync is added</div>' +
       "</div>";
 
-    // Source strip
-    var sourceSection =
-      '<div class="rv-card rv-source">' +
-      renderSourceStrip(w, strydPresent) +
-      "</div>";
+    // Source strip — omit card wrapper entirely when there is nothing to show
+    var sourceStripHtml = renderSourceStrip(w, strydPresent);
+    var sourceSection = sourceStripHtml
+      ? '<div class="rv-card rv-source">' + sourceStripHtml + "</div>"
+      : "";
 
     document.getElementById("rv-root").innerHTML =
       header +
