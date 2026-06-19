@@ -1,9 +1,6 @@
 (function () {
   "use strict";
 
-  var ZONE2_HR_MIN = window.Zone2.ZONE2_HR_MIN;
-  var ZONE2_HR_MAX = window.Zone2.ZONE2_HR_MAX;
-
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   function dash(v) {
@@ -159,10 +156,7 @@
         pct = Math.max(10, Math.round(normalized * 90) + 10);
         color = pct < 40 ? "#86efac" : pct < 70 ? "#fcd34d" : "#fb923c";
       }
-      isZ2 =
-        s.avg_hr != null &&
-        s.avg_hr >= ZONE2_HR_MIN &&
-        s.avg_hr <= ZONE2_HR_MAX;
+      isZ2 = window.Zone2.isZone2Lap(s.avg_hr);
       var ring = isZ2 ? " rv-bar--z2" : "";
       return (
         '<div class="rv-bar-col">' +
@@ -195,10 +189,7 @@
     var header = allAuto ? "Laps · 1 km splits" : "Laps";
 
     var rows = splits.map(function (s, i) {
-      var isZ2 =
-        s.avg_hr != null &&
-        s.avg_hr >= ZONE2_HR_MIN &&
-        s.avg_hr <= ZONE2_HR_MAX;
+      var isZ2 = window.Zone2.isZone2Lap(s.avg_hr);
       var lapNum = isZ2
         ? '<span class="rv-lap-num">' +
           (i + 1) +

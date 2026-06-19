@@ -286,6 +286,27 @@
       line-height: 1.5;
     }
 
+    /* ── Suggestion chip ── */
+    .thresholds-suggestion-chip {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .thresholds-suggestion-chip.visible { display: inline-flex; }
+    .thresholds-suggestion-chip:hover { background: #dbeafe; }
+
     /* ── Integration cards ── */
     .integration-card {
       border: 1px solid rgba(13, 30, 67, 0.08);
@@ -1023,6 +1044,7 @@
             <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
               min="50" max="600" placeholder="(default: 280W)">
             <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
+            <button type="button" class="thresholds-suggestion-chip" id="thresholds-ftp-suggestion" aria-label="Accept suggested FTP value"></button>
           </div>
           <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
           <div class="profile-field-error" id="thresholds-ftp-error"></div>
@@ -1035,6 +1057,7 @@
             <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
               min="100" max="220" placeholder="(default: 170 bpm)">
             <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
+            <button type="button" class="thresholds-suggestion-chip" id="thresholds-hr-suggestion" aria-label="Accept suggested Threshold HR value"></button>
           </div>
           <p class="thresholds-desc">Heart rate at lactate threshold (bpm). Used when power data is unavailable. Estimate as ~88–92% of max HR, or from a race/hard effort.</p>
           <div class="profile-field-error" id="thresholds-hr-error"></div>
@@ -1059,6 +1082,7 @@
             <input type="text" id="thresholds-pace" class="profile-input thresholds-input"
               placeholder="(default: 4:30/km)">
             <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
+            <button type="button" class="thresholds-suggestion-chip" id="thresholds-pace-suggestion" aria-label="Accept suggested Threshold Pace value"></button>
           </div>
           <p class="thresholds-desc">Running pace you can sustain for ~1 hour (M:SS/km). Used to compute running TSS. Enter as <code>4:30</code>, <code>4:30/km</code>, or <code>4:30 /km</code>.</p>
           <div class="profile-field-error" id="thresholds-pace-error"></div>
@@ -1861,6 +1885,44 @@
       var tSaveBtn = document.getElementById('thresholds-save-btn');
       if (tSaveBtn) tSaveBtn.addEventListener('click', _tHandleSave);
 
+      // ── Threshold suggestions ─────────────────────────────────────────────
+      // Fetches /api/thresholds/suggestions and shows an "Accept suggestion"
+      // chip next to the relevant field. Clicking the chip pre-fills the input
+      // but does NOT save — the user must still tap Save.
+
+      function _loadThresholdSuggestions() {
+        fetch('/api/thresholds/suggestions')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.pending) return;
+            var pending = data.pending;
+            if (pending.ftp_w) {
+              _showSuggestionChip('thresholds-ftp-suggestion', 'thresholds-ftp', pending.ftp_w.value, false);
+            }
+            if (pending.threshold_hr) {
+              _showSuggestionChip('thresholds-hr-suggestion', 'thresholds-hr', pending.threshold_hr.value, false);
+            }
+            if (pending.threshold_pace_seconds_per_km) {
+              _showSuggestionChip('thresholds-pace-suggestion', 'thresholds-pace', pending.threshold_pace_seconds_per_km.value, true);
+            }
+          })
+          .catch(function () {});
+      }
+
+      function _showSuggestionChip(chipId, inputId, rawValue, isPace) {
+        var chip = document.getElementById(chipId);
+        var inputEl = document.getElementById(inputId);
+        if (!chip || !inputEl) return;
+        var displayVal = isPace ? (_secsToMMSS(rawValue) + '/km') : (rawValue + (chipId.indexOf('ftp') !== -1 ? ' W' : ' bpm'));
+        chip.textContent = 'Accept suggestion: ' + displayVal;
+        chip.classList.add('visible');
+        chip.addEventListener('click', function () {
+          inputEl.value = isPace ? (_secsToMMSS(rawValue) + '/km') : String(rawValue);
+          chip.classList.remove('visible');
+          _tSetFeedback('', '');
+        });
+      }
+
       // ── Zone 2 habit opt-in provision button ──────────────────────────────
       function _updateProvisionZone2UI(existingHabit) {
         var btn = document.getElementById('thresholds-provision-zone2-btn');
@@ -1968,6 +2030,7 @@
 
       window.addEventListener('userReady', function () {
         _tLoadPrefs();
+        _loadThresholdSuggestions();
         _checkZone2HabitExists(_updateProvisionZone2UI);
       });
     }());
