@@ -1201,19 +1201,14 @@
   function openPanelShell(triggerEl) {
     var overlay = document.getElementById("detail-overlay");
     var panel = document.getElementById("detail-panel");
-    var wrapper = document.getElementById("layout-wrapper");
 
     if (panel) panel.classList.add("is-open");
 
-    if (isDesktop()) {
-      if (wrapper) wrapper.classList.add("has-panel");
-    } else {
-      if (overlay) {
-        overlay.classList.add("is-open");
-        overlay.removeAttribute("aria-hidden");
-      }
-      document.body.style.overflow = "hidden";
+    if (overlay) {
+      overlay.classList.add("is-open");
+      overlay.removeAttribute("aria-hidden");
     }
+    document.body.style.overflow = "hidden";
 
     if (triggerEl) {
       activeTriggerEl = triggerEl;
@@ -1287,11 +1282,30 @@
     cachedDetailWorkout = null;
 
     closeOverflowMenu();
-    setPanelMode("view");
-    setHistoryTab("history");
+    setPanelMode("edit");
     openPanelShell(triggerEl);
-    updatePositionPill();
-    fetchAndRenderDetail(workoutId);
+
+    var scrollEl = document.getElementById("dp-scroll");
+    if (scrollEl) scrollEl.scrollTop = 0;
+
+    fetch("/api/workouts/" + workoutId)
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (workout) {
+        cachedDetailWorkout = workout;
+        if (window.TrainingEditor) {
+          TrainingEditor.fillForm(workout);
+          TrainingEditor.setEditingId(workout.id);
+        }
+        var nameInput = document.getElementById("workout-name");
+        if (nameInput) nameInput.focus();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not load workout for editing.", true);
+        closeDetailPanel();
+      });
   }
 
   function createPresetDate() {
@@ -1366,14 +1380,7 @@
   }
 
   function cancelPanelForm() {
-    if (panelMode === "create") {
-      closeDetailPanel();
-      return;
-    }
-    if (panelMode === "edit" && activeDetailWorkoutId) {
-      setPanelMode("view");
-      fetchAndRenderDetail(activeDetailWorkoutId);
-    }
+    closeDetailPanel();
   }
 
   function closeDetailPanel() {
@@ -1394,7 +1401,6 @@
 
     var overlay = document.getElementById("detail-overlay");
     var panel = document.getElementById("detail-panel");
-    var wrapper = document.getElementById("layout-wrapper");
 
     if (panel) {
       panel.classList.remove("is-open");
@@ -1403,7 +1409,6 @@
       overlay.classList.remove("is-open");
       overlay.setAttribute("aria-hidden", "true");
     }
-    if (wrapper) wrapper.classList.remove("has-panel");
     document.body.style.overflow = "";
 
     var formWrap = document.getElementById("dp-form-wrap");
@@ -3390,24 +3395,8 @@
 
   function handleEditorSaved(result) {
     if (!result || !result.ok) return;
-
-    if (result.isEdit && activeDetailWorkoutId) {
-      setPanelMode("view");
-      fetchAndRenderDetail(activeDetailWorkoutId);
-      fetchAndRender();
-    } else {
-      var newId = result.data && result.data.id;
-      closeDetailPanel();
-      fetchAndRender();
-      if (newId) {
-        setTimeout(function () {
-          var row = document.querySelector(
-            '.entry-row[data-workout-id="' + newId + '"]',
-          );
-          openDetailPanel(newId, row);
-        }, 100);
-      }
-    }
+    closeDetailPanel();
+    fetchAndRender();
     refreshRepeatAvailability();
   }
 

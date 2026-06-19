@@ -1263,29 +1263,7 @@
         gap: 12px;
       }
 
-      @media (min-width: 880px) {
-        #layout-wrapper.has-panel {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 520px;
-          align-items: start;
-          max-width: none;
-          padding: 0 0 40px;
-        }
-
-        #layout-wrapper.has-panel .log-page-body {
-          max-width: 1280px;
-          margin: 0 auto;
-          padding: 0 22px;
-          width: 100%;
-          box-sizing: border-box;
-        }
-
-        #layout-wrapper.has-panel #list-main {
-          min-width: 0;
-        }
-      }
-
-      /* ── Detail panel overlay (mobile only) ── */
+      /* ── Detail panel overlay (all viewports) ── */
       .detail-panel-overlay {
         position: fixed;
         inset: 0;
@@ -1301,13 +1279,7 @@
         pointer-events: auto;
       }
 
-      @media (min-width: 880px) {
-        .detail-panel-overlay {
-          display: none;
-        }
-      }
-
-      /* ── Detail panel ── */
+      /* ── Detail panel — always a slide-over overlay (issue #643) ── */
       .detail-panel {
         position: fixed;
         top: 0;
@@ -1329,23 +1301,10 @@
         transform: translateX(0);
       }
 
-      @media (min-width: 880px) {
+      /* Mobile: full screen */
+      @media (max-width: 767px) {
         .detail-panel {
-          position: sticky;
-          top: 52px;
-          height: calc(100vh - 52px);
-          transform: none;
-          transition: none;
-          box-shadow:
-            -1px 0 0 var(--border),
-            -4px 0 16px rgba(0, 0, 0, 0.06);
-          z-index: auto;
-          display: none;
-        }
-
-        .detail-panel.is-open {
-          display: flex;
-          transform: none;
+          max-width: 100%;
         }
       }
 
@@ -1360,6 +1319,60 @@
         flex-shrink: 0;
         gap: 6px;
         background: #fff;
+      }
+
+      /* ── Gradient panel header (form mode) — issue #643 ── */
+      .dp-panel-header {
+        display: none;
+        padding: 20px 20px 18px;
+        background: linear-gradient(135deg, var(--bg-1, #5a8dee) 0%, var(--bg-2, #1f3b8a) 100%);
+        flex-shrink: 0;
+      }
+
+      .detail-panel--form .dp-panel-header {
+        display: block;
+      }
+
+      .dp-panel-header-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #fff;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+      }
+
+      /* ── Workout type select (issue #643) ── */
+      #workout-type {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1.5px solid var(--card-border);
+        border-radius: 9px;
+        background: var(--rl-tile, #f7f9fd);
+        font-size: 13px;
+        font-family: inherit;
+        color: var(--text-primary);
+        appearance: auto;
+      }
+
+      #workout-type:focus {
+        outline: none;
+        border-color: #3563d4;
+        background: #fff;
+      }
+
+      /* ── Type body placeholder (issue #643) ── */
+      .type-body-placeholder {
+        min-height: 80px;
+        border: 1.5px dashed var(--card-border, #e2e8f0);
+        border-radius: 12px;
+        background: var(--rl-tile, #f7f9fd);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-tertiary);
+        font-size: 12px;
+        font-weight: 500;
       }
 
       .dp-icon-btn {
@@ -2939,16 +2952,6 @@
               >
                 History
               </button>
-              <button
-                type="button"
-                class="log-history-tab"
-                data-tab="new"
-                role="tab"
-                aria-selected="false"
-                id="log-tab-new"
-              >
-                New log
-              </button>
             </div>
           </div>
 
@@ -3076,25 +3079,18 @@
         <!-- Scrollable body: loading / error / content / form -->
         <div id="dp-scroll" class="dp-scroll">
           <div id="dp-form-wrap" style="display: none">
-            <h2 id="dp-form-title" class="dp-form-title">Log workout</h2>
-            <div class="training-form-stack">
-              <div class="rl-import">
-                <span
-                  >Logging manually, or pull this run in from a device.</span
-                >
-                <span class="rl-import-srcs">
-                  <a class="rl-src" href="/settings#integrations">Strava</a>
-                  <a class="rl-src" href="/settings#integrations">Garmin</a>
-                  <a class="rl-src" href="/settings#integrations">Stryd</a>
-                </span>
-              </div>
+            <!-- Gradient header (shown in form mode) -->
+            <div class="dp-panel-header">
+              <h2 id="dp-form-title" class="dp-panel-header-title">Log workout</h2>
+            </div>
 
+            <div class="training-form-stack">
+              <!-- Workout Basics (AC5) -->
               <div class="workout-meta rl-card">
                 <div class="rl-card-label">Workout basics</div>
+
                 <div class="meta-field full-width">
-                  <label for="workout-name"
-                    >Name <span style="color: var(--danger)">*</span></label
-                  >
+                  <label for="workout-name">Name <span style="color: var(--danger)">*</span></label>
                   <input
                     id="workout-name"
                     type="text"
@@ -3106,283 +3102,49 @@
                   <datalist id="workout-name-suggestions"></datalist>
                   <p id="name-error" class="field-error"></p>
                 </div>
+
                 <div class="meta-field">
                   <label for="workout-date">Date</label>
                   <input id="workout-date" type="date" />
                 </div>
-                <div class="meta-field full-width">
-                  <label>Workout type</label>
-                  <div id="type-chips" class="chip-group"></div>
-                  <input
-                    id="custom-type-input"
-                    type="text"
-                    placeholder="Type name…"
-                    style="display: none"
-                    maxlength="50"
-                  />
+
+                <div class="meta-field">
+                  <label for="workout-tss">TSS <span style="font-weight: 400; color: #999">(optional)</span></label>
+                  <input id="workout-tss" type="number" min="0" step="1" placeholder="e.g. 85" />
                 </div>
+
+                <div class="meta-field full-width">
+                  <label for="workout-type">Type</label>
+                  <select id="workout-type">
+                    <option value="Strength">Strength</option>
+                    <option value="Running">Running</option>
+                    <option value="Race">Race</option>
+                    <option value="Yoga">Yoga</option>
+                    <option value="Cycling">Cycling</option>
+                    <option value="Swimming">Swimming</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
                 <div class="meta-field full-width">
                   <label for="workout-remarks">Remarks</label>
-                  <textarea
-                    id="workout-remarks"
-                    placeholder="Optional notes…"
-                    rows="2"
-                    maxlength="1000"
-                  ></textarea>
-                </div>
-                <div class="meta-field">
-                  <label for="workout-tss"
-                    >TSS
-                    <span style="font-weight: 400; color: #999"
-                      >(optional)</span
-                    ></label
-                  >
-                  <input
-                    id="workout-tss"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="e.g. 85"
-                  />
+                  <textarea id="workout-remarks" placeholder="Optional notes…" rows="3" maxlength="1000"></textarea>
                 </div>
               </div>
 
-              <div
-                id="run-section"
-                class="run-section rl-card"
-                style="display: none"
-              >
-                <div class="rl-card-label">Run structure</div>
-                <div class="seg-templates">
-                  <span class="seg-tpl-label">Start from:</span>
-                  <button type="button" class="seg-tpl-chip" data-tpl="easy">
-                    Easy run
-                  </button>
-                  <button
-                    type="button"
-                    class="seg-tpl-chip"
-                    data-tpl="intervals"
-                  >
-                    Intervals
-                  </button>
-                  <button type="button" class="seg-tpl-chip" data-tpl="tempo">
-                    Tempo
-                  </button>
-                </div>
-                <div class="rl-profile-wrap">
-                  <div class="rl-profile-head">
-                    <span class="rl-profile-title"
-                      >Session profile · Effort</span
-                    >
-                    <span class="rl-profile-sub">Height = effort</span>
-                  </div>
-                  <div
-                    class="rl-profile"
-                    id="run-profile"
-                    aria-hidden="true"
-                  ></div>
-                </div>
-                <div
-                  id="segments-list"
-                  class="segments-list"
-                  aria-label="Run segments"
-                ></div>
-                <div class="seg-foot">
-                  <details id="add-segment-menu" class="more-menu seg-add-menu">
-                    <summary class="btn-secondary btn-sm more-summary">
-                      + Add segment <span aria-hidden="true">▾</span>
-                    </summary>
-                    <div class="more-menu-list" role="menu">
-                      <button type="button" role="menuitem" data-seg="warmup">
-                        Warm-up
-                      </button>
-                      <button type="button" role="menuitem" data-seg="easy">
-                        Easy run
-                      </button>
-                      <button type="button" role="menuitem" data-seg="tempo">
-                        Tempo
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        data-seg="intervals"
-                      >
-                        Intervals
-                      </button>
-                      <button type="button" role="menuitem" data-seg="rest">
-                        Rest
-                      </button>
-                      <button type="button" role="menuitem" data-seg="cooldown">
-                        Cool-down
-                      </button>
-                    </div>
-                  </details>
-                  <p id="segments-sum" class="segments-sum"></p>
-                </div>
-                <div class="run-primary">
-                  <div class="run-field">
-                    <label for="run-distance"
-                      >Distance <span class="rl-badge auto">auto</span></label
-                    >
-                    <div class="run-input-affix">
-                      <input
-                        id="run-distance"
-                        type="number"
-                        inputmode="decimal"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.0"
-                      />
-                      <span class="affix">km</span>
-                    </div>
-                  </div>
-                  <div class="run-field">
-                    <label for="run-dur-h"
-                      >Duration <span class="rl-badge auto">auto</span></label
-                    >
-                    <div class="run-duration">
-                      <input
-                        id="run-dur-h"
-                        class="dur-box"
-                        type="number"
-                        inputmode="numeric"
-                        min="0"
-                        max="99"
-                        placeholder="0"
-                      />
-                      <span class="dur-sep">h</span>
-                      <input
-                        id="run-dur-m"
-                        class="dur-box"
-                        type="number"
-                        inputmode="numeric"
-                        min="0"
-                        max="59"
-                        placeholder="0"
-                      />
-                      <span class="dur-sep">m</span>
-                      <input
-                        id="run-dur-s"
-                        class="dur-box"
-                        type="number"
-                        inputmode="numeric"
-                        min="0"
-                        max="59"
-                        placeholder="0"
-                      />
-                      <span class="dur-sep">s</span>
-                    </div>
-                  </div>
-                  <div class="run-field run-pace-field">
-                    <label
-                      >Avg pace <span class="rl-badge auto">auto</span></label
-                    >
-                    <output id="run-pace" class="run-pace">—</output>
-                  </div>
-                </div>
-                <div class="run-secondary">
-                  <div class="run-field">
-                    <label for="run-avg-hr"
-                      >Avg HR <span class="rl-badge sync">sync</span></label
-                    >
-                    <div class="run-input-affix">
-                      <input
-                        id="run-avg-hr"
-                        type="number"
-                        inputmode="numeric"
-                        min="20"
-                        max="250"
-                        placeholder="—"
-                      />
-                      <span class="affix">bpm</span>
-                    </div>
-                  </div>
-                  <div class="run-field">
-                    <label for="run-max-hr"
-                      >Max HR <span class="rl-badge sync">sync</span></label
-                    >
-                    <div class="run-input-affix">
-                      <input
-                        id="run-max-hr"
-                        type="number"
-                        inputmode="numeric"
-                        min="20"
-                        max="250"
-                        placeholder="—"
-                      />
-                      <span class="affix">bpm</span>
-                    </div>
-                  </div>
-                  <div class="run-field">
-                    <label for="run-elevation"
-                      >Elevation <span class="rl-badge sync">sync</span></label
-                    >
-                    <div class="run-input-affix">
-                      <input
-                        id="run-elevation"
-                        type="number"
-                        inputmode="numeric"
-                        min="0"
-                        step="1"
-                        placeholder="—"
-                      />
-                      <span class="affix">m</span>
-                    </div>
-                  </div>
-                </div>
-                <p id="run-error" class="field-error"></p>
+              <!-- Device Import strip (AC6) -->
+              <div class="rl-import">
+                <span>Or pull from a device:</span>
+                <span class="rl-import-srcs">
+                  <a class="rl-src" href="/settings#integrations">Strava</a>
+                  <a class="rl-src" href="/settings#integrations">Garmin</a>
+                  <a class="rl-src" href="/settings#integrations">Stryd</a>
+                </span>
               </div>
 
-              <div class="exercises-section rl-card">
-                <div class="rl-card-label">Exercises</div>
-                <div class="rl-profile-wrap str-profile-wrap">
-                  <div class="rl-profile-head">
-                    <span class="rl-profile-title"
-                      >Session profile · RPE × duration</span
-                    >
-                    <span class="rl-profile-sub"
-                      >Width = time · height = RPE</span
-                    >
-                  </div>
-                  <div
-                    class="rl-profile str-profile"
-                    id="str-profile"
-                    aria-hidden="true"
-                  ></div>
-                </div>
-                <div id="exercises-tbody" class="exercise-list"></div>
-                <datalist id="exercise-name-suggestions"></datalist>
-                <p id="exercises-error" class="error-msg"></p>
-                <div class="ex-add-row">
-                  <button id="add-exercise-btn" type="button" class="add-ex">
-                    <span aria-hidden="true">+</span> Add exercise
-                  </button>
-                </div>
-                <div class="str-totals">
-                  <div class="str-tile">
-                    <div class="str-l">
-                      Volume <span class="rl-badge auto">auto</span>
-                    </div>
-                    <div class="str-v">
-                      <span id="str-volume">0</span><span class="su">kg</span>
-                    </div>
-                  </div>
-                  <div class="str-tile">
-                    <div class="str-l">
-                      Sets <span class="rl-badge auto">auto</span>
-                    </div>
-                    <div class="str-v">
-                      <span id="str-sets">0</span>
-                      <span class="su" id="str-sets-sub">0 working</span>
-                    </div>
-                  </div>
-                  <div class="str-tile">
-                    <div class="str-l">
-                      Est. e1RM <span class="rl-badge auto">auto</span>
-                    </div>
-                    <div class="str-v" id="str-e1rm">—</div>
-                  </div>
-                </div>
+              <!-- Reserved body area for workout-type-specific content (AC7) -->
+              <div class="type-body-placeholder" aria-label="Type-specific content area">
+                Type-specific details coming soon
               </div>
             </div>
           </div>

@@ -112,6 +112,9 @@
   }
 
   function getSelectedType() {
+    // Slide-over panel uses a <select> element (issue #643)
+    var sel = document.getElementById('workout-type');
+    if (sel) return sel.value || 'Strength';
     var active = document.querySelector('.type-chip.active');
     if (!active) return 'Strength';
     if (active.dataset.value === '__custom__') {
@@ -121,6 +124,18 @@
   }
 
   function setSelectedType(type) {
+    // Slide-over panel uses a <select> element (issue #643)
+    var sel = document.getElementById('workout-type');
+    if (sel) {
+      sel.value = type;
+      if (!sel.value) {
+        var key = TF.normalizeType(type);
+        if (key === 'run') sel.value = 'Running';
+        else if (key === 'lift') sel.value = 'Strength';
+        else sel.value = 'Other';
+      }
+      return;
+    }
     var key = TF.normalizeType(type);
     if (key === 'run') type = 'Running';
     else if (key === 'lift') type = 'Strength';
@@ -129,7 +144,8 @@
       selectChip(type);
     } else {
       selectChip('__custom__');
-      document.getElementById('custom-type-input').value = type;
+      var ci = document.getElementById('custom-type-input');
+      if (ci) ci.value = type;
     }
   }
 
@@ -743,19 +759,29 @@
     if (nameEl && nameEl.dataset.autoName === '1') applyDefaultWorkoutName();
   }
 
+  function _setEl(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = val;
+  }
+  function _clearEl(id, prop) {
+    var el = document.getElementById(id);
+    if (el) el[prop || 'textContent'] = '';
+  }
+
   function resetForm() {
     editingWorkoutId = null;
-    document.getElementById('workout-name').value = '';
-    document.getElementById('workout-date').value = todayIso();
-    document.getElementById('workout-remarks').value = '';
-    document.getElementById('workout-tss').value = '';
-    document.getElementById('exercises-tbody').innerHTML = '';
-    document.getElementById('exercises-error').textContent = '';
-    document.getElementById('name-error').textContent = '';
+    _setEl('workout-name', '');
+    _setEl('workout-date', todayIso());
+    _setEl('workout-remarks', '');
+    _setEl('workout-tss', '');
+    _clearEl('exercises-tbody', 'innerHTML');
+    _clearEl('exercises-error');
+    _clearEl('name-error');
     setSaveBtnLabel('Save workout');
     resetRunFields();
     setSelectedType('Strength');
-    addExerciseRow(null);
+    var exTbody = document.getElementById('exercises-tbody');
+    if (exTbody) addExerciseRow(null);
     applyDefaultWorkoutName();
     renderStrengthProfile();
   }
@@ -763,22 +789,24 @@
   function fillForm(workout) {
     editingWorkoutId = workout.id;
     var nameEl = document.getElementById('workout-name');
-    nameEl.value = workout.name;
-    delete nameEl.dataset.autoName;
-    document.getElementById('workout-date').value = workout.workout_date;
-    document.getElementById('workout-remarks').value = workout.remarks || '';
-    document.getElementById('workout-tss').value = workout.tss != null ? workout.tss : '';
-    document.getElementById('exercises-tbody').innerHTML = '';
-    document.getElementById('exercises-error').textContent = '';
-    document.getElementById('name-error').textContent = '';
+    if (nameEl) { nameEl.value = workout.name; delete nameEl.dataset.autoName; }
+    _setEl('workout-date', workout.workout_date);
+    _setEl('workout-remarks', workout.remarks || '');
+    _setEl('workout-tss', workout.tss != null ? workout.tss : '');
+    _clearEl('exercises-tbody', 'innerHTML');
+    _clearEl('exercises-error');
+    _clearEl('name-error');
     setSaveBtnLabel('Save changes');
     resetRunFields();
     setSelectedType(workout.workout_type);
-    if (isRunType(workout.workout_type)) {
-      fillRunFields(workout);
-    } else {
-      (workout.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
-      if (!workout.exercises || !workout.exercises.length) addExerciseRow(null);
+    var exTbody = document.getElementById('exercises-tbody');
+    if (exTbody) {
+      if (isRunType(workout.workout_type)) {
+        fillRunFields(workout);
+      } else {
+        (workout.exercises || []).forEach(function (ex) { addExerciseRow(ex); });
+        if (!workout.exercises || !workout.exercises.length) addExerciseRow(null);
+      }
     }
   }
 
@@ -789,8 +817,8 @@
     var nameEl = document.getElementById('workout-name');
     var nameErr = document.getElementById('name-error');
     var runErr = document.getElementById('run-error');
-    nameErr.textContent = '';
-    runErr.textContent = '';
+    if (nameErr) nameErr.textContent = '';
+    if (runErr) runErr.textContent = '';
 
     if (!nameEl.value.trim()) {
       nameErr.textContent = 'Workout name is required.';
@@ -852,6 +880,20 @@
   }
 
   function validateForm() {
+    // Simplified slide-over panel (issue #643) — no run/exercise sections
+    var hasExerciseSection = !!document.getElementById('exercises-tbody');
+    if (!hasExerciseSection) {
+      var nameEl2 = document.getElementById('workout-name');
+      var nameErr2 = document.getElementById('name-error');
+      if (nameErr2) nameErr2.textContent = '';
+      if (!nameEl2 || !nameEl2.value.trim()) {
+        if (nameErr2) nameErr2.textContent = 'Workout name is required.';
+        if (nameEl2) nameEl2.focus();
+        return false;
+      }
+      return true;
+    }
+
     if (runActive()) return validateRunForm();
 
     var valid = true;
@@ -859,18 +901,18 @@
     var nameErr = document.getElementById('name-error');
     var exErr = document.getElementById('exercises-error');
 
-    nameErr.textContent = '';
-    exErr.textContent = '';
+    if (nameErr) nameErr.textContent = '';
+    if (exErr) exErr.textContent = '';
 
-    if (!nameEl.value.trim()) {
-      nameErr.textContent = 'Workout name is required.';
-      nameEl.focus();
+    if (!nameEl || !nameEl.value.trim()) {
+      if (nameErr) nameErr.textContent = 'Workout name is required.';
+      if (nameEl) nameEl.focus();
       valid = false;
     }
 
     var rows = getExerciseRows();
     if (!rows.length || !rows.some(function (r) { return r.name; })) {
-      exErr.textContent = 'Add at least one exercise.';
+      if (exErr) exErr.textContent = 'Add at least one exercise.';
       valid = false;
     }
 
@@ -1121,17 +1163,21 @@
       tss: tssVal,
     };
 
-    if (run) {
-      payload.distance_km = getRunDistanceKm();
-      payload.duration_seconds = getRunDurationSeconds();
-      payload.avg_hr = intFieldVal('run-avg-hr');
-      payload.max_hr = intFieldVal('run-max-hr');
-      payload.elevation_m = intFieldVal('run-elevation');
-      // Run structure (segments) rides in exercises rows; the training-log
-      // detail panel renders distance-bearing exercises as intervals.
-      payload.exercises = getSegments();
+    // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections
+    var hasExerciseSection = !!document.getElementById('exercises-tbody');
+    if (hasExerciseSection) {
+      if (run) {
+        payload.distance_km = getRunDistanceKm();
+        payload.duration_seconds = getRunDurationSeconds();
+        payload.avg_hr = intFieldVal('run-avg-hr');
+        payload.max_hr = intFieldVal('run-max-hr');
+        payload.elevation_m = intFieldVal('run-elevation');
+        payload.exercises = getSegments();
+      } else {
+        payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
+      }
     } else {
-      payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
+      payload.exercises = [];
     }
 
     var btn = getSaveBtn();
