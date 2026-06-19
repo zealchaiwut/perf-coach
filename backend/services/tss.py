@@ -845,6 +845,124 @@ def calculate_strength_tss_per_set(sets) -> dict:
     }
 
 
+def calculate_strength_tss_per_set_with_prefs(sets, scale_constant, max_tss) -> dict:
+    """Compute Training Stress Score for a strength session using per-set RPE data.
+
+    This is a pure function — all database access must happen in the caller.
+    The caller is responsible for reading ``scale_constant`` and ``max_tss``
+    from ``user_preferences`` and passing them in. Neither value is hardcoded
+    here; if either is absent (None) the function returns a null result.
+
+    Parameters
+    ----------
+    sets:
+        List of dicts, each with keys ``reps`` (int) and ``rpe`` (int or float,
+        1–10 scale). The caller fetches this data from the database.
+    scale_constant:
+        Multiplier applied to the raw set-stress sum, read from
+        ``user_preferences.scale_constant`` by the caller. Must not be
+        hardcoded. A representative hard 45-minute session should yield TSS
+        between 50 and 70 at the chosen value. Pass None when the preference
+        is not set; the function will return a null result with a reason.
+    max_tss:
+        Upper bound applied after scaling, read from
+        ``user_preferences.max_tss`` by the caller. Must not be hardcoded.
+        Pass None when the preference is not set; the function will return a
+        null result with a reason.
+
+    Returns
+    -------
+    dict with exactly three keys:
+
+        tss (int or None):
+            Rounded TSS as a whole integer on success, or None when any
+            required input is absent or invalid.
+
+        method (str):
+            ``"per_set"`` when TSS was successfully computed; ``"none"``
+            on any failure.
+
+        debug (dict):
+            On success contains:
+              per_set_contributions — list of set_stress floats, one per set
+              raw_sum               — sum of per_set_contributions (pre-scale)
+              scaled_sum            — raw_sum × scale_constant
+              clamped               — min(scaled_sum, max_tss)
+            On failure also contains:
+              reason — human-readable string identifying the missing field
+                       and set index (when applicable).
+
+    Formula (per set)
+    -----------------
+        set_stress = reps × (rpe ÷ 10) × (rpe ÷ 10)
+        raw_sum    = Σ set_stress
+        scaled_sum = raw_sum × scale_constant
+        clamped    = min(scaled_sum, max_tss)
+        tss        = round(clamped)
+
+    Worked example (three sets)
+    ---------------------------
+    Inputs: [
+      { reps: 5, rpe: 8 },
+      { reps: 5, rpe: 9 },
+      { reps: 3, rpe: 10 }
+    ]
+    scale_constant = 5.85, max_tss = 150
+
+    Set 1 stress: 5 × (8 ÷ 10) × (8 ÷ 10) = 5 × 0.8 × 0.8 = 3.20
+    Set 2 stress: 5 × (9 ÷ 10) × (9 ÷ 10) = 5 × 0.9 × 0.9 = 4.05
+    Set 3 stress: 3 × (10 ÷ 10) × (10 ÷ 10) = 3 × 1.0 × 1.0 = 3.00
+
+    Raw sum: 3.20 + 4.05 + 3.00 = 10.25
+    Scaled sum: 10.25 × 5.85 = 59.9625
+    Clamped: min(59.9625, 150) = 59.9625
+    tss (whole number): 60
+    """
+    def _fail(reason):
+        return {"tss": None, "method": "none", "debug": {"reason": reason}}
+
+    if scale_constant is None:
+        return _fail("scale_constant preference is not set in user_preferences")
+
+    if max_tss is None:
+        return _fail("max_tss preference is not set in user_preferences")
+
+    if not sets:
+        return _fail("set list is empty or None")
+
+    contributions = []
+    try:
+        for i, s in enumerate(sets):
+            if s is None:
+                return _fail(f"set {i} is None")
+            reps = s.get("reps") if isinstance(s, dict) else getattr(s, "reps", None)
+            rpe = s.get("rpe") if isinstance(s, dict) else getattr(s, "rpe", None)
+
+            if reps is None:
+                return _fail(f"set {i} is missing reps")
+            if rpe is None:
+                return _fail(f"set {i} is missing rpe")
+
+            stress = float(reps) * (float(rpe) / 10) * (float(rpe) / 10)
+            contributions.append(stress)
+    except (TypeError, ValueError) as exc:
+        return _fail(f"invalid input value: {exc}")
+
+    raw_sum = sum(contributions)
+    scaled_sum = raw_sum * float(scale_constant)
+    clamped = min(scaled_sum, float(max_tss))
+    return {
+        "tss": round(clamped),
+        "method": "per_set",
+        "debug": {
+            "per_set_contributions": contributions,
+            "raw_sum": raw_sum,
+            "scaled_sum": scaled_sum,
+            "clamped": clamped,
+        },
+    }
+
+
 def compute_strength_tss(workout, exercises, prefs) -> dict:
     """Compute TSS for a strength workout from plain data objects (no DB access).
 

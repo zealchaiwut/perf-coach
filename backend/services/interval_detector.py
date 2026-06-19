@@ -22,8 +22,6 @@ alternating hard/recovery patterns. detect_sets then refines a detected
 Intervals phase by splitting it into sets wherever a long recovery occurs.
 """
 
-import statistics
-
 # ── Configuration constants ────────────────────────────────────────────────────
 
 HARD_REP_TOLERANCE = 0.25
@@ -56,6 +54,23 @@ _RECOVERY_BANDS = frozenset({"easy", "steady"})
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _plain_median(values):
+    """Return the median of *values* using plain arithmetic — no library imports.
+
+    Sorts the list, then returns the middle element for an odd-length list or
+    the arithmetic average of the two middle elements for an even-length list.
+
+    Example (odd):  [90, 90, 270]   → sorted [90, 90, 270], middle index 1 → 90
+    Example (even): [90, 90, 180, 180] → middle pair (90, 180), average → 135
+    """
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    mid = n // 2
+    if n % 2 == 1:
+        return float(sorted_vals[mid])
+    return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+
 
 def _get(lap, key):
     """Retrieve a value from a lap dict or object attribute."""
@@ -206,7 +221,7 @@ def detect_intervals(laps):
             # Apply tolerance: keep only the contiguous prefix of cycles whose
             # hard-rep duration is within HARD_REP_TOLERANCE of the median.
             hard_durs = [_dur(laps[hi]) for hi, ri in cycles]
-            med_dur = statistics.median(hard_durs)
+            med_dur = _plain_median(hard_durs)
             valid_cycles = []
             for hi, ri in cycles:
                 if med_dur > 0 and abs(_dur(laps[hi]) - med_dur) > HARD_REP_TOLERANCE * med_dur:
@@ -232,10 +247,15 @@ def detect_sets(intervals_phase, laps):
     the end of one set and the start of the next.  The final recovery (the one
     after the last hard rep) is never treated as a set boundary.
 
-    If all resulting sets contain the same number of hard reps, reps_detected
-    in the returned dict is updated to that per-set count.  If the sets are
-    uneven, reps_detected is set to None and a human-readable reason string is
-    returned explaining the imbalance.
+    The median recovery duration is computed in plain arithmetic: sort the
+    recovery durations, take the middle value for an odd count, or the average
+    of the two middle values for an even count.
+
+    The returned phase dict always includes reps_per_set (a list of integers,
+    one entry per set).  When no long recovery is found sets_detected is 1 and
+    reps_per_set contains the single total rep count.  If all sets are even,
+    reps_detected is updated to the per-set count; if sets are uneven,
+    reps_detected is set to None and a human-readable reason string is returned.
 
     Parameters
     ----------
@@ -251,8 +271,23 @@ def detect_sets(intervals_phase, laps):
     (updated_phase_dict, reason)  when sets are uneven; reps_detected is None.
     (None, reason_str)            when inputs are null or invalid; never raises.
 
-    Worked example
-    --------------
+    The updated phase dict always contains:
+        sets_detected  — integer ≥ 1
+        reps_per_set   — list of integers, one entry per set
+
+    Worked example (a)
+    ------------------
+    Six hard reps (band="tempo", ~60 s each) each followed by a short (~90 s)
+    easy recovery — all recoveries uniform, no long rest:
+
+        updated, reason = detect_sets(intervals_phase, laps)
+        # → updated["sets_detected"] == 1
+        # → updated["reps_detected"] == 6
+        # → updated["reps_per_set"] == [6]
+        # → reason is None
+
+    Worked example (b)
+    ------------------
     Twelve hard reps in total: reps 1–6 each followed by a short (~90 s)
     recovery, then one long recovery (~270 s, roughly 3× the median), then
     reps 7–12 each followed by short recoveries:
@@ -260,6 +295,7 @@ def detect_sets(intervals_phase, laps):
         updated, reason = detect_sets(intervals_phase, laps)
         # → updated["sets_detected"] == 2
         # → updated["reps_detected"] == 6
+        # → updated["reps_per_set"] == [6, 6]
         # → reason is None
     """
     if intervals_phase is None:
@@ -297,9 +333,10 @@ def detect_sets(intervals_phase, laps):
         # Not enough recoveries to establish a median; treat as a single set.
         updated = dict(intervals_phase)
         updated["sets_detected"] = 1
+        updated["reps_per_set"] = [total_reps]
         return updated, None
 
-    med_rec = statistics.median([dur for _, dur in recovery_entries])
+    med_rec = _plain_median([dur for _, dur in recovery_entries])
 
     # A recovery is a set boundary when its duration exceeds
     # SET_BOUNDARY_MULTIPLIER × median_recovery_duration.  The final recovery
@@ -318,6 +355,7 @@ def detect_sets(intervals_phase, laps):
 
     updated = dict(intervals_phase)
     updated["sets_detected"] = sets_count
+    updated["reps_per_set"] = reps_per_set
 
     if len(set(reps_per_set)) == 1:
         updated["reps_detected"] = reps_per_set[0]

@@ -552,6 +552,8 @@ class UserPreferences(Base):
     week_start_day = Column(Integer, nullable=False, server_default=text("1"))
     display_name = Column(String(100), nullable=True)
     date_format = Column(String(20), nullable=False, server_default=text("'YYYY-MM-DD'"))
+    strength_rpe_max = Column(Integer, nullable=True)
+    aerobic_decoupling_threshold = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
