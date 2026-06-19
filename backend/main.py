@@ -6470,6 +6470,168 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     })
 
 
+# ── Performance chart endpoint ────────────────────────────────────────────────
+
+@app.get("/api/performance/chart")
+def get_performance_chart(
+    athlete_id: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+):
+    """Return aligned CTL/ATL/TSB/endurance/speed time series for a performance chart.
+
+    Accepts athlete_id, start_date (YYYY-MM-DD), and end_date (YYYY-MM-DD) as
+    query parameters.  All error cases return HTTP 200 with empty series arrays
+    and a machine-readable reason field instead of raising HTTP errors.
+
+    Empty-payload reasons:
+        athlete_not_found   — athlete_id missing or does not match any user
+        invalid_date_range  — dates missing, unparseable, or start > end
+        no_data_in_range    — athlete exists but no load data falls in range
+
+    Response (normal):
+        {
+          "dates": ["2026-01-01", ...],
+          "ctl": [12.5, ...],
+          "atl": [10.0, ...],
+          "tsb": [2.5, ...],
+          "endurance_score": [null, 45.5, ...],
+          "speed_score": [null, 60.0, ...],
+          "building_baseline": false,
+          "reason": ""
+        }
+    """
+    from backend.services.performance_chart import compute_performance_chart
+    from backend.services.daily_load import daily_load_series as _perf_daily_load_series
+    from backend.services.lap_classify import classify_laps as _classify_laps
+    from backend.services.zone_constants import make_zone_constants as _make_zone_constants
+    from backend.services.fitness_model import CTL_TIME_CONSTANT as _CTL_TC
+
+    def _empty_response(reason: str):
+        return JSONResponse({
+            "dates": [], "ctl": [], "atl": [], "tsb": [],
+            "endurance_score": [], "speed_score": [],
+            "building_baseline": False,
+            "reason": reason,
+        })
+
+    # AC6: athlete_id is required; missing → athlete_not_found
+    if not athlete_id:
+        return _empty_response("athlete_not_found")
+
+    # AC7: both dates are required; missing → invalid_date_range
+    if not start_date or not end_date:
+        return _empty_response("invalid_date_range")
+
+    # AC7: parse and validate dates
+    try:
+        d_start = _date.fromisoformat(start_date)
+        d_end = _date.fromisoformat(end_date)
+    except ValueError:
+        return _empty_response("invalid_date_range")
+
+    if d_start > d_end:
+        return _empty_response("invalid_date_range")
+
+    # AC6: look up athlete (user) by id
+    try:
+        import uuid as _uuid_mod
+        uid = _uuid_mod.UUID(str(athlete_id))
+    except (ValueError, AttributeError):
+        return _empty_response("athlete_not_found")
+
+    with Session(engine) as session:
+        user_row = session.get(User, uid)
+        if user_row is None:
+            return _empty_response("athlete_not_found")
+
+        # Fetch workouts with a warmup window so the EWMA can converge
+        warmup_start = d_start - _timedelta(days=_CTL_TC * 2)
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= warmup_start,
+                Workout.workout_date <= d_end,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+
+        # Build the daily load series for fitness model input
+        workout_dicts = [
+            {
+                "id": str(w.id),
+                "date": str(w.workout_date),
+                "tss": float(w.tss) if w.tss is not None else None,
+            }
+            for w in workouts
+        ]
+        load_series = _perf_daily_load_series(workout_dicts, str(warmup_start), str(d_end))
+        if isinstance(load_series, dict):
+            # Validation failure from daily_load_series
+            return _empty_response("no_data_in_range")
+
+        # Build classified run data for endurance/speed score computation
+        run_workouts = [w for w in workouts if w.workout_type.lower() == "run"]
+
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        prefs_dict: dict = {}
+        if prefs_row is not None:
+            prefs_dict = {
+                "ftp_w": prefs_row.ftp_w,
+                "threshold_hr": prefs_row.threshold_hr,
+                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+            }
+
+        zc = _make_zone_constants(preferences=prefs_dict)
+
+        runs: list[dict] = []
+        for w in run_workouts:
+            splits = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == w.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+            if not splits:
+                continue
+
+            classifications = _classify_laps(splits, prefs_dict)
+            laps = []
+            for split, clf in zip(splits, classifications):
+                laps.append({
+                    "band": clf.get("band"),
+                    "avg_hr": float(split.avg_hr) if split.avg_hr is not None else None,
+                    "avg_power": float(split.avg_power) if split.avg_power is not None else None,
+                    "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                    "duration_seconds": float(split.duration_seconds) if split.duration_seconds is not None else None,
+                })
+
+            runs.append({
+                "run_id": str(w.id),
+                "run_date": str(w.workout_date),
+                "laps": laps,
+                "decoupling_pct": None,
+            })
+
+    # Delegate to the pure computation function
+    result = compute_performance_chart(
+        daily_load_series=load_series,
+        runs=runs,
+        preferences=prefs_dict if prefs_dict else {},
+        zone_constants=zc,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return JSONResponse(result)
+
+
 # ── Training Log endpoint ─────────────────────────────────────────────────────
 
 def _week_key_and_bounds(date_obj):
