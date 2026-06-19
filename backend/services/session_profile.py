@@ -67,7 +67,7 @@ Result:
     }
 """
 
-from backend.services.lap_classify import classify_laps
+from backend.services.lap_classifier import classify_laps
 from backend.services.lap_phase_grouper import group_laps_into_phases, LapPhaseConfig
 from backend.services.interval_detector import detect_intervals, detect_sets
 
