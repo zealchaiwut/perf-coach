@@ -52,6 +52,23 @@ def session_cookie(client, test_user):
 
 
 @pytest.fixture(scope="module")
+def csrf_token_and_session(client, test_user):
+    """Return (session_cookie, csrf_token) tuple."""
+    with _OrmSess(_engine) as db:
+        u = db.get(_UserModel, uuid.UUID(test_user))
+        name = u.name
+    res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
+    assert res.status_code == 200, res.text
+    session = client.cookies.get("session", "")
+    csrf = ""
+    for sc in res.headers.get_list("set-cookie"):
+        if sc.startswith("csrf-token="):
+            csrf = sc.split("=", 1)[1].split(";")[0]
+            break
+    return session, csrf
+
+
+@pytest.fixture(scope="module")
 def auth_client(session_cookie):
     with httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=True) as c:
         c.cookies.set("session", session_cookie)
@@ -235,27 +252,35 @@ def test_save_button_exists(auth_client):
     assert "dp-save-btn" in html or "save-workout-btn" in html
 
 
-def test_no_new_api_endpoints(auth_client):
+def test_no_new_api_endpoints(csrf_token_and_session):
     """AC12: No new API endpoints are introduced; only existing workout endpoints are called.
     Verify /api/workouts (POST) and /api/workouts/{id} (PATCH) work correctly."""
-    # Verify existing create endpoint still works
-    today = "2024-01-15"
-    payload = {
-        "name": "Test AC8 Workout",
-        "workout_date": today,
-        "workout_type": "Strength",
-    }
-    r = auth_client.post("/api/workouts", json=payload)
-    assert r.status_code == 201, f"Create workout failed: {r.text}"
-    workout_id = r.json()["id"]
+    session, csrf = csrf_token_and_session
 
-    # Verify existing patch endpoint still works
-    r2 = auth_client.patch(f"/api/workouts/{workout_id}", json={"name": "Updated Name"})
-    assert r2.status_code == 200, f"Update workout failed: {r2.text}"
-    assert r2.json()["name"] == "Updated Name"
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        # Set auth cookies and CSRF token
+        client.cookies.set("session", session)
+        client.cookies.set("csrf-token", csrf)
 
-    # Cleanup
-    auth_client.delete(f"/api/workouts/{workout_id}")
+        # Verify existing create endpoint still works
+        today = "2024-01-15"
+        payload = {
+            "name": "Test AC8 Workout",
+            "workout_date": today,
+            "workout_type": "Strength",
+        }
+        headers = {"X-CSRF-Token": csrf}
+        r = client.post("/api/workouts", json=payload, headers=headers)
+        assert r.status_code == 201, f"Create workout failed: {r.text}"
+        workout_id = r.json()["id"]
+
+        # Verify existing patch endpoint still works
+        r2 = client.patch(f"/api/workouts/{workout_id}", json={"name": "Updated Name"}, headers=headers)
+        assert r2.status_code == 200, f"Update workout failed: {r2.text}"
+        assert r2.json()["name"] == "Updated Name"
+
+        # Cleanup
+        client.delete(f"/api/workouts/{workout_id}", headers=headers)
 
 
 # ── AC9: Cancel button ────────────────────────────────────────────────────
