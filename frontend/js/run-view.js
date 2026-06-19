@@ -233,22 +233,21 @@
       + '<h1 class="rv-workout-name">' + (w.name || 'Untitled Run') + '</h1>'
       + '<div class="rv-short-id">'
       + '<code class="rv-mono rv-id-code">' + shortId + '</code>'
-      + '<button class="rv-copy-btn" title="Copy ID" onclick="(function(){' +
-        'navigator.clipboard && navigator.clipboard.writeText(\'' + shortId + '\');})()">&#x2398;</button>'
+      + '<button class="rv-copy-btn" title="Copy ID" data-copy="' + shortId + '">&#x2398;</button>'
       + '</div>'
       + '<div class="rv-date">' + (w.workout_date || '—') + '</div>'
       + '</div>'
       + '<div class="rv-header-right">' + badges + '</div>'
       + '</div>';
 
-    // Hero tiles (distance + pace)
+    // Basic tiles: Distance, Avg Pace, Duration
     var dist = w.distance_km ? w.distance_km.toFixed(2) + ' km' : null;
     var pace = fmtPace(w.distance_km, w.duration_seconds);
     var dur = fmtDuration(w.duration_seconds);
     var heroSection = '<div class="rv-card rv-hero-row">'
       + tile('Distance', dist, ' rv-tile--lg')
       + tile('Avg Pace', pace !== '—' ? pace : null, ' rv-tile--lg')
-      + '<div class="rv-duration-line rv-mono">' + dur + '</div>'
+      + tile('Duration', dur, ' rv-tile--lg')
       + '</div>';
 
     // Load & Intensity tiles
@@ -304,6 +303,24 @@
 
     document.getElementById('rv-root').innerHTML =
       header + heroSection + intensitySection + profileSection + lapsSection + routeSection + sourceSection;
+
+    // Copy-to-clipboard with user feedback
+    var copyBtn = document.querySelector('.rv-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        var text = copyBtn.dataset.copy;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(text).then(function () {
+            copyBtn.textContent = '✓';
+            copyBtn.title = 'Copied!';
+            setTimeout(function () {
+              copyBtn.innerHTML = '&#x2398;';
+              copyBtn.title = 'Copy ID';
+            }, 1500);
+          }).catch(function () {});
+        }
+      });
+    }
 
     // Lap metric toggle
     document.querySelectorAll('.rv-mtog').forEach(function (btn) {
