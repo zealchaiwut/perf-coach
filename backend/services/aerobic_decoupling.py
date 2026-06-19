@@ -73,7 +73,10 @@ def compute_decoupling(
         ``"insufficient_data: fewer than 2 laps and no stream provided"``).
     """
     if not splits_or_stream:
-        return None, "insufficient_data: fewer than 2 laps and no stream provided"
+        return (
+            None,
+            "insufficient_data: fewer than 2 laps and no stream provided",
+        )
 
     if isinstance(splits_or_stream, dict):
         return _from_stream(splits_or_stream, threshold)
@@ -93,7 +96,10 @@ def _series(stream: dict, name: str) -> list[float]:
     data = v.get("data") if isinstance(v, dict) else None
     if not isinstance(data, list):
         return []
-    return [x for x in data if isinstance(x, (int, float)) and not isinstance(x, bool)]
+    return [
+        x for x in data
+        if isinstance(x, (int, float)) and not isinstance(x, bool)
+    ]
 
 
 def _from_stream(
@@ -106,20 +112,32 @@ def _from_stream(
     if len(hr_data) < 4:
         return None, "missing_hr: stream contains no usable heart rate data"
     if len(time_data) < 4:
-        return None, "insufficient_data: stream time series is too short to split"
+        return (
+            None,
+            "insufficient_data: stream time series is too short to split",
+        )
     if len(time_data) != len(hr_data):
-        return None, "insufficient_data: time and heartrate series have different lengths"
+        return (
+            None,
+            "insufficient_data: time and heartrate length mismatch",
+        )
 
     total_time = max(time_data)
     if total_time <= 0:
-        return None, "insufficient_data: stream elapsed time is zero or negative"
+        return (
+            None,
+            "insufficient_data: stream elapsed time is zero or negative",
+        )
     midpoint = total_time / 2
 
     first_idx = [i for i, t in enumerate(time_data) if t <= midpoint]
     second_idx = [i for i, t in enumerate(time_data) if t > midpoint]
 
     if not first_idx or not second_idx:
-        return None, "insufficient_data: cannot split stream into two non-empty halves"
+        return (
+            None,
+            "insufficient_data: cannot split stream into two halves",
+        )
 
     watts = _series(stream, "watts")
     vel = _series(stream, "velocity_smooth")
@@ -154,7 +172,10 @@ def _from_stream(
     e2 = _mean_efficiency(second_idx)
 
     if e1 is None or e2 is None or e1 == 0:
-        return None, "insufficient_data: could not compute efficiency for one or both halves"
+        return (
+            None,
+            "insufficient_data: could not compute half efficiencies",
+        )
 
     return _build_result(e1, e2, threshold)
 
@@ -168,9 +189,13 @@ def _from_splits(
     threshold: float | None,
 ) -> tuple[dict, None] | tuple[None, str]:
     if len(splits) < 2:
-        return None, "insufficient_data: fewer than 2 laps and no stream provided"
+        return (
+            None,
+            "insufficient_data: fewer than 2 laps and no stream provided",
+        )
 
-    valid = [s for s in splits if isinstance(s.get("duration_seconds"), (int, float)) and s["duration_seconds"] > 0]
+    valid = [s for s in splits if isinstance(
+        s.get("duration_seconds"), (int, float)) and s["duration_seconds"] > 0]
     if len(valid) < 2:
         return None, "insufficient_data: fewer than 2 laps with valid duration"
 
@@ -191,37 +216,61 @@ def _from_splits(
         cumulative += dur
 
     if not first_half or not second_half:
-        return None, "insufficient_data: cannot split laps into two non-empty halves"
+        return (
+            None,
+            "insufficient_data: cannot split laps into two halves",
+        )
 
     # Check HR availability
     def _has_hr(half: list[dict]) -> bool:
-        return all(isinstance(s.get("avg_hr"), (int, float)) and s["avg_hr"] > 0 for s in half)
+        return all(
+            isinstance(s.get("avg_hr"), (int, float)) and s["avg_hr"] > 0
+            for s in half
+        )
 
     if not _has_hr(first_half) or not _has_hr(second_half):
         return None, "missing_hr: one or more laps have no heart rate data"
 
     # Determine metric: power or speed
-    use_power = all(isinstance(s.get("avg_power"), (int, float)) and s["avg_power"] > 0 for s in first_half + second_half)
+    use_power = all(isinstance(s.get("avg_power"), (int, float))
+                    and s["avg_power"] > 0 for s in first_half + second_half)
     use_speed = (
         not use_power
         and all(
-            isinstance(s.get("distance_km"), (int, float)) and s["distance_km"] > 0
+            isinstance(s.get("distance_km"), (int, float)
+                       ) and s["distance_km"] > 0
             for s in first_half + second_half
         )
     )
 
     if not use_power and not use_speed:
-        return None, "insufficient_data: no power or distance data available for efficiency calculation"
+        return (
+            None,
+            "insufficient_data: no power or distance data for efficiency",
+        )
 
     def _weighted_efficiency(half: list[dict]) -> float:
         total_dur = sum(float(s["duration_seconds"]) for s in half)
         if use_power:
-            weighted_p = sum(float(s["avg_power"]) * float(s["duration_seconds"]) for s in half) / total_dur
-            weighted_hr = sum(float(s["avg_hr"]) * float(s["duration_seconds"]) for s in half) / total_dur
+            weighted_p = sum(
+                float(s["avg_power"]) * float(s["duration_seconds"])
+                for s in half
+            ) / total_dur
+            weighted_hr = sum(
+                float(s["avg_hr"]) * float(s["duration_seconds"])
+                for s in half
+            ) / total_dur
         else:
             # speed = distance / duration_seconds (in km/s)
-            weighted_speed = sum((float(s["distance_km"]) / float(s["duration_seconds"])) * float(s["duration_seconds"]) for s in half) / total_dur
-            weighted_hr = sum(float(s["avg_hr"]) * float(s["duration_seconds"]) for s in half) / total_dur
+            weighted_speed = sum(
+                (float(s["distance_km"]) / float(s["duration_seconds"]))
+                * float(s["duration_seconds"])
+                for s in half
+            ) / total_dur
+            weighted_hr = sum(
+                float(s["avg_hr"]) * float(s["duration_seconds"])
+                for s in half
+            ) / total_dur
             # efficiency = speed / hr
             if weighted_hr <= 0:
                 return 0.0

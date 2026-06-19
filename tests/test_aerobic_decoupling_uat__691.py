@@ -13,10 +13,12 @@ import pytest
 import httpx
 
 
-BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "9001")
+BASE_URL = os.environ.get(
+    "UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "9001")
 if not BASE_URL.startswith("http"):
     raise RuntimeError(
-        "UAT_BASE_URL / UAT_PORT not set. Run the tester skill's Step 0 to resolve UAT before pytest."
+        "UAT_BASE_URL / UAT_PORT not set. "
+        "Run the tester skill's Step 0 to resolve UAT before pytest."
     )
 
 
@@ -77,7 +79,8 @@ def test_uat_step_1_decoupling_with_laps_and_hr(client, auth_headers):
     # If aerobic_decoupling is null, there's a reason field
     if decoupling is None:
         assert "aerobic_decoupling_reason" in target_workout
-        pytest.skip(f"Decoupling unavailable: {target_workout['aerobic_decoupling_reason']}")
+        reason = target_workout['aerobic_decoupling_reason']
+        pytest.skip(f"Decoupling unavailable: {reason}")
 
     # On success, verify structure
     assert isinstance(decoupling, dict)
@@ -122,7 +125,8 @@ def test_uat_step_2_decoupling_prefers_power(client, auth_headers):
 
     decoupling = target_workout.get("aerobic_decoupling")
     if decoupling is None:
-        pytest.skip(f"Decoupling unavailable: {target_workout.get('aerobic_decoupling_reason')}")
+        reason = target_workout.get('aerobic_decoupling_reason')
+        pytest.skip(f"Decoupling unavailable: {reason}")
 
     # Verify efficiencies are in reasonable range for power-based metric
     # Power/HR typically ranges from ~1-3 (watts per bpm)
@@ -130,8 +134,10 @@ def test_uat_step_2_decoupling_prefers_power(client, auth_headers):
     e2 = decoupling["debug"]["second_half_efficiency"]
     assert e1 > 0, "first_half_efficiency should be positive"
     assert e2 > 0, "second_half_efficiency should be positive"
-    # If power is in the range 200-350W and HR is 120-160, efficiency should be 1-3
-    assert 0.1 < e1 < 10, f"first_half_efficiency {e1} out of expected power-based range"
+    # Power 200-350W / HR 120-160 bpm → efficiency ~1-3 watts/bpm
+    assert 0.1 < e1 < 10, (
+        f"first_half_efficiency {e1} out of expected power-based range"
+    )
 
 
 # --- UAT Step 3: Missing HR data returns null with reason ---
@@ -157,7 +163,9 @@ def test_uat_step_3_missing_hr_returns_null(client, auth_headers):
                     break
 
     if target_workout is None:
-        pytest.skip("No run without HR data found; cannot test missing HR case")
+        pytest.skip(
+            "No run without HR data found; cannot test missing HR case"
+        )
 
     # Verify decoupling is null and reason is present
     assert target_workout.get("aerobic_decoupling") is None
@@ -175,8 +183,9 @@ def test_uat_step_3_missing_hr_returns_null(client, auth_headers):
 # --- UAT Step 4: Insufficient data returns null with reason ---
 
 def test_uat_step_4_insufficient_data_returns_null(client, auth_headers):
-    """UAT Step 4: GET /api/workouts/{id}/full for run with 1 lap and no stream.
-    Expected: aerobic_decoupling is null and reason indicates insufficient data.
+    """UAT Step 4: run with 1 lap and no stream.
+    GET /api/workouts/{id}/full should return aerobic_decoupling=null
+    with a reason indicating insufficient data.
     """
     # Find or create a run with only 1 lap/split and no stream data
     workouts_resp = client.get("/api/workouts")
@@ -209,7 +218,8 @@ def test_uat_step_4_insufficient_data_returns_null(client, auth_headers):
 
 # --- UAT Step 5: Threshold = 5, decoupling = 7 → faded_late True ---
 
-def test_uat_step_5_threshold_5_decoupling_7_faded_late_true(client, auth_headers):
+def test_uat_step_5_faded_late_true_when_pct_exceeds_threshold(
+        client, auth_headers):
     """UAT Step 5: Set threshold to 5, fetch workout with decoupling ~7.
     Expected: aerobic_decoupling.faded_late is True.
     """
@@ -238,18 +248,23 @@ def test_uat_step_5_threshold_5_decoupling_7_faded_late_true(client, auth_header
                     pct = decoupling["decoupling_pct"]
                     # Check if this one is above threshold
                     if 5.0 < pct < 10.0:  # Approximately in the 7% range
-                        assert decoupling["faded_late"] is True, \
-                            f"Decoupling {pct}% exceeds threshold 5%; faded_late should be True"
+                        msg = (
+                            f"Decoupling {pct}% exceeds threshold 5%;"
+                            " faded_late should be True"
+                        )
+                        assert decoupling["faded_late"] is True, msg
                         found = True
                         break
 
     if not found:
-        pytest.skip("No workout with decoupling 5-10% found to test threshold=5")
+        pytest.skip(
+            "No workout with decoupling 5-10% found to test threshold=5")
 
 
 # --- UAT Step 6: Threshold = 10, same decoupling ~7 → faded_late False ---
 
-def test_uat_step_6_threshold_10_decoupling_7_faded_late_false(client, auth_headers):
+def test_uat_step_6_faded_late_false_when_pct_below_threshold(
+        client, auth_headers):
     """UAT Step 6: Set threshold to 10, fetch same workout from step 5.
     Expected: aerobic_decoupling.faded_late is False.
     """
@@ -277,8 +292,11 @@ def test_uat_step_6_threshold_10_decoupling_7_faded_late_false(client, auth_head
                     pct = decoupling["decoupling_pct"]
                     # Check if below new threshold
                     if 5.0 < pct < 10.0:
-                        assert decoupling["faded_late"] is False, \
-                            f"Decoupling {pct}% below threshold 10%; faded_late should be False"
+                        msg = (
+                            f"Decoupling {pct}% below threshold 10%;"
+                            " faded_late should be False"
+                        )
+                        assert decoupling["faded_late"] is False, msg
                         found = True
                         break
 
@@ -311,7 +329,7 @@ def test_uat_step_7_non_run_workout_no_regression(client, auth_headers):
             assert "field_coverage" in full_data
             assert "tss" in full_data
 
-            # aerobic_decoupling should still be present (even if null for non-runs)
+            # aerobic_decoupling present even if null for non-runs
             assert "aerobic_decoupling" in full_data
 
             # For non-runs, decoupling should be null (out of scope)
