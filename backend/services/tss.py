@@ -384,6 +384,7 @@ def calculate_hr_tss(
     All required inputs must be supplied by the caller. No default thresholds
     are assumed; if threshold_hr is not set in user preferences the caller must
     pass None and the function will return a null result with a reason string.
+    A zero value for threshold_hr or avg_hr is also treated as missing.
 
     Parameters
     ----------
@@ -391,16 +392,17 @@ def calculate_hr_tss(
         Total workout duration in seconds (int or float). Required.
     avg_hr:
         Workout-level average heart rate in beats per minute. Used as a
-        fallback when per-lap HR data are absent or incomplete.
+        fallback when per-lap HR data are absent or incomplete. A value of
+        zero is treated as missing.
     threshold_hr:
         The athlete's heart-rate threshold (lactate-threshold HR) in beats
         per minute, read from user_preferences by the caller. Must not be
-        hardcoded here; pass None if the value is not set.
+        hardcoded here; pass None or 0 if the value is not set.
     laps:
         Optional iterable of lap objects (or dicts) each with avg_hr
         (beats per minute) and duration_seconds attributes. When all laps
-        carry a valid avg_hr, a duration-weighted average HR is derived from
-        the laps and used instead of the workout-level avg_hr.
+        carry a valid avg_hr, the TSS is computed as the sum of per-lap
+        contributions rather than from the workout-level avg_hr.
 
     Returns
     -------
@@ -408,7 +410,7 @@ def calculate_hr_tss(
 
         tss (int or None):
             Rounded Training Stress Score, or None when a required input is
-            absent.
+            absent or zero.
 
         method (str):
             "hr" when TSS was successfully computed; "none" otherwise.
@@ -416,6 +418,9 @@ def calculate_hr_tss(
         debug (dict):
             Diagnostic values. Always contains:
               intensity_factor — avg_hr divided by threshold_hr (float or None)
+              avg_hr_used      — effective HR used in the calculation (float or None)
+              threshold_hr     — the threshold value passed in (int or None)
+              duration_seconds — the duration value passed in (int or None)
               duration_hours   — duration_seconds divided by 3600 (float or None)
             When a required input is absent, also contains:
               reason — human-readable string describing which input is missing.
@@ -423,8 +428,9 @@ def calculate_hr_tss(
     Formula
     -------
     Step 1 — Determine effective average HR.
-        When all laps supply avg_hr, compute a duration-weighted average:
-            weighted_avg_hr = sum(lap_avg_hr * lap_duration) / total_duration.
+        When all laps supply avg_hr, compute the TSS as the sum of per-lap
+        contributions: for each lap, lap_tss = (lap_duration / 3600) ×
+        (lap_avg_hr / threshold_hr)² × 100.
         When per-lap HR is absent or incomplete, fall back to the
         workout-level avg_hr argument.
 
@@ -444,8 +450,8 @@ def calculate_hr_tss(
     --------------
     A runner completes a 60-minute run at exactly their threshold heart rate.
 
-        threshold_hr    = 170 bpm
-        avg_hr          = 170 bpm
+        threshold_hr     = 170 bpm
+        avg_hr           = 170 bpm
         duration_seconds = 3600
 
     Step 1 — No lap data; effective_avg_hr = 170.
@@ -457,7 +463,13 @@ def calculate_hr_tss(
         {
             "tss": 100,
             "method": "hr",
-            "debug": {"intensity_factor": 1.0, "duration_hours": 1.0},
+            "debug": {
+                "intensity_factor": 1.0,
+                "avg_hr_used": 170,
+                "threshold_hr": 170,
+                "duration_seconds": 3600,
+                "duration_hours": 1.0,
+            },
         }
     """
     def _get(obj, key):
@@ -466,15 +478,23 @@ def calculate_hr_tss(
     # Compute duration_hours where possible (used in debug regardless of outcome)
     duration_hours = duration_seconds / 3600 if duration_seconds is not None else None
 
-    # Missing threshold_hr — cannot compute IF or TSS
-    if threshold_hr is None:
+    # Missing or zero threshold_hr — cannot compute IF or TSS
+    if not threshold_hr:
+        reason = (
+            "threshold_hr not set in user preferences"
+            if threshold_hr is None
+            else "threshold_hr is zero"
+        )
         return {
             "tss": None,
             "method": "none",
             "debug": {
                 "intensity_factor": None,
+                "avg_hr_used": None,
+                "threshold_hr": threshold_hr,
+                "duration_seconds": duration_seconds,
                 "duration_hours": duration_hours,
-                "reason": "threshold_hr not set in user preferences",
+                "reason": reason,
             },
         }
 
@@ -485,32 +505,54 @@ def calculate_hr_tss(
             "method": "none",
             "debug": {
                 "intensity_factor": None,
+                "avg_hr_used": None,
+                "threshold_hr": threshold_hr,
+                "duration_seconds": None,
                 "duration_hours": None,
                 "reason": "duration_seconds is missing",
             },
         }
 
-    # Resolve effective average HR from per-lap data when available
-    effective_avg_hr = None
+    # Per-lap path: sum of per-lap TSS contributions when all laps have avg_hr
     lap_list = list(laps) if laps else []
     if lap_list:
         lap_hrs = [_get(lap, "avg_hr") for lap in lap_list]
         lap_durs = [_get(lap, "duration_seconds") or 0 for lap in lap_list]
         if all(h is not None for h in lap_hrs) and sum(lap_durs) > 0:
-            effective_avg_hr = sum(h * d for h, d in zip(lap_hrs, lap_durs)) / sum(lap_durs)
+            total_tss = 0.0
+            for h, d in zip(lap_hrs, lap_durs):
+                lap_if = h / threshold_hr
+                total_tss += (d / 3600) * lap_if ** 2 * 100
+            # Weighted average HR for debug display only
+            avg_hr_used = sum(h * d for h, d in zip(lap_hrs, lap_durs)) / sum(lap_durs)
+            intensity_factor = avg_hr_used / threshold_hr
+            return {
+                "tss": round(total_tss),
+                "method": "hr",
+                "debug": {
+                    "intensity_factor": intensity_factor,
+                    "avg_hr_used": avg_hr_used,
+                    "threshold_hr": threshold_hr,
+                    "duration_seconds": duration_seconds,
+                    "duration_hours": duration_hours,
+                },
+            }
 
-    if effective_avg_hr is None:
-        effective_avg_hr = avg_hr
+    # Fallback: workout-level avg_hr
+    effective_avg_hr = avg_hr
 
-    # Missing HR — cannot compute TSS
-    if effective_avg_hr is None:
+    # Missing or zero HR — cannot compute TSS
+    if not effective_avg_hr:
         return {
             "tss": None,
             "method": "none",
             "debug": {
                 "intensity_factor": None,
+                "avg_hr_used": None,
+                "threshold_hr": threshold_hr,
+                "duration_seconds": duration_seconds,
                 "duration_hours": duration_hours,
-                "reason": "avg_hr is missing",
+                "reason": "avg_hr is missing or zero",
             },
         }
 
@@ -522,6 +564,9 @@ def calculate_hr_tss(
         "method": "hr",
         "debug": {
             "intensity_factor": intensity_factor,
+            "avg_hr_used": effective_avg_hr,
+            "threshold_hr": threshold_hr,
+            "duration_seconds": duration_seconds,
             "duration_hours": duration_hours,
         },
     }
@@ -1078,6 +1123,64 @@ def persist_running_tss(workout_id, session) -> dict:
         workout.tss_source = "calculated"
 
     return result
+
+
+def compute_running_tss_pace_from_prefs(
+    user_id,
+    laps,
+    whole_workout_average_pace_seconds_per_km,
+    total_duration_seconds,
+    db,
+) -> dict:
+    """Thin DB-access wrapper around :func:`~backend.services.running_tss_pace.calculate_running_tss_pace`.
+
+    Reads ``threshold_pace_seconds_per_km`` from ``user_preferences`` for
+    ``user_id`` and passes it directly to the pure function.  No default value
+    is substituted when the preference is absent; a missing threshold produces
+    ``{tss: None, method: "none", ...}`` so the caller can surface that to the
+    user rather than silently computing a meaningless score.
+
+    Parameters
+    ----------
+    user_id:
+        The authenticated user's id.
+    laps:
+        List of lap dicts with ``lap_duration_seconds`` and
+        ``lap_pace_seconds_per_km``.  May be None or empty.
+    whole_workout_average_pace_seconds_per_km:
+        Fallback average pace for the whole workout when laps are absent.
+    total_duration_seconds:
+        Total workout duration used for the fallback calculation.
+    db:
+        Active SQLAlchemy session or connection.
+    """
+    from backend.services.running_tss_pace import calculate_running_tss_pace
+
+    threshold = None
+    if user_id is not None and db is not None:
+        try:
+            row = db.execute(
+                text(
+                    "SELECT threshold_pace_seconds_per_km "
+                    "FROM user_preferences WHERE user_id = :uid"
+                ),
+                {"uid": str(user_id)},
+            ).fetchone()
+            if row is not None:
+                threshold = row.threshold_pace_seconds_per_km
+        except Exception:
+            _log.warning(
+                "Could not query user_preferences for user %s; threshold will be None",
+                user_id,
+                exc_info=True,
+            )
+
+    return calculate_running_tss_pace(
+        threshold_pace_seconds_per_km=threshold,
+        laps=laps,
+        whole_workout_average_pace_seconds_per_km=whole_workout_average_pace_seconds_per_km,
+        total_duration_seconds=total_duration_seconds,
+    )
 
 
 def recompute_user_running_tss(user_id, session) -> None:

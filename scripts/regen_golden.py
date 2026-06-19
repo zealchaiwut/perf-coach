@@ -78,7 +78,8 @@ def main():
     tss_method = tss_result["method"]
 
     if tss_val is None:
-        print("ERROR: compute_running_tss returned None — check fixture data", file=sys.stderr)
+        msg = "ERROR: compute_running_tss returned None — check fixture data"
+        print(msg, file=sys.stderr)
         sys.exit(1)
 
     expected = {
@@ -110,10 +111,13 @@ def main():
                 "threshold_pace_seconds_per_km": _GOLDEN_THRESHOLD_PACE,
                 "threshold_hr": _GOLDEN_THRESHOLD_HR,
             },
-            "tolerance_note": "Exact integer equality — TSS rounds to a whole number.",
+            "tolerance_note": (
+                "Exact integer equality — TSS rounds to a whole number."
+            ),
             "verification_note": (
-                f"Hand-verified against compute_running_tss with ftp_w={_GOLDEN_FTP_W}, "
-                f"NP={np_val} (from streams), duration={fixture['metadata']['duration_seconds']}s. "
+                f"Hand-verified against compute_running_tss with "
+                f"ftp_w={_GOLDEN_FTP_W}, NP={np_val} (from streams), "
+                f"duration={fixture['metadata']['duration_seconds']}s. "
                 f"IF={np_val}/{_GOLDEN_FTP_W}={np_val/_GOLDEN_FTP_W:.4f}, "
                 f"TSS=round({fixture['metadata']['duration_seconds']/3600:.4f}"
                 f"*{(np_val/_GOLDEN_FTP_W)**2:.4f}*100)={tss_val}."

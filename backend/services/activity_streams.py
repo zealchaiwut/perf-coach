@@ -36,7 +36,10 @@ speed_list (m/s)       → pace_seconds_per_km  (1000 / v)
 """
 from __future__ import annotations
 
+import logging as _logging
 from typing import Optional
+
+_log = _logging.getLogger(__name__)
 
 
 # ── Core downsampling ─────────────────────────────────────────────────────────
@@ -144,34 +147,52 @@ def extract_strava_streams(
         ch = streams_payload.get(strava_key)
         if not isinstance(ch, dict) or not ch.get("data"):
             continue
-        _, vals = _aligned_arrays(time_data, ch["data"])
-        if vals:
-            row[col] = vals
+        try:
+            _, vals = _aligned_arrays(time_data, ch["data"])
+            if vals:
+                row[col] = vals
+        except Exception as exc:
+            _log.warning(
+                "strava channel skipped",
+                extra={"channel": strava_key, "reason": str(exc)},
+            )
 
     # velocity_smooth (m/s) → pace_seconds_per_km
     vel = streams_payload.get("velocity_smooth")
     if isinstance(vel, dict) and vel.get("data"):
-        pace_vals: list[Optional[float]] = []
-        for v in vel["data"]:
-            if isinstance(v, (int, float)) and v > 0:
-                pace_vals.append(round(1000.0 / v, 2))
-            else:
-                pace_vals.append(None)
-        _, paced = _aligned_arrays(time_data, pace_vals)
-        if paced:
-            row["pace_seconds_per_km"] = paced
+        try:
+            pace_vals: list[Optional[float]] = []
+            for v in vel["data"]:
+                if isinstance(v, (int, float)) and v > 0:
+                    pace_vals.append(round(1000.0 / v, 2))
+                else:
+                    pace_vals.append(None)
+            _, paced = _aligned_arrays(time_data, pace_vals)
+            if paced:
+                row["pace_seconds_per_km"] = paced
+        except Exception as exc:
+            _log.warning(
+                "strava channel skipped",
+                extra={"channel": "velocity_smooth", "reason": str(exc)},
+            )
 
     # latlng → latitude / longitude
     latlng = streams_payload.get("latlng")
     if isinstance(latlng, dict) and latlng.get("data"):
-        lats = [p[0] if isinstance(p, (list, tuple)) and len(p) >= 2 else None for p in latlng["data"]]
-        lngs = [p[1] if isinstance(p, (list, tuple)) and len(p) >= 2 else None for p in latlng["data"]]
-        _, lat_vals = _aligned_arrays(time_data, lats)
-        _, lng_vals = _aligned_arrays(time_data, lngs)
-        if lat_vals:
-            row["latitude"] = lat_vals
-        if lng_vals:
-            row["longitude"] = lng_vals
+        try:
+            lats = [p[0] if isinstance(p, (list, tuple)) and len(p) >= 2 else None for p in latlng["data"]]
+            lngs = [p[1] if isinstance(p, (list, tuple)) and len(p) >= 2 else None for p in latlng["data"]]
+            _, lat_vals = _aligned_arrays(time_data, lats)
+            _, lng_vals = _aligned_arrays(time_data, lngs)
+            if lat_vals:
+                row["latitude"] = lat_vals
+            if lng_vals:
+                row["longitude"] = lng_vals
+        except Exception as exc:
+            _log.warning(
+                "strava channel skipped",
+                extra={"channel": "latlng", "reason": str(exc)},
+            )
 
     return row, None
 
@@ -235,22 +256,34 @@ def extract_stryd_streams(
         raw = streams_payload.get(stryd_key)
         if not raw:
             continue
-        _, vals = _aligned_arrays(offsets, raw)
-        if vals:
-            row[col] = vals
+        try:
+            _, vals = _aligned_arrays(offsets, raw)
+            if vals:
+                row[col] = vals
+        except Exception as exc:
+            _log.warning(
+                "stryd channel skipped",
+                extra={"channel": stryd_key, "reason": str(exc)},
+            )
 
     # speed_list (m/s) → pace_seconds_per_km
     speed_list = streams_payload.get("speed_list") or []
     if speed_list:
-        pace_vals: list[Optional[float]] = []
-        for v in speed_list:
-            if isinstance(v, (int, float)) and v > 0:
-                pace_vals.append(round(1000.0 / v, 2))
-            else:
-                pace_vals.append(None)
-        _, paced = _aligned_arrays(offsets, pace_vals)
-        if paced:
-            row["pace_seconds_per_km"] = paced
+        try:
+            pace_vals: list[Optional[float]] = []
+            for v in speed_list:
+                if isinstance(v, (int, float)) and v > 0:
+                    pace_vals.append(round(1000.0 / v, 2))
+                else:
+                    pace_vals.append(None)
+            _, paced = _aligned_arrays(offsets, pace_vals)
+            if paced:
+                row["pace_seconds_per_km"] = paced
+        except Exception as exc:
+            _log.warning(
+                "stryd channel skipped",
+                extra={"channel": "speed_list", "reason": str(exc)},
+            )
 
     return row, None
 
