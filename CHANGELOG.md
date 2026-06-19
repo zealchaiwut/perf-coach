@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 69 — Run view redesign, Strength detail, Training Plan tab, and Settings UI
+
+- #643: Convert Log Workout to slide-over panel
+- #644: Build STRENGTH body for Log-workout slide-over
+- #646: Redesign Run detail view header and load block
+- #647: Add Session Profile and Laps to Run Detail View
+- #648: Add route strip to Run view and redesign Strength detail
+- #650: Build Training > Plan Sub-Tab with Race Plan UI
+- #651: Add Settings UI for Training Thresholds and Zone Ranges
+
 ## Sprint 67 — Race targets, fitness projections, and race readiness endpoint
 
 - #604: Add races table and SQLAlchemy model

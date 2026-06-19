@@ -458,7 +458,7 @@ Unique: `(user_id, source, source_identifier)`.
 
 ---
 
-## races _(added Sprint 67)_
+## races _(added Sprint 67; race_type added Sprint 69)_
 
 User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time.
 
@@ -473,7 +473,8 @@ User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_
 | goal_pace_seconds_per_km | int | nullable; derived from goal_time_seconds / distance_km |
 | priority | varchar(10) | `A` / `B` / `C` |
 | status | varchar(20) | `planned` / `done` / `abandoned` |
+| race_type | varchar(20) | `race` / `checkpoint`; default `race` — distinguishes A-race targets from intermediate checkpoints |
 | created_at | timestamptz | |
 | updated_at | timestamptz | nullable |
 
-Index: `ix_races_user_id`. Migration: `ll2a3b4c5d6e`.
+Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head).
