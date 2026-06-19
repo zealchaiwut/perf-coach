@@ -378,10 +378,21 @@
     var run = runActive();
     var runSec = document.getElementById('run-section');
     var exSec = document.querySelector('.exercises-section');
+    // Slide-over panel (issue #645): show run-body, hide strength-body
+    var runBody = document.getElementById('run-body');
+    var strBody = document.getElementById('strength-body');
     if (runSec) runSec.style.display = run ? '' : 'none';
     if (exSec) exSec.style.display = run ? 'none' : '';
-    if (run) { recomputeRunPace(); recomputeSegments(); }
-    else { renderStrengthProfile(); }
+    if (runBody) runBody.style.display = run ? '' : 'none';
+    if (strBody && runBody) strBody.style.display = run ? 'none' : '';
+    if (run) {
+      recomputeRunPace();
+      recomputeSegments();
+      rbRenderProfile();
+      recomputeRunBodyTotals();
+    } else {
+      renderStrengthProfile();
+    }
   }
 
   function intFieldVal(id) {
@@ -779,6 +790,393 @@
     recomputeSegments();
   }
 
+  // ── Running body (slide-over panel, issue #645) ───────────────────────────────
+
+  // Zone effort heights (%) for the profile bar
+  var _RB_EFFORT_H = { easy: 40, tempo: 72, hard: 92, recovery: 26 };
+
+  // Pace string "m:ss" → seconds per km; null = empty; NaN = invalid
+  function rbParsePace(str) {
+    str = (str || '').trim();
+    if (!str) return null;
+    var m = /^(\d+):([0-5]\d)$/.exec(str);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    return NaN;
+  }
+
+  // Format seconds into "mm:ss" for durations (lap display)
+  function rbFmtDuration(sec) {
+    if (!sec || sec <= 0) return '—';
+    var m = Math.floor(sec / 60);
+    var s = Math.round(sec % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  // Parse "mm:ss" → seconds; null if empty
+  function rbParseDuration(str) {
+    str = (str || '').trim();
+    if (!str) return null;
+    var m = /^(\d+):([0-5]\d)$/.exec(str);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    var n = parseFloat(str);
+    return isNaN(n) ? null : Math.round(n * 60);
+  }
+
+  // Read all segment rows from the run body
+  function rbGetSegments() {
+    var rows = document.querySelectorAll('#run-body .rb-seg-row');
+    var out = [];
+    rows.forEach(function (row) {
+      var valEl = row.querySelector('.rb-seg-val');
+      var paceEl = row.querySelector('.rb-pace');
+      var activeUnit = row.querySelector('.rb-unit.active');
+      var val = valEl ? parseFloat(valEl.value) : NaN;
+      out.push({
+        zone: row.dataset.zone || 'easy',
+        seg: row.dataset.seg || 'warmup',
+        val: isNaN(val) ? null : val,
+        unit: activeUnit ? activeUnit.dataset.unit : 'km',
+        paceSec: paceEl ? rbParsePace(paceEl.value) : null,
+      });
+    });
+    return out;
+  }
+
+  // Convert segment to distance (km) and duration (sec)
+  function rbSegDims(seg) {
+    if (!seg || seg.val == null || seg.val <= 0) return { km: 0, sec: 0 };
+    if (seg.unit === 'km') {
+      var km = seg.val;
+      var sec = seg.paceSec ? km * seg.paceSec : 0;
+      return { km: km, sec: sec };
+    }
+    // unit = min
+    var secFromMin = seg.val * 60;
+    var kmFromPace = (seg.paceSec && seg.paceSec > 0) ? secFromMin / seg.paceSec : 0;
+    return { km: kmFromPace, sec: secFromMin };
+  }
+
+  function rbRenderProfile() {
+    var wrap = document.getElementById('rb-profile');
+    if (!wrap) return;
+    var segs = rbGetSegments().filter(function (s) { return s.val != null && s.val > 0; });
+    if (!segs.length) { wrap.innerHTML = ''; return; }
+    var d = rbSegDims;
+    var bars = segs.map(function (s) {
+      var dims = d(s);
+      var w = dims.sec > 0 ? dims.sec : (dims.km > 0 ? dims.km * 300 : 120);
+      var h = _RB_EFFORT_H[s.zone] || 40;
+      return '<div class="rb-pseg ' + s.zone + '" style="flex:' + w.toFixed(1) + ';height:' + h + '%" title="' + s.seg + '"></div>';
+    }).join('');
+    wrap.className = 'rb-profile has-segs';
+    wrap.innerHTML =
+      '<div class="rb-profile-bars">' + bars + '</div>' +
+      '<div class="rb-profile-legend">' +
+        '<span class="rb-zlg"><span class="d" style="background:var(--rl-easy)"></span>Easy</span>' +
+        '<span class="rb-zlg"><span class="d" style="background:var(--rl-tempo)"></span>Tempo</span>' +
+        '<span class="rb-zlg"><span class="d" style="background:var(--rl-hard)"></span>Hard</span>' +
+        '<span class="rb-zlg"><span class="d" style="background:var(--rl-recovery)"></span>Recovery</span>' +
+      '</div>';
+  }
+
+  function recomputeRunBodyTotals() {
+    var lapMode = document.getElementById('rb-lap-mode');
+    var isManual = lapMode && lapMode.value === 'manual';
+    var totalKm = 0, totalSec = 0;
+
+    if (isManual) {
+      // Sum from manual lap rows
+      document.querySelectorAll('#rb-lap-rows .rb-lap-row').forEach(function (row) {
+        var distEl = row.querySelector('.rb-lap-dist');
+        var durEl = row.querySelector('.rb-lap-dur');
+        var km = distEl ? parseFloat(distEl.value) : NaN;
+        var sec = durEl ? rbParseDuration(durEl.value) : null;
+        if (!isNaN(km) && km > 0) totalKm += km;
+        if (sec && sec > 0) totalSec += sec;
+      });
+    } else {
+      // Sum from segment rows
+      rbGetSegments().forEach(function (s) {
+        var dims = rbSegDims(s);
+        totalKm += dims.km;
+        totalSec += dims.sec;
+      });
+    }
+
+    var distEl = document.getElementById('rb-total-dist');
+    var durEl = document.getElementById('rb-total-dur');
+    var paceEl = document.getElementById('rb-avg-pace');
+    if (distEl) distEl.textContent = totalKm > 0 ? parseFloat(totalKm.toFixed(2)).toString() : '—';
+    if (durEl) durEl.textContent = totalSec > 0 ? rbFmtDuration(totalSec) : '—';
+    if (paceEl) {
+      if (totalKm > 0 && totalSec > 0) {
+        var pSec = totalSec / totalKm;
+        paceEl.textContent = TF.formatPace(totalSec, totalKm) || '—';
+      } else {
+        paceEl.textContent = '—';
+      }
+    }
+  }
+
+  function rbGetLapRows() {
+    var rows = [];
+    document.querySelectorAll('#rb-lap-rows .rb-lap-row').forEach(function (row, i) {
+      var distEl = row.querySelector('.rb-lap-dist');
+      var durEl = row.querySelector('.rb-lap-dur');
+      var km = distEl ? parseFloat(distEl.value) : NaN;
+      var sec = durEl ? rbParseDuration(durEl.value) : null;
+      rows.push({
+        split_index: i,
+        distance_km: isNaN(km) ? 0 : km,
+        duration_seconds: sec || 0,
+        lap_type: 'manual',
+      });
+    });
+    return rows;
+  }
+
+  function rbRelabelLaps() {
+    document.querySelectorAll('#rb-lap-rows .rb-lap-row').forEach(function (row, i) {
+      var idx = row.querySelector('.rb-lap-idx');
+      if (idx) idx.textContent = i + 1;
+    });
+  }
+
+  function rbAddLapRow(data) {
+    data = data || {};
+    var container = document.getElementById('rb-lap-rows');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.className = 'rb-lap-row';
+    row.innerHTML =
+      '<span class="rb-lap-idx"></span>' +
+      '<input type="number" class="rb-lap-dist" inputmode="decimal" min="0" step="0.1" placeholder="km" aria-label="Lap distance" value="' + (data.distance_km || '') + '">' +
+      '<input type="text" class="rb-lap-dur" inputmode="numeric" placeholder="mm:ss" aria-label="Lap duration" value="' + (data.duration_seconds ? rbFmtDuration(data.duration_seconds) : '') + '">' +
+      '<button type="button" class="rb-lap-remove" title="Remove lap" aria-label="Remove lap">✕</button>';
+    row.querySelector('.rb-lap-remove').addEventListener('click', function () {
+      row.remove();
+      rbRelabelLaps();
+      recomputeRunBodyTotals();
+    });
+    row.querySelectorAll('input').forEach(function (inp) {
+      inp.addEventListener('input', recomputeRunBodyTotals);
+    });
+    container.appendChild(row);
+    rbRelabelLaps();
+    recomputeRunBodyTotals();
+  }
+
+  // Session-storage key for persisting run body draft
+  var _RB_STORAGE_KEY = 'perf_rb_draft';
+
+  function rbSaveDraft() {
+    try {
+      var segs = [];
+      document.querySelectorAll('#run-body .rb-seg-row').forEach(function (row) {
+        var valEl = row.querySelector('.rb-seg-val');
+        var paceEl = row.querySelector('.rb-pace');
+        var activeUnit = row.querySelector('.rb-unit.active');
+        segs.push({
+          val: valEl ? valEl.value : '',
+          unit: activeUnit ? activeUnit.dataset.unit : 'km',
+          pace: paceEl ? paceEl.value : '',
+        });
+      });
+      var lapMode = document.getElementById('rb-lap-mode');
+      var laps = rbGetLapRows();
+      var syncHr = document.getElementById('rb-sync-hr');
+      var syncPow = document.getElementById('rb-sync-power');
+      var syncCad = document.getElementById('rb-sync-cadence');
+      var syncStr = document.getElementById('rb-sync-stride');
+      sessionStorage.setItem(_RB_STORAGE_KEY, JSON.stringify({
+        segs: segs,
+        lapMode: lapMode ? lapMode.value : 'auto',
+        laps: laps,
+        sync: {
+          hr: syncHr && !syncHr.classList.contains('rb-sync-placeholder') ? syncHr.textContent : null,
+          power: syncPow && !syncPow.classList.contains('rb-sync-placeholder') ? syncPow.textContent : null,
+          cadence: syncCad && !syncCad.classList.contains('rb-sync-placeholder') ? syncCad.textContent : null,
+          stride: syncStr && !syncStr.classList.contains('rb-sync-placeholder') ? syncStr.textContent : null,
+        },
+      }));
+    } catch (e) {}
+  }
+
+  function rbRestoreDraft() {
+    try {
+      var raw = sessionStorage.getItem(_RB_STORAGE_KEY);
+      if (!raw) return;
+      var draft = JSON.parse(raw);
+      if (!draft) return;
+
+      // Restore segments
+      var segRows = document.querySelectorAll('#run-body .rb-seg-row');
+      (draft.segs || []).forEach(function (sd, i) {
+        if (i >= segRows.length) return;
+        var row = segRows[i];
+        var valEl = row.querySelector('.rb-seg-val');
+        var paceEl = row.querySelector('.rb-pace');
+        if (valEl) valEl.value = sd.val || '';
+        if (paceEl) paceEl.value = sd.pace || '';
+        // Restore unit toggle
+        row.querySelectorAll('.rb-unit').forEach(function (btn) {
+          btn.classList.toggle('active', btn.dataset.unit === sd.unit);
+        });
+        // Update step hint
+        var valInput = row.querySelector('.rb-seg-val');
+        if (valInput) valInput.step = sd.unit === 'min' ? '1' : '0.1';
+      });
+
+      // Restore lap mode
+      var lapModeEl = document.getElementById('rb-lap-mode');
+      if (lapModeEl && draft.lapMode) {
+        lapModeEl.value = draft.lapMode;
+        rbUpdateLapTable();
+      }
+
+      // Restore lap rows
+      var lapContainer = document.getElementById('rb-lap-rows');
+      if (lapContainer) {
+        lapContainer.innerHTML = '';
+        (draft.laps || []).forEach(function (lap) { rbAddLapRow(lap); });
+      }
+
+      // Restore sync fields
+      if (draft.sync) {
+        var _s = draft.sync;
+        if (_s.hr) { var el = document.getElementById('rb-sync-hr'); if (el) { el.textContent = _s.hr; el.classList.remove('rb-sync-placeholder'); el.classList.add('has-value'); } }
+        if (_s.power) { var el2 = document.getElementById('rb-sync-power'); if (el2) { el2.textContent = _s.power; el2.classList.remove('rb-sync-placeholder'); el2.classList.add('has-value'); } }
+        if (_s.cadence) { var el3 = document.getElementById('rb-sync-cadence'); if (el3) { el3.textContent = _s.cadence; el3.classList.remove('rb-sync-placeholder'); el3.classList.add('has-value'); } }
+        if (_s.stride) { var el4 = document.getElementById('rb-sync-stride'); if (el4) { el4.textContent = _s.stride; el4.classList.remove('rb-sync-placeholder'); el4.classList.add('has-value'); } }
+      }
+
+      rbRenderProfile();
+      recomputeRunBodyTotals();
+    } catch (e) {}
+  }
+
+  function rbUpdateLapTable() {
+    var lapMode = document.getElementById('rb-lap-mode');
+    var lapTable = document.getElementById('rb-lap-table');
+    if (!lapTable) return;
+    var isManual = lapMode && lapMode.value === 'manual';
+    lapTable.style.display = isManual ? '' : 'none';
+    if (isManual && document.querySelectorAll('#rb-lap-rows .rb-lap-row').length === 0) {
+      rbAddLapRow(null);
+    }
+    recomputeRunBodyTotals();
+  }
+
+  // Populate sync fields from device data (called when a device sync provides data)
+  function rbFillSync(data) {
+    function fillField(id, val, unit) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (val != null) {
+        el.textContent = val + ' ' + unit;
+        el.classList.remove('rb-sync-placeholder');
+        el.classList.add('has-value');
+      } else {
+        el.textContent = '— ' + unit;
+        el.classList.add('rb-sync-placeholder');
+        el.classList.remove('has-value');
+      }
+    }
+    if (data) {
+      fillField('rb-sync-hr', data.hr, 'bpm');
+      fillField('rb-sync-power', data.power, 'W');
+      fillField('rb-sync-cadence', data.cadence, 'spm');
+      fillField('rb-sync-stride', data.stride, 'm');
+    }
+  }
+
+  function rbGetSplitsPayload() {
+    var lapMode = document.getElementById('rb-lap-mode');
+    var isManual = lapMode && lapMode.value === 'manual';
+    if (isManual) {
+      return rbGetLapRows().filter(function (r) { return r.distance_km > 0 || r.duration_seconds > 0; });
+    }
+    // Auto: generate 1-km splits from segment totals
+    var segs = rbGetSegments();
+    var splits = [];
+    var idx = 0;
+    segs.forEach(function (s) {
+      var dims = rbSegDims(s);
+      if (dims.km <= 0) return;
+      var pacePerKm = dims.km > 0 && dims.sec > 0 ? dims.sec / dims.km : 0;
+      var remaining = dims.km;
+      while (remaining > 0.01) {
+        var segKm = Math.min(1, parseFloat(remaining.toFixed(3)));
+        splits.push({
+          split_index: idx++,
+          distance_km: segKm,
+          duration_seconds: pacePerKm > 0 ? Math.round(segKm * pacePerKm) : 0,
+          lap_type: 'auto',
+        });
+        remaining -= 1;
+      }
+    });
+    return splits;
+  }
+
+  function initRunBody() {
+    var runBody = document.getElementById('run-body');
+    if (!runBody) return;
+
+    // Wire segment row inputs
+    runBody.querySelectorAll('.rb-seg-row').forEach(function (row) {
+      var valEl = row.querySelector('.rb-seg-val');
+      var paceEl = row.querySelector('.rb-pace');
+      if (valEl) valEl.addEventListener('input', function () {
+        rbRenderProfile();
+        recomputeRunBodyTotals();
+        rbSaveDraft();
+      });
+      if (paceEl) paceEl.addEventListener('input', function () {
+        rbRenderProfile();
+        recomputeRunBodyTotals();
+        rbSaveDraft();
+      });
+      row.querySelectorAll('.rb-unit').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          row.querySelectorAll('.rb-unit').forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          var valInput = row.querySelector('.rb-seg-val');
+          if (valInput) valInput.step = btn.dataset.unit === 'min' ? '1' : '0.1';
+          rbRenderProfile();
+          recomputeRunBodyTotals();
+          rbSaveDraft();
+        });
+      });
+    });
+
+    // Wire lap mode selector
+    var lapMode = document.getElementById('rb-lap-mode');
+    if (lapMode) {
+      lapMode.addEventListener('change', function () {
+        rbUpdateLapTable();
+        rbSaveDraft();
+      });
+    }
+
+    // Wire add-lap button
+    var addLapBtn = document.getElementById('rb-add-lap');
+    if (addLapBtn) {
+      addLapBtn.addEventListener('click', function () {
+        rbAddLapRow(null);
+        rbSaveDraft();
+      });
+    }
+
+    // Restore any saved draft
+    rbRestoreDraft();
+  }
+
+  function resetRunBody() {
+    // Save draft before clearing so it persists
+    rbSaveDraft();
+  }
+
   // ── Form reset / fill ─────────────────────────────────────────────────────────
 
   function formatDateForWorkoutName(isoDate) {
@@ -831,6 +1229,8 @@
     if (exTbody) addExerciseRow(null);
     applyDefaultWorkoutName();
     renderStrengthProfile();
+    // Restore any run body draft (issue #645: data survives close/reopen)
+    rbRestoreDraft();
   }
 
   function fillForm(workout) {
@@ -1212,6 +1612,7 @@
 
     // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections
     var hasExerciseSection = !!document.getElementById('exercises-tbody');
+    var hasRunBody = !!document.getElementById('run-body');
     if (hasExerciseSection) {
       if (run) {
         payload.distance_km = getRunDistanceKm();
@@ -1223,6 +1624,23 @@
       } else {
         payload.exercises = getExerciseRows().filter(function (r) { return r.name; });
       }
+    } else if (hasRunBody && run) {
+      // Slide-over running body: compute totals from segments / manual laps
+      var rbSegs = rbGetSegments();
+      var rbTotalKm = 0, rbTotalSec = 0;
+      rbSegs.forEach(function (s) {
+        var d = rbSegDims(s);
+        rbTotalKm += d.km;
+        rbTotalSec += d.sec;
+      });
+      if (rbTotalKm > 0) payload.distance_km = parseFloat(rbTotalKm.toFixed(3));
+      if (rbTotalSec > 0) payload.duration_seconds = Math.round(rbTotalSec);
+      var hrEl = document.getElementById('rb-sync-hr');
+      if (hrEl && hrEl.classList.contains('has-value')) {
+        var hrVal = parseInt(hrEl.textContent);
+        if (!isNaN(hrVal)) payload.avg_hr = hrVal;
+      }
+      payload.exercises = [];
     } else {
       payload.exercises = [];
     }
@@ -1253,6 +1671,23 @@
       }
 
       var saved = await res.json().catch(function () { return {}; });
+
+      // Persist splits for running body (issue #645)
+      if (hasRunBody && run && saved && saved.id) {
+        var splitsPayload = rbGetSplitsPayload();
+        if (splitsPayload.length > 0) {
+          try {
+            await fetch('/api/workouts/' + saved.id + '/splits', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ splits: splitsPayload }),
+            });
+          } catch (_e) {}
+        }
+        // Clear draft on successful save
+        try { sessionStorage.removeItem(_RB_STORAGE_KEY); } catch (_se) {}
+      }
+
       showToast(editingWorkoutId ? 'Workout updated!' : 'Workout saved!');
 
       if (isEmbedded() && window.TrainingEditor && window.TrainingEditor._hooks.onSaved) {
@@ -1457,6 +1892,7 @@
     if (dateEl && !dateEl.value) dateEl.value = todayIso();
     var exList = document.getElementById('exercises-tbody');
     if (exList && !exList.children.length) addExerciseRow(null);
+    initRunBody();
   }
 
   window.TrainingEditor = {
