@@ -227,7 +227,7 @@ def test_ac10_pure_function_body_has_no_db_calls():
         / "services"
         / "running_tss_power.py"
     )
-    code = src.read_text()
+    src.read_text()
     # Confirm the pure function's source has no session/query patterns
     func_src = inspect.getsource(calculate_running_tss_power)
     assert "session" not in func_src
