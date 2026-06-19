@@ -3,9 +3,7 @@
 Pure function tests for the calculate_strength_tss implementation.
 Each test is anchored to a specific acceptance criterion from the issue body.
 """
-import json
 import types
-import pytest
 from backend.services.tss import calc_strength_tss
 
 
