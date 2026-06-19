@@ -172,7 +172,7 @@
     .str-tile { background: var(--rl-tile); border-radius: 11px; padding: 11px 13px; }
     .str-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
     .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
-    .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 2px; }
+    .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: inherit; font-weight: 500; margin-left: 2px; }
     @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
     /* ── RPE bullet (issue #644) ────────────────────────────────────────────── */
     .ex-rpe-bullet { width: 10px; height: 10px; border-radius: 50%; background: var(--card-border); flex-shrink: 0; display: inline-block; transition: background 0.15s; }
@@ -256,7 +256,7 @@
     .rb-total-tile { background: var(--rl-tile); border-radius: 11px; padding: 10px 12px; }
     .rb-total-label { font-size: 8.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 4px; }
     .rb-total-val { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text-primary); }
-    .rb-total-unit { font-size: 9px; color: var(--text-tertiary); font-family: 'Inter Tight', sans-serif; font-weight: 500; margin-left: 2px; }
+    .rb-total-unit { font-size: 9px; color: var(--text-tertiary); font-family: inherit; font-weight: 500; margin-left: 2px; }
     @media (max-width: 360px) { .rb-totals { grid-template-columns: 1fr 1fr; } }
 
     /* Sync-filled fields */

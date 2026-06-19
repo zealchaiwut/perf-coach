@@ -906,14 +906,14 @@
     var distEl = document.getElementById('rb-total-dist');
     var durEl = document.getElementById('rb-total-dur');
     var paceEl = document.getElementById('rb-avg-pace');
-    if (distEl) distEl.textContent = totalKm > 0 ? parseFloat(totalKm.toFixed(2)).toString() : '—';
-    if (durEl) durEl.textContent = totalSec > 0 ? rbFmtDuration(totalSec) : '—';
+    if (distEl) distEl.textContent = totalKm > 0 ? parseFloat(totalKm.toFixed(2)).toString() : '--';
+    if (durEl) durEl.textContent = totalSec > 0 ? rbFmtDuration(totalSec) : '--';
     if (paceEl) {
       if (totalKm > 0 && totalSec > 0) {
         var pSec = totalSec / totalKm;
-        paceEl.textContent = TF.formatPace(totalSec, totalKm) || '—';
+        paceEl.textContent = TF.formatPace(totalSec, totalKm) || '--';
       } else {
-        paceEl.textContent = '—';
+        paceEl.textContent = '--';
       }
     }
   }
