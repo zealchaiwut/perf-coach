@@ -58,6 +58,7 @@ from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
+from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 
 _start_time = time.monotonic()
 
@@ -4707,6 +4708,28 @@ def get_workout_full(
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
         computed = _compute_derived(strava, stryd)
+        # Compute aerobic decoupling from full streams (before downsampling).
+        _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
+        _workout_dict_plain = {
+            "workout_type": workout.workout_type,
+            "duration_seconds": workout.duration_seconds,
+            "avg_hr": workout.avg_hr,
+        }
+        _raw_streams = (strava or {}).get("streams") or {} if strava else {}
+        _splits_plain = [
+            {
+                "split_index": s.split_index,
+                "duration_seconds": s.duration_seconds,
+                "avg_hr": s.avg_hr,
+                "avg_power": s.avg_power,
+                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+            }
+            for s in split_rows
+        ]
+        _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
+        _aerobic_result, _aerobic_reason = _compute_decoupling(
+            _workout_dict_plain, _decoupling_input, _decoupling_threshold
+        )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -4723,7 +4746,7 @@ def get_workout_full(
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
         detected_profile = _get_session_profile(workout, split_rows, prefs)
-        return JSONResponse({
+        response_body: dict = {
             "workout": _workout_dict(workout, exercises),
             "splits": [_split_dict(s) for s in split_rows],
             "sources": {"strava": strava, "stryd": stryd},
@@ -4735,7 +4758,11 @@ def get_workout_full(
             "tss_partial": tss_result["partial"],
             "computed_tss": tss_result["tss"],
             "detected_profile": detected_profile,
-        })
+            "aerobic_decoupling": _aerobic_result,
+        }
+        if _aerobic_reason is not None:
+            response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        return JSONResponse(response_body)
 
 
 @app.post("/api/workouts", status_code=201)
