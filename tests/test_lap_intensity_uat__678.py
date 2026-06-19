@@ -6,8 +6,6 @@ the workout API and returns the expected detected_profile with intensity bands.
 import os
 import pytest
 import httpx
-import uuid
-from datetime import date
 
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:9001"
