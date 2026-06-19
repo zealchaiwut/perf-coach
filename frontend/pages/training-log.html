@@ -3366,6 +3366,126 @@
                 </span>
               </div>
 
+              <!-- RUNNING body: segments, effort bar, lap mode, totals, sync fields (issue #645) -->
+              <div class="type-content-area" id="run-body" aria-label="Running workout builder" style="display:none">
+                <!-- Effort session-profile bar -->
+                <div class="rb-profile-wrap">
+                  <div class="rb-profile-head">
+                    <span class="rb-profile-title">Effort Profile</span>
+                    <span class="rb-profile-sub">height = effort · color = zone</span>
+                  </div>
+                  <div id="rb-profile" class="rb-profile" aria-label="Running effort profile bar"></div>
+                </div>
+
+                <!-- Four fixed segment rows -->
+                <div class="rb-segs-label">Segments</div>
+                <div class="rb-segs">
+                  <div class="rb-seg-row" data-zone="easy" data-seg="warmup">
+                    <span class="rb-seg-name">Warm-up</span>
+                    <div class="rb-seg-inputs">
+                      <input type="number" class="rb-seg-val" inputmode="decimal" min="0" step="0.1" placeholder="—" aria-label="Warm-up value">
+                      <span class="rb-seg-unit-toggle" role="group" aria-label="Unit">
+                        <button type="button" class="rb-unit active" data-unit="km">km</button>
+                        <button type="button" class="rb-unit" data-unit="min">min</button>
+                      </span>
+                      <input type="text" class="rb-pace" inputmode="numeric" placeholder="pace" title="Target Pace min/km e.g. 5:30" aria-label="Target pace">
+                      <span class="rb-pace-suffix">/km</span>
+                    </div>
+                  </div>
+                  <div class="rb-seg-row" data-zone="hard" data-seg="intervals">
+                    <span class="rb-seg-name">Intervals</span>
+                    <div class="rb-seg-inputs">
+                      <input type="number" class="rb-seg-val" inputmode="decimal" min="0" step="0.1" placeholder="—" aria-label="Intervals value">
+                      <span class="rb-seg-unit-toggle" role="group" aria-label="Unit">
+                        <button type="button" class="rb-unit active" data-unit="km">km</button>
+                        <button type="button" class="rb-unit" data-unit="min">min</button>
+                      </span>
+                      <input type="text" class="rb-pace" inputmode="numeric" placeholder="pace" title="Target Pace min/km e.g. 4:30" aria-label="Target pace">
+                      <span class="rb-pace-suffix">/km</span>
+                    </div>
+                  </div>
+                  <div class="rb-seg-row" data-zone="tempo" data-seg="tempo">
+                    <span class="rb-seg-name">Tempo</span>
+                    <div class="rb-seg-inputs">
+                      <input type="number" class="rb-seg-val" inputmode="decimal" min="0" step="1" placeholder="—" aria-label="Tempo value">
+                      <span class="rb-seg-unit-toggle" role="group" aria-label="Unit">
+                        <button type="button" class="rb-unit" data-unit="km">km</button>
+                        <button type="button" class="rb-unit active" data-unit="min">min</button>
+                      </span>
+                      <input type="text" class="rb-pace" inputmode="numeric" placeholder="pace" title="Target Pace min/km e.g. 4:45" aria-label="Target pace">
+                      <span class="rb-pace-suffix">/km</span>
+                    </div>
+                  </div>
+                  <div class="rb-seg-row" data-zone="easy" data-seg="cooldown">
+                    <span class="rb-seg-name">Cool-down</span>
+                    <div class="rb-seg-inputs">
+                      <input type="number" class="rb-seg-val" inputmode="decimal" min="0" step="1" placeholder="—" aria-label="Cool-down value">
+                      <span class="rb-seg-unit-toggle" role="group" aria-label="Unit">
+                        <button type="button" class="rb-unit" data-unit="km">km</button>
+                        <button type="button" class="rb-unit active" data-unit="min">min</button>
+                      </span>
+                      <input type="text" class="rb-pace" inputmode="numeric" placeholder="pace" title="Target Pace min/km e.g. 6:00" aria-label="Target pace">
+                      <span class="rb-pace-suffix">/km</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Lap Mode selector -->
+                <div class="rb-lap-mode-wrap">
+                  <label class="rb-lap-mode-label" for="rb-lap-mode">Lap Mode</label>
+                  <select id="rb-lap-mode" class="rb-lap-mode-select">
+                    <option value="auto">Auto 1 km splits</option>
+                    <option value="manual">Manual laps</option>
+                  </select>
+                </div>
+
+                <!-- Manual lap table (shown when Manual laps is selected) -->
+                <div id="rb-lap-table" class="rb-lap-table" style="display:none">
+                  <div class="rb-lap-table-head">
+                    <span>#</span><span>Distance (km)</span><span>Duration (mm:ss)</span><span></span>
+                  </div>
+                  <div id="rb-lap-rows" class="rb-lap-rows"></div>
+                  <button type="button" id="rb-add-lap" class="rb-add-lap">+ Add lap</button>
+                </div>
+
+                <!-- Auto totals -->
+                <div class="rb-totals">
+                  <div class="rb-total-tile">
+                    <div class="rb-total-label">Total Dist <span class="rl-badge auto">auto</span></div>
+                    <div class="rb-total-val"><span id="rb-total-dist">--</span><span class="rb-total-unit">km</span></div>
+                  </div>
+                  <div class="rb-total-tile">
+                    <div class="rb-total-label">Total Time <span class="rl-badge auto">auto</span></div>
+                    <div class="rb-total-val"><span id="rb-total-dur">--</span></div>
+                  </div>
+                  <div class="rb-total-tile">
+                    <div class="rb-total-label">Avg Pace <span class="rl-badge auto">auto</span></div>
+                    <div class="rb-total-val"><span id="rb-avg-pace">--</span><span class="rb-total-unit">/km</span></div>
+                  </div>
+                </div>
+
+                <!-- Sync-filled fields (HR, Power, Cadence, Stride) -->
+                <div class="rb-sync-label">Device Sync</div>
+                <div class="rb-sync-grid">
+                  <div class="rb-sync-field">
+                    <div class="rb-sync-field-label">Heart Rate</div>
+                    <div class="rb-sync-val rb-sync-placeholder" id="rb-sync-hr">-- bpm</div>
+                  </div>
+                  <div class="rb-sync-field">
+                    <div class="rb-sync-field-label">Power</div>
+                    <div class="rb-sync-val rb-sync-placeholder" id="rb-sync-power">-- W</div>
+                  </div>
+                  <div class="rb-sync-field">
+                    <div class="rb-sync-field-label">Cadence</div>
+                    <div class="rb-sync-val rb-sync-placeholder" id="rb-sync-cadence">-- spm</div>
+                  </div>
+                  <div class="rb-sync-field">
+                    <div class="rb-sync-field-label">Stride</div>
+                    <div class="rb-sync-val rb-sync-placeholder" id="rb-sync-stride">-- m</div>
+                  </div>
+                </div>
+              </div>
+
               <!-- STRENGTH body: exercise builder, profile bar, auto-totals (issue #644) -->
               <div class="exercises-section type-content-area" id="strength-body" aria-label="Strength exercise builder">
                 <!-- Read-only session-profile bar (height = avg RPE, width = cumulative duration) -->
@@ -3395,7 +3515,7 @@
                   </div>
                   <div class="str-tile">
                     <div class="str-l">Est. 1RM <span class="rl-badge auto">auto</span></div>
-                    <div class="str-v" id="str-e1rm">—</div>
+                    <div class="str-v" id="str-e1rm">--</div>
                   </div>
                 </div>
               </div>
