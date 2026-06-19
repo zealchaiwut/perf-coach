@@ -255,12 +255,13 @@ class WorkoutSplit(Base):
     avg_power = Column(Integer, nullable=True)
     cadence_spm = Column(Integer, nullable=True)
     stride_length_m = Column(Numeric(4, 2), nullable=True)
-    lap_type = Column(String(10), nullable=True, server_default=text("'auto'"))
+    lap_type = Column(String(10), nullable=False, server_default=text("'auto'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("workout_id", "split_index", name="uq_workout_splits_workout_split_index"),
+        CheckConstraint("lap_type IN ('auto', 'manual')", name="ck_workout_splits_lap_type_values"),
     )
 
     workout = relationship("Workout", back_populates="splits")

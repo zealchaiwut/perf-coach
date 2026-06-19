@@ -7,7 +7,7 @@
     "total_distance_km": 8.558,
     "sample_interval_seconds": 1,
     "lap_count": 3,
-    "description": "45-minute threshold run: 15-min build warm-up (Lap 1), 15-min steady state (Lap 2), 15-min strong finish (Lap 3). Recorded with a Stryd running power meter at 1 Hz. Power, HR, cadence, and pace streams are all present."
+    "description": "45-minute threshold run: 15-min build warm-up (Lap 1), 15-min steady state (Lap 2), 15-min strong finish (Lap 3). Recorded with a Stryd running power meter at 1 Hz. Power, HR, cadence, and pace streams are all present. Continuous run — no rest laps or zero-cadence segments (threshold effort maintained throughout; rest-lap edge case not applicable for this workout type)."
   },
   "laps": [
     {

@@ -8,8 +8,16 @@ source-attribution map that records which device contributed each channel.
 No database access occurs anywhere in this module. A thin caller,
 :func:`apply_channel_selection`, handles all reads and writes.
 
+Configuration
+-------------
+All channel-preference rules and source identifiers are passed via
+``channel_config`` or :data:`DEFAULT_CHANNEL_CONFIG`. No magic values are
+hardcoded inside function bodies.
+
 Worked example::
 
+    >>> garmin_meta = {"name": "garmin"}
+    >>> stryd_meta  = {"name": "stryd"}
     >>> garmin = {
     ...     "time_offset_seconds": [0, 1, 2],
     ...     "heart_rate_bpm": [145.0, 147.0, 146.0],
@@ -23,29 +31,42 @@ Worked example::
     ...     "cadence_spm": [180.0, 182.0, 181.0, 183.0],
     ...     "heart_rate_bpm": [144.0, 146.0, 145.0, 147.0],
     ... }
-    >>> merged, attribution, reason = select_channels(garmin, stryd, "garmin", "stryd")
+    >>> merged, source_map, reason = select_channels(garmin, stryd, garmin_meta, stryd_meta)
     >>> reason is None       # full success
     True
-    >>> attribution["power_w"]
+    >>> source_map["power_w"]
     'stryd'
-    >>> attribution["latitude"]
+    >>> source_map["latitude"]
     'garmin'
-    >>> attribution["heart_rate_bpm"]  # stryd has 4 samples vs garmin's 3 → longer wins
+    >>> source_map["heart_rate_bpm"]  # stryd has 4 samples vs garmin's 3 → longer wins
     'stryd'
-    >>> attribution["cadence_spm"]     # only stryd provides cadence
+    >>> source_map["cadence_spm"]     # only stryd provides cadence
     'stryd'
 """
 from __future__ import annotations
 
 from typing import Any
 
-# GPS channels that must come from whichever source provides GPS coordinates.
-_GPS_CHANNELS = frozenset({"latitude", "longitude", "altitude_m"})
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Default channel configuration — all identifiers and rule sets live here.
+# Callers may pass channel_config={"power_source": "footpod", ...} to override
+# any entry without touching function bodies.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEFAULT_CHANNEL_CONFIG: dict = {
+    # Name of the source that provides the power channel.
+    "power_source": "stryd",
+    # Channel names that must come from whichever source carries GPS data.
+    "gps_channels": frozenset({"latitude", "longitude", "altitude_m"}),
+    # Presence of this channel in a source's dict signals that it carries GPS.
+    "gps_detector": "latitude",
+}
 
 
-def _has_gps(channels: dict) -> bool:
-    """Return True if channels dict contains non-empty latitude data."""
-    return bool(channels.get("latitude"))
+def _has_gps(channels: dict, detector: str) -> bool:
+    """Return True if channels contains non-empty data for the GPS detector channel."""
+    return bool(channels.get(detector))
 
 
 def _apply_tiebreak(
@@ -83,26 +104,31 @@ def _apply_tiebreak(
 def select_channels(
     source_a_channels: dict | None,
     source_b_channels: dict | None,
-    source_a_name: str,
-    source_b_name: str,
+    source_a_meta: dict,
+    source_b_meta: dict,
+    channel_config: dict | None = None,
     tiebreak_rule: Any = "longer",
 ) -> tuple[dict | None, dict | None, str | None]:
     """Select the best source per channel from two activity stream channel sets.
+
+    All channel-preference rules and source identifiers are driven by
+    ``channel_config`` (see :data:`DEFAULT_CHANNEL_CONFIG`). No magic values
+    are hardcoded in this function body.
 
     Channel-selection rules (applied in order):
 
     1. **Fatal guard** — if either channel set is ``None`` or empty the whole
        result is ``None`` with an explanatory reason string.
 
-    2. **power_w** — always taken from the Stryd source when Stryd is one of the
-       two sources.  If neither source is Stryd, ``power_w`` is absent from the
-       merged result, ``attribution["power_w"]`` is ``None``, and a non-``None``
-       reason string is returned alongside the (partial) merged map.
+    2. **Power channel** — taken from the source whose name matches
+       ``channel_config["power_source"]`` (case-insensitive).  If neither
+       source matches, the power channel is absent from the merged result and a
+       non-``None`` reason string is returned alongside the (partial) merged map.
 
-    3. **GPS channels** (``latitude``, ``longitude``, ``altitude_m``) — taken
-       from whichever source provides GPS data (non-empty ``latitude`` key).  If
-       neither source has GPS these channels are simply omitted from the merged
-       result — no error is raised.
+    3. **GPS channels** (defined by ``channel_config["gps_channels"]``) — taken
+       from whichever source provides GPS data, detected by the presence of the
+       channel named in ``channel_config["gps_detector"]``.  If neither source
+       has GPS, these channels are simply omitted with no error.
 
     4. **All other channels** — resolved via *tiebreak_rule*:
 
@@ -120,37 +146,52 @@ def select_channels(
         Dicts mapping channel name → list of numeric samples.  Pass only the
         actual channel arrays; metadata keys (``source``, ``sample_interval_seconds``)
         should be stripped by the caller before calling this function.
-    source_a_name, source_b_name:
-        Human-readable provider labels (e.g. ``"garmin"``, ``"stryd"``).  The
-        string ``"stryd"`` (case-insensitive) activates the power_w rule.
+    source_a_meta, source_b_meta:
+        Dicts describing each source. Must contain at minimum a ``"name"`` key
+        whose value is the provider label (e.g. ``{"name": "garmin"}``).
+    channel_config:
+        Overrides for any key in :data:`DEFAULT_CHANNEL_CONFIG`.  Keys not
+        provided fall back to the default.  Pass ``None`` to use defaults.
     tiebreak_rule:
         Preference rule for non-special channels — see above.
 
     Returns
     -------
-    (merged, attribution, reason) where:
+    (merged, source_map, reason) where:
 
     - ``merged`` is ``None`` on fatal failure, otherwise a dict of
       ``{channel_name: [values]}``.
-    - ``attribution`` is ``None`` on fatal failure, otherwise a dict of
+    - ``source_map`` is ``None`` on fatal failure, otherwise a dict of
       ``{channel_name: source_name_or_none}``.
     - ``reason`` is ``None`` on full success, a non-empty string on fatal
-      failure or on partial success (e.g. power_w absent because no Stryd source).
+      failure or on partial success (e.g. power channel absent because no
+      matching power source).
 
     Worked example::
 
+        >>> garmin_meta = {"name": "garmin"}
+        >>> stryd_meta  = {"name": "stryd"}
         >>> garmin = {"heart_rate_bpm": [145, 147], "latitude": [1.23, 1.24], "longitude": [103.8, 103.81]}
         >>> stryd  = {"power_w": [255, 260], "heart_rate_bpm": [144, 146, 145]}
-        >>> merged, attribution, reason = select_channels(garmin, stryd, "garmin", "stryd")
-        >>> attribution["power_w"]
+        >>> merged, source_map, reason = select_channels(garmin, stryd, garmin_meta, stryd_meta)
+        >>> source_map["power_w"]
         'stryd'
-        >>> attribution["latitude"]
+        >>> source_map["latitude"]
         'garmin'
-        >>> attribution["heart_rate_bpm"]  # stryd has 3 samples vs garmin's 2
+        >>> source_map["heart_rate_bpm"]  # stryd has 3 samples vs garmin's 2
         'stryd'
         >>> reason is None
         True
     """
+    # Resolve configuration
+    cfg: dict = {**DEFAULT_CHANNEL_CONFIG, **(channel_config or {})}
+    power_source_id: str = cfg["power_source"]
+    gps_channel_set: frozenset = frozenset(cfg["gps_channels"])
+    gps_detector: str = cfg["gps_detector"]
+
+    source_a_name: str = source_a_meta["name"]
+    source_b_name: str = source_b_meta["name"]
+
     # ── 1. Fatal guard ────────────────────────────────────────────────────────
     if not source_a_channels:
         return None, None, f"source '{source_a_name}' channel set is missing or empty"
@@ -158,47 +199,48 @@ def select_channels(
         return None, None, f"source '{source_b_name}' channel set is missing or empty"
 
     merged: dict = {}
-    attribution: dict = {}
+    source_map: dict = {}
     reason: str | None = None
 
-    # ── Identify Stryd and GPS sources ───────────────────────────────────────
-    stryd_channels: dict | None = None
-    stryd_name: str | None = None
+    # ── Identify power and GPS sources ────────────────────────────────────────
+    power_channels: dict | None = None
+    power_name: str | None = None
     gps_channels: dict | None = None
     gps_name: str | None = None
 
     for chans, name in [(source_a_channels, source_a_name), (source_b_channels, source_b_name)]:
-        if name.lower() == "stryd" and stryd_channels is None:
-            stryd_channels = chans
-            stryd_name = name
-        if _has_gps(chans) and gps_channels is None:
+        if name.lower() == power_source_id.lower() and power_channels is None:
+            power_channels = chans
+            power_name = name
+        if _has_gps(chans, gps_detector) and gps_channels is None:
             gps_channels = chans
             gps_name = name
 
-    # ── 2. power_w ────────────────────────────────────────────────────────────
-    if stryd_channels is not None:
-        power_vals = stryd_channels.get("power_w")
+    # ── 2. Power channel ──────────────────────────────────────────────────────
+    power_channel_key = "power_w"
+    if power_channels is not None:
+        power_vals = power_channels.get(power_channel_key)
         if power_vals:
-            merged["power_w"] = power_vals
-            attribution["power_w"] = stryd_name
+            merged[power_channel_key] = power_vals
+            source_map[power_channel_key] = power_name
         else:
-            attribution["power_w"] = None
-            reason = "power_w absent from Stryd source channels"
+            source_map[power_channel_key] = None
+            reason = f"power channel absent from {power_source_id} source channels"
     else:
-        attribution["power_w"] = None
-        reason = "power_w absent: neither source is Stryd"
+        source_map[power_channel_key] = None
+        reason = f"power channel absent: neither source matches power_source '{power_source_id}'"
 
     # ── 3. GPS channels ───────────────────────────────────────────────────────
-    for ch in _GPS_CHANNELS:
+    for ch in gps_channel_set:
         if gps_channels is not None:
             vals = gps_channels.get(ch)
             if vals:
                 merged[ch] = vals
-                attribution[ch] = gps_name
-        # Absent when neither source has GPS — silently omitted (AC4)
+                source_map[ch] = gps_name
+        # Absent when neither source has GPS — silently omitted
 
     # ── 4. All other channels via tiebreak_rule ───────────────────────────────
-    special = _GPS_CHANNELS | {"power_w"}
+    special = gps_channel_set | {power_channel_key}
     all_channels = set(source_a_channels) | set(source_b_channels)
 
     for ch in all_channels:
@@ -209,27 +251,33 @@ def select_channels(
 
         if a_vals and not b_vals:
             merged[ch] = a_vals
-            attribution[ch] = source_a_name
+            source_map[ch] = source_a_name
         elif b_vals and not a_vals:
             merged[ch] = b_vals
-            attribution[ch] = source_b_name
+            source_map[ch] = source_b_name
         elif a_vals and b_vals:
             winner_name, winner_vals = _apply_tiebreak(
                 ch, a_vals, source_a_name, b_vals, source_b_name, tiebreak_rule
             )
             merged[ch] = winner_vals
-            attribution[ch] = winner_name
+            source_map[ch] = winner_name
 
-    return merged, attribution, reason
+    return merged, source_map, reason
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Thin caller — all DB access lives here
+# Thin caller — all DB access lives here.
+#
+# Dependency guard (AC8): this function will not run channel selection unless
+# both strava_activity_pk and stryd_activity_pk are set on the workout AND
+# both linked activities have a non-null streams_payload. When any prerequisite
+# is unmet it returns (False, reason) without writing anything.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def apply_channel_selection(
     workout_id,
     session,
+    channel_config: dict | None = None,
     tiebreak_rule: Any = "longer",
 ) -> tuple[bool, str | None]:
     """Read source streams for a workout, select channels, and persist merged result.
@@ -239,7 +287,7 @@ def apply_channel_selection(
     and upserts the merged channel map (plus source-attribution) into
     ``activity_streams``.
 
-    Prerequisites (AC10): the workout must have both ``strava_activity_pk`` and
+    Prerequisites (AC8): the workout must have both ``strava_activity_pk`` and
     ``stryd_activity_pk`` set, and both activities must have a non-null
     ``streams_payload``.  When any prerequisite is unmet this function returns
     ``(False, reason)`` without writing anything.
@@ -250,6 +298,8 @@ def apply_channel_selection(
         UUID of the workout row.
     session:
         Active SQLAlchemy session.  The caller is responsible for committing.
+    channel_config:
+        Forwarded to :func:`select_channels` — see its docstring.
     tiebreak_rule:
         Forwarded to :func:`select_channels` — see its docstring.
 
@@ -268,7 +318,7 @@ def apply_channel_selection(
         write_activity_stream,
     )
 
-    # ── AC10: verify both source streams exist ────────────────────────────────
+    # ── AC8: verify both source streams exist ────────────────────────────────
     workout = session.query(Workout).filter(Workout.id == workout_id).first()
     if not workout:
         return False, f"workout {workout_id} not found"
@@ -306,9 +356,14 @@ def apply_channel_selection(
     strava_chans = {k: v for k, v in strava_row.items() if k not in _META}
     stryd_chans = {k: v for k, v in stryd_row.items() if k not in _META}
 
+    strava_meta = {"name": "strava"}
+    stryd_meta = {"name": "stryd"}
+
     # ── Run pure channel selection ────────────────────────────────────────────
     merged, attribution, sel_reason = select_channels(
-        strava_chans, stryd_chans, "strava", "stryd",
+        strava_chans, stryd_chans,
+        strava_meta, stryd_meta,
+        channel_config=channel_config,
         tiebreak_rule=tiebreak_rule,
     )
 
