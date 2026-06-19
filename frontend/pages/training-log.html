@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/training-form.css">
   <link rel="stylesheet" href="css/training-detail.css">
+  <link rel="stylesheet" href="css/run-detail-v4.css">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -1893,122 +1894,6 @@
     }
     .qa-error.is-visible { display: block; }
 
-    /* ── Run VIEW (mock-matched) ───────────────────────────────────────────── */
-    .rv-stack { display: flex; flex-direction: column; gap: 16px; }
-    .rv-card {
-      background: #fff; border-radius: 14px; padding: 20px;
-      box-shadow: 0 6px 20px rgba(8, 18, 48, 0.16);
-    }
-    .rv-sec-title {
-      font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.09em;
-      text-transform: uppercase; color: #9aa3b2; margin-bottom: 14px;
-    }
-    .rv-head-top { display: flex; align-items: center; justify-content: space-between; }
-    .rv-typebadge { display: flex; align-items: center; gap: 8px; }
-    .rv-run-ico {
-      width: 34px; height: 34px; border-radius: 9px; background: #eef2fb;
-      display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;
-    }
-    .rv-type-pill {
-      font-size: 0.6875rem; font-weight: 800; letter-spacing: 0.07em; color: #3b6fe0;
-      background: #eaf0fe; padding: 3px 10px; border-radius: 999px;
-    }
-    .rv-srcbadges { display: flex; gap: 8px; }
-    .rv-srcbadge {
-      font-size: 0.75rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; color: #fff;
-      display: inline-flex; align-items: center; gap: 5px;
-    }
-    .rv-srcbadge--strava { background: #fc4c02; }
-    .rv-srcbadge--stryd  { background: #0f1830; }
-    .rv-title { margin: 14px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
-    .rv-idrow { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-    .rv-id { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.75rem; color: #9aa3b2; }
-    .rv-idcopy {
-      width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 5px;
-      background: #fff; color: #9aa3b2; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-    }
-    .rv-idcopy:hover { color: var(--ink-2); }
-    .rv-idcopy--done { color: #15803d; border-color: #15803d; background: #f0fdf4; }
-    .rv-date { margin-top: 8px; font-size: 0.875rem; color: var(--ink-2); }
-    .rv-basic-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-    .rv-tile--basic { background: #f6f8fc; border-radius: 12px; padding: 18px 20px; }
-    .rv-tile-val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 2.25rem; font-weight: 700; color: var(--ink); line-height: 1; }
-    .rv-tile-unit { font-size: 0.9375rem; color: #9aa3b2; font-weight: 600; margin-left: 3px; }
-    .rv-tile-lbl { margin-top: 8px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa3b2; }
-    .rv-duration { margin-top: 16px; font-size: 0.875rem; color: var(--ink-2); }
-    .rv-duration strong { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--ink); }
-
-    /* load grid */
-    .rv-igrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #eef1f6; border-radius: 12px; overflow: hidden; }
-    .rv-itile { background: #fff; padding: 16px 18px; }
-    .rv-itile--hero { background: linear-gradient(135deg, #eef3ff, #f6f9ff); }
-    .rv-itile-lbl { font-size: 0.625rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #9aa3b2; display: flex; align-items: center; gap: 5px; }
-    .rv-itile-val { margin-top: 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.5rem; font-weight: 700; color: var(--ink); }
-    .rv-itile--hero .rv-itile-val { font-size: 2rem; color: #3b6fe0; }
-    .rv-itile-unit { font-size: 0.8125rem; color: #9aa3b2; font-weight: 600; margin-left: 2px; }
-    .rv-stryd-tag { font-size: 0.5rem; font-weight: 800; color: #7c5cff; background: #f0ecff; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.04em; }
-    .rv-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-    .rv-dot--hr { background: #e0414b; }
-    .rv-dot--pwr, .rv-dot--easy { }
-    .rv-dot--pwr { background: #7c5cff; }
-    .rv-foot { margin-top: 14px; font-size: 0.75rem; color: #9aa3b2; font-family: 'JetBrains Mono', ui-monospace, monospace; }
-
-    /* effort profile */
-    .rv-eff-axis { display: flex; justify-content: space-between; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; color: #b3bccb; margin-bottom: 8px; }
-    .rv-eff-track { display: flex; align-items: flex-end; gap: 3px; height: 90px; background: #f6f8fc; border-radius: 10px; padding: 10px; }
-    .rv-eff-bar { border-radius: 4px 4px 0 0; min-width: 4px; }
-    .rv-eff--easy { background: #34c759; }
-    .rv-eff--tempo { background: #f0a020; }
-    .rv-eff--hard { background: #ef6c2e; }
-    .rv-eff--recovery { background: #9aa3b2; }
-    .rv-eff--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
-    .rv-eff-legend, .rv-dot--easy { }
-    .rv-eff-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 0.75rem; color: var(--ink-2); }
-    .rv-eff-legend span { display: inline-flex; align-items: center; gap: 6px; }
-    .rv-dot--easy { background: #34c759; }
-    .rv-dot--tempo { background: #f0a020; }
-    .rv-dot--hard { background: #ef6c2e; }
-    .rv-dot--recovery { background: #9aa3b2; }
-
-    /* laps */
-    .rv-laps-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .rv-laps-head .rv-sec-title { margin: 0; }
-    .rv-metric-toggle { display: inline-flex; background: #f1f4fa; border-radius: 8px; padding: 3px; }
-    .rv-mt-btn { border: 0; background: none; font-size: 0.8125rem; font-weight: 600; color: var(--ink-2); padding: 5px 14px; border-radius: 6px; cursor: pointer; }
-    .rv-mt-btn--on { background: #0f1830; color: #fff; }
-    .rv-lap-chart { display: flex; align-items: flex-end; gap: 4px; height: 110px; padding: 6px 0; }
-    .rv-lapbar { flex: 1; border-radius: 5px 5px 0 0; min-height: 6px; }
-    .rv-lapbar--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
-    .rv-z2-note { font-size: 0.75rem; color: var(--ink-2); margin: 8px 0 14px; display: flex; align-items: center; gap: 7px; }
-    .rv-z2-swatch { width: 14px; height: 14px; border-radius: 4px; background: #d6f5ee; border: 2px solid #14b8a6; display: inline-block; }
-    .rv-lap-tablewrap { overflow-x: auto; }
-    .rv-lap-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-    .rv-lap-table th { text-align: right; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa3b2; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-    .rv-lap-table th:first-child { text-align: left; }
-    .rv-lap-table td { text-align: right; padding: 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--ink); border-bottom: 1px solid #f1f4fa; white-space: nowrap; }
-    .rv-lap-table td:first-child { text-align: left; font-weight: 700; }
-    .rv-lap-table tr.rv-lap-z2 td { background: #ecfbf7; }
-    .rv-lap-n { color: #5a6577; }
-    .rv-z2-pill { font-size: 0.5625rem; font-weight: 800; color: #fff; background: #14b8a6; padding: 1px 6px; border-radius: 999px; }
-    .rv-u { font-size: 0.6875rem; color: #b3bccb; margin-left: 1px; }
-
-    /* route placeholder */
-    .rv-map-placeholder { border: 2px dashed #d7deea; border-radius: 12px; padding: 40px 20px; text-align: center; background: repeating-linear-gradient(45deg, #f8fafd, #f8fafd 10px, #f3f6fb 10px, #f3f6fb 20px); }
-    .rv-map-emoji { font-size: 1.6rem; }
-    .rv-map-title { margin-top: 10px; font-weight: 700; color: var(--ink-2); }
-    .rv-map-sub { margin-top: 4px; font-size: 0.8125rem; color: #9aa3b2; }
-
-    /* source strip */
-    .rv-srcstrip-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .rv-srcbtn { font-size: 0.8125rem; font-weight: 700; padding: 9px 16px; border-radius: 999px; color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
-    .rv-srcbtn--strava { background: #fc4c02; }
-    .rv-srcbtn--stryd { background: #0f1830; }
-    .rv-srcnote { font-size: 0.8125rem; color: #9aa3b2; font-family: 'JetBrains Mono', ui-monospace, monospace; }
-    @media (max-width: 560px) {
-      .rv-igrid { grid-template-columns: repeat(2, 1fr); }
-      .rv-basic-tiles { grid-template-columns: 1fr; }
-    }
-
     /* ── Month calendar (issue #638: desktop-only, hidden below 1024 px) ── */
     #log-calendar {
       display: none;
@@ -2529,6 +2414,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/lib/training-format.js"></script>
+  <script src="js/lib/run-detail-view.js"></script>
   <script src="js/training.js"></script>
   <script src="js/training-log.js"></script>
   <script src="js/user.js"></script>

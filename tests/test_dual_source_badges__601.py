@@ -351,19 +351,19 @@ class TestACRunViewSubstringRetained:
     """AC5: renderRunView uses substring logic (indexOf) — not changed."""
 
     def test_render_run_view_uses_indexof_for_strava(self, client):
-        """renderRunView must use source.indexOf('strava') (already correct substring logic)."""
-        js_path = Path(__file__).resolve().parents[1] / "frontend" / "js" / "training-log.js"
+        """Run detail view must use source.indexOf('strava') (substring logic)."""
+        js_path = Path(__file__).resolve().parents[1] / "frontend" / "js" / "lib" / "run-detail-view.js"
         content = js_path.read_text()
         assert 'indexOf("strava")' in content or "indexOf('strava')" in content, (
-            "renderRunView must retain substring indexOf check for strava source"
+            "run-detail-view.js must use substring indexOf check for strava source"
         )
 
     def test_render_run_view_uses_indexof_for_stryd(self, client):
-        """renderRunView must use source.indexOf('stryd') (already correct substring logic)."""
-        js_path = Path(__file__).resolve().parents[1] / "frontend" / "js" / "training-log.js"
+        """Run detail view must use source.indexOf('stryd') (substring logic)."""
+        js_path = Path(__file__).resolve().parents[1] / "frontend" / "js" / "lib" / "run-detail-view.js"
         content = js_path.read_text()
         assert 'indexOf("stryd")' in content or "indexOf('stryd')" in content, (
-            "renderRunView must retain substring indexOf check for stryd source"
+            "run-detail-view.js must use substring indexOf check for stryd source"
         )
 
 
