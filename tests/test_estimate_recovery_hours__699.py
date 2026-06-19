@@ -1,5 +1,4 @@
 """Tests for issue #699: Add estimate_recovery_hours pure function to fitness model"""
-import pytest
 
 
 # ── AC1: Pure function exists with correct signature ──────────────────────────
@@ -75,7 +74,6 @@ def test_estimate_recovery_hours__non_numeric_current_atl():
 def test_estimate_recovery_hours__named_constants_exist():
     """AC3: Base recovery is derived from named, configurable constants (no magic numbers)."""
     from backend.services.fitness_model import (
-        estimate_recovery_hours,
         MAX_RECOVERY_HOURS,
     )
 

@@ -13,7 +13,6 @@ compute_run_efficiency_for_workout to verify all acceptance criteria:
   - AC9: Unit test coverage
 """
 
-import os
 import pytest
 
 
