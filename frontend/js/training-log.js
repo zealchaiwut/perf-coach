@@ -3417,8 +3417,23 @@
       tab.addEventListener("click", function () {
         if (tab.dataset.tab === "new") {
           openPanelCreate(createPresetDate());
+        } else if (tab.dataset.tab === "plan") {
+          setHistoryTab("plan");
+          var planPanel = document.getElementById("plan-tab-panel");
+          var logList = document.getElementById("log-list");
+          var logErr = document.getElementById("log-error-msg");
+          var logEmpty = document.getElementById("log-empty-msg");
+          if (planPanel) planPanel.style.display = "";
+          if (logList) logList.style.display = "none";
+          if (logErr) logErr.style.display = "none";
+          if (logEmpty) logEmpty.style.display = "none";
+          if (window.TrainingPlan) window.TrainingPlan.init();
         } else {
           setHistoryTab("history");
+          var planPanel2 = document.getElementById("plan-tab-panel");
+          var logList2 = document.getElementById("log-list");
+          if (planPanel2) planPanel2.style.display = "none";
+          if (logList2) logList2.style.display = "";
         }
       });
     });

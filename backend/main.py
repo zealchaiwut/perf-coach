@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
-from backend.models import derive_goal_pace as _derive_goal_pace
+from backend.models import derive_goal_pace as _derive_goal_pace, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
@@ -9720,6 +9720,7 @@ class _RaceCreateBody(BaseModel):
     name: Optional[str] = None
     priority: Optional[str] = None
     status: Optional[str] = None
+    race_type: Optional[str] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -9729,6 +9730,17 @@ class _RaceUpdateBody(BaseModel):
     name: Optional[str] = None
     priority: Optional[str] = None
     status: Optional[str] = None
+    race_type: Optional[str] = None
+
+
+def _race_met_status(race: Race) -> str:
+    """Derive met_status from race date and status for display in the Plan tab."""
+    if race.status == "done":
+        return "met"
+    today = _date.today()
+    if race.race_date < today:
+        return "missed"
+    return "upcoming"
 
 
 def _race_dict(race: Race) -> dict:
@@ -9742,6 +9754,8 @@ def _race_dict(race: Race) -> dict:
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "priority": race.priority,
         "status": race.status,
+        "race_type": race.race_type if race.race_type else "race",
+        "met_status": _race_met_status(race),
         "created_at": race.created_at.isoformat() if race.created_at else None,
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
     }
@@ -9773,6 +9787,7 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
     pace = _derive_goal_pace(body.goal_time_seconds, body.distance_km)
 
     with Session(engine) as session:
+        race_type_val = body.race_type if body.race_type in _RACE_TYPE_VALUES else "race"
         race = Race(
             user_id=user.id,
             name=body.name if body.name is not None else "",
@@ -9781,6 +9796,7 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
             goal_time_seconds=body.goal_time_seconds,
             priority=body.priority if body.priority is not None else "A",
             status=body.status if body.status is not None else "planned",
+            race_type=race_type_val,
         )
         race.goal_pace_seconds_per_km = pace
         session.add(race)
@@ -9861,6 +9877,8 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
             race.priority = body.priority
         if body.status is not None:
             race.status = body.status
+        if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
+            race.race_type = body.race_type
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
@@ -9871,6 +9889,20 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
         session.commit()
         session.refresh(race)
         return JSONResponse(_race_dict(race))
+
+
+@app.delete("/api/races/{race_id}", status_code=204)
+def delete_race(race_id: str, user: User = Depends(resolve_user)):
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+        session.delete(race)
+        session.commit()
 
 
 # ── Race readiness config keys ────────────────────────────────────────────────
