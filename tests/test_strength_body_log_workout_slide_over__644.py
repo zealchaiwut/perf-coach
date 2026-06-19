@@ -1,6 +1,5 @@
 """Tests for issue #644: Build STRENGTH body for Log-workout slide-over panel."""
 import os
-import re
 import uuid
 import pytest
 import httpx
