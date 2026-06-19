@@ -196,7 +196,8 @@ def test_mobile_week_strip__no_regression_tablet_desktop(page_html):
 
 def test_mobile_week_strip__api_training_log_still_works(logged_in_client):
     """API: The /api/workouts endpoint returns a valid response (no regression)."""
-    resp = logged_in_client.get("/api/workouts")
+    # /api/workouts requires from and to query parameters
+    resp = logged_in_client.get("/api/workouts?from=2026-01-01&to=2026-12-31")
     assert resp.status_code == 200, f"Expected 200 from /api/workouts, got {resp.status_code}"
     data = resp.json()
     assert isinstance(data, list), "Expected list response from /api/workouts"
