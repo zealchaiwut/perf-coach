@@ -474,10 +474,6 @@ def test_consolidate_strength_tss__golden_fixture_representative_workout():
         with open(fixture_path, 'r') as f:
             fixtures = json.load(f)
 
-        # Verify that there's at least one strength TSS fixture entry
-        strength_fixtures = [f for f in fixtures if "strength" in str(f).lower()]
-        # If no strength fixture, we'll skip this as it's not critical
-        # The important part is that the function works correctly
         assert isinstance(fixtures, (list, dict))
     except Exception as e:
         pytest.skip(f"Could not read fixture file: {e}")
@@ -499,7 +495,6 @@ def test_consolidate_strength_tss__uat_log_strength_workout_per_set(client):
         r = client.get("/api/auth/me")
         if r.status_code == 401:
             pytest.skip("Not authenticated — set up user session first")
-        user_data = r.json()
     except Exception:
         pytest.skip("Could not verify authentication")
 
