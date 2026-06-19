@@ -34,5 +34,5 @@ jobs:
 
       - name: Run golden metric tests
         run: |
-          pytest tests/test_golden_metrics__577.py tests/test_golden_workout_fixture__672.py \
+          python -m pytest tests/test_golden_metrics__577.py tests/test_golden_workout_fixture__672.py \
             -v --tb=short
