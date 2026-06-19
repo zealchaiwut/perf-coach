@@ -1080,6 +1080,63 @@ def persist_running_tss(workout_id, session) -> dict:
     return result
 
 
+def compute_running_tss_pace_from_prefs(
+    user_id,
+    laps,
+    whole_workout_average_pace_seconds_per_km,
+    total_duration_seconds,
+    db,
+) -> dict:
+    """Thin DB-access wrapper around :func:`~backend.services.running_tss_pace.calculate_running_tss_pace`.
+
+    Reads ``threshold_pace_seconds_per_km`` from ``user_preferences`` for
+    ``user_id`` and passes it directly to the pure function.  No default value
+    is substituted when the preference is absent; a missing threshold produces
+    ``{tss: None, method: "none", ...}`` so the caller can surface that to the
+    user rather than silently computing a meaningless score.
+
+    Parameters
+    ----------
+    user_id:
+        The authenticated user's id.
+    laps:
+        List of lap dicts with ``lap_duration_seconds`` and
+        ``lap_pace_seconds_per_km``.  May be None or empty.
+    whole_workout_average_pace_seconds_per_km:
+        Fallback average pace for the whole workout when laps are absent.
+    total_duration_seconds:
+        Total workout duration used for the fallback calculation.
+    db:
+        Active SQLAlchemy session or connection.
+    """
+    from backend.services.running_tss_pace import calculate_running_tss_pace
+
+    threshold = None
+    if user_id is not None and db is not None:
+        try:
+            row = db.execute(
+                text(
+                    "SELECT threshold_pace_seconds_per_km "
+                    "FROM user_preferences WHERE user_id = :uid"
+                ),
+                {"uid": str(user_id)},
+            ).fetchone()
+            if row is not None:
+                threshold = row.threshold_pace_seconds_per_km
+        except Exception:
+            _log.warning(
+                "Could not query user_preferences for user %s; threshold will be None",
+                user_id,
+            )
+
+    return calculate_running_tss_pace(
+        threshold_pace_seconds_per_km=threshold,
+        laps=laps,
+        whole_workout_average_pace_seconds_per_km=whole_workout_average_pace_seconds_per_km,
+        total_duration_seconds=total_duration_seconds,
+    )
+
+
 def recompute_user_running_tss(user_id, session) -> None:
     """Recompute TSS for every running workout owned by user_id.
 
