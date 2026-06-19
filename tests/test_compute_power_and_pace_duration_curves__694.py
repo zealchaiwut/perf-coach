@@ -20,7 +20,6 @@ Acceptance criteria verified:
   AC12 — Scope is limited to per-workout curves only
 """
 
-import pytest
 from backend.services.duration_curve import (
     compute_power_curve,
     compute_pace_curve,
@@ -389,7 +388,6 @@ def test_pure_functions_have_no_db_calls():
     import inspect
 
     power_source = inspect.getsource(compute_power_curve)
-    pace_source = inspect.getsource(compute_pace_curve)
 
     # These pure functions should not have DB imports
     assert "SQLAlchemy" not in power_source
