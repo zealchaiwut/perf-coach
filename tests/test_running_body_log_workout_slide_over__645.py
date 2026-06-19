@@ -50,9 +50,38 @@ def auth_client(client, test_user):
     res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
     assert res.status_code == 200, res.text
     session = res.cookies.get("session")
-    with httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=True) as c:
-        c.cookies.set("session", session)
-        yield c
+    csrf = res.cookies.get("csrf-token")
+
+    class CsrfClient:
+        def __init__(self, base_url, session_cookie, csrf_token):
+            self._client = httpx.Client(base_url=base_url, timeout=10.0, follow_redirects=True)
+            self._client.cookies.set("session", session_cookie)
+            if csrf_token:
+                self._client.cookies.set("csrf-token", csrf_token)
+            self._csrf = csrf_token
+
+        def _request(self, method, *args, **kwargs):
+            if self._csrf and "headers" not in kwargs:
+                kwargs["headers"] = {}
+            if self._csrf and isinstance(kwargs.get("headers"), dict):
+                kwargs["headers"]["X-CSRF-Token"] = self._csrf
+            return self._client.request(method, *args, **kwargs)
+
+        def get(self, *args, **kwargs):
+            return self._client.get(*args, **kwargs)
+
+        def post(self, *args, **kwargs):
+            return self._request("POST", *args, **kwargs)
+
+        def delete(self, *args, **kwargs):
+            return self._request("DELETE", *args, **kwargs)
+
+        def put(self, *args, **kwargs):
+            return self._request("PUT", *args, **kwargs)
+
+    c = CsrfClient(BASE_URL, session, csrf)
+    yield c
+    c._client.close()
 
 
 @pytest.fixture(scope="module")
