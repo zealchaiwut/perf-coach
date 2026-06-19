@@ -269,3 +269,34 @@ def test_detection_skipped_for_auto_splits():
 
     assert result["confident"] is False
     assert result["basis"] == "none"
+
+
+def test_detected_profile_phases_are_json_serializable_with_decimal_splits():
+    """Regression: Numeric split distances must not break GET /full JSON encoding."""
+    import json
+    from decimal import Decimal
+
+    from backend.services.lap_phase_grouper import LapPhaseConfig, group_laps_into_phases
+
+    laps = [
+        {
+            "band": "steady",
+            "distance_km": Decimal("0.998"),
+            "duration_seconds": 341,
+            "avg_hr": 147,
+            "avg_power": 274,
+        },
+        {
+            "band": "tempo",
+            "distance_km": Decimal("0.999"),
+            "duration_seconds": 359,
+            "avg_hr": 167,
+            "avg_power": 277,
+        },
+    ]
+    phases, reason = group_laps_into_phases(laps, LapPhaseConfig())
+    assert reason is None
+    profile = {"phases": phases, "confident": True, "basis": "power"}
+    json.dumps(profile)  # must not raise TypeError
+    assert isinstance(phases[0]["distance_km"], float)
+    assert isinstance(phases[0]["avg_pace_seconds_per_km"], float)
