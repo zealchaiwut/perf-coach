@@ -286,6 +286,107 @@
   flex-wrap: wrap;
 }
 
+.rd4-laps-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rd4-lapmode-toggle {
+  display: inline-flex;
+  background: #eef1f6;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.rd4-lm-btn {
+  border: 0;
+  background: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.rd4-lm-btn--on { background: #fff; color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+.rd4-lap-src {
+  font-size: 0.5rem;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.rd4-lap-src--strava { background: #fc4c02; color: #fff; }
+.rd4-lap-src--stryd { background: #7c5cff; color: #fff; }
+
+/* TSS source picker */
+.rd4-stat--tss {
+  position: relative;
+  cursor: pointer;
+}
+
+.rd4-stat--tss:hover { background: linear-gradient(135deg, #e8efff, #f0f5ff); }
+
+.rd4-stat--tss-open { z-index: 20; }
+
+.rd4-tss-chev {
+  font-size: 0.625rem;
+  opacity: 0.6;
+}
+
+.rd4-tss-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(8, 18, 48, 0.12);
+  padding: 4px;
+  z-index: 30;
+}
+
+.rd4-tss-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.rd4-tss-opt:hover { background: #f6f8fc; }
+
+.rd4-tss-opt--on { background: #eef3ff; }
+
+.rd4-tss-opt-lbl {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rd4-tss-opt-val {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+
 .rd4-metric-toggle {
   display: inline-flex;
   background: #f1f4fa;

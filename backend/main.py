@@ -4374,6 +4374,7 @@ def _stryd_source_dict(sta) -> dict | None:
         "form_metrics": sta.form_metrics or {},
         "power_zones": sta.power_zones or {},
         "splits": sta.splits or [],
+        "laps": ((sta.raw_payload or {}).get("laps") or []),
     }
 
 
