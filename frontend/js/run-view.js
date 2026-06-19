@@ -71,7 +71,7 @@
       var pct = totalDist
         ? (seg.distance_km / totalDist) * 100
         : 100 / segments.length;
-      var effort = (seg.effort || "easy").toLowerCase();
+      var effort = (seg.band || seg.effort || "easy").toLowerCase();
       var color = segmentColor(effort);
       var heightPct =
         effort === "hard" || effort === "race"
@@ -99,7 +99,7 @@
       return '<p class="rv-empty">No segment data</p>';
     return segments
       .map(function (seg) {
-        var effort = (seg.effort || "easy").toLowerCase();
+        var effort = (seg.band || seg.effort || "easy").toLowerCase();
         var color = segmentColor(effort);
         return (
           '<div class="rv-seg-row">' +
@@ -107,7 +107,7 @@
           color +
           '"></span>' +
           '<span class="rv-seg-name">' +
-          (seg.name || effort) +
+          (seg.label || seg.name || effort) +
           "</span>" +
           '<span class="rv-seg-dist">' +
           dash(seg.distance_km ? seg.distance_km.toFixed(2) + " km" : null) +
@@ -142,15 +142,14 @@
     var validVals = values.filter(function (v) {
       return v != null && v > 0;
     });
-    if (!validVals.length) return "";
-    var maxVal = Math.max.apply(null, validVals);
-    var minVal = Math.min.apply(null, validVals);
+    var maxVal = validVals.length ? Math.max.apply(null, validVals) : 0;
+    var minVal = validVals.length ? Math.min.apply(null, validVals) : 0;
     var range = maxVal - minVal || 1;
 
     var bars = splits.map(function (s, i) {
       var v = values[i];
       var pct, color, isZ2;
-      if (v == null) {
+      if (v == null || !validVals.length) {
         pct = 0;
         color = "#e2e8f0";
       } else {
@@ -258,12 +257,12 @@
       '<table class="rv-lap-table">' +
       "<thead><tr>" +
       '<th class="rv-th">Lap</th>' +
-      '<th class="rv-th">Dist</th>' +
+      '<th class="rv-th">Distance</th>' +
       '<th class="rv-th">Pace</th>' +
       '<th class="rv-th">HR</th>' +
-      '<th class="rv-th rv-col-len">Len (m)</th>' +
-      '<th class="rv-th rv-col-cad">Cad (spm)</th>' +
-      '<th class="rv-th">Pwr (W)</th>' +
+      '<th class="rv-th rv-col-len">Stride</th>' +
+      '<th class="rv-th rv-col-cad">Cadence</th>' +
+      '<th class="rv-th">Power</th>' +
       "</tr></thead>" +
       "<tbody>" +
       rows.join("") +
@@ -402,7 +401,7 @@
       "</div>";
 
     // Session Profile
-    var segments = (data.unified && data.unified.segments) || [];
+    var segments = (data.detected_profile && data.detected_profile.phases) || [];
     var totalDist = w.distance_km || 0;
     var profileSection =
       '<div class="rv-card rv-profile">' +
