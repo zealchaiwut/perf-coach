@@ -47,7 +47,11 @@ def _apply_best(workout, best: dict) -> None:
     if best.get("best_duration_seconds") is not None:
         workout.duration_seconds = best["best_duration_seconds"]
     if best.get("best_avg_hr") is not None:
-        workout.avg_hr = best["best_avg_hr"]
+        from backend.services.workout_merge import clean_hr
+
+        hr = clean_hr(best["best_avg_hr"])
+        if hr is not None:
+            workout.avg_hr = hr
     if best.get("best_tss") is not None:
         workout.tss = best["best_tss"]
 

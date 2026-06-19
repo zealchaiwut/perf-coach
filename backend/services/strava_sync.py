@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.models import StravaActivity, SyncJob
 from backend.services.strava import detect_stryd_origin
+from backend.services.workout_merge import clean_hr
 from backend.services.strava_client import (
     get_activity_detail,
     get_activity_streams,
@@ -45,8 +46,8 @@ def _map_fields(raw: dict, user_id: str, is_stryd: bool) -> dict:
         "name": raw.get("name") or "",
         "distance_km": round(dist / 1000, 3) if dist else None,
         "duration_seconds": raw.get("moving_time"),
-        "avg_hr": raw.get("average_heartrate"),
-        "max_hr": raw.get("max_heartrate"),
+        "avg_hr": clean_hr(raw.get("average_heartrate")),
+        "max_hr": clean_hr(raw.get("max_heartrate")),
         "elevation_m": raw.get("total_elevation_gain"),
         "avg_power_w": raw.get("average_watts"),
         "max_power_w": raw.get("max_watts"),
