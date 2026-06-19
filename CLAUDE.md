@@ -82,7 +82,16 @@ and a daily **readiness** score is computed from the wellness metrics.
 - ANY schema change MUST be a new Alembic migration in `alembic/versions/`.
   Never edit the DB by hand. Make migrations idempotent (guard create_table /
   add_column with existence checks; helpers `column_exists` / `table_exists` in
-  `alembic/`). New revision ids continue the sequential-letter-prefix chain.
+  `alembic/`). Always create migrations with `alembic revision -m "<msg>"` and
+  let Alembic generate the random hex revision id — do NOT hand-author ids or
+  continue the old sequential-letter-prefix chain. Hand-picked sequential ids
+  caused repeated duplicate-revision / multiple-head collisions when parallel
+  feature branches each grabbed the "next letter"; random ids make that nearly
+  impossible. If two branches still land separate heads, reconcile with a single
+  `alembic merge heads -m "merge_heads"` node (also random-id) — never add a
+  second merge node for the same heads. The CI gate
+  (`.github/workflows/migrations-check.yml`) blocks any PR with duplicate
+  revision ids or more than one head.
 
 ## Auth & Sessions
 
