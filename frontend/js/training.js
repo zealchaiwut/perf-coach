@@ -73,6 +73,11 @@
   function initChips() {
     var container = document.getElementById('type-chips');
     var customInput = document.getElementById('custom-type-input');
+    if (!container) {
+      // Embedded slide-over mode uses <select id="workout-type"> instead of chips
+      updateRunVisibility();
+      return;
+    }
     container.innerHTML = '';
     WORKOUT_TYPES.forEach(function (type) {
       var btn = document.createElement('button');
@@ -97,7 +102,7 @@
     customBtn.title = 'Coming soon';
     container.appendChild(customBtn);
     selectChip('Strength');
-    customInput.addEventListener('input', function () {});
+    if (customInput) customInput.addEventListener('input', function () {});
   }
 
   function selectChip(value) {
@@ -200,8 +205,9 @@
 
   function _relabelSets(card) {
     if (!card) return;
+    var rows = card.querySelectorAll('.set-row');
     var workingIdx = 0;
-    card.querySelectorAll('.set-row').forEach(function (r) {
+    rows.forEach(function (r) {
       var type = r.dataset.setType || 'working';
       var cfg = SET_TYPES[type] || SET_TYPES.working;
       var badge = r.querySelector('.set-badge');
@@ -209,6 +215,28 @@
       if (type === 'working') { workingIdx += 1; badge.textContent = String(workingIdx); }
       else badge.textContent = cfg.badge;
     });
+    // Disable the remove button when only one set remains
+    card.querySelectorAll('.set-x').forEach(function (btn) {
+      btn.disabled = rows.length <= 1;
+      btn.title = rows.length <= 1 ? 'Cannot remove the last set' : 'Remove set';
+    });
+  }
+
+  function _updateExerciseBullet(card) {
+    var bullet = card.querySelector('.ex-rpe-bullet');
+    if (!bullet) return;
+    var maxRpe = null;
+    card.querySelectorAll('.set-rpe').forEach(function (inp) {
+      var rpe = parseFloat(inp.value);
+      if (isFinite(rpe) && (maxRpe === null || rpe > maxRpe)) maxRpe = rpe;
+    });
+    var cls = '';
+    if (maxRpe !== null) {
+      if (maxRpe <= 6) cls = 'ex-rpe-green';
+      else if (maxRpe <= 8) cls = 'ex-rpe-amber';
+      else cls = 'ex-rpe-red';
+    }
+    bullet.className = 'ex-rpe-bullet' + (cls ? ' ' + cls : '');
   }
 
   function _updateExerciseVolume(card) {
@@ -221,18 +249,26 @@
     });
     var el = card.querySelector('.ex-vol strong');
     if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+    _updateExerciseBullet(card);
   }
 
   function recomputeStrengthTotals() {
     var vol = 0, total = 0, working = 0, topW = 0, topReps = 0;
     document.querySelectorAll('#exercises-tbody .exercise').forEach(function (card) {
       card.querySelectorAll('.set-row').forEach(function (r) {
-        var w = parseFloat(r.querySelector('.set-weight').value) || 0;
-        var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
-        vol += w * reps; total += 1;
-        var type = r.dataset.setType || 'working';
-        if (SET_TYPES[type] && SET_TYPES[type].working) working += 1;
-        if (w > topW) { topW = w; topReps = reps; }
+        var w = parseFloat(r.querySelector('.set-weight').value);
+        var reps = parseInt(r.querySelector('.set-reps').value, 10);
+        var hasW = isFinite(w) && w > 0;
+        var hasR = isFinite(reps) && reps > 0;
+        // Flag rows where only one of weight/reps is filled (incomplete)
+        r.classList.toggle('is-incomplete', (hasW && !hasR) || (!hasW && hasR));
+        // Only count complete rows in totals
+        if (hasW && hasR) {
+          vol += w * reps; total += 1;
+          var type = r.dataset.setType || 'working';
+          if (SET_TYPES[type] && SET_TYPES[type].working) working += 1;
+          if (w > topW) { topW = w; topReps = reps; }
+        }
       });
       _updateExerciseVolume(card);
     });
@@ -279,6 +315,7 @@
       '<div class="exercise-head">' +
         '<span class="grip" title="Reorder">⠿</span>' +
         '<div class="ex-icon">🏋</div>' +
+        '<span class="ex-rpe-bullet" aria-hidden="true" title="Highest RPE tier"></span>' +
         '<div class="ex-name-wrap"><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></div>' +
         '<div class="ex-vol">volume<strong>—</strong></div>' +
         '<button type="button" class="remove-row-btn ex-remove" title="Remove exercise">✕</button>' +
@@ -290,7 +327,19 @@
     list.appendChild(card);
     var setTable = card.querySelector('.set-table');
     card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
-    card.querySelector('.ex-remove').addEventListener('click', function () { card.remove(); recomputeStrengthTotals(); });
+    card.querySelector('.ex-remove').addEventListener('click', function () {
+      // Confirm before removing if any set has data
+      var hasData = false;
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        if (r.querySelector('.set-weight').value || r.querySelector('.set-reps').value || r.querySelector('.set-rpe').value) {
+          hasData = true;
+        }
+      });
+      var exName = (card.querySelector('.ex-name').value || 'this exercise').trim();
+      if (hasData && !confirm('Remove "' + exName + '" and all its sets?')) return;
+      card.remove();
+      recomputeStrengthTotals();
+    });
     card.querySelector('.ex-name').addEventListener('input', recomputeStrengthTotals);
 
     var seeded = false;
@@ -1379,6 +1428,15 @@
     var customType = document.getElementById('custom-type-input');
     if (customType) {
       customType.addEventListener('input', function () {
+        updateRunVisibility();
+        maybeRefreshAutoName();
+      });
+    }
+
+    // Slide-over panel uses <select id="workout-type"> instead of chips
+    var typeSelect = document.getElementById('workout-type');
+    if (typeSelect) {
+      typeSelect.addEventListener('change', function () {
         updateRunVisibility();
         maybeRefreshAutoName();
       });
