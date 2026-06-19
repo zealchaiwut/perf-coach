@@ -10439,7 +10439,11 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
-    from backend.services.aerobic_decoupling import compute_decoupling
+
+    try:
+        from backend.services.aerobic_decoupling import compute_decoupling
+    except ImportError:
+        compute_decoupling = None
 
     try:
         uid = _uuid.UUID(athlete_id)
@@ -10510,26 +10514,28 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
             # Compute aerobic decoupling for this run (back-half vs front-half
             # efficiency) using plain dicts so compute_decoupling stays pure
-            split_dicts = [
-                {
-                    "split_index": s.split_index,
-                    "duration_seconds": s.duration_seconds,
-                    "avg_hr": s.avg_hr,
-                    "avg_power": s.avg_power,
-                    "distance_km": float(s.distance_km) if s.distance_km is not None else None,
-                }
-                for s in splits
-            ]
-            decoupling_result, _ = compute_decoupling(
-                {"workout_type": workout.workout_type},
-                split_dicts,
-                prefs_dict.get("aerobic_decoupling_threshold"),
-            )
-            decoupling_pct = (
-                decoupling_result.get("decoupling_pct")
-                if decoupling_result
-                else None
-            )
+            decoupling_pct = None
+            if compute_decoupling is not None:
+                split_dicts = [
+                    {
+                        "split_index": s.split_index,
+                        "duration_seconds": s.duration_seconds,
+                        "avg_hr": s.avg_hr,
+                        "avg_power": s.avg_power,
+                        "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                    }
+                    for s in splits
+                ]
+                decoupling_result, _ = compute_decoupling(
+                    {"workout_type": workout.workout_type},
+                    split_dicts,
+                    prefs_dict.get("aerobic_decoupling_threshold"),
+                )
+                decoupling_pct = (
+                    decoupling_result.get("decoupling_pct")
+                    if decoupling_result
+                    else None
+                )
 
             runs.append({
                 "run_id": str(workout.id),
