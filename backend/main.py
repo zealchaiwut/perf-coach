@@ -9263,6 +9263,83 @@ def get_training_daily_load(
     return JSONResponse(result)
 
 
+@app.get("/api/athletes/{athlete_id}/daily-load")
+def get_athlete_daily_load(
+    athlete_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+):
+    """Return per-day training load aggregates for an athlete.
+
+    Validates date params first (400 on failure), then checks athlete
+    exists (404 if not), then delegates computation to daily_load_series.
+    """
+    if start_date is None or end_date is None:
+        missing = []
+        if start_date is None:
+            missing.append("start_date")
+        if end_date is None:
+            missing.append("end_date")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required query parameter(s): {', '.join(missing)}",
+        )
+
+    try:
+        start_d = _date.fromisoformat(start_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date is not a valid ISO-8601 date: {start_date!r}",
+        )
+
+    try:
+        end_d = _date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"end_date is not a valid ISO-8601 date: {end_date!r}",
+        )
+
+    if start_d > end_d:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date ({start_date}) must not be after end_date ({end_date})",
+        )
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= start_d,
+                Workout.workout_date <= end_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+        workouts = [
+            {
+                "id": str(r.id),
+                "date": r.workout_date.isoformat(),
+                "tss": float(r.tss) if r.tss is not None else None,
+            }
+            for r in rows
+        ]
+
+    result = _daily_load_series(workouts, start_date, end_date)
+    return JSONResponse(result)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
