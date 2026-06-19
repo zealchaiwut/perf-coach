@@ -318,28 +318,26 @@
         '<span class="ex-rpe-bullet" aria-hidden="true" title="Highest RPE tier"></span>' +
         '<div class="ex-name-wrap"><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></div>' +
         '<div class="ex-vol">volume<strong>—</strong></div>' +
-        '<button type="button" class="remove-row-btn ex-remove" title="Remove exercise">✕</button>' +
+        '<button type="button" class="remove-row-btn" title="Remove exercise">✕</button>' +
       '</div>' +
       '<div class="set-table">' +
         '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
         '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
       '</div>';
     list.appendChild(card);
-    var setTable = card.querySelector('.set-table');
-    card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
-    card.querySelector('.ex-remove').addEventListener('click', function () {
-      // Confirm before removing if any set has data
-      var hasData = false;
-      card.querySelectorAll('.set-row').forEach(function (r) {
-        if (r.querySelector('.set-weight').value || r.querySelector('.set-reps').value || r.querySelector('.set-rpe').value) {
-          hasData = true;
-        }
-      });
+    var rmBtn = card.querySelector('.remove-row-btn');
+    rmBtn.classList.add('ex-remove');
+    rmBtn.addEventListener('click', function () {
       var exName = (card.querySelector('.ex-name').value || 'this exercise').trim();
+      var hasData = [].slice.call(card.querySelectorAll('.set-row')).some(function (r) {
+        return r.querySelector('.set-weight').value || r.querySelector('.set-reps').value || r.querySelector('.set-rpe').value;
+      });
       if (hasData && !confirm('Remove "' + exName + '" and all its sets?')) return;
       card.remove();
       recomputeStrengthTotals();
     });
+    var setTable = card.querySelector('.set-table');
+    card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
     card.querySelector('.ex-name').addEventListener('input', recomputeStrengthTotals);
 
     var seeded = false;

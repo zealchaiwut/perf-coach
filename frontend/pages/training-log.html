@@ -2869,6 +2869,19 @@
           grid-template-columns: 1fr;
         }
       }
+      /* ── Strength body: exercise card classes ────────────────────────────── */
+      .ex-rpe-bullet { width: 10px; height: 10px; border-radius: 50%; background: var(--card-border); flex-shrink: 0; display: inline-block; transition: background 0.15s; }
+      .ex-rpe-bullet.ex-rpe-green { background: var(--green, #2d5e10); }
+      .ex-rpe-bullet.ex-rpe-amber { background: var(--amber, #6b4408); }
+      .ex-rpe-bullet.ex-rpe-red   { background: var(--red, #7a1a1a); }
+      /* ── Strength body: session-profile bar RPE tier colors ──────────────── */
+      .rl-pseg.rpe-low  { background: #16a34a; }
+      .rl-pseg.rpe-mid  { background: #eab308; }
+      .rl-pseg.rpe-high { background: #ea580c; }
+      .rl-pseg.rpe-max  { background: #dc2626; }
+      /* ── Strength body: set row grid and incomplete flag ─────────────────── */
+      .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 1fr 26px; gap: 8px; align-items: center; }
+      .set-row.is-incomplete { background: var(--amber-soft, #fff0c4); border-radius: 7px; }
     </style>
   </head>
   <body>
