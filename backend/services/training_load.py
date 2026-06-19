@@ -60,6 +60,18 @@ DEFAULT_TAPER_DAYS: int = 14
 # with the projected taper curve.  Outside this band, status is "ahead" or "behind".
 PEAK_TRACKING_TOLERANCE: float = 5.0
 
+# ── Readiness label constants ──────────────────────────────────────────────────
+# Human-readable labels assigned to TSB ranges for the readiness endpoint.
+READINESS_LABEL_FATIGUED: str = "Fatigued"   # TSB below FORM_BURIED_CEILING
+READINESS_LABEL_OPTIMAL: str = "Optimal"     # TSB in the neutral band
+READINESS_LABEL_FRESH: str = "Fresh"         # TSB at or above FORM_FRESH_FLOOR
+
+# ── Baseline detection constants ───────────────────────────────────────────────
+# Days to look back when checking for sufficient training history.
+BASELINE_WINDOW_DAYS: int = 42
+# Minimum number of days with TSS > 0 within the window before metrics are reliable.
+BASELINE_MIN_WORKOUT_DAYS: int = 7
+
 
 def _ewma_alpha(days: int) -> float:
     """Exponential weighted moving average alpha factor."""
@@ -776,3 +788,58 @@ def peak_tracking(
         status = "on track"
 
     return {"status": status, "gap": round(gap, 2), "reason": ""}
+
+
+def readiness_label(tsb: float) -> str:
+    """Return a human-readable label for a TSB value using named constants.
+
+    Labels are anchored to FORM_BURIED_CEILING and FORM_FRESH_FLOOR so that
+    threshold values live only in those named constants, never as magic numbers
+    inside the comparison logic.
+
+    Returns one of READINESS_LABEL_FATIGUED, READINESS_LABEL_OPTIMAL, or
+    READINESS_LABEL_FRESH.
+
+    Worked example:
+        FORM_BURIED_CEILING = -10.0, FORM_FRESH_FLOOR = 5.0
+
+        tsb = -15  →  "Fatigued"   (below buried ceiling)
+        tsb =   0  →  "Optimal"    (in the neutral band)
+        tsb =  10  →  "Fresh"      (at or above fresh floor)
+    """
+    if tsb < FORM_BURIED_CEILING:
+        return READINESS_LABEL_FATIGUED
+    if tsb >= FORM_FRESH_FLOOR:
+        return READINESS_LABEL_FRESH
+    return READINESS_LABEL_OPTIMAL
+
+
+def compute_fitness_series(
+    user_id: str,
+    from_date: date,
+    to_date: date,
+) -> list[dict]:
+    """Fetch daily TSS from the database and compute the CTL/ATL/TSB series.
+
+    This is the caller-layer function used by the readiness endpoint. It
+    performs all database reads (via daily_tss_series) and delegates the
+    computation to compute_load_curves. The endpoint must call this function
+    rather than re-implementing the series calculation.
+
+    Args:
+        user_id: the authenticated user's ID string.
+        from_date: start of the series window (inclusive). Use a 6-month
+            lookback from today so that the EWMA has time to converge before
+            the date range the caller actually needs.
+        to_date: end of the series window (inclusive, typically today).
+
+    Returns:
+        List of dicts ordered ascending by date, each containing:
+            date  -- the calendar day (date object)
+            tss   -- daily TSS (int, 0 for rest days)
+            ctl   -- Chronic Training Load (float, rounded to 2 dp)
+            atl   -- Acute Training Load (float, rounded to 2 dp)
+            tsb   -- Training Stress Balance, CTL − ATL (float, rounded to 2 dp)
+    """
+    daily_series = daily_tss_series(user_id, from_date, to_date)
+    return compute_load_curves(daily_series)
