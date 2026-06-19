@@ -132,8 +132,9 @@ def _group_consecutive(classified_laps):
 
 def _aggregate(laps, indexes):
     """Compute aggregated metrics for a set of lap indexes."""
-    total_distance = sum(_get(laps[i], "distance_km") or 0.0 for i in indexes)
-    total_duration = sum(_get(laps[i], "duration_seconds") or 0.0 for i in indexes)
+    # WorkoutSplit.distance_km is Numeric → Decimal; coerce so /full JSON encodes.
+    total_distance = sum(float(_get(laps[i], "distance_km") or 0) for i in indexes)
+    total_duration = sum(int(_get(laps[i], "duration_seconds") or 0) for i in indexes)
 
     hr_values = [
         _get(laps[i], "avg_hr")
