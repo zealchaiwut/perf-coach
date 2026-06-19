@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 71 — Lap classifier rewrite, session profile improvements, and strength TSS with configurable RPE max
+
+- #678: Add lap intensity classification for session-profile detection
+- #681: Add interval and set detection to session-profile
+- #682: Implement detect_session_profile with precedence and data-quality gate
+- #683: Expose detected session profile on full workout endpoint
+- #688: Add strength TSS via session-RPE method
+- #689: Add per-set RPE refinement method for strength TSS
+
 ## Sprint 69 — Run view redesign, Strength detail, Training Plan tab, and Settings UI
 
 - #643: Convert Log Workout to slide-over panel
