@@ -10,7 +10,6 @@ Acceptance criteria verified:
 - AC7: Unit tests cover power present and absent cases
 - AC8: Integration test confirms np appears in /full endpoint
 """
-import json
 import os
 import pathlib
 import uuid
@@ -18,7 +17,7 @@ import uuid
 import httpx
 import pytest
 from dotenv import dotenv_values
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as DBSession
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -50,14 +49,6 @@ def client():
 @pytest.fixture
 def auth_user(client):
     """Create a test user and authenticate; yield (user_id, session_token)."""
-    # Create user via CLI and set password
-    user_id = f"test_user_{uuid.uuid4().hex[:8]}"
-    password = "TestPassword123!"
-
-    # Set password (would normally be done via CLI, but we'll create via API if possible)
-    # For now, we assume a test user exists. In real UAT, we'd seed one.
-    # Alternative: use the existing test user if one is pre-seeded.
-
     # Try to login with a pre-seeded test user
     login_resp = client.post(
         "/api/auth/login",
@@ -285,7 +276,6 @@ def test_ac6_reingest_updates_np(engine):
 
     # This test is performed at the database level using SQLAlchemy
     from backend.models import Workout, User
-    import uuid as _uuid
     from datetime import date
 
     with DBSession(engine) as session:
@@ -323,7 +313,6 @@ def test_ac6_reingest_clears_np_if_no_power(engine):
         pytest.skip("DATABASE_URL_UAT not set; cannot test ORM")
 
     from backend.models import Workout, User
-    import uuid as _uuid
     from datetime import date
 
     with DBSession(engine) as session:
