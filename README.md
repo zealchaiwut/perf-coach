@@ -35,6 +35,9 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Unified daily training load series** — `backend/services/daily_load.py` pure function aggregates workout TSS by calendar day; exposed via `GET /api/training/daily-load`
 - **Strava sync** — OAuth connection to Strava; pulls activities and reconciles them into workouts with source badges and TSS computation; compact sync controls with last-sync timestamps in Settings → Integrations
 - **Stryd integration** — encrypted credential storage; workouts merged from both Strava and Stryd show both source badges simultaneously in the training log (`has_strava` / `has_stryd` fields on list and detail responses)
+- **Fitness / fatigue / form model** — `backend/services/fitness_model.py` pure function `compute_fitness_series` computes CTL (42-day EWMA), ATL (7-day EWMA), and TSB from a unified daily-load series; no SQL or side effects; consumed by the readiness endpoint and the performance chart
+- **ACWR training-load guidance** — `backend/services/acwr.py` pure function `compute_acwr` classifies acute:chronic workload ratio into detraining / productive / elevated / high-risk bands; requires ≥ 28 days of history; zone thresholds: <0.8 detraining, 0.8–1.3 productive, 1.3–1.5 elevated, >1.5 high-risk
+- **Running performance scores** — `backend/services/running_performance.py` derives endurance and speed scores from per-run efficiency and aerobic decoupling; normalised to the athlete's own historical range with no hardcoded external thresholds; zone constants provided by `backend/services/zone_constants.py`; exposed via `GET /api/athletes/{athlete_id}/performance`
 - **Performance trends** — CTL/ATL/TSB (training load) and personal records
 - **Multi-user** — session-based auth, per-user data isolation
 - **Health check** — `GET /api/healthz` returns `{ok, version, env}` for Render health probes
@@ -112,9 +115,11 @@ Each script:
 | `GET /api/exercises/names` | Returns sorted list of distinct exercise names for the session user; used for autocomplete in the workout log form |
 | `GET /trends/summary` | Returns trend aggregations (readiness, HRV, RHR, sleep, energy, mood, TSS) for a date range |
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
-| `GET /api/readiness` | Returns readiness scores over a date range |
+| `GET /api/readiness` | Dual-mode readiness endpoint. **Without params:** returns training-load readiness — `{building_baseline, ctl, atl, tsb, readiness_label, series}` derived from `compute_fitness_series` over the last 180 days; `building_baseline: true` when fewer than the minimum scored workout days exist in the baseline window. **With `from`/`to` params:** legacy mode — returns daily wellness readiness scores as `[{date, score}]` or `null` per day in the range. |
 | `POST /api/readiness/compute` | Computes and stores today's readiness score |
 | `GET /api/readiness/current` | Returns current CTL/ATL/TSB fitness state for the Readiness widget; returns `{building_baseline: true}` when fewer than 7 workout days with non-zero TSS exist in the past 42 days, otherwise returns `{building_baseline: false, ctl, atl, tsb, recovery_hint}` |
+| `GET /api/athletes/{athlete_id}/performance` | Returns endurance and speed running performance scores for an athlete. Both scores are normalised to the athlete's own historical range. Returns `{endurance, speed}` where each key is either a score object or `{state: "building_baseline", reason: "..."}` when insufficient runs exist, or `{score: null, reason: "..."}` when preferences are unavailable. Returns 404 if the athlete does not exist. |
+| `GET /api/performance/chart` | Returns aligned CTL/ATL/TSB/endurance/speed time-series for a performance chart. Params: `athlete_id` (UUID), `start_date`, `end_date` (YYYY-MM-DD). Always returns HTTP 200; error cases return empty arrays with a machine-readable `reason` field (`athlete_not_found`, `invalid_date_range`, `no_data_in_range`). Response: `{dates, ctl, atl, tsb, endurance_score, speed_score, building_baseline, reason}`. |
 | `POST /api/weight-entries` | Create a weight entry; body: `user_id`, `entry_date`, `weight_kg`, optional `entry_time`, `notes`, `source` |
 | `GET /api/weight-entries` | List weight entries; `user_id` required; `from`/`to` (YYYY-MM-DD) range (default last 90 days, max 365) |
 | `PATCH /api/weight-entries/{entry_id}` | Update `weight_kg`, `entry_date`, `entry_time`, or `notes` on a single entry |

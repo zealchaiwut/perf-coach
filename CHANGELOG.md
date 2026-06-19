@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 73 — Fitness model, ACWR, running performance scores, and performance chart
+
+- #697: Add readiness endpoint exposing CTL, ATL, TSB tiles
+- #698: Add fitness, fatigue, and form (CTL/ATL/TSB) model
+- #701: Add Endurance and Speed Running Performance Scores
+- #702: Add compute_acwr training-load guidance function
+- #703: Add performance chart time-series API endpoint
+
 ## Sprint 70 — Activity streams, normalized power, running TSS, and golden test fixture
 
 - #665: Add power, cadence, stride, and lap-type columns via Alembic migration
