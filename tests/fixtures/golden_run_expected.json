@@ -2,6 +2,8 @@
   "_comment": "Hand-verified expected outputs for the golden_run.json fixture (issue #577). Regenerate ONLY after an intentional formula change using scripts/regen_golden.py. A second engineer must manually verify new values before merging. See docs/REGENERATING_GOLDEN.md for the full regeneration workflow.",
   "normalized_power": {
     "value": 268,
+    "formula_version": "30s_rolling_mean_4th_power_v1",
+    "formula_note": "30-second rolling mean of power, raised to the 4th power, averaged, then 4th-root taken. Standard Coggan NP algorithm. Version tag updated when the algorithm changes.",
     "tolerance": 0.01,
     "tolerance_note": "Absolute tolerance of \u00b10.01 W on the rounded integer result. Since the result is always an integer, the effective tolerance is exact equality.",
     "final_value_exact": 268.2544869303,
