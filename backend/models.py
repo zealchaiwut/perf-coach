@@ -656,6 +656,7 @@ class ActivityStream(Base):
 # Valid priority and status values — referenced by the Race model and migration.
 RACE_PRIORITY_VALUES = ("A", "B", "C")
 RACE_STATUS_VALUES = ("planned", "done", "abandoned")
+RACE_TYPE_VALUES = ("race", "checkpoint")
 
 
 class Race(Base):
@@ -677,6 +678,7 @@ class Race(Base):
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
     priority = Column(String(10), nullable=False)
     status = Column(String(20), nullable=False)
+    race_type = Column(String(20), nullable=False, server_default="race")
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -697,6 +699,10 @@ class Race(Base):
         CheckConstraint(
             "goal_time_seconds IS NULL OR goal_time_seconds > 0",
             name="ck_races_goal_time_positive",
+        ),
+        CheckConstraint(
+            "race_type IN ('race', 'checkpoint')",
+            name="ck_races_race_type_values",
         ),
     )
 
