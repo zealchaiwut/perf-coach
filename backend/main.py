@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import derive_goal_pace as _derive_goal_pace
-from backend.services.workout_merge import compute_best_values
+from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -7418,8 +7418,8 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
                     "name": act.get("name") or "Untitled",
                     "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
                     "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
-                    "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
-                    "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+                    "avg_hr": clean_hr(act.get("average_heartrate")),
+                    "max_hr": clean_hr(act.get("max_heartrate")),
                     "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
                     "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
                     "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
