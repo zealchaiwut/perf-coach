@@ -10410,16 +10410,24 @@ async def accept_threshold_suggestions(
             detail=f"Unknown threshold keys: {unknown}. Valid keys: {list(_SUGGESTION_KEYS)}",
         )
 
-    from backend.services.threshold_suggestions import suggest_thresholds
-
     with Session(engine) as session:
-        duration_curve = _build_user_power_curve(session, user.id)
-        recent_runs = _build_user_recent_runs(session, user.id)
-        result = suggest_thresholds(duration_curve, recent_runs)
+        # Use _pending_suggestions to get only keys not yet accepted.
+        pending = _pending_suggestions(session, user.id)
 
-        # No suggestions available
-        if "suggestions" in result:
-            return JSONResponse({"written": {}, "skipped": keys_to_accept})
+        # AC7: every requested key must have a pending suggestion; error otherwise.
+        if keys_to_accept:
+            missing = [k for k in keys_to_accept if k not in pending]
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"No pending suggestion for key(s): {missing}. "
+                        f"Pending suggestions available for: {list(pending.keys())}"
+                    ),
+                )
+
+        if not keys_to_accept:
+            return JSONResponse({"written": {}, "skipped": []})
 
         # Get or create user preferences row
         prefs = (
@@ -10432,19 +10440,15 @@ async def accept_threshold_suggestions(
             session.add(prefs)
 
         written: dict = {}
-        skipped: list = []
         for key in keys_to_accept:
-            if key not in result:
-                skipped.append(key)
-                continue
-            value = result[key]["value"]
+            value = pending[key]["value"]
             setattr(prefs, key, value)
             setattr(prefs, f"{key}_source", "user_accepted")
             written[key] = value
 
         prefs.updated_at = _datetime.now(_timezone.utc)
         session.commit()
-        return JSONResponse({"written": written, "skipped": skipped})
+        return JSONResponse({"written": written, "skipped": []})
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
