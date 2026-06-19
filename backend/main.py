@@ -38,6 +38,8 @@ from backend.services.training_load import (
     daily_tss_series,
     daily_update,
     compute_load_curves,
+    compute_fitness_series,
+    readiness_label as training_readiness_label,
     project_form,
     taper_recommendation,
     peak_tracking,
@@ -46,6 +48,8 @@ from backend.services.training_load import (
     DEFAULT_TAPER_DAYS,
     TARGET_FORM_LOWER,
     PEAK_TRACKING_TOLERANCE,
+    BASELINE_WINDOW_DAYS,
+    BASELINE_MIN_WORKOUT_DAYS,
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
@@ -6321,52 +6325,108 @@ def get_readiness_today(user: User = Depends(resolve_user)):
 
 
 @app.get("/api/readiness")
-def get_readiness_range(
-    from_date: str = Query(..., alias="from"),
-    to_date: str = Query(..., alias="to"),
+def get_readiness(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
     """
-    Return daily readiness scores for a date range (one entry per day, null if missing).
+    Training-load readiness endpoint with backward-compatible wellness score range.
 
-    Response: list of { date, score } or null per day in [from, to].
+    Without params: returns CTL, ATL, TSB, readiness_label, series, and
+    building_baseline for today's training state. Uses compute_fitness_series to
+    derive all metric values; no raw query is present in this branch.
+
+    With both 'from' and 'to' params: returns the legacy wellness readiness score
+    range — a list of { date, score } objects (or null) per day in [from, to].
     """
-    uid = user.id
+    if from_date is not None or to_date is not None:
+        # ── Legacy wellness score range ──────────────────────────────────────────
+        if from_date is None:
+            raise HTTPException(status_code=400, detail="'from' date is required when 'to' is provided")
+        if to_date is None:
+            raise HTTPException(status_code=400, detail="'to' date is required when 'from' is provided")
 
-    try:
-        d_from = _date.fromisoformat(from_date)
-        d_to = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+        try:
+            d_from = _date.fromisoformat(from_date)
+            d_to = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
 
-    if d_from > d_to:
-        raise HTTPException(status_code=400, detail="from must be <= to")
+        if d_from > d_to:
+            raise HTTPException(status_code=400, detail="from must be <= to")
 
-    from sqlalchemy import text as _text
-    with Session(engine) as session:
-        rows = session.execute(
-            _text(
-                "SELECT date, score FROM daily_readiness "
-                "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
-                "ORDER BY date"
-            ),
-            {"uid": str(uid), "from_d": str(d_from), "to_d": str(d_to)},
-        ).fetchall()
+        from sqlalchemy import text as _text
+        with Session(engine) as session:
+            rows = session.execute(
+                _text(
+                    "SELECT date, score FROM daily_readiness "
+                    "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
+                    "ORDER BY date"
+                ),
+                {"uid": str(user.id), "from_d": str(d_from), "to_d": str(d_to)},
+            ).fetchall()
 
-    by_date = {str(r.date): float(r.score) for r in rows}
+        by_date = {str(r.date): float(r.score) for r in rows}
+        result = []
+        d = d_from
+        from datetime import timedelta
+        while d <= d_to:
+            ds = str(d)
+            if ds in by_date:
+                result.append({"date": ds, "score": by_date[ds]})
+            else:
+                result.append(None)
+            d += timedelta(days=1)
+        return JSONResponse(result)
 
-    result = []
-    d = d_from
-    from datetime import timedelta
-    while d <= d_to:
-        ds = str(d)
-        if ds in by_date:
-            result.append({"date": ds, "score": by_date[ds]})
-        else:
-            result.append(None)
-        d += timedelta(days=1)
+    # ── Training-load readiness (CTL / ATL / TSB) ────────────────────────────────
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+    series = compute_fitness_series(str(user.id), warmup_start, today)
 
-    return JSONResponse(result)
+    window_start = today - _timedelta(days=BASELINE_WINDOW_DAYS)
+    workout_days_in_window = sum(
+        1 for row in series
+        if row["tss"] > 0 and row["date"] >= window_start
+    )
+    building_baseline = workout_days_in_window < BASELINE_MIN_WORKOUT_DAYS
+
+    if building_baseline:
+        return JSONResponse({
+            "building_baseline": True,
+            "ctl": None,
+            "atl": None,
+            "tsb": None,
+            "readiness_label": None,
+            "series": [],
+        })
+
+    last = series[-1]
+    ctl = round(last["ctl"], 1)
+    atl = round(last["atl"], 1)
+    tsb = round(last["tsb"], 1)
+
+    series_start = today - _timedelta(days=89)
+    chart_series = [
+        {
+            "date": str(row["date"]),
+            "ctl": row["ctl"],
+            "atl": row["atl"],
+            "tsb": row["tsb"],
+        }
+        for row in series
+        if row["date"] >= series_start
+    ]
+
+    return JSONResponse({
+        "building_baseline": False,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "readiness_label": training_readiness_label(tsb),
+        "series": chart_series,
+    })
 
 
 @app.get("/api/readiness/current")
