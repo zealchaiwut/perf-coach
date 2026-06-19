@@ -21,7 +21,6 @@ Acceptance criteria covered:
   AC-no-defaults      — no hardcoded threshold values in the pure function file
 """
 import pathlib
-import pytest
 
 from backend.services.running_tss_pace import calculate_running_tss_pace
 
