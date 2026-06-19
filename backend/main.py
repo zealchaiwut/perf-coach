@@ -10477,3 +10477,140 @@ def get_athlete_duration_curve(athlete_id: str):
         "curve": curve_entries,
         "debug": curve_entries,
     })
+
+
+# ── Athlete performance scores ────────────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/performance")
+def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
+    """Return endurance and speed performance scores for an athlete.
+
+    Both scores are derived from per-run efficiency and (for endurance) aerobic
+    decoupling, normalised to the athlete's own historical range.  No hardcoded
+    thresholds are used; all zone bands and cutoffs come from user_preferences
+    and the shared zone_constants module.
+
+    Returns 200 with both ``endurance`` and ``speed`` keys.
+    When the athlete has fewer than the minimum qualifying runs, the affected
+    key returns ``{"state": "building_baseline", "reason": "..."}``.
+    When preferences are unavailable, returns ``{"score": null, "reason": "..."}``.
+    Returns 404 when the athlete ID does not exist.
+    """
+    from backend.services.running_performance import compute_endurance_score, compute_speed_score
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    try:
+        from backend.services.aerobic_decoupling import compute_decoupling
+    except ImportError:
+        compute_decoupling = None
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        # Load user preferences; None means preferences row absent
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        if prefs_row is not None:
+            preferences = {
+                "ftp_w": prefs_row.ftp_w,
+                "threshold_hr": prefs_row.threshold_hr,
+                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                # aerobic_decoupling_threshold added by migration d915ffcb4c0c
+                "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                "duration_curve_bests": None,
+            }
+        else:
+            preferences = None
+
+        # Load duration-curve bests so speed score can reference them
+        curve_data = _get_athlete_duration_curve(uid, session)
+        if preferences is not None:
+            preferences["duration_curve_bests"] = curve_data or {}
+
+        # Load all run workouts in chronological order (oldest first)
+        run_workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+            .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+            .all()
+        )
+
+        prefs_dict = preferences or {}
+
+        runs = []
+        for workout in run_workouts:
+            # Load per-lap splits ordered by split_index
+            splits = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == workout.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+
+            # Classify lap intensity bands using user thresholds
+            classifications = classify_laps(splits, prefs_dict)
+
+            # Build lap dicts with classification bands
+            laps = []
+            for split, cls in zip(splits, classifications):
+                laps.append({
+                    "band": cls.get("band"),
+                    "avg_power": split.avg_power,
+                    "avg_hr": split.avg_hr,
+                    "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                    "duration_seconds": split.duration_seconds,
+                })
+
+            # Compute aerobic decoupling for this run (back-half vs front-half
+            # efficiency) using plain dicts so compute_decoupling stays pure
+            decoupling_pct = None
+            if compute_decoupling is not None:
+                split_dicts = [
+                    {
+                        "split_index": s.split_index,
+                        "duration_seconds": s.duration_seconds,
+                        "avg_hr": s.avg_hr,
+                        "avg_power": s.avg_power,
+                        "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                    }
+                    for s in splits
+                ]
+                decoupling_result, _ = compute_decoupling(
+                    {"workout_type": workout.workout_type},
+                    split_dicts,
+                    prefs_dict.get("aerobic_decoupling_threshold"),
+                )
+                decoupling_pct = (
+                    decoupling_result.get("decoupling_pct")
+                    if decoupling_result
+                    else None
+                )
+
+            runs.append({
+                "run_id": str(workout.id),
+                "workout_date": workout.workout_date.isoformat() if workout.workout_date else "",
+                "laps": laps,
+                "decoupling_pct": decoupling_pct,
+                "avg_power": workout.avg_power,
+                "avg_hr": workout.avg_hr,
+                "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
+                "duration_seconds": workout.duration_seconds,
+            })
+
+    # All DB access is finished above.  The pure functions below perform no I/O.
+    zone_constants = make_zone_constants()
+    endurance = compute_endurance_score(runs, preferences, zone_constants)
+    speed = compute_speed_score(runs, preferences, zone_constants)
+
+    return JSONResponse({"endurance": endurance, "speed": speed})
