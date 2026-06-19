@@ -16,7 +16,6 @@ Acceptance Criteria:
 """
 import pathlib
 
-import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _RV_HTML_PATH = _ROOT / "frontend" / "pages" / "run-view.html"
