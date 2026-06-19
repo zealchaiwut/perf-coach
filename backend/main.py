@@ -10455,6 +10455,9 @@ def get_athlete_duration_curve(athlete_id: str):
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
     but has no runs on record. Returns 404 when the athlete ID does not exist.
+
+    Each curve entry includes duration, best_value, source_workout_id, source_date,
+    and a debug object identifying the source workout.
     """
     try:
         uid = _uuid.UUID(athlete_id)
@@ -10468,21 +10471,45 @@ def get_athlete_duration_curve(athlete_id: str):
 
         curve_data = _get_athlete_duration_curve(uid, session)
 
-    if not curve_data:
-        return JSONResponse({
-            "athleteId": athlete_id,
-            "curve": [],
-            "debug": [],
-            "reason": "No runs found for athlete",
-        })
+        if not curve_data:
+            return JSONResponse({
+                "athleteId": athlete_id,
+                "curve": [],
+                "debug": [],
+                "reason": "No runs found for athlete",
+            })
+
+        # Batch-load workout names for debug labels
+        workout_ids = set()
+        for entry in curve_data.values():
+            wid = entry.get("workout_id")
+            if wid:
+                try:
+                    workout_ids.add(_uuid.UUID(wid))
+                except (ValueError, AttributeError):
+                    pass
+
+        workout_names: dict = {}
+        if workout_ids:
+            rows = (
+                session.query(Workout.id, Workout.name)
+                .filter(Workout.id.in_(workout_ids))
+                .all()
+            )
+            workout_names = {str(r.id): r.name for r in rows}
 
     curve_entries = sorted(
         [
             {
                 "duration": int(dur),
-                "bestValue": entry["best_value"],
-                "workoutId": entry["workout_id"],
-                "date": entry["date"],
+                "best_value": entry["best_value"],
+                "source_workout_id": entry["workout_id"],
+                "source_date": entry.get("date"),
+                "debug": {
+                    "workout_label": workout_names.get(entry["workout_id"])
+                    or entry["workout_id"],
+                    "confidence": entry.get("confidence"),
+                },
             }
             for dur, entry in curve_data.items()
         ],
@@ -10492,5 +10519,5 @@ def get_athlete_duration_curve(athlete_id: str):
     return JSONResponse({
         "athleteId": athlete_id,
         "curve": curve_entries,
-        "debug": curve_entries,
+        "debug": [e["debug"] for e in curve_entries],
     })
