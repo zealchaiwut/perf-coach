@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import derive_goal_pace as _derive_goal_pace, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
-from backend.services.workout_merge import compute_best_values
+from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -6368,6 +6368,47 @@ def get_readiness_range(
     return JSONResponse(result)
 
 
+@app.get("/api/readiness/current")
+def get_readiness_current(user: User = Depends(resolve_user)):
+    """Return current fitness state (CTL, ATL, TSB) and building_baseline flag.
+
+    Used by the Readiness widget on the Training > Log sub-tab.
+
+    Response when building_baseline=False:
+      { building_baseline: false, ctl, atl, tsb, recovery_hint }
+    Response when building_baseline=True:
+      { building_baseline: true }
+    """
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+    tss_series = daily_tss_series(str(user.id), warmup_start, today)
+    load_curves = compute_load_curves(tss_series)
+
+    # Require at least 7 workout days with non-zero TSS in the last 42 days.
+    history_window_start = today - _timedelta(days=42)
+    workout_days_in_window = sum(
+        1 for d, tss in tss_series
+        if tss > 0 and d >= history_window_start
+    )
+    building_baseline = workout_days_in_window < 7
+
+    if building_baseline:
+        return JSONResponse({"building_baseline": True})
+
+    last_row = load_curves[-1]
+    ctl = round(last_row["ctl"], 1)
+    atl = round(last_row["atl"], 1)
+    tsb = round(last_row["tsb"], 1)
+
+    return JSONResponse({
+        "building_baseline": False,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "recovery_hint": _load_interpretation(ctl, atl, tsb),
+    })
+
+
 # ── Training Log endpoint ─────────────────────────────────────────────────────
 
 def _week_key_and_bounds(date_obj):
@@ -7378,8 +7419,8 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
                     "name": act.get("name") or "Untitled",
                     "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
                     "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
-                    "avg_hr": int(act["average_heartrate"]) if act.get("average_heartrate") else None,
-                    "max_hr": int(act["max_heartrate"]) if act.get("max_heartrate") else None,
+                    "avg_hr": clean_hr(act.get("average_heartrate")),
+                    "max_hr": clean_hr(act.get("max_heartrate")),
                     "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
                     "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
                     "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,

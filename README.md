@@ -12,7 +12,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
-- **Training log** — workout log with type badges, TSS, distance, HR, and pace; training load (CTL/ATL/TSB) widget and weekly volume bar chart on the log page; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users; Log Workout now opens as a slide-over panel (Strength body: exercise list + sets/reps/weight/RPE; Running body in progress)
+- **Training log** — workout log with type badges, TSS, distance, HR, and pace; three sub-tabs (Log / Plan / Performance) with Log as the default active panel; Readiness widget (CTL/ATL/TSB Fitness/Fatigue/Form tiles with recovery hint, or "building baseline" state when fewer than 7 scored workout days exist in the past 42 days); Weekly Volume & Load bar chart with gradient fill, current-week emphasis, and Lift TSS stacked; mobile week-strip (horizontal Mon–Sun pill row) tapping a day scrolls the log list to the nearest matching date rather than filtering it; workout metrics and source badges visible on mobile viewports; Strava source badges consistent across list and detail views; friendly empty state for new users; nav bar label shortened to "Training"; Log Workout opens as a slide-over panel (Strength body: exercise list + sets/reps/weight/RPE; Running body)
 - **Run View** — per-workout run detail page (`/run-view`) with redesigned header and load block; shows session profile, laps (with intensity bands), route strip (GPS altitude/pace sparkline), pace, power, HR, cadence, and stride-length per km split; supports both auto (1-km) and manually-entered lap rows (`lap_type`)
 - **Strength View** — per-workout strength detail page (`/strength-view`) showing exercise list, sets/reps/weight/RPE, and a redesigned header matching the Run View design language; reached from the training log detail panel
 - **Run Builder** — run planning page (`/run-builder`) for composing structured runs with Stryd aggregate fields (avg power, max power, normalized power, cadence, stride)
@@ -114,6 +114,7 @@ Each script:
 | `GET /api/readiness/today` | Returns today's computed readiness score for a user |
 | `GET /api/readiness` | Returns readiness scores over a date range |
 | `POST /api/readiness/compute` | Computes and stores today's readiness score |
+| `GET /api/readiness/current` | Returns current CTL/ATL/TSB fitness state for the Readiness widget; returns `{building_baseline: true}` when fewer than 7 workout days with non-zero TSS exist in the past 42 days, otherwise returns `{building_baseline: false, ctl, atl, tsb, recovery_hint}` |
 | `POST /api/weight-entries` | Create a weight entry; body: `user_id`, `entry_date`, `weight_kg`, optional `entry_time`, `notes`, `source` |
 | `GET /api/weight-entries` | List weight entries; `user_id` required; `from`/`to` (YYYY-MM-DD) range (default last 90 days, max 365) |
 | `PATCH /api/weight-entries/{entry_id}` | Update `weight_kg`, `entry_date`, `entry_time`, or `notes` on a single entry |

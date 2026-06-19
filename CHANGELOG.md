@@ -10,6 +10,18 @@
 - #650: Build Training > Plan Sub-Tab with Race Plan UI
 - #651: Add Settings UI for Training Thresholds and Zone Ranges
 
+## Sprint 68.1 — Mobile week-strip and close button polish
+
+- #639: Add mobile week-strip to Training Log sub-tab
+- #642: Change Training Log close button to grey
+
+## Sprint 68 — Training page sub-tabs, Readiness widget, and Weekly Volume chart
+
+- #636: Add Log/Plan/Performance sub-tabs to Training page
+- #637: Build Training Log sub-tab with filter and search
+- #640: Add Readiness Widget to Training Log Sub-Tab
+- #641: Add Weekly Volume & Load Chart to Training Log
+
 ## Sprint 67 — Race targets, fitness projections, and race readiness endpoint
 
 - #604: Add races table and SQLAlchemy model

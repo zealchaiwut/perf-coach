@@ -103,7 +103,9 @@ def reconcile_strava_to_workouts(
                 if hit.duration_seconds is None:
                     hit.duration_seconds = act.duration_seconds
                 if hit.avg_hr is None:
-                    hit.avg_hr = act.avg_hr
+                    from backend.services.workout_merge import clean_hr
+
+                    hit.avg_hr = clean_hr(act.avg_hr)
                 if hit.tss is None:
                     hit.tss = tss_val
                     hit.tss_source = tss_src

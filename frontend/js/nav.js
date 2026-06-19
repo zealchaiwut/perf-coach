@@ -43,44 +43,12 @@
 
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
-    {
-      href: "/home",
-      label: "Home",
-      icon: "ti-home",
-      match: ["/", "/home", "/home.html"],
-    },
-    {
-      href: "/log",
-      label: "Training Log",
-      icon: "ti-list-details",
-      match: ["/log", "/training", "/training.html"],
-    },
-    {
-      href: "/weight",
-      label: "Weight",
-      icon: "ti-scale",
-      match: ["/weight", "/weight.html"],
-    },
-    {
-      href: "/habits",
-      label: "Habits",
-      icon: "ti-checklist",
-      match: ["/habits", "/habits.html"],
-    },
-    {
-      href: "/trends",
-      label: "Trends",
-      icon: "ti-chart-line",
-      match: ["/trends", "/trends.html"],
-      disabled: true,
-    },
-    {
-      href: "/calendar",
-      label: "Calendar",
-      icon: "ti-calendar",
-      match: ["/calendar", "/calendar.html"],
-      disabled: true,
-    },
+    { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
+    { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
+    { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
+    { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
+    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
+    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 

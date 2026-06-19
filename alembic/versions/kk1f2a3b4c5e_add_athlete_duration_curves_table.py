@@ -4,7 +4,7 @@ Stores one row per athlete containing the best power value for each duration
 window across all processed run workouts. The curve_data JSONB column maps
 str(duration_seconds) to {best_value, workout_id, date, confidence}.
 
-Revision ID: kk1f2a3b4c5d
+Revision ID: kk1f2a3b4c5e
 Revises: jj0e1f2a3b4c
 Create Date: 2026-06-18 00:00:00.000000
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 from helpers import table_exists
 
-revision: str = "kk1f2a3b4c5d"
+revision: str = "kk1f2a3b4c5e"
 down_revision: Union[str, None] = "jj0e1f2a3b4c"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

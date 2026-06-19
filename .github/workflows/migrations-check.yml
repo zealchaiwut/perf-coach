@@ -1,0 +1,29 @@
+name: Migrations check — single head, no duplicate revisions
+
+# Offline Alembic sanity gate. Blocks any PR whose migration graph has
+# duplicate revision ids or more than one head — the failures that have
+# repeatedly broken `alembic upgrade head` on deploy. No database needed.
+
+on:
+  pull_request:
+    paths:
+      - "alembic/**"
+      - "scripts/check_migrations.py"
+      - ".github/workflows/migrations-check.yml"
+
+jobs:
+  check-migrations:
+    name: Alembic single-head / no-duplicate-revisions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check migration graph
+        run: python3 scripts/check_migrations.py
