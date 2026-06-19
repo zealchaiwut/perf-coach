@@ -58,8 +58,6 @@ def test_classify_laps_is_importable():
 
 def test_classify_laps_is_pure_no_db():
     """AC2: classify_laps module imports no database session, engine, or ORM session."""
-    import backend.services.lap_classify as mod
-    src = inspect.getsource(mod)
     # The pure function must not reference session/db/engine directly
     # The thin caller (classify_laps_for_workout) may, but classify_laps itself
     # is a separate function with no db arg.
@@ -376,11 +374,6 @@ def test_no_carets_in_source():
     src = inspect.getsource(mod)
     # carets in docstrings would be math like "ratio^2" — disallow
     # but allow any ^ that might appear in a string comparison (none expected here)
-    lines_with_carets = [
-        line for line in src.split("\n")
-        if "^" in line and not line.strip().startswith("#") or
-        ("^" in line and '"""' in line)
-    ]
     # filter to only doc/comment lines
     in_docstring = False
     caret_violations = []
