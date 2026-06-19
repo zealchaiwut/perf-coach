@@ -2869,6 +2869,19 @@
           grid-template-columns: 1fr;
         }
       }
+      /* ── Strength body: exercise card classes ────────────────────────────── */
+      .ex-rpe-bullet { width: 10px; height: 10px; border-radius: 50%; background: var(--card-border); flex-shrink: 0; display: inline-block; transition: background 0.15s; }
+      .ex-rpe-bullet.ex-rpe-green { background: var(--green, #2d5e10); }
+      .ex-rpe-bullet.ex-rpe-amber { background: var(--amber, #6b4408); }
+      .ex-rpe-bullet.ex-rpe-red   { background: var(--red, #7a1a1a); }
+      /* ── Strength body: session-profile bar RPE tier colors ──────────────── */
+      .rl-pseg.rpe-low  { background: #16a34a; }
+      .rl-pseg.rpe-mid  { background: #eab308; }
+      .rl-pseg.rpe-high { background: #ea580c; }
+      .rl-pseg.rpe-max  { background: #dc2626; }
+      /* ── Strength body: set row grid and incomplete flag ─────────────────── */
+      .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 1fr 26px; gap: 8px; align-items: center; }
+      .set-row.is-incomplete { background: var(--amber-soft, #fff0c4); border-radius: 7px; }
     </style>
   </head>
   <body>
@@ -3142,9 +3155,38 @@
                 </span>
               </div>
 
-              <!-- Reserved body area for workout-type-specific content (AC7) -->
-              <div class="type-body-placeholder" aria-label="Type-specific content area">
-                Type-specific details coming soon
+              <!-- STRENGTH body: exercise builder, profile bar, auto-totals (issue #644) -->
+              <div class="exercises-section type-content-area" id="strength-body" aria-label="Strength exercise builder">
+                <!-- Read-only session-profile bar (height = avg RPE, width = cumulative duration) -->
+                <div class="rl-profile-wrap str-profile-wrap">
+                  <div id="str-profile" class="rl-profile str-profile" aria-label="Session intensity profile"></div>
+                </div>
+
+                <!-- Exercise list (populated by training.js addExerciseRow) -->
+                <div id="exercises-tbody" class="exercise-list"></div>
+                <datalist id="exercise-name-suggestions"></datalist>
+                <p id="exercises-error" class="error-msg"></p>
+                <div class="ex-add-row">
+                  <button id="add-exercise-btn" type="button" class="add-ex">
+                    <span aria-hidden="true">+</span> Add exercise
+                  </button>
+                </div>
+
+                <!-- Auto-totals bar (reactive, updated by recomputeStrengthTotals) -->
+                <div class="str-totals">
+                  <div class="str-tile">
+                    <div class="str-l">Volume <span class="rl-badge auto">auto</span></div>
+                    <div class="str-v"><span id="str-volume">0</span><span class="su">kg</span></div>
+                  </div>
+                  <div class="str-tile">
+                    <div class="str-l">Sets <span class="rl-badge auto">auto</span></div>
+                    <div class="str-v"><span id="str-sets">0</span> <span class="su" id="str-sets-sub">0 working</span></div>
+                  </div>
+                  <div class="str-tile">
+                    <div class="str-l">Est. 1RM <span class="rl-badge auto">auto</span></div>
+                    <div class="str-v" id="str-e1rm">—</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

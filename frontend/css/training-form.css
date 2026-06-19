@@ -174,6 +174,19 @@
     .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
     .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 2px; }
     @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
+    /* ── RPE bullet (issue #644) ────────────────────────────────────────────── */
+    .ex-rpe-bullet { width: 10px; height: 10px; border-radius: 50%; background: var(--card-border); flex-shrink: 0; display: inline-block; transition: background 0.15s; }
+    .ex-rpe-bullet.ex-rpe-green { background: var(--green, #2d5e10); }
+    .ex-rpe-bullet.ex-rpe-amber { background: var(--amber, #6b4408); }
+    .ex-rpe-bullet.ex-rpe-red   { background: var(--red, #7a1a1a); }
+    /* ── Incomplete set row (issue #644) ────────────────────────────────────── */
+    .set-row.is-incomplete { background: var(--amber-soft, #fff0c4); border-radius: 7px; }
+    .set-row.is-incomplete .set-in { border-color: var(--amber, #6b4408); }
+    /* ── Strength body in slide-over ────────────────────────────────────────── */
+    #dp-form-wrap .exercises-section { padding-top: 4px; }
+    #dp-form-wrap .str-profile-wrap { margin-bottom: 8px; }
+    #dp-form-wrap .str-totals { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 360px) { #dp-form-wrap .str-totals { grid-template-columns: 1fr 1fr; } }
 
 .field-error, .error-msg {
   font-size: 0.8125rem;
