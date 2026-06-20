@@ -49,11 +49,18 @@ from backend.services.training_load import (
     project_form,
     taper_recommendation,
     peak_tracking,
+    compute_calibration_suggestions,
     FORM_BURIED_CEILING,
     FORM_FRESH_FLOOR,
     DEFAULT_TAPER_DAYS,
     TARGET_FORM_LOWER,
     PEAK_TRACKING_TOLERANCE,
+    CTL_DAYS,
+    ATL_DAYS,
+    TIMING_TOLERANCE_WEEKS,
+    CTL_ADJUSTMENT_DAYS_PER_WEEK,
+    MIN_CTL_DAYS,
+    MAX_CTL_DAYS,
     BASELINE_WINDOW_DAYS,
     BASELINE_MIN_WORKOUT_DAYS,
 )
@@ -9989,6 +9996,8 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "display_name": prefs.display_name,
         "week_start_day": prefs.week_start_day,
         "timezone": prefs.timezone,
+        "ctl_days": prefs.ctl_days,
+        "atl_days": prefs.atl_days,
     }
 
 
@@ -10173,6 +10182,7 @@ def _race_dict(race: Race) -> dict:
         "distance_km": float(race.distance_km),
         "goal_time_seconds": race.goal_time_seconds,
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
+        "actual_time_seconds": race.actual_time_seconds,
         "priority": race.priority,
         "status": race.status,
         "race_type": race.race_type if race.race_type else "race",
@@ -10392,6 +10402,186 @@ def delete_race(race_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=404, detail="race not found")
         session.delete(race)
         session.commit()
+
+
+# ── Race calibration ───────────────────────────────────────────────────────────
+
+_CALIBRATION_TRAINING_BLOCK_WEEKS = 16
+
+
+def _population_constants_dict() -> dict:
+    return {
+        "ctl_days": CTL_DAYS,
+        "atl_days": ATL_DAYS,
+        "timing_tolerance_weeks": TIMING_TOLERANCE_WEEKS,
+        "ctl_adjustment_days_per_week": CTL_ADJUSTMENT_DAYS_PER_WEEK,
+        "min_ctl_days": MIN_CTL_DAYS,
+        "max_ctl_days": MAX_CTL_DAYS,
+    }
+
+
+def _derive_peak_weeks(session, user_id, race_date) -> tuple[int, int]:
+    """Compute predicted and actual peak weeks from training-load snapshots.
+
+    Both values are expressed as week numbers within the training block
+    (0 = first week, CALIBRATION_TRAINING_BLOCK_WEEKS = race week).
+
+    Predicted peak week = the week in the training block where TSB was
+    highest assuming the model was run forward correctly (approximated as
+    the race week itself, since a proper taper is designed to peak on race
+    day; deviations show up in the actual_peak_week comparison).
+
+    Actual peak week = the week in the training block where TSB was
+    highest according to training_load_snapshots.
+    """
+    block_start = race_date - _timedelta(weeks=_CALIBRATION_TRAINING_BLOCK_WEEKS)
+
+    from sqlalchemy import text as _text_cal
+    rows = session.execute(
+        _text_cal(
+            """
+            SELECT snapshot_date, tsb
+            FROM training_load_snapshots
+            WHERE user_id = :uid
+              AND snapshot_date BETWEEN :start AND :end
+            ORDER BY snapshot_date
+            """
+        ),
+        {"uid": str(user_id), "start": block_start, "end": race_date},
+    ).fetchall()
+
+    if not rows:
+        return _CALIBRATION_TRAINING_BLOCK_WEEKS, _CALIBRATION_TRAINING_BLOCK_WEEKS
+
+    # Find the snapshot date with the highest TSB = actual peak
+    best_row = max(rows, key=lambda r: r[1])
+    best_date = best_row[0]
+    if hasattr(best_date, "date"):
+        best_date = best_date.date()
+
+    days_from_start = (best_date - block_start).days
+    actual_peak_week = days_from_start // 7
+
+    # Predicted peak = race week (the model targets peak on race day)
+    predicted_peak_week = _CALIBRATION_TRAINING_BLOCK_WEEKS
+
+    return predicted_peak_week, actual_peak_week
+
+
+class _CalibrateRaceBody(BaseModel):
+    actual_time_seconds: int
+
+
+class _AcceptCalibrationBody(BaseModel):
+    ctl_days: Optional[int] = None
+    atl_days: Optional[int] = None
+
+
+@app.post("/api/races/{race_id}/calibrate")
+def calibrate_race(
+    race_id: str,
+    body: _CalibrateRaceBody,
+    user: User = Depends(resolve_user),
+):
+    """Log actual race result and return fitness-constant calibration suggestions.
+
+    Thin caller for compute_calibration_suggestions.  Writes ``status='done'``
+    and ``actual_time_seconds`` to the race row, then calls the pure function
+    with peak-timing data derived from training_load_snapshots.  Never writes
+    suggested constants to the user record.
+    """
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        if race.goal_time_seconds is None:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "goal_time_seconds", "error": "race has no goal time; cannot calibrate"},
+            )
+
+        # Write actual result and mark race as done
+        race.actual_time_seconds = body.actual_time_seconds
+        race.status = "done"
+        race.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(race)
+
+        # Load user preferences for current personal constants
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+        user_ctl = prefs.ctl_days if prefs else None
+        user_atl = prefs.atl_days if prefs else None
+
+        # Derive peak timing from training-load snapshots
+        predicted_peak_week, actual_peak_week = _derive_peak_weeks(session, user.id, race.race_date)
+
+        user_constants = {
+            "ctl_days": user_ctl,
+            "atl_days": user_atl,
+            "predicted_peak_week": predicted_peak_week,
+            "actual_peak_week": actual_peak_week,
+            "goal_time_seconds": race.goal_time_seconds,
+        }
+
+        suggestions = compute_calibration_suggestions(
+            str(race.id),
+            body.actual_time_seconds,
+            user_constants,
+            _population_constants_dict(),
+        )
+
+    return JSONResponse({
+        "race": _race_dict(race),
+        "suggestions": suggestions,
+    })
+
+
+@app.post("/api/races/{race_id}/calibrate/accept")
+def accept_calibration(
+    race_id: str,
+    body: _AcceptCalibrationBody,
+    user: User = Depends(resolve_user),
+):
+    """Accept calibration suggestions and write new constants to user preferences.
+
+    This is the explicit accept action (AC4).  Constants are only written when
+    the user explicitly calls this endpoint — no automatic overwrite ever occurs.
+    """
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+        if prefs is None:
+            prefs = UserPreferences(user_id=user.id)
+            session.add(prefs)
+
+        if body.ctl_days is not None:
+            prefs.ctl_days = body.ctl_days
+        if body.atl_days is not None:
+            prefs.atl_days = body.atl_days
+        prefs.updated_at = _datetime.now(_timezone.utc)
+
+        session.commit()
+        session.refresh(prefs)
+
+        return JSONResponse({
+            "ctl_days": prefs.ctl_days,
+            "atl_days": prefs.atl_days,
+            "message": "Fitness constants accepted and saved to your profile.",
+        })
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
@@ -10674,7 +10864,7 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     try:
         rid = _uuid.UUID(race_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="race not found")
+        raise HTTPException(status_code=400, detail=f"invalid race id format: {race_id!r}")
 
     with Session(engine) as db:
         race = db.get(Race, rid)
@@ -10682,7 +10872,7 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     if race is None:
         raise HTTPException(status_code=404, detail="race not found")
     if race.user_id != user.id:
-        raise HTTPException(status_code=403, detail="access denied: race belongs to a different user")
+        raise HTTPException(status_code=404, detail="race not found")
 
     # ── 2. Read all thresholds from configuration ─────────────────────────────
     buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
@@ -10778,8 +10968,9 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     on_track_status = on_track_result.get("status")
     on_track_bool = on_track_status in ("on track", "ahead") if on_track_status else None
 
-    # ── 9. specificity_progress ───────────────────────────────────────────────
-    # Fetch recent runs (last 90 days) from workouts table for this user.
+    # ── 9. specificity_progress and timeline_markers ─────────────────────────
+    # Fetch recent runs (last 90 days) and B/C-race + checkpoint markers in one
+    # DB session so the route handler owns all data access.
     run_window_start = today - _timedelta(days=90)
     with Session(engine) as db:
         from sqlalchemy import text as _text
@@ -10799,6 +10990,30 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             {"uid": str(user.id), "since": run_window_start},
         ).fetchall()
 
+        marker_rows = db.execute(
+            _text(
+                """
+                SELECT race_date, race_type, priority, name
+                FROM races
+                WHERE user_id = :uid
+                  AND id != :race_id
+                  AND race_date > :today
+                  AND race_date < :race_date
+                  AND (
+                    (race_type = 'race' AND priority IN ('B', 'C'))
+                    OR race_type = 'checkpoint'
+                  )
+                ORDER BY race_date ASC
+                """
+            ),
+            {
+                "uid": str(user.id),
+                "race_id": str(race.id),
+                "today": today,
+                "race_date": race.race_date,
+            },
+        ).fetchall()
+
     import types as _types
 
     recent_runs = [
@@ -10812,6 +11027,16 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
 
     spec_result = _specificity_progress(race, recent_runs)
 
+    timeline_markers = []
+    for row in marker_rows:
+        r_date, r_type, r_priority, r_name = row[0], row[1], row[2], row[3]
+        marker_type = "checkpoint" if r_type == "checkpoint" else f"{r_priority}-race"
+        timeline_markers.append({
+            "date": r_date.isoformat(),
+            "type": marker_type,
+            "label": r_name,
+        })
+
     # ── 10. Assemble response ─────────────────────────────────────────────────
     response: dict = {
         "race_id": str(race.id),
@@ -10823,13 +11048,15 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             "gap": on_track_result.get("gap"),
         },
         "specificity_progress": spec_result,
+        "timeline_markers": timeline_markers,
     }
 
     if not building_baseline:
         if projected_form is not None:
             response["projected_form"] = projected_form
         if taper_rec is not None:
-            response["taper_recommendation"] = taper_rec
+            response["taper_recommendation"] = taper_rec  # kept for backward compatibility
+            response["taper"] = taper_rec  # canonical key per issue #713
 
     return JSONResponse(response)
 

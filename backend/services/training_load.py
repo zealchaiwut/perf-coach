@@ -60,6 +60,13 @@ DEFAULT_TAPER_DAYS: int = 14
 # with the projected taper curve.  Outside this band, status is "ahead" or "behind".
 PEAK_TRACKING_TOLERANCE: float = 5.0
 
+# ── Post-race calibration constants ──────────────────────────────────────────
+TIMING_TOLERANCE_WEEKS: int = 1
+CTL_ADJUSTMENT_DAYS_PER_WEEK: int = 2
+MIN_CTL_DAYS: int = 14
+MAX_CTL_DAYS: int = 84
+_LEVEL_DELTA_PRECISION: int = 1
+
 # ── Readiness label constants ──────────────────────────────────────────────────
 # Human-readable labels assigned to TSB ranges for the readiness endpoint.
 READINESS_LABEL_FATIGUED: str = "Fatigued"   # TSB below FORM_BURIED_CEILING
@@ -788,6 +795,123 @@ def peak_tracking(
         status = "on track"
 
     return {"status": status, "gap": round(gap, 2), "reason": ""}
+
+
+def compute_calibration_suggestions(
+    race_id,
+    actual_time_seconds,
+    user_constants,
+    population_constants,
+) -> dict:
+    """Suggest adjusted fitness and fatigue time constants after a completed race.
+
+    This is a pure function — it performs no database access and makes no writes.
+    The calling layer is responsible for all DB reads (race row, user preferences,
+    training-load snapshots) and for writing status and actual_time_seconds to the
+    race row before invoking this function.
+
+    The function compares two dimensions:
+    - **Peak timing**: when the athlete's fitness peaked (actual_peak_week) versus
+      when the model predicted it would peak (predicted_peak_week).  A timing_delta
+      (actual minus predicted) that is negative means the athlete peaked EARLIER than
+      the model expected; positive means later.
+    - **Peak level**: how the athlete's finishing time compares to their goal time,
+      expressed as a percentage (positive = faster than goal, negative = slower).
+
+    Suggestion logic (timing dimension only drives constant changes):
+    - Early peak (timing_delta more negative than timing_tolerance_weeks):
+      shorten the fitness time constant so future predictions reflect faster peaking.
+    - Late peak (timing_delta more positive than timing_tolerance_weeks):
+      lengthen the fitness time constant so future predictions reflect slower peaking.
+    - On target (|timing_delta| <= timing_tolerance_weeks): no adjustment.
+
+    All numeric parameters are read from user_constants and population_constants; no
+    bare literal thresholds appear in the function body.
+    """
+    _empty = {
+        "suggested_ctl_days": None,
+        "suggested_atl_days": None,
+        "timing_delta_weeks": None,
+        "peak_level_delta_pct": None,
+        "explanation": None,
+        "adjustment_direction": None,
+        "reason": "",
+    }
+
+    if actual_time_seconds is None:
+        return {**_empty, "reason": "actual_time_seconds is required to compute calibration"}
+
+    if not population_constants:
+        population_constants = {}
+    if not user_constants:
+        return {**_empty, "reason": "user_constants is required"}
+
+    goal_time = user_constants.get("goal_time_seconds")
+    if goal_time is None:
+        return {**_empty, "reason": "race has no target time; cannot compute calibration"}
+
+    predicted_peak_week = user_constants.get("predicted_peak_week")
+    if predicted_peak_week is None:
+        return {**_empty, "reason": "predicted_peak_week is required in user_constants"}
+
+    actual_peak_week = user_constants.get("actual_peak_week")
+    if actual_peak_week is None:
+        return {**_empty, "reason": "actual_peak_week is required in user_constants"}
+
+    ctl_days = user_constants.get("ctl_days") or population_constants.get("ctl_days", CTL_DAYS)
+    atl_days = user_constants.get("atl_days") or population_constants.get("atl_days", ATL_DAYS)
+    timing_tolerance = population_constants.get("timing_tolerance_weeks", TIMING_TOLERANCE_WEEKS)
+    ctl_adj_per_week = population_constants.get("ctl_adjustment_days_per_week", CTL_ADJUSTMENT_DAYS_PER_WEEK)
+    min_ctl = population_constants.get("min_ctl_days", MIN_CTL_DAYS)
+    max_ctl = population_constants.get("max_ctl_days", MAX_CTL_DAYS)
+
+    timing_delta = actual_peak_week - predicted_peak_week
+    peak_level_delta_pct = round((goal_time - actual_time_seconds) / goal_time * 100, _LEVEL_DELTA_PRECISION)
+
+    if timing_delta < -timing_tolerance:
+        adjustment_days = abs(timing_delta) * ctl_adj_per_week
+        suggested_ctl = max(min_ctl, ctl_days - adjustment_days)
+        direction = "shorten"
+        explanation = (
+            f"Your fitness peaked approximately {abs(timing_delta)} week(s) earlier than "
+            f"predicted (week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"Shortening the fitness time constant from {ctl_days} to {suggested_ctl} days "
+            f"will bring future peak predictions earlier to match your training response. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+    elif timing_delta > timing_tolerance:
+        adjustment_days = timing_delta * ctl_adj_per_week
+        suggested_ctl = min(max_ctl, ctl_days + adjustment_days)
+        direction = "lengthen"
+        explanation = (
+            f"Your fitness peaked approximately {timing_delta} week(s) later than "
+            f"predicted (week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"Lengthening the fitness time constant from {ctl_days} to {suggested_ctl} days "
+            f"will shift future peak predictions later to match your training response. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+    else:
+        suggested_ctl = ctl_days
+        direction = "none"
+        explanation = (
+            f"Your fitness peaked within {timing_tolerance} week(s) of the predicted week "
+            f"(week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"No adjustment to the fitness time constant is suggested. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+
+    return {
+        "suggested_ctl_days": int(suggested_ctl),
+        "suggested_atl_days": int(atl_days),
+        "timing_delta_weeks": timing_delta,
+        "peak_level_delta_pct": peak_level_delta_pct,
+        "explanation": explanation,
+        "adjustment_direction": direction,
+        "reason": "",
+    }
 
 
 def readiness_label(tsb: float) -> str:

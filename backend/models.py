@@ -628,6 +628,8 @@ class UserPreferences(Base):
     date_format = Column(String(20), nullable=False, server_default=text("'YYYY-MM-DD'"))
     strength_rpe_max = Column(Integer, nullable=True)
     aerobic_decoupling_threshold = Column(Float, nullable=True)
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 

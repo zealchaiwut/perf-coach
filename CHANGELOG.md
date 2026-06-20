@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 75 — Performance curve, form projection, taper guidance, race readiness summary, and post-race calibration
+
+- #709: Add performance_curve pure function to fitness model
+- #710: Add forward form projection to target date
+- #711: Add taper_recommendation function for race date guidance
+- #712: Add peak-tracking and race-specificity progress functions
+- #713: Add race-readiness summary endpoint with timeline_markers
+- #714: Add post-race calibration of personal fitness constants
+
 ## Sprint 74 — Strength PR detection, race checkpoints, and run auto-detection
 
 - #704: Add personal-record detection from run history
