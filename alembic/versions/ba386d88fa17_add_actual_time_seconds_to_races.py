@@ -5,7 +5,7 @@ recorded finish time for a completed race.  The upgrade is idempotent:
 it is a no-op when the column already exists.
 
 Revision ID: ba386d88fa17
-Revises: 382389e81d09
+Revises: 145b95d5baf0, d915ffcb4c0c
 Create Date: 2026-06-20 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from helpers import column_exists, table_exists
 
 revision: str = "ba386d88fa17"
-down_revision: Union[str, None] = "382389e81d09"
+down_revision: Union[str, Sequence[str], None] = ("145b95d5baf0", "d915ffcb4c0c")
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
