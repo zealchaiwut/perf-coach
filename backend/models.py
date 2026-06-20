@@ -710,6 +710,7 @@ class Race(Base):
     )
 
     user = relationship("User", foreign_keys=[user_id])
+    checkpoints = relationship("RaceCheckpoint", back_populates="race", cascade="all, delete-orphan")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -722,6 +723,65 @@ class Race(Base):
         return (
             f"<Race id={self.id} name={self.name!r} date={self.race_date} "
             f"distance_km={self.distance_km} priority={self.priority} status={self.status}>"
+        )
+
+
+class RaceCheckpoint(Base):
+    """An intermediate milestone within a target race.
+
+    Stores optional target fields (distance, pace, duration) so progress toward
+    a goal race can be tracked in structured milestones.  All target fields are
+    nullable — only ``race_id``, ``user_id``, ``label``, and ``target_date``
+    are required at insert time.
+    """
+
+    __tablename__ = "race_checkpoints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    label = Column(String(200), nullable=False)
+    target_date = Column(Date, nullable=False)
+    target_distance_km = Column(Numeric(8, 3), nullable=True)
+    target_pace_seconds_per_km = Column(Integer, nullable=True)
+    target_duration_seconds = Column(Integer, nullable=True)
+    met = Column(Boolean, server_default=text("false"), nullable=False)
+    met_override = Column(Boolean, server_default=text("false"), nullable=False)
+    met_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_race_checkpoints_race_id", "race_id"),
+        Index("ix_race_checkpoints_user_id", "user_id"),
+    )
+
+    race = relationship("Race", foreign_keys=[race_id], back_populates="checkpoints")
+    user = relationship("User", foreign_keys=[user_id])
+    met_workout = relationship("Workout", foreign_keys=[met_workout_id])
+
+    def effective_target_pace(self):
+        """Return ``(target_pace_seconds_per_km, None)`` when set.
+
+        Returns ``(None, reason)`` when ``target_pace_seconds_per_km`` is absent,
+        so callers never need to guard against an unhandled exception.
+        """
+        if self.target_pace_seconds_per_km is None:
+            return None, "target_pace_seconds_per_km is not set for this checkpoint"
+        return self.target_pace_seconds_per_km, None
+
+    def __repr__(self):
+        return (
+            f"<RaceCheckpoint id={self.id} race_id={self.race_id} "
+            f"label={self.label!r} target_date={self.target_date}>"
         )
 
 
