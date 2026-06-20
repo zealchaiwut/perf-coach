@@ -54,10 +54,6 @@ TARGET_FORM_LOWER: float = 5.0
 TARGET_FORM_UPPER: float = 25.0
 # Default taper window length in days (two calendar weeks).
 DEFAULT_TAPER_DAYS: int = 14
-# Standard full taper for an A-priority (goal) race: two calendar weeks.
-A_RACE_TAPER_DAYS: int = 14
-# Abbreviated mini-taper for a B-priority tune-up race: one calendar week.
-B_RACE_TAPER_DAYS: int = 7
 
 # ── Peak tracking constants ───────────────────────────────────────────────────
 # Tolerance band (in TSB units) within which an athlete is considered "on track"
@@ -65,16 +61,23 @@ B_RACE_TAPER_DAYS: int = 7
 PEAK_TRACKING_TOLERANCE: float = 5.0
 
 # ── Post-race calibration constants ──────────────────────────────────────────
-# Number of weeks of peak-timing deviation considered "on target" — within this
-# band no adjustment is suggested.
 TIMING_TOLERANCE_WEEKS: int = 1
-# How many days to lengthen or shorten CTL time constant per week of peak shift.
 CTL_ADJUSTMENT_DAYS_PER_WEEK: int = 2
-# Hard floor and ceiling for suggested CTL time constants (days).
 MIN_CTL_DAYS: int = 14
 MAX_CTL_DAYS: int = 84
-# Decimal places used when rounding the peak-level performance delta percentage.
 _LEVEL_DELTA_PRECISION: int = 1
+
+# ── Readiness label constants ──────────────────────────────────────────────────
+# Human-readable labels assigned to TSB ranges for the readiness endpoint.
+READINESS_LABEL_FATIGUED: str = "Fatigued"   # TSB below FORM_BURIED_CEILING
+READINESS_LABEL_OPTIMAL: str = "Optimal"     # TSB in the neutral band
+READINESS_LABEL_FRESH: str = "Fresh"         # TSB at or above FORM_FRESH_FLOOR
+
+# ── Baseline detection constants ───────────────────────────────────────────────
+# Days to look back when checking for sufficient training history.
+BASELINE_WINDOW_DAYS: int = 42
+# Minimum number of days with TSS > 0 within the window before metrics are reliable.
+BASELINE_MIN_WORKOUT_DAYS: int = 7
 
 
 def _ewma_alpha(days: int) -> float:
@@ -431,7 +434,6 @@ def project_form(
         a new equilibrium.
     """
     _empty: dict = {"days": [], "reason": ""}
-    result_reason = ""
 
     if fitness_state is None:
         return {**_empty, "reason": "fitness_state is required"}
@@ -454,16 +456,10 @@ def project_form(
     n_days = (target_date - anchor_date).days
 
     if planned_daily_load is None:
-        # Prefer recent_avg_load embedded in fitness_state; fall back to kwarg.
-        avg = fitness_state.get("recent_avg_load") if isinstance(fitness_state, dict) else None
-        if avg is None:
-            avg = recent_avg_load
-        if avg is None:
+        if recent_avg_load is None:
             return {**_empty, "reason": "recent_avg_load is required when planned_daily_load is None"}
-        avg = float(avg)
-        load_schedule = [avg] * n_days
+        load_schedule = [float(recent_avg_load)] * n_days
         assumed = [True] * n_days
-        result_reason = f"load assumed from recent average ({avg:.1f} TSS/day)"
     elif isinstance(planned_daily_load, (int, float)):
         load_schedule = [float(planned_daily_load)] * n_days
         assumed = [False] * n_days
@@ -497,11 +493,10 @@ def project_form(
             "ctl": round(ctl, 2),
             "atl": round(atl, 2),
             "form": round(ctl - atl, 2),
-            "load": tss,
             "assumed_load": assumed[i],
         })
 
-    return {"days": days, "reason": result_reason}
+    return {"days": days, "reason": ""}
 
 
 def get_projected_form(
@@ -557,19 +552,16 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     exceptions for invalid input.  The calling layer is responsible for
     supplying fitness_state from the database.
 
-    A taper means reducing training load to zero for the priority-appropriate
-    number of days before the race.  This lets fatigue (ATL) decay faster than
-    fitness (CTL), raising form (TSB = CTL − ATL) into the positive band.  The
-    function projects form forward with zero load and checks whether race-day
-    form will reach TARGET_FORM_LOWER.
+    A "taper" means reducing training load to zero for DEFAULT_TAPER_DAYS
+    before the race.  This lets fatigue (ATL) decay faster than fitness (CTL),
+    which raises form (TSB = CTL − ATL) into the positive band.  The function
+    projects form forward with zero load and checks whether race-day form will
+    reach TARGET_FORM_LOWER.
 
     Args:
         fitness_state:
             Dict containing at minimum ``ctl``, ``atl``, and ``date``.  ``date``
-            is the anchor day for the projection (typically today).  An optional
-            ``priority`` key ("A" or "B") selects the taper length constant:
-            A-race uses A_RACE_TAPER_DAYS; B-race uses B_RACE_TAPER_DAYS.
-            Defaults to "A" when the key is absent.
+            is the anchor day for the projection (typically today).
         race_date:
             The target race date.  Must be in the future (strictly after today).
         target_form:
@@ -580,24 +572,18 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         On invalid input:
             Dict with ``taper_start_date=None``, ``message=None``,
             ``achievable=None``, and a non-empty ``reason`` string.
-        On valid input with achievable=True:
+        On valid input:
             Dict with:
             ``taper_start_date`` -- date to begin easing load (race_date minus
-                                    priority taper length constant).
+                                    DEFAULT_TAPER_DAYS).
             ``message``          -- plain-language guidance string.
-            ``achievable``       -- True.
-            ``reason``           -- empty string.
-        On valid input with achievable=False (race too close):
-            Dict with:
-            ``taper_start_date`` -- None; a positive form band cannot be reached.
-            ``message``          -- honest plain-language statement.
-            ``achievable``       -- False.
-            ``reason``           -- empty string.
+            ``achievable``       -- True when projected race-day form reaches
+                                    TARGET_FORM_LOWER; False otherwise.
+            ``reason``           -- empty string on success.
 
-    Worked example 1 — Normal A-race taper:
+    Worked example 1 — Normal 2-week taper:
         Inputs:
-            fitness_state = {"ctl": 50.0, "atl": 60.0, "date": 2024-11-23,
-                             "priority": "A"}
+            fitness_state = {"ctl": 50.0, "atl": 60.0, "date": 2024-11-23}
             race_date     = 2024-12-14  (21 days away)
             target_form   = 10.0
 
@@ -607,11 +593,11 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         which is above TARGET_FORM_LOWER (5.0), so achievable is True.
 
         Expected output:
-            taper_start_date = 2024-11-30  (A_RACE_TAPER_DAYS before race)
-            message = "Begin your taper on Nov 30 to arrive at race day in peak form."
+            taper_start_date = 2024-11-30  (14 days before race)
+            message = "begin easing load around Nov 30 to peak on Dec 14"
             achievable = True
 
-    Worked example 2 — Race too close to reach the positive form band:
+    Worked example 2 — Race too close to peak:
         Inputs:
             fitness_state = {"ctl": 50.0, "atl": 90.0, "date": 2024-12-09}
             race_date     = 2024-12-13  (4 days away)
@@ -620,11 +606,10 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 4 days, ATL decays from 90 to roughly 51 (each day
         ATL drops by alpha_atl ≈ 0.133 of the gap to zero).  CTL decays from 50
         to roughly 45.  Race-day form ≈ 45 − 51 = −6, which is below
-        TARGET_FORM_LOWER (5.0), so achievable is False and the positive form
-        band cannot be reached in time.
+        TARGET_FORM_LOWER (5.0), so achievable is False.
 
         Expected output:
-            taper_start_date = None  (too close; cannot reach the positive band)
+            taper_start_date = 2024-11-29  (14 days before race, now in the past)
             message = "Race is too soon to reach a positive form band; manage
                        fatigue rather than targeting a peak"
             achievable = False
@@ -644,15 +629,14 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     if race_date <= today:
         return {**_empty, "reason": "race_date must be in the future"}
 
-    # Select taper length by race priority; default to A-race when unspecified
-    priority = fitness_state.get("priority", "A") if isinstance(fitness_state, dict) else "A"
-    taper_days = B_RACE_TAPER_DAYS if priority == "B" else A_RACE_TAPER_DAYS
-    candidate_start = race_date - timedelta(days=taper_days)
+    # Taper start = DEFAULT_TAPER_DAYS before race day.  If this falls before
+    # today the race is already within the taper window (or past it).
+    taper_start_date = race_date - timedelta(days=DEFAULT_TAPER_DAYS)
 
-    # Project form to race_date assuming zero load — simulates a full taper where
-    # the athlete trains nothing from today until race day.  Fatigue (ATL) decays
-    # with a short time constant while fitness (CTL) decays more slowly, so form
-    # (CTL − ATL) rises over the taper window.  Delegates all math to project_form.
+    # Project form to race_date assuming zero load — this simulates a full taper
+    # where the athlete trains nothing from today until race day.  Fatigue (ATL)
+    # decays with a short time constant (7 days) while fitness (CTL) decays more
+    # slowly (42 days), so form (CTL − ATL) rises over the taper window.
     projection = project_form(fitness_state, 0.0, race_date)
     if projection["reason"]:
         # project_form reported a validation error; surface it as our reason
@@ -667,38 +651,28 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
 
     if achievable:
         # Format dates for readability: "Nov 30", "Dec 14"
-        start_str = candidate_start.strftime("%b %-d")
+        start_str = taper_start_date.strftime("%b %-d")
         race_str = race_date.strftime("%b %-d")
-        taper_label = "mini-taper" if priority == "B" else "taper"
-        message = (
-            f"Begin your {taper_label} on {start_str} "
-            f"to arrive at race day in peak form on {race_str}."
-        )
-        return {
-            "taper_start_date": candidate_start,
-            "message": message,
-            "achievable": True,
-            "reason": "",
-        }
+        message = f"begin easing load around {start_str} to peak on {race_str}"
     else:
         # Honest assessment: the positive band is out of reach given time remaining
         message = (
             "Race is too soon to reach a positive form band; "
             "manage fatigue rather than targeting a peak"
         )
-        return {
-            "taper_start_date": None,
-            "message": message,
-            "achievable": False,
-            "reason": "",
-        }
+
+    return {
+        "taper_start_date": taper_start_date,
+        "message": message,
+        "achievable": achievable,
+        "reason": "",
+    }
 
 
 def get_taper_recommendation(
     user_id: str,
     race_date: date,
     target_form: float,
-    priority: str = "A",
 ) -> dict:
     """Thin caller: fetch fitness state from DB, then compute taper recommendation.
 
@@ -710,8 +684,6 @@ def get_taper_recommendation(
         user_id: the authenticated user's ID.
         race_date: the target race date.
         target_form: the athlete's desired TSB value on race day.
-        priority: "A" for a goal race (A_RACE_TAPER_DAYS) or "B" for a tune-up
-                  race (B_RACE_TAPER_DAYS). Defaults to "A".
 
     Returns:
         Same dict shape as taper_recommendation: {taper_start_date, message,
@@ -722,7 +694,6 @@ def get_taper_recommendation(
         "ctl": load_state["ctl"],
         "atl": load_state["atl"],
         "date": load_state["date"],
-        "priority": priority,
     }
     return taper_recommendation(fitness_state, race_date, target_form)
 
@@ -856,78 +827,6 @@ def compute_calibration_suggestions(
 
     All numeric parameters are read from user_constants and population_constants; no
     bare literal thresholds appear in the function body.
-
-    Args:
-        race_id:
-            Identifier string used for labelling only — not used for DB lookup.
-        actual_time_seconds:
-            The athlete's actual finishing time in seconds.  Must be a positive
-            integer.  If None the function returns a descriptive error.
-        user_constants:
-            Dict with the athlete's personal model parameters and race context:
-              - ctl_days (int, optional): fitness time constant; defaults to
-                population_constants["ctl_days"].
-              - atl_days (int, optional): fatigue time constant; defaults to
-                population_constants["atl_days"].
-              - predicted_peak_week (int, required): week number from training-block
-                start when the model predicted fitness would peak.
-              - actual_peak_week (int, required): week number from training-block
-                start when the athlete's fitness actually peaked (from snapshot data).
-              - goal_time_seconds (int, required): the race target time in seconds.
-        population_constants:
-            Dict supplying default values and calibration knobs:
-              - ctl_days (int): default CTL time constant.
-              - atl_days (int): default ATL time constant.
-              - timing_tolerance_weeks (int): peak-timing band considered on-target.
-              - ctl_adjustment_days_per_week (int): days of constant change per week
-                of timing delta.
-              - min_ctl_days (int): floor for suggested CTL constant.
-              - max_ctl_days (int): ceiling for suggested CTL constant.
-
-    Returns:
-        On invalid input:
-            Dict with None suggestion fields and a non-empty ``reason`` string.
-        On success:
-            Dict with:
-              suggested_ctl_days   -- suggested fitness time constant (days)
-              suggested_atl_days   -- fatigue time constant (unchanged in this release)
-              timing_delta_weeks   -- actual_peak_week minus predicted_peak_week
-              peak_level_delta_pct -- (goal - actual) / goal * 100 (positive = faster)
-              explanation          -- plain-English rationale
-              adjustment_direction -- "shorten", "lengthen", or "none"
-              reason               -- empty string on success
-
-    Worked example — early peak (2 weeks early out of a 12-week block):
-        Inputs:
-            race_id            = "race-abc"
-            actual_time_seconds = 3780   (missed 3600 s goal by 3 minutes)
-            user_constants      = {
-                "ctl_days": 42,
-                "predicted_peak_week": 12,
-                "actual_peak_week": 10,
-                "goal_time_seconds": 3600,
-            }
-            population_constants = {
-                "ctl_days": 42, "atl_days": 7,
-                "timing_tolerance_weeks": 1,
-                "ctl_adjustment_days_per_week": 2,
-                "min_ctl_days": 14, "max_ctl_days": 84,
-            }
-
-        Computation:
-            timing_delta = 10 - 12 = -2 weeks (early peak)
-            peak_level_delta_pct = (3600 - 3780) / 3600 * 100 = -5.0 %
-            |-2| > timing_tolerance_weeks (1) → shorten
-            adjustment_days = 2 * 2 = 4 days
-            suggested_ctl_days = max(14, 42 - 4) = 38
-
-        Expected output:
-            suggested_ctl_days   = 38
-            suggested_atl_days   = 7
-            timing_delta_weeks   = -2
-            peak_level_delta_pct = -5.0
-            adjustment_direction = "shorten"
-            reason               = ""
     """
     _empty = {
         "suggested_ctl_days": None,
@@ -959,7 +858,6 @@ def compute_calibration_suggestions(
     if actual_peak_week is None:
         return {**_empty, "reason": "actual_peak_week is required in user_constants"}
 
-    # Resolve constants from user_constants (personal) or population_constants (defaults)
     ctl_days = user_constants.get("ctl_days") or population_constants.get("ctl_days", CTL_DAYS)
     atl_days = user_constants.get("atl_days") or population_constants.get("atl_days", ATL_DAYS)
     timing_tolerance = population_constants.get("timing_tolerance_weeks", TIMING_TOLERANCE_WEEKS)
@@ -967,16 +865,10 @@ def compute_calibration_suggestions(
     min_ctl = population_constants.get("min_ctl_days", MIN_CTL_DAYS)
     max_ctl = population_constants.get("max_ctl_days", MAX_CTL_DAYS)
 
-    # AC5: Derive peak timing delta (actual minus predicted; negative = earlier)
     timing_delta = actual_peak_week - predicted_peak_week
-
-    # AC5: Derive peak level delta (positive = athlete beat their goal time)
     peak_level_delta_pct = round((goal_time - actual_time_seconds) / goal_time * 100, _LEVEL_DELTA_PRECISION)
 
-    # Determine suggested adjustment based on timing delta
     if timing_delta < -timing_tolerance:
-        # Early peak: athlete peaked before the model predicted
-        # Shorten the fitness time constant so future models reflect faster peaking
         adjustment_days = abs(timing_delta) * ctl_adj_per_week
         suggested_ctl = max(min_ctl, ctl_days - adjustment_days)
         direction = "shorten"
@@ -989,8 +881,6 @@ def compute_calibration_suggestions(
             f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
         )
     elif timing_delta > timing_tolerance:
-        # Late peak: athlete hadn't reached peak fitness at race time
-        # Lengthen the fitness time constant so future models reflect slower peaking
         adjustment_days = timing_delta * ctl_adj_per_week
         suggested_ctl = min(max_ctl, ctl_days + adjustment_days)
         direction = "lengthen"
@@ -1003,7 +893,6 @@ def compute_calibration_suggestions(
             f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
         )
     else:
-        # On target: actual peak within the tolerance band of predicted peak
         suggested_ctl = ctl_days
         direction = "none"
         explanation = (
@@ -1023,3 +912,58 @@ def compute_calibration_suggestions(
         "adjustment_direction": direction,
         "reason": "",
     }
+
+
+def readiness_label(tsb: float) -> str:
+    """Return a human-readable label for a TSB value using named constants.
+
+    Labels are anchored to FORM_BURIED_CEILING and FORM_FRESH_FLOOR so that
+    threshold values live only in those named constants, never as magic numbers
+    inside the comparison logic.
+
+    Returns one of READINESS_LABEL_FATIGUED, READINESS_LABEL_OPTIMAL, or
+    READINESS_LABEL_FRESH.
+
+    Worked example:
+        FORM_BURIED_CEILING = -10.0, FORM_FRESH_FLOOR = 5.0
+
+        tsb = -15  →  "Fatigued"   (below buried ceiling)
+        tsb =   0  →  "Optimal"    (in the neutral band)
+        tsb =  10  →  "Fresh"      (at or above fresh floor)
+    """
+    if tsb < FORM_BURIED_CEILING:
+        return READINESS_LABEL_FATIGUED
+    if tsb >= FORM_FRESH_FLOOR:
+        return READINESS_LABEL_FRESH
+    return READINESS_LABEL_OPTIMAL
+
+
+def compute_fitness_series(
+    user_id: str,
+    from_date: date,
+    to_date: date,
+) -> list[dict]:
+    """Fetch daily TSS from the database and compute the CTL/ATL/TSB series.
+
+    This is the caller-layer function used by the readiness endpoint. It
+    performs all database reads (via daily_tss_series) and delegates the
+    computation to compute_load_curves. The endpoint must call this function
+    rather than re-implementing the series calculation.
+
+    Args:
+        user_id: the authenticated user's ID string.
+        from_date: start of the series window (inclusive). Use a 6-month
+            lookback from today so that the EWMA has time to converge before
+            the date range the caller actually needs.
+        to_date: end of the series window (inclusive, typically today).
+
+    Returns:
+        List of dicts ordered ascending by date, each containing:
+            date  -- the calendar day (date object)
+            tss   -- daily TSS (int, 0 for rest days)
+            ctl   -- Chronic Training Load (float, rounded to 2 dp)
+            atl   -- Acute Training Load (float, rounded to 2 dp)
+            tsb   -- Training Stress Balance, CTL − ATL (float, rounded to 2 dp)
+    """
+    daily_series = daily_tss_series(user_id, from_date, to_date)
+    return compute_load_curves(daily_series)

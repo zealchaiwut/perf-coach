@@ -23,13 +23,32 @@ def _find_in_memory(start_time, workouts: list, tolerance: timedelta):
     return min(candidates, key=lambda w: abs((w.start_time - start_time).total_seconds()))
 
 
-def _make_proxy(act, source_type: str, existing_workout=None) -> SimpleNamespace:
-    """Build a SimpleNamespace compatible with compute_best_values."""
+def _make_proxy(
+    act,
+    source_type: str,
+    existing_workout=None,
+    *,
+    strava_by_id: dict | None = None,
+    stryd_by_id: dict | None = None,
+) -> SimpleNamespace:
+    """Build a SimpleNamespace compatible with compute_best_values.
+
+    When reconciling a second source onto an existing workout, attach both
+    source activities so field precedence (e.g. Strava distance before Stryd)
+    is evaluated correctly in a single pass.
+    """
     ow = existing_workout
+    strava = act if source_type == "strava" else None
+    stryd = act if source_type == "stryd" else None
+    if ow is not None:
+        if strava is None and getattr(ow, "strava_activity_pk", None) and strava_by_id:
+            strava = strava_by_id.get(ow.strava_activity_pk)
+        if stryd is None and getattr(ow, "stryd_activity_pk", None) and stryd_by_id:
+            stryd = stryd_by_id.get(ow.stryd_activity_pk)
     return SimpleNamespace(
         manual_overrides=getattr(ow, "manual_overrides", None) if ow else None,
-        strava_activity=act if source_type == "strava" else None,
-        stryd_activity=act if source_type == "stryd" else None,
+        strava_activity=strava,
+        stryd_activity=stryd,
         distance_km=float(ow.distance_km) if ow and getattr(ow, "distance_km", None) is not None else None,
         duration_seconds=getattr(ow, "duration_seconds", None) if ow else None,
         avg_hr=getattr(ow, "avg_hr", None) if ow else None,
@@ -206,6 +225,8 @@ def reconcile_workouts(job_id, user_id) -> None:
             stryd_acts = []
 
         all_acts = [("strava", a) for a in strava_acts] + [("stryd", a) for a in stryd_acts]
+        strava_by_id = {a.id: a for a in strava_acts}
+        stryd_by_id = {a.id: a for a in stryd_acts}
 
         # Single bulk load of all existing workouts — no per-activity query
         existing_workouts: list = session.query(Workout).filter(Workout.user_id == uid).all()
@@ -215,7 +236,13 @@ def reconcile_workouts(job_id, user_id) -> None:
         stryd_pairs = []
         for source_type, act in all_acts:
             matched = _find_in_memory(act.start_time, existing_workouts, _TOLERANCE)
-            proxy = _make_proxy(act, source_type, matched)
+            proxy = _make_proxy(
+                act,
+                source_type,
+                matched,
+                strava_by_id=strava_by_id,
+                stryd_by_id=stryd_by_id,
+            )
             best = compute_best_values(proxy)
 
             if matched:
@@ -265,6 +292,9 @@ def reconcile_workouts(job_id, user_id) -> None:
 
     # Derive TSS (fallback) + Zone-2 minutes for runs from the now-current splits.
     compute_run_metrics(user_id)
+
+    # Update the per-athlete best-effort duration curve for all runs.
+    _update_duration_curves(uid)
 
 
 def compute_run_metrics(user_id) -> None:
@@ -316,3 +346,28 @@ def compute_run_metrics(user_id) -> None:
                 w.tss_source = src
 
         session.commit()
+
+
+def _update_duration_curves(user_id) -> None:
+    """Rebuild the stored best-effort duration curve for all run workouts of one athlete.
+
+    Called automatically by reconcile_workouts after each sync completes. Iterates
+    every run workout for the user and merges its computed power curve into the stored
+    best-effort record via update_athlete_power_curve.
+    """
+    from backend.db import engine
+    from backend.models import Workout
+    from backend.services.duration_curve_best_effort import update_athlete_power_curve
+
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+    with _Session(engine) as session:
+        run_ids = [
+            row[0]
+            for row in session.query(Workout.id)
+            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
+            .all()
+        ]
+
+    for workout_id in run_ids:
+        with _Session(engine) as session:
+            update_athlete_power_curve(uid, workout_id, session)

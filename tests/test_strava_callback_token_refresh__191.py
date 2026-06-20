@@ -48,8 +48,8 @@ def test_callback_success_creates_token(monkeypatch):
 
     assert res.status_code == 200
     assert "text/html" in res.headers["content-type"]
-    assert "strava_connected" in res.text
-    assert "window.close()" in res.text
+    assert "/settings?strava=connected" in res.text
+    assert "window.location.replace" in res.text
     mock_ex.assert_called_once_with("code-abc", "cid", "csecret")
     mock_up.assert_called_once()
     call_kwargs = mock_up.call_args
@@ -97,7 +97,8 @@ def test_callback_invalid_state_returns_400(monkeypatch):
     })
 
     assert res.status_code == 400
-    assert "Authorization state expired or invalid" in res.json()["detail"]
+    assert "text/html" in res.headers["content-type"]
+    assert "/settings?strava=error" in res.text
 
 
 # ── 4. Strava 4xx → 502 ───────────────────────────────────────────────────────

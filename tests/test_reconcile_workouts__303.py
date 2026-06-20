@@ -34,6 +34,23 @@ def _strava_act(uid, start_time, name="Morning Run", activity_type="Run", distan
     return act
 
 
+def _stryd_act(uid, start_time, name="Stryd Run", distance_km=10.8, duration_seconds=3600, avg_hr=145):
+    act = MagicMock()
+    act.id = uuid.uuid4()
+    act.user_id = uid
+    act.start_time = start_time
+    act.name = name
+    act.activity_type = "Run"
+    act.distance_km = distance_km
+    act.duration_seconds = duration_seconds
+    act.avg_hr = avg_hr
+    act.avg_power_w = None
+    act.tss = None
+    act.splits = None
+    act.form_metrics = None
+    return act
+
+
 def _workout(uid, start_time, name="Existing Workout"):
     w = MagicMock()
     w.id = uuid.uuid4()
@@ -138,6 +155,27 @@ def test_reconcile_updates_existing_matched_workout():
     session.add.assert_not_called()
     assert w.strava_activity_pk == act.id
     session.commit.assert_called_once()
+
+
+def test_reconcile_merged_run_keeps_strava_distance_when_both_sources():
+    """When Strava and Stryd match the same workout, Strava distance wins."""
+    _clear_registry()
+    uid = _make_uid()
+    sync_jobs.start(uid, "strava")
+
+    t = datetime(2026, 6, 1, 9, 0, 0, tzinfo=timezone.utc)
+    strava = _strava_act(uid, t, distance_km=11.0)
+    stryd = _stryd_act(uid, t, distance_km=10.8)
+    session = _make_session([strava], [stryd], [])
+
+    with patch("backend.services.reconcile._Session", return_value=session), \
+         patch("backend.services.reconcile.compute_run_metrics"), \
+         patch("backend.services.reconcile._update_duration_curves"):
+        reconcile_workouts(uid, uid)
+
+    created = session.add.call_args[0][0]
+    assert float(created.distance_km) == 11.0
+    assert created.source == "strava,stryd"
 
 
 def test_reconcile_idempotent_second_run_no_duplicates():

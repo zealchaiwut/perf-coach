@@ -15,32 +15,42 @@ def merge_best_effort(existing, new_points, higher_is_better=True):
 
     Parameters
     ----------
-    existing : dict
+    existing : dict or None
         Current stored curve keyed by str(duration_seconds). Each value is a
         dict with keys: ``best_value``, ``workout_id``, ``date``, ``confidence``.
-    new_points : list[dict]
+        Pass None or an empty dict when no stored curve exists.
+    new_points : list[dict] or None
         Points from a freshly computed workout curve. Each dict must have:
         ``duration_seconds``, ``best_value``, ``source_workout_id``, ``date``,
         ``confidence``. Points with ``best_value=None`` are silently skipped.
+        Pass None when inputs are unavailable.
     higher_is_better : bool
         True (default) for power — larger value wins.
         False for pace — smaller value (faster) wins.
 
     Returns
     -------
-    dict
-        New best-effort curve with the same structure as ``existing``. Only
-        entries where ``new_points`` provides a strictly better value are
-        replaced; all other entries are preserved unchanged.
+    (dict, str or None)
+        A 2-tuple of ``(merged_curve, reason)``. ``reason`` is None on success
+        and a human-readable string when inputs are missing or invalid. On
+        error the returned curve dict is empty.
 
     Worked example
     --------------
     existing = {"60": {"best_value": 250.0, "workout_id": "abc", "date": "2026-01-10"}}
     new_points = [{"duration_seconds": 60, "best_value": 270.0, "source_workout_id": "xyz",
                    "date": "2026-01-15", "confidence": "measured"}]
-    result = merge_best_effort(existing, new_points)
-    # result["60"]["best_value"] == 270.0, result["60"]["workout_id"] == "xyz"
+    curve, reason = merge_best_effort(existing, new_points)
+    # curve["60"]["best_value"] == 270.0, curve["60"]["workout_id"] == "xyz"
     """
+    missing = []
+    if existing is None:
+        missing.append("existing curve")
+    if new_points is None:
+        missing.append("new_points")
+    if missing:
+        return {}, f"missing required inputs: {', '.join(missing)}"
+
     result = {k: dict(v) for k, v in existing.items()}
 
     for point in new_points:
@@ -72,7 +82,7 @@ def merge_best_effort(existing, new_points, higher_is_better=True):
                     "confidence": point.get("confidence", "measured"),
                 }
 
-    return result
+    return result, None
 
 
 def update_athlete_power_curve(user_id, workout_id, db, duration_ladder=None):
@@ -91,9 +101,19 @@ def update_athlete_power_curve(user_id, workout_id, db, duration_ladder=None):
         Open session.
     duration_ladder : list[int] or None
         Duration windows in seconds. Defaults to the ladder defined in duration_curve.py.
+
+    Returns
+    -------
+    (dict, str or None)
+        The updated curve and a reason string (None on success, message on failure).
     """
     from sqlalchemy.orm.attributes import flag_modified
     from backend.models import AthleteDurationCurve
+
+    if user_id is None:
+        return {}, "missing required input: user_id"
+    if workout_id is None:
+        return {}, "missing required input: workout_id"
 
     curves = fetch_and_compute_curves(workout_id, db)
     new_power_points = curves.get("power_curve", [])
@@ -101,7 +121,9 @@ def update_athlete_power_curve(user_id, workout_id, db, duration_ladder=None):
     record = db.get(AthleteDurationCurve, user_id)
     existing_data = record.curve_data if record else {}
 
-    merged = merge_best_effort(existing_data, new_power_points, higher_is_better=True)
+    merged, reason = merge_best_effort(existing_data, new_power_points, higher_is_better=True)
+    if reason is not None:
+        return {}, reason
 
     if record is None:
         record = AthleteDurationCurve(user_id=user_id, curve_data=merged)
@@ -111,6 +133,7 @@ def update_athlete_power_curve(user_id, workout_id, db, duration_ladder=None):
         flag_modified(record, "curve_data")
 
     db.commit()
+    return merged, None
 
 
 def get_athlete_duration_curve(user_id, db):

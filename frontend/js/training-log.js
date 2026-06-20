@@ -447,45 +447,95 @@
     if (el) el.hidden = true;
   }
 
-  // ── Readiness widget (issue #640) ────────────────────────────────────────────
-  // Fetches /api/readiness/current and renders Fitness/Fatigue/Form tiles
-  // with a recovery hint. Widget is hidden on error or non-200 response.
+  // ── Readiness widget (issue #697) ────────────────────────────────────────────
+  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles
+  // with a readiness label and per-metric sparklines. Hidden on error.
+
+  var _rwSparklines = {};
+
+  function _destroyRwSparklines() {
+    Object.keys(_rwSparklines).forEach(function (id) {
+      if (_rwSparklines[id]) { _rwSparklines[id].destroy(); }
+    });
+    _rwSparklines = {};
+  }
+
+  function _renderSparkline(id, vals, color) {
+    var canvas = document.getElementById(id);
+    if (!canvas || typeof Chart === 'undefined' || !vals.length) return;
+    _rwSparklines[id] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: vals.map(function (_, i) { return i; }),
+        datasets: [{
+          data: vals,
+          borderColor: color,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+      },
+    });
+  }
 
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
 
+    _destroyRwSparklines();
+
     if (data.building_baseline) {
       el.innerHTML =
         '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
-        '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Form scores.</p>';
+        '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Freshness scores.</p>';
       el.hidden = false;
       return;
     }
 
-    function tile(val, abbr, label) {
+    function tile(val, abbr, label, sparkId) {
       return '<div class="rw-tile">' +
                '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
                '<div class="rw-tile-label">' + abbr + '</div>' +
                '<div class="rw-tile-sub">' + label + '</div>' +
+               '<canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas>' +
              '</div>';
     }
 
+    var rlabel = data.readiness_label || '';
+    var rlabelClass = rlabel === 'Fresh' ? 'rw-label--fresh'
+                    : rlabel === 'Fatigued' ? 'rw-label--fatigued'
+                    : 'rw-label--optimal';
+
     el.innerHTML =
-      '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
-      '<div class="rw-tiles">' +
-        tile(data.ctl, 'CTL', 'Fitness') +
-        tile(data.atl, 'ATL', 'Fatigue') +
-        tile(data.tsb, 'TSB', 'Form') +
+      '<div class="rw-header">' +
+        '<span class="rw-title">Readiness</span>' +
+        (rlabel ? '<span class="rw-label ' + rlabelClass + '">' + esc(rlabel) + '</span>' : '') +
       '</div>' +
-      '<p class="rw-hint">' + esc(data.recovery_hint || '') + '</p>';
+      '<div class="rw-tiles">' +
+        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl') +
+        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl') +
+        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb') +
+      '</div>';
     el.hidden = false;
+
+    var series = data.series || [];
+    _renderSparkline('rw-spark-ctl', series.map(function (d) { return d.ctl; }), '#3b82f6');
+    _renderSparkline('rw-spark-atl', series.map(function (d) { return d.atl; }), '#ef4444');
+    _renderSparkline('rw-spark-tsb', series.map(function (d) { return d.tsb; }), '#10b981');
   }
 
   function fetchReadinessWidget() {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
-    fetch('/api/readiness/current')
+    fetch('/api/readiness')
       .then(function (res) {
         if (!res.ok) {
           el.hidden = true;
@@ -494,7 +544,7 @@
         return res.json();
       })
       .then(function (data) {
-        if (!data) return;
+        if (!data || Array.isArray(data)) return;
         renderReadinessWidget(data);
       })
       .catch(function () {
@@ -2990,26 +3040,85 @@
     }
   }
 
+  function _syncSinceDate(latest) {
+    if (!latest || !latest.synced_at) return null;
+    var d = new Date(latest.synced_at);
+    if (isNaN(d.getTime())) return null;
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _syncWaitForComplete() {
+    return new Promise(function (resolve) {
+      function poll() {
+        fetch("/api/sync/status")
+          .then(function (res) {
+            return res.ok ? res.json() : null;
+          })
+          .then(function (data) {
+            if (!data || data.status !== "running") {
+              resolve();
+            } else {
+              setTimeout(poll, 2000);
+            }
+          })
+          .catch(resolve);
+      }
+      poll();
+    });
+  }
+
+  function _syncProvider(url, sinceDate) {
+    var body = sinceDate
+      ? JSON.stringify({ since_date: sinceDate })
+      : "{}";
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body,
+    }).then(function (r) {
+      if (r.status === 202 || r.status === 409) {
+        return _syncWaitForComplete();
+      }
+      return null;
+    });
+  }
+
   function _onSyncAllClick() {
     _syncSetBusy(true);
     Promise.all([
-      fetch("/api/strava/sync", { method: "POST" }).catch(function () {
-        return { status: 0 };
-      }),
-      fetch("/api/stryd/sync", { method: "POST" }).catch(function () {
-        return { status: 0 };
-      }),
-    ]).then(function (results) {
-      var anyStarted = results.some(function (r) {
-        return r.status === 202 || r.status === 409;
-      });
-      if (anyStarted) {
+      fetch("/api/sync/strava/latest")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
+      fetch("/api/sync/stryd/latest")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
+    ])
+      .then(function (latest) {
+        var stravaSince = _syncSinceDate(latest[0]);
+        var strydSince = _syncSinceDate(latest[1]);
+        return _syncProvider("/api/strava/sync", stravaSince).then(function () {
+          return _syncProvider("/api/stryd/sync", strydSince);
+        });
+      })
+      .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
-        _syncPollStatus();
-      } else {
+        _loadSyncChip();
+      })
+      .catch(function () {
+        /* best-effort */
+      })
+      .finally(function () {
         _syncSetBusy(false);
-      }
-    });
+      });
   }
 
   function _onSyncStravaClick() {
