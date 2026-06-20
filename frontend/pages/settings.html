@@ -286,7 +286,53 @@
       line-height: 1.5;
     }
 
-    /* ── Suggestion chip ── */
+    /* ── Unit label next to inputs ── */
+    .thresholds-unit-label {
+      flex-shrink: 0;
+      font-size: 13px;
+      color: #8b95ad;
+      padding-left: 2px;
+    }
+
+    /* ── Last-set timestamp ── */
+    .thresholds-last-set {
+      font-size: 11px;
+      color: #b0b8cc;
+      margin: 2px 0 0;
+      min-height: 14px;
+    }
+
+    /* ── Suggestion banner (inline below input row) ── */
+    .thresholds-suggestion-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      font-size: 12.5px;
+      color: #1d4ed8;
+    }
+    .thresholds-suggestion-banner.visible { display: flex; }
+    .thresholds-suggestion-banner .suggestion-text { flex: 1; }
+    .thresholds-suggestion-banner .suggestion-accept-btn {
+      flex-shrink: 0;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #1d4ed8;
+      color: #fff;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .thresholds-suggestion-banner .suggestion-accept-btn:hover { opacity: 0.85; }
+
+    /* ── Suggestion chip (legacy, kept for backward compat) ── */
     .thresholds-suggestion-chip {
       display: none;
       align-items: center;
@@ -975,6 +1021,7 @@
       <nav>
         <button class="settings-nav-item" data-section="profile">Profile</button>
         <button class="settings-nav-item" data-section="thresholds">Performance Thresholds</button>
+        <button class="settings-nav-item" data-section="device-zones">Zones</button>
         <button class="settings-nav-item" data-section="personal-records">Personal Records</button>
         <button class="settings-nav-item" data-section="integrations">Integrations</button>
         <button class="settings-nav-item" data-section="about">About</button>
@@ -1042,10 +1089,12 @@
           <label class="profile-label" for="thresholds-ftp">FTP (Functional Threshold Power)</label>
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
-              min="50" max="600" placeholder="(default: 280W)">
+              min="50" max="600" placeholder="(default: 280)">
+            <span class="thresholds-unit-label">W</span>
             <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
-            <button type="button" class="thresholds-suggestion-chip" id="thresholds-ftp-suggestion" aria-label="Accept suggested FTP value"></button>
           </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-ftp-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-ftp-last-set"></p>
           <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
           <div class="profile-field-error" id="thresholds-ftp-error"></div>
         </div>
@@ -1055,10 +1104,12 @@
           <label class="profile-label" for="thresholds-hr">Threshold Heart Rate</label>
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
-              min="100" max="220" placeholder="(default: 170 bpm)">
+              min="100" max="220" placeholder="(default: 170)">
+            <span class="thresholds-unit-label">bpm</span>
             <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
-            <button type="button" class="thresholds-suggestion-chip" id="thresholds-hr-suggestion" aria-label="Accept suggested Threshold HR value"></button>
           </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-hr-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-hr-last-set"></p>
           <p class="thresholds-desc">Heart rate at lactate threshold (bpm). Used when power data is unavailable. Estimate as ~88–92% of max HR, or from a race/hard effort.</p>
           <div class="profile-field-error" id="thresholds-hr-error"></div>
         </div>
@@ -1068,7 +1119,8 @@
           <label class="profile-label" for="thresholds-max-hr">Max Heart Rate</label>
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-max-hr" class="profile-input thresholds-input"
-              min="120" max="230" placeholder="(default: 190 bpm)">
+              min="120" max="230" placeholder="(default: 190)">
+            <span class="thresholds-unit-label">bpm</span>
             <button type="button" class="thresholds-default-btn" data-field="max-hr">Use default</button>
           </div>
           <p class="thresholds-desc">Your maximum heart rate (bpm). Used to define training zones. Estimate as 220 − age, or from a maximal-effort test.</p>
@@ -1082,8 +1134,9 @@
             <input type="text" id="thresholds-pace" class="profile-input thresholds-input"
               placeholder="(default: 4:30/km)">
             <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
-            <button type="button" class="thresholds-suggestion-chip" id="thresholds-pace-suggestion" aria-label="Accept suggested Threshold Pace value"></button>
           </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-pace-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-pace-last-set"></p>
           <p class="thresholds-desc">Running pace you can sustain for ~1 hour (M:SS/km). Used to compute running TSS. Enter as <code>4:30</code>, <code>4:30/km</code>, or <code>4:30 /km</code>.</p>
           <div class="profile-field-error" id="thresholds-pace-error"></div>
         </div>
@@ -1131,6 +1184,24 @@
           <div id="provision-zone2-existing" style="display:none;font-size:13px;color:#4b7cf6;margin-bottom:10px;" aria-live="polite"></div>
           <div id="provision-zone2-success" style="display:none;font-size:13px;color:#2d9e2d;margin-bottom:10px;" aria-live="polite"></div>
           <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn" style="font-size:13px;padding:7px 16px;">Track Zone 2 in habits</button>
+        </div>
+      </div>
+
+      <!-- Device Zones: read-only power zones sourced from a connected device (e.g. Stryd) -->
+      <div id="section-device-zones" class="settings-section thresholds-device-zones">
+        <h1>Zones</h1>
+        <p style="font-size:13px;color:#8b95ad;margin:0 0 16px;">Power zones reported by your connected device. These values are read-only and update when you sync.</p>
+        <div id="device-zones-content">
+          <p id="device-zones-empty" style="font-size:13px;color:#8b95ad;">No device-sourced zones available. Connect Stryd and sync to see power zones here.</p>
+          <div id="device-zones-table" style="display:none;">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+              <span style="font-size:13px;font-weight:600;color:#1a1a1a;">Critical Power (FTP):</span>
+              <span id="device-ftp-value" style="font-size:14px;font-weight:700;color:#4b7cf6;"></span>
+              <span style="font-size:12px;color:#8b95ad;">W — from Stryd</span>
+            </div>
+            <div id="device-zones-list" style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:#374151;"></div>
+            <p id="device-zones-date" style="font-size:12px;color:#8b95ad;margin-top:8px;"></p>
+          </div>
         </div>
       </div>
 
@@ -1688,10 +1759,29 @@
 
             var weeklyZ2El = document.getElementById('thresholds-weekly-zone2-target');
             if (weeklyZ2El) weeklyZ2El.value = String(displayWeeklyZ2);
+
+            // Populate "last set" timestamps (AC2)
+            _tSetLastSet('thresholds-ftp-last-set', row.ftp_w_updated_at);
+            _tSetLastSet('thresholds-hr-last-set', row.threshold_hr_updated_at);
+            _tSetLastSet('thresholds-pace-last-set', row.threshold_pace_seconds_per_km_updated_at);
           })
           .catch(function () {
             _tSetFeedback('Failed to load thresholds.', 'error');
           });
+      }
+
+      function _tFmtTimestamp(iso) {
+        if (!iso) return '';
+        try {
+          var d = new Date(iso);
+          return 'Last set: ' + d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        } catch (e) { return ''; }
+      }
+
+      function _tSetLastSet(elId, isoString) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        el.textContent = _tFmtTimestamp(isoString);
       }
 
       function _tValidateAndBuildPatch() {
@@ -1848,6 +1938,10 @@
             // Normalise pace display to M:SS/km after save
             var paceEl = document.getElementById('thresholds-pace');
             if (paceEl) paceEl.value = _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km';
+            // Refresh timestamps from the saved row (AC2)
+            _tSetLastSet('thresholds-ftp-last-set', saved.ftp_w_updated_at);
+            _tSetLastSet('thresholds-hr-last-set', saved.threshold_hr_updated_at);
+            _tSetLastSet('thresholds-pace-last-set', saved.threshold_pace_seconds_per_km_updated_at);
             _tSetFeedback('Preferences saved.', 'success');
           })
           .catch(function (errData) {
@@ -1886,9 +1980,10 @@
       if (tSaveBtn) tSaveBtn.addEventListener('click', _tHandleSave);
 
       // ── Threshold suggestions ─────────────────────────────────────────────
-      // Fetches /api/thresholds/suggestions and shows an "Accept suggestion"
-      // chip next to the relevant field. Clicking the chip pre-fills the input
-      // but does NOT save — the user must still tap Save.
+      // Fetches /api/thresholds/suggestions and shows an inline suggestion banner
+      // with formula text and an Accept button per field (AC5).
+      // Clicking Accept calls POST /api/thresholds/suggestions/accept and writes
+      // the value to user_preferences; the banner then disappears (AC6).
 
       function _loadThresholdSuggestions() {
         fetch('/api/thresholds/suggestions')
@@ -1897,30 +1992,84 @@
             if (!data || !data.pending) return;
             var pending = data.pending;
             if (pending.ftp_w) {
-              _showSuggestionChip('thresholds-ftp-suggestion', 'thresholds-ftp', pending.ftp_w.value, false);
+              _showSuggestionBanner('thresholds-ftp-suggestion', 'thresholds-ftp', 'ftp_w', pending.ftp_w, false);
             }
             if (pending.threshold_hr) {
-              _showSuggestionChip('thresholds-hr-suggestion', 'thresholds-hr', pending.threshold_hr.value, false);
+              _showSuggestionBanner('thresholds-hr-suggestion', 'thresholds-hr', 'threshold_hr', pending.threshold_hr, false);
             }
             if (pending.threshold_pace_seconds_per_km) {
-              _showSuggestionChip('thresholds-pace-suggestion', 'thresholds-pace', pending.threshold_pace_seconds_per_km.value, true);
+              _showSuggestionBanner('thresholds-pace-suggestion', 'thresholds-pace', 'threshold_pace_seconds_per_km', pending.threshold_pace_seconds_per_km, true);
             }
           })
           .catch(function () {});
       }
 
-      function _showSuggestionChip(chipId, inputId, rawValue, isPace) {
-        var chip = document.getElementById(chipId);
-        var inputEl = document.getElementById(inputId);
-        if (!chip || !inputEl) return;
-        var displayVal = isPace ? (_secsToMMSS(rawValue) + '/km') : (rawValue + (chipId.indexOf('ftp') !== -1 ? ' W' : ' bpm'));
-        chip.textContent = 'Accept suggestion: ' + displayVal;
-        chip.classList.add('visible');
-        chip.addEventListener('click', function () {
-          inputEl.value = isPace ? (_secsToMMSS(rawValue) + '/km') : String(rawValue);
-          chip.classList.remove('visible');
-          _tSetFeedback('', '');
+      function _showSuggestionBanner(bannerId, inputId, prefKey, suggestion, isPace) {
+        var banner = document.getElementById(bannerId);
+        if (!banner) return;
+        var rawValue = suggestion.value;
+        var formula = suggestion.formula || '';
+
+        var displayVal = isPace
+          ? (_secsToMMSS(rawValue) + '/km')
+          : (Math.round(rawValue) + (prefKey === 'ftp_w' ? ' W' : ' bpm'));
+
+        var suggestText = 'Suggested ' + displayVal;
+        if (formula) suggestText += ' — ' + formula;
+
+        banner.innerHTML = '';
+        var textSpan = document.createElement('span');
+        textSpan.className = 'suggestion-text';
+        textSpan.textContent = suggestText;
+
+        var acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'suggestion-accept-btn';
+        acceptBtn.textContent = 'Accept';
+        acceptBtn.addEventListener('click', function () {
+          acceptBtn.disabled = true;
+          var csrf = '';
+          var metaEl = document.querySelector('meta[name="csrf-token"]');
+          if (metaEl) csrf = metaEl.getAttribute('content');
+          if (!csrf) {
+            document.cookie.split(';').forEach(function (c) {
+              var pair = c.trim();
+              if (pair.startsWith('csrf-token=')) csrf = pair.slice('csrf-token='.length);
+            });
+          }
+          fetch('/api/thresholds/suggestions/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: JSON.stringify({ keys: [prefKey] }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (result) {
+              var written = result.written || {};
+              if (prefKey in written) {
+                // Update the input field with the accepted value (AC6)
+                var inputEl = document.getElementById(inputId);
+                if (inputEl) {
+                  inputEl.value = isPace
+                    ? (_secsToMMSS(written[prefKey]) + '/km')
+                    : String(written[prefKey]);
+                }
+                // Update baseline so dirty-check recognises the new value as saved
+                if (prefKey in _tBaseline) _tBaseline[prefKey] = written[prefKey];
+                // Hide the banner (AC6)
+                banner.classList.remove('visible');
+                banner.innerHTML = '';
+                // Refresh timestamps
+                _tLoadPrefs();
+              } else {
+                acceptBtn.disabled = false;
+              }
+            })
+            .catch(function () { acceptBtn.disabled = false; });
         });
+
+        banner.appendChild(textSpan);
+        banner.appendChild(acceptBtn);
+        banner.classList.add('visible');
       }
 
       // ── Zone 2 habit opt-in provision button ──────────────────────────────
@@ -2032,7 +2181,44 @@
         _tLoadPrefs();
         _loadThresholdSuggestions();
         _checkZone2HabitExists(_updateProvisionZone2UI);
+        _loadDeviceZones();
       });
+
+      // ── Device zones: read-only display from Stryd (AC10) ─────────────────
+      function _loadDeviceZones() {
+        fetch('/api/thresholds/device-zones')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.source) return;
+            var emptyEl = document.getElementById('device-zones-empty');
+            var tableEl = document.getElementById('device-zones-table');
+            if (emptyEl) emptyEl.style.display = 'none';
+            if (tableEl) tableEl.style.display = '';
+
+            var ftpEl = document.getElementById('device-ftp-value');
+            if (ftpEl) ftpEl.textContent = data.critical_power_w != null ? String(data.critical_power_w) : '—';
+
+            var listEl = document.getElementById('device-zones-list');
+            if (listEl && data.zones) {
+              listEl.innerHTML = '';
+              Object.keys(data.zones).sort().forEach(function (z) {
+                var label = document.createElement('span');
+                label.style.fontWeight = '600';
+                label.textContent = z.toUpperCase() + ':';
+                var val = document.createElement('span');
+                val.textContent = data.zones[z] != null ? data.zones[z] + ' W' : '—';
+                listEl.appendChild(label);
+                listEl.appendChild(val);
+              });
+            }
+
+            var dateEl = document.getElementById('device-zones-date');
+            if (dateEl && data.activity_date) {
+              dateEl.textContent = 'From Stryd activity on ' + data.activity_date;
+            }
+          })
+          .catch(function () {});
+      }
     }());
   </script>
   <script>
