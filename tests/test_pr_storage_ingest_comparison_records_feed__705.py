@@ -19,7 +19,7 @@ if _uat_path not in sys.path:
     sys.path.insert(0, _uat_path)
 
 # ── Pure-function tests are always runnable ────────────────────────────────────
-from backend.services.strength_pr import (
+from backend.services.strength_pr import (  # noqa: E402
     normalize_exercise_key,
     get_rep_band,
     beats_record,
