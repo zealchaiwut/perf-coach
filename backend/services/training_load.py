@@ -415,6 +415,7 @@ def project_form(
         a new equilibrium.
     """
     _empty: dict = {"days": [], "reason": ""}
+    result_reason = ""
 
     if fitness_state is None:
         return {**_empty, "reason": "fitness_state is required"}
@@ -437,10 +438,16 @@ def project_form(
     n_days = (target_date - anchor_date).days
 
     if planned_daily_load is None:
-        if recent_avg_load is None:
+        # Prefer recent_avg_load embedded in fitness_state; fall back to kwarg.
+        avg = fitness_state.get("recent_avg_load") if isinstance(fitness_state, dict) else None
+        if avg is None:
+            avg = recent_avg_load
+        if avg is None:
             return {**_empty, "reason": "recent_avg_load is required when planned_daily_load is None"}
-        load_schedule = [float(recent_avg_load)] * n_days
+        avg = float(avg)
+        load_schedule = [avg] * n_days
         assumed = [True] * n_days
+        result_reason = f"load assumed from recent average ({avg:.1f} TSS/day)"
     elif isinstance(planned_daily_load, (int, float)):
         load_schedule = [float(planned_daily_load)] * n_days
         assumed = [False] * n_days
@@ -474,10 +481,11 @@ def project_form(
             "ctl": round(ctl, 2),
             "atl": round(atl, 2),
             "form": round(ctl - atl, 2),
+            "load": tss,
             "assumed_load": assumed[i],
         })
 
-    return {"days": days, "reason": ""}
+    return {"days": days, "reason": result_reason}
 
 
 def get_projected_form(
