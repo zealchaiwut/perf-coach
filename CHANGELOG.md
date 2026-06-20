@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 75 — Performance curve, form projection, taper guidance, race readiness summary, and post-race calibration
+
+- #709: Add performance_curve pure function to fitness model
+- #710: Add forward form projection to target date
+- #711: Add taper_recommendation function for race date guidance
+- #712: Add peak-tracking and race-specificity progress functions
+- #713: Add race-readiness summary endpoint with timeline_markers
+- #714: Add post-race calibration of personal fitness constants
+
 ## Sprint 71 — Lap classifier rewrite, session profile improvements, and strength TSS with configurable RPE max
 
 - #678: Add lap intensity classification for session-profile detection

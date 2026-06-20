@@ -232,7 +232,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71; ctl_days/atl_days added Sprint 75)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -254,6 +254,8 @@ Unique: `(user_id, date)`.
 | display_name | varchar(100) | nullable |
 | date_format | varchar(20) | default `YYYY-MM-DD` |
 | strength_rpe_max | int | nullable — ceiling of the RPE scale used for strength TSS (e.g. 10 for standard RPE, 20 for Borg); required for session-RPE strength TSS calculation |
+| ctl_days | int | nullable — personalised CTL time constant in days; falls back to population default (42) when null |
+| atl_days | int | nullable — personalised ATL time constant in days; falls back to population default (7) when null |
 | created_at / updated_at | timestamptz | |
 
 `GET /api/user-preferences` returns both a `row` (stored overrides, null when unset) and a `defaults` object with system default values for all threshold fields. `PATCH /api/user-preferences` accepts any subset of the nullable columns; omitted fields are unchanged.
@@ -464,7 +466,7 @@ Unique: `(user_id, source, source_identifier)`.
 
 ---
 
-## races _(added Sprint 67; race_type added Sprint 69)_
+## races _(added Sprint 67; race_type added Sprint 69; actual_time_seconds added Sprint 75)_
 
 User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time.
 
@@ -477,6 +479,7 @@ User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_
 | distance_km | numeric(8,3) | >0 |
 | goal_time_seconds | int | nullable; >0 |
 | goal_pace_seconds_per_km | int | nullable; derived from goal_time_seconds / distance_km |
+| actual_time_seconds | int | nullable; recorded after the race via `POST /api/races/{id}/calibrate` |
 | priority | varchar(10) | `A` / `B` / `C` |
 | status | varchar(20) | `planned` / `done` / `abandoned` |
 | race_type | varchar(20) | `race` / `checkpoint`; default `race` — distinguishes A-race targets from intermediate checkpoints |
@@ -484,3 +487,10 @@ User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_
 | updated_at | timestamptz | nullable |
 
 Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head).
+
+### Race calibration endpoints _(added Sprint 75)_
+
+| method | path | description |
+|--------|------|-------------|
+| `POST` | `/api/races/{id}/calibrate` | Record `actual_time_seconds`, set `status='done'`, return fitness-constant calibration suggestions derived from training-load snapshots. Body: `{"actual_time_seconds": int}`. Response: `{race, suggestions}`. |
+| `POST` | `/api/races/{id}/calibrate/accept` | Accept calibration suggestions and persist `ctl_days` / `atl_days` to `user_preferences`. Body: `{"ctl_days": int|null, "atl_days": int|null}`. Constants are written **only** when the user explicitly calls this endpoint — never auto-applied. |
