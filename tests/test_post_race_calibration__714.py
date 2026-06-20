@@ -456,13 +456,16 @@ def test_suggested_ctl_days_within_bounds():
 # ── Integration tests (require running UAT server) ────────────────────────────
 
 try:
-    import httpx as _httpx
+    import importlib.util
+    _SERVER_AVAILABLE = (
+        importlib.util.find_spec("httpx") is not None
+        and bool(os.environ.get("UAT_BASE_URL") or os.environ.get("UAT_PORT"))
+    )
     _BASE_URL = (
         os.environ.get("UAT_BASE_URL")
         or ("http://localhost:" + os.environ.get("UAT_PORT", ""))
-    )
-    _SERVER_AVAILABLE = bool(os.environ.get("UAT_BASE_URL") or os.environ.get("UAT_PORT"))
-except ImportError:
+    ) if _SERVER_AVAILABLE else ""
+except Exception:
     _SERVER_AVAILABLE = False
     _BASE_URL = ""
 
