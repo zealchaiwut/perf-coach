@@ -15,14 +15,12 @@ Acceptance criteria verified:
 - AC7/AC8: Race.__init__ sets goal_pace_seconds_per_km via compute_goal_pace (not directly).
 - AC9: actual_time_seconds column exists in the DB (nullable=True).
 """
-import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import (
     Race,
-    User,
     compute_goal_pace,
     RACE_PRIORITY_VALUES,
     RACE_STATUS_VALUES,
@@ -200,7 +198,6 @@ def test_race_status_values_constant_defined():
 def test_check_constraints_reference_constants():
     """Race check constraints on priority and status reference named constants, not hardcoded values (AC6)."""
     # Verify that the constraint SQL for priority matches what RACE_PRIORITY_VALUES defines
-    from sqlalchemy import inspect as sa_inspect
     with engine.connect() as conn:
         rows = conn.execute(text(
             "SELECT conname, pg_get_constraintdef(oid) "
