@@ -451,46 +451,64 @@
   // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles
   // with a readiness label and per-metric sparklines. Hidden on error.
 
-  var _rwSparklines = {};
-
-  function _destroyRwSparklines() {
-    Object.keys(_rwSparklines).forEach(function (id) {
-      if (_rwSparklines[id]) { _rwSparklines[id].destroy(); }
-    });
-    _rwSparklines = {};
-  }
-
   function _renderSparkline(id, vals, color) {
     var canvas = document.getElementById(id);
-    if (!canvas || typeof Chart === 'undefined' || !vals.length) return;
-    _rwSparklines[id] = new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels: vals.map(function (_, i) { return i; }),
-        datasets: [{
-          data: vals,
-          borderColor: color,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: false,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: { x: { display: false }, y: { display: false } },
-      },
+    if (!canvas || !vals || !vals.length) return;
+
+    var wrap = canvas.parentElement;
+    var width = Math.max((wrap && wrap.clientWidth) || canvas.clientWidth || 80, 40);
+    var height = 28;
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    var nums = vals.map(function (v) {
+      return v == null ? null : Number(v);
+    }).filter(function (v) { return v !== null && isFinite(v); });
+    if (nums.length < 2) return;
+
+    var min = Math.min.apply(null, nums);
+    var max = Math.max.apply(null, nums);
+    if (min === max) {
+      min -= 1;
+      max += 1;
+    }
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    var padX = 1;
+    var padY = 2;
+    var usableW = width - padX * 2;
+    var usableH = height - padY * 2;
+    var started = false;
+
+    vals.forEach(function (v, i) {
+      var n = v == null ? null : Number(v);
+      if (n === null || !isFinite(n)) return;
+      var x = padX + (i / Math.max(vals.length - 1, 1)) * usableW;
+      var y = padY + usableH - ((n - min) / (max - min)) * usableH;
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
     });
+
+    if (started) ctx.stroke();
   }
 
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
-
-    _destroyRwSparklines();
 
     if (data.building_baseline) {
       el.innerHTML =
@@ -505,7 +523,7 @@
                '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
                '<div class="rw-tile-label">' + abbr + '</div>' +
                '<div class="rw-tile-sub">' + label + '</div>' +
-               '<canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas>' +
+               '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
              '</div>';
     }
 
