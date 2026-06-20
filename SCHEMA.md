@@ -232,7 +232,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71; ctl_days/atl_days added Sprint 75)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71; ctl_days/atl_days added Sprint 75; threshold timestamps added Sprint 76)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -240,13 +240,18 @@ Unique: `(user_id, date)`.
 | user_id | UUID FK→users | CASCADE, unique |
 | ftp_w | int | nullable |
 | ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |
+| ftp_w_updated_at | timestamptz | nullable — stamped when FTP is written via PATCH or suggestion accept |
 | threshold_hr | int | nullable |
 | max_hr | int | nullable — max heart rate (bpm); default 190 when null |
 | threshold_hr_source | varchar(30) | nullable; `user_accepted` or `manual` |
+| threshold_hr_updated_at | timestamptz | nullable — stamped when threshold HR is written via PATCH or suggestion accept |
 | threshold_pace_seconds_per_km | int | nullable |
 | threshold_pace_seconds_per_km_source | varchar(30) | nullable; `user_accepted` or `manual` |
+| threshold_pace_seconds_per_km_updated_at | timestamptz | nullable — stamped when threshold pace is written via PATCH or suggestion accept |
 | zone2_hr_min | int | nullable — Zone 2 lower HR bound; default 130 when null |
+| zone2_hr_min_updated_at | timestamptz | nullable — stamped when Zone 2 min HR is written via PATCH |
 | zone2_hr_max | int | nullable — Zone 2 upper HR bound; default 155 when null |
+| zone2_hr_max_updated_at | timestamptz | nullable — stamped when Zone 2 max HR is written via PATCH |
 | weekly_zone2_target_min | int | nullable — weekly Zone 2 minutes goal; default 150 when null |
 | preferred_units | varchar(20) | `metric` (default) |
 | timezone | varchar(100) | default `Asia/Bangkok` |
