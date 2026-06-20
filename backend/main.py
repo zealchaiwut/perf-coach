@@ -9984,14 +9984,24 @@ _PREFS_NON_EDITABLE = {"preferred_units", "date_format"}
 
 
 def _prefs_row_dict(prefs: UserPreferences) -> dict:
+    def _isoformat(dt):
+        return dt.isoformat() if dt is not None else None
+
     return {
         "user_id": str(prefs.user_id),
         "ftp_w": prefs.ftp_w,
+        "ftp_w_updated_at": _isoformat(getattr(prefs, "ftp_w_updated_at", None)),
         "threshold_hr": prefs.threshold_hr,
+        "threshold_hr_updated_at": _isoformat(getattr(prefs, "threshold_hr_updated_at", None)),
         "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
+        "threshold_pace_seconds_per_km_updated_at": _isoformat(
+            getattr(prefs, "threshold_pace_seconds_per_km_updated_at", None)
+        ),
         "max_hr": prefs.max_hr,
         "zone2_hr_min": prefs.zone2_hr_min,
+        "zone2_hr_min_updated_at": _isoformat(getattr(prefs, "zone2_hr_min_updated_at", None)),
         "zone2_hr_max": prefs.zone2_hr_max,
+        "zone2_hr_max_updated_at": _isoformat(getattr(prefs, "zone2_hr_max_updated_at", None)),
         "weekly_zone2_target_min": prefs.weekly_zone2_target_min,
         "display_name": prefs.display_name,
         "week_start_day": prefs.week_start_day,
@@ -10098,18 +10108,24 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs = UserPreferences(user_id=uid)
             session.add(prefs)
 
+        _now = _datetime.now(_timezone.utc)
         if ftp_w is not _PREFS_SENTINEL:
             prefs.ftp_w = ftp_w
+            prefs.ftp_w_updated_at = _now
         if threshold_hr is not _PREFS_SENTINEL:
             prefs.threshold_hr = threshold_hr
+            prefs.threshold_hr_updated_at = _now
         if threshold_pace is not _PREFS_SENTINEL:
             prefs.threshold_pace_seconds_per_km = threshold_pace
+            prefs.threshold_pace_seconds_per_km_updated_at = _now
         if max_hr is not _PREFS_SENTINEL:
             prefs.max_hr = max_hr
         if zone2_hr_min is not _PREFS_SENTINEL:
             prefs.zone2_hr_min = zone2_hr_min
+            prefs.zone2_hr_min_updated_at = _now
         if zone2_hr_max is not _PREFS_SENTINEL:
             prefs.zone2_hr_max = zone2_hr_max
+            prefs.zone2_hr_max_updated_at = _now
         if weekly_zone2_target is not _PREFS_SENTINEL:
             prefs.weekly_zone2_target_min = weekly_zone2_target
         if display_name is not _PREFS_SENTINEL:
@@ -11140,9 +11156,10 @@ def _build_user_recent_runs(session, user_id, limit: int = 30) -> list:
 def _pending_suggestions(session, user_id) -> dict:
     """Compute suggestions and filter out already-accepted ones.
 
-    Returns a dict of ``{key: {"value": ..., "high_confidence": ...}}`` for
-    threshold keys that are not yet marked ``source = "user_accepted"`` in
-    ``user_preferences``.
+    Returns a dict of ``{key: {"value": ..., "high_confidence": ..., "formula": ...}}``
+    for threshold keys that are not yet marked ``source = "user_accepted"`` in
+    ``user_preferences``.  The ``formula`` key carries a human-readable description
+    of how the suggestion was derived (e.g. "best 20-minute power multiplied by 0.95").
     """
     from backend.services.threshold_suggestions import suggest_thresholds
 
@@ -11150,9 +11167,11 @@ def _pending_suggestions(session, user_id) -> dict:
     recent_runs = _build_user_recent_runs(session, user_id)
     result = suggest_thresholds(duration_curve, recent_runs)
 
-    # Insufficient-data sentinel
+    # Insufficient-data sentinel: the service returns {"suggestions": {}, "reason": ...}
     if "suggestions" in result:
         return {}
+
+    debug = result.get("debug", {})
 
     prefs = (
         session.query(UserPreferences)
@@ -11167,7 +11186,9 @@ def _pending_suggestions(session, user_id) -> dict:
         source_attr = f"{key}_source"
         existing_source = getattr(prefs, source_attr, None) if prefs else None
         if existing_source != "user_accepted":
-            pending[key] = result[key]
+            entry = dict(result[key])
+            entry["formula"] = (debug.get(key) or {}).get("formula", "")
+            pending[key] = entry
     return pending
 
 
@@ -11248,16 +11269,63 @@ async def accept_threshold_suggestions(
             prefs = UserPreferences(user_id=user.id)
             session.add(prefs)
 
+        _now = _datetime.now(_timezone.utc)
         written: dict = {}
         for key in keys_to_accept:
             value = pending[key]["value"]
             setattr(prefs, key, value)
             setattr(prefs, f"{key}_source", "user_accepted")
+            _ts_attr = f"{key}_updated_at"
+            if hasattr(prefs, _ts_attr):
+                setattr(prefs, _ts_attr, _now)
             written[key] = value
 
-        prefs.updated_at = _datetime.now(_timezone.utc)
+        prefs.updated_at = _now
         session.commit()
         return JSONResponse({"written": written, "skipped": []})
+
+
+@app.get("/api/thresholds/device-zones")
+def get_device_zones(user: User = Depends(resolve_user)):
+    """Return device-sourced power zones for the authenticated user (read-only).
+
+    Pulls the most recent Stryd activity that contains ``power_zones`` data and
+    returns the zone breakdown and critical power value from the device.  The
+    response intentionally carries no edit surface — these values come from the
+    device and can only change via a Stryd sync.
+
+    Returns ``{"source": "stryd", "critical_power_w": <int|null>,
+    "zones": {...}}`` when data is available, or ``{"source": null, "zones": {}}``
+    when the user has no Stryd activity with power zone data.
+    """
+    with Session(engine) as session:
+        from sqlalchemy import desc as _sa_desc
+
+        latest = (
+            session.query(StrydActivity)
+            .filter(
+                StrydActivity.user_id == user.id,
+                StrydActivity.power_zones.isnot(None),
+            )
+            .order_by(_sa_desc(StrydActivity.start_time))
+            .first()
+        )
+
+        if latest is None or not latest.power_zones:
+            return JSONResponse({"source": None, "critical_power_w": None, "zones": {}})
+
+        pz = latest.power_zones or {}
+        critical_power = pz.get("critical_power_w")
+
+        # Extract per-zone values (keys starting with "z")
+        zones = {k: v for k, v in pz.items() if str(k).startswith("z")}
+
+        return JSONResponse({
+            "source": "stryd",
+            "critical_power_w": critical_power,
+            "zones": zones,
+            "activity_date": latest.start_time.date().isoformat() if latest.start_time else None,
+        })
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
