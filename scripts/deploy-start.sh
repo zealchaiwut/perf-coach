@@ -45,6 +45,8 @@ nohup bash -c '
   set -e
   source .venv/bin/activate
   echo "[deploy-start] applying migrations (alembic upgrade head)…"
+  python3 scripts/check_migrations.py
+  .venv/bin/python scripts/repair_orphan_alembic_stamps.py
   uv run alembic upgrade head
   echo "[deploy-start] checking schema drift (models vs DB)…"
   # Use the project venv directly: `uv run python` resolves the parent ~/dev

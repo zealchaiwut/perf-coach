@@ -1,7 +1,7 @@
 """add_actual_time_seconds_to_races_and_calibration_constants_to_user_preferences
 
 Revision ID: 978bc203e81a
-Revises: 382389e81d09
+Revises: 145b95d5baf0, d915ffcb4c0c
 Create Date: 2026-06-20 10:05:55.532020
 
 """
@@ -15,7 +15,7 @@ from helpers import column_exists
 
 # revision identifiers, used by Alembic.
 revision: str = '978bc203e81a'
-down_revision: Union[str, Sequence[str], None] = '382389e81d09'
+down_revision: Union[str, Sequence[str], None] = ('145b95d5baf0', 'd915ffcb4c0c')
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

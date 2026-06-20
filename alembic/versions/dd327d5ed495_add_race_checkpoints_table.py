@@ -1,7 +1,7 @@
 """Add race_checkpoints table for structured race milestones.
 
 Revision ID: dd327d5ed495
-Revises: 382389e81d09
+Revises: 5879c4f0c2a5
 Create Date: 2026-06-20 00:00:00.000000
 """
 from typing import Sequence, Union
