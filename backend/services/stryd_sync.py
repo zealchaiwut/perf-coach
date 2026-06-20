@@ -221,7 +221,24 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
     SyncJob row (source='stryd') for the history panel. Does NOT reconcile —
     caller runs reconcile. Returns counts."""
     now_utc = datetime.now(tz=timezone.utc)
-    job_type = "manual" if since_date is not None else "full"
+    explicit_since = since_date is not None
+
+    # Resolve since_date: explicit > last sync > 90-day lookback on first sync.
+    if not explicit_since:
+        with Session(engine) as session:
+            from sqlalchemy import func, select
+            latest_synced = session.execute(
+                select(func.max(StrydActivity.synced_at))
+                .where(StrydActivity.user_id == user_id)
+            ).scalar()
+        if latest_synced is not None:
+            since_date = latest_synced.date() - timedelta(days=1)
+            job_type = "incremental"
+        else:
+            since_date = (datetime.now(tz=timezone.utc).date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS))
+            job_type = "full"
+    else:
+        job_type = "manual"
     with Session(engine) as session:
         job = SyncJob(
             user_id=user_id, source="stryd", job_type=job_type,
