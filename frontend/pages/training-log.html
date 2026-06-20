@@ -2349,12 +2349,298 @@
           <!-- end Plan tab panel -->
   </div>
 
-  <!-- Performance panel placeholder (hidden by default) -->
-  <div id="training-panel-performance" class="tab-panel-placeholder" hidden>
-    <div class="tab-coming-soon">
-      <p class="tab-coming-soon-text">Coming soon</p>
+  <!-- Performance panel (issue #811) -->
+  <div id="training-panel-performance" class="tab-panel-placeholder perf-panel" hidden>
+
+    <!-- Score cards: Endurance + Speed -->
+    <div class="perf-scores-row">
+
+      <!-- Endurance score card -->
+      <div id="perf-score-endurance" class="perf-score-card log-card">
+        <div class="perf-card-label">Endurance</div>
+        <div class="perf-card-body">
+          <div class="perf-ring" aria-label="Endurance score ring"></div>
+          <div class="perf-card-info">
+            <div class="perf-score-val">—</div>
+            <div class="perf-dir"></div>
+            <div class="perf-spark" aria-label="Endurance trend sparkline"></div>
+          </div>
+        </div>
+        <div class="perf-building-baseline" hidden>
+          <span class="perf-bb-icon">📈</span>
+          <span class="perf-bb-text">Building baseline</span>
+          <p class="perf-bb-sub">Log more easy runs to establish your endurance score.</p>
+        </div>
+        <div class="perf-threshold-hint" hidden>
+          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+        </div>
+      </div>
+
+      <!-- Speed score card -->
+      <div id="perf-score-speed" class="perf-score-card log-card">
+        <div class="perf-card-label">Speed</div>
+        <div class="perf-card-body">
+          <div class="perf-ring" aria-label="Speed score ring"></div>
+          <div class="perf-card-info">
+            <div class="perf-score-val">—</div>
+            <div class="perf-dir"></div>
+            <div class="perf-spark" aria-label="Speed trend sparkline"></div>
+          </div>
+        </div>
+        <div class="perf-building-baseline" hidden>
+          <span class="perf-bb-icon">⚡</span>
+          <span class="perf-bb-text">Building baseline</span>
+          <p class="perf-bb-sub">Log more hard/interval runs to establish your speed score.</p>
+        </div>
+        <div class="perf-threshold-hint" hidden>
+          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+        </div>
+      </div>
+
+    </div><!-- /.perf-scores-row -->
+
+    <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
+    <div id="perf-chart-card" class="perf-chart-card log-card">
+      <div class="perf-chart-header">
+        <span class="perf-chart-title">Fitness · Fatigue · Form</span>
+        <div class="perf-range-selector" role="group" aria-label="Date range">
+          <button class="perf-range-btn" data-range="30D" type="button">30D</button>
+          <button class="perf-range-btn active" data-range="90D" type="button">90D</button>
+          <button class="perf-range-btn" data-range="6M" type="button">6M</button>
+          <button class="perf-range-btn" data-range="1Y" type="button">1Y</button>
+        </div>
+      </div>
+      <p class="perf-chart-caption">CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed line = today.</p>
+      <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+        <span class="perf-bb-icon">📈</span>
+        <span>Building baseline — keep training to see the fitness chart.</span>
+      </div>
+      <div id="perf-chart-wrap">
+        <canvas id="perf-fitness-canvas" height="220"
+                role="img" aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"></canvas>
+      </div>
     </div>
-  </div>
+
+    <!-- ACWR Guidance -->
+    <div id="perf-acwr" class="perf-acwr-card log-card">
+      <div class="perf-card-label">Training Load Ratio (ACWR)</div>
+      <div class="perf-acwr-body">
+        <div class="perf-acwr-ratio-wrap">
+          <span class="perf-acwr-label">Ratio</span>
+          <span id="perf-acwr-ratio" class="perf-acwr-ratio">—</span>
+          <span id="perf-acwr-band" class="perf-acwr-band-badge">—</span>
+        </div>
+        <p id="perf-acwr-guidance" class="perf-acwr-guidance">—</p>
+      </div>
+      <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
+        <span class="perf-bb-icon">⏳</span>
+        <span>Baseline forming — log at least 28 days of training to see your ACWR.</span>
+      </div>
+    </div>
+
+    <!-- Personal Records strip -->
+    <div class="perf-pr-card log-card">
+      <div class="perf-card-label">Personal Records</div>
+      <div id="perf-pr-strip" class="perf-pr-strip">
+        <p class="perf-pr-loading">Loading…</p>
+      </div>
+    </div>
+
+  </div><!-- /#training-panel-performance -->
+
+  <style>
+    /* ── Performance sub-tab styles ──────────────────────────────────────── */
+    .perf-panel { padding-top: 4px; }
+
+    /* Score cards row */
+    .perf-scores-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .perf-score-card {
+      padding: 16px 18px;
+    }
+    .perf-card-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      margin-bottom: 12px;
+    }
+    .perf-card-body {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .perf-card-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .perf-score-val {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .perf-dir {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: lowercase;
+    }
+    .perf-dir--improving { color: var(--green); }
+    .perf-dir--declining { color: var(--red); }
+    .perf-dir--flat      { color: var(--text-tertiary); }
+    .perf-building-baseline {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--shell-1);
+      border-radius: 10px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .perf-bb-text { font-weight: 600; }
+    .perf-bb-sub  { margin: 4px 0 0; font-size: 11px; color: var(--text-tertiary); }
+    .perf-threshold-hint {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+    }
+    .perf-threshold-hint a { color: var(--bg-1); }
+
+    /* Fitness chart */
+    .perf-chart-card { padding: 16px 18px; }
+    .perf-chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .perf-chart-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .perf-chart-caption {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      margin: 0 0 12px;
+    }
+    .perf-range-selector {
+      display: inline-flex;
+      gap: 3px;
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .perf-range-btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .perf-range-btn.active {
+      background: var(--card-bg);
+      color: var(--text-primary);
+      box-shadow: var(--card-shadow);
+    }
+    .perf-chart-baseline {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    /* ACWR */
+    .perf-acwr-card { padding: 16px 18px; }
+    .perf-acwr-body { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .perf-acwr-ratio-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .perf-acwr-label { font-size: 10.5px; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .perf-acwr-ratio {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .perf-acwr-band-badge {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      text-transform: capitalize;
+      background: var(--shell-1);
+      color: var(--text-secondary);
+    }
+    .perf-acwr-band--productive { background: var(--green-soft); color: var(--green); }
+    .perf-acwr-band--high_risk  { background: var(--red-soft);   color: var(--red); }
+    .perf-acwr-band--detraining { background: var(--amber-soft); color: var(--amber); }
+    .perf-acwr-guidance {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      margin: 0;
+      line-height: 1.5;
+    }
+    .perf-acwr-baseline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      background: var(--shell-1);
+      border-radius: 8px;
+      margin-top: 4px;
+    }
+
+    /* Personal Records strip */
+    .perf-pr-card { padding: 16px 18px; }
+    .perf-pr-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .perf-pr-item {
+      background: var(--shell-1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .perf-pr-name  { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+    .perf-pr-val   { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--text-primary); }
+    .perf-pr-date  { font-size: 10.5px; color: var(--text-secondary); }
+    .perf-pr-link  { font-size: 10.5px; color: var(--bg-1); text-decoration: none; margin-top: 2px; }
+    .perf-pr-link:hover { text-decoration: underline; }
+    .perf-pr-empty, .perf-pr-loading { font-size: 12.5px; color: var(--text-tertiary); margin: 0; }
+
+    /* ── Mobile: single column at 480px ─────────────────────────────────── */
+    @media (max-width: 480px) {
+      .perf-scores-row { grid-template-columns: 1fr; }
+      .perf-card-body  { flex-wrap: wrap; }
+      .perf-range-selector { overflow-x: auto; max-width: 100%; }
+    }
+  </style>
 
   <div id="layout-wrapper" class="log-layout">
     <div id="list-main" class="log-page-body">
@@ -2718,6 +3004,7 @@
   <script src="js/training.js"></script>
   <script src="js/training-log.js"></script>
   <script src="js/training-plan.js"></script>
+  <script src="js/training-performance.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
   <script>
@@ -2752,6 +3039,7 @@
       if (panelPlan) panelPlan.hidden = tab !== 'plan';
       if (tab === 'plan' && window.TrainingPlan && window.TrainingPlan.init) window.TrainingPlan.init();
       if (panelPerf) panelPerf.hidden = tab !== 'performance';
+      if (tab === 'performance' && window.TrainingPerformance && window.TrainingPerformance.init) window.TrainingPerformance.init();
       // Hide "Log workout" button when not on Log tab
       if (logNewBtn) logNewBtn.style.display = isLog ? '' : 'none';
     }
