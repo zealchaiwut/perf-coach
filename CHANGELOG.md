@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 72 — Per-workout duration curves, athlete daily load, and threshold accept-flow
+
+- #692: Suggest thresholds automatically from duration curve
+- #693: Add unified daily training load series endpoint
+- #694: Compute power and pace duration curves per workout
+- #695: Aggregate and expose per-athlete best-effort duration curve
+- #696: Add accept-suggestion flow for thresholds
+
 ## Sprint 71 — Lap classifier rewrite, session profile improvements, and strength TSS with configurable RPE max
 
 - #678: Add lap intensity classification for session-profile detection
