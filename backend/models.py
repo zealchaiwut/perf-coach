@@ -554,6 +554,8 @@ class UserPreferences(Base):
     date_format = Column(String(20), nullable=False, server_default=text("'YYYY-MM-DD'"))
     strength_rpe_max = Column(Integer, nullable=True)
     aerobic_decoupling_threshold = Column(Float, nullable=True)
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -679,6 +681,7 @@ class Race(Base):
     distance_km = Column(Numeric(8, 3), nullable=False)
     goal_time_seconds = Column(Integer, nullable=True)
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
+    actual_time_seconds = Column(Integer, nullable=True)
     priority = Column(String(10), nullable=False)
     status = Column(String(20), nullable=False)
     race_type = Column(String(20), nullable=False, server_default="race")

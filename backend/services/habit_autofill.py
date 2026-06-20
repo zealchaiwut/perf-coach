@@ -29,7 +29,7 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
             .filter(
                 Habit.user_id == user_id,
                 Habit.auto_fill_source.isnot(None),
-                Habit.is_archived == False,
+                not Habit.is_archived,
             )
             .all()
         )

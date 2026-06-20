@@ -110,7 +110,6 @@ def _validate_laps(classified_laps):
                 return False, f"lap at index {idx} is missing required field '{field}'"
             if _get(lap, field) is None and field in ("distance_km", "duration_seconds"):
                 # distinguish truly absent from legitimately zero
-                val = _get(lap, field)
                 if isinstance(lap, dict) and field not in lap:
                     return False, f"lap at index {idx} is missing required field '{field}'"
                 if not isinstance(lap, dict) and not hasattr(lap, field):

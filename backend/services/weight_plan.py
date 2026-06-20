@@ -1,7 +1,6 @@
 """Weight plan math: interpolation, gap analysis, milestone generation (issue #420)."""
 from __future__ import annotations
 
-import calendar
 import datetime
 from decimal import Decimal
 from typing import Optional
