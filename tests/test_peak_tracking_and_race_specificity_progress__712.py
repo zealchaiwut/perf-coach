@@ -20,11 +20,8 @@ Acceptance Criteria verified:
 import inspect
 import types
 
-import pytest
-
 from backend.services.training_load import PEAK_TRACKING_TOLERANCE, peak_tracking
 from backend.services.specificity_progress import (
-    DEFAULT_PACE_TOLERANCE_SECONDS_PER_KM,
     specificity_progress,
 )
 

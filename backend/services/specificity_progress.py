@@ -85,7 +85,6 @@ def _zeroed_result(race, pace_tolerance_seconds_per_km, reason):
       - target longest distance = distance_km * _TARGET_LONG_RUN_DISTANCE_FRACTION
       - target longest duration = goal_time_seconds * _TARGET_LONG_RUN_DURATION_FRACTION
     """
-    goal_pace = _resolve_goal_pace(race)
     distance_km = float(getattr(race, "distance_km", 0) or 0)
     goal_time = getattr(race, "goal_time_seconds", None)
 
