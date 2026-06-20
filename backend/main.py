@@ -26,9 +26,15 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
-from backend.models import derive_goal_pace as _derive_goal_pace, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
+
+
+def _derive_goal_pace(goal_time_seconds, distance_km):
+    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
+    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
+    return pace
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -60,6 +66,7 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
@@ -4865,6 +4872,12 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         except Exception as _af_exc:
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s week %s: %s", uid, workout_date, _af_exc
+            )
+        try:
+            _run_checkpoint_autodetection(workout)
+        except Exception as _cd_exc:
+            _logging.getLogger(__name__).warning(
+                "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
             )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
@@ -10082,7 +10095,10 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
 # ── Races ─────────────────────────────────────────────────────────────────────
 
 class _RaceCreateBody(BaseModel):
-    race_date: str
+    # ``date`` is the canonical field name (issue #708); ``race_date`` is kept
+    # for backward-compatibility with clients that were built against issue #605.
+    date: Optional[str] = None
+    race_date: Optional[str] = None
     distance_km: float
     goal_time_seconds: Optional[int] = None
     name: Optional[str] = None
@@ -10092,6 +10108,8 @@ class _RaceCreateBody(BaseModel):
 
 
 class _RaceUpdateBody(BaseModel):
+    # Same dual-field convention as _RaceCreateBody.
+    date: Optional[str] = None
     race_date: Optional[str] = None
     distance_km: Optional[float] = None
     goal_time_seconds: Optional[int] = None
@@ -10130,6 +10148,7 @@ def _race_dict(race: Race) -> dict:
 
 
 def _validate_race_date(race_date_str: str) -> _date:
+    """Validate race date string; raises 422 (legacy behaviour for race_date field)."""
     try:
         return _date.fromisoformat(race_date_str)
     except (ValueError, TypeError):
@@ -10139,18 +10158,36 @@ def _validate_race_date(race_date_str: str) -> _date:
         )
 
 
-def _validate_distance_km(distance_km: float) -> None:
+def _validate_race_date_400(date_str: str) -> _date:
+    """Validate race date string; raises 400 (canonical behaviour for date field, issue #708)."""
+    try:
+        return _date.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "date", "error": "date must be a valid YYYY-MM-DD calendar date"},
+        )
+
+
+def _validate_distance_km(distance_km: float, status_code: int = 422) -> None:
     if distance_km <= 0:
         raise HTTPException(
-            status_code=422,
+            status_code=status_code,
             detail={"field": "distance_km", "error": "distance_km must be a positive number (> 0)"},
         )
 
 
 @app.post("/api/races", status_code=201)
 def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
-    race_date = _validate_race_date(body.race_date)
-    _validate_distance_km(body.distance_km)
+    # ``date`` takes precedence; fall back to legacy ``race_date``.
+    if body.date is not None:
+        race_date = _validate_race_date_400(body.date)
+        _validate_distance_km(body.distance_km, status_code=400)
+    elif body.race_date is not None:
+        race_date = _validate_race_date(body.race_date)
+        _validate_distance_km(body.distance_km)
+    else:
+        raise HTTPException(status_code=400, detail={"field": "date", "error": "date is required"})
 
     pace = _derive_goal_pace(body.goal_time_seconds, body.distance_km)
 
@@ -10259,6 +10296,55 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
         return JSONResponse(_race_dict(race))
 
 
+@app.patch("/api/races/{race_id}")
+def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve_user)):
+    """PATCH /api/races/:id — update any subset of mutable race fields (issue #708)."""
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    # Resolve and validate the date field (``date`` preferred over ``race_date``)
+    raw_date = body.date if body.date is not None else body.race_date
+    if raw_date is not None:
+        if body.date is not None:
+            _validate_race_date_400(body.date)
+        else:
+            _validate_race_date(body.race_date)
+    if body.distance_km is not None:
+        _validate_distance_km(body.distance_km, status_code=400)
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        if raw_date is not None:
+            race.race_date = _date.fromisoformat(raw_date)
+        if body.distance_km is not None:
+            race.distance_km = body.distance_km
+        if "goal_time_seconds" in body.model_fields_set:
+            race.goal_time_seconds = body.goal_time_seconds
+        if body.name is not None:
+            race.name = body.name
+        if body.priority is not None:
+            race.priority = body.priority
+        if body.status is not None:
+            race.status = body.status
+        if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
+            race.race_type = body.race_type
+
+        race.goal_pace_seconds_per_km = _derive_goal_pace(
+            race.goal_time_seconds,
+            float(race.distance_km) if race.distance_km is not None else None,
+        )
+        race.updated_at = _datetime.now(_timezone.utc)
+
+        session.commit()
+        session.refresh(race)
+        return JSONResponse(_race_dict(race))
+
+
 @app.delete("/api/races/{race_id}", status_code=204)
 def delete_race(race_id: str, user: User = Depends(resolve_user)):
     try:
@@ -10270,6 +10356,218 @@ def delete_race(race_id: str, user: User = Depends(resolve_user)):
         if race is None or race.user_id != user.id:
             raise HTTPException(status_code=404, detail="race not found")
         session.delete(race)
+        session.commit()
+
+
+# ── Race Checkpoints ──────────────────────────────────────────────────────────
+
+
+def _run_checkpoint_autodetection(workout: Workout) -> None:
+    """Evaluate and update unmet/non-overridden checkpoints after a run is ingested.
+
+    This is the thin caller that loads checkpoints from the DB and delegates
+    the pure evaluation logic to ``evaluate_checkpoint`` from
+    ``backend.services.checkpoint_detector``.
+    """
+    if not _is_run_workout(workout.workout_type or ""):
+        return
+
+    run_distance = float(workout.distance_km) if workout.distance_km is not None else None
+    run_duration = workout.duration_seconds
+
+    with Session(engine) as session:
+        checkpoints = (
+            session.query(RaceCheckpoint)
+            .filter(
+                RaceCheckpoint.user_id == workout.user_id,
+                RaceCheckpoint.met == False,  # noqa: E712
+                RaceCheckpoint.met_override == False,  # noqa: E712
+            )
+            .all()
+        )
+        updated = False
+        for cp in checkpoints:
+            if _evaluate_checkpoint(cp, run_distance, run_duration):
+                cp.met = True
+                cp.met_workout_id = workout.id
+                cp.updated_at = _datetime.now(_timezone.utc)
+                updated = True
+        if updated:
+            session.commit()
+
+
+class _CheckpointCreateBody(BaseModel):
+    name: Optional[str] = None
+    target_distance_km: Optional[float] = None
+    target_pace_seconds_per_km: Optional[int] = None
+    target_duration_seconds: Optional[int] = None
+
+
+class _CheckpointUpdateBody(BaseModel):
+    name: Optional[str] = None
+    target_distance_km: Optional[float] = None
+    target_pace_seconds_per_km: Optional[int] = None
+    target_duration_seconds: Optional[int] = None
+    met: Optional[bool] = None
+
+
+def _checkpoint_dict(cp: RaceCheckpoint) -> dict:
+    return {
+        "id": str(cp.id),
+        "race_id": str(cp.race_id),
+        "user_id": str(cp.user_id),
+        "name": cp.label,
+        "target_distance_km": float(cp.target_distance_km) if cp.target_distance_km is not None else None,
+        "target_pace_seconds_per_km": cp.target_pace_seconds_per_km,
+        "target_duration_seconds": cp.target_duration_seconds,
+        "met": cp.met,
+        "met_override": cp.met_override,
+        "met_workout_id": str(cp.met_workout_id) if cp.met_workout_id is not None else None,
+        "created_at": cp.created_at.isoformat() if cp.created_at else None,
+        "updated_at": cp.updated_at.isoformat() if cp.updated_at else None,
+    }
+
+
+def _resolve_race_for_user(race_id_str: str, user: "User", session: "Session") -> Race:
+    """Load a race by id, raising 404 if not found or not owned by user."""
+    try:
+        rid = _uuid.UUID(race_id_str)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+    race = session.get(Race, rid)
+    if race is None or race.user_id != user.id:
+        raise HTTPException(status_code=404, detail="race not found")
+    return race
+
+
+@app.post("/api/races/{race_id}/checkpoints", status_code=201)
+def create_checkpoint(
+    race_id: str, body: _CheckpointCreateBody, user: User = Depends(resolve_user)
+):
+    """Create a checkpoint for a race (issue #708)."""
+    if not body.name or not body.name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "name", "error": "name is required"},
+        )
+    has_target = (
+        body.target_distance_km is not None
+        or body.target_pace_seconds_per_km is not None
+        or body.target_duration_seconds is not None
+    )
+    if not has_target:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": (
+                    "At least one of target_distance_km, target_pace_seconds_per_km, "
+                    "or target_duration_seconds is required"
+                )
+            },
+        )
+
+    with Session(engine) as session:
+        race = _resolve_race_for_user(race_id, user, session)
+        cp = RaceCheckpoint(
+            race_id=race.id,
+            user_id=user.id,
+            label=body.name.strip(),
+            target_date=race.race_date,
+            target_distance_km=body.target_distance_km,
+            target_pace_seconds_per_km=body.target_pace_seconds_per_km,
+            target_duration_seconds=body.target_duration_seconds,
+        )
+        session.add(cp)
+        session.commit()
+        session.refresh(cp)
+        return JSONResponse(status_code=201, content=_checkpoint_dict(cp))
+
+
+@app.get("/api/races/{race_id}/checkpoints")
+def list_checkpoints(race_id: str, user: User = Depends(resolve_user)):
+    """List all checkpoints for a race (issue #708)."""
+    with Session(engine) as session:
+        _resolve_race_for_user(race_id, user, session)
+        rows = (
+            session.query(RaceCheckpoint)
+            .filter(RaceCheckpoint.race_id == _uuid.UUID(race_id))
+            .order_by(RaceCheckpoint.created_at)
+            .all()
+        )
+        return JSONResponse([_checkpoint_dict(cp) for cp in rows])
+
+
+@app.get("/api/races/{race_id}/checkpoints/{checkpoint_id}")
+def get_checkpoint(race_id: str, checkpoint_id: str, user: User = Depends(resolve_user)):
+    """Return a single checkpoint (issue #708)."""
+    try:
+        cp_id = _uuid.UUID(checkpoint_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid checkpoint_id")
+
+    with Session(engine) as session:
+        _resolve_race_for_user(race_id, user, session)
+        cp = session.get(RaceCheckpoint, cp_id)
+        if cp is None or str(cp.race_id) != race_id:
+            raise HTTPException(status_code=404, detail="checkpoint not found")
+        return JSONResponse(_checkpoint_dict(cp))
+
+
+@app.patch("/api/races/{race_id}/checkpoints/{checkpoint_id}")
+def patch_checkpoint(
+    race_id: str,
+    checkpoint_id: str,
+    body: _CheckpointUpdateBody,
+    user: User = Depends(resolve_user),
+):
+    """Update mutable fields on a checkpoint (issue #708).
+
+    Setting ``met`` to any value sets ``met_override = True`` so subsequent
+    auto-detection will not overwrite the manually chosen state.
+    """
+    try:
+        cp_id = _uuid.UUID(checkpoint_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid checkpoint_id")
+
+    with Session(engine) as session:
+        _resolve_race_for_user(race_id, user, session)
+        cp = session.get(RaceCheckpoint, cp_id)
+        if cp is None or str(cp.race_id) != race_id:
+            raise HTTPException(status_code=404, detail="checkpoint not found")
+
+        if body.name is not None:
+            cp.label = body.name.strip()
+        if body.target_distance_km is not None:
+            cp.target_distance_km = body.target_distance_km
+        if body.target_pace_seconds_per_km is not None:
+            cp.target_pace_seconds_per_km = body.target_pace_seconds_per_km
+        if body.target_duration_seconds is not None:
+            cp.target_duration_seconds = body.target_duration_seconds
+        if "met" in body.model_fields_set and body.met is not None:
+            cp.met = body.met
+            cp.met_override = True
+
+        cp.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(cp)
+        return JSONResponse(_checkpoint_dict(cp))
+
+
+@app.delete("/api/races/{race_id}/checkpoints/{checkpoint_id}", status_code=204)
+def delete_checkpoint(race_id: str, checkpoint_id: str, user: User = Depends(resolve_user)):
+    """Delete a checkpoint (issue #708)."""
+    try:
+        cp_id = _uuid.UUID(checkpoint_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid checkpoint_id")
+
+    with Session(engine) as session:
+        _resolve_race_for_user(race_id, user, session)
+        cp = session.get(RaceCheckpoint, cp_id)
+        if cp is None or str(cp.race_id) != race_id:
+            raise HTTPException(status_code=404, detail="checkpoint not found")
+        session.delete(cp)
         session.commit()
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 74 — Strength PR detection, race checkpoints, and run auto-detection
+
+- #704: Add personal-record detection from run history
+- #705: Add PR storage, on-ingest comparison, and records feed
+- #706: Add races table, Alembic migration, and SQLAlchemy model
+- #707: Add race_checkpoints table and SQLAlchemy model
+- #708: Add CRUD and auto-detection for races and checkpoints
+
 ## Sprint 73 — Fitness model, ACWR, running performance scores, and performance chart
 
 - #697: Add readiness endpoint exposing CTL, ATL, TSB tiles

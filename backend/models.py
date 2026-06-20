@@ -5,25 +5,39 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
-def derive_goal_pace(goal_time_seconds, distance_km):
-    """Compute goal pace in seconds per kilometre.
+def compute_goal_pace(goal_time_seconds, distance_km):
+    """Derive goal pace in seconds per kilometre from race time and distance.
 
-    Divides *goal_time_seconds* by *distance_km* and rounds to the nearest
-    whole second.
+    Returns a 2-tuple ``(pace, reason)`` where *pace* is the rounded integer
+    pace (seconds per km) and *reason* is ``None`` on success, or a non-empty
+    human-readable string explaining why the pace cannot be computed.
 
-    Returns ``None`` (with the implicit reason: missing or zero input) when
-    either argument is absent or when *distance_km* is zero — division by
-    zero is undefined and a zero-distance race has no meaningful pace.
+    Invalid when either input is ``None``, zero, or negative — in those cases
+    the function returns ``(None, reason)`` rather than raising.
 
     :param goal_time_seconds: Total goal race time in seconds, or ``None``.
     :param distance_km: Race distance in kilometres, or ``None``.
-    :returns: Rounded pace as ``int``, or ``None``.
+    :returns: ``(int, None)`` on success; ``(None, str)`` on invalid input.
     """
-    if goal_time_seconds is None or distance_km is None:
-        return None
-    if distance_km == 0:
-        return None
-    return round(goal_time_seconds / distance_km)
+    if goal_time_seconds is None:
+        return (None, "goal_time_seconds is required")
+    if distance_km is None:
+        return (None, "distance_km is required")
+    if goal_time_seconds <= 0:
+        return (None, "goal_time_seconds must be positive")
+    if distance_km <= 0:
+        return (None, "distance_km must be positive")
+    return (round(goal_time_seconds / distance_km), None)
+
+
+def derive_goal_pace(goal_time_seconds, distance_km):
+    """Backwards-compatible shim — returns just the pace integer (or ``None``).
+
+    Delegates to :func:`compute_goal_pace` and discards the reason string so
+    that existing callers that expect a plain ``int | None`` continue to work.
+    """
+    pace, _ = compute_goal_pace(goal_time_seconds, distance_km)
+    return pace
 
 
 class User(Base):
@@ -330,6 +344,66 @@ class PersonalRecord(Base):
         CheckConstraint("track_type IN ('time', 'weight')", name="ck_personal_records_track_type"),
         CheckConstraint("value_numeric > 0", name="ck_personal_records_value_positive"),
     )
+
+
+class StrengthPersonalRecord(Base):
+    """Current best per (user, exercise_key, rep_band_label).
+
+    When a new PR is set the old weight and its date are preserved in
+    previous_weight_kg / previous_achieved_on so clients can show the delta.
+    A row is created on first-ever ingest for an exercise; previous_weight_kg
+    is NULL for that first record.
+    """
+
+    __tablename__ = "strength_personal_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_key = Column(String(200), nullable=False)
+    exercise_name = Column(String(200), nullable=False)
+    rep_band_label = Column(String(20), nullable=False)
+    rep_band_min = Column(Integer, nullable=False)
+    rep_band_max = Column(Integer, nullable=False)
+    weight_kg = Column(Numeric(6, 2), nullable=False)
+    reps = Column(Integer, nullable=False)
+    previous_weight_kg = Column(Numeric(6, 2), nullable=True)
+    previous_achieved_on = Column(Date, nullable=True)
+    achieved_on = Column(Date, nullable=False)
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
+    exercise_id = Column(UUID(as_uuid=True), ForeignKey("workout_exercises.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "exercise_key", "rep_band_label", name="uq_strength_pr_user_exercise_band"),
+        CheckConstraint("weight_kg > 0", name="ck_strength_pr_weight_positive"),
+        CheckConstraint("reps >= 1", name="ck_strength_pr_reps_positive"),
+    )
+
+
+class StrengthRecordAchievement(Base):
+    """One row per PR-beating event, written at workout-ingest time.
+
+    Retains enough context to populate the achievements feed and annotate the
+    workout-full response without re-deriving history on every read.
+    """
+
+    __tablename__ = "strength_record_achievements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    strength_record_id = Column(UUID(as_uuid=True), ForeignKey("strength_personal_records.id", ondelete="CASCADE"), nullable=False)
+    exercise_key = Column(String(200), nullable=False)
+    exercise_name = Column(String(200), nullable=False)
+    rep_band_label = Column(String(20), nullable=False)
+    new_weight_kg = Column(Numeric(6, 2), nullable=False)
+    previous_weight_kg = Column(Numeric(6, 2), nullable=True)
+    previous_achieved_on = Column(Date, nullable=True)
+    achieved_on = Column(Date, nullable=False)
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
+    exercise_id = Column(UUID(as_uuid=True), ForeignKey("workout_exercises.id", ondelete="SET NULL"), nullable=True)
+    set_index = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class StravaToken(Base):
@@ -662,37 +736,56 @@ RACE_STATUS_VALUES = ("planned", "done", "abandoned")
 RACE_TYPE_VALUES = ("race", "checkpoint")
 
 
+def _in_clause(values):
+    """Build an SQL IN(...) literal from a tuple of string constants."""
+    return ", ".join(f"'{v}'" for v in values)
+
+
 class Race(Base):
     """A target race entry for a user.
 
-    ``goal_pace_seconds_per_km`` is derived automatically at instantiation from
-    ``goal_time_seconds`` and ``distance_km`` via :func:`derive_goal_pace` and
-    is left ``NULL`` when either input is absent or ``distance_km`` is zero.
+    ``goal_pace_seconds_per_km`` is always the output of :func:`compute_goal_pace`;
+    callers must never set it directly.  It is ``NULL`` when either input is
+    absent, zero, or negative.
     """
 
     __tablename__ = "races"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    """Surrogate primary key, auto-generated UUID."""
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    """Owner of this race target; cascades to delete on user removal."""
     name = Column(String(200), nullable=False)
+    """Human-readable event name (e.g. 'Boston Marathon 2026')."""
     race_date = Column(Date, nullable=False)
+    """Scheduled or actual date of the race."""
     distance_km = Column(Numeric(8, 3), nullable=False)
+    """Official race distance in kilometres (must be positive)."""
     goal_time_seconds = Column(Integer, nullable=True)
+    """Target finish time in seconds; NULL if no goal is set."""
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
+    """Derived goal pace (goal_time_seconds / distance_km); always set via compute_goal_pace."""
     priority = Column(String(10), nullable=False)
+    """Race importance tier — one of RACE_PRIORITY_VALUES ('A', 'B', 'C')."""
     status = Column(String(20), nullable=False)
+    """Lifecycle status — one of RACE_STATUS_VALUES ('planned', 'done', 'abandoned')."""
     race_type = Column(String(20), nullable=False, server_default="race")
+    """Classification of the effort — one of RACE_TYPE_VALUES ('race', 'checkpoint')."""
+    actual_time_seconds = Column(Integer, nullable=True)
+    """Recorded finish time in seconds after the race is completed; NULL for future races."""
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
-    updated_at = Column(DateTime(timezone=True), nullable=True)
+    """Timestamp when this record was first created."""
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+    """Timestamp of the most recent modification; auto-updated by the ORM on change."""
 
     __table_args__ = (
         Index("ix_races_user_id", "user_id"),
         CheckConstraint(
-            "priority IN ('A', 'B', 'C')",
+            f"priority IN ({_in_clause(RACE_PRIORITY_VALUES)})",
             name="ck_races_priority_values",
         ),
         CheckConstraint(
-            "status IN ('planned', 'done', 'abandoned')",
+            f"status IN ({_in_clause(RACE_STATUS_VALUES)})",
             name="ck_races_status_values",
         ),
         CheckConstraint(
@@ -704,24 +797,86 @@ class Race(Base):
             name="ck_races_goal_time_positive",
         ),
         CheckConstraint(
-            "race_type IN ('race', 'checkpoint')",
+            f"race_type IN ({_in_clause(RACE_TYPE_VALUES)})",
             name="ck_races_race_type_values",
         ),
     )
 
     user = relationship("User", foreign_keys=[user_id])
+    checkpoints = relationship("RaceCheckpoint", back_populates="race", cascade="all, delete-orphan")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.goal_pace_seconds_per_km = derive_goal_pace(
+        # goal_pace_seconds_per_km is always computed — never passed directly
+        pace, _ = compute_goal_pace(
             self.goal_time_seconds,
             float(self.distance_km) if self.distance_km is not None else None,
         )
+        self.goal_pace_seconds_per_km = pace
 
     def __repr__(self):
         return (
             f"<Race id={self.id} name={self.name!r} date={self.race_date} "
             f"distance_km={self.distance_km} priority={self.priority} status={self.status}>"
+        )
+
+
+class RaceCheckpoint(Base):
+    """An intermediate milestone within a target race.
+
+    Stores optional target fields (distance, pace, duration) so progress toward
+    a goal race can be tracked in structured milestones.  All target fields are
+    nullable — only ``race_id``, ``user_id``, ``label``, and ``target_date``
+    are required at insert time.
+    """
+
+    __tablename__ = "race_checkpoints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    label = Column(String(200), nullable=False)
+    target_date = Column(Date, nullable=False)
+    target_distance_km = Column(Numeric(8, 3), nullable=True)
+    target_pace_seconds_per_km = Column(Integer, nullable=True)
+    target_duration_seconds = Column(Integer, nullable=True)
+    met = Column(Boolean, server_default=text("false"), nullable=False)
+    met_override = Column(Boolean, server_default=text("false"), nullable=False)
+    met_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_race_checkpoints_race_id", "race_id"),
+        Index("ix_race_checkpoints_user_id", "user_id"),
+    )
+
+    race = relationship("Race", foreign_keys=[race_id], back_populates="checkpoints")
+    user = relationship("User", foreign_keys=[user_id])
+    met_workout = relationship("Workout", foreign_keys=[met_workout_id])
+
+    def effective_target_pace(self):
+        """Return ``(target_pace_seconds_per_km, None)`` when set.
+
+        Returns ``(None, reason)`` when ``target_pace_seconds_per_km`` is absent,
+        so callers never need to guard against an unhandled exception.
+        """
+        if self.target_pace_seconds_per_km is None:
+            return None, "target_pace_seconds_per_km is not set for this checkpoint"
+        return self.target_pace_seconds_per_km, None
+
+    def __repr__(self):
+        return (
+            f"<RaceCheckpoint id={self.id} race_id={self.race_id} "
+            f"label={self.label!r} target_date={self.target_date}>"
         )
 
 
