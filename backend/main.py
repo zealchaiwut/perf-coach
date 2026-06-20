@@ -62,6 +62,7 @@ from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
+from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 
 _start_time = time.monotonic()
 
@@ -4711,6 +4712,28 @@ def get_workout_full(
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
         computed = _compute_derived(strava, stryd)
+        # Compute aerobic decoupling from full streams (before downsampling).
+        _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
+        _workout_dict_plain = {
+            "workout_type": workout.workout_type,
+            "duration_seconds": workout.duration_seconds,
+            "avg_hr": workout.avg_hr,
+        }
+        _raw_streams = (strava or {}).get("streams") or {} if strava else {}
+        _splits_plain = [
+            {
+                "split_index": s.split_index,
+                "duration_seconds": s.duration_seconds,
+                "avg_hr": s.avg_hr,
+                "avg_power": s.avg_power,
+                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+            }
+            for s in split_rows
+        ]
+        _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
+        _aerobic_result, _aerobic_reason = _compute_decoupling(
+            _workout_dict_plain, _decoupling_input, _decoupling_threshold
+        )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -4727,7 +4750,7 @@ def get_workout_full(
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
         detected_profile = _get_session_profile(workout, split_rows, prefs)
-        return JSONResponse({
+        response_body: dict = {
             "workout": _workout_dict(workout, exercises),
             "splits": [_split_dict(s) for s in split_rows],
             "sources": {"strava": strava, "stryd": stryd},
@@ -4739,7 +4762,11 @@ def get_workout_full(
             "tss_partial": tss_result["partial"],
             "computed_tss": tss_result["tss"],
             "detected_profile": detected_profile,
-        })
+            "aerobic_decoupling": _aerobic_result,
+        }
+        if _aerobic_reason is not None:
+            response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        return JSONResponse(response_body)
 
 
 @app.post("/api/workouts", status_code=201)
@@ -9485,6 +9512,83 @@ def get_training_daily_load(
     return JSONResponse(result)
 
 
+@app.get("/api/athletes/{athlete_id}/daily-load")
+def get_athlete_daily_load(
+    athlete_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+):
+    """Return per-day training load aggregates for an athlete.
+
+    Validates date params first (400 on failure), then checks athlete
+    exists (404 if not), then delegates computation to daily_load_series.
+    """
+    if start_date is None or end_date is None:
+        missing = []
+        if start_date is None:
+            missing.append("start_date")
+        if end_date is None:
+            missing.append("end_date")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required query parameter(s): {', '.join(missing)}",
+        )
+
+    try:
+        start_d = _date.fromisoformat(start_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date is not a valid ISO-8601 date: {start_date!r}",
+        )
+
+    try:
+        end_d = _date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"end_date is not a valid ISO-8601 date: {end_date!r}",
+        )
+
+    if start_d > end_d:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date ({start_date}) must not be after end_date ({end_date})",
+        )
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= start_d,
+                Workout.workout_date <= end_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+        workouts = [
+            {
+                "id": str(r.id),
+                "date": r.workout_date.isoformat(),
+                "tss": float(r.tss) if r.tss is not None else None,
+            }
+            for r in rows
+        ]
+
+    result = _daily_load_series(workouts, start_date, end_date)
+    return JSONResponse(result)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
@@ -10555,16 +10659,24 @@ async def accept_threshold_suggestions(
             detail=f"Unknown threshold keys: {unknown}. Valid keys: {list(_SUGGESTION_KEYS)}",
         )
 
-    from backend.services.threshold_suggestions import suggest_thresholds
-
     with Session(engine) as session:
-        duration_curve = _build_user_power_curve(session, user.id)
-        recent_runs = _build_user_recent_runs(session, user.id)
-        result = suggest_thresholds(duration_curve, recent_runs)
+        # Use _pending_suggestions to get only keys not yet accepted.
+        pending = _pending_suggestions(session, user.id)
 
-        # No suggestions available
-        if "suggestions" in result:
-            return JSONResponse({"written": {}, "skipped": keys_to_accept})
+        # AC7: every requested key must have a pending suggestion; error otherwise.
+        if keys_to_accept:
+            missing = [k for k in keys_to_accept if k not in pending]
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"No pending suggestion for key(s): {missing}. "
+                        f"Pending suggestions available for: {list(pending.keys())}"
+                    ),
+                )
+
+        if not keys_to_accept:
+            return JSONResponse({"written": {}, "skipped": []})
 
         # Get or create user preferences row
         prefs = (
@@ -10577,19 +10689,15 @@ async def accept_threshold_suggestions(
             session.add(prefs)
 
         written: dict = {}
-        skipped: list = []
         for key in keys_to_accept:
-            if key not in result:
-                skipped.append(key)
-                continue
-            value = result[key]["value"]
+            value = pending[key]["value"]
             setattr(prefs, key, value)
             setattr(prefs, f"{key}_source", "user_accepted")
             written[key] = value
 
         prefs.updated_at = _datetime.now(_timezone.utc)
         session.commit()
-        return JSONResponse({"written": written, "skipped": skipped})
+        return JSONResponse({"written": written, "skipped": []})
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
@@ -10600,6 +10708,9 @@ def get_athlete_duration_curve(athlete_id: str):
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
     but has no runs on record. Returns 404 when the athlete ID does not exist.
+
+    Each curve entry includes duration, best_value, source_workout_id, source_date,
+    and a debug object identifying the source workout.
     """
     try:
         uid = _uuid.UUID(athlete_id)
@@ -10613,21 +10724,45 @@ def get_athlete_duration_curve(athlete_id: str):
 
         curve_data = _get_athlete_duration_curve(uid, session)
 
-    if not curve_data:
-        return JSONResponse({
-            "athleteId": athlete_id,
-            "curve": [],
-            "debug": [],
-            "reason": "No runs found for athlete",
-        })
+        if not curve_data:
+            return JSONResponse({
+                "athleteId": athlete_id,
+                "curve": [],
+                "debug": [],
+                "reason": "No runs found for athlete",
+            })
+
+        # Batch-load workout names for debug labels
+        workout_ids = set()
+        for entry in curve_data.values():
+            wid = entry.get("workout_id")
+            if wid:
+                try:
+                    workout_ids.add(_uuid.UUID(wid))
+                except (ValueError, AttributeError):
+                    pass
+
+        workout_names: dict = {}
+        if workout_ids:
+            rows = (
+                session.query(Workout.id, Workout.name)
+                .filter(Workout.id.in_(workout_ids))
+                .all()
+            )
+            workout_names = {str(r.id): r.name for r in rows}
 
     curve_entries = sorted(
         [
             {
                 "duration": int(dur),
-                "bestValue": entry["best_value"],
-                "workoutId": entry["workout_id"],
-                "date": entry["date"],
+                "best_value": entry["best_value"],
+                "source_workout_id": entry["workout_id"],
+                "source_date": entry.get("date"),
+                "debug": {
+                    "workout_label": workout_names.get(entry["workout_id"])
+                    or entry["workout_id"],
+                    "confidence": entry.get("confidence"),
+                },
             }
             for dur, entry in curve_data.items()
         ],
@@ -10637,7 +10772,7 @@ def get_athlete_duration_curve(athlete_id: str):
     return JSONResponse({
         "athleteId": athlete_id,
         "curve": curve_entries,
-        "debug": curve_entries,
+        "debug": [e["debug"] for e in curve_entries],
     })
 
 

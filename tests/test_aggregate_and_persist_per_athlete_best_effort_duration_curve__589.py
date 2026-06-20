@@ -34,15 +34,17 @@ def _point(duration, value, workout_id=None, date="2026-01-01", confidence="meas
 
 def test_merge_empty_existing_empty_new_returns_empty():
     """AC9/empty-athlete: merging empty existing with empty new points yields empty dict."""
-    result = merge_best_effort({}, [])
+    result, reason = merge_best_effort({}, [])
     assert result == {}
+    assert reason is None
 
 
 def test_merge_empty_existing_with_null_value_points_stays_empty():
     """AC9: points with best_value=None are not added to the curve."""
     pts = [_point(60, None), _point(300, None)]
-    result = merge_best_effort({}, pts)
+    result, reason = merge_best_effort({}, pts)
     assert result == {}
+    assert reason is None
 
 
 # ── AC9: single-run athlete ───────────────────────────────────────────────────
@@ -54,7 +56,8 @@ def test_merge_single_run_adopts_all_valid_points():
         _point(60, 270.0, workout_id=wid, date="2026-01-10"),
         _point(300, 255.5, workout_id=wid, date="2026-01-10"),
     ]
-    result = merge_best_effort({}, pts)
+    result, reason = merge_best_effort({}, pts)
+    assert reason is None
     assert "60" in result
     assert "300" in result
     assert result["60"]["best_value"] == 270.0
@@ -67,7 +70,8 @@ def test_merge_single_run_preserves_confidence():
     """AC9/single-run: confidence field is preserved from source point."""
     wid = str(uuid.uuid4())
     pts = [_point(60, 270.0, workout_id=wid, confidence="approx")]
-    result = merge_best_effort({}, pts)
+    result, reason = merge_best_effort({}, pts)
+    assert reason is None
     assert result["60"]["confidence"] == "approx"
 
 
@@ -85,7 +89,8 @@ def test_merge_later_run_improves_one_duration_only():
         _point(60, 270.0, workout_id=wid2, date="2026-01-15"),   # better
         _point(300, 230.0, workout_id=wid2, date="2026-01-15"),  # worse
     ]
-    result = merge_best_effort(existing, new_pts)
+    result, reason = merge_best_effort(existing, new_pts)
+    assert reason is None
     assert result["60"]["best_value"] == 270.0
     assert result["60"]["workout_id"] == wid2
     assert result["300"]["best_value"] == 240.0
@@ -103,7 +108,8 @@ def test_merge_later_run_adds_new_duration_not_in_existing():
         _point(60, 240.0, workout_id=wid2, date="2026-01-15"),    # worse — not adopted
         _point(1800, 220.0, workout_id=wid2, date="2026-01-15"),  # new duration — adopted
     ]
-    result = merge_best_effort(existing, new_pts)
+    result, reason = merge_best_effort(existing, new_pts)
+    assert reason is None
     assert result["60"]["best_value"] == 250.0   # unchanged
     assert result["1800"]["best_value"] == 220.0  # new entry
 
@@ -116,7 +122,8 @@ def test_merge_equal_value_does_not_replace_existing():
         "60": {"best_value": 250.0, "workout_id": wid1, "date": "2026-01-10", "confidence": "measured"},
     }
     new_pts = [_point(60, 250.0, workout_id=wid2, date="2026-01-15")]
-    result = merge_best_effort(existing, new_pts)
+    result, reason = merge_best_effort(existing, new_pts)
+    assert reason is None
     assert result["60"]["workout_id"] == wid1  # original kept on tie
 
 
@@ -129,8 +136,8 @@ def test_merge_same_run_twice_is_idempotent():
         _point(60, 270.0, workout_id=wid, date="2026-01-15"),
         _point(300, 255.0, workout_id=wid, date="2026-01-15"),
     ]
-    after_first = merge_best_effort({}, pts)
-    after_second = merge_best_effort(after_first, pts)
+    after_first, _ = merge_best_effort({}, pts)
+    after_second, _ = merge_best_effort(after_first, pts)
     assert after_first == after_second
 
 
@@ -148,7 +155,8 @@ def test_merge_same_run_over_multi_run_curve_is_idempotent():
         _point(60, 270.0, workout_id=wid2, date="2026-01-15"),
         _point(300, 230.0, workout_id=wid2, date="2026-01-15"),  # still worse than stored
     ]
-    result = merge_best_effort(existing, wid2_pts)
+    result, reason = merge_best_effort(existing, wid2_pts)
+    assert reason is None
     assert result["60"]["workout_id"] == wid2
     assert result["300"]["workout_id"] == wid1  # wid1 still holds 300s
     assert result["300"]["best_value"] == 240.0
@@ -321,10 +329,10 @@ def test_endpoint_returns_required_fields_for_athlete_with_curve():
         assert isinstance(body["curve"], (list, dict))
         assert isinstance(body["debug"], (list, dict))
 
-        # If list, check entries have required fields
+        # If list, check entries have required fields (AC#6 of #695 specified snake_case)
         if isinstance(body["curve"], list) and len(body["curve"]) > 0:
             entry = body["curve"][0]
-            for field in ("duration", "bestValue", "workoutId", "date"):
+            for field in ("duration", "best_value", "source_workout_id", "source_date"):
                 assert field in entry, f"Missing field '{field}' in curve entry"
     finally:
         with Session(engine) as session:

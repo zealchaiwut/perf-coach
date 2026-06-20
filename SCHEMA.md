@@ -232,7 +232,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66; source columns added Sprint 65)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -253,6 +253,7 @@ Unique: `(user_id, date)`.
 | week_start_day | int | default 1 (Monday) |
 | display_name | varchar(100) | nullable |
 | date_format | varchar(20) | default `YYYY-MM-DD` |
+| strength_rpe_max | int | nullable — ceiling of the RPE scale used for strength TSS (e.g. 10 for standard RPE, 20 for Borg); required for session-RPE strength TSS calculation |
 | created_at / updated_at | timestamptz | |
 
 `GET /api/user-preferences` returns both a `row` (stored overrides, null when unset) and a `defaults` object with system default values for all threshold fields. `PATCH /api/user-preferences` accepts any subset of the nullable columns; omitted fields are unchanged.

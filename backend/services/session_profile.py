@@ -67,7 +67,7 @@ Result:
     }
 """
 
-from backend.services.lap_classify import classify_laps
+from backend.services.lap_classifier import classify_laps
 from backend.services.lap_phase_grouper import group_laps_into_phases, LapPhaseConfig
 from backend.services.interval_detector import detect_intervals, detect_sets
 
@@ -84,7 +84,13 @@ _MISSING_INPUT = {
 
 
 def _get(d, key):
-    """Read a key from a dict or attribute from an object."""
+    """Read a key from a dict or attribute from an object.
+
+    Example:
+        input:  d={"laps": [1, 2]}, key="laps"  → result: [1, 2]
+        input:  d=SimpleNamespace(lap_type="manual"), key="lap_type"  → result: "manual"
+        input:  d={"a": 1}, key="missing"  → result: None
+    """
     if isinstance(d, dict):
         return d.get(key)
     return getattr(d, key, None)
@@ -96,6 +102,11 @@ def _flat_phase_list(classified, laps):
     Each entry carries the lap-level colour (band) assigned by classify_laps
     but does not group laps into named phases like Warm-up or Tempo.
     Used when the data-quality gate rejects the splits for full analysis.
+
+    Example:
+        input:  classified=[{"band": "easy", "ratio": 0.75}],
+                laps=[SimpleNamespace(avg_power=150, ...)]
+        result: [{"label": "easy", "band": "easy", "lap_index": 0, "ratio": 0.75}]
     """
     result = []
     for i, (cls, lap) in enumerate(zip(classified, laps)):
@@ -113,6 +124,15 @@ def _derive_basis(classified):
 
     Chooses the basis that appeared most among laps that successfully produced
     a non-none band.  Falls back to 'none' when all laps returned basis='none'.
+    When counts are equal, the priority order power then pace then hr is used
+    so that the highest-quality threshold always wins.
+
+    Example:
+        input:  classified=[{"basis": "power"}, {"basis": "power"}, {"basis": "pace"}]
+        result: "power"   (power appears most and also wins on priority)
+
+        input:  classified=[{"basis": "none"}, {"basis": "none"}]
+        result: "none"    (no usable basis found)
     """
     counts = {}
     for c in classified:
