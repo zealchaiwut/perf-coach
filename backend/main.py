@@ -73,6 +73,8 @@ from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
+from backend.services.habit_streak import compute_streak
+from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
@@ -3013,6 +3015,56 @@ class HabitLogIn(BaseModel):
     habit_id: str
     user_id: Optional[str] = None
     logged_date: str  # YYYY-MM-DD
+
+
+@app.get("/api/habits/summary")
+def get_habits_summary(user: User = Depends(resolve_user)):
+    """Return each active habit with pre-computed streak and 30-day consistency stats."""
+    from datetime import date as _date_cls, timedelta as _td
+    today = _date_cls.today()
+    window_start = today - _td(days=29)
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == user.id,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        if not active_habits:
+            return JSONResponse({"habits": [], "reason": "No active habits found"})
+
+        habit_ids = [h.id for h in active_habits]
+        all_logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id.in_(habit_ids),
+                HabitLog.user_id == user.id,
+            )
+            .all()
+        )
+
+    logs_by_habit: dict = {}
+    for log in all_logs:
+        logs_by_habit.setdefault(log.habit_id, []).append(log)
+
+    result = []
+    for habit in active_habits:
+        habit_logs = logs_by_habit.get(habit.id, [])
+        streak_data = compute_streak(habit, habit_logs, today)
+        consistency_data = compute_consistency(habit, habit_logs, window_start, today)
+        entry = _habit_dict(habit)
+        entry["current_streak"] = streak_data["current_streak"]
+        entry["longest_streak"] = streak_data["longest_streak"]
+        entry["consistency_percent"] = consistency_data["consistency_percent"]
+        result.append(entry)
+
+    return JSONResponse({"habits": result})
 
 
 @app.get("/api/habits")
