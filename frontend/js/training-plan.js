@@ -501,7 +501,7 @@
       if (tEl) tEl.textContent = fmtKm(target);
       if (fEl) {
         var pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-        fEl.style.width = pct + "%";
+        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
       }
     }
 
@@ -517,18 +517,17 @@
       updateBar("plan-spec-slower-current", "plan-spec-slower-target", "plan-spec-slower-fill",
         sp.longest_run_by_distance.current, sp.longest_run_by_distance.target);
     }
-    // AC10: 4th bar — longest run by duration (unit: seconds, displayed as time)
     if (sp.longest_run_by_duration) {
       var durCurrent = sp.longest_run_by_duration.current || 0;
       var durTarget = sp.longest_run_by_duration.target || 0;
       var cEl = document.getElementById("plan-spec-duration-current");
       var tEl = document.getElementById("plan-spec-duration-target");
       var fEl = document.getElementById("plan-spec-duration-fill");
-      if (cEl) cEl.textContent = fmtTime(durCurrent) !== "—" ? fmtTime(durCurrent) : "—";
-      if (tEl) tEl.textContent = fmtTime(durTarget) !== "—" ? fmtTime(durTarget) : "—";
+      if (cEl) cEl.textContent = fmtTime(durCurrent) || "—";
+      if (tEl) tEl.textContent = fmtTime(durTarget) || "—";
       if (fEl) {
         var pct = durTarget > 0 ? Math.min(100, Math.round((durCurrent / durTarget) * 100)) : 0;
-        fEl.style.width = pct + "%";
+        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
       }
     }
   }
