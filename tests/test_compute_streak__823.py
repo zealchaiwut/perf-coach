@@ -4,7 +4,6 @@ Unit tests anchored to each Acceptance Criterion and UAT test step.
 """
 
 import types
-import pytest
 from datetime import date, timedelta
 
 
