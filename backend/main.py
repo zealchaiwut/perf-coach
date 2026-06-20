@@ -29,12 +29,6 @@ from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
-
-
-def _derive_goal_pace(goal_time_seconds, distance_km):
-    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
-    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
-    return pace
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -79,6 +73,13 @@ from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluat
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
+
+
+def _derive_goal_pace(goal_time_seconds, distance_km):
+    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
+    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
+    return pace
+
 
 _start_time = time.monotonic()
 
