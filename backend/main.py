@@ -3020,7 +3020,7 @@ class HabitLogIn(BaseModel):
 
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with pre-computed streak and 30-day consistency stats."""
+    """Return each active habit with streak and 30-day consistency stats."""
     from datetime import date as _date_cls, timedelta as _td
     today = _date_cls.today()
     window_start = today - _td(days=29)
