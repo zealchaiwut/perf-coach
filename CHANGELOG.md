@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 76 — Training > Performance sub-tab and settings thresholds/zones enhancements
+
+- #810: Add Settings section for training thresholds and zones
+- #811: Implement Training > Performance sub-tab with real data
+
 ## Sprint 75 — Performance curve, form projection, taper guidance, race readiness summary, and post-race calibration
 
 - #709: Add performance_curve pure function to fitness model

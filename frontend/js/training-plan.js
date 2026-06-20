@@ -151,7 +151,12 @@
       : "";
 
     var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : null;
-    var goalPace = r.goal_pace_seconds_per_km ? fmtPace(r.goal_pace_seconds_per_km) : null;
+    // AC9: compute goal pace client-side when server field is absent
+    var goalPaceSecPerKm = r.goal_pace_seconds_per_km ||
+      (r.goal_time_seconds && r.distance_km
+        ? r.goal_time_seconds / parseFloat(r.distance_km)
+        : null);
+    var goalPace = goalPaceSecPerKm ? fmtPace(goalPaceSecPerKm) : null;
 
     el.innerHTML =
       '<div class="plan-race-hd">' +
@@ -185,15 +190,13 @@
     var status = onTrack && onTrack.status_summary;
     var cls, label;
 
+    // AC2: show raw status text from the endpoint; hide for other statuses
     if (status === "on track" || status === "ahead") {
       cls = "verdict-on-track";
-      label = "✓ On Track";
-    } else if (status === "at risk" || status === "behind") {
+      label = status;
+    } else if (status === "behind") {
       cls = "verdict-at-risk";
-      label = "⚠ At Risk";
-    } else if (status === "off track") {
-      cls = "verdict-off-track";
-      label = "✗ Off Track";
+      label = status;
     } else {
       el.style.display = "none";
       return;
@@ -498,7 +501,7 @@
       if (tEl) tEl.textContent = fmtKm(target);
       if (fEl) {
         var pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-        fEl.style.width = pct + "%";
+        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
       }
     }
 
@@ -513,6 +516,19 @@
     if (sp.longest_run_by_distance) {
       updateBar("plan-spec-slower-current", "plan-spec-slower-target", "plan-spec-slower-fill",
         sp.longest_run_by_distance.current, sp.longest_run_by_distance.target);
+    }
+    if (sp.longest_run_by_duration) {
+      var durCurrent = sp.longest_run_by_duration.current || 0;
+      var durTarget = sp.longest_run_by_duration.target || 0;
+      var cEl = document.getElementById("plan-spec-duration-current");
+      var tEl = document.getElementById("plan-spec-duration-target");
+      var fEl = document.getElementById("plan-spec-duration-fill");
+      if (cEl) cEl.textContent = fmtTime(durCurrent) || "—";
+      if (tEl) tEl.textContent = fmtTime(durTarget) || "—";
+      if (fEl) {
+        var pct = durTarget > 0 ? Math.min(100, Math.round((durCurrent / durTarget) * 100)) : 0;
+        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
+      }
     }
   }
 
