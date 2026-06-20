@@ -307,7 +307,6 @@ def test_ac7_no_bare_numeric_threshold_literals():
 
 def test_ac7_population_constants_supplies_defaults():
     """Passing different population_constants changes the tolerance behaviour."""
-    from backend.services.training_load import TIMING_TOLERANCE_WEEKS
 
     # With default tolerance (e.g., 1 week), a 1-week early peak = on target
     pop_tight = dict(_population(), timing_tolerance_weeks=0)  # zero tolerance
