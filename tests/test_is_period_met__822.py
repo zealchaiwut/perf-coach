@@ -4,7 +4,6 @@ Unit tests anchored to the Acceptance Criteria and UAT test steps.
 """
 
 import types
-import pytest
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -186,7 +185,8 @@ def test_count_habit_missing_target_value_invalid():
 
 def test_no_db_access_in_module():
     """AC: habit_completion module must not import sqlalchemy session or db module."""
-    import importlib, inspect
+    import importlib
+    import inspect
     mod = importlib.import_module("backend.services.habit_completion")
     source = inspect.getsource(mod)
     assert "session" not in source
@@ -228,7 +228,7 @@ def test_streak_module_imports_from_habit_completion():
 
 def test_no_consistency_module_duplicates_met_rule():
     """UAT 9: no separate consistency module re-implements met-period logic."""
-    import os, glob
+    import glob
     candidates = glob.glob(
         "/Users/zeal-server/dev/perf-coach/coder/backend/services/habit_consist*.py"
     )
