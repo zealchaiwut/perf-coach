@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 74 — Strength PR detection, race checkpoints, and run auto-detection
+
+- #704: Add personal-record detection from run history
+- #705: Add PR storage, on-ingest comparison, and records feed
+- #706: Add races table, Alembic migration, and SQLAlchemy model
+- #707: Add race_checkpoints table and SQLAlchemy model
+- #708: Add CRUD and auto-detection for races and checkpoints
+
 ## Sprint 71 — Lap classifier rewrite, session profile improvements, and strength TSS with configurable RPE max
 
 - #678: Add lap intensity classification for session-profile detection

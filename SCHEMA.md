@@ -464,9 +464,9 @@ Unique: `(user_id, source, source_identifier)`.
 
 ---
 
-## races _(added Sprint 67; race_type added Sprint 69)_
+## races _(added Sprint 67; race_type added Sprint 69; actual_time_seconds added Sprint 74)_
 
-User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time.
+User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_seconds / distance_km` at write time via `compute_goal_pace`.
 
 | column | type | notes |
 |--------|------|-------|
@@ -480,7 +480,81 @@ User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_
 | priority | varchar(10) | `A` / `B` / `C` |
 | status | varchar(20) | `planned` / `done` / `abandoned` |
 | race_type | varchar(20) | `race` / `checkpoint`; default `race` — distinguishes A-race targets from intermediate checkpoints |
+| actual_time_seconds | int | nullable — recorded finish time after the race is completed |
 | created_at | timestamptz | |
-| updated_at | timestamptz | nullable |
+| updated_at | timestamptz | auto-updated on write |
 
-Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head).
+Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head), `ba386d88fa17` (actual_time_seconds).
+
+---
+
+## race_checkpoints _(added Sprint 74)_
+
+Intermediate milestones within a target race. Auto-detection marks a checkpoint met when a run workout satisfies its targets; `met_override = true` freezes the state against future auto-detection.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| race_id | UUID FK→races | CASCADE |
+| user_id | UUID FK→users | CASCADE |
+| label | varchar(200) | display name of the checkpoint |
+| target_date | date | inherited from the parent race at create time |
+| target_distance_km | numeric(8,3) | nullable |
+| target_pace_seconds_per_km | int | nullable |
+| target_duration_seconds | int | nullable |
+| met | bool | default false; set to true by auto-detection or manual override |
+| met_override | bool | default false; true when `met` was set manually, blocking auto-detection |
+| met_workout_id | UUID FK→workouts | SET NULL, nullable — workout that satisfied the checkpoint |
+| created_at / updated_at | timestamptz | |
+
+Indexes: `ix_race_checkpoints_race_id`, `ix_race_checkpoints_user_id`. Migration: `dd327d5ed495`.
+
+---
+
+## strength_personal_records _(added Sprint 74)_
+
+Current best per `(user, exercise_key, rep_band_label)`. Updated in-place when a new PR is set; the previous value is preserved in `previous_weight_kg` / `previous_achieved_on`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| exercise_key | varchar(200) | normalised exercise identifier |
+| exercise_name | varchar(200) | display name |
+| rep_band_label | varchar(20) | e.g. `1RM`, `3–5 reps` |
+| rep_band_min / rep_band_max | int | inclusive rep-count bounds for the band |
+| weight_kg | numeric(6,2) | current best weight; >0 |
+| reps | int | rep count at the current best; ≥1 |
+| previous_weight_kg | numeric(6,2) | nullable — previous best before the current PR |
+| previous_achieved_on | date | nullable |
+| achieved_on | date | date the current PR was set |
+| workout_id | UUID FK→workouts | SET NULL, nullable |
+| exercise_id | UUID FK→workout_exercises | SET NULL, nullable |
+| created_at / updated_at | timestamptz | |
+
+Unique: `(user_id, exercise_key, rep_band_label)`. Migration: `a1607bab81de`.
+
+---
+
+## strength_record_achievements _(added Sprint 74)_
+
+Append-only log of every PR-beating event. Written at workout-ingest time; used to populate the achievements feed without re-deriving history on read.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| strength_record_id | UUID FK→strength_personal_records | CASCADE |
+| exercise_key | varchar(200) | |
+| exercise_name | varchar(200) | |
+| rep_band_label | varchar(20) | |
+| new_weight_kg | numeric(6,2) | the new record weight |
+| previous_weight_kg | numeric(6,2) | nullable — prior best at the time of this achievement |
+| previous_achieved_on | date | nullable |
+| achieved_on | date | |
+| workout_id | UUID FK→workouts | SET NULL, nullable |
+| exercise_id | UUID FK→workout_exercises | SET NULL, nullable |
+| set_index | int | nullable — which set within the exercise triggered the PR |
+| created_at | timestamptz | |
+
+Migration: `a1607bab81de`.
