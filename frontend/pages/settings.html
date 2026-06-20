@@ -2574,20 +2574,32 @@
           .then(function (r) { return r.json(); })
           .then(function (d) {
             if (!d.authorize_url) throw new Error('No authorize URL');
-            var popup = window.open(d.authorize_url, 'strava_oauth', 'width=600,height=700');
-            function onMsg(e) {
-              if (e.data && e.data.type === 'strava_connected') {
-                window.removeEventListener('message', onMsg);
-                if (popup && !popup.closed) popup.close();
-                intFeedback('strava-feedback', 'Strava connected!', 'success');
-                loadStravaStatus();
-              }
-            }
-            window.addEventListener('message', onMsg);
+            // Same-tab redirect avoids mobile popup blockers (no window.open).
+            window.location.href = d.authorize_url;
           })
           .catch(function (err) {
             intFeedback('strava-feedback', (err && err.message) || 'Failed to initiate Strava connection', 'error');
           });
+      }
+
+      function _handleStravaOAuthReturn() {
+        var params = new URLSearchParams(window.location.search);
+        var result = params.get('strava');
+        if (!result) return;
+        if (result === 'connected') {
+          intFeedback('strava-feedback', 'Strava connected!', 'success');
+          loadStravaStatus();
+        } else if (result === 'error') {
+          intFeedback('strava-feedback', 'Strava connection failed or was cancelled. Please try again.', 'error');
+        }
+        params.delete('strava');
+        var clean = window.location.pathname;
+        var remainder = params.toString();
+        if (remainder) clean += '?' + remainder;
+        clean += '#integrations';
+        history.replaceState(null, '', clean);
+        var integrationsNav = document.querySelector('.settings-nav-item[data-section="integrations"]');
+        if (integrationsNav) integrationsNav.click();
       }
 
       function stravaDisconnect() {
@@ -2875,6 +2887,7 @@
 
       window.addEventListener('userReady', function (e) {
         _stravaUserId = e.detail && e.detail.userId;
+        _handleStravaOAuthReturn();
         loadStravaStatus();
         loadStrydStatus();
       });

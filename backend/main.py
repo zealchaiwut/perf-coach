@@ -7329,13 +7329,23 @@ def _upsert_strava_token(
 
 _STRAVA_CALLBACK_HTML = """<!DOCTYPE html>
 <html>
+<head><meta charset="utf-8"><title>Strava connected</title></head>
 <body>
 <script>
-if (window.opener) {
-  window.opener.postMessage({type: 'strava_connected'}, '*');
-}
-window.close();
+window.location.replace('/settings?strava=connected#integrations');
 </script>
+<p>Strava connected — <a href="/settings?strava=connected#integrations">return to Settings</a>.</p>
+</body>
+</html>"""
+
+_STRAVA_CALLBACK_ERROR_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Strava connection failed</title></head>
+<body>
+<script>
+window.location.replace('/settings?strava=error#integrations');
+</script>
+<p>Connection failed — <a href="/settings?strava=error#integrations">return to Settings</a>.</p>
 </body>
 </html>"""
 
@@ -7353,10 +7363,7 @@ def strava_callback(
     try:
         payload = _verify_strava_state_token(state, state_secret)
     except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization state expired or invalid, please reconnect",
-        )
+        return Response(content=_STRAVA_CALLBACK_ERROR_HTML, media_type="text/html", status_code=400)
 
     user_id = payload["user_id"]
     client_id = os.getenv("STRAVA_CLIENT_ID")
@@ -7622,6 +7629,25 @@ def stryd_configured():
 
 _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
+_STRAVA_DEFAULT_LOOKBACK_DAYS = 90
+
+
+def _default_strava_since_date(user_id: _uuid.UUID) -> str:
+    """Return YYYY-MM-DD lower bound for incremental Strava pulls."""
+    from datetime import date as _date_cls, timedelta as _timedelta
+    from sqlalchemy import func, select
+
+    try:
+        with Session(engine) as session:
+            latest_synced = session.execute(
+                select(func.max(StravaActivity.synced_at))
+                .where(StravaActivity.user_id == user_id)
+            ).scalar()
+        if latest_synced is not None and hasattr(latest_synced, "date"):
+            return (latest_synced.date() - _timedelta(days=1)).isoformat()
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
 
 
 def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
@@ -7629,6 +7655,8 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
     import calendar as _calendar
     from datetime import date as _date_cls
     uid = _uuid.UUID(user_id)
+    if since_date is None:
+        since_date = _default_strava_since_date(uid)
     since_epoch: Optional[int] = None
     if since_date:
         try:
@@ -7701,6 +7729,13 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
                     set_={
                         "name": ins.excluded.name,
                         "activity_type": ins.excluded.activity_type,
+                        "distance_km": ins.excluded.distance_km,
+                        "duration_seconds": ins.excluded.duration_seconds,
+                        "avg_hr": ins.excluded.avg_hr,
+                        "max_hr": ins.excluded.max_hr,
+                        "elevation_m": ins.excluded.elevation_m,
+                        "avg_power_w": ins.excluded.avg_power_w,
+                        "max_power_w": ins.excluded.max_power_w,
                         "raw_payload": ins.excluded.raw_payload,
                         "synced_at": now,
                     },

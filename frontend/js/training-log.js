@@ -3040,26 +3040,85 @@
     }
   }
 
+  function _syncSinceDate(latest) {
+    if (!latest || !latest.synced_at) return null;
+    var d = new Date(latest.synced_at);
+    if (isNaN(d.getTime())) return null;
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _syncWaitForComplete() {
+    return new Promise(function (resolve) {
+      function poll() {
+        fetch("/api/sync/status")
+          .then(function (res) {
+            return res.ok ? res.json() : null;
+          })
+          .then(function (data) {
+            if (!data || data.status !== "running") {
+              resolve();
+            } else {
+              setTimeout(poll, 2000);
+            }
+          })
+          .catch(resolve);
+      }
+      poll();
+    });
+  }
+
+  function _syncProvider(url, sinceDate) {
+    var body = sinceDate
+      ? JSON.stringify({ since_date: sinceDate })
+      : "{}";
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body,
+    }).then(function (r) {
+      if (r.status === 202 || r.status === 409) {
+        return _syncWaitForComplete();
+      }
+      return null;
+    });
+  }
+
   function _onSyncAllClick() {
     _syncSetBusy(true);
     Promise.all([
-      fetch("/api/strava/sync", { method: "POST" }).catch(function () {
-        return { status: 0 };
-      }),
-      fetch("/api/stryd/sync", { method: "POST" }).catch(function () {
-        return { status: 0 };
-      }),
-    ]).then(function (results) {
-      var anyStarted = results.some(function (r) {
-        return r.status === 202 || r.status === 409;
-      });
-      if (anyStarted) {
+      fetch("/api/sync/strava/latest")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
+      fetch("/api/sync/stryd/latest")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
+    ])
+      .then(function (latest) {
+        var stravaSince = _syncSinceDate(latest[0]);
+        var strydSince = _syncSinceDate(latest[1]);
+        return _syncProvider("/api/strava/sync", stravaSince).then(function () {
+          return _syncProvider("/api/stryd/sync", strydSince);
+        });
+      })
+      .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
-        _syncPollStatus();
-      } else {
+        _loadSyncChip();
+      })
+      .catch(function () {
+        /* best-effort */
+      })
+      .finally(function () {
         _syncSetBusy(false);
-      }
-    });
+      });
   }
 
   function _onSyncStravaClick() {
