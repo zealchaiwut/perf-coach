@@ -64,6 +64,18 @@ B_RACE_TAPER_DAYS: int = 7
 # with the projected taper curve.  Outside this band, status is "ahead" or "behind".
 PEAK_TRACKING_TOLERANCE: float = 5.0
 
+# ── Post-race calibration constants ──────────────────────────────────────────
+# Number of weeks of peak-timing deviation considered "on target" — within this
+# band no adjustment is suggested.
+TIMING_TOLERANCE_WEEKS: int = 1
+# How many days to lengthen or shorten CTL time constant per week of peak shift.
+CTL_ADJUSTMENT_DAYS_PER_WEEK: int = 2
+# Hard floor and ceiling for suggested CTL time constants (days).
+MIN_CTL_DAYS: int = 14
+MAX_CTL_DAYS: int = 84
+# Decimal places used when rounding the peak-level performance delta percentage.
+_LEVEL_DELTA_PRECISION: int = 1
+
 
 def _ewma_alpha(days: int) -> float:
     """Exponential weighted moving average alpha factor."""
@@ -812,3 +824,202 @@ def peak_tracking(
         status = "on track"
 
     return {"status": status, "gap": round(gap, 2), "reason": ""}
+
+
+def compute_calibration_suggestions(
+    race_id,
+    actual_time_seconds,
+    user_constants,
+    population_constants,
+) -> dict:
+    """Suggest adjusted fitness and fatigue time constants after a completed race.
+
+    This is a pure function — it performs no database access and makes no writes.
+    The calling layer is responsible for all DB reads (race row, user preferences,
+    training-load snapshots) and for writing status and actual_time_seconds to the
+    race row before invoking this function.
+
+    The function compares two dimensions:
+    - **Peak timing**: when the athlete's fitness peaked (actual_peak_week) versus
+      when the model predicted it would peak (predicted_peak_week).  A timing_delta
+      (actual minus predicted) that is negative means the athlete peaked EARLIER than
+      the model expected; positive means later.
+    - **Peak level**: how the athlete's finishing time compares to their goal time,
+      expressed as a percentage (positive = faster than goal, negative = slower).
+
+    Suggestion logic (timing dimension only drives constant changes):
+    - Early peak (timing_delta more negative than timing_tolerance_weeks):
+      shorten the fitness time constant so future predictions reflect faster peaking.
+    - Late peak (timing_delta more positive than timing_tolerance_weeks):
+      lengthen the fitness time constant so future predictions reflect slower peaking.
+    - On target (|timing_delta| <= timing_tolerance_weeks): no adjustment.
+
+    All numeric parameters are read from user_constants and population_constants; no
+    bare literal thresholds appear in the function body.
+
+    Args:
+        race_id:
+            Identifier string used for labelling only — not used for DB lookup.
+        actual_time_seconds:
+            The athlete's actual finishing time in seconds.  Must be a positive
+            integer.  If None the function returns a descriptive error.
+        user_constants:
+            Dict with the athlete's personal model parameters and race context:
+              - ctl_days (int, optional): fitness time constant; defaults to
+                population_constants["ctl_days"].
+              - atl_days (int, optional): fatigue time constant; defaults to
+                population_constants["atl_days"].
+              - predicted_peak_week (int, required): week number from training-block
+                start when the model predicted fitness would peak.
+              - actual_peak_week (int, required): week number from training-block
+                start when the athlete's fitness actually peaked (from snapshot data).
+              - goal_time_seconds (int, required): the race target time in seconds.
+        population_constants:
+            Dict supplying default values and calibration knobs:
+              - ctl_days (int): default CTL time constant.
+              - atl_days (int): default ATL time constant.
+              - timing_tolerance_weeks (int): peak-timing band considered on-target.
+              - ctl_adjustment_days_per_week (int): days of constant change per week
+                of timing delta.
+              - min_ctl_days (int): floor for suggested CTL constant.
+              - max_ctl_days (int): ceiling for suggested CTL constant.
+
+    Returns:
+        On invalid input:
+            Dict with None suggestion fields and a non-empty ``reason`` string.
+        On success:
+            Dict with:
+              suggested_ctl_days   -- suggested fitness time constant (days)
+              suggested_atl_days   -- fatigue time constant (unchanged in this release)
+              timing_delta_weeks   -- actual_peak_week minus predicted_peak_week
+              peak_level_delta_pct -- (goal - actual) / goal * 100 (positive = faster)
+              explanation          -- plain-English rationale
+              adjustment_direction -- "shorten", "lengthen", or "none"
+              reason               -- empty string on success
+
+    Worked example — early peak (2 weeks early out of a 12-week block):
+        Inputs:
+            race_id            = "race-abc"
+            actual_time_seconds = 3780   (missed 3600 s goal by 3 minutes)
+            user_constants      = {
+                "ctl_days": 42,
+                "predicted_peak_week": 12,
+                "actual_peak_week": 10,
+                "goal_time_seconds": 3600,
+            }
+            population_constants = {
+                "ctl_days": 42, "atl_days": 7,
+                "timing_tolerance_weeks": 1,
+                "ctl_adjustment_days_per_week": 2,
+                "min_ctl_days": 14, "max_ctl_days": 84,
+            }
+
+        Computation:
+            timing_delta = 10 - 12 = -2 weeks (early peak)
+            peak_level_delta_pct = (3600 - 3780) / 3600 * 100 = -5.0 %
+            |-2| > timing_tolerance_weeks (1) → shorten
+            adjustment_days = 2 * 2 = 4 days
+            suggested_ctl_days = max(14, 42 - 4) = 38
+
+        Expected output:
+            suggested_ctl_days   = 38
+            suggested_atl_days   = 7
+            timing_delta_weeks   = -2
+            peak_level_delta_pct = -5.0
+            adjustment_direction = "shorten"
+            reason               = ""
+    """
+    _empty = {
+        "suggested_ctl_days": None,
+        "suggested_atl_days": None,
+        "timing_delta_weeks": None,
+        "peak_level_delta_pct": None,
+        "explanation": None,
+        "adjustment_direction": None,
+        "reason": "",
+    }
+
+    if actual_time_seconds is None:
+        return {**_empty, "reason": "actual_time_seconds is required to compute calibration"}
+
+    if not population_constants:
+        population_constants = {}
+    if not user_constants:
+        return {**_empty, "reason": "user_constants is required"}
+
+    goal_time = user_constants.get("goal_time_seconds")
+    if goal_time is None:
+        return {**_empty, "reason": "race has no target time; cannot compute calibration"}
+
+    predicted_peak_week = user_constants.get("predicted_peak_week")
+    if predicted_peak_week is None:
+        return {**_empty, "reason": "predicted_peak_week is required in user_constants"}
+
+    actual_peak_week = user_constants.get("actual_peak_week")
+    if actual_peak_week is None:
+        return {**_empty, "reason": "actual_peak_week is required in user_constants"}
+
+    # Resolve constants from user_constants (personal) or population_constants (defaults)
+    ctl_days = user_constants.get("ctl_days") or population_constants.get("ctl_days", CTL_DAYS)
+    atl_days = user_constants.get("atl_days") or population_constants.get("atl_days", ATL_DAYS)
+    timing_tolerance = population_constants.get("timing_tolerance_weeks", TIMING_TOLERANCE_WEEKS)
+    ctl_adj_per_week = population_constants.get("ctl_adjustment_days_per_week", CTL_ADJUSTMENT_DAYS_PER_WEEK)
+    min_ctl = population_constants.get("min_ctl_days", MIN_CTL_DAYS)
+    max_ctl = population_constants.get("max_ctl_days", MAX_CTL_DAYS)
+
+    # AC5: Derive peak timing delta (actual minus predicted; negative = earlier)
+    timing_delta = actual_peak_week - predicted_peak_week
+
+    # AC5: Derive peak level delta (positive = athlete beat their goal time)
+    peak_level_delta_pct = round((goal_time - actual_time_seconds) / goal_time * 100, _LEVEL_DELTA_PRECISION)
+
+    # Determine suggested adjustment based on timing delta
+    if timing_delta < -timing_tolerance:
+        # Early peak: athlete peaked before the model predicted
+        # Shorten the fitness time constant so future models reflect faster peaking
+        adjustment_days = abs(timing_delta) * ctl_adj_per_week
+        suggested_ctl = max(min_ctl, ctl_days - adjustment_days)
+        direction = "shorten"
+        explanation = (
+            f"Your fitness peaked approximately {abs(timing_delta)} week(s) earlier than "
+            f"predicted (week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"Shortening the fitness time constant from {ctl_days} to {suggested_ctl} days "
+            f"will bring future peak predictions earlier to match your training response. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+    elif timing_delta > timing_tolerance:
+        # Late peak: athlete hadn't reached peak fitness at race time
+        # Lengthen the fitness time constant so future models reflect slower peaking
+        adjustment_days = timing_delta * ctl_adj_per_week
+        suggested_ctl = min(max_ctl, ctl_days + adjustment_days)
+        direction = "lengthen"
+        explanation = (
+            f"Your fitness peaked approximately {timing_delta} week(s) later than "
+            f"predicted (week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"Lengthening the fitness time constant from {ctl_days} to {suggested_ctl} days "
+            f"will shift future peak predictions later to match your training response. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+    else:
+        # On target: actual peak within the tolerance band of predicted peak
+        suggested_ctl = ctl_days
+        direction = "none"
+        explanation = (
+            f"Your fitness peaked within {timing_tolerance} week(s) of the predicted week "
+            f"(week {actual_peak_week} vs predicted week {predicted_peak_week}). "
+            f"No adjustment to the fitness time constant is suggested. "
+            f"Performance was {abs(peak_level_delta_pct)}% "
+            f"{'below' if peak_level_delta_pct < 0 else 'above'} your goal time."
+        )
+
+    return {
+        "suggested_ctl_days": int(suggested_ctl),
+        "suggested_atl_days": int(atl_days),
+        "timing_delta_weeks": timing_delta,
+        "peak_level_delta_pct": peak_level_delta_pct,
+        "explanation": explanation,
+        "adjustment_direction": direction,
+        "reason": "",
+    }
