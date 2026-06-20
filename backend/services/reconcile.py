@@ -266,6 +266,9 @@ def reconcile_workouts(job_id, user_id) -> None:
     # Derive TSS (fallback) + Zone-2 minutes for runs from the now-current splits.
     compute_run_metrics(user_id)
 
+    # Update the per-athlete best-effort duration curve for all runs.
+    _update_duration_curves(uid)
+
 
 def compute_run_metrics(user_id) -> None:
     """Per-run: fill zone2_minutes (time in the user's Zone-2 HR band) from the
@@ -316,3 +319,28 @@ def compute_run_metrics(user_id) -> None:
                 w.tss_source = src
 
         session.commit()
+
+
+def _update_duration_curves(user_id) -> None:
+    """Rebuild the stored best-effort duration curve for all run workouts of one athlete.
+
+    Called automatically by reconcile_workouts after each sync completes. Iterates
+    every run workout for the user and merges its computed power curve into the stored
+    best-effort record via update_athlete_power_curve.
+    """
+    from backend.db import engine
+    from backend.models import Workout
+    from backend.services.duration_curve_best_effort import update_athlete_power_curve
+
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+    with _Session(engine) as session:
+        run_ids = [
+            row[0]
+            for row in session.query(Workout.id)
+            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
+            .all()
+        ]
+
+    for workout_id in run_ids:
+        with _Session(engine) as session:
+            update_athlete_power_curve(uid, workout_id, session)

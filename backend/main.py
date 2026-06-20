@@ -44,6 +44,8 @@ from backend.services.training_load import (
     daily_tss_series,
     daily_update,
     compute_load_curves,
+    compute_fitness_series,
+    readiness_label as training_readiness_label,
     project_form,
     taper_recommendation,
     peak_tracking,
@@ -52,6 +54,8 @@ from backend.services.training_load import (
     DEFAULT_TAPER_DAYS,
     TARGET_FORM_LOWER,
     PEAK_TRACKING_TOLERANCE,
+    BASELINE_WINDOW_DAYS,
+    BASELINE_MIN_WORKOUT_DAYS,
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
@@ -6361,52 +6365,108 @@ def get_readiness_today(user: User = Depends(resolve_user)):
 
 
 @app.get("/api/readiness")
-def get_readiness_range(
-    from_date: str = Query(..., alias="from"),
-    to_date: str = Query(..., alias="to"),
+def get_readiness(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
     """
-    Return daily readiness scores for a date range (one entry per day, null if missing).
+    Training-load readiness endpoint with backward-compatible wellness score range.
 
-    Response: list of { date, score } or null per day in [from, to].
+    Without params: returns CTL, ATL, TSB, readiness_label, series, and
+    building_baseline for today's training state. Uses compute_fitness_series to
+    derive all metric values; no raw query is present in this branch.
+
+    With both 'from' and 'to' params: returns the legacy wellness readiness score
+    range — a list of { date, score } objects (or null) per day in [from, to].
     """
-    uid = user.id
+    if from_date is not None or to_date is not None:
+        # ── Legacy wellness score range ──────────────────────────────────────────
+        if from_date is None:
+            raise HTTPException(status_code=400, detail="'from' date is required when 'to' is provided")
+        if to_date is None:
+            raise HTTPException(status_code=400, detail="'to' date is required when 'from' is provided")
 
-    try:
-        d_from = _date.fromisoformat(from_date)
-        d_to = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+        try:
+            d_from = _date.fromisoformat(from_date)
+            d_to = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
 
-    if d_from > d_to:
-        raise HTTPException(status_code=400, detail="from must be <= to")
+        if d_from > d_to:
+            raise HTTPException(status_code=400, detail="from must be <= to")
 
-    from sqlalchemy import text as _text
-    with Session(engine) as session:
-        rows = session.execute(
-            _text(
-                "SELECT date, score FROM daily_readiness "
-                "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
-                "ORDER BY date"
-            ),
-            {"uid": str(uid), "from_d": str(d_from), "to_d": str(d_to)},
-        ).fetchall()
+        from sqlalchemy import text as _text
+        with Session(engine) as session:
+            rows = session.execute(
+                _text(
+                    "SELECT date, score FROM daily_readiness "
+                    "WHERE user_id = :uid AND date >= :from_d AND date <= :to_d "
+                    "ORDER BY date"
+                ),
+                {"uid": str(user.id), "from_d": str(d_from), "to_d": str(d_to)},
+            ).fetchall()
 
-    by_date = {str(r.date): float(r.score) for r in rows}
+        by_date = {str(r.date): float(r.score) for r in rows}
+        result = []
+        d = d_from
+        from datetime import timedelta
+        while d <= d_to:
+            ds = str(d)
+            if ds in by_date:
+                result.append({"date": ds, "score": by_date[ds]})
+            else:
+                result.append(None)
+            d += timedelta(days=1)
+        return JSONResponse(result)
 
-    result = []
-    d = d_from
-    from datetime import timedelta
-    while d <= d_to:
-        ds = str(d)
-        if ds in by_date:
-            result.append({"date": ds, "score": by_date[ds]})
-        else:
-            result.append(None)
-        d += timedelta(days=1)
+    # ── Training-load readiness (CTL / ATL / TSB) ────────────────────────────────
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+    series = compute_fitness_series(str(user.id), warmup_start, today)
 
-    return JSONResponse(result)
+    window_start = today - _timedelta(days=BASELINE_WINDOW_DAYS)
+    workout_days_in_window = sum(
+        1 for row in series
+        if row["tss"] > 0 and row["date"] >= window_start
+    )
+    building_baseline = workout_days_in_window < BASELINE_MIN_WORKOUT_DAYS
+
+    if building_baseline:
+        return JSONResponse({
+            "building_baseline": True,
+            "ctl": None,
+            "atl": None,
+            "tsb": None,
+            "readiness_label": None,
+            "series": [],
+        })
+
+    last = series[-1]
+    ctl = round(last["ctl"], 1)
+    atl = round(last["atl"], 1)
+    tsb = round(last["tsb"], 1)
+
+    series_start = today - _timedelta(days=89)
+    chart_series = [
+        {
+            "date": str(row["date"]),
+            "ctl": row["ctl"],
+            "atl": row["atl"],
+            "tsb": row["tsb"],
+        }
+        for row in series
+        if row["date"] >= series_start
+    ]
+
+    return JSONResponse({
+        "building_baseline": False,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+        "readiness_label": training_readiness_label(tsb),
+        "series": chart_series,
+    })
 
 
 @app.get("/api/readiness/current")
@@ -6448,6 +6508,168 @@ def get_readiness_current(user: User = Depends(resolve_user)):
         "tsb": tsb,
         "recovery_hint": _load_interpretation(ctl, atl, tsb),
     })
+
+
+# ── Performance chart endpoint ────────────────────────────────────────────────
+
+@app.get("/api/performance/chart")
+def get_performance_chart(
+    athlete_id: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+):
+    """Return aligned CTL/ATL/TSB/endurance/speed time series for a performance chart.
+
+    Accepts athlete_id, start_date (YYYY-MM-DD), and end_date (YYYY-MM-DD) as
+    query parameters.  All error cases return HTTP 200 with empty series arrays
+    and a machine-readable reason field instead of raising HTTP errors.
+
+    Empty-payload reasons:
+        athlete_not_found   — athlete_id missing or does not match any user
+        invalid_date_range  — dates missing, unparseable, or start > end
+        no_data_in_range    — athlete exists but no load data falls in range
+
+    Response (normal):
+        {
+          "dates": ["2026-01-01", ...],
+          "ctl": [12.5, ...],
+          "atl": [10.0, ...],
+          "tsb": [2.5, ...],
+          "endurance_score": [null, 45.5, ...],
+          "speed_score": [null, 60.0, ...],
+          "building_baseline": false,
+          "reason": ""
+        }
+    """
+    from backend.services.performance_chart import compute_performance_chart
+    from backend.services.daily_load import daily_load_series as _perf_daily_load_series
+    from backend.services.lap_classify import classify_laps as _classify_laps
+    from backend.services.zone_constants import make_zone_constants as _make_zone_constants
+    from backend.services.fitness_model import CTL_TIME_CONSTANT as _CTL_TC
+
+    def _empty_response(reason: str):
+        return JSONResponse({
+            "dates": [], "ctl": [], "atl": [], "tsb": [],
+            "endurance_score": [], "speed_score": [],
+            "building_baseline": False,
+            "reason": reason,
+        })
+
+    # AC6: athlete_id is required; missing → athlete_not_found
+    if not athlete_id:
+        return _empty_response("athlete_not_found")
+
+    # AC7: both dates are required; missing → invalid_date_range
+    if not start_date or not end_date:
+        return _empty_response("invalid_date_range")
+
+    # AC7: parse and validate dates
+    try:
+        d_start = _date.fromisoformat(start_date)
+        d_end = _date.fromisoformat(end_date)
+    except ValueError:
+        return _empty_response("invalid_date_range")
+
+    if d_start > d_end:
+        return _empty_response("invalid_date_range")
+
+    # AC6: look up athlete (user) by id
+    try:
+        import uuid as _uuid_mod
+        uid = _uuid_mod.UUID(str(athlete_id))
+    except (ValueError, AttributeError):
+        return _empty_response("athlete_not_found")
+
+    with Session(engine) as session:
+        user_row = session.get(User, uid)
+        if user_row is None:
+            return _empty_response("athlete_not_found")
+
+        # Fetch workouts with a warmup window so the EWMA can converge
+        warmup_start = d_start - _timedelta(days=_CTL_TC * 2)
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= warmup_start,
+                Workout.workout_date <= d_end,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+
+        # Build the daily load series for fitness model input
+        workout_dicts = [
+            {
+                "id": str(w.id),
+                "date": str(w.workout_date),
+                "tss": float(w.tss) if w.tss is not None else None,
+            }
+            for w in workouts
+        ]
+        load_series = _perf_daily_load_series(workout_dicts, str(warmup_start), str(d_end))
+        if isinstance(load_series, dict):
+            # Validation failure from daily_load_series
+            return _empty_response("no_data_in_range")
+
+        # Build classified run data for endurance/speed score computation
+        run_workouts = [w for w in workouts if w.workout_type.lower() == "run"]
+
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        prefs_dict: dict = {}
+        if prefs_row is not None:
+            prefs_dict = {
+                "ftp_w": prefs_row.ftp_w,
+                "threshold_hr": prefs_row.threshold_hr,
+                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+            }
+
+        zc = _make_zone_constants(preferences=prefs_dict)
+
+        runs: list[dict] = []
+        for w in run_workouts:
+            splits = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == w.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+            if not splits:
+                continue
+
+            classifications = _classify_laps(splits, prefs_dict)
+            laps = []
+            for split, clf in zip(splits, classifications):
+                laps.append({
+                    "band": clf.get("band"),
+                    "avg_hr": float(split.avg_hr) if split.avg_hr is not None else None,
+                    "avg_power": float(split.avg_power) if split.avg_power is not None else None,
+                    "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                    "duration_seconds": float(split.duration_seconds) if split.duration_seconds is not None else None,
+                })
+
+            runs.append({
+                "run_id": str(w.id),
+                "run_date": str(w.workout_date),
+                "laps": laps,
+                "decoupling_pct": None,
+            })
+
+    # Delegate to the pure computation function
+    result = compute_performance_chart(
+        daily_load_series=load_series,
+        runs=runs,
+        preferences=prefs_dict if prefs_dict else {},
+        zone_constants=zc,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return JSONResponse(result)
 
 
 # ── Training Log endpoint ─────────────────────────────────────────────────────
@@ -9303,6 +9525,83 @@ def get_training_daily_load(
     return JSONResponse(result)
 
 
+@app.get("/api/athletes/{athlete_id}/daily-load")
+def get_athlete_daily_load(
+    athlete_id: str,
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+):
+    """Return per-day training load aggregates for an athlete.
+
+    Validates date params first (400 on failure), then checks athlete
+    exists (404 if not), then delegates computation to daily_load_series.
+    """
+    if start_date is None or end_date is None:
+        missing = []
+        if start_date is None:
+            missing.append("start_date")
+        if end_date is None:
+            missing.append("end_date")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required query parameter(s): {', '.join(missing)}",
+        )
+
+    try:
+        start_d = _date.fromisoformat(start_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date is not a valid ISO-8601 date: {start_date!r}",
+        )
+
+    try:
+        end_d = _date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"end_date is not a valid ISO-8601 date: {end_date!r}",
+        )
+
+    if start_d > end_d:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_date ({start_date}) must not be after end_date ({end_date})",
+        )
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= start_d,
+                Workout.workout_date <= end_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+        workouts = [
+            {
+                "id": str(r.id),
+                "date": r.workout_date.isoformat(),
+                "tss": float(r.tss) if r.tss is not None else None,
+            }
+            for r in rows
+        ]
+
+    result = _daily_load_series(workouts, start_date, end_date)
+    return JSONResponse(result)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
@@ -10658,16 +10957,24 @@ async def accept_threshold_suggestions(
             detail=f"Unknown threshold keys: {unknown}. Valid keys: {list(_SUGGESTION_KEYS)}",
         )
 
-    from backend.services.threshold_suggestions import suggest_thresholds
-
     with Session(engine) as session:
-        duration_curve = _build_user_power_curve(session, user.id)
-        recent_runs = _build_user_recent_runs(session, user.id)
-        result = suggest_thresholds(duration_curve, recent_runs)
+        # Use _pending_suggestions to get only keys not yet accepted.
+        pending = _pending_suggestions(session, user.id)
 
-        # No suggestions available
-        if "suggestions" in result:
-            return JSONResponse({"written": {}, "skipped": keys_to_accept})
+        # AC7: every requested key must have a pending suggestion; error otherwise.
+        if keys_to_accept:
+            missing = [k for k in keys_to_accept if k not in pending]
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"No pending suggestion for key(s): {missing}. "
+                        f"Pending suggestions available for: {list(pending.keys())}"
+                    ),
+                )
+
+        if not keys_to_accept:
+            return JSONResponse({"written": {}, "skipped": []})
 
         # Get or create user preferences row
         prefs = (
@@ -10680,19 +10987,15 @@ async def accept_threshold_suggestions(
             session.add(prefs)
 
         written: dict = {}
-        skipped: list = []
         for key in keys_to_accept:
-            if key not in result:
-                skipped.append(key)
-                continue
-            value = result[key]["value"]
+            value = pending[key]["value"]
             setattr(prefs, key, value)
             setattr(prefs, f"{key}_source", "user_accepted")
             written[key] = value
 
         prefs.updated_at = _datetime.now(_timezone.utc)
         session.commit()
-        return JSONResponse({"written": written, "skipped": skipped})
+        return JSONResponse({"written": written, "skipped": []})
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
@@ -10703,6 +11006,9 @@ def get_athlete_duration_curve(athlete_id: str):
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
     but has no runs on record. Returns 404 when the athlete ID does not exist.
+
+    Each curve entry includes duration, best_value, source_workout_id, source_date,
+    and a debug object identifying the source workout.
     """
     try:
         uid = _uuid.UUID(athlete_id)
@@ -10716,21 +11022,45 @@ def get_athlete_duration_curve(athlete_id: str):
 
         curve_data = _get_athlete_duration_curve(uid, session)
 
-    if not curve_data:
-        return JSONResponse({
-            "athleteId": athlete_id,
-            "curve": [],
-            "debug": [],
-            "reason": "No runs found for athlete",
-        })
+        if not curve_data:
+            return JSONResponse({
+                "athleteId": athlete_id,
+                "curve": [],
+                "debug": [],
+                "reason": "No runs found for athlete",
+            })
+
+        # Batch-load workout names for debug labels
+        workout_ids = set()
+        for entry in curve_data.values():
+            wid = entry.get("workout_id")
+            if wid:
+                try:
+                    workout_ids.add(_uuid.UUID(wid))
+                except (ValueError, AttributeError):
+                    pass
+
+        workout_names: dict = {}
+        if workout_ids:
+            rows = (
+                session.query(Workout.id, Workout.name)
+                .filter(Workout.id.in_(workout_ids))
+                .all()
+            )
+            workout_names = {str(r.id): r.name for r in rows}
 
     curve_entries = sorted(
         [
             {
                 "duration": int(dur),
-                "bestValue": entry["best_value"],
-                "workoutId": entry["workout_id"],
-                "date": entry["date"],
+                "best_value": entry["best_value"],
+                "source_workout_id": entry["workout_id"],
+                "source_date": entry.get("date"),
+                "debug": {
+                    "workout_label": workout_names.get(entry["workout_id"])
+                    or entry["workout_id"],
+                    "confidence": entry.get("confidence"),
+                },
             }
             for dur, entry in curve_data.items()
         ],
@@ -10740,5 +11070,142 @@ def get_athlete_duration_curve(athlete_id: str):
     return JSONResponse({
         "athleteId": athlete_id,
         "curve": curve_entries,
-        "debug": curve_entries,
+        "debug": [e["debug"] for e in curve_entries],
     })
+
+
+# ── Athlete performance scores ────────────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/performance")
+def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
+    """Return endurance and speed performance scores for an athlete.
+
+    Both scores are derived from per-run efficiency and (for endurance) aerobic
+    decoupling, normalised to the athlete's own historical range.  No hardcoded
+    thresholds are used; all zone bands and cutoffs come from user_preferences
+    and the shared zone_constants module.
+
+    Returns 200 with both ``endurance`` and ``speed`` keys.
+    When the athlete has fewer than the minimum qualifying runs, the affected
+    key returns ``{"state": "building_baseline", "reason": "..."}``.
+    When preferences are unavailable, returns ``{"score": null, "reason": "..."}``.
+    Returns 404 when the athlete ID does not exist.
+    """
+    from backend.services.running_performance import compute_endurance_score, compute_speed_score
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    try:
+        from backend.services.aerobic_decoupling import compute_decoupling
+    except ImportError:
+        compute_decoupling = None
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        # Load user preferences; None means preferences row absent
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        if prefs_row is not None:
+            preferences = {
+                "ftp_w": prefs_row.ftp_w,
+                "threshold_hr": prefs_row.threshold_hr,
+                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                # aerobic_decoupling_threshold added by migration d915ffcb4c0c
+                "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                "duration_curve_bests": None,
+            }
+        else:
+            preferences = None
+
+        # Load duration-curve bests so speed score can reference them
+        curve_data = _get_athlete_duration_curve(uid, session)
+        if preferences is not None:
+            preferences["duration_curve_bests"] = curve_data or {}
+
+        # Load all run workouts in chronological order (oldest first)
+        run_workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+            .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+            .all()
+        )
+
+        prefs_dict = preferences or {}
+
+        runs = []
+        for workout in run_workouts:
+            # Load per-lap splits ordered by split_index
+            splits = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == workout.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+
+            # Classify lap intensity bands using user thresholds
+            classifications = classify_laps(splits, prefs_dict)
+
+            # Build lap dicts with classification bands
+            laps = []
+            for split, cls in zip(splits, classifications):
+                laps.append({
+                    "band": cls.get("band"),
+                    "avg_power": split.avg_power,
+                    "avg_hr": split.avg_hr,
+                    "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                    "duration_seconds": split.duration_seconds,
+                })
+
+            # Compute aerobic decoupling for this run (back-half vs front-half
+            # efficiency) using plain dicts so compute_decoupling stays pure
+            decoupling_pct = None
+            if compute_decoupling is not None:
+                split_dicts = [
+                    {
+                        "split_index": s.split_index,
+                        "duration_seconds": s.duration_seconds,
+                        "avg_hr": s.avg_hr,
+                        "avg_power": s.avg_power,
+                        "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                    }
+                    for s in splits
+                ]
+                decoupling_result, _ = compute_decoupling(
+                    {"workout_type": workout.workout_type},
+                    split_dicts,
+                    prefs_dict.get("aerobic_decoupling_threshold"),
+                )
+                decoupling_pct = (
+                    decoupling_result.get("decoupling_pct")
+                    if decoupling_result
+                    else None
+                )
+
+            runs.append({
+                "run_id": str(workout.id),
+                "workout_date": workout.workout_date.isoformat() if workout.workout_date else "",
+                "laps": laps,
+                "decoupling_pct": decoupling_pct,
+                "avg_power": workout.avg_power,
+                "avg_hr": workout.avg_hr,
+                "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
+                "duration_seconds": workout.duration_seconds,
+            })
+
+    # All DB access is finished above.  The pure functions below perform no I/O.
+    zone_constants = make_zone_constants()
+    endurance = compute_endurance_score(runs, preferences, zone_constants)
+    speed = compute_speed_score(runs, preferences, zone_constants)
+
+    return JSONResponse({"endurance": endurance, "speed": speed})
