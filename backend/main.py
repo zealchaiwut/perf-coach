@@ -10042,7 +10042,7 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     try:
         rid = _uuid.UUID(race_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="race not found")
+        raise HTTPException(status_code=400, detail=f"invalid race id format: {race_id!r}")
 
     with Session(engine) as db:
         race = db.get(Race, rid)
@@ -10050,7 +10050,7 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     if race is None:
         raise HTTPException(status_code=404, detail="race not found")
     if race.user_id != user.id:
-        raise HTTPException(status_code=403, detail="access denied: race belongs to a different user")
+        raise HTTPException(status_code=404, detail="race not found")
 
     # ── 2. Read all thresholds from configuration ─────────────────────────────
     buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
@@ -10146,8 +10146,9 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     on_track_status = on_track_result.get("status")
     on_track_bool = on_track_status in ("on track", "ahead") if on_track_status else None
 
-    # ── 9. specificity_progress ───────────────────────────────────────────────
-    # Fetch recent runs (last 90 days) from workouts table for this user.
+    # ── 9. specificity_progress and timeline_markers ─────────────────────────
+    # Fetch recent runs (last 90 days) and B/C-race + checkpoint markers in one
+    # DB session so the route handler owns all data access.
     run_window_start = today - _timedelta(days=90)
     with Session(engine) as db:
         from sqlalchemy import text as _text
@@ -10167,6 +10168,30 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             {"uid": str(user.id), "since": run_window_start},
         ).fetchall()
 
+        marker_rows = db.execute(
+            _text(
+                """
+                SELECT race_date, race_type, priority, name
+                FROM races
+                WHERE user_id = :uid
+                  AND id != :race_id
+                  AND race_date > :today
+                  AND race_date < :race_date
+                  AND (
+                    (race_type = 'race' AND priority IN ('B', 'C'))
+                    OR race_type = 'checkpoint'
+                  )
+                ORDER BY race_date ASC
+                """
+            ),
+            {
+                "uid": str(user.id),
+                "race_id": str(race.id),
+                "today": today,
+                "race_date": race.race_date,
+            },
+        ).fetchall()
+
     import types as _types
 
     recent_runs = [
@@ -10180,6 +10205,16 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
 
     spec_result = _specificity_progress(race, recent_runs)
 
+    timeline_markers = []
+    for row in marker_rows:
+        r_date, r_type, r_priority, r_name = row[0], row[1], row[2], row[3]
+        marker_type = "checkpoint" if r_type == "checkpoint" else f"{r_priority}-race"
+        timeline_markers.append({
+            "date": r_date.isoformat(),
+            "type": marker_type,
+            "label": r_name,
+        })
+
     # ── 10. Assemble response ─────────────────────────────────────────────────
     response: dict = {
         "race_id": str(race.id),
@@ -10191,13 +10226,15 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             "gap": on_track_result.get("gap"),
         },
         "specificity_progress": spec_result,
+        "timeline_markers": timeline_markers,
     }
 
     if not building_baseline:
         if projected_form is not None:
             response["projected_form"] = projected_form
         if taper_rec is not None:
-            response["taper_recommendation"] = taper_rec
+            response["taper_recommendation"] = taper_rec  # kept for backward compatibility
+            response["taper"] = taper_rec  # canonical key per issue #713
 
     return JSONResponse(response)
 

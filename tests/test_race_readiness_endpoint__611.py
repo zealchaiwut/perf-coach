@@ -274,8 +274,8 @@ def test_endpoint_404_when_race_not_found():
     assert "not found" in exc_info.value.detail.lower()
 
 
-def test_endpoint_404_for_invalid_uuid():
-    """When race_id is not a valid UUID, endpoint returns 404."""
+def test_endpoint_400_for_invalid_uuid():
+    """When race_id is not a valid UUID, endpoint returns 400 (malformed ID)."""
     from fastapi import HTTPException
     from backend.main import get_race_readiness
 
@@ -283,13 +283,16 @@ def test_endpoint_404_for_invalid_uuid():
     with pytest.raises(HTTPException) as exc_info:
         get_race_readiness("not-a-uuid", user)
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == 400
 
 
 # ── AC12: 403 when race belongs to a different user ──────────────────────────
 
-def test_endpoint_403_when_race_belongs_to_other_user():
-    """When the race exists but belongs to a different user, endpoint raises 403."""
+def test_endpoint_404_when_race_belongs_to_other_user():
+    """When the race exists but belongs to a different user, endpoint raises 404.
+
+    Returns 404 (not 403) to avoid leaking whether the race exists at all.
+    """
     from fastapi import HTTPException
     from backend.main import get_race_readiness
 
@@ -307,8 +310,8 @@ def test_endpoint_403_when_race_belongs_to_other_user():
         with pytest.raises(HTTPException) as exc_info:
             get_race_readiness(str(race.id), user)
 
-    assert exc_info.value.status_code == 403
-    assert "access denied" in exc_info.value.detail.lower() or "different user" in exc_info.value.detail.lower()
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail.lower()
 
 
 # ── AC7 / AC13: building_baseline=True branch ────────────────────────────────
