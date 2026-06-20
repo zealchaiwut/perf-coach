@@ -143,6 +143,9 @@ def specificity_progress(
 
         - ``distance_km``      — distance covered (Decimal or float).
         - ``duration_seconds`` — elapsed time in seconds (int).
+        - ``is_b_race``        — optional boolean; when truthy the run is
+          treated as a B-race result and excluded from all four components
+          (see B-race exclusion section below).
 
         When ``None`` or empty, zeroed ``current`` values are returned with
         targets still derived from ``race``, plus a ``"reason"`` string.
@@ -209,6 +212,19 @@ def specificity_progress(
 
     Both Run A (volume_at_pace) and Run B (longest_run_by_duration) produce
     non-zero component progress, satisfying the AC2 acceptance criterion.
+
+    B-race exclusion
+    ----------------
+    Runs whose ``is_b_race`` attribute is truthy are dropped before any
+    metric is computed.  B-races are competitive efforts whose pacing and
+    fatigue cost differ from goal-specific training runs, so including them
+    would inflate the specificity metrics and misrepresent training readiness.
+
+    Example: if Run A above were a B-race (``is_b_race=True``), it would be
+    skipped entirely — ``volume_at_pace`` current would be 0 km (not 15 km)
+    and ``longest_pace_effort`` current would also be 0 km.  Run B (easy
+    long run, not a B-race) still contributes normally to the distance and
+    duration metrics.
     """
     # Guard: race must be provided
     if race is None:
@@ -269,6 +285,10 @@ def specificity_progress(
             dur = int(dur_raw) if dur_raw is not None else None
         except (TypeError, ValueError):
             dur = None
+
+        # Skip B-race results — they skew specificity metrics (see docstring)
+        if getattr(run, "is_b_race", False):
+            continue
 
         # Skip runs without both distance and duration
         if dist is None or dur is None or dist <= 0 or dur <= 0:
