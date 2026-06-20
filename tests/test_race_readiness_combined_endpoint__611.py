@@ -278,8 +278,11 @@ def test_race_readiness__404_nonexistent_race(client):
     assert "detail" in data or "message" in data, "404 response must include descriptive error message"
 
 
-def test_race_readiness__403_access_denied_different_user(client):
-    """AC11: Returns 403 when authenticated user does not have access to the requested race."""
+def test_race_readiness__404_access_denied_different_user(client):
+    """AC11: Returns 404 when authenticated user requests a race they do not own.
+
+    Returns 404 (not 403) to avoid leaking whether the race exists at all.
+    """
     user_id, client = _login_and_get_user_id(client, username="testuser")
 
     # Get any race (belongs to testuser)
@@ -299,18 +302,18 @@ def test_race_readiness__403_access_denied_different_user(client):
     # Try to access testuser's race as otheruser
     r_forbidden = client2.get(f"/api/races/{race_id}/readiness")
 
-    assert r_forbidden.status_code == 403, f"Expected 403 for unauthorized access, got {r_forbidden.status_code}"
+    assert r_forbidden.status_code == 404, f"Expected 404 for unauthorized access, got {r_forbidden.status_code}"
     data = r_forbidden.json()
-    assert "detail" in data or "message" in data, "403 response must include descriptive error message"
+    assert "detail" in data or "message" in data, "404 response must include descriptive error message"
 
 
 def test_race_readiness__invalid_race_id_format(client):
-    """AC10 (edge case): Returns 404 when race id is not a valid UUID format."""
+    """AC13: Returns 400 when race id is not a valid UUID format."""
     user_id, client = _login_and_get_user_id(client)
 
     r = client.get("/api/races/not-a-uuid/readiness")
 
-    assert r.status_code == 404, f"Expected 404 for invalid UUID, got {r.status_code}"
+    assert r.status_code == 400, f"Expected 400 for invalid UUID format, got {r.status_code}"
 
 
 def test_race_readiness__response_schema_structure(client):
