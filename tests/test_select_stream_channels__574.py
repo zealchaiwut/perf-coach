@@ -53,7 +53,7 @@ def _stryd_channels():
 def test_null_when_source_a_is_none():
     """AC2/AC9d: None channel set A → (None, None, reason)."""
     merged, attribution, reason = select_channels(
-        None, _stryd_channels(), "garmin", "stryd"
+        None, _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is None
     assert attribution is None
@@ -64,7 +64,7 @@ def test_null_when_source_a_is_none():
 def test_null_when_source_b_is_none():
     """AC2/AC9d: None channel set B → (None, None, reason)."""
     merged, attribution, reason = select_channels(
-        _garmin_channels(), None, "garmin", "stryd"
+        _garmin_channels(), None, {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is None
     assert attribution is None
@@ -74,7 +74,7 @@ def test_null_when_source_b_is_none():
 def test_null_when_source_a_is_empty():
     """AC2/AC9d: Empty dict channel set A → (None, None, reason)."""
     merged, attribution, reason = select_channels(
-        {}, _stryd_channels(), "garmin", "stryd"
+        {}, _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is None
     assert attribution is None
@@ -84,7 +84,7 @@ def test_null_when_source_a_is_empty():
 def test_null_when_source_b_is_empty():
     """AC2/AC9d: Empty dict channel set B → (None, None, reason)."""
     merged, attribution, reason = select_channels(
-        _garmin_channels(), {}, "garmin", "stryd"
+        _garmin_channels(), {}, {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is None
     assert attribution is None
@@ -98,7 +98,7 @@ def test_null_when_source_b_is_empty():
 def test_power_w_from_stryd_when_stryd_is_source_b():
     """AC3/AC9a: power_w taken from Stryd (source B)."""
     merged, attribution, reason = select_channels(
-        _garmin_channels(), _stryd_channels(), "garmin", "stryd"
+        _garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is not None
     assert "power_w" in merged
@@ -109,7 +109,7 @@ def test_power_w_from_stryd_when_stryd_is_source_b():
 def test_power_w_from_stryd_when_stryd_is_source_a():
     """AC3: power_w taken from Stryd even when Stryd is source A."""
     merged, attribution, reason = select_channels(
-        _stryd_channels(), _garmin_channels(), "stryd", "garmin"
+        _stryd_channels(), _garmin_channels(), {"name": "stryd"}, {"name": "garmin"}
     )
     assert merged is not None
     assert "power_w" in merged
@@ -130,7 +130,7 @@ def test_power_w_null_with_reason_when_stryd_absent():
         "heart_rate_bpm": [139.0, 141.0, 140.0],
         "cadence_spm": [176.0, 178.0, 177.0],
     }
-    merged, attribution, reason = select_channels(garmin2, polar, "garmin", "polar")
+    merged, attribution, reason = select_channels(garmin2, polar, {"name": "garmin"}, {"name": "polar"})
     # merged is not None (other channels still merged)
     assert merged is not None
     # power_w is absent from merged result
@@ -149,7 +149,7 @@ def test_power_w_null_with_reason_when_stryd_absent():
 def test_gps_channels_taken_from_garmin():
     """AC4: latitude/longitude/altitude_m come from the GPS-capable source (garmin)."""
     merged, attribution, reason = select_channels(
-        _garmin_channels(), _stryd_channels(), "garmin", "stryd"
+        _garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is not None
     assert "latitude" in merged
@@ -168,7 +168,7 @@ def test_gps_channels_omitted_when_neither_source_has_gps():
         "heart_rate_bpm": [150.0, 152.0, 151.0, 153.0],
         "power_w": [270.0, 275.0, 268.0, 272.0],
     }
-    merged, attribution, reason = select_channels(stryd_a, stryd_b, "stryd", "polar")
+    merged, attribution, reason = select_channels(stryd_a, stryd_b, {"name": "stryd"}, {"name": "polar"})
     # Function should not raise and merged should be a dict
     assert merged is not None
     # GPS channels absent
@@ -194,7 +194,7 @@ def test_tiebreak_longer_picks_source_with_more_samples():
         "time_offset_seconds": [0, 1, 2],
         "heart_rate_bpm": [150.0, 151.0, 152.0],  # 3 samples
     }
-    merged, attribution, reason = select_channels(src_a, src_b, "polar", "garmin")
+    merged, attribution, reason = select_channels(src_a, src_b, {"name": "polar"}, {"name": "garmin"})
     assert merged["heart_rate_bpm"] == src_a["heart_rate_bpm"]
     assert attribution["heart_rate_bpm"] == "polar"
 
@@ -209,7 +209,7 @@ def test_tiebreak_prefer_a():
         "time_offset_seconds": [0, 1, 2],
         "heart_rate_bpm": [150.0, 151.0, 152.0],
     }
-    merged, attribution, _ = select_channels(src_a, src_b, "polar", "garmin", tiebreak_rule="prefer_a")
+    merged, attribution, _ = select_channels(src_a, src_b, {"name": "polar"}, {"name": "garmin"}, tiebreak_rule="prefer_a")
     # prefer_a overrides sample count
     assert attribution["heart_rate_bpm"] == "polar"
 
@@ -224,7 +224,7 @@ def test_tiebreak_prefer_b():
         "time_offset_seconds": [0, 1],
         "heart_rate_bpm": [150.0, 151.0],
     }
-    merged, attribution, _ = select_channels(src_a, src_b, "polar", "garmin", tiebreak_rule="prefer_b")
+    merged, attribution, _ = select_channels(src_a, src_b, {"name": "polar"}, {"name": "garmin"}, tiebreak_rule="prefer_b")
     assert attribution["heart_rate_bpm"] == "garmin"
 
 
@@ -241,7 +241,7 @@ def test_tiebreak_dict_per_channel_override():
         "cadence_spm": [182.0, 184.0, 183.0, 185.0],
     }
     rule = {"heart_rate_bpm": "prefer_a", "cadence_spm": "longer"}
-    merged, attribution, _ = select_channels(src_a, src_b, "polar", "garmin", tiebreak_rule=rule)
+    merged, attribution, _ = select_channels(src_a, src_b, {"name": "polar"}, {"name": "garmin"}, tiebreak_rule=rule)
     # heart_rate_bpm: prefer_a overrides longer
     assert attribution["heart_rate_bpm"] == "polar"
     # cadence_spm: longer picks src_b (4 > 3)
@@ -254,7 +254,7 @@ def test_tiebreak_dict_per_channel_override():
 
 def test_returns_both_merged_and_attribution():
     """AC6: Return value is (merged_dict, attribution_dict, reason_or_none)."""
-    result = select_channels(_garmin_channels(), _stryd_channels(), "garmin", "stryd")
+    result = select_channels(_garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"})
     assert len(result) == 3, "select_channels must return a 3-tuple"
     merged, attribution, reason = result
     assert isinstance(merged, dict)
@@ -264,7 +264,7 @@ def test_returns_both_merged_and_attribution():
 def test_attribution_keys_match_merged_keys():
     """AC6: Every key in merged has a corresponding attribution entry."""
     merged, attribution, _ = select_channels(
-        _garmin_channels(), _stryd_channels(), "garmin", "stryd"
+        _garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     for ch in merged:
         assert ch in attribution, f"channel '{ch}' in merged but not in attribution"
@@ -273,7 +273,7 @@ def test_attribution_keys_match_merged_keys():
 def test_attribution_values_are_source_names():
     """AC6: Attribution values are the source name strings passed in."""
     merged, attribution, _ = select_channels(
-        _garmin_channels(), _stryd_channels(), "garmin", "stryd"
+        _garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     valid_names = {"garmin", "stryd", None}
     for ch, src in attribution.items():
@@ -287,7 +287,7 @@ def test_attribution_values_are_source_names():
 def test_overlapping_channels_both_sources():
     """AC9a: Both sources present — each overlapping channel resolved to one source."""
     merged, attribution, reason = select_channels(
-        _garmin_channels(), _stryd_channels(), "garmin", "stryd"
+        _garmin_channels(), _stryd_channels(), {"name": "garmin"}, {"name": "stryd"}
     )
     assert merged is not None
     # Channels present in at least one source should appear in merged
@@ -319,7 +319,7 @@ def test_channel_only_in_one_source_passes_through():
         "power_w": [255.0, 260.0, 258.0],
         "cadence_spm": [180.0, 182.0, 181.0],
     }
-    merged, attribution, _ = select_channels(garmin, stryd, "garmin", "stryd")
+    merged, attribution, _ = select_channels(garmin, stryd, {"name": "garmin"}, {"name": "stryd"})
     # cadence_spm only in stryd
     assert "cadence_spm" in merged
     assert attribution["cadence_spm"] == "stryd"

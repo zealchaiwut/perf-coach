@@ -7,10 +7,8 @@ a better estimate of the physiological cost of a variable-intensity
 power output.
 """
 
-_WINDOW_DURATION_SECONDS = 30
 
-
-def compute_normalized_power(power_samples, sample_interval_seconds):
+def compute_normalized_power(power_samples, sample_interval_seconds, window_duration_seconds=30):
     """Compute Normalized Power from an ordered sequence of power readings.
 
     Normalized Power accounts for the non-linear physiological cost of
@@ -25,12 +23,16 @@ def compute_normalized_power(power_samples, sample_interval_seconds):
         An ordered list of numeric power readings, each expressed in watts.
         Each element represents the average power recorded during one
         sample_interval_seconds period. Must contain at least enough readings
-        to fill one 30-second rolling window. Passing None or an empty list
+        to fill one rolling window. Passing None or an empty list
         returns None with a reason string.
     sample_interval_seconds:
         A positive number describing the elapsed time, in seconds, between
-        consecutive samples. The rolling-window size is derived from this
-        value: window_size = round(30 divided by sample_interval_seconds).
+        consecutive samples. The rolling-window size in samples is derived from
+        this value: window_size = round(window_duration_seconds / sample_interval_seconds).
+    window_duration_seconds:
+        Duration of the rolling average window in seconds. Defaults to 30,
+        the standard Normalized Power window. The sample count for the window
+        is derived from this value and sample_interval_seconds.
 
     Returns
     -------
@@ -76,7 +78,7 @@ def compute_normalized_power(power_samples, sample_interval_seconds):
     Algorithm
     ---------
     Step 1 — Derive the window size in number of samples:
-        window_size = round(30 divided by sample_interval_seconds)
+        window_size = round(window_duration_seconds divided by sample_interval_seconds)
 
     Step 2 — Compute a rolling average over that window.
         Starting at index window_size minus 1 and ending at the last sample
@@ -99,13 +101,13 @@ def compute_normalized_power(power_samples, sample_interval_seconds):
         )
         return None, {"reason": reason}
 
-    window_size = max(1, round(_WINDOW_DURATION_SECONDS / sample_interval_seconds))
+    window_size = max(1, round(window_duration_seconds / sample_interval_seconds))
 
     if len(power_samples) < window_size:
         return None, {
             "reason": (
                 f"the data duration ({len(power_samples) * sample_interval_seconds:.1f} s) "
-                f"is shorter than one rolling window ({_WINDOW_DURATION_SECONDS} s)"
+                f"is shorter than one rolling window ({window_duration_seconds} s)"
             )
         }
 

@@ -8,6 +8,27 @@
 - #695: Aggregate and expose per-athlete best-effort duration curve
 - #696: Add accept-suggestion flow for thresholds
 
+## Sprint 71 — Lap classifier rewrite, session profile improvements, and strength TSS with configurable RPE max
+
+- #678: Add lap intensity classification for session-profile detection
+- #681: Add interval and set detection to session-profile
+- #682: Implement detect_session_profile with precedence and data-quality gate
+- #683: Expose detected session profile on full workout endpoint
+- #688: Add strength TSS via session-RPE method
+- #689: Add per-set RPE refinement method for strength TSS
+
+## Sprint 70 — Activity streams, normalized power, running TSS, and golden test fixture
+
+- #665: Add power, cadence, stride, and lap-type columns via Alembic migration
+- #667: Ingest activity streams on Strava and Stryd sync
+- #668: Select stream channels when workout merges two sources
+- #669: Add compute_normalized_power pure function
+- #671: Compute and store normalized power during workout ingestion
+- #672: Add golden test fixture for workout metric calculations
+- #673: Add pure function for TSS calculation via power
+- #674: Add pure running TSS pace calculation function
+- #675: Add pure HR-based TSS calculation function
+
 ## Sprint 69 — Run view redesign, Strength detail, Training Plan tab, and Settings UI
 
 - #643: Convert Log Workout to slide-over panel

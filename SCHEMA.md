@@ -104,7 +104,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -128,6 +128,11 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | stryd_activity_pk | UUID FK→stryd_activities | SET NULL |
 | manual_overrides | jsonb | nullable |
 | zone2_minutes | int | nullable — minutes spent in Zone 2 |
+| avg_power | int | nullable — workout-level average power (watts) |
+| max_power | int | nullable — workout-level max power (watts) |
+| np | int | nullable — normalized power (watts), computed at ingest |
+| avg_cadence_spm | int | nullable — average cadence (steps per minute) |
+| avg_stride_m | numeric(4,2) | nullable — average stride length (metres) |
 | created_at | timestamptz | |
 
 Child tables: `workout_exercises`, `workout_splits`.
@@ -153,7 +158,7 @@ Child tables: `workout_exercises`, `workout_splits`.
 
 ---
 
-## workout_splits _(lap_type added Sprint 63)_
+## workout_splits _(lap_type added Sprint 63; power/cadence/stride added Sprint 70; lap_type tightened to NOT NULL Sprint 70)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -163,13 +168,13 @@ Child tables: `workout_exercises`, `workout_splits`.
 | distance_km | numeric(6,3) | |
 | duration_seconds | int | |
 | avg_hr | int | nullable |
-| avg_power | int | nullable |
-| cadence_spm | int | nullable |
-| stride_length_m | numeric(4,2) | nullable |
-| lap_type | varchar(10) | nullable; `auto` (1-km auto-split) or `manual`; default `auto` |
+| avg_power | int | nullable — split-level average power (watts) |
+| cadence_spm | int | nullable — cadence in steps per minute |
+| stride_length_m | numeric(4,2) | nullable — stride length in metres |
+| lap_type | varchar(10) | NOT NULL; `auto` (1-km auto-split) or `manual`; default `auto`; check constraint enforces `IN ('auto', 'manual')` |
 | created_at / updated_at | timestamptz | |
 
-Unique: `(workout_id, split_index)`.
+Unique: `(workout_id, split_index)`. Check: `ck_workout_splits_lap_type_values`.
 
 ---
 
@@ -227,7 +232,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66; source columns added Sprint 65)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -248,6 +253,7 @@ Unique: `(user_id, date)`.
 | week_start_day | int | default 1 (Monday) |
 | display_name | varchar(100) | nullable |
 | date_format | varchar(20) | default `YYYY-MM-DD` |
+| strength_rpe_max | int | nullable — ceiling of the RPE scale used for strength TSS (e.g. 10 for standard RPE, 20 for Borg); required for session-RPE strength TSS calculation |
 | created_at / updated_at | timestamptz | |
 
 `GET /api/user-preferences` returns both a `row` (stored overrides, null when unset) and a `defaults` object with system default values for all threshold fields. `PATCH /api/user-preferences` accepts any subset of the nullable columns; omitted fields are unchanged.
