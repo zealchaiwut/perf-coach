@@ -11,6 +11,7 @@ in ONE place so fixing the shape is a single-file change.
 reconcile.py already consumes stryd_activities, so no reconcile change is needed.
 """
 import json as _json
+import uuid as _uuid
 import urllib.error as _urllib_error
 import urllib.request as _urllib_request
 from datetime import date, datetime, timedelta, timezone
@@ -33,6 +34,8 @@ logger = get_logger(__name__)
 #   -> {"activities": [ {full activity incl. per-point *_list streams}, … ]}
 _STRYD_API_BASE = "https://www.stryd.com/b/api/v1"
 _DEFAULT_LOOKBACK_DAYS = 90
+# Full-history pulls for Settings "Sync all" (Stryd PowerCenter calendar API).
+_FULL_LOOKBACK_DAYS = 365 * 5
 
 
 def _fmt(d: date) -> str:
@@ -216,32 +219,51 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
-def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> dict:
+def sync_stryd_activities(
+    user_id: str,
+    since_date: Optional[date] = None,
+    *,
+    full: bool = False,
+) -> dict:
     """Pull Stryd activities into stryd_activities (idempotent upsert). Writes a
     SyncJob row (source='stryd') for the history panel. Does NOT reconcile —
     caller runs reconcile. Returns counts."""
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     now_utc = datetime.now(tz=timezone.utc)
     explicit_since = since_date is not None
 
-    # Resolve since_date: explicit > last sync > 90-day lookback on first sync.
-    if not explicit_since:
+    # Resolve since_date: full > explicit > last completed job > latest row > 90-day backfill.
+    if full:
+        since_date = now_utc.date() - timedelta(days=_FULL_LOOKBACK_DAYS)
+        job_type = "full"
+    elif not explicit_since:
         with Session(engine) as session:
             from sqlalchemy import func, select
+
+            last_completed = session.execute(
+                select(SyncJob.completed_at)
+                .where(SyncJob.user_id == uid)
+                .where(SyncJob.source == "stryd")
+                .where(SyncJob.status == "completed")
+                .order_by(SyncJob.completed_at.desc())
+                .limit(1)
+            ).scalar()
             latest_synced = session.execute(
                 select(func.max(StrydActivity.synced_at))
-                .where(StrydActivity.user_id == user_id)
+                .where(StrydActivity.user_id == uid)
             ).scalar()
-        if latest_synced is not None:
-            since_date = latest_synced.date() - timedelta(days=1)
+        anchor = last_completed or latest_synced
+        if anchor is not None:
+            since_date = anchor.date() - timedelta(days=1)
             job_type = "incremental"
         else:
-            since_date = (datetime.now(tz=timezone.utc).date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS))
+            since_date = now_utc.date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS)
             job_type = "full"
     else:
         job_type = "manual"
     with Session(engine) as session:
         job = SyncJob(
-            user_id=user_id, source="stryd", job_type=job_type,
+            user_id=uid, source="stryd", job_type=job_type,
             status="running", started_at=now_utc, since_date=since_date,
         )
         session.add(job)
@@ -251,19 +273,19 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
 
     created = updated = fetched = 0
     try:
-        token = refresh_stryd_session_if_needed(user_id)
+        token = refresh_stryd_session_if_needed(str(uid))
         with Session(engine) as session:
-            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).one()
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).one()
             athlete_id = cred.athlete_id
         if not athlete_id:
             raise RuntimeError("Stryd athlete_id missing; reconnect Stryd")
         raw_acts = fetch_stryd_activities(token, athlete_id, since_date=since_date)
         fetched = len(raw_acts)
-        mapped = [map_stryd_activity(a, user_id) for a in raw_acts]
+        mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
+        ids = [m["stryd_activity_id"] for m in mapped]
 
         if mapped:
-            ids = [m["stryd_activity_id"] for m in mapped]
             with Session(engine) as session:
                 existing = set(session.execute(
                     select(StrydActivity.stryd_activity_id)
@@ -346,7 +368,13 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
             jr.activities_updated = updated
             session.commit()
 
-        return {"fetched": fetched, "created": created, "updated": updated, "upserted": created + updated}
+        return {
+            "fetched": fetched,
+            "created": created,
+            "updated": updated,
+            "upserted": created + updated,
+            "stryd_activity_ids": ids,
+        }
 
     except Exception as exc:
         with Session(engine) as session:

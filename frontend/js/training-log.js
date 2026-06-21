@@ -3254,14 +3254,6 @@
     }
   }
 
-  function _syncSinceDate(latest) {
-    if (!latest || !latest.synced_at) return null;
-    var d = new Date(latest.synced_at);
-    if (isNaN(d.getTime())) return null;
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }
-
   function _syncApiError(r) {
     return r.text().then(function (text) {
       var msg = text || "HTTP " + r.status;
@@ -3314,10 +3306,8 @@
     });
   }
 
-  function _syncProvider(label, url, sinceDate) {
-    var body = sinceDate
-      ? JSON.stringify({ since_date: sinceDate })
-      : "{}";
+  function _syncProvider(label, url) {
+    var body = "{}";
     var start = window.ensureCsrfReady
       ? window.ensureCsrfReady()
       : Promise.resolve();
@@ -3342,17 +3332,15 @@
       });
   }
 
-  function _syncAllProviders(latest) {
-    var stravaSince = _syncSinceDate(latest[0]);
-    var strydSince = _syncSinceDate(latest[1]);
+  function _syncAllProviders() {
     var errors = [];
 
-    return _syncProvider("Strava", "/api/strava/sync", stravaSince)
+    return _syncProvider("Strava", "/api/strava/sync")
       .catch(function (err) {
         errors.push((err && err.message) || "Strava: Sync failed");
       })
       .then(function () {
-        return _syncProvider("Stryd", "/api/stryd/sync", strydSince).catch(function (err) {
+        return _syncProvider("Stryd", "/api/stryd/sync").catch(function (err) {
           errors.push((err && err.message) || "Stryd: Sync failed");
         });
       })
@@ -3367,25 +3355,7 @@
     var ready = window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve();
     ready
       .then(function () {
-        return Promise.all([
-          fetch("/api/sync/strava/latest")
-            .then(function (r) {
-              return r.ok ? r.json() : null;
-            })
-            .catch(function () {
-              return null;
-            }),
-          fetch("/api/sync/stryd/latest")
-            .then(function (r) {
-              return r.ok ? r.json() : null;
-            })
-            .catch(function () {
-              return null;
-            }),
-        ]);
-      })
-      .then(function (latest) {
-        return _syncAllProviders(latest);
+        return _syncAllProviders();
       })
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();

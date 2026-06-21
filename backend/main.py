@@ -7855,20 +7855,23 @@ def _default_strava_since_date(user_id: _uuid.UUID) -> str:
     return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
 
 
-def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
+def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Strava activities (optionally since since_date) and upsert."""
     import calendar as _calendar
     from datetime import date as _date_cls
     uid = _uuid.UUID(user_id)
-    if since_date is None:
-        since_date = _default_strava_since_date(uid)
     since_epoch: Optional[int] = None
-    if since_date:
-        try:
-            d = _date_cls.fromisoformat(since_date)
-            since_epoch = int(_calendar.timegm(_datetime(d.year, d.month, d.day, tzinfo=_timezone.utc).timetuple()))
-        except ValueError:
-            pass
+    if full:
+        since_epoch = None
+    else:
+        if since_date is None:
+            since_date = _default_strava_since_date(uid)
+        if since_date:
+            try:
+                d = _date_cls.fromisoformat(since_date)
+                since_epoch = int(_calendar.timegm(_datetime(d.year, d.month, d.day, tzinfo=_timezone.utc).timetuple()))
+            except ValueError:
+                pass
     try:
         _sync_jobs.set_phase(uid, "pulling_strava")
 
@@ -7962,42 +7965,65 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
 
 class _StravaSyncBody(BaseModel):
     since_date: Optional[str] = None
+    full: bool = False
 
 
 @app.post("/api/strava/sync")
 def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):
-    """Start an async Strava pull; returns 202 immediately. Optional since_date (YYYY-MM-DD)."""
+    """Start an async Strava pull; returns 202 immediately.
+
+    Default (incremental): since last synced activity minus 1 day, or 90-day
+    lookback on first sync. Pass full=true to fetch entire Strava history.
+    Optional since_date (YYYY-MM-DD) overrides the incremental window.
+    """
     uid = user.id
     since = None
+    full = False
     if body is not None:
         since = body.since_date
+        full = body.full
     try:
         _sync_jobs.start(uid, "strava")
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    t = _threading.Thread(target=_strava_sync_worker, args=(str(uid), since), daemon=True)
+    t = _threading.Thread(
+        target=_strava_sync_worker,
+        args=(str(uid), since),
+        kwargs={"full": full},
+        daemon=True,
+    )
     t.start()
     return JSONResponse({"started": True}, status_code=202)
 
 
-def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
+def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Stryd activities, upsert, then reconcile."""
     from datetime import date as _date_cls
     from backend.services import stryd_sync as _stryd_sync
     uid = _uuid.UUID(user_id)
     since = None
-    if since_date:
+    if since_date and not full:
         try:
             since = _date_cls.fromisoformat(since_date)
         except ValueError:
             pass
     try:
         _sync_jobs.set_phase(uid, "pulling_stryd")
-        result = _stryd_sync.sync_stryd_activities(user_id, since_date=since)
+        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full)
         _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
+        if result["upserted"] == 0 and not full:
+            _sync_jobs.mark_success(uid)
+            return
         _sync_jobs.set_phase(uid, "reconciling")
-        _reconcile.reconcile_workouts(uid, uid)
+        if full:
+            _reconcile.reconcile_workouts(uid, uid)
+        else:
+            _reconcile.reconcile_workouts(
+                uid,
+                uid,
+                stryd_activity_ids=result.get("stryd_activity_ids") or [],
+            )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -8005,22 +8031,37 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None) -> None:
 
 class _StrydSyncBody(BaseModel):
     since_date: Optional[str] = None
+    full: bool = False
 
 
 @app.post("/api/stryd/sync")
 def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(resolve_user)):
-    """Start an async Stryd pull; returns 202 immediately. Optional since_date (YYYY-MM-DD)."""
+    """Start an async Stryd pull; returns 202 immediately.
+
+    Default (incremental): since last completed sync minus 1 day, or 90-day
+    lookback on first sync. Pass full=true for a multi-year history pull.
+    Optional since_date (YYYY-MM-DD) overrides the incremental window.
+    """
     uid = user.id
     with Session(engine) as session:
         cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).one_or_none()
     if cred is None:
         raise HTTPException(status_code=422, detail="Connect Stryd first")
-    since = body.since_date if body is not None else None
+    since = None
+    full = False
+    if body is not None:
+        since = body.since_date
+        full = body.full
     try:
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
-    t = _threading.Thread(target=_stryd_sync_worker, args=(str(uid), since), daemon=True)
+    t = _threading.Thread(
+        target=_stryd_sync_worker,
+        args=(str(uid), since),
+        kwargs={"full": full},
+        daemon=True,
+    )
     t.start()
     return JSONResponse({"started": True}, status_code=202)
 
