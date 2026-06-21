@@ -40,6 +40,19 @@ _PW = "wt879-test-pw"
 
 # ── fixtures / helpers ─────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True, scope="module")
+def _require_server():
+    """Fail early with a useful message if the UAT server is not reachable."""
+    try:
+        with httpx.Client(base_url=BASE_URL, timeout=5.0) as probe:
+            probe.get("/api/health")
+    except httpx.ConnectError:
+        pytest.fail(
+            f"UAT server is not reachable at {BASE_URL}. "
+            "Ensure the server is running and UAT_BASE_URL / UAT_PORT is set correctly."
+        )
+
+
 @pytest.fixture
 def client():
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
