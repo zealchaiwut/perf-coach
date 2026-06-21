@@ -33,6 +33,8 @@ logger = get_logger(__name__)
 #   -> {"activities": [ {full activity incl. per-point *_list streams}, … ]}
 _STRYD_API_BASE = "https://www.stryd.com/b/api/v1"
 _DEFAULT_LOOKBACK_DAYS = 90
+# Full-history pulls for Settings "Sync all" (Stryd PowerCenter calendar API).
+_FULL_LOOKBACK_DAYS = 365 * 5
 
 
 def _fmt(d: date) -> str:
@@ -216,15 +218,22 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
-def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> dict:
+def sync_stryd_activities(
+    user_id: str,
+    since_date: Optional[date] = None,
+    *,
+    full: bool = False,
+) -> dict:
     """Pull Stryd activities into stryd_activities (idempotent upsert). Writes a
     SyncJob row (source='stryd') for the history panel. Does NOT reconcile —
     caller runs reconcile. Returns counts."""
     now_utc = datetime.now(tz=timezone.utc)
     explicit_since = since_date is not None
 
-    # Resolve since_date: explicit > last sync > 90-day lookback on first sync.
-    if not explicit_since:
+    if full:
+        since_date = now_utc.date() - timedelta(days=_FULL_LOOKBACK_DAYS)
+        job_type = "full"
+    elif not explicit_since:
         with Session(engine) as session:
             from sqlalchemy import func, select
             latest_synced = session.execute(

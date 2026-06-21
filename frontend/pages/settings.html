@@ -2373,7 +2373,7 @@
         if (_stravaSyncPanelOpen) { closeStravaSyncPanel(); return; }
         _stravaSyncPanelOpen = true;
         var btn = document.getElementById('strava-sync-now-btn');
-        if (btn) btn.textContent = 'Close';
+        if (btn) btn.textContent = 'Close custom range';
 
         fetch('/api/sync/strava/latest')
           .then(function (r) { return r.ok ? r.json() : null; })
@@ -2390,7 +2390,7 @@
         var panel = document.getElementById('strava-sync-panel');
         if (panel) panel.innerHTML = '';
         var btn = document.getElementById('strava-sync-now-btn');
-        if (btn) btn.textContent = 'Sync now';
+        if (btn) btn.textContent = 'Custom range…';
       }
 
       function _renderStravaSyncPanel(sinceDefault) {
@@ -2470,8 +2470,22 @@
         var resultEl = document.getElementById('strava-panel-result');
         if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Starting sync…</div>';
         var since = _sinceDate();
-        window.intLog('strava', 'info', 'Sync started', { since_date: since || null });
-        var body = since ? JSON.stringify({ since_date: since }) : '{}';
+        window.intLog('strava', 'info', 'Custom sync started', { since_date: since || null });
+        _stravaStartSync({ sinceDate: since }, resultEl);
+      }
+
+      function stravaQuickSync(full) {
+        _clearStravaSyncPoll();
+        var label = full ? 'Sync all' : 'Sync new';
+        window.intLog('strava', 'info', label + ' started', { full: full });
+        _stravaStartSync({ full: full }, null);
+      }
+
+      function _stravaStartSync(opts, resultEl) {
+        var payload = {};
+        if (opts.full) payload.full = true;
+        else if (opts.sinceDate) payload.since_date = opts.sinceDate;
+        var body = JSON.stringify(payload);
         var startSync = function () {
           return fetch('/api/strava/sync', {
             method: 'POST',
@@ -2479,14 +2493,15 @@
             body: body,
           });
         };
-        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+        (window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve())
           .then(startSync)
           .then(function (r) {
-            if (r.status === 409) { throw new Error('Sync already in progress'); }
+            if (r.status === 409) throw new Error('Sync already in progress');
             if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
             return r.json();
           })
           .then(function () {
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Sync running…</div>';
             _pollStravaSync(0);
           })
           .catch(function (err) {
@@ -2494,6 +2509,7 @@
             if (msg === 'CSRF token missing or invalid') {
               msg = 'Session security token expired — reload the page and try again.';
             }
+            window.intLog('strava', 'error', msg);
             if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + msg + '</div>';
           });
       }
@@ -2706,11 +2722,25 @@
         var actions = document.getElementById('strava-actions');
         actions.innerHTML = '';
 
-        var syncNowBtn = document.createElement('button');
-        syncNowBtn.className = 'integration-btn integration-btn--secondary';
-        syncNowBtn.id = 'strava-sync-now-btn';
-        syncNowBtn.textContent = 'Sync now';
-        syncNowBtn.addEventListener('click', openStravaSyncPanel);
+        var syncNewBtn = document.createElement('button');
+        syncNewBtn.className = 'integration-btn integration-btn--primary';
+        syncNewBtn.id = 'strava-sync-new-btn';
+        syncNewBtn.textContent = 'Sync new';
+        syncNewBtn.title = 'Pull activities since your last sync';
+        syncNewBtn.addEventListener('click', function () { stravaQuickSync(false); });
+
+        var syncAllBtn = document.createElement('button');
+        syncAllBtn.className = 'integration-btn integration-btn--secondary';
+        syncAllBtn.id = 'strava-sync-all-btn';
+        syncAllBtn.textContent = 'Sync all';
+        syncAllBtn.title = 'Pull your full Strava history';
+        syncAllBtn.addEventListener('click', function () { stravaQuickSync(true); });
+
+        var syncCustomBtn = document.createElement('button');
+        syncCustomBtn.className = 'integration-btn integration-btn--secondary';
+        syncCustomBtn.id = 'strava-sync-now-btn';
+        syncCustomBtn.textContent = 'Custom range…';
+        syncCustomBtn.addEventListener('click', openStravaSyncPanel);
 
         var reconcileBtn = document.createElement('button');
         reconcileBtn.className = 'integration-btn integration-btn--secondary';
@@ -2724,7 +2754,9 @@
         discBtn.textContent = 'Disconnect';
         discBtn.addEventListener('click', stravaDisconnect);
 
-        actions.appendChild(syncNowBtn);
+        actions.appendChild(syncNewBtn);
+        actions.appendChild(syncAllBtn);
+        actions.appendChild(syncCustomBtn);
         actions.appendChild(reconcileBtn);
         actions.appendChild(discBtn);
       }
@@ -2960,14 +2992,32 @@
         return msg || fallback;
       }
 
-      function strydSync() {
-        var btn = document.getElementById('stryd-sync-now-btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
-        window.intLog('stryd', 'info', 'Sync started');
+      function _strydSetSyncBusy(busy, label) {
+        ['stryd-sync-new-btn', 'stryd-sync-all-btn'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.disabled = busy;
+          if (!busy) {
+            el.textContent = id === 'stryd-sync-all-btn' ? 'Sync all' : 'Sync new';
+          } else if (label) {
+            el.textContent = label;
+          }
+        });
+      }
+
+      function _strydStartSync(full) {
+        var payload = full ? { full: true } : {};
+        var label = full ? 'Sync all' : 'Sync new';
+        _strydSetSyncBusy(true, 'Syncing…');
+        window.intLog('stryd', 'info', label + ' started', payload);
         var startSync = function () {
-          return fetch('/api/stryd/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          return fetch('/api/stryd/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
         };
-        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+        (window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve())
           .then(startSync)
           .then(function (r) {
             if (r.status === 409) throw new Error('Sync already in progress');
@@ -2977,15 +3027,17 @@
           .then(function () { _pollStrydSync(0); })
           .catch(function (err) {
             window.intLog('stryd', 'error', _strydErrMsg(err, 'Sync failed'));
-            if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+            _strydSetSyncBusy(false);
           });
       }
+
+      function strydSyncNew() { _strydStartSync(false); }
+      function strydSyncAll() { _strydStartSync(true); }
 
       function _pollStrydSync(attempt) {
         fetch('/api/sync/status')
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (job) {
-            var btn = document.getElementById('stryd-sync-now-btn');
             var status = job && job.status || 'idle';
             if (status === 'running') {
               window.intLog('stryd', 'info', 'Phase: ' + (job.phase || '…') + ' (' + (job.items_synced || 0) + ' synced)');
@@ -2993,15 +3045,20 @@
             } else if (status === 'success') {
               window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
               loadStrydSyncLatest(); loadStrydDataQuality();
-              if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+              _strydSetSyncBusy(false);
             } else if (status === 'error') {
               window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
-              if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+              _strydSetSyncBusy(false);
             } else if (attempt < 4) {
               setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            } else if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+            } else {
+              _strydSetSyncBusy(false);
+            }
           })
-          .catch(function () { if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000); });
+          .catch(function () {
+            if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            else _strydSetSyncBusy(false);
+          });
       }
 
       function renderStrydConnected(email, expiresAt) {
@@ -3024,11 +3081,19 @@
         var actions = document.getElementById('stryd-actions');
         actions.innerHTML = '';
 
-        var syncBtn = document.createElement('button');
-        syncBtn.className = 'integration-btn integration-btn--secondary';
-        syncBtn.id = 'stryd-sync-now-btn';
-        syncBtn.textContent = 'Sync now';
-        syncBtn.addEventListener('click', strydSync);
+        var syncNewBtn = document.createElement('button');
+        syncNewBtn.className = 'integration-btn integration-btn--primary';
+        syncNewBtn.id = 'stryd-sync-new-btn';
+        syncNewBtn.textContent = 'Sync new';
+        syncNewBtn.title = 'Pull activities since your last sync';
+        syncNewBtn.addEventListener('click', strydSyncNew);
+
+        var syncAllBtn = document.createElement('button');
+        syncAllBtn.className = 'integration-btn integration-btn--secondary';
+        syncAllBtn.id = 'stryd-sync-all-btn';
+        syncAllBtn.textContent = 'Sync all';
+        syncAllBtn.title = 'Pull your full Stryd history';
+        syncAllBtn.addEventListener('click', strydSyncAll);
 
         var btn = document.createElement('button');
         btn.className = 'integration-btn integration-btn--danger';
@@ -3036,7 +3101,8 @@
         btn.textContent = 'Disconnect';
         btn.addEventListener('click', strydDisconnect);
 
-        actions.appendChild(syncBtn);
+        actions.appendChild(syncNewBtn);
+        actions.appendChild(syncAllBtn);
         actions.appendChild(btn);
       }
 
