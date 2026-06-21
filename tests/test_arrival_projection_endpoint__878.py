@@ -334,7 +334,6 @@ def test_recent_rate_present_in_flat_trend():
 def test_no_db_imports_in_pure_function():
     """AC7: build_arrival_projection_response must not import DB modules."""
     import inspect
-    import backend.services.goal_arrival_caller as m
     src = inspect.getsource(build_arrival_projection_response)
     assert "session" not in src.lower() or "sessionmaker" not in src.lower()
     # The function signature must not accept a session parameter
