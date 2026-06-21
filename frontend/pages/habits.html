@@ -2209,7 +2209,7 @@
         <!-- Week navigation pill -->
         <div class="week-nav-pill" id="week-nav-pill">
           <button type="button" class="week-nav-btn" id="week-prev-btn" aria-label="Previous week">‹</button>
-          <span class="week-nav-label" id="week-nav-label">—</span>
+          <span class="week-nav-label" id="week-nav-label">–</span>
           <button type="button" class="week-nav-btn" id="week-next-btn" aria-label="Next week" disabled>›</button>
         </div>
         <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
@@ -2281,18 +2281,18 @@
         <div class="stat-tile stat-tile-today" id="stat-today-tile">
           <div class="stat-tile-label" id="stat-today-label">Today</div>
           <div class="stat-tile-val" id="stat-today-val">--/--</div>
-          <div class="stat-tile-sub" id="stat-today-sub">—</div>
+          <div class="stat-tile-sub" id="stat-today-sub">–</div>
         </div>
         <!-- Best streak tile (hidden when streaks.best is null) -->
         <div class="stat-tile" id="stat-streak-tile" style="display:none">
           <div class="stat-tile-label">Best streak</div>
           <div class="stat-tile-val" id="stat-streak-val">-- days</div>
-          <div class="stat-tile-sub" id="stat-streak-sub">—</div>
+          <div class="stat-tile-sub" id="stat-streak-sub">–</div>
         </div>
         <!-- Last week tile -->
         <div class="stat-tile" id="stat-lastweek-tile">
           <div class="stat-tile-label">Last week</div>
-          <div class="stat-tile-val" id="stat-lastweek-val">—</div>
+          <div class="stat-tile-val" id="stat-lastweek-val">–</div>
           <div class="stat-tile-sub" id="stat-lastweek-sub">no data</div>
         </div>
       </div>
@@ -2420,7 +2420,7 @@
   <div class="habit-detail-panel" id="habit-detail-panel" style="display:none" role="region" aria-label="Habit detail">
     <div class="detail-panel-header" id="detail-panel-header">
       <span id="detail-panel-icon"></span>
-      <span class="detail-panel-habit-name" id="detail-panel-habit-name">—</span>
+      <span class="detail-panel-habit-name" id="detail-panel-habit-name">–</span>
       <button type="button" class="detail-panel-close" id="detail-panel-close" aria-label="Close habit detail">×</button>
     </div>
     <div class="detail-panel-body" id="detail-panel-body">
@@ -2448,7 +2448,7 @@
         <div class="detail-history-title">Log history</div>
         <div class="detail-history-list" id="detail-history-list">
           <div class="detail-history-empty" id="detail-history-empty" style="display:none">
-            No log entries yet — start logging to track your progress!
+            No log entries yet. Start logging to track your progress!
           </div>
         </div>
         <!-- Action buttons -->
@@ -2479,10 +2479,10 @@
         <div class="form-field">
           <label for="modal-tracking-type">Tracking type</label>
           <select id="modal-tracking-type">
-            <option value="daily_checkmark">Daily checkmark — Did you do it today? (1–7 days/week)</option>
-            <option value="weekly_count">Weekly count — How many times this week?</option>
-            <option value="weekly_minutes">Weekly minutes — Total minutes logged this week</option>
-            <option value="weekly_quantity">Weekly quantity — Any numeric total (km, reps…)</option>
+            <option value="daily_checkmark">Daily checkmark: Did you do it today? (1–7 days/week)</option>
+            <option value="weekly_count">Weekly count: How many times this week?</option>
+            <option value="weekly_minutes">Weekly minutes: Total minutes logged this week</option>
+            <option value="weekly_quantity">Weekly quantity: Any numeric total (km, reps…)</option>
           </select>
           <span id="modal-tracking-type-hint" class="hint" style="display:none;color:var(--red,#ef4444)">user_id and tracking_type cannot be updated</span>
         </div>
@@ -2501,12 +2501,12 @@
         <div class="form-field">
           <label for="modal-auto-fill">Auto-fill source</label>
           <select id="modal-auto-fill">
-            <option value="">None — log manually</option>
-            <option value="workout.zone2_minutes">Zone 2 minutes — filled from workout zone 2 data</option>
-            <option value="workout.run_count">Run count — incremented per run workout</option>
-            <option value="workout.lift_count">Lift count — incremented per strength workout</option>
-            <option value="workout.total_duration_minutes">Total duration — sum of all workout minutes</option>
-            <option value="workout.distance_km">Distance — sum of workout distances (km)</option>
+            <option value="">None (log manually)</option>
+            <option value="workout.zone2_minutes">Zone 2 minutes (from workout zone 2 data)</option>
+            <option value="workout.run_count">Run count (per run workout)</option>
+            <option value="workout.lift_count">Lift count (per strength workout)</option>
+            <option value="workout.total_duration_minutes">Total duration (sum of all workout minutes)</option>
+            <option value="workout.distance_km">Distance in km (sum of workout distances)</option>
           </select>
           <span class="hint">Auto fills from workout data. <a href="/log" target="_blank">View workouts →</a></span>
         </div>
