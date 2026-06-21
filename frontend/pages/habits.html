@@ -1185,6 +1185,166 @@
     }
     .archived-delete-btn:hover { color: var(--red); background: var(--red-soft); }
 
+    /* ── Habit slide-over form (issue #832) ─────────────────────────────────── */
+    .habit-slideover {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      display: none;
+      align-items: stretch;
+      justify-content: flex-end;
+    }
+    .habit-slideover.is-open { display: flex; }
+    .habit-slideover-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 21, 48, 0.45);
+      cursor: pointer;
+    }
+    #habit-slideover-panel {
+      position: relative;
+      z-index: 1;
+      width: 420px;
+      max-width: 100vw;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      box-shadow: -4px 0 32px rgba(11, 21, 48, 0.18);
+    }
+    .habit-slideover-header {
+      background: var(--page-bg);
+      padding: 20px 24px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .habit-slideover-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .habit-slideover-close {
+      background: rgba(255,255,255,0.18);
+      border: none;
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      cursor: pointer;
+      color: #fff;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-family: 'Inter Tight', sans-serif;
+    }
+    .habit-slideover-close:hover { background: rgba(255,255,255,0.28); }
+    .habit-slideover-body {
+      flex: 1;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .sf-field { display: flex; flex-direction: column; gap: 4px; }
+    .sf-label {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.01em;
+    }
+    .sf-required { color: var(--red, #ef4444); }
+    .sf-input, .sf-select {
+      padding: 9px 12px;
+      border: 1px solid var(--card-border, rgba(13,30,67,0.12));
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter Tight', sans-serif;
+      background: var(--surface-2, #f9fafb);
+      color: var(--text-primary, #0b1530);
+      transition: border-color 0.15s;
+    }
+    .sf-input:focus, .sf-select:focus {
+      outline: none;
+      border-color: #5a8dee;
+      box-shadow: 0 0 0 3px rgba(90,141,238,0.12);
+      background: #fff;
+    }
+    .sf-error {
+      font-size: 12px;
+      color: var(--red, #ef4444);
+      min-height: 1.1em;
+      display: none;
+    }
+    .sf-error.is-visible { display: block; }
+    .sf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .habit-slideover-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--card-border, rgba(13,30,67,0.08));
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .sf-btn-save {
+      flex: 1;
+      padding: 10px 20px;
+      background: var(--text-primary, #0b1530);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'Inter Tight', sans-serif;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sf-btn-save:hover { background: #1a2d5a; }
+    .sf-btn-cancel {
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid var(--card-border, rgba(13,30,67,0.15));
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter Tight', sans-serif;
+      color: var(--text-secondary, #5c6886);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sf-btn-cancel:hover { background: #f7f9fd; }
+    .sf-btn-archive {
+      padding: 10px 14px;
+      background: transparent;
+      border: 1px solid rgba(220,38,38,0.3);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter Tight', sans-serif;
+      color: #dc2626;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .sf-btn-archive:hover { background: #fee2e2; border-color: #dc2626; }
+    .sf-general-error {
+      background: var(--red-soft, #ffd9d9);
+      color: var(--red, #7a1a1a);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12.5px;
+      display: none;
+    }
+    .sf-general-error.is-visible { display: block; }
+    /* Mobile: full-screen overlay */
+    @media (max-width: 768px) {
+      #habit-slideover-panel {
+        width: 100%;
+        max-width: 100%;
+        height: 100%;
+        box-shadow: none;
+      }
+      .habit-slideover-backdrop { display: none; }
+    }
+
     /* ── Modal ─────────────────────────────────────────────────────────────── */
     .modal-overlay {
       display: none;
@@ -1980,6 +2140,73 @@
   <!-- Day detail area (revealed when a calendar cell is selected) -->
   <div class="card" id="habits-cal-detail" style="display:none">
     <div id="habits-cal-detail-content"></div>
+  </div>
+
+  <!-- Create / Edit habit slide-over (issue #832) -->
+  <div id="habit-slideover" class="habit-slideover" role="dialog" aria-modal="true" aria-labelledby="habit-form-title">
+    <div class="habit-slideover-backdrop" id="habit-slideover-backdrop"></div>
+    <div id="habit-slideover-panel">
+      <div class="habit-slideover-header">
+        <h2 id="habit-form-title" class="habit-slideover-title">New Habit</h2>
+        <button type="button" class="habit-slideover-close" id="habit-slideover-close-btn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="habit-slideover-body">
+        <form id="habit-form" novalidate>
+
+          <div class="sf-field">
+            <label class="sf-label" for="habit-form-name">Name <span class="sf-required">*</span></label>
+            <input id="habit-form-name" class="sf-input" type="text" maxlength="100" autocomplete="off" placeholder="e.g. Zone 2 cardio">
+            <span id="habit-form-name-error" class="sf-error" role="alert"></span>
+          </div>
+
+          <div class="sf-field" style="margin-top:4px">
+            <label class="sf-label" for="habit-form-habit-type">Habit type</label>
+            <select id="habit-form-habit-type" class="sf-select">
+              <option value="binary">Binary — Did I do it?</option>
+              <option value="count">Count — How many times?</option>
+              <option value="duration">Duration — How long?</option>
+            </select>
+          </div>
+
+          <div id="habit-form-target-row" class="sf-row" style="display:none;margin-top:4px">
+            <div class="sf-field">
+              <label class="sf-label" for="habit-form-target-value">Target <span class="sf-required">*</span></label>
+              <input id="habit-form-target-value" class="sf-input" type="number" min="0.01" step="any" placeholder="e.g. 30">
+              <span id="habit-form-target-value-error" class="sf-error" role="alert"></span>
+            </div>
+            <div class="sf-field">
+              <label class="sf-label" for="habit-form-unit">Unit</label>
+              <input id="habit-form-unit" class="sf-input" type="text" maxlength="30" placeholder="min, km, reps…">
+            </div>
+          </div>
+
+          <div class="sf-field" style="margin-top:4px">
+            <label class="sf-label" for="habit-form-schedule-type">Schedule</label>
+            <select id="habit-form-schedule-type" class="sf-select">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="times_per_week">Times per week</option>
+            </select>
+          </div>
+
+          <div id="habit-form-schedule-target-row" class="sf-field" style="display:none;margin-top:4px">
+            <label class="sf-label" for="habit-form-schedule-target">Times per week <span class="sf-required">*</span></label>
+            <input id="habit-form-schedule-target" class="sf-input" type="number" min="1" step="1" placeholder="e.g. 3">
+            <span id="habit-form-schedule-target-error" class="sf-error" role="alert"></span>
+          </div>
+
+          <div id="habit-form-error" class="sf-general-error" role="alert"></div>
+
+        </form>
+      </div>
+
+      <div class="habit-slideover-footer">
+        <button type="button" id="habit-form-archive" class="sf-btn-archive" style="display:none">Archive</button>
+        <button type="button" id="habit-form-cancel" class="sf-btn-cancel">Cancel</button>
+        <button type="submit" form="habit-form" id="habit-form-submit" class="sf-btn-save">Save Habit</button>
+      </div>
+    </div>
   </div>
 
   <!-- New / Edit habit modal -->
