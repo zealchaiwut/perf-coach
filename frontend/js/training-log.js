@@ -1049,6 +1049,20 @@
     );
   }
 
+  // Synced = backed by a Strava/Stryd activity. Deleting these tombstones the
+  // activity (so it won't resync); they can be restored from the Removed list.
+  function isSyncedWorkout(workout) {
+    if (!workout) return false;
+    var src = workout.source || "";
+    return (
+      src.includes("strava") ||
+      src.includes("stryd") ||
+      !!workout.strava_activity_url ||
+      !!workout.has_strava ||
+      !!workout.has_stryd
+    );
+  }
+
   function buildEntryRow(w) {
     var row = document.createElement("div");
     row.className = "entry-row";
@@ -1542,7 +1556,11 @@
       }
     }
     if (menuDelete) {
-      menuDelete.style.display = hasWorkout && !isStrava ? "" : "none";
+      // Always allow removal. Synced workouts are tombstoned (won't resync) and
+      // are restorable; manual workouts are permanently deleted.
+      menuDelete.style.display = hasWorkout ? "" : "none";
+      menuDelete.textContent =
+        hasWorkout && isSyncedWorkout(workout) ? "Remove from log" : "Delete";
     }
   }
 
@@ -3101,20 +3119,108 @@
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────
-  function deleteWorkout(workoutId) {
-    if (!confirm("Delete this workout? This cannot be undone.")) return;
+  function deleteWorkout(workoutId, isSynced) {
+    var msg = isSynced
+      ? "Remove this workout from your log? It won't be re-synced from Strava/Stryd. You can restore it later from Removed workouts."
+      : "Delete this workout? This cannot be undone.";
+    if (!confirm(msg)) return;
 
     fetch("/api/workouts/" + workoutId, { method: "DELETE" })
       .then(function (res) {
         if (!res.ok && res.status !== 204)
           throw new Error("HTTP " + res.status);
-        UIStates.showToast("Workout deleted");
+        UIStates.showToast(isSynced ? "Removed from log" : "Workout deleted");
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        UIStates.showToast("Could not delete workout. Please try again.", true);
+        UIStates.showToast("Could not remove workout. Please try again.", true);
       });
+  }
+
+  // ── Removed workouts modal (restore tombstoned synced activities) ─────────
+  function openRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (!modal) return;
+    modal.hidden = false;
+    loadRemovedList();
+  }
+
+  function closeRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (modal) modal.hidden = true;
+  }
+
+  function loadRemovedList() {
+    var list = document.getElementById("removed-modal-list");
+    if (!list) return;
+    list.innerHTML = '<div class="removed-empty">Loading…</div>';
+    fetch("/api/workouts/removed")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (rows) {
+        if (!rows || !rows.length) {
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        rows.forEach(function (r) {
+          var row = document.createElement("div");
+          row.className = "removed-row";
+          var src = (r.source || "").toLowerCase();
+          var meta = [fmtDate(r.workout_date), src ? src.charAt(0).toUpperCase() + src.slice(1) : ""]
+            .filter(Boolean).join(" · ");
+          row.innerHTML =
+            '<div class="removed-row-info">' +
+            '<div class="removed-row-name">' + esc(r.name || "Workout") + "</div>" +
+            '<div class="removed-row-meta">' + esc(meta) + "</div>" +
+            "</div>" +
+            '<button class="removed-row-restore" type="button">Restore</button>';
+          row.querySelector(".removed-row-restore").addEventListener("click", function () {
+            restoreRemoved(r.id, row);
+          });
+          list.appendChild(row);
+        });
+      })
+      .catch(function () {
+        list.innerHTML = '<div class="removed-empty">Could not load removed workouts.</div>';
+      });
+  }
+
+  function restoreRemoved(removedId, rowEl) {
+    var btn = rowEl ? rowEl.querySelector(".removed-row-restore") : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Restoring…";
+    }
+    fetch("/api/workouts/removed/" + removedId + "/restore", { method: "POST" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        UIStates.showToast("Workout restored");
+        if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+        var list = document.getElementById("removed-modal-list");
+        if (list && !list.querySelector(".removed-row"))
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+        fetchAndRender();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not restore workout. Please try again.", true);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Restore";
+        }
+      });
+  }
+
+  function wireRemovedModal() {
+    var openBtn = document.getElementById("log-removed-btn");
+    if (openBtn) openBtn.addEventListener("click", openRemovedModal);
+    var closeBtn = document.getElementById("removed-modal-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeRemovedModal);
+    var backdrop = document.getElementById("removed-modal-backdrop");
+    if (backdrop) backdrop.addEventListener("click", closeRemovedModal);
   }
 
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
@@ -3457,6 +3563,8 @@
         openPanelCreate(createPresetDate());
       });
 
+    wireRemovedModal();
+
     var emptyCta = document.getElementById("log-empty-cta");
     if (emptyCta)
       emptyCta.addEventListener("click", function () {
@@ -3517,7 +3625,8 @@
     if (menuDelete)
       menuDelete.addEventListener("click", function () {
         closeOverflowMenu();
-        if (activeDetailWorkoutId) deleteWorkout(activeDetailWorkoutId);
+        if (activeDetailWorkoutId)
+          deleteWorkout(activeDetailWorkoutId, isSyncedWorkout(cachedDetailWorkout));
       });
 
     document.addEventListener("click", function (e) {

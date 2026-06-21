@@ -242,6 +242,22 @@ def reconcile_workouts(
             strava_acts = [a for a in strava_acts if a.strava_activity_id in strava_id_set]
 
         all_acts = [("strava", a) for a in strava_acts] + [("stryd", a) for a in stryd_acts]
+
+        # Drop activities the user manually removed so we never recreate the
+        # workout. Keyed by external id (strava bigint / stryd string) as text.
+        from backend.models import RemovedActivity
+
+        removed = set(
+            session.query(RemovedActivity.source, RemovedActivity.external_id)
+            .filter(RemovedActivity.user_id == uid)
+            .all()
+        )
+        if removed:
+            all_acts = [
+                (st, a) for (st, a) in all_acts
+                if (st, str(a.strava_activity_id if st == "strava" else a.stryd_activity_id)) not in removed
+            ]
+
         strava_by_id = {a.id: a for a in strava_acts}
         stryd_by_id = {a.id: a for a in stryd_acts}
 
@@ -274,7 +290,16 @@ def reconcile_workouts(
                 target = matched
             else:
                 wdate = act.start_time.astimezone(timezone.utc).date() if act.start_time else date.today()
-                wtype = getattr(act, "activity_type", None) or "Run"
+                # Map the raw Strava sport_type to our canonical workout_type
+                # (e.g. WeightTraining/Workout -> "strength"). Stryd activities
+                # are always runs. Without this, a Strava strength session lands
+                # as the raw "WeightTraining" string and the UI never shows the
+                # exercise editor.
+                if source_type == "strava":
+                    from backend.services.workout_reconcile import _map_workout_type
+                    wtype = _map_workout_type(getattr(act, "activity_type", None) or "")
+                else:
+                    wtype = "run"
                 w = Workout(
                     user_id=uid,
                     workout_date=wdate,

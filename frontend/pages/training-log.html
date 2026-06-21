@@ -129,6 +129,44 @@
       cursor: not-allowed;
     }
 
+    /* Removed-workouts modal */
+    .removed-modal[hidden] { display: none; }
+    .removed-modal {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .removed-modal-backdrop {
+      position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
+    }
+    .removed-modal-card {
+      position: relative; background: #fff; border-radius: 14px;
+      width: min(560px, 92vw); max-height: 80vh; overflow: auto;
+      padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+    .removed-modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .removed-modal-head h2 { font-size: 18px; margin: 0; }
+    .removed-modal-close {
+      border: none; background: none; font-size: 26px; line-height: 1;
+      cursor: pointer; color: #64748b;
+    }
+    .removed-modal-sub { color: #64748b; font-size: 13px; margin: 6px 0 14px; }
+    .removed-modal-list { display: flex; flex-direction: column; gap: 8px; }
+    .removed-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px;
+    }
+    .removed-row-info { min-width: 0; }
+    .removed-row-name { font-weight: 600; font-size: 14px; }
+    .removed-row-meta { color: #64748b; font-size: 12px; }
+    .removed-row-restore {
+      flex: none; border: 1px solid #cbd5e1; background: #f8fafc;
+      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+    }
+    .removed-row-restore:hover { background: #eef2f7; }
+    .removed-empty { color: #64748b; font-size: 14px; padding: 8px 0; }
+
     #log-sync-feedback {
       font-size: 12px;
       color: rgba(255,255,255,0.75);
@@ -2256,10 +2294,25 @@
         <button id="sync-all-btn" class="sync-chip-btn" type="button"
                 title="Pull new activities from Strava and Stryd since your last sync">Sync new</button>
       </div>
+      <button id="log-removed-btn" class="btn-secondary" type="button"
+              title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> Removed</button>
       <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
       <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>
   </header>
+
+  <!-- Removed workouts modal (restore tombstoned Strava/Stryd activities) -->
+  <div id="removed-modal" class="removed-modal" hidden>
+    <div class="removed-modal-backdrop" id="removed-modal-backdrop"></div>
+    <div class="removed-modal-card" role="dialog" aria-modal="true" aria-labelledby="removed-modal-title">
+      <div class="removed-modal-head">
+        <h2 id="removed-modal-title">Removed workouts</h2>
+        <button id="removed-modal-close" class="removed-modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="removed-modal-sub">These won't be re-synced from Strava/Stryd. Restore rebuilds the workout from the synced source.</p>
+      <div id="removed-modal-list" class="removed-modal-list"></div>
+    </div>
+  </div>
 
   <!-- Sub-tab bar: Log / Plan / Performance -->
   <nav class="training-sub-tabs" id="training-sub-tabs" aria-label="Training sub-tabs">
