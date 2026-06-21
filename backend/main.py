@@ -3511,8 +3511,10 @@ def get_habit_summary(
     habit_id: str,
     user: User = Depends(resolve_user),
 ):
-    """Return per-habit stats for the detail panel: current streak, longest streak,
-    and consistency percentage for the last 30 days."""
+    """Return per-habit stats for the detail panel.
+
+    Includes current streak, longest streak, and consistency pct
+    for the last 30 days."""
     from backend.services.habit_stats import (
         _current_streak_from_dates,
         _best_streak_from_dates,
@@ -3556,7 +3558,10 @@ def get_habit_summary(
 
     days_in_window = (today - lookback_30).days + 1  # 30 days
     days_checked = len([d for d in all_dates if lookback_30 <= d <= today])
-    consistency_pct = round(days_checked / days_in_window * 100.0, 1) if days_in_window > 0 else 0.0
+    consistency_pct = (
+        round(days_checked / days_in_window * 100.0, 1)
+        if days_in_window > 0 else 0.0
+    )
 
     return JSONResponse({
         "habit": _habit_dict(habit),

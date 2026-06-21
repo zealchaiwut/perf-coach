@@ -6,15 +6,15 @@ AC mapping:
 - AC3:  Panel shows longest_streak from /api/habits/{id}/summary
 - AC4:  Panel shows consistency_pct from /api/habits/{id}/summary
 - AC5:  Panel shows log history from the log endpoint
-- AC6:  Empty habit (no logs) shows streak=0, consistency=0%, friendly empty state
+- AC6:  Empty habit (no logs): streak=0, consistency=0%, friendly empty
 - AC7:  Layout uses structural CSS (no hard-coded px offsets)
 - AC8:  Edit entry point is visible in the panel
 - AC9:  Archive entry point is visible in the panel
 - AC10: Panel is responsive (CSS media queries present)
-- AC11: No console errors (JS calls guarded; log history not filtered to broken state)
+- AC11: No console errors (JS guarded; log history not broken)
 
 Static tests read frontend/pages/habits.html and frontend/js/habits.js.
-Unit tests exercise the new /api/habits/{habit_id}/summary endpoint with mocked DB.
+Unit tests exercise /api/habits/{habit_id}/summary with mocked DB.
 Live tests (skipped when server not up) hit http://127.0.0.1:9001.
 """
 
@@ -35,7 +35,7 @@ _CREDENTIALS = {"username": "tester831", "password": "Test831pass!"}
 _USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000831")
 
 
-# ── File readers ──────────────────────────────────────────────────────────────
+# ── File readers ─────────────────────────────────────────────────────────────
 
 def _html() -> str:
     return (ROOT / "frontend" / "pages" / "habits.html").read_text()
@@ -45,7 +45,7 @@ def _js() -> str:
     return (ROOT / "frontend" / "js" / "habits.js").read_text()
 
 
-# ── Mock helpers ──────────────────────────────────────────────────────────────
+# ── Mock helpers ─────────────────────────────────────────────────────────────
 
 def _make_user():
     from backend.models import User
@@ -110,7 +110,7 @@ def _teardown():
     app.dependency_overrides.pop(resolve_user, None)
 
 
-# ── AC1: HTML has detail panel ────────────────────────────────────────────────
+# ── AC1: HTML has detail panel ───────────────────────────────────────────────
 
 def test_html_has_detail_panel():
     """AC1: habits.html has a habit detail panel container."""
@@ -128,12 +128,15 @@ def test_js_opens_detail_panel_on_habit_select():
     )
     # Should have a function that loads detail for a given habit id
     assert re.search(r"function\s+\w*[Dd]etail\w*\s*\(", js) or \
-           re.search(r"openHabitDetail|loadHabitDetail|showHabitDetail", js), (
+           re.search(
+               r"openHabitDetail|loadHabitDetail|showHabitDetail",
+               js,
+           ), (
         "habits.js must define a function to open/load the habit detail panel"
     )
 
 
-# ── AC2: current_streak from summary endpoint ─────────────────────────────────
+# ── AC2: current_streak from summary endpoint ────────────────────────────────
 
 def test_summary_endpoint_returns_current_streak():
     """AC2: GET /api/habits/{id}/summary returns current_streak."""
@@ -161,12 +164,15 @@ def test_js_calls_habit_summary_endpoint():
     """AC2/AC3/AC4: habits.js fetches /api/habits/{id}/summary for stats."""
     js = _js()
     assert re.search(r"/api/habits/\${?.+}?/summary", js) or \
-           re.search(r"/api/habits/.*\+.*summary|`/api/habits/.*summary`", js), (
+           re.search(
+               r"/api/habits/.*\+.*summary|`/api/habits/.*summary`",
+               js,
+           ), (
         "habits.js must fetch /api/habits/{id}/summary for the detail panel"
     )
 
 
-# ── AC3: longest_streak from summary endpoint ─────────────────────────────────
+# ── AC3: longest_streak from summary endpoint ────────────────────────────────
 
 def test_summary_endpoint_returns_longest_streak():
     """AC3: GET /api/habits/{id}/summary returns longest_streak."""
@@ -177,7 +183,10 @@ def test_summary_endpoint_returns_longest_streak():
     # 3 consecutive days, gap, then 5 consecutive — longest = 5
     logs = (
         [_make_log(habit_id, today - timedelta(days=i)) for i in range(3)] +
-        [_make_log(habit_id, today - timedelta(days=10 + i)) for i in range(5)]
+        [
+            _make_log(habit_id, today - timedelta(days=10 + i))
+            for i in range(5)
+        ]
     )
 
     with patch("backend.main.Session") as MockSession:
@@ -194,16 +203,19 @@ def test_summary_endpoint_returns_longest_streak():
     assert isinstance(data["longest_streak"], int)
 
 
-# ── AC4: consistency_pct from summary endpoint ────────────────────────────────
+# ── AC4: consistency_pct from summary endpoint ───────────────────────────────
 
 def test_summary_endpoint_returns_consistency_pct():
-    """AC4: GET /api/habits/{id}/summary returns consistency_pct (last 30 days)."""
+    """AC4: /api/habits/{id}/summary returns consistency_pct (last 30 days)."""
     client, mock_user = _make_client()
     habit_id = uuid.uuid4()
     habit = _make_habit(hid=habit_id)
     today = date.today()
     # 15 out of last 30 days → 50%
-    logs = [_make_log(habit_id, today - timedelta(days=i * 2)) for i in range(15)]
+    logs = [
+        _make_log(habit_id, today - timedelta(days=i * 2))
+        for i in range(15)
+    ]
 
     with patch("backend.main.Session") as MockSession:
         sess = MockSession.return_value.__enter__.return_value
@@ -220,7 +232,7 @@ def test_summary_endpoint_returns_consistency_pct():
 
 
 def test_summary_endpoint_includes_habit_metadata():
-    """AC2/AC3/AC4: Summary endpoint also returns habit dict for convenience."""
+    """AC2-AC4: Summary endpoint also returns habit dict for convenience."""
     client, mock_user = _make_client()
     habit_id = uuid.uuid4()
     habit = _make_habit(hid=habit_id)
@@ -252,20 +264,24 @@ def test_js_fetches_logs_for_detail_panel():
 
 
 def test_logs_endpoint_filters_by_habit_id():
-    """AC5: GET /api/habits/logs?habit_id=X filters to that habit's logs only."""
+    """AC5: GET /api/habits/logs?habit_id=X returns only that habit's logs."""
     client, mock_user = _make_client()
     habit_id = uuid.uuid4()
     today = date.today()
     # Only logs for habit_id should be returned
-    habit_logs = [_make_log(habit_id, today - timedelta(days=i)) for i in range(3)]
+    habit_logs = [
+        _make_log(habit_id, today - timedelta(days=i)) for i in range(3)
+    ]
 
     with patch("backend.main.Session") as MockSession:
         sess = MockSession.return_value.__enter__.return_value
-        sess.query.return_value.filter.return_value.all.return_value = habit_logs
+        mock_q = sess.query.return_value.filter.return_value
+        mock_q.all.return_value = habit_logs
 
         res = client.get(
             f"/api/habits/logs"
-            f"?habit_id={habit_id}&from={today - timedelta(days=30)}&to={today}"
+            f"?habit_id={habit_id}"
+            f"&from={today - timedelta(days=30)}&to={today}"
         )
 
     _teardown()
@@ -286,10 +302,10 @@ def test_html_detail_panel_has_log_history_section():
     )
 
 
-# ── AC6: empty habit (zero logs) graceful state ───────────────────────────────
+# ── AC6: empty habit (zero logs) graceful state ──────────────────────────────
 
 def test_summary_endpoint_zero_logs_returns_zeros():
-    """AC6: Habit with no logs: current_streak=0, longest_streak=0, consistency_pct=0."""
+    """AC6: No logs: current_streak=0, longest_streak=0, consistency_pct=0."""
     client, mock_user = _make_client()
     habit_id = uuid.uuid4()
     habit = _make_habit(hid=habit_id)
@@ -312,15 +328,17 @@ def test_summary_endpoint_zero_logs_returns_zeros():
 def test_js_renders_empty_state_for_no_logs():
     """AC6: habits.js renders a friendly empty state when log list is empty."""
     js = _js()
-    assert re.search(r"empty.?state|no.?log|no.?entr|No log", js, re.IGNORECASE), (
-        "habits.js must render a friendly empty-state message when no logs exist"
+    assert re.search(
+        r"empty.?state|no.?log|no.?entr|No log", js, re.IGNORECASE
+    ), (
+        "habits.js must render a friendly empty-state when no logs exist"
     )
 
 
-# ── AC7: layout uses structural CSS tokens ────────────────────────────────────
+# ── AC7: layout uses structural CSS tokens ───────────────────────────────────
 
 def test_detail_panel_uses_token_spacing():
-    """AC7: Detail panel CSS uses spacing tokens/vars, not hard-coded px values."""
+    """AC7: Detail panel CSS uses spacing tokens, not hard-coded px values."""
     html = _html()
     # Extract styles specific to detail panel
     panel_style_match = re.search(
@@ -329,15 +347,17 @@ def test_detail_panel_uses_token_spacing():
     if panel_style_match:
         style_block = panel_style_match.group(1)
         # Hard-coded pixel padding/margin without var() are a violation
-        hard_px = re.findall(r"(?:padding|margin)\s*:\s*[\d.]+px", style_block)
+        hard_px = re.findall(
+            r"(?:padding|margin)\s*:\s*[\d.]+px", style_block
+        )
         for px in hard_px:
             assert False, (
                 f"Detail panel CSS uses hard-coded pixel offset: '{px}'. "
-                "Use spacing tokens (var(--space-*)) or relative units instead."
+                "Use spacing tokens (var(--space-*)) or relative units."
             )
 
 
-# ── AC8: Edit entry point ─────────────────────────────────────────────────────
+# ── AC8: Edit entry point ────────────────────────────────────────────────────
 
 def test_detail_panel_has_edit_button():
     """AC8: Detail panel has an Edit button/link visible."""
@@ -354,7 +374,7 @@ def test_detail_panel_has_edit_button():
 
 
 def test_js_edit_button_is_noop():
-    """AC8: Edit button in detail panel does not navigate or trigger actions."""
+    """AC8: Edit button in detail panel does not navigate or trigger."""
     js = _js()
     # Edit button handler should be a no-op (preventDefault or empty handler)
     assert re.search(
@@ -365,7 +385,7 @@ def test_js_edit_button_is_noop():
     )
 
 
-# ── AC9: Archive entry point ──────────────────────────────────────────────────
+# ── AC9: Archive entry point ─────────────────────────────────────────────────
 
 def test_detail_panel_has_archive_button():
     """AC9: Detail panel has an Archive button/link visible."""
@@ -391,19 +411,21 @@ def test_js_archive_button_is_noop():
     )
 
 
-# ── AC10: Responsive layout ───────────────────────────────────────────────────
+# ── AC10: Responsive layout ──────────────────────────────────────────────────
 
 def test_detail_panel_has_responsive_styles():
     """AC10: habits.html includes media queries for the detail panel."""
     html = _html()
     # There should be at least one media query covering ≤768px and/or ≤375px
     media_queries = re.findall(r"@media\s*\([^)]*\)", html)
-    assert any("375" in mq or "480" in mq or "768" in mq for mq in media_queries), (
+    assert any(
+        "375" in mq or "480" in mq or "768" in mq for mq in media_queries
+    ), (
         "habits.html must have media queries for mobile/iPad viewports"
     )
 
 
-# ── AC11: No unhandled errors ─────────────────────────────────────────────────
+# ── AC11: No unhandled errors ────────────────────────────────────────────────
 
 def test_summary_endpoint_404_for_unknown_habit():
     """AC11: Summary endpoint returns 404 for a non-existent habit."""
@@ -421,7 +443,7 @@ def test_summary_endpoint_404_for_unknown_habit():
 
 
 def test_summary_endpoint_403_for_wrong_user():
-    """AC11: Summary endpoint returns 403 when habit belongs to different user."""
+    """AC11: Summary endpoint returns 403 for another user's habit."""
     client, _ = _make_client()
     habit_id = uuid.uuid4()
     habit = _make_habit(hid=habit_id)
@@ -447,7 +469,7 @@ def test_summary_endpoint_400_for_bad_id():
     assert res.status_code == 400
 
 
-# ── Live integration tests (skipped when server is not running) ───────────────
+# ── Live integration tests (skipped when server not running) ─────────────────
 
 try:
     import httpx  # noqa: F401
@@ -474,7 +496,9 @@ def live_client():
     with _httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
         r = c.post("/api/auth/login", json=_CREDENTIALS)
         if r.status_code != 200:
-            pytest.skip(f"Login failed ({r.status_code}); seed tester831 first")
+            pytest.skip(
+                f"Login failed ({r.status_code}); seed tester831 first"
+            )
         csrf_val = _extract_cookie(r, "csrf-token")
         if csrf_val:
             c.cookies.set("csrf-token", csrf_val, domain="127.0.0.1")
@@ -491,7 +515,9 @@ def test_live_summary_endpoint_shape(live_client):
     r2 = live_client.get(f"/api/habits/{habit_id}/summary")
     assert r2.status_code == 200
     data = r2.json()
-    for key in ("habit", "current_streak", "longest_streak", "consistency_pct"):
+    for key in (
+        "habit", "current_streak", "longest_streak", "consistency_pct"
+    ):
         assert key in data, f"Live summary missing field: {key}"
 
 
