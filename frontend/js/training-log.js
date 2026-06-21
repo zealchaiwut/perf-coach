@@ -1946,6 +1946,83 @@
     return ex.rpe != null ? String(ex.rpe) : null;
   }
 
+  // Aggregate a numeric per-set field: show the common value when every set
+  // agrees, otherwise the average (user preference: "if not the same, use avg").
+  function _setAgg(values) {
+    var nums = values.filter(function (v) {
+      return v != null && !isNaN(v);
+    });
+    if (!nums.length) return { value: null, uniform: true };
+    var first = nums[0];
+    var uniform = nums.every(function (v) {
+      return v === first;
+    });
+    if (uniform) return { value: first, uniform: true };
+    var sum = nums.reduce(function (a, v) {
+      return a + Number(v);
+    }, 0);
+    return { value: sum / nums.length, uniform: false };
+  }
+
+  // Build a per-exercise row summary for the strength detail table.
+  function _strengthExRow(ex) {
+    var sets = _parseSetsJson(ex);
+    var use = null;
+    if (sets && sets.length) {
+      var working = sets.filter(function (s) {
+        return s.type !== "warmup";
+      });
+      use = working.length ? working : sets;
+    }
+    var count, repsAgg, wAgg, rpeAgg;
+    if (use) {
+      count = use.length;
+      repsAgg = _setAgg(use.map(function (s) { return s.reps; }));
+      wAgg = _setAgg(use.map(function (s) { return s.weight; }));
+      rpeAgg = _setAgg(use.map(function (s) { return s.rpe; }));
+    } else {
+      count = ex.sets != null ? ex.sets : null;
+      repsAgg = { value: ex.reps != null ? ex.reps : null, uniform: true };
+      wAgg = { value: ex.weight_kg != null ? ex.weight_kg : null, uniform: true };
+      rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
+    }
+
+    var setsTxt = "—";
+    if (count != null) {
+      if (repsAgg.value != null) {
+        var repsTxt = repsAgg.uniform
+          ? String(repsAgg.value)
+          : "~" + Math.round(repsAgg.value);
+        setsTxt = count + " × " + repsTxt;
+      } else {
+        setsTxt = count + (count === 1 ? " set" : " sets");
+      }
+    }
+
+    var wTxt = "—";
+    if (wAgg.value != null) {
+      var wNum = wAgg.uniform ? wAgg.value : Math.round(wAgg.value);
+      wTxt = (wAgg.uniform ? "" : "avg ") + wNum + " kg";
+    }
+
+    var rpeVal = rpeAgg.value;
+    var rpeTxt = "—";
+    if (rpeVal != null) {
+      var rpeNum = rpeAgg.uniform ? rpeVal : Number(rpeVal).toFixed(1);
+      rpeTxt = (rpeAgg.uniform ? "" : "avg ") + rpeNum;
+    }
+
+    var vol = _calcExVolume(ex);
+    return {
+      name: ex.name || "—",
+      setsTxt: setsTxt,
+      weightTxt: wTxt,
+      rpeTxt: rpeTxt,
+      rpeClass: _rpeBarClass(rpeVal),
+      volTxt: vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "—",
+    };
+  }
+
   function buildEffortProfileView(segData) {
     if (!segData || !segData.length) return "";
     var allTime = segData.every(function (s) {
@@ -2657,36 +2734,27 @@
       var totalVol = 0;
       var rpeSum = 0,
         rpeCount = 0;
-      var exCards = "";
+      var exRows = "";
       exercises.forEach(function (ex) {
-        var vol = _calcExVolume(ex);
-        totalVol += vol;
+        totalVol += _calcExVolume(ex);
         var rpe = _avgRpeFromEx(ex);
         if (rpe != null) {
           rpeSum += parseFloat(rpe);
           rpeCount += 1;
         }
-        var volStr =
-          vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "\u2014";
-        exCards +=
-          '<div class="dp-ex-card dp-exercise-item">' +
-          '<div class="dp-ex-card-head">' +
-          '<span class="dp-ex-card-name">' +
-          esc(ex.name || "\u2014") +
-          "</span>" +
-          '<span class="dp-ex-card-vol">' +
-          esc(volStr) +
-          "</span>" +
-          "</div>" +
-          '<div class="dp-ex-card-body">' +
-          '<span class="dp-ex-card-sub">' +
-          esc(_formatStrengthExSub(ex)) +
-          "</span>" +
-          (rpe
-            ? '<span class="dp-ex-card-rpe">RPE ' + esc(rpe) + "</span>"
-            : "") +
-          "</div>" +
-          "</div>";
+        var r = _strengthExRow(ex);
+        exRows +=
+          "<tr>" +
+          '<td class="dp-ex-td-name">' + esc(r.name) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.setsTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.weightTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' +
+          (r.rpeTxt !== "\u2014"
+            ? '<span class="dp-ex-rpe-pill ' + r.rpeClass + '">' + esc(r.rpeTxt) + "</span>"
+            : "\u2014") +
+          "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.volTxt) + "</td>" +
+          "</tr>";
       });
       var avgRpeFoot = rpeCount ? (rpeSum / rpeCount).toFixed(1) : "\u2014";
       var volFoot =
@@ -2695,9 +2763,12 @@
         '<div class="dp-section">' +
         rpeProfile +
         '<div class="dp-section-title">Exercises</div>' +
-        '<div class="dp-ex-list">' +
-        exCards +
-        "</div>" +
+        '<div class="dp-ex-table-wrap"><table class="dp-ex-table">' +
+        "<thead><tr>" +
+        "<th>Exercise</th><th>Sets</th><th>Weight</th><th>RPE</th><th>Volume</th>" +
+        "</tr></thead><tbody>" +
+        exRows +
+        "</tbody></table></div>" +
         '<div class="dp-seg-footer" style="margin-top:10px;border-radius:10px;">' +
         "<span>Total volume \u00b7 avg RPE</span>" +
         "<strong>" +
