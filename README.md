@@ -10,6 +10,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 - **Zone 2 tracking** — `zone2_minutes` on workouts auto-fills Zone 2 habit progress
 - **Weekly habits widget** — Mon–Sun progress grid on home page with streak badges; week boundary computed in Bangkok timezone (Asia/Bangkok)
 - **Habits streaks** — per-habit current streak and best-streak counters; today-pending does not break a streak
+- **Habit-outcome alignment** — `align_habit_and_outcome(habit_logs, outcome_series, lag_days)` pure function in `backend/services/habit_outcome_alignment.py` pairs daily habit-completion records with any daily outcome metric (readiness, TSB, weight trend, etc.), optionally shifting the outcome forward by a configurable number of days; returns a `(pairs, debug)` tuple where `pairs` is a list of matched records (habit date/value + outcome date/value) and `debug` reports input counts, pairs before/after dropping unmatched days, and a human-readable reason string; performs no DB queries, file I/O, or network calls — a thin caller supplies the mappings
 - **Mobile-first daily flow** — mobile workout logging form and quick daily-metrics entry, optimised for 390px
 - **Daily wellness metrics** — HRV, resting HR, sleep, energy, mood
 - **Readiness score** — computed from wellness metrics with contextual interpretation
