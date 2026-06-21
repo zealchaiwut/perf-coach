@@ -778,7 +778,7 @@ function renderDailyGrid(logSet) {
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
-          <div class="habit-name-text">${esc(habit.name)}</div>
+          <div class="habit-name-text" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="habit-meta-line">
             <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
             ${streakBadge}
@@ -931,6 +931,8 @@ function renderDailyGrid(logSet) {
       });
     }
   });
+
+  _wireDetailTriggers();
 }
 
 // Update just the totals portion of the grid after a mutation (without rebuilding everything)
@@ -1216,7 +1218,7 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       <div class="week-habit-left">
         ${iconHTML}
         <div class="week-habit-info">
-          <div class="week-habit-name">${esc(habit.name)}</div>
+          <div class="week-habit-name" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="week-habit-meta">${metaHTML}</div>
         </div>
       </div>
@@ -1283,6 +1285,8 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       });
     });
   }
+
+  _wireDetailTriggers();
 }
 
 // ── Log popover ───────────────────────────────────────────────────────────────
@@ -2549,6 +2553,169 @@ async function initHabitCal() {
   renderHabitMonthCal();
   renderHabitWeekStrip();
 }
+
+// ── Habit detail panel (issue #831) ──────────────────────────────────────────
+
+let _detailHabitId = null;
+
+function closeHabitDetail() {
+  const panel = document.getElementById('habit-detail-panel');
+  if (panel) panel.style.display = 'none';
+  _detailHabitId = null;
+}
+
+async function openHabitDetail(habitId, habitObj) {
+  const panel = document.getElementById('habit-detail-panel');
+  if (!panel) return;
+
+  _detailHabitId = habitId;
+
+  // Show panel with loading state
+  panel.style.display = '';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (loadingEl) loadingEl.style.display = '';
+  if (contentEl) contentEl.style.display = 'none';
+
+  // Show habit name and icon immediately from local data
+  if (habitObj) {
+    if (nameEl) nameEl.textContent = habitObj.name || '—';
+    if (iconEl) iconEl.innerHTML = habitIconHTML(habitObj.icon, habitObj.color, 28);
+  }
+
+  try {
+    const today = bangkokTodayStr();
+    const ninetyDaysAgo = isoDate(new Date(bangkokToday().getTime() - 90 * 86400000));
+
+    const [summaryRes, logsRes] = await Promise.all([
+      fetch(`/api/habits/${habitId}/summary`),
+      fetch(`/api/habits/logs?habit_id=${habitId}&from=${ninetyDaysAgo}&to=${today}`),
+    ]);
+
+    // Abort if user opened a different panel while fetching
+    if (_detailHabitId !== habitId) return;
+
+    if (!summaryRes.ok) throw new Error(`Summary fetch failed (${summaryRes.status})`);
+    const summary = await summaryRes.json();
+
+    let logs = [];
+    if (logsRes.ok) logs = await logsRes.json();
+
+    renderHabitDetail(summary, logs);
+  } catch (e) {
+    if (_detailHabitId !== habitId) return;
+    if (loadingEl) loadingEl.textContent = 'Failed to load habit details.';
+  }
+}
+
+function renderHabitDetail(summary, logs) {
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (!contentEl) return;
+
+  const habit = summary.habit || {};
+  if (nameEl) nameEl.textContent = habit.name || '—';
+  if (iconEl) iconEl.innerHTML = habitIconHTML(habit.icon, habit.color, 28);
+
+  // Stats
+  const streakEl = document.getElementById('detail-current-streak');
+  const longestEl = document.getElementById('detail-longest-streak');
+  const consistencyEl = document.getElementById('detail-consistency');
+  const consistencySubEl = document.getElementById('detail-consistency-sub');
+
+  if (streakEl) streakEl.textContent = summary.current_streak ?? 0;
+  if (longestEl) longestEl.textContent = summary.longest_streak ?? 0;
+  if (consistencyEl) consistencyEl.textContent = (summary.consistency_pct ?? 0) + '%';
+  if (consistencySubEl) {
+    const checked = summary.days_checked ?? 0;
+    const total = summary.days_total ?? 30;
+    consistencySubEl.textContent = `${checked}/${total} days`;
+  }
+
+  // Log history
+  const historyList = document.getElementById('detail-history-list');
+  const historyEmpty = document.getElementById('detail-history-empty');
+  if (historyList) {
+    historyList.innerHTML = '';
+    if (!logs || logs.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'detail-history-empty';
+      emptyDiv.textContent = 'No log entries yet — start logging to track your progress!';
+      historyList.appendChild(emptyDiv);
+    } else {
+      logs.forEach(log => {
+        const entry = document.createElement('div');
+        entry.className = 'detail-history-entry';
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'detail-history-date';
+        dateSpan.textContent = log.logged_date || log.log_date || '—';
+        entry.appendChild(dateSpan);
+        if (log.value != null && log.value !== 1) {
+          const valSpan = document.createElement('span');
+          valSpan.className = 'detail-history-val';
+          valSpan.textContent = log.value;
+          entry.appendChild(valSpan);
+        }
+        if (log.notes) {
+          const noteSpan = document.createElement('span');
+          noteSpan.className = 'detail-history-note';
+          noteSpan.textContent = log.notes;
+          entry.appendChild(noteSpan);
+        }
+        historyList.appendChild(entry);
+      });
+    }
+  }
+
+  // Show content
+  if (loadingEl) loadingEl.style.display = 'none';
+  contentEl.style.display = '';
+
+  // Edit/Archive buttons — no-op placeholders
+  const editBtn = document.getElementById('detail-edit-btn');
+  const archiveBtn = document.getElementById('detail-archive-btn');
+  if (editBtn) editBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+  if (archiveBtn) archiveBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+}
+
+function _wireDetailTriggers() {
+  // Wire habit-name clicks in daily grid
+  document.querySelectorAll('.habit-name-text[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[data-habit-id]');
+      const hid = row && row.dataset.habitId;
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+  // Wire habit-name clicks in weekly habits list
+  document.querySelectorAll('.week-habit-name[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[id^="habit-week-row-"]');
+      const hid = row && row.id.replace('habit-week-row-', '');
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+}
+
+// Close panel button
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('detail-panel-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeHabitDetail);
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
