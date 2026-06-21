@@ -1014,3 +1014,38 @@ class AthleteDurationCurve(Base):
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
 
     user = relationship("User", foreign_keys=[user_id])
+
+
+def validate_weight_plan_required(start_weight_kg, goal_weight_kg):
+    """Return (True, None) when required fields are present, else (None, reason).
+
+    Mirrors the compute_goal_pace pattern: never raises, returns a 2-tuple so
+    callers can distinguish success from missing-input without catching exceptions.
+    """
+    if start_weight_kg is None:
+        return (None, "start_weight_kg is required")
+    if goal_weight_kg is None:
+        return (None, "goal_weight_kg is required")
+    return (True, None)
+
+
+class WeightPlan(Base):
+    """Structured weight-goal plan: phase, target rate, and date range for one user."""
+
+    __tablename__ = "weight_plans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    start_weight_kg = Column(Numeric(6, 2), nullable=False)
+    goal_weight_kg = Column(Numeric(6, 2), nullable=False)
+    goal_date = Column(Date, nullable=True)
+    target_rate_kg_per_week = Column(Numeric(4, 2), nullable=True)
+    phase = Column(Text, nullable=False, server_default=text("'cut'"))
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    __table_args__ = (
+        Index("ix_weight_plans_user_id", "user_id"),
+    )
