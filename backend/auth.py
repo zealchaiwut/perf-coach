@@ -105,8 +105,15 @@ def generate_csrf_token() -> str:
     return secrets.token_hex(32)
 
 
+def clear_csrf_cookie(response: Response) -> None:
+    """Remove legacy csrf-token cookies that may have been scoped to /api."""
+    for path in ("/", "/api"):
+        response.delete_cookie(key=CSRF_COOKIE_NAME, path=path)
+
+
 def set_csrf_cookie(response: Response, token: str) -> None:
     env = os.getenv("ENVIRONMENT", "local")
+    clear_csrf_cookie(response)
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
@@ -124,6 +131,7 @@ def set_session(response: Response, user_id: str) -> str:
         value=token,
         httponly=True,
         samesite="lax",
+        path="/",
     )
     csrf_token = generate_csrf_token()
     set_csrf_cookie(response, csrf_token)

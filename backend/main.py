@@ -531,21 +531,18 @@ def _user_dict(user: User) -> dict:
 @app.get("/api/auth/me")
 async def me(request: Request):
     user = await get_current_user(request)
-    resp = JSONResponse(_user_dict(user))
-    # Sessions created before CSRF middleware may lack csrf-token; issue one on
-    # the next authenticated read so mutating requests stop failing with 403.
-    if not request.cookies.get(CSRF_COOKIE_NAME):
-        set_csrf_cookie(resp, generate_csrf_token())
+    token = request.cookies.get(CSRF_COOKIE_NAME) or generate_csrf_token()
+    data = _user_dict(user)
+    data["csrf_token"] = token
+    resp = JSONResponse(data)
+    set_csrf_cookie(resp, token)
     return resp
 
 
 @app.get("/api/csrf-token")
 async def get_csrf_token(request: Request):
-    """Return the current CSRF token, setting a fresh one if the cookie is absent."""
-    existing = request.cookies.get(CSRF_COOKIE_NAME)
-    if existing:
-        return JSONResponse({"csrf_token": existing})
-    token = generate_csrf_token()
+    """Return the CSRF token and (re)set the csrf-token cookie at Path=/."""
+    token = request.cookies.get(CSRF_COOKIE_NAME) or generate_csrf_token()
     resp = JSONResponse({"csrf_token": token})
     set_csrf_cookie(resp, token)
     return resp

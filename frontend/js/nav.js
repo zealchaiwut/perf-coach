@@ -15,20 +15,44 @@
     window._csrfFetchPatched = true;
     var _origFetch = window.fetch.bind(window);
     var _csrfBootstrap = null;
-    var _csrfTokenCache = null;
+    var _csrfToken = null;
 
     function _readCsrfCookie() {
       var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
       return match ? decodeURIComponent(match[1]) : null;
     }
 
-    function _rememberCsrfToken(token) {
-      if (token) _csrfTokenCache = token;
+    function _clearCsrfCookies() {
+      ["/", "/api"].forEach(function (path) {
+        var base = "csrf-token=; Max-Age=0; Path=" + path + "; SameSite=Lax";
+        document.cookie = base;
+        if (window.location.protocol === "https:") {
+          document.cookie = base + "; Secure";
+        }
+      });
+    }
+
+    function _writeCsrfCookie(token) {
+      if (!token) return;
+      _clearCsrfCookies();
+      var secure =
+        window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie =
+        "csrf-token=" +
+        encodeURIComponent(token) +
+        "; Path=/; SameSite=Lax" +
+        secure;
+    }
+
+    function persistCsrfToken(token) {
+      if (!token) return null;
+      _csrfToken = token;
+      _writeCsrfCookie(token);
       return token;
     }
 
     function _currentCsrfToken() {
-      return _csrfTokenCache || _readCsrfCookie();
+      return _csrfToken || _readCsrfCookie();
     }
 
     function _fetchCsrfToken() {
@@ -36,7 +60,9 @@
         .then(function (res) {
           if (!res.ok) return _currentCsrfToken();
           return res.json().then(function (body) {
-            return _rememberCsrfToken(_readCsrfCookie() || (body && body.csrf_token));
+            var token =
+              (body && body.csrf_token) || _readCsrfCookie();
+            return persistCsrfToken(token);
           });
         })
         .catch(function () {
@@ -44,9 +70,14 @@
         });
     }
 
-    function ensureCsrfReady() {
-      var existing = _currentCsrfToken();
-      if (existing) return Promise.resolve(existing);
+    function ensureCsrfReady(forceRefresh) {
+      if (
+        !forceRefresh &&
+        _csrfToken &&
+        _readCsrfCookie() === _csrfToken
+      ) {
+        return Promise.resolve(_csrfToken);
+      }
       if (!_csrfBootstrap) {
         _csrfBootstrap = _fetchCsrfToken().finally(function () {
           _csrfBootstrap = null;
@@ -64,7 +95,10 @@
       } else {
         headers = Object.assign({}, headers, { "X-CSRF-Token": token });
       }
-      return Object.assign({}, opts, { headers: headers });
+      return Object.assign({}, opts, {
+        headers: headers,
+        credentials: "same-origin",
+      });
     }
 
     function _isCsrfForbidden(res) {
@@ -81,14 +115,15 @@
     }
 
     function _mutatingFetch(url, opts, allowRetry) {
-      return ensureCsrfReady().then(function (token) {
-        var reqOpts = _attachCsrfHeader(opts, token || _currentCsrfToken());
+      return ensureCsrfReady(false).then(function (token) {
+        var reqToken = token || _currentCsrfToken();
+        var reqOpts = _attachCsrfHeader(opts, reqToken);
         return _origFetch(url, reqOpts).then(function (res) {
           if (!allowRetry) return res;
           return _isCsrfForbidden(res).then(function (csrfFail) {
             if (!csrfFail) return res;
-            _csrfTokenCache = null;
-            return _fetchCsrfToken().then(function (fresh) {
+            _csrfToken = null;
+            return ensureCsrfReady(true).then(function (fresh) {
               if (!fresh) return res;
               return _origFetch(url, _attachCsrfHeader(opts, fresh));
             });
@@ -112,9 +147,9 @@
     };
 
     window.ensureCsrfReady = ensureCsrfReady;
+    window.persistCsrfToken = persistCsrfToken;
 
-    // Warm csrf-token for sessions that pre-date CSRF rollout.
-    ensureCsrfReady().catch(function () {});
+    ensureCsrfReady(false).catch(function () {});
   }
 
   // Every primary destination, shown inline in the bar (left → right).
@@ -553,6 +588,9 @@
       })
       .then(function (u) {
         if (!u) return;
+        if (u.csrf_token && window.persistCsrfToken) {
+          window.persistCsrfToken(u.csrf_token);
+        }
         _navUserName = u.name || _navUserName || "";
         _navUserId = u.id || _navUserId || null;
         updateAvatar(false);
