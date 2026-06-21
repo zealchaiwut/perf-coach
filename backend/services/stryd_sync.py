@@ -219,6 +219,43 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
+# Max streams-less activities to backfill per sync run (Stryd rate-limit guard).
+_STREAM_HEAL_CAP = 60
+
+
+def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
+    """Fetch one Stryd activity's streams and store streams_payload + splits +
+    NP / max power. Returns True if streams were stored. Swallows errors (logged)
+    so one bad activity never aborts a sync."""
+    try:
+        streams = fetch_stryd_activity_streams(token, aid)
+        splits = compute_km_splits(streams)
+        powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
+        fm = dict(base_form or {})
+        np = _normalized_power(powers)
+        if np is not None:
+            fm["np_w"] = np
+        if powers:
+            fm["max_power_w"] = round(max(powers))
+        vals: dict = {}
+        if splits:
+            vals["splits"] = splits
+        if fm:
+            vals["form_metrics"] = fm
+        if streams.get("timestamp_list"):
+            vals["streams_payload"] = streams
+        if vals:
+            with Session(engine) as session:
+                session.query(StrydActivity).filter(
+                    StrydActivity.stryd_activity_id == aid
+                ).update(vals, synchronize_session=False)
+                session.commit()
+        return bool(vals.get("streams_payload"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stryd enrich failed", extra={"activity_id": aid, "error": str(exc)})
+        return False
+
+
 def sync_stryd_activities(
     user_id: str,
     since_date: Optional[date] = None,
@@ -347,34 +384,34 @@ def sync_stryd_activities(
             for aid in ids:
                 if aid in already:
                     continue
-                try:
-                    streams = fetch_stryd_activity_streams(token, aid)
-                    splits = compute_km_splits(streams)
-                    powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
-                    fm = dict(base_form.get(aid) or {})
-                    np = _normalized_power(powers)
-                    if np is not None:
-                        fm["np_w"] = np
-                    if powers:
-                        fm["max_power_w"] = round(max(powers))
-                    vals: dict = {}
-                    if splits:
-                        vals["splits"] = splits
-                    if fm:
-                        vals["form_metrics"] = fm
-                    # Store raw streams (timestamp_list + channel *_list) before
-                    # _slim_payload stripped them — reconcile reads this to populate
-                    # activity_streams after workout_id is known.
-                    if streams.get("timestamp_list"):
-                        vals["streams_payload"] = streams
-                    if vals:
-                        with Session(engine) as session:
-                            session.query(StrydActivity).filter(
-                                StrydActivity.stryd_activity_id == aid
-                            ).update(vals, synchronize_session=False)
-                            session.commit()
-                except Exception as exc:
-                    logger.warning("stryd enrich failed", extra={"activity_id": aid, "error": str(exc)})
+                # Store raw streams (timestamp_list + channel *_list) so manual
+                # laps / interval stats can be computed; also per-km splits + NP.
+                _enrich_one(token, aid, base_form.get(aid))
+
+        # Self-heal: backfill streams for any of this user's activities still
+        # missing them (e.g. enriched before streams capture), so a normal
+        # "Sync new" also clears the backlog — not just newly-pulled rows.
+        # Bounded per run to respect Stryd rate limits; repeated syncs drain it.
+        with Session(engine) as session:
+            heal_rows = session.execute(
+                select(StrydActivity.stryd_activity_id, StrydActivity.streams_payload)
+                .where(StrydActivity.user_id == uid)
+                .order_by(StrydActivity.start_time.desc())
+            ).all()
+        processed = set(ids)
+        heal_ids = [
+            sid for sid, st in heal_rows
+            if sid not in processed
+            and not (isinstance(st, dict) and st.get("timestamp_list"))
+        ]
+        remaining = len(heal_ids)
+        for aid in heal_ids[:_STREAM_HEAL_CAP]:
+            _enrich_one(token, aid)
+        if remaining > _STREAM_HEAL_CAP:
+            logger.info(
+                "stryd stream heal capped",
+                extra={"healed": _STREAM_HEAL_CAP, "remaining": remaining - _STREAM_HEAL_CAP},
+            )
 
         with Session(engine) as session:
             jr = session.get(SyncJob, job_db_id)
