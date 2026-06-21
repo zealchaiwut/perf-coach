@@ -6,6 +6,174 @@ from decimal import Decimal
 from typing import Optional
 
 
+# ── pure plan-line functions (issue #863) ────────────────────────────────────
+
+def compute_plan_line(plan, today: datetime.date) -> list:
+    """Generate the original daily plan line from plan.start_date to yesterday.
+
+    Each point is a dict with keys: date (ISO string), weight_kg (float),
+    segment (always "original").  The line covers every calendar day from
+    plan.start_date up to but not including today.  Weight at each day is
+    linearly interpolated between plan.start_weight_kg and plan.goal_weight_kg
+    over the full period from plan.start_date to plan.goal_date.
+    """
+    start_d = _as_date(plan.start_date)
+    goal_d = _as_date(plan.goal_date)
+    yesterday = today - datetime.timedelta(days=1)
+    end_d = min(yesterday, goal_d)
+
+    points = []
+    current = start_d
+    while current <= end_d:
+        points.append({
+            "date": str(current),
+            "weight_kg": float(round(_plan_weight_at(plan, current), 4)),
+            "segment": "original",
+        })
+        current += datetime.timedelta(days=1)
+    return points
+
+
+def recompute_plan_from_progress(plan, actual_trend, today: datetime.date) -> tuple:
+    """Anchor a new forward plan segment at today's actual trend weight.
+
+    The original segment (plan.start_date to yesterday) is preserved as-is
+    from compute_plan_line.  The recomputed segment (today onward) starts at
+    actual_trend and advances at the plan rate until plan.goal_date.
+
+    Worked example — user is behind by 1 kg at week four
+    ----------------------------------------------------
+    Plan: start_weight_kg=90, goal_weight_kg=86, start_date=2026-01-05,
+    goal_date=2026-03-30 (12 weeks), target_rate_kg_per_week=0.33.
+    today = 2026-02-02 (week 4); plan value at today = 88.67.
+    actual_trend = 89.67 (1 kg above plan — behind on a loss plan).
+
+    The forward line restarts from 89.67 on 2026-02-02 and advances at
+    minus 0.33 kg per week (loss direction).  It reaches 86 kg on or near
+    2026-03-30.  debug.gap_kg is +1.0 (actual minus plan at today).
+    debug.rate_source is "plan".
+
+    Math in words
+    -------------
+    1. Determine rate direction: if goal_weight_kg is less than start_weight_kg
+       the plan is a loss plan, so the effective rate is negative; otherwise
+       positive.
+    2. rate_per_day = effective_rate divided by 7.
+    3. For each date from today to goal_date, weight equals actual_trend plus
+       rate_per_day multiplied by the number of days elapsed since today.
+    4. gap_kg = actual_trend minus the original plan value at today (positive
+       means heavier than planned, i.e. behind on a loss plan).
+
+    Parameters
+    ----------
+    plan
+        An object with attributes: start_date, start_weight_kg, goal_weight_kg,
+        goal_date (may be None), target_rate_kg_per_week (may be None).
+    actual_trend
+        Today's actual trend weight in kg (float), or None if unavailable.
+    today
+        The reference date as datetime.date.
+
+    Returns
+    -------
+    (points, debug) where:
+        points is a list of dicts, each with date, weight_kg, and segment.
+        debug is a dict with: actual_trend_used, rate_used_kg_per_week,
+        rate_source ("plan" or "derived"), gap_kg, and reason.
+    When any required input is missing, returns ([], {"reason": "<description>"}).
+    """
+    # --- validate required inputs ---
+    if actual_trend is None:
+        return [], {"reason": "actual_trend is required"}
+
+    if getattr(plan, "goal_date", None) is None:
+        return [], {"reason": "plan.goal_date is required"}
+
+    if getattr(plan, "start_date", None) is None:
+        return [], {"reason": "plan.start_date is required"}
+
+    if getattr(plan, "start_weight_kg", None) is None:
+        return [], {"reason": "plan.start_weight_kg is required"}
+
+    if getattr(plan, "goal_weight_kg", None) is None:
+        return [], {"reason": "plan.goal_weight_kg is required"}
+
+    start_d = _as_date(plan.start_date)
+    goal_d = _as_date(plan.goal_date)
+    start_w = Decimal(str(plan.start_weight_kg))
+    goal_w = Decimal(str(plan.goal_weight_kg))
+
+    # --- determine effective rate ---
+    raw_rate = getattr(plan, "target_rate_kg_per_week", None)
+    if raw_rate is not None:
+        rate = Decimal(str(raw_rate))
+        rate_source = "plan"
+    else:
+        total_weeks = Decimal((goal_d - start_d).days) / Decimal(7)
+        if total_weeks == 0:
+            return [], {"reason": "plan.start_date and plan.goal_date must not be the same"}
+        rate = (goal_w - start_w) / total_weeks
+        rate_source = "derived"
+
+    # Apply direction: loss plan → rate must be negative; gain plan → positive.
+    if goal_w < start_w:
+        effective_rate = -abs(rate)
+    else:
+        effective_rate = abs(rate)
+
+    rate_per_day = effective_rate / Decimal(7)
+
+    # --- original segment (start to yesterday) via compute_plan_line ---
+    original_points = compute_plan_line(plan, today)
+
+    # --- gap: actual trend vs plan value at today ---
+    plan_today = _plan_weight_at(plan, today)
+    gap_kg = float(round(Decimal(str(actual_trend)) - plan_today, 4))
+
+    # --- recomputed forward segment (today to goal_date) ---
+    forward_points = []
+    actual_dec = Decimal(str(actual_trend))
+    current = today
+    days_elapsed = 0
+    while current <= goal_d:
+        w = actual_dec + rate_per_day * days_elapsed
+        forward_points.append({
+            "date": str(current),
+            "weight_kg": float(round(w, 4)),
+            "segment": "recomputed",
+        })
+        current += datetime.timedelta(days=1)
+        days_elapsed += 1
+
+    debug = {
+        "actual_trend_used": float(actual_trend),
+        "rate_used_kg_per_week": float(round(effective_rate, 6)),
+        "rate_source": rate_source,
+        "gap_kg": gap_kg,
+        "reason": "",
+    }
+
+    return original_points + forward_points, debug
+
+
+def _plan_weight_at(plan, on_date: datetime.date) -> Decimal:
+    """Linear interpolation of plan weight at a date (clamped at boundaries)."""
+    start_d = _as_date(plan.start_date)
+    goal_d = _as_date(plan.goal_date)
+    start_w = Decimal(str(plan.start_weight_kg))
+    goal_w = Decimal(str(plan.goal_weight_kg))
+
+    if on_date <= start_d:
+        return start_w
+    if on_date >= goal_d:
+        return goal_w
+
+    total_days = Decimal((goal_d - start_d).days)
+    elapsed = Decimal((on_date - start_d).days)
+    t = elapsed / total_days
+    return start_w + (goal_w - start_w) * t
+
+
 def plan_at(target, on_date: datetime.date) -> Decimal:
     """Linear interpolation between start and target weight; clamped at both ends."""
     start_d = _as_date(target.start_date)
