@@ -326,10 +326,23 @@ def sync_stryd_activities(
             #    list of dicts) so re-syncs stay cheap.
             with Session(engine) as session:
                 rows = session.execute(
-                    select(StrydActivity.stryd_activity_id, StrydActivity.splits)
+                    select(
+                        StrydActivity.stryd_activity_id,
+                        StrydActivity.splits,
+                        StrydActivity.streams_payload,
+                    )
                     .where(StrydActivity.stryd_activity_id.in_(ids))
                 ).all()
-            already = {sid for sid, sp in rows if isinstance(sp, list) and sp and isinstance(sp[0], dict)}
+            # Skip only when BOTH per-km splits AND per-point streams are present.
+            # Activities enriched before streams capture have splits but no
+            # streams; requiring streams here makes every sync self-heal them
+            # (so manual laps / interval stats become available without a
+            # separate backfill). New activities still enrich on first sync.
+            already = {
+                sid for sid, sp, st in rows
+                if isinstance(sp, list) and sp and isinstance(sp[0], dict)
+                and isinstance(st, dict) and st.get("timestamp_list")
+            }
             base_form = {m["stryd_activity_id"]: (m.get("form_metrics") or {}) for m in mapped}
             for aid in ids:
                 if aid in already:
