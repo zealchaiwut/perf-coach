@@ -15,44 +15,49 @@
     window._csrfFetchPatched = true;
     var _origFetch = window.fetch.bind(window);
     var _csrfBootstrap = null;
-    var _csrfTokenCache = null;
 
     function _readCsrfCookie() {
       var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
       return match ? decodeURIComponent(match[1]) : null;
     }
 
-    function _rememberCsrfToken(token) {
-      if (token) _csrfTokenCache = token;
-      return token;
-    }
-
-    function _currentCsrfToken() {
-      return _csrfTokenCache || _readCsrfCookie();
+    function _writeCsrfCookie(token) {
+      if (!token) return;
+      var secure =
+        window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie =
+        "csrf-token=" +
+        encodeURIComponent(token) +
+        "; Path=/; SameSite=Lax" +
+        secure;
     }
 
     function _fetchCsrfToken() {
       return _origFetch("/api/csrf-token", { credentials: "same-origin" })
         .then(function (res) {
-          if (!res.ok) return _currentCsrfToken();
+          if (!res.ok) return _readCsrfCookie();
           return res.json().then(function (body) {
-            return _rememberCsrfToken(_readCsrfCookie() || (body && body.csrf_token));
+            var token = (body && body.csrf_token) || _readCsrfCookie();
+            if (token) _writeCsrfCookie(token);
+            return _readCsrfCookie();
           });
         })
         .catch(function () {
-          return _currentCsrfToken();
+          return _readCsrfCookie();
         });
     }
 
     function ensureCsrfReady() {
-      var existing = _currentCsrfToken();
-      if (existing) return Promise.resolve(existing);
+      var cookie = _readCsrfCookie();
+      if (cookie) return Promise.resolve(cookie);
       if (!_csrfBootstrap) {
         _csrfBootstrap = _fetchCsrfToken().finally(function () {
           _csrfBootstrap = null;
         });
       }
-      return _csrfBootstrap;
+      return _csrfBootstrap.then(function (token) {
+        return token || _readCsrfCookie();
+      });
     }
 
     function _attachCsrfHeader(opts, token) {
@@ -64,7 +69,7 @@
       } else {
         headers = Object.assign({}, headers, { "X-CSRF-Token": token });
       }
-      return Object.assign({}, opts, { headers: headers });
+      return Object.assign({}, opts, { headers: headers, credentials: "same-origin" });
     }
 
     function _isCsrfForbidden(res) {
@@ -82,12 +87,12 @@
 
     function _mutatingFetch(url, opts, allowRetry) {
       return ensureCsrfReady().then(function (token) {
-        var reqOpts = _attachCsrfHeader(opts, token || _currentCsrfToken());
+        var reqToken = token || _readCsrfCookie();
+        var reqOpts = _attachCsrfHeader(opts, reqToken);
         return _origFetch(url, reqOpts).then(function (res) {
           if (!allowRetry) return res;
           return _isCsrfForbidden(res).then(function (csrfFail) {
             if (!csrfFail) return res;
-            _csrfTokenCache = null;
             return _fetchCsrfToken().then(function (fresh) {
               if (!fresh) return res;
               return _origFetch(url, _attachCsrfHeader(opts, fresh));

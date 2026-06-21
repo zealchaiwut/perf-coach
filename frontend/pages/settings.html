@@ -2472,11 +2472,15 @@
         var since = _sinceDate();
         window.intLog('strava', 'info', 'Sync started', { since_date: since || null });
         var body = since ? JSON.stringify({ since_date: since }) : '{}';
-        fetch('/api/strava/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: body,
-        })
+        var startSync = function () {
+          return fetch('/api/strava/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body,
+          });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(startSync)
           .then(function (r) {
             if (r.status === 409) { throw new Error('Sync already in progress'); }
             if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
@@ -2486,7 +2490,11 @@
             _pollStravaSync(0);
           })
           .catch(function (err) {
-            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + (err.message || 'Sync failed') + '</div>';
+            var msg = err.message || 'Sync failed';
+            if (msg === 'CSRF token missing or invalid') {
+              msg = 'Session security token expired — reload the page and try again.';
+            }
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + msg + '</div>';
           });
       }
 

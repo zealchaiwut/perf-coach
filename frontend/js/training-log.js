@@ -3277,6 +3277,13 @@
     });
   }
 
+  function _syncFriendlyMsg(msg) {
+    if (msg === "CSRF token missing or invalid") {
+      return "Session security token expired — reload the page and try again.";
+    }
+    return msg;
+  }
+
   function _syncWaitForComplete() {
     return new Promise(function (resolve, reject) {
       function poll() {
@@ -3311,48 +3318,74 @@
     var body = sinceDate
       ? JSON.stringify({ since_date: sinceDate })
       : "{}";
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body,
-    }).then(function (r) {
-      if (r.status === 202 || r.status === 409) {
-        return _syncWaitForComplete();
-      }
-      if (!r.ok) {
-        return _syncApiError(r).then(function (msg) {
-          throw new Error(label + ": " + msg);
+    var start = window.ensureCsrfReady
+      ? window.ensureCsrfReady()
+      : Promise.resolve();
+    return start
+      .then(function () {
+        return fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body,
         });
-      }
-      return null;
-    });
+      })
+      .then(function (r) {
+        if (r.status === 202 || r.status === 409) {
+          return _syncWaitForComplete();
+        }
+        if (!r.ok) {
+          return _syncApiError(r).then(function (msg) {
+            throw new Error(label + ": " + _syncFriendlyMsg(msg));
+          });
+        }
+        return null;
+      });
+  }
+
+  function _syncAllProviders(latest) {
+    var stravaSince = _syncSinceDate(latest[0]);
+    var strydSince = _syncSinceDate(latest[1]);
+    var errors = [];
+
+    return _syncProvider("Strava", "/api/strava/sync", stravaSince)
+      .catch(function (err) {
+        errors.push((err && err.message) || "Strava: Sync failed");
+      })
+      .then(function () {
+        return _syncProvider("Stryd", "/api/stryd/sync", strydSince).catch(function (err) {
+          errors.push((err && err.message) || "Stryd: Sync failed");
+        });
+      })
+      .then(function () {
+        if (errors.length) throw new Error(errors.join(" · "));
+      });
   }
 
   function _onSyncAllClick() {
     _syncClearFeedback();
     _syncSetBusy(true);
-    Promise.all([
-      fetch("/api/sync/strava/latest")
-        .then(function (r) {
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () {
-          return null;
-        }),
-      fetch("/api/sync/stryd/latest")
-        .then(function (r) {
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () {
-          return null;
-        }),
-    ])
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve();
+    ready
+      .then(function () {
+        return Promise.all([
+          fetch("/api/sync/strava/latest")
+            .then(function (r) {
+              return r.ok ? r.json() : null;
+            })
+            .catch(function () {
+              return null;
+            }),
+          fetch("/api/sync/stryd/latest")
+            .then(function (r) {
+              return r.ok ? r.json() : null;
+            })
+            .catch(function () {
+              return null;
+            }),
+        ]);
+      })
       .then(function (latest) {
-        var stravaSince = _syncSinceDate(latest[0]);
-        var strydSince = _syncSinceDate(latest[1]);
-        return _syncProvider("Strava", "/api/strava/sync", stravaSince).then(function () {
-          return _syncProvider("Stryd", "/api/stryd/sync", strydSince);
-        });
+        return _syncAllProviders(latest);
       })
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
