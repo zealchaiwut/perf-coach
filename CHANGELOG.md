@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 80 — Weight goal projection and what-if simulation
+
+- #874: Add pure function compute_plan_line(plan, as_of_date)
+- #876: Add pure function to project goal arrival date
+- #877: Add simulate_what_if pure function for weight projection
+- #878: Add projection endpoint for arrival date and rate
+- #879: Add what-if simulation endpoint for goal rate preview
+
 ## Sprint 77 — Habits v2 schema, streak/consistency services, and summary endpoint
 
 - #821: Add habits and habit_logs migrations and SQLAlchemy models
