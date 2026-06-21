@@ -22,7 +22,7 @@ import httpx
 import pytest
 from sqlalchemy.orm import Session as _OrmSess
 
-from backend.auth import hash_password as _hash_pw
+from backend.auth import CSRF_COOKIE_NAME as _CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.db import engine as _engine
 from backend.models import User as _UserModel
 
@@ -59,27 +59,34 @@ def client():
         yield c
 
 
-def _create_user(client: httpx.Client) -> tuple[str, str]:
+def _create_user(client: httpx.Client) -> tuple[str, str, str]:
+    """Return (user_id, session_cookie, csrf_token).
+
+    Uses a bare client internally so the shared client's cookie jar stays clean
+    when multiple users are created within the same test.
+    """
     name = f"wt879_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
-    assert r.status_code == 201, f"Failed to create test user: {r.text}"
-    uid = r.json()["id"]
-    pw_hash = _hash_pw(_PW)
-    with _OrmSess(_engine) as db:
-        u = db.get(_UserModel, uuid.UUID(uid))
-        u.password_hash = pw_hash
-        db.commit()
-    login_r = client.post("/api/auth/login", json={"username": name, "password": _PW})
-    assert login_r.status_code == 200, f"Login failed: {login_r.text}"
-    cookie = login_r.cookies.get("session")
-    return uid, cookie
+    with httpx.Client(base_url=str(client.base_url), timeout=10.0) as bare:
+        r = bare.post("/api/users", json={"name": name})
+        assert r.status_code == 201, f"Failed to create test user: {r.text}"
+        uid = r.json()["id"]
+        pw_hash = _hash_pw(_PW)
+        with _OrmSess(_engine) as db:
+            u = db.get(_UserModel, uuid.UUID(uid))
+            u.password_hash = pw_hash
+            db.commit()
+        login_r = bare.post("/api/auth/login", json={"username": name, "password": _PW})
+        assert login_r.status_code == 200, f"Login failed: {login_r.text}"
+        session_cookie = login_r.cookies.get("session")
+        csrf_token = login_r.cookies.get(_CSRF_COOKIE_NAME, "")
+    return uid, session_cookie, csrf_token
 
 
 def _delete_user(client: httpx.Client, user_id: str) -> None:
     client.delete(f"/api/users/{user_id}")
 
 
-def _create_loss_target(client: httpx.Client, cookie: str) -> dict:
+def _create_loss_target(client: httpx.Client, cookie: str, csrf_token: str) -> dict:
     """Create an active loss goal: 90 kg → 80 kg over 6 months."""
     r = client.post(
         "/api/weight-targets",
@@ -89,17 +96,19 @@ def _create_loss_target(client: httpx.Client, cookie: str) -> dict:
             "target_weight_kg": 80.0,
             "target_date": TARGET_DATE,
         },
-        cookies={"session": cookie},
+        cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
     )
     assert r.status_code == 201, f"Failed to create target: {r.text}"
     return r.json()
 
 
-def _log_weight(client: httpx.Client, cookie: str, weight_kg: float, entry_date: str) -> None:
+def _log_weight(client: httpx.Client, cookie: str, csrf_token: str, weight_kg: float, entry_date: str) -> None:
     r = client.post(
         "/api/weight-entries",
         json={"entry_date": entry_date, "weight_kg": weight_kg},
-        cookies={"session": cookie},
+        cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
     )
     assert r.status_code in (201, 409), f"Failed to log weight: {r.text}"
 
@@ -108,16 +117,17 @@ def _log_weight(client: httpx.Client, cookie: str, weight_kg: float, entry_date:
 
 def test_ac1_valid_rate_returns_200_with_simulated_line(client):
     """POST with a valid assumed_rate returns 200 with simulated_line and arrival_date."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
         body = r.json()
@@ -131,16 +141,17 @@ def test_ac1_valid_rate_returns_200_with_simulated_line(client):
 
 def test_ac5_simulated_line_has_date_and_weight_keys(client):
     """Each entry in simulated_line has 'date' and 'weight' keys."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 200
         for entry in r.json()["simulated_line"]:
@@ -152,16 +163,17 @@ def test_ac5_simulated_line_has_date_and_weight_keys(client):
 
 def test_ac5_arrival_date_is_in_the_future(client):
     """arrival_date returned is a future date."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 200
         arrival = datetime.date.fromisoformat(r.json()["arrival_date"])
@@ -174,21 +186,23 @@ def test_ac5_arrival_date_is_in_the_future(client):
 
 def test_ac8_calling_twice_gives_identical_result(client):
     """Calling the endpoint twice without changing data returns identical responses."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r1 = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         r2 = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r1.status_code == 200
         assert r2.status_code == 200
@@ -203,16 +217,17 @@ def test_ac8_calling_twice_gives_identical_result(client):
 
 def test_ac3_zero_rate_returns_422(client):
     """assumed_rate of 0 returns HTTP 422 with a descriptive message."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": 0},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text}"
         body = r.json()
@@ -229,16 +244,17 @@ def test_ac3_zero_rate_returns_422(client):
 
 def test_ac4_wrong_direction_rate_returns_422(client):
     """Positive assumed_rate for a loss goal (wrong direction) returns HTTP 422."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": 0.3},  # positive = gaining, but goal is to lose
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text}"
         body = r.json()
@@ -255,16 +271,17 @@ def test_ac4_wrong_direction_rate_returns_422(client):
 
 def test_ac3_extreme_rate_returns_422(client):
     """An extremely large assumed_rate (1,000,000×) returns HTTP 422."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -1_000_000},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 422, f"Expected 422, got {r.status_code}: {r.text}"
         body = r.json()
@@ -281,13 +298,14 @@ def test_ac3_extreme_rate_returns_422(client):
 
 def test_ac7_missing_goal_id_returns_404(client):
     """A goal_id with no active goal returns HTTP 404."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
         non_existent = str(uuid.uuid4())
         r = client.post(
             f"/api/weight-targets/{non_existent}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
     finally:
@@ -298,18 +316,19 @@ def test_ac7_missing_goal_id_returns_404(client):
 
 def test_ac7_inactive_goal_returns_404(client):
     """A goal_id that exists but belongs to a different user returns 404."""
-    uid1, cookie1 = _create_user(client)
-    uid2, cookie2 = _create_user(client)
+    uid1, cookie1, csrf1 = _create_user(client)
+    uid2, cookie2, csrf2 = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie1)
+        target = _create_loss_target(client, cookie1, csrf1)
         goal_id = target["id"]
-        _log_weight(client, cookie1, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie1, csrf1, 89.5, TODAY.isoformat())
 
         # user2 tries to access user1's goal
         r = client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie2},
+            cookies={"session": cookie2, _CSRF_COOKIE_NAME: csrf2},
+            headers={"X-CSRF-Token": csrf2},
         )
         assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
     finally:
@@ -321,9 +340,9 @@ def test_ac7_inactive_goal_returns_404(client):
 
 def test_ac1_unauthenticated_request_returns_401(client):
     """No session cookie → 401."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
 
         r = client.post(
@@ -339,11 +358,11 @@ def test_ac1_unauthenticated_request_returns_401(client):
 
 def test_ac8_no_db_writes(client):
     """Calling what-if must not change the weight target in the DB."""
-    uid, cookie = _create_user(client)
+    uid, cookie, csrf_token = _create_user(client)
     try:
-        target = _create_loss_target(client, cookie)
+        target = _create_loss_target(client, cookie, csrf_token)
         goal_id = target["id"]
-        _log_weight(client, cookie, 89.5, TODAY.isoformat())
+        _log_weight(client, cookie, csrf_token, 89.5, TODAY.isoformat())
 
         # Fetch target state before
         before = client.get("/api/weight-targets/active", cookies={"session": cookie}).json()
@@ -351,7 +370,8 @@ def test_ac8_no_db_writes(client):
         client.post(
             f"/api/weight-targets/{goal_id}/what-if",
             json={"assumed_rate": -0.3},
-            cookies={"session": cookie},
+            cookies={"session": cookie, _CSRF_COOKIE_NAME: csrf_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
 
         # Fetch target state after
