@@ -778,7 +778,7 @@ function renderDailyGrid(logSet) {
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
-          <div class="habit-name-text">${esc(habit.name)}</div>
+          <div class="habit-name-text" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="habit-meta-line">
             <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
             ${streakBadge}
@@ -883,7 +883,7 @@ function renderDailyGrid(logSet) {
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.textContent = 'Edit';
-      editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
+      editBtn.addEventListener('click', () => { closeAllMenus(); openHabitForm(fullHabit); });
       menu.appendChild(editBtn);
 
       const archiveBtn = document.createElement('button');
@@ -931,6 +931,8 @@ function renderDailyGrid(logSet) {
       });
     }
   });
+
+  _wireDetailTriggers();
 }
 
 // Update just the totals portion of the grid after a mutation (without rebuilding everything)
@@ -1146,9 +1148,9 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
     const emptyBtn = container.querySelector('#weekly-empty-new-btn');
     if (emptyBtn) {
       emptyBtn.addEventListener('click', () => {
-        openNewModal();
-        const sel = document.getElementById('modal-tracking-type');
-        if (sel) sel.value = 'weekly_minutes';
+        openHabitForm();
+        const sel = document.getElementById('habit-form-habit-type');
+        if (sel) { sel.value = 'duration'; _sfUpdateVisibility(); }
       });
     }
     return;
@@ -1216,7 +1218,7 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       <div class="week-habit-left">
         ${iconHTML}
         <div class="week-habit-info">
-          <div class="week-habit-name">${esc(habit.name)}</div>
+          <div class="week-habit-name" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="week-habit-meta">${metaHTML}</div>
         </div>
       </div>
@@ -1283,6 +1285,8 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       });
     });
   }
+
+  _wireDetailTriggers();
 }
 
 // ── Log popover ───────────────────────────────────────────────────────────────
@@ -1617,7 +1621,7 @@ function closeModal() {
 // ── Form submit ───────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('add-habit-btn').addEventListener('click', openNewModal);
+  document.getElementById('add-habit-btn').addEventListener('click', () => openHabitForm());
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
 
   // ── Week navigation ──
@@ -1657,7 +1661,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeModal(); closeHabitForm(); }
   });
 
   const archivedToggle = document.getElementById('archived-toggle');
@@ -1725,6 +1729,282 @@ document.addEventListener('DOMContentLoaded', () => {
       errorEl.textContent = 'Failed to save: ' + err.message;
     }
   });
+});
+
+// ── Habit slide-over form (issue #832) ───────────────────────────────────────
+
+let _sfEditingHabitId = null;
+
+function openHabitForm(habit) {
+  _sfEditingHabitId = habit ? habit.id : null;
+
+  const titleEl = document.getElementById('habit-form-title');
+  const submitEl = document.getElementById('habit-form-submit');
+  const archiveEl = document.getElementById('habit-form-archive');
+
+  if (titleEl) titleEl.textContent = habit ? 'Edit Habit' : 'New Habit';
+  if (submitEl) submitEl.textContent = habit ? 'Save Changes' : 'Save Habit';
+  if (archiveEl) archiveEl.style.display = habit ? '' : 'none';
+
+  const errorIds = [
+    'habit-form-name-error',
+    'habit-form-target-value-error',
+    'habit-form-schedule-target-error',
+    'habit-form-error',
+  ];
+  errorIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.classList.remove('is-visible'); }
+  });
+
+  if (habit) {
+    const fields = _sfApiToForm(habit);
+    document.getElementById('habit-form-name').value = habit.name || '';
+    document.getElementById('habit-form-habit-type').value = fields.habitType;
+    document.getElementById('habit-form-target-value').value = fields.targetValue != null ? fields.targetValue : '';
+    document.getElementById('habit-form-unit').value = habit.unit || '';
+    document.getElementById('habit-form-schedule-type').value = fields.scheduleType;
+    document.getElementById('habit-form-schedule-target').value = fields.scheduleTarget != null ? fields.scheduleTarget : '';
+  } else {
+    document.getElementById('habit-form-name').value = '';
+    document.getElementById('habit-form-habit-type').value = 'binary';
+    document.getElementById('habit-form-target-value').value = '';
+    document.getElementById('habit-form-unit').value = '';
+    document.getElementById('habit-form-schedule-type').value = 'daily';
+    document.getElementById('habit-form-schedule-target').value = '';
+  }
+
+  _sfUpdateVisibility();
+
+  const overlay = document.getElementById('habit-slideover');
+  if (overlay) overlay.classList.add('is-open');
+  const nameEl = document.getElementById('habit-form-name');
+  if (nameEl) nameEl.focus();
+}
+
+function closeHabitForm() {
+  const overlay = document.getElementById('habit-slideover');
+  if (overlay) overlay.classList.remove('is-open');
+  _sfEditingHabitId = null;
+}
+
+function _sfUpdateVisibility() {
+  const habitType = (document.getElementById('habit-form-habit-type') || {}).value;
+  const scheduleType = (document.getElementById('habit-form-schedule-type') || {}).value;
+
+  const targetRow = document.getElementById('habit-form-target-row');
+  const scheduleTargetRow = document.getElementById('habit-form-schedule-target-row');
+
+  const showTarget = habitType === 'count' || habitType === 'duration';
+  if (targetRow) {
+    targetRow.style.display = showTarget ? '' : 'none';
+    if (!showTarget) {
+      document.getElementById('habit-form-target-value').value = '';
+      document.getElementById('habit-form-unit').value = '';
+    }
+  }
+
+  const showScheduleTarget = scheduleType === 'times_per_week';
+  if (scheduleTargetRow) {
+    scheduleTargetRow.style.display = showScheduleTarget ? '' : 'none';
+    if (!showScheduleTarget) {
+      document.getElementById('habit-form-schedule-target').value = '';
+    }
+  }
+}
+
+function _sfApiToForm(habit) {
+  let habitType = 'binary';
+  let scheduleType = 'daily';
+  let targetValue = null;
+  let scheduleTarget = null;
+
+  switch (habit.tracking_type) {
+    case 'daily_checkmark':
+      habitType = 'binary'; scheduleType = 'daily';
+      break;
+    case 'weekly_count':
+      habitType = 'count'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    case 'weekly_minutes':
+      habitType = 'duration'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    case 'weekly_quantity':
+      habitType = 'count'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    default:
+      habitType = 'binary'; scheduleType = 'daily';
+  }
+
+  return { habitType, scheduleType, targetValue, scheduleTarget };
+}
+
+function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit) {
+  let tracking_type;
+  let weekly_target = null;
+
+  if (habitType === 'binary') {
+    if (scheduleType === 'daily') {
+      tracking_type = 'daily_checkmark';
+    } else if (scheduleType === 'weekly') {
+      tracking_type = 'weekly_count';
+      weekly_target = 7;
+    } else {
+      tracking_type = 'weekly_count';
+      weekly_target = scheduleTarget;
+    }
+  } else if (habitType === 'count') {
+    tracking_type = 'weekly_count';
+    weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
+  } else {
+    tracking_type = 'weekly_minutes';
+    weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
+  }
+
+  return {
+    name,
+    tracking_type,
+    weekly_target,
+    unit: habitType !== 'binary' ? (unit || null) : null,
+  };
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const habitTypeEl = document.getElementById('habit-form-habit-type');
+  const schedTypeEl = document.getElementById('habit-form-schedule-type');
+  if (habitTypeEl) habitTypeEl.addEventListener('change', _sfUpdateVisibility);
+  if (schedTypeEl) schedTypeEl.addEventListener('change', _sfUpdateVisibility);
+
+  const cancelBtn = document.getElementById('habit-form-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeHabitForm);
+
+  const closeBtn = document.getElementById('habit-slideover-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closeHabitForm);
+
+  const backdrop = document.getElementById('habit-slideover-backdrop');
+  if (backdrop) backdrop.addEventListener('click', closeHabitForm);
+
+  const archiveBtn = document.getElementById('habit-form-archive');
+  if (archiveBtn) {
+    archiveBtn.addEventListener('click', async () => {
+      if (!_sfEditingHabitId) return;
+      if (!confirm('Archive this habit? Its log history will be preserved.')) return;
+      const errorEl = document.getElementById('habit-form-error');
+      try {
+        const res = await fetch(`/api/habits/${encodeURIComponent(_sfEditingHabitId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_archived: true }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (errorEl) { errorEl.textContent = body.detail || `Server error ${res.status}`; errorEl.classList.add('is-visible'); }
+          return;
+        }
+        closeHabitForm();
+        if (typeof UIStates !== 'undefined') UIStates.showToast('Habit archived');
+        await loadAndRender();
+      } catch (err) {
+        if (errorEl) { errorEl.textContent = 'Failed to archive: ' + err.message; errorEl.classList.add('is-visible'); }
+      }
+    });
+  }
+
+  const habitForm = document.getElementById('habit-form');
+  if (habitForm) {
+    habitForm.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const errorIds = ['habit-form-name-error', 'habit-form-target-value-error', 'habit-form-schedule-target-error', 'habit-form-error'];
+      errorIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = ''; el.classList.remove('is-visible'); }
+      });
+
+      let valid = true;
+      let firstInvalid = null;
+
+      const name = document.getElementById('habit-form-name').value.trim();
+      if (!name) {
+        const err = document.getElementById('habit-form-name-error');
+        if (err) { err.textContent = 'Name is required.'; err.classList.add('is-visible'); }
+        firstInvalid = firstInvalid || document.getElementById('habit-form-name');
+        valid = false;
+      }
+
+      const habitType = document.getElementById('habit-form-habit-type').value;
+      const scheduleType = document.getElementById('habit-form-schedule-type').value;
+
+      let targetValue = null;
+      if (habitType === 'count' || habitType === 'duration') {
+        const tvEl = document.getElementById('habit-form-target-value');
+        const val = parseFloat(tvEl.value);
+        if (!tvEl.value || isNaN(val) || val <= 0) {
+          const err = document.getElementById('habit-form-target-value-error');
+          if (err) { err.textContent = 'Target value must be a positive number.'; err.classList.add('is-visible'); }
+          firstInvalid = firstInvalid || tvEl;
+          valid = false;
+        } else {
+          targetValue = val;
+        }
+      }
+
+      let scheduleTarget = null;
+      if (scheduleType === 'times_per_week') {
+        const stEl = document.getElementById('habit-form-schedule-target');
+        const val = parseInt(stEl.value, 10);
+        if (!stEl.value || isNaN(val) || val <= 0) {
+          const err = document.getElementById('habit-form-schedule-target-error');
+          if (err) { err.textContent = 'Times per week must be a positive integer.'; err.classList.add('is-visible'); }
+          firstInvalid = firstInvalid || stEl;
+          valid = false;
+        } else {
+          scheduleTarget = val;
+        }
+      }
+
+      if (!valid) {
+        if (firstInvalid) firstInvalid.focus();
+        return;
+      }
+
+      const unit = document.getElementById('habit-form-unit').value.trim() || null;
+      const payload = _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit);
+
+      if (_sfEditingHabitId) delete payload.tracking_type;
+
+      const genErrorEl = document.getElementById('habit-form-error');
+      try {
+        let res;
+        if (_sfEditingHabitId) {
+          res = await fetch(`/api/habits/${encodeURIComponent(_sfEditingHabitId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } else {
+          res = await fetch('/api/habits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (genErrorEl) { genErrorEl.textContent = body.detail || `Server error ${res.status}`; genErrorEl.classList.add('is-visible'); }
+          return;
+        }
+        closeHabitForm();
+        if (typeof UIStates !== 'undefined') UIStates.showToast(_sfEditingHabitId ? 'Habit updated' : 'Habit added');
+        await loadAndRender();
+      } catch (err) {
+        if (genErrorEl) { genErrorEl.textContent = 'Failed to save: ' + err.message; genErrorEl.classList.add('is-visible'); }
+      }
+    });
+  }
 });
 
 // ── History Calendar (issue #829 + #830) ──────────────────────────────────────
@@ -2273,6 +2553,169 @@ async function initHabitCal() {
   renderHabitMonthCal();
   renderHabitWeekStrip();
 }
+
+// ── Habit detail panel (issue #831) ──────────────────────────────────────────
+
+let _detailHabitId = null;
+
+function closeHabitDetail() {
+  const panel = document.getElementById('habit-detail-panel');
+  if (panel) panel.style.display = 'none';
+  _detailHabitId = null;
+}
+
+async function openHabitDetail(habitId, habitObj) {
+  const panel = document.getElementById('habit-detail-panel');
+  if (!panel) return;
+
+  _detailHabitId = habitId;
+
+  // Show panel with loading state
+  panel.style.display = '';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (loadingEl) loadingEl.style.display = '';
+  if (contentEl) contentEl.style.display = 'none';
+
+  // Show habit name and icon immediately from local data
+  if (habitObj) {
+    if (nameEl) nameEl.textContent = habitObj.name || '—';
+    if (iconEl) iconEl.innerHTML = habitIconHTML(habitObj.icon, habitObj.color, 28);
+  }
+
+  try {
+    const today = bangkokTodayStr();
+    const ninetyDaysAgo = isoDate(new Date(bangkokToday().getTime() - 90 * 86400000));
+
+    const [summaryRes, logsRes] = await Promise.all([
+      fetch(`/api/habits/${habitId}/summary`),
+      fetch(`/api/habits/logs?habit_id=${habitId}&from=${ninetyDaysAgo}&to=${today}`),
+    ]);
+
+    // Abort if user opened a different panel while fetching
+    if (_detailHabitId !== habitId) return;
+
+    if (!summaryRes.ok) throw new Error(`Summary fetch failed (${summaryRes.status})`);
+    const summary = await summaryRes.json();
+
+    let logs = [];
+    if (logsRes.ok) logs = await logsRes.json();
+
+    renderHabitDetail(summary, logs);
+  } catch (e) {
+    if (_detailHabitId !== habitId) return;
+    if (loadingEl) loadingEl.textContent = 'Failed to load habit details.';
+  }
+}
+
+function renderHabitDetail(summary, logs) {
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (!contentEl) return;
+
+  const habit = summary.habit || {};
+  if (nameEl) nameEl.textContent = habit.name || '—';
+  if (iconEl) iconEl.innerHTML = habitIconHTML(habit.icon, habit.color, 28);
+
+  // Stats
+  const streakEl = document.getElementById('detail-current-streak');
+  const longestEl = document.getElementById('detail-longest-streak');
+  const consistencyEl = document.getElementById('detail-consistency');
+  const consistencySubEl = document.getElementById('detail-consistency-sub');
+
+  if (streakEl) streakEl.textContent = summary.current_streak ?? 0;
+  if (longestEl) longestEl.textContent = summary.longest_streak ?? 0;
+  if (consistencyEl) consistencyEl.textContent = (summary.consistency_pct ?? 0) + '%';
+  if (consistencySubEl) {
+    const checked = summary.days_checked ?? 0;
+    const total = summary.days_total ?? 30;
+    consistencySubEl.textContent = `${checked}/${total} days`;
+  }
+
+  // Log history
+  const historyList = document.getElementById('detail-history-list');
+  const historyEmpty = document.getElementById('detail-history-empty');
+  if (historyList) {
+    historyList.innerHTML = '';
+    if (!logs || logs.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'detail-history-empty';
+      emptyDiv.textContent = 'No log entries yet — start logging to track your progress!';
+      historyList.appendChild(emptyDiv);
+    } else {
+      logs.forEach(log => {
+        const entry = document.createElement('div');
+        entry.className = 'detail-history-entry';
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'detail-history-date';
+        dateSpan.textContent = log.logged_date || log.log_date || '—';
+        entry.appendChild(dateSpan);
+        if (log.value != null && log.value !== 1) {
+          const valSpan = document.createElement('span');
+          valSpan.className = 'detail-history-val';
+          valSpan.textContent = log.value;
+          entry.appendChild(valSpan);
+        }
+        if (log.notes) {
+          const noteSpan = document.createElement('span');
+          noteSpan.className = 'detail-history-note';
+          noteSpan.textContent = log.notes;
+          entry.appendChild(noteSpan);
+        }
+        historyList.appendChild(entry);
+      });
+    }
+  }
+
+  // Show content
+  if (loadingEl) loadingEl.style.display = 'none';
+  contentEl.style.display = '';
+
+  // Edit/Archive buttons — no-op placeholders
+  const editBtn = document.getElementById('detail-edit-btn');
+  const archiveBtn = document.getElementById('detail-archive-btn');
+  if (editBtn) editBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+  if (archiveBtn) archiveBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+}
+
+function _wireDetailTriggers() {
+  // Wire habit-name clicks in daily grid
+  document.querySelectorAll('.habit-name-text[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[data-habit-id]');
+      const hid = row && row.dataset.habitId;
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+  // Wire habit-name clicks in weekly habits list
+  document.querySelectorAll('.week-habit-name[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[id^="habit-week-row-"]');
+      const hid = row && row.id.replace('habit-week-row-', '');
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+}
+
+// Close panel button
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('detail-panel-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeHabitDetail);
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 

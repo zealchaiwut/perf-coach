@@ -29,12 +29,6 @@ from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
-
-
-def _derive_goal_pace(goal_time_seconds, distance_km):
-    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
-    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
-    return pace
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -81,6 +75,12 @@ from backend.services.aerobic_decoupling import compute_decoupling as _compute_d
 _start_time = time.monotonic()
 
 app = FastAPI()
+
+
+def _derive_goal_pace(goal_time_seconds, distance_km):
+    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
+    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
+    return pace
 
 
 def _today_bkk() -> _date:
@@ -3504,6 +3504,75 @@ def get_habit_progress(
         })
 
 
+# ── Per-habit detail summary endpoint (issue #831) ───────────────────────────
+
+@app.get("/api/habits/{habit_id}/summary")
+def get_habit_summary(
+    habit_id: str,
+    user: User = Depends(resolve_user),
+):
+    """Return per-habit stats for the detail panel.
+
+    Includes current streak, longest streak, and consistency pct
+    for the last 30 days."""
+    from backend.services.habit_stats import (
+        _current_streak_from_dates,
+        _best_streak_from_dates,
+    )
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+
+    today = _date.today()
+    lookback_30 = today - _timedelta(days=29)
+    lookback_365 = today - _timedelta(days=365)
+
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        all_logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id == hid,
+                HabitLog.user_id == user.id,
+                HabitLog.log_date >= lookback_365,
+                HabitLog.log_date <= today,
+            )
+            .all()
+        )
+
+    all_dates = {lg.log_date for lg in all_logs}
+    sorted_dates = sorted(all_dates)
+
+    if habit.tracking_type == "daily_checkmark":
+        current_streak = _current_streak_from_dates(today, all_dates)
+        longest_streak = _best_streak_from_dates(sorted_dates)
+    else:
+        current_streak = 0
+        longest_streak = 0
+
+    days_in_window = (today - lookback_30).days + 1  # 30 days
+    days_checked = len([d for d in all_dates if lookback_30 <= d <= today])
+    consistency_pct = (
+        round(days_checked / days_in_window * 100.0, 1)
+        if days_in_window > 0 else 0.0
+    )
+
+    return JSONResponse({
+        "habit": _habit_dict(habit),
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "consistency_pct": consistency_pct,
+        "days_checked": days_checked,
+        "days_total": days_in_window,
+    })
+
+
 # ── Habits week-view batch endpoint (issue #429) ─────────────────────────────
 
 @app.get("/api/habits/week")
@@ -3807,6 +3876,7 @@ def get_habits_summary(user: User = Depends(resolve_user)):
 def get_habit_logs(
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    habit_id: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
 ):
     try:
@@ -3814,22 +3884,29 @@ def get_habit_logs(
         to_d = _date.fromisoformat(to_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    hid_filter = None
+    if habit_id is not None:
+        try:
+            hid_filter = _uuid.UUID(habit_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid habit_id")
     with Session(engine) as session:
-        rows = (
-            session.query(HabitLog)
-            .filter(
-                HabitLog.user_id == user.id,
-                HabitLog.log_date >= from_d,
-                HabitLog.log_date <= to_d,
-            )
-            .all()
+        q = session.query(HabitLog).filter(
+            HabitLog.user_id == user.id,
+            HabitLog.log_date >= from_d,
+            HabitLog.log_date <= to_d,
         )
+        if hid_filter is not None:
+            q = q.filter(HabitLog.habit_id == hid_filter)
+        rows = q.order_by(HabitLog.log_date.desc()).all()
         return JSONResponse([
             {
                 "id": str(r.id),
                 "habit_id": str(r.habit_id),
                 "user_id": str(r.user_id),
                 "logged_date": str(r.log_date),
+                "value": float(r.value) if r.value is not None else None,
+                "notes": r.notes,
             }
             for r in rows
         ])
