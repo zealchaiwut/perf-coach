@@ -1783,6 +1783,34 @@
     .dp-topbar-end {
       position: relative;
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .dp-icon-btn .ti { font-size: 1.125rem; line-height: 1; }
+
+    .dp-icon-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Off-screen host for long-screenshot export */
+    .dp-screenshot-capture {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      color: var(--text-primary);
+    }
+
+    .dp-screenshot-capture .rd4-laps-controls,
+    .dp-screenshot-capture .rd4-idcopy,
+    .dp-screenshot-capture .rd4-tss-chev,
+    .dp-screenshot-capture .rd4-tss-menu {
+      display: none !important;
+    }
+
+    .dp-screenshot-capture .rd4-lap-scroll {
+      overflow: visible !important;
     }
 
     .dp-overflow-menu {
@@ -2720,6 +2748,10 @@
         </div>
 
         <div class="dp-topbar-end">
+          <button id="dp-screenshot-btn" class="dp-icon-btn" aria-label="Save workout as image"
+                  title="Save as image" type="button">
+            <i class="ti ti-camera" aria-hidden="true"></i>
+          </button>
           <button id="dp-overflow-btn" class="dp-icon-btn" aria-label="More options"
                   aria-haspopup="menu" aria-expanded="false" type="button">&#8942;</button>
           <div id="dp-overflow-menu" class="dp-overflow-menu" role="menu" hidden>
@@ -3003,6 +3035,7 @@
     </div>
 
   <script src="js/nav.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/lib/training-format.js"></script>
