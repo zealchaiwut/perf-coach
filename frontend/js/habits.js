@@ -183,11 +183,65 @@ function esc(str) {
 
 // ── Today quick-log surface ───────────────────────────────────────────────────
 // Fetches /api/habits/summary and renders a per-habit row with type-specific
-// quick-log controls. Controls are interactive but invoke a no-op placeholder
-// handler — no persistence occurs in this ticket (deferred to follow-up).
+// quick-log controls. Controls POST to /api/habits/{id}/log (upsert semantics)
+// and refresh only the specific row's streak from /api/habits/summary.
 
-function _todayNoop() {
-  // no persistence — placeholder handler for quick-log controls
+async function _logHabitToday(habitId, value) {
+  const today = bangkokTodayStr();
+  const body = { log_date: today };
+  if (value !== undefined && value !== null) body.value = value;
+
+  const res = await fetch(`/api/habits/${habitId}/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.message || `Error ${res.status}`);
+  }
+
+  await _refreshHabitStreak(habitId);
+}
+
+async function _refreshHabitStreak(habitId) {
+  const res = await fetch('/api/habits/summary');
+  if (!res.ok) return;
+  const data = await res.json();
+  const habit = (data.habits || []).find(h => h.id === habitId);
+  if (!habit) return;
+
+  const row = document.querySelector(`[data-habit-id="${habitId}"]`);
+  if (!row) return;
+  const metaEl = row.querySelector('.today-habit-meta');
+  if (!metaEl) return;
+
+  const streak = habit.current_streak || 0;
+  const newBadgeHTML = streak >= 3
+    ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
+    : streak > 0
+      ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
+      : '';
+
+  const existingBadge = metaEl.querySelector('.streak-badge');
+  if (existingBadge) {
+    existingBadge.outerHTML = newBadgeHTML || '';
+  } else if (newBadgeHTML) {
+    metaEl.insertAdjacentHTML('beforeend', newBadgeHTML);
+  }
+}
+
+function _showRowError(row, msg) {
+  let errEl = row.querySelector('.today-row-error');
+  if (!errEl) {
+    errEl = document.createElement('p');
+    errEl.className = 'today-row-error';
+    errEl.setAttribute('role', 'alert');
+    row.appendChild(errEl);
+  }
+  errEl.textContent = msg;
+  setTimeout(() => { if (errEl.parentNode) errEl.textContent = ''; }, 4000);
 }
 
 async function loadTodayCard() {
@@ -196,7 +250,7 @@ async function loadTodayCard() {
 
   try {
     const res = await fetch('/api/habits/summary');
-    if (!res.ok) return; // silently skip if endpoint not yet available
+    if (!res.ok) return;
     const data = await res.json();
     renderTodayCard(data.habits || []);
   } catch (_e) {
@@ -281,33 +335,83 @@ function renderTodayCard(habits) {
     list.appendChild(row);
   });
 
-  // Attach interactive handlers (no-op — persistence deferred to follow-up ticket)
+  // Attach interactive handlers — POST to upsert-log endpoint then refresh streak
   list.querySelectorAll('.today-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    const row = btn.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
+    btn.addEventListener('click', async () => {
       btn.classList.toggle('toggled');
-      _todayNoop(); // no persistence
+      btn.disabled = true;
+      try {
+        await _logHabitToday(habitId, 1);
+      } catch (e) {
+        btn.classList.toggle('toggled'); // revert
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 
   list.querySelectorAll('.today-stepper').forEach(stepper => {
+    const row = stepper.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
     const dec = stepper.querySelector('.stepper-dec');
     const inc = stepper.querySelector('.stepper-inc');
     const val = stepper.querySelector('.stepper-val');
     let count = 0;
-    if (dec) dec.addEventListener('click', () => {
-      if (count > 0) { count--; val.textContent = count; }
-      _todayNoop(); // no persistence
+
+    if (dec) dec.addEventListener('click', async () => {
+      if (count <= 0) return;
+      count--;
+      val.textContent = count;
+      dec.disabled = true;
+      try {
+        await _logHabitToday(habitId, count);
+      } catch (e) {
+        count++;
+        val.textContent = count;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        dec.disabled = false;
+      }
     });
-    if (inc) inc.addEventListener('click', () => {
+
+    if (inc) inc.addEventListener('click', async () => {
       count++;
       val.textContent = count;
-      _todayNoop(); // no persistence
+      inc.disabled = true;
+      try {
+        await _logHabitToday(habitId, count);
+      } catch (e) {
+        count--;
+        val.textContent = count;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        inc.disabled = false;
+      }
     });
   });
 
   list.querySelectorAll('.today-duration-input').forEach(input => {
-    input.addEventListener('change', () => {
-      _todayNoop(); // no persistence
+    const row = input.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
+    let lastValue = '';
+    input.addEventListener('change', async () => {
+      const v = parseFloat(input.value);
+      if (isNaN(v) || v <= 0) return;
+      const prev = lastValue;
+      lastValue = input.value;
+      input.disabled = true;
+      try {
+        await _logHabitToday(habitId, v);
+      } catch (e) {
+        input.value = prev;
+        lastValue = prev;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        input.disabled = false;
+      }
     });
   });
 }
