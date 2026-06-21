@@ -531,7 +531,12 @@ def _user_dict(user: User) -> dict:
 @app.get("/api/auth/me")
 async def me(request: Request):
     user = await get_current_user(request)
-    return JSONResponse(_user_dict(user))
+    resp = JSONResponse(_user_dict(user))
+    # Sessions created before CSRF middleware may lack csrf-token; issue one on
+    # the next authenticated read so mutating requests stop failing with 403.
+    if not request.cookies.get(CSRF_COOKIE_NAME):
+        set_csrf_cookie(resp, generate_csrf_token())
+    return resp
 
 
 @app.get("/api/csrf-token")

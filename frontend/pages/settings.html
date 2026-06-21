@@ -2028,19 +2028,33 @@
         acceptBtn.textContent = 'Accept';
         acceptBtn.addEventListener('click', function () {
           acceptBtn.disabled = true;
-          var csrf = '';
-          var metaEl = document.querySelector('meta[name="csrf-token"]');
-          if (metaEl) csrf = metaEl.getAttribute('content');
-          if (!csrf) {
-            document.cookie.split(';').forEach(function (c) {
-              var pair = c.trim();
-              if (pair.startsWith('csrf-token=')) csrf = pair.slice('csrf-token='.length);
+          function _readCsrf() {
+            var csrf = '';
+            var metaEl = document.querySelector('meta[name="csrf-token"]');
+            if (metaEl) csrf = metaEl.getAttribute('content');
+            if (!csrf) {
+              document.cookie.split(';').forEach(function (c) {
+                var pair = c.trim();
+                if (pair.startsWith('csrf-token=')) csrf = decodeURIComponent(pair.slice('csrf-token='.length));
+              });
+            }
+            return csrf;
+          }
+          function _acceptWithCsrf() {
+            var csrf = _readCsrf();
+            if (csrf) return Promise.resolve(csrf);
+            return fetch('/api/csrf-token').then(function (r) {
+              return r.ok ? r.json() : {};
+            }).then(function (d) {
+              return (d && d.csrf_token) || _readCsrf();
             });
           }
-          fetch('/api/thresholds/suggestions/accept', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-            body: JSON.stringify({ keys: [prefKey] }),
+          _acceptWithCsrf().then(function (csrf) {
+            return fetch('/api/thresholds/suggestions/accept', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+              body: JSON.stringify({ keys: [prefKey] }),
+            });
           })
             .then(function (r) { return r.json(); })
             .then(function (result) {
@@ -2733,6 +2747,18 @@
       }
 
       function loadStravaStatus() {
+        fetch('/api/strava/configured')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (cfg) {
+            if (cfg && cfg.configured === false) {
+              intFeedback(
+                'strava-feedback',
+                'Strava OAuth is not configured on this server. Set STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, and STRAVA_STATE_SECRET in .env.',
+                'error'
+              );
+            }
+          })
+          .catch(function () {});
         fetch('/api/strava/status')
           .then(function (r) {
             if (!r.ok) { renderComingSoon('strava-card'); return; }
@@ -2757,11 +2783,16 @@
       function stravaConnect() {
         intFeedback('strava-feedback', '', '');
         fetch('/api/strava/connect')
-          .then(function (r) { return r.json(); })
-          .then(function (d) {
-            if (!d.authorize_url) throw new Error('No authorize URL');
-            // Same-tab redirect avoids mobile popup blockers (no window.open).
-            window.location.href = d.authorize_url;
+          .then(function (r) {
+            return r.json().then(function (d) {
+              if (!r.ok) {
+                var detail = d && d.detail;
+                throw new Error(typeof detail === 'string' ? detail : 'Failed to initiate Strava connection');
+              }
+              if (!d.authorize_url) throw new Error('No authorize URL returned');
+              // Same-tab redirect avoids mobile popup blockers (no window.open).
+              window.location.href = d.authorize_url;
+            });
           })
           .catch(function (err) {
             intFeedback('strava-feedback', (err && err.message) || 'Failed to initiate Strava connection', 'error');
@@ -2990,6 +3021,18 @@
       }
 
       function loadStrydStatus() {
+        fetch('/api/stryd/configured')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (cfg) {
+            if (cfg && cfg.configured === false) {
+              intFeedback(
+                'stryd-feedback',
+                'Stryd encryption is not configured on this server. Set STRYD_FERNET_KEY in .env.',
+                'error'
+              );
+            }
+          })
+          .catch(function () {});
         fetch('/api/stryd/status')
           .then(function (r) {
             if (!r.ok) { renderComingSoon('stryd-card'); return; }
