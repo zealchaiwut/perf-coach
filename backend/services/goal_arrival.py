@@ -8,7 +8,6 @@ that estimates the arrival date from the recent weight trend.  A separate thin c
 from __future__ import annotations
 
 import datetime
-from typing import Optional
 
 
 # Window over which the recent weekly rate is derived.  Between 14 and 28 days.
