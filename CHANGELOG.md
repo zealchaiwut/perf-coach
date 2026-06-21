@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 78 — Habits page shell, Today quick-log, and history calendar
+
+- #827: Build Habits page shell and Today quick-log surface
+- #828: Wire Today quick-log writes with upsert and streak refresh
+- #829: Add Habits history calendar with day-status cells
+- #830: Add habit filter to history calendar view
+
 ## Sprint 76 — Training > Performance sub-tab and settings thresholds/zones enhancements
 
 - #810: Add Settings section for training thresholds and zones
