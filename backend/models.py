@@ -591,6 +591,33 @@ class StrydActivity(Base):
     )
 
 
+class RemovedActivity(Base):
+    """Tombstone for a synced activity the user removed from their log.
+
+    Keyed by the external activity id so reconcile skips it on future syncs and
+    does not recreate the workout. Holds a name/date snapshot for the Removed
+    list; deleting the row (restore) lets the next reconcile rebuild the workout.
+    """
+
+    __tablename__ = "removed_activities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(10), nullable=False)  # 'strava' | 'stryd'
+    external_id = Column(String(255), nullable=False)
+    workout_name = Column(String(255), nullable=True)
+    workout_date = Column(Date, nullable=True)
+    removed_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "source", "external_id",
+            name="uq_removed_activities_user_source_external",
+        ),
+        Index("ix_removed_activities_user", "user_id"),
+    )
+
+
 class WorkoutFeel(Base):
     __tablename__ = "workout_feel"
 

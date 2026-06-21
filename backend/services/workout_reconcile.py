@@ -12,8 +12,9 @@ _TOLERANCE = timedelta(minutes=5)
 _WORKOUT_TYPE_MAP = {
     "Run": "run",
     "Ride": "bike",
+    # Strava strength sessions -> our "strength" so the exercise editor shows.
     "WeightTraining": "strength",
-    "Workout": "wod",
+    "Workout": "strength",
 }
 
 
@@ -78,7 +79,20 @@ def reconcile_strava_to_workouts(
             for w in existing_workouts
             if w.strava_activity_pk is not None
         }
-        unlinked = [a for a in all_strava if a.id not in linked_ids]
+        # Skip activities the user manually removed so we never recreate them.
+        from backend.models import RemovedActivity
+
+        removed_external = {
+            ext for (ext,) in
+            session.query(RemovedActivity.external_id)
+            .filter(RemovedActivity.user_id == uid, RemovedActivity.source == "strava")
+            .all()
+        }
+        unlinked = [
+            a for a in all_strava
+            if a.id not in linked_ids
+            and str(a.strava_activity_id) not in removed_external
+        ]
 
         for act in unlinked:
             # TSS formula priority: power > pace > HR > duration_only.
