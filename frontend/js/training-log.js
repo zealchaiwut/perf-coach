@@ -3254,14 +3254,6 @@
     }
   }
 
-  function _syncSinceDate(latest) {
-    if (!latest || !latest.synced_at) return null;
-    var d = new Date(latest.synced_at);
-    if (isNaN(d.getTime())) return null;
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }
-
   function _syncApiError(r) {
     return r.text().then(function (text) {
       var msg = text || "HTTP " + r.status;
@@ -3314,12 +3306,17 @@
     });
   }
 
-  function _syncProvider(label, url, sinceDate) {
-    var body = sinceDate
-      ? JSON.stringify({ since_date: sinceDate })
-      : "{}";
+  function _syncBuildBody(options) {
+    options = options || {};
+    if (options.full) return JSON.stringify({ full: true });
+    if (options.sinceDate) return JSON.stringify({ since_date: options.sinceDate });
+    return "{}";
+  }
+
+  function _syncProvider(label, url, options) {
+    var body = _syncBuildBody(options);
     var start = window.ensureCsrfReady
-      ? window.ensureCsrfReady()
+      ? window.ensureCsrfReady(true)
       : Promise.resolve();
     return start
       .then(function () {
@@ -3342,17 +3339,16 @@
       });
   }
 
-  function _syncAllProviders(latest) {
-    var stravaSince = _syncSinceDate(latest[0]);
-    var strydSince = _syncSinceDate(latest[1]);
+  function _syncAllProviders() {
+    var incremental = { full: false };
     var errors = [];
 
-    return _syncProvider("Strava", "/api/strava/sync", stravaSince)
+    return _syncProvider("Strava", "/api/strava/sync", incremental)
       .catch(function (err) {
         errors.push((err && err.message) || "Strava: Sync failed");
       })
       .then(function () {
-        return _syncProvider("Stryd", "/api/stryd/sync", strydSince).catch(function (err) {
+        return _syncProvider("Stryd", "/api/stryd/sync", incremental).catch(function (err) {
           errors.push((err && err.message) || "Stryd: Sync failed");
         });
       })
@@ -3364,28 +3360,10 @@
   function _onSyncAllClick() {
     _syncClearFeedback();
     _syncSetBusy(true);
-    var ready = window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve();
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
     ready
       .then(function () {
-        return Promise.all([
-          fetch("/api/sync/strava/latest")
-            .then(function (r) {
-              return r.ok ? r.json() : null;
-            })
-            .catch(function () {
-              return null;
-            }),
-          fetch("/api/sync/stryd/latest")
-            .then(function (r) {
-              return r.ok ? r.json() : null;
-            })
-            .catch(function () {
-              return null;
-            }),
-        ]);
-      })
-      .then(function (latest) {
-        return _syncAllProviders(latest);
+        return _syncAllProviders();
       })
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
