@@ -978,7 +978,7 @@
         : "") +
       (srcStryd
         ? '<span class="rd4-srcbtn rd4-srcbtn--stryd">Stryd · TSS ' +
-          dash(stryd && stryd.tss != null ? Math.round(stryd.tss) : storedTss) +
+          dash(stryd && stryd.tss != null ? Math.round(stryd.tss) : (w.tss != null ? Math.round(w.tss) : null)) +
           "</span>"
         : "") +
       "</div>" +

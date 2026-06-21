@@ -3,6 +3,15 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  function esc(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function dash(v) {
     return v == null || v === "" ? "—" : v;
   }
@@ -104,7 +113,7 @@
           color +
           '"></span>' +
           '<span class="rv-seg-name">' +
-          (seg.label || seg.name || effort) +
+          esc(seg.label || seg.name || effort) +
           "</span>" +
           '<span class="rv-seg-dist">' +
           dash(seg.distance_km ? seg.distance_km.toFixed(2) + " km" : null) +
@@ -294,7 +303,7 @@
     if (workout.strava_activity_url) {
       parts.push(
         '<a class="rv-src-link" href="' +
-          workout.strava_activity_url +
+          esc(workout.strava_activity_url) +
           '" target="_blank" rel="noopener">View on Strava</a>',
       );
     }
@@ -331,7 +340,7 @@
       '<div class="rv-header-left">' +
       '<span class="rv-badge">RUN</span>' +
       '<h1 class="rv-workout-name">' +
-      (w.name || "Untitled Run") +
+      esc(w.name || "Untitled Run") +
       "</h1>" +
       '<div class="rv-short-id">' +
       '<code class="rv-mono rv-id-code">' +
