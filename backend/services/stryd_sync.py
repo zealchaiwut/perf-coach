@@ -283,6 +283,10 @@ def sync_stryd_activities(
         fetched = len(raw_acts)
         mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
+        # Dedup by stryd_activity_id (keep last). A duplicate id in a single batch
+        # makes ON CONFLICT DO UPDATE raise "cannot affect row a second time".
+        _deduped = {m["stryd_activity_id"]: m for m in mapped}
+        mapped = list(_deduped.values())
         ids = [m["stryd_activity_id"] for m in mapped]
 
         if mapped:

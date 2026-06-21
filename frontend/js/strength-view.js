@@ -3,6 +3,15 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  function esc(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function dash(v) {
     return v == null || v === "" ? "—" : v;
   }
@@ -193,7 +202,7 @@
         return (
           '<div class="sv-ex-row">' +
           '<span class="sv-ex-bullet" style="background:' + tier.color + '"></span>' +
-          '<span class="sv-ex-name">' + (ex.name || "Exercise") + "</span>" +
+          '<span class="sv-ex-name">' + esc(ex.name || "Exercise") + "</span>" +
           '<span class="sv-ex-summary">' + setSummary(ex) + "</span>" +
           '<span class="sv-rpe-pill" style="background:' + tier.color + '">' + rpePillVal + "</span>" +
           "</div>"
@@ -230,7 +239,7 @@
     var header =
       '<div class="sv-card sv-header">' +
       '<span class="sv-badge" style="background:' + color + '">' + typeLabel + "</span>" +
-      '<h1 class="sv-workout-name">' + (w.name || "Untitled") + "</h1>" +
+      '<h1 class="sv-workout-name">' + esc(w.name || "Untitled") + "</h1>" +
       '<div class="sv-date">' + fmtDate(w.workout_date) + "</div>" +
       "</div>";
 

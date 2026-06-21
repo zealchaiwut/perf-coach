@@ -1772,13 +1772,10 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
 
 @app.get("/api/home/recent-workouts")
 def get_home_recent_workouts(
-    user_id: str = Query(...),
     limit: int = Query(default=5, ge=1, le=10),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
+    uid = current_user.id
 
     with Session(engine) as session:
         user = session.get(User, uid)
@@ -1915,13 +1912,10 @@ def _pr_trend(records, track_type: str) -> str:
 
 @app.get("/api/home/personal-records")
 def get_home_personal_records(
-    user_id: str = Query(...),
     tracks: str = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
+    uid = current_user.id
 
     track_list = [t.strip() for t in tracks.split(",")] if tracks else _PR_DEFAULT_TRACKS
 
@@ -2038,17 +2032,12 @@ def _readiness_score_label(score: Optional[int]) -> str:
 
 @app.get("/api/home/readiness")
 def get_home_readiness(
-    user_id: Optional[str] = Query(default=None),
     date: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
     # Score formula: sleep_hours 30%, hrv 25%, rhr 20%, mood 15%, energy 10%
     # Per-factor: sleep/HRV/RHR compare vs 7d rolling avg; mood/energy: raw value × 20
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
+    uid = current_user.id
 
     try:
         query_date = _date.fromisoformat(date) if date else _date.today()
@@ -2195,15 +2184,10 @@ _WK_TYPE_BUCKETS = ("run", "lift", "wod", "bike")
 
 @app.get("/api/home/weekly-summary")
 def get_home_weekly_summary(
-    user_id: Optional[str] = Query(default=None),
     week_start: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
+    uid = current_user.id
 
     if week_start is None:
         from zoneinfo import ZoneInfo
@@ -2853,19 +2837,14 @@ def _build_sleep_block(uid, today_bkk):
 
 
 @app.get("/api/home/summary")
-def get_home_summary(user_id: Optional[str] = Query(default=None)):
+def get_home_summary(current_user: User = Depends(resolve_user)):
     """Aggregated home-page summary: all seven data blocks in one request.
 
     Each block is computed independently; a failure in one block returns null
     for that block without affecting the rest. All date/time boundaries use
     Asia/Bangkok (UTC+7).
     """
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    try:
-        uid = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="User not found")
+    uid = current_user.id
 
     from zoneinfo import ZoneInfo as _ZoneInfo
     _BKK = _ZoneInfo("Asia/Bangkok")
@@ -4145,11 +4124,8 @@ def get_habit_logs_v2(
 
 
 @app.get("/api/stats/active-streak")
-def get_active_streak(user_id: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def get_active_streak(current_user: User = Depends(resolve_user)):
+    uid = current_user.id
 
     from datetime import timedelta
     from sqlalchemy import text as _sql_text
@@ -6719,9 +6695,9 @@ def get_readiness_current(user: User = Depends(resolve_user)):
 
 @app.get("/api/performance/chart")
 def get_performance_chart(
-    athlete_id: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
     """Return aligned CTL/ATL/TSB/endurance/speed time series for a performance chart.
 
@@ -6760,10 +6736,7 @@ def get_performance_chart(
             "reason": reason,
         })
 
-    # AC6: athlete_id is required; missing → athlete_not_found
-    if not athlete_id:
-        return _empty_response("athlete_not_found")
-
+    # Athlete is the authenticated session user.
     # AC7: both dates are required; missing → invalid_date_range
     if not start_date or not end_date:
         return _empty_response("invalid_date_range")
@@ -6778,12 +6751,8 @@ def get_performance_chart(
     if d_start > d_end:
         return _empty_response("invalid_date_range")
 
-    # AC6: look up athlete (user) by id
-    try:
-        import uuid as _uuid_mod
-        uid = _uuid_mod.UUID(str(athlete_id))
-    except (ValueError, AttributeError):
-        return _empty_response("athlete_not_found")
+    # Athlete (user) is the authenticated session user.
+    uid = current_user.id
 
     with Session(engine) as session:
         user_row = session.get(User, uid)
@@ -7195,11 +7164,8 @@ def list_personal_records(user: User = Depends(resolve_user)):
 
 
 @app.post("/api/personal-records", status_code=201)
-def create_personal_record(body: PersonalRecordIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+def create_personal_record(body: PersonalRecordIn, current_user: User = Depends(resolve_user)):
+    uid = current_user.id
     if body.track_type not in VALID_TRACK_TYPES:
         raise HTTPException(status_code=422, detail="track_type must be 'time' or 'weight'")
     if body.value_numeric <= 0:
@@ -7230,14 +7196,14 @@ def create_personal_record(body: PersonalRecordIn):
 
 
 @app.patch("/api/personal-records/{record_id}")
-def patch_personal_record(record_id: str, body: PersonalRecordPatch):
+def patch_personal_record(record_id: str, body: PersonalRecordPatch, current_user: User = Depends(resolve_user)):
     try:
         rid = _uuid.UUID(record_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid record_id")
     with Session(engine) as session:
         pr = session.get(PersonalRecord, rid)
-        if pr is None:
+        if pr is None or pr.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Personal record not found")
         if body.track_type is not None:
             if body.track_type not in VALID_TRACK_TYPES:
@@ -7269,14 +7235,14 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch):
 
 
 @app.delete("/api/personal-records/{record_id}", status_code=204)
-def delete_personal_record(record_id: str):
+def delete_personal_record(record_id: str, current_user: User = Depends(resolve_user)):
     try:
         rid = _uuid.UUID(record_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid record_id")
     with Session(engine) as session:
         pr = session.get(PersonalRecord, rid)
-        if pr is None:
+        if pr is None or pr.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Personal record not found")
         session.delete(pr)
         session.commit()
@@ -7286,7 +7252,7 @@ def delete_personal_record(record_id: str):
 # ── Personal Records — Tracks / History / Bulk (issue #359) ──────────────────
 
 @app.get("/api/personal-records/tracks")
-def list_personal_record_tracks():
+def list_personal_record_tracks(current_user: User = Depends(resolve_user)):
     return JSONResponse({"tracks": CANONICAL_TRACKS})
 
 
@@ -7303,11 +7269,8 @@ class _BulkInsertIn(BaseModel):
 
 
 @app.get("/api/personal-records/history")
-def personal_record_history(user_id: str, track_key: str):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid user_id")
+def personal_record_history(track_key: str, current_user: User = Depends(resolve_user)):
+    uid = current_user.id
     with Session(engine) as session:
         rows = (
             session.query(PersonalRecord)
@@ -7349,11 +7312,8 @@ def personal_record_history(user_id: str, track_key: str):
 
 
 @app.post("/api/personal-records/bulk", status_code=201)
-def bulk_create_personal_records(body: _BulkInsertIn):
-    try:
-        uid = _uuid.UUID(body.user_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid user_id")
+def bulk_create_personal_records(body: _BulkInsertIn, current_user: User = Depends(resolve_user)):
+    uid = current_user.id
     if not body.records:
         raise HTTPException(status_code=422, detail="records must contain at least 1 item")
 
@@ -8152,21 +8112,20 @@ async def post_sync_strava(
 
 
 @app.post("/api/sync/strava/reconcile")
-def strava_reconcile(user_id: _uuid.UUID = Query(...)):
+def strava_reconcile(current_user: User = Depends(resolve_user)):
     """Reconcile unlinked strava_activities into workouts. Returns counts."""
-    result = _workout_reconcile.reconcile_strava_to_workouts(user_id)
+    result = _workout_reconcile.reconcile_strava_to_workouts(current_user.id)
     return JSONResponse(result)
 
 
 @app.get("/api/sync/strava/dry-run")
 def strava_sync_dry_run(
-    user_id: Optional[_uuid.UUID] = Query(None),
     since_date: Optional[str] = Query(None),
     limit: int = Query(20),
+    current_user: User = Depends(resolve_user),
 ):
     """Read-only preview of what a Strava reconcile would produce. No DB writes."""
-    if user_id is None:
-        raise HTTPException(status_code=400, detail="user_id is required")
+    user_id = current_user.id
     if limit > 50:
         raise HTTPException(status_code=400, detail="limit cannot exceed 50")
     if limit < 1:
@@ -8298,11 +8257,9 @@ def strava_sync_latest(
 
 
 @app.get("/api/sync/strava/data-quality")
-def strava_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
+def strava_data_quality(current_user: User = Depends(resolve_user)):
     """Return data quality counts for a user's Strava/workout sync state."""
-    if user_id is None:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    uid = user_id
+    uid = current_user.id
     with Session(engine) as session:
         from sqlalchemy import func as _func, select as _sel, text as _text
         strava_count = session.execute(
@@ -8391,12 +8348,10 @@ def stryd_sync_latest(
 
 
 @app.get("/api/sync/stryd/data-quality")
-def stryd_data_quality(user_id: Optional[_uuid.UUID] = Query(None)):
+def stryd_data_quality(current_user: User = Depends(resolve_user)):
     """Data-quality counts for a user's Stryd/workout sync state."""
-    if user_id is None:
-        raise HTTPException(status_code=400, detail="user_id is required")
     from sqlalchemy import func as _func, select as _sel
-    uid = user_id
+    uid = current_user.id
     with Session(engine) as session:
         stryd_count = session.execute(
             _sel(_func.count(StrydActivity.id)).where(StrydActivity.user_id == uid)
@@ -8807,7 +8762,7 @@ class _SleepImportBody(BaseModel):
 
 
 @app.post("/api/imports/sleep")
-def post_sleep_import(body: _SleepImportBody):
+def post_sleep_import(body: _SleepImportBody, current_user: User = Depends(resolve_user)):
     try:
         parsed_date = _date.fromisoformat(body.import_date)
     except ValueError:
@@ -8890,10 +8845,7 @@ def post_sleep_import(body: _SleepImportBody):
                     },
                 )
 
-    try:
-        parsed_user_id = _uuid.UUID(body.user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="invalid user_id format")
+    parsed_user_id = current_user.id
 
     with Session(engine) as session:
         user = session.query(User).filter(User.id == parsed_user_id).first()
@@ -8951,15 +8903,12 @@ def post_sleep_import(body: _SleepImportBody):
 
 @app.get("/api/imports/sleep")
 def get_sleep_imports(
-    user_id: str = Query(...),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        parsed_user_id = _uuid.UUID(user_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="invalid user_id format")
+    parsed_user_id = current_user.id
 
     from_date = None
     to_date = None
@@ -9432,13 +9381,10 @@ def _load_interpretation(ctl: float, atl: float, tsb: float) -> str:
 
 @app.get("/api/training-load/current")
 def get_training_load_current(
-    user_id: str,
     as_of: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = current_user.id
 
     try:
         as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
@@ -9465,14 +9411,11 @@ def get_training_load_current(
 
 @app.get("/api/training-load")
 def get_training_load(
-    user_id: str,
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = current_user.id
 
     today = _date.today()
     try:
@@ -9553,13 +9496,10 @@ def get_training_load(
 
 @app.post("/api/training-load/recompute")
 def recompute_training_load(
-    user_id: str,
     from_date: str = Query(alias="from"),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = current_user.id
 
     try:
         from_d = _date.fromisoformat(from_date)
@@ -9634,13 +9574,10 @@ def recompute_training_load(
 
 @app.post("/api/training-load/refresh")
 def refresh_training_load(
-    user_id: str,
     target_date: Optional[str] = Query(default=None, alias="date"),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = current_user.id
 
     today = _date.today()
     try:
@@ -9667,13 +9604,10 @@ def refresh_training_load(
 
 @app.post("/api/training-load/backfill")
 def backfill_training_load(
-    user_id: str,
     from_date: str = Query(alias="from"),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
+    uid = current_user.id
 
     try:
         from_d = _date.fromisoformat(from_date)
@@ -9750,14 +9684,11 @@ def backfill_training_load(
 
 @app.get("/api/training/daily-load")
 def get_training_daily_load(
-    athlete_id: str,
     start: Optional[str] = Query(default=None),
     end: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
-    try:
-        uid = _uuid.UUID(athlete_id)
-    except (ValueError, AttributeError):
-        return JSONResponse(status_code=400, content={"results": [], "reason": "athlete_id is not a valid UUID"})
+    uid = current_user.id
 
     if start is None or end is None:
         missing = []
@@ -9808,9 +9739,9 @@ def get_training_daily_load(
 
 @app.get("/api/athletes/{athlete_id}/daily-load")
 def get_athlete_daily_load(
-    athlete_id: str,
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
 ):
     """Return per-day training load aggregates for an athlete.
 
@@ -9850,10 +9781,7 @@ def get_athlete_daily_load(
             detail=f"start_date ({start_date}) must not be after end_date ({end_date})",
         )
 
-    try:
-        uid = _uuid.UUID(athlete_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=404, detail="Athlete not found")
+    uid = current_user.id
 
     with Session(engine) as session:
         athlete = session.get(User, uid)
@@ -11570,19 +11498,16 @@ def get_device_zones(user: User = Depends(resolve_user)):
 # ── Athlete duration curve ────────────────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/duration-curve")
-def get_athlete_duration_curve(athlete_id: str):
+def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
     """Return the per-athlete best-effort duration curve across all run workouts.
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
-    but has no runs on record. Returns 404 when the athlete ID does not exist.
+    but has no runs on record. The athlete is always the authenticated session user.
 
     Each curve entry includes duration, best_value, source_workout_id, source_date,
     and a debug object identifying the source workout.
     """
-    try:
-        uid = _uuid.UUID(athlete_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+    uid = current_user.id
 
     with Session(engine) as session:
         athlete = session.get(User, uid)
@@ -11593,7 +11518,7 @@ def get_athlete_duration_curve(athlete_id: str):
 
         if not curve_data:
             return JSONResponse({
-                "athleteId": athlete_id,
+                "athleteId": str(uid),
                 "curve": [],
                 "debug": [],
                 "reason": "No runs found for athlete",
@@ -11637,7 +11562,7 @@ def get_athlete_duration_curve(athlete_id: str):
     )
 
     return JSONResponse({
-        "athleteId": athlete_id,
+        "athleteId": str(uid),
         "curve": curve_entries,
         "debug": [e["debug"] for e in curve_entries],
     })
@@ -11646,7 +11571,7 @@ def get_athlete_duration_curve(athlete_id: str):
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/performance")
-def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
+def get_athlete_performance(user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete.
 
     Both scores are derived from per-run efficiency and (for endurance) aerobic
@@ -11669,10 +11594,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
     except ImportError:
         compute_decoupling = None
 
-    try:
-        uid = _uuid.UUID(athlete_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+    uid = user.id
 
     with Session(engine) as session:
         athlete = session.get(User, uid)
