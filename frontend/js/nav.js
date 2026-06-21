@@ -39,6 +39,8 @@
       }
       return _origFetch(url, opts);
     };
+    // Ensure csrf-token cookie exists for sessions that pre-date CSRF rollout.
+    _origFetch("/api/csrf-token", { credentials: "same-origin" }).catch(function () {});
   }
 
   // Every primary destination, shown inline in the bar (left → right).

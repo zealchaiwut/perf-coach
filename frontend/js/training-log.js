@@ -3066,27 +3066,58 @@
     return d.toISOString().slice(0, 10);
   }
 
+  function _syncApiError(r) {
+    return r.text().then(function (text) {
+      var msg = text || "HTTP " + r.status;
+      try {
+        var parsed = JSON.parse(text);
+        if (parsed && parsed.detail) {
+          msg = typeof parsed.detail === "string"
+            ? parsed.detail
+            : JSON.stringify(parsed.detail);
+        }
+      } catch (e) { /* keep raw text */ }
+      return msg;
+    });
+  }
+
+  function _syncToast(msg, isError) {
+    if (window.UIStates && UIStates.showToast) {
+      UIStates.showToast(msg, isError);
+    }
+  }
+
   function _syncWaitForComplete() {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
       function poll() {
         fetch("/api/sync/status")
           .then(function (res) {
             return res.ok ? res.json() : null;
           })
           .then(function (data) {
-            if (!data || data.status !== "running") {
+            if (!data || data.status === "idle") {
               resolve();
-            } else {
-              setTimeout(poll, 2000);
+              return;
             }
+            if (data.status === "error") {
+              reject(new Error(data.error || "Sync failed"));
+              return;
+            }
+            if (data.status !== "running") {
+              resolve();
+              return;
+            }
+            setTimeout(poll, 2000);
           })
-          .catch(resolve);
+          .catch(function () {
+            resolve();
+          });
       }
       poll();
     });
   }
 
-  function _syncProvider(url, sinceDate) {
+  function _syncProvider(label, url, sinceDate) {
     var body = sinceDate
       ? JSON.stringify({ since_date: sinceDate })
       : "{}";
@@ -3097,6 +3128,11 @@
     }).then(function (r) {
       if (r.status === 202 || r.status === 409) {
         return _syncWaitForComplete();
+      }
+      if (!r.ok) {
+        return _syncApiError(r).then(function (msg) {
+          throw new Error(label + ": " + msg);
+        });
       }
       return null;
     });
@@ -3123,16 +3159,19 @@
       .then(function (latest) {
         var stravaSince = _syncSinceDate(latest[0]);
         var strydSince = _syncSinceDate(latest[1]);
-        return _syncProvider("/api/strava/sync", stravaSince).then(function () {
-          return _syncProvider("/api/stryd/sync", strydSince);
+        return _syncProvider("Strava", "/api/strava/sync", stravaSince).then(function () {
+          return _syncProvider("Stryd", "/api/stryd/sync", strydSince);
         });
       })
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
         _loadSyncChip();
+        fetchAndRender();
+        _syncToast("Sync complete");
       })
-      .catch(function () {
-        /* best-effort */
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : "Sync failed";
+        _syncToast(msg, true);
       })
       .finally(function () {
         _syncSetBusy(false);
