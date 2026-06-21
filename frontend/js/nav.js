@@ -14,6 +14,89 @@
   if (!window._csrfFetchPatched) {
     window._csrfFetchPatched = true;
     var _origFetch = window.fetch.bind(window);
+    var _csrfBootstrap = null;
+    var _csrfTokenCache = null;
+
+    function _readCsrfCookie() {
+      var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : null;
+    }
+
+    function _rememberCsrfToken(token) {
+      if (token) _csrfTokenCache = token;
+      return token;
+    }
+
+    function _currentCsrfToken() {
+      return _csrfTokenCache || _readCsrfCookie();
+    }
+
+    function _fetchCsrfToken() {
+      return _origFetch("/api/csrf-token", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) return _currentCsrfToken();
+          return res.json().then(function (body) {
+            return _rememberCsrfToken(_readCsrfCookie() || (body && body.csrf_token));
+          });
+        })
+        .catch(function () {
+          return _currentCsrfToken();
+        });
+    }
+
+    function ensureCsrfReady() {
+      var existing = _currentCsrfToken();
+      if (existing) return Promise.resolve(existing);
+      if (!_csrfBootstrap) {
+        _csrfBootstrap = _fetchCsrfToken().finally(function () {
+          _csrfBootstrap = null;
+        });
+      }
+      return _csrfBootstrap;
+    }
+
+    function _attachCsrfHeader(opts, token) {
+      if (!token) return opts;
+      var headers = opts.headers || {};
+      if (headers instanceof Headers) {
+        headers = new Headers(headers);
+        headers.set("X-CSRF-Token", token);
+      } else {
+        headers = Object.assign({}, headers, { "X-CSRF-Token": token });
+      }
+      return Object.assign({}, opts, { headers: headers });
+    }
+
+    function _isCsrfForbidden(res) {
+      if (!res || res.status !== 403) return Promise.resolve(false);
+      return res
+        .clone()
+        .json()
+        .then(function (body) {
+          return !!(body && body.detail === "CSRF token missing or invalid");
+        })
+        .catch(function () {
+          return false;
+        });
+    }
+
+    function _mutatingFetch(url, opts, allowRetry) {
+      return ensureCsrfReady().then(function (token) {
+        var reqOpts = _attachCsrfHeader(opts, token || _currentCsrfToken());
+        return _origFetch(url, reqOpts).then(function (res) {
+          if (!allowRetry) return res;
+          return _isCsrfForbidden(res).then(function (csrfFail) {
+            if (!csrfFail) return res;
+            _csrfTokenCache = null;
+            return _fetchCsrfToken().then(function (fresh) {
+              if (!fresh) return res;
+              return _origFetch(url, _attachCsrfHeader(opts, fresh));
+            });
+          });
+        });
+      });
+    }
+
     window.fetch = function (url, opts) {
       opts = opts || {};
       var method = (opts.method || "GET").toUpperCase();
@@ -23,24 +106,15 @@
         method === "DELETE" ||
         method === "PUT"
       ) {
-        var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
-        if (match) {
-          var headers = opts.headers || {};
-          if (headers instanceof Headers) {
-            headers = new Headers(headers);
-            headers.set("X-CSRF-Token", decodeURIComponent(match[1]));
-          } else {
-            headers = Object.assign({}, headers, {
-              "X-CSRF-Token": decodeURIComponent(match[1]),
-            });
-          }
-          opts = Object.assign({}, opts, { headers: headers });
-        }
+        return _mutatingFetch(url, opts, true);
       }
       return _origFetch(url, opts);
     };
-    // Ensure csrf-token cookie exists for sessions that pre-date CSRF rollout.
-    _origFetch("/api/csrf-token", { credentials: "same-origin" }).catch(function () {});
+
+    window.ensureCsrfReady = ensureCsrfReady;
+
+    // Warm csrf-token for sessions that pre-date CSRF rollout.
+    ensureCsrfReady().catch(function () {});
   }
 
   // Every primary destination, shown inline in the bar (left → right).

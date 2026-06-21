@@ -113,6 +113,7 @@ def set_csrf_cookie(response: Response, token: str) -> None:
         httponly=False,
         secure=(env != "local"),
         samesite="lax",
+        path="/",
     )
 
 
@@ -130,8 +131,8 @@ def set_session(response: Response, user_id: str) -> str:
 
 
 def clear_session(response: Response) -> None:
-    response.delete_cookie(key=COOKIE_NAME)
-    response.delete_cookie(key=CSRF_COOKIE_NAME)
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    response.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
 
 
 def get_admin_secret() -> Optional[str]:
