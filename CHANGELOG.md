@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 81 — Habit-outcome alignment function
+
+- #881: Add align_habit_and_outcome pure function with lag support
+
 ## Sprint 79 — Weight plans table, plan-line recompute, and CRUD endpoints
 
 - #861: Add weight_plans table: migration and SQLAlchemy models
