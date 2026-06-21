@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -4740,6 +4740,11 @@ def _stryd_source_dict(sta) -> dict | None:
     """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
     if sta is None:
         return None
+    # Stryd has no precomputed laps array — manual lap presses are boundary
+    # timestamps. Compute per-lap metrics from the per-point streams.
+    from backend.services.stryd_laps import compute_manual_laps
+    streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
+    laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
     return {
         "stryd_activity_id": sta.stryd_activity_id,
         "name": sta.name,
@@ -4752,7 +4757,7 @@ def _stryd_source_dict(sta) -> dict | None:
         "form_metrics": sta.form_metrics or {},
         "power_zones": sta.power_zones or {},
         "splits": sta.splits or [],
-        "laps": ((sta.raw_payload or {}).get("laps") or []),
+        "laps": laps,
     }
 
 
@@ -5001,6 +5006,58 @@ def get_exercise_names(user: User = Depends(resolve_user)):
         )
         names = [r[0] for r in rows if r[0] and r[0].strip()]
         return JSONResponse(names)
+
+
+# ── Removed (tombstoned) synced workouts ────────────────────────────────────
+# Declared BEFORE /api/workouts/{workout_id} so "removed" isn't parsed as an id.
+
+@app.get("/api/workouts/removed")
+def list_removed_workouts(user: User = Depends(resolve_user)):
+    """List synced activities the user removed from their log (restorable)."""
+    with Session(engine) as session:
+        rows = (
+            session.query(RemovedActivity)
+            .filter(RemovedActivity.user_id == user.id)
+            .order_by(RemovedActivity.removed_at.desc())
+            .all()
+        )
+        return JSONResponse([
+            {
+                "id": str(r.id),
+                "source": r.source,
+                "external_id": r.external_id,
+                "name": r.workout_name,
+                "workout_date": r.workout_date.isoformat() if r.workout_date else None,
+                "removed_at": r.removed_at.isoformat() if r.removed_at else None,
+            }
+            for r in rows
+        ])
+
+
+@app.post("/api/workouts/removed/{removed_id}/restore", status_code=200)
+def restore_removed_workout(removed_id: str, user: User = Depends(resolve_user)):
+    """Clear a tombstone and rebuild the workout from the cached activity.
+
+    Deletes the removed-activity row, then runs reconcile so the workout
+    reappears (rebuilt from the still-cached Strava/Stryd activity).
+    """
+    try:
+        rid = _uuid.UUID(removed_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid removed_id")
+    with Session(engine) as session:
+        row = session.get(RemovedActivity, rid)
+        if row is None or row.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Removed workout not found")
+        session.delete(row)
+        session.commit()
+    try:
+        _reconcile.reconcile_workouts(user.id, user.id)
+    except Exception as _rc_exc:
+        _logging.getLogger(__name__).warning(
+            "reconcile after restore failed for user %s: %s", user.id, _rc_exc
+        )
+    return JSONResponse({"restored": True})
 
 
 @app.get("/api/workouts/{workout_id}")
@@ -5374,6 +5431,35 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=403, detail="Forbidden")
         _del_date = workout.workout_date
         _del_uid = workout.user_id
+        # Tombstone any linked synced activities so the next sync/reconcile does
+        # NOT recreate this workout. Snapshot name/date for the Removed list.
+        _tombstone_links = []
+        if workout.strava_activity_pk is not None:
+            sa_row = session.get(StravaActivity, workout.strava_activity_pk)
+            if sa_row is not None:
+                _tombstone_links.append(("strava", str(sa_row.strava_activity_id)))
+        if workout.stryd_activity_pk is not None:
+            st_row = session.get(StrydActivity, workout.stryd_activity_pk)
+            if st_row is not None:
+                _tombstone_links.append(("stryd", str(st_row.stryd_activity_id)))
+        for _src, _ext in _tombstone_links:
+            exists = (
+                session.query(RemovedActivity.id)
+                .filter(
+                    RemovedActivity.user_id == _del_uid,
+                    RemovedActivity.source == _src,
+                    RemovedActivity.external_id == _ext,
+                )
+                .first()
+            )
+            if exists is None:
+                session.add(RemovedActivity(
+                    user_id=_del_uid,
+                    source=_src,
+                    external_id=_ext,
+                    workout_name=workout.name,
+                    workout_date=workout.workout_date,
+                ))
         session.delete(workout)
         session.commit()
     try:

@@ -1049,6 +1049,20 @@
     );
   }
 
+  // Synced = backed by a Strava/Stryd activity. Deleting these tombstones the
+  // activity (so it won't resync); they can be restored from the Removed list.
+  function isSyncedWorkout(workout) {
+    if (!workout) return false;
+    var src = workout.source || "";
+    return (
+      src.includes("strava") ||
+      src.includes("stryd") ||
+      !!workout.strava_activity_url ||
+      !!workout.has_strava ||
+      !!workout.has_stryd
+    );
+  }
+
   function buildEntryRow(w) {
     var row = document.createElement("div");
     row.className = "entry-row";
@@ -1542,7 +1556,11 @@
       }
     }
     if (menuDelete) {
-      menuDelete.style.display = hasWorkout && !isStrava ? "" : "none";
+      // Always allow removal. Synced workouts are tombstoned (won't resync) and
+      // are restorable; manual workouts are permanently deleted.
+      menuDelete.style.display = hasWorkout ? "" : "none";
+      menuDelete.textContent =
+        hasWorkout && isSyncedWorkout(workout) ? "Remove from log" : "Delete";
     }
   }
 
@@ -1926,6 +1944,83 @@
       }
     }
     return ex.rpe != null ? String(ex.rpe) : null;
+  }
+
+  // Aggregate a numeric per-set field: show the common value when every set
+  // agrees, otherwise the average (user preference: "if not the same, use avg").
+  function _setAgg(values) {
+    var nums = values.filter(function (v) {
+      return v != null && !isNaN(v);
+    });
+    if (!nums.length) return { value: null, uniform: true };
+    var first = nums[0];
+    var uniform = nums.every(function (v) {
+      return v === first;
+    });
+    if (uniform) return { value: first, uniform: true };
+    var sum = nums.reduce(function (a, v) {
+      return a + Number(v);
+    }, 0);
+    return { value: sum / nums.length, uniform: false };
+  }
+
+  // Build a per-exercise row summary for the strength detail table.
+  function _strengthExRow(ex) {
+    var sets = _parseSetsJson(ex);
+    var use = null;
+    if (sets && sets.length) {
+      var working = sets.filter(function (s) {
+        return s.type !== "warmup";
+      });
+      use = working.length ? working : sets;
+    }
+    var count, repsAgg, wAgg, rpeAgg;
+    if (use) {
+      count = use.length;
+      repsAgg = _setAgg(use.map(function (s) { return s.reps; }));
+      wAgg = _setAgg(use.map(function (s) { return s.weight; }));
+      rpeAgg = _setAgg(use.map(function (s) { return s.rpe; }));
+    } else {
+      count = ex.sets != null ? ex.sets : null;
+      repsAgg = { value: ex.reps != null ? ex.reps : null, uniform: true };
+      wAgg = { value: ex.weight_kg != null ? ex.weight_kg : null, uniform: true };
+      rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
+    }
+
+    var setsTxt = "—";
+    if (count != null) {
+      if (repsAgg.value != null) {
+        var repsTxt = repsAgg.uniform
+          ? String(repsAgg.value)
+          : "~" + Math.round(repsAgg.value);
+        setsTxt = count + " × " + repsTxt;
+      } else {
+        setsTxt = count + (count === 1 ? " set" : " sets");
+      }
+    }
+
+    var wTxt = "—";
+    if (wAgg.value != null) {
+      var wNum = wAgg.uniform ? wAgg.value : Math.round(wAgg.value);
+      wTxt = (wAgg.uniform ? "" : "avg ") + wNum + " kg";
+    }
+
+    var rpeVal = rpeAgg.value;
+    var rpeTxt = "—";
+    if (rpeVal != null) {
+      var rpeNum = rpeAgg.uniform ? rpeVal : Number(rpeVal).toFixed(1);
+      rpeTxt = (rpeAgg.uniform ? "" : "avg ") + rpeNum;
+    }
+
+    var vol = _calcExVolume(ex);
+    return {
+      name: ex.name || "—",
+      setsTxt: setsTxt,
+      weightTxt: wTxt,
+      rpeTxt: rpeTxt,
+      rpeClass: _rpeBarClass(rpeVal),
+      volTxt: vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "—",
+    };
   }
 
   function buildEffortProfileView(segData) {
@@ -2639,36 +2734,27 @@
       var totalVol = 0;
       var rpeSum = 0,
         rpeCount = 0;
-      var exCards = "";
+      var exRows = "";
       exercises.forEach(function (ex) {
-        var vol = _calcExVolume(ex);
-        totalVol += vol;
+        totalVol += _calcExVolume(ex);
         var rpe = _avgRpeFromEx(ex);
         if (rpe != null) {
           rpeSum += parseFloat(rpe);
           rpeCount += 1;
         }
-        var volStr =
-          vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "\u2014";
-        exCards +=
-          '<div class="dp-ex-card dp-exercise-item">' +
-          '<div class="dp-ex-card-head">' +
-          '<span class="dp-ex-card-name">' +
-          esc(ex.name || "\u2014") +
-          "</span>" +
-          '<span class="dp-ex-card-vol">' +
-          esc(volStr) +
-          "</span>" +
-          "</div>" +
-          '<div class="dp-ex-card-body">' +
-          '<span class="dp-ex-card-sub">' +
-          esc(_formatStrengthExSub(ex)) +
-          "</span>" +
-          (rpe
-            ? '<span class="dp-ex-card-rpe">RPE ' + esc(rpe) + "</span>"
-            : "") +
-          "</div>" +
-          "</div>";
+        var r = _strengthExRow(ex);
+        exRows +=
+          "<tr>" +
+          '<td class="dp-ex-td-name">' + esc(r.name) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.setsTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.weightTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' +
+          (r.rpeTxt !== "\u2014"
+            ? '<span class="dp-ex-rpe-pill ' + r.rpeClass + '">' + esc(r.rpeTxt) + "</span>"
+            : "\u2014") +
+          "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.volTxt) + "</td>" +
+          "</tr>";
       });
       var avgRpeFoot = rpeCount ? (rpeSum / rpeCount).toFixed(1) : "\u2014";
       var volFoot =
@@ -2677,9 +2763,12 @@
         '<div class="dp-section">' +
         rpeProfile +
         '<div class="dp-section-title">Exercises</div>' +
-        '<div class="dp-ex-list">' +
-        exCards +
-        "</div>" +
+        '<div class="dp-ex-table-wrap"><table class="dp-ex-table">' +
+        "<thead><tr>" +
+        "<th>Exercise</th><th>Sets</th><th>Weight</th><th>RPE</th><th>Volume</th>" +
+        "</tr></thead><tbody>" +
+        exRows +
+        "</tbody></table></div>" +
         '<div class="dp-seg-footer" style="margin-top:10px;border-radius:10px;">' +
         "<span>Total volume \u00b7 avg RPE</span>" +
         "<strong>" +
@@ -3101,20 +3190,108 @@
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────
-  function deleteWorkout(workoutId) {
-    if (!confirm("Delete this workout? This cannot be undone.")) return;
+  function deleteWorkout(workoutId, isSynced) {
+    var msg = isSynced
+      ? "Remove this workout from your log? It won't be re-synced from Strava/Stryd. You can restore it later from Removed workouts."
+      : "Delete this workout? This cannot be undone.";
+    if (!confirm(msg)) return;
 
     fetch("/api/workouts/" + workoutId, { method: "DELETE" })
       .then(function (res) {
         if (!res.ok && res.status !== 204)
           throw new Error("HTTP " + res.status);
-        UIStates.showToast("Workout deleted");
+        UIStates.showToast(isSynced ? "Removed from log" : "Workout deleted");
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        UIStates.showToast("Could not delete workout. Please try again.", true);
+        UIStates.showToast("Could not remove workout. Please try again.", true);
       });
+  }
+
+  // ── Removed workouts modal (restore tombstoned synced activities) ─────────
+  function openRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (!modal) return;
+    modal.hidden = false;
+    loadRemovedList();
+  }
+
+  function closeRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (modal) modal.hidden = true;
+  }
+
+  function loadRemovedList() {
+    var list = document.getElementById("removed-modal-list");
+    if (!list) return;
+    list.innerHTML = '<div class="removed-empty">Loading…</div>';
+    fetch("/api/workouts/removed")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (rows) {
+        if (!rows || !rows.length) {
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        rows.forEach(function (r) {
+          var row = document.createElement("div");
+          row.className = "removed-row";
+          var src = (r.source || "").toLowerCase();
+          var meta = [fmtDate(r.workout_date), src ? src.charAt(0).toUpperCase() + src.slice(1) : ""]
+            .filter(Boolean).join(" · ");
+          row.innerHTML =
+            '<div class="removed-row-info">' +
+            '<div class="removed-row-name">' + esc(r.name || "Workout") + "</div>" +
+            '<div class="removed-row-meta">' + esc(meta) + "</div>" +
+            "</div>" +
+            '<button class="removed-row-restore" type="button">Restore</button>';
+          row.querySelector(".removed-row-restore").addEventListener("click", function () {
+            restoreRemoved(r.id, row);
+          });
+          list.appendChild(row);
+        });
+      })
+      .catch(function () {
+        list.innerHTML = '<div class="removed-empty">Could not load removed workouts.</div>';
+      });
+  }
+
+  function restoreRemoved(removedId, rowEl) {
+    var btn = rowEl ? rowEl.querySelector(".removed-row-restore") : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Restoring…";
+    }
+    fetch("/api/workouts/removed/" + removedId + "/restore", { method: "POST" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        UIStates.showToast("Workout restored");
+        if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+        var list = document.getElementById("removed-modal-list");
+        if (list && !list.querySelector(".removed-row"))
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+        fetchAndRender();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not restore workout. Please try again.", true);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Restore";
+        }
+      });
+  }
+
+  function wireRemovedModal() {
+    var openBtn = document.getElementById("log-removed-btn");
+    if (openBtn) openBtn.addEventListener("click", openRemovedModal);
+    var closeBtn = document.getElementById("removed-modal-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeRemovedModal);
+    var backdrop = document.getElementById("removed-modal-backdrop");
+    if (backdrop) backdrop.addEventListener("click", closeRemovedModal);
   }
 
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
@@ -3457,6 +3634,8 @@
         openPanelCreate(createPresetDate());
       });
 
+    wireRemovedModal();
+
     var emptyCta = document.getElementById("log-empty-cta");
     if (emptyCta)
       emptyCta.addEventListener("click", function () {
@@ -3517,7 +3696,8 @@
     if (menuDelete)
       menuDelete.addEventListener("click", function () {
         closeOverflowMenu();
-        if (activeDetailWorkoutId) deleteWorkout(activeDetailWorkoutId);
+        if (activeDetailWorkoutId)
+          deleteWorkout(activeDetailWorkoutId, isSyncedWorkout(cachedDetailWorkout));
       });
 
     document.addEventListener("click", function (e) {
