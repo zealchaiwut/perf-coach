@@ -1276,6 +1276,98 @@ def end_weight_target(target_id: str, body: WeightTargetEndIn, user: User = Depe
         return JSONResponse(_weight_target_dict(target))
 
 
+# ── Weight target what-if simulation ──────────────────────────────────────────
+
+class WeightTargetWhatIfIn(BaseModel):
+    assumed_rate: float
+
+
+@app.post("/api/weight-targets/{goal_id}/what-if")
+def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User = Depends(resolve_user)):
+    import math as _math
+    from backend.services.weight_what_if import simulate_what_if as _simulate_what_if
+
+    try:
+        gid = _uuid.UUID(goal_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid goal_id")
+
+    with Session(engine) as session:
+        goal = session.get(WeightTarget, gid)
+        if goal is None or goal.user_id != user.id or goal.status != "active":
+            raise HTTPException(status_code=404, detail="No active goal found for the given goal_id")
+
+        assumed_rate = body.assumed_rate
+
+        if not _math.isfinite(assumed_rate):
+            raise HTTPException(status_code=422, detail="assumed_rate must be a finite number")
+        if assumed_rate == 0:
+            raise HTTPException(status_code=422, detail="assumed_rate must be non-zero; a zero rate would never reach the goal")
+
+        # Direction validation: rate must progress toward the target
+        total_kg_signed = float(goal.target_weight_kg) - float(goal.start_weight_kg)
+        if total_kg_signed == 0:
+            raise HTTPException(status_code=422, detail="Goal has no direction (start and target weights are identical)")
+        required_positive = total_kg_signed > 0
+        if required_positive and assumed_rate < 0:
+            raise HTTPException(
+                status_code=422,
+                detail="assumed_rate direction is invalid: goal requires a positive rate (weight gain) but a negative rate was provided",
+            )
+        if not required_positive and assumed_rate > 0:
+            raise HTTPException(
+                status_code=422,
+                detail="assumed_rate direction is invalid: goal requires a negative rate (weight loss) but a positive rate was provided",
+            )
+
+        # Magnitude validation: cap at 10× implied goal rate or 20 kg/week hard cap
+        total_weeks = max(1.0, abs((goal.target_date - goal.start_date).days) / 7.0)
+        implied_rate = abs(total_kg_signed) / total_weeks
+        magnitude_cap = min(implied_rate * 10, 20.0)
+        if abs(assumed_rate) > magnitude_cap:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"assumed_rate magnitude ({abs(assumed_rate):.4g} kg/week) exceeds the allowed bound "
+                    f"({magnitude_cap:.4g} kg/week); provide a more realistic rate"
+                ),
+            )
+
+        # Fetch the most recent weight entry to anchor the simulation
+        today = _date.today()
+        latest_entry = (
+            session.query(WeightEntry)
+            .filter(WeightEntry.user_id == user.id, WeightEntry.entry_date <= today)
+            .order_by(WeightEntry.entry_date.desc())
+            .first()
+        )
+        if latest_entry is None:
+            raise HTTPException(status_code=422, detail="No weight entries available to anchor the simulation; log a weight first")
+
+        actual_trend = {today: float(latest_entry.weight_kg)}
+        goal_weight_kg = float(goal.target_weight_kg)
+
+    # All DB work is done — no further DB access below this line
+    result = _simulate_what_if(
+        actual_trend=actual_trend,
+        goal_weight_kg=goal_weight_kg,
+        assumed_rate_kg_per_week=assumed_rate,
+        today=today,
+    )
+
+    if not result.get("projected_line"):
+        reason = result.get("reason", "Simulation could not be completed")
+        raise HTTPException(status_code=422, detail=reason)
+
+    simulated_line = [
+        {"date": str(pt["date"]), "weight": pt["weight"]}
+        for pt in result["projected_line"]
+    ]
+    arrival_date = str(result["arrival_date"]) if result["arrival_date"] else None
+
+    return JSONResponse({"simulated_line": simulated_line, "arrival_date": arrival_date})
+
+
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
 
 def _advance_one_month(d: _date) -> _date:
