@@ -1571,6 +1571,151 @@
     else openOverflowMenu();
   }
 
+  var _detailScreenshotBusy = false;
+
+  function slugifyScreenshotName(name) {
+    return (
+      String(name || "workout")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "workout"
+    );
+  }
+
+  function buildDetailScreenshotFilename() {
+    var w = cachedDetailWorkout;
+    var parts = [slugifyScreenshotName(w && w.name)];
+    if (w && w.workout_date) parts.push(w.workout_date);
+    return parts.join("-") + ".png";
+  }
+
+  function expandScreenshotOverflow(root) {
+    var touched = [];
+    if (!root) return touched;
+    root.querySelectorAll("*").forEach(function (el) {
+      var cs = window.getComputedStyle(el);
+      var patch = {};
+      if (
+        cs.overflow === "auto" ||
+        cs.overflow === "scroll" ||
+        cs.overflow === "hidden"
+      ) {
+        patch.overflow = el.style.overflow;
+        el.style.overflow = "visible";
+      }
+      if (cs.maxHeight && cs.maxHeight !== "none") {
+        patch.maxHeight = el.style.maxHeight;
+        el.style.maxHeight = "none";
+      }
+      if (Object.keys(patch).length) touched.push({ el: el, patch: patch });
+    });
+    return touched;
+  }
+
+  function restoreScreenshotOverflow(touched) {
+    touched.forEach(function (item) {
+      Object.keys(item.patch).forEach(function (key) {
+        item.el.style[key] = item.patch[key];
+      });
+    });
+  }
+
+  function saveDetailScreenshot() {
+    if (_detailScreenshotBusy) return;
+    if (panelMode !== "view") return;
+
+    if (typeof window.html2canvas !== "function") {
+      UIStates.showToast(
+        "Screenshot tool failed to load. Refresh and try again.",
+        true,
+      );
+      return;
+    }
+
+    var contentEl = document.getElementById("dp-content");
+    var loadingEl = document.getElementById("dp-loading");
+    if (!contentEl || !contentEl.firstElementChild) {
+      UIStates.showToast("Nothing to capture yet.", true);
+      return;
+    }
+    if (loadingEl && loadingEl.style.display !== "none") {
+      UIStates.showToast("Still loading workout…", true);
+      return;
+    }
+
+    closeOverflowMenu();
+    _detailScreenshotBusy = true;
+
+    var shotBtn = document.getElementById("dp-screenshot-btn");
+    if (shotBtn) shotBtn.disabled = true;
+
+    var scrollEl = document.getElementById("dp-scroll");
+    var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    if (scrollEl) scrollEl.scrollTop = 0;
+
+    var panel = document.getElementById("detail-panel");
+    var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
+    var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+
+    var host = document.createElement("div");
+    host.className = "dp-screenshot-capture";
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText =
+      "position:fixed;left:-10000px;top:0;width:" +
+      captureWidth +
+      "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;z-index:-1;";
+
+    var clone = contentEl.cloneNode(true);
+    host.appendChild(clone);
+    document.body.appendChild(host);
+
+    var overflowPatches = expandScreenshotOverflow(clone);
+
+    window
+      .html2canvas(host, {
+        backgroundColor: "#ffffff",
+        scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+        logging: false,
+        useCORS: true,
+        width: captureWidth,
+        windowWidth: captureWidth,
+      })
+      .then(function (canvas) {
+        return new Promise(function (resolve, reject) {
+          canvas.toBlob(function (blob) {
+            if (!blob) {
+              reject(new Error("empty blob"));
+              return;
+            }
+            resolve(blob);
+          }, "image/png");
+        });
+      })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = buildDetailScreenshotFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        UIStates.showToast("Workout saved as image");
+      })
+      .catch(function (err) {
+        console.error("detail screenshot failed", err);
+        UIStates.showToast("Could not save image. Try again.", true);
+      })
+      .finally(function () {
+        restoreScreenshotOverflow(overflowPatches);
+        if (host.parentNode) host.parentNode.removeChild(host);
+        if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+        _detailScreenshotBusy = false;
+        if (shotBtn) shotBtn.disabled = false;
+      });
+  }
+
   // ── Fetch and render detail ───────────────────────────────────────────────
   function fetchAndRenderDetail(workoutId) {
     var loadingEl = document.getElementById("dp-loading");
@@ -3201,6 +3346,14 @@
 
     if (window.TrainingEditor) {
       TrainingEditor.setHooks({ onSaved: handleEditorSaved });
+    }
+
+    var screenshotBtn = document.getElementById("dp-screenshot-btn");
+    if (screenshotBtn) {
+      screenshotBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        saveDetailScreenshot();
+      });
     }
 
     var overflowBtn = document.getElementById("dp-overflow-btn");
