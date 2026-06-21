@@ -73,6 +73,7 @@ from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluat
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
+from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -1067,6 +1068,14 @@ def get_active_weight_target(user: User = Depends(resolve_user)):
             return JSONResponse({"target": None})
 
         return JSONResponse({"target": _compute_weight_target_active(target, session)})
+
+
+@app.get("/api/weight-targets/arrival-projection")
+def get_weight_target_arrival_projection(user: User = Depends(resolve_user)):
+    """Return projected arrival date and rate for the user's active weight plan and goal."""
+    with Session(engine) as session:
+        result = _resolve_arrival_projection(user.id, session)
+    return JSONResponse(result)
 
 
 @app.get("/api/weight-targets/history")
