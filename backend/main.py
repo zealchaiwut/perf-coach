@@ -4555,6 +4555,11 @@ def _stryd_source_dict(sta) -> dict | None:
     """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
     if sta is None:
         return None
+    # Stryd has no precomputed laps array — manual lap presses are boundary
+    # timestamps. Compute per-lap metrics from the per-point streams.
+    from backend.services.stryd_laps import compute_manual_laps
+    streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
+    laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
     return {
         "stryd_activity_id": sta.stryd_activity_id,
         "name": sta.name,
@@ -4567,7 +4572,7 @@ def _stryd_source_dict(sta) -> dict | None:
         "form_metrics": sta.form_metrics or {},
         "power_zones": sta.power_zones or {},
         "splits": sta.splits or [],
-        "laps": ((sta.raw_payload or {}).get("laps") or []),
+        "laps": laps,
     }
 
 
