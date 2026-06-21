@@ -1621,6 +1621,37 @@
     });
   }
 
+  /** Run detail: header, Load & intensity, and laps only (skip route, sync, etc.). */
+  function buildScreenshotClone(contentEl) {
+    var stack = contentEl.querySelector(".rd4-stack");
+    if (!stack) return contentEl.cloneNode(true);
+
+    var out = document.createElement("div");
+    out.className = "rd4-stack";
+
+    var header = stack.querySelector(".rd4-header");
+    if (header) out.appendChild(header.cloneNode(true));
+
+    stack.querySelectorAll(".rd4-card").forEach(function (card) {
+      if (
+        card.classList.contains("rd4-header") ||
+        card.classList.contains("rd4-laps-card")
+      )
+        return;
+      var title = card.querySelector(".rd4-sec-title");
+      if (!title) return;
+      var label = title.textContent.replace(/\s+/g, " ").trim();
+      if (/^load\s*&\s*intensity$/i.test(label)) {
+        out.appendChild(card.cloneNode(true));
+      }
+    });
+
+    var laps = stack.querySelector(".rd4-laps-card");
+    if (laps) out.appendChild(laps.cloneNode(true));
+
+    return out.childElementCount ? out : contentEl.cloneNode(true);
+  }
+
   function saveDetailScreenshot() {
     if (_detailScreenshotBusy) return;
     if (panelMode !== "view") return;
@@ -1666,7 +1697,7 @@
       captureWidth +
       "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;z-index:-1;";
 
-    var clone = contentEl.cloneNode(true);
+    var clone = buildScreenshotClone(contentEl);
     host.appendChild(clone);
     document.body.appendChild(host);
 
@@ -3306,10 +3337,17 @@
     });
   }
 
-  function _syncProvider(label, url) {
-    var body = "{}";
+  function _syncBuildBody(options) {
+    options = options || {};
+    if (options.full) return JSON.stringify({ full: true });
+    if (options.sinceDate) return JSON.stringify({ since_date: options.sinceDate });
+    return "{}";
+  }
+
+  function _syncProvider(label, url, options) {
+    var body = _syncBuildBody(options);
     var start = window.ensureCsrfReady
-      ? window.ensureCsrfReady()
+      ? window.ensureCsrfReady(true)
       : Promise.resolve();
     return start
       .then(function () {
@@ -3333,14 +3371,15 @@
   }
 
   function _syncAllProviders() {
+    var incremental = { full: false };
     var errors = [];
 
-    return _syncProvider("Strava", "/api/strava/sync")
+    return _syncProvider("Strava", "/api/strava/sync", incremental)
       .catch(function (err) {
         errors.push((err && err.message) || "Strava: Sync failed");
       })
       .then(function () {
-        return _syncProvider("Stryd", "/api/stryd/sync").catch(function (err) {
+        return _syncProvider("Stryd", "/api/stryd/sync", incremental).catch(function (err) {
           errors.push((err && err.message) || "Stryd: Sync failed");
         });
       })
@@ -3352,7 +3391,7 @@
   function _onSyncAllClick() {
     _syncClearFeedback();
     _syncSetBusy(true);
-    var ready = window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve();
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
     ready
       .then(function () {
         return _syncAllProviders();
