@@ -181,6 +181,137 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Today quick-log surface ───────────────────────────────────────────────────
+// Fetches /api/habits/summary and renders a per-habit row with type-specific
+// quick-log controls. Controls are interactive but invoke a no-op placeholder
+// handler — no persistence occurs in this ticket (deferred to follow-up).
+
+function _todayNoop() {
+  // no persistence — placeholder handler for quick-log controls
+}
+
+async function loadTodayCard() {
+  const card = document.getElementById('today-quick-log-card');
+  if (!card) return;
+
+  try {
+    const res = await fetch('/api/habits/summary');
+    if (!res.ok) return; // silently skip if endpoint not yet available
+    const data = await res.json();
+    renderTodayCard(data.habits || []);
+  } catch (_e) {
+    // non-critical: rest of the page loads normally
+  }
+}
+
+function renderTodayCard(habits) {
+  const card = document.getElementById('today-quick-log-card');
+  const list = document.getElementById('today-habits-list');
+  const emptyEl = document.getElementById('today-empty-state');
+  const dateLabel = document.getElementById('today-date-label');
+  if (!card || !list) return;
+
+  // Show date label
+  if (dateLabel) {
+    const today = bangkokToday();
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    dateLabel.textContent = `${DAYS[today.getDay()]}, ${MONTHS[today.getMonth()]} ${today.getDate()}`;
+  }
+
+  card.style.display = '';
+
+  if (!habits || habits.length === 0) {
+    list.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = '';
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  list.innerHTML = '';
+  habits.forEach(habit => {
+    const row = document.createElement('div');
+    row.className = 'today-habit-row';
+    row.dataset.habitId = habit.id;
+    row.dataset.trackingType = habit.tracking_type;
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
+
+    // Streak badge (sourced from endpoint, never computed client-side)
+    const streak = habit.current_streak || 0;
+    const streakBadgeHTML = streak >= 3
+      ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
+      : streak > 0
+        ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
+        : '';
+
+    // Target label
+    const targetStr = habit.weekly_target != null
+      ? `target: ${habit.weekly_target}${habit.unit ? ' ' + habit.unit : ''}/wk`
+      : '';
+
+    // Type-specific control HTML
+    let controlHTML = '';
+    if (habit.tracking_type === 'daily_checkmark') {
+      controlHTML = `<button type="button" class="today-toggle-btn" aria-label="Mark ${esc(habit.name)} done"><i class="ti ti-check" aria-hidden="true"></i></button>`;
+    } else if (habit.tracking_type === 'weekly_count') {
+      controlHTML = `<div class="today-stepper" aria-label="${esc(habit.name)} count">
+        <button type="button" class="stepper-dec" aria-label="Decrease">−</button>
+        <span class="stepper-val">0</span>
+        <button type="button" class="stepper-inc" aria-label="Increase">+</button>
+      </div>`;
+    } else {
+      // weekly_minutes, weekly_quantity — duration/quantity entry
+      const unitHint = habit.unit ? ` placeholder="${esc(habit.unit)}"` : '';
+      controlHTML = `<input type="number" class="today-duration-input" min="0" step="1"${unitHint} aria-label="${esc(habit.name)} value">`;
+    }
+
+    row.innerHTML = `
+      <div style="flex-shrink:0">${iconHTML}</div>
+      <div class="today-habit-info">
+        <div class="today-habit-name">${esc(habit.name)}</div>
+        <div class="today-habit-meta">
+          ${targetStr ? `<span class="today-target">${esc(targetStr)}</span>` : ''}
+          ${streakBadgeHTML}
+        </div>
+      </div>
+      <div class="today-habit-control">${controlHTML}</div>`;
+
+    list.appendChild(row);
+  });
+
+  // Attach interactive handlers (no-op — persistence deferred to follow-up ticket)
+  list.querySelectorAll('.today-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('toggled');
+      _todayNoop(); // no persistence
+    });
+  });
+
+  list.querySelectorAll('.today-stepper').forEach(stepper => {
+    const dec = stepper.querySelector('.stepper-dec');
+    const inc = stepper.querySelector('.stepper-inc');
+    const val = stepper.querySelector('.stepper-val');
+    let count = 0;
+    if (dec) dec.addEventListener('click', () => {
+      if (count > 0) { count--; val.textContent = count; }
+      _todayNoop(); // no persistence
+    });
+    if (inc) inc.addEventListener('click', () => {
+      count++;
+      val.textContent = count;
+      _todayNoop(); // no persistence
+    });
+  });
+
+  list.querySelectorAll('.today-duration-input').forEach(input => {
+    input.addEventListener('change', () => {
+      _todayNoop(); // no persistence
+    });
+  });
+}
+
 // ── Load & Render (main entry) ────────────────────────────────────────────────
 
 async function loadAndRender() {
@@ -1490,9 +1621,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', () => {
+  loadTodayCard();
   loadAndRender();
 });
 
 window.addEventListener('userChanged', () => {
+  loadTodayCard();
   loadAndRender();
 });
