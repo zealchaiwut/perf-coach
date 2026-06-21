@@ -3254,14 +3254,6 @@
     }
   }
 
-  function _syncSinceDate(latest) {
-    if (!latest || !latest.synced_at) return null;
-    var d = new Date(latest.synced_at);
-    if (isNaN(d.getTime())) return null;
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  }
-
   function _syncApiError(r) {
     return r.text().then(function (text) {
       var msg = text || "HTTP " + r.status;
