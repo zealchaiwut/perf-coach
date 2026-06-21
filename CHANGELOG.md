@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 78.1 — Create and Edit Habit form
+
+- #832: Build Create and Edit Habit Form (Slide-Over/Modal)
+
 ## Sprint 78 — Habits page shell, Today quick-log, and history calendar
 
 - #827: Build Habits page shell and Today quick-log surface
