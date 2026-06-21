@@ -2944,11 +2944,23 @@
         });
       })();
 
+      function _strydErrMsg(err, fallback) {
+        var msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : fallback);
+        if (msg === 'CSRF token missing or invalid') {
+          return 'Session security token expired — reload the page and try again.';
+        }
+        return msg || fallback;
+      }
+
       function strydSync() {
         var btn = document.getElementById('stryd-sync-now-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
         window.intLog('stryd', 'info', 'Sync started');
-        fetch('/api/stryd/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        var startSync = function () {
+          return fetch('/api/stryd/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(startSync)
           .then(function (r) {
             if (r.status === 409) throw new Error('Sync already in progress');
             if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
@@ -2956,7 +2968,7 @@
           })
           .then(function () { _pollStrydSync(0); })
           .catch(function (err) {
-            window.intLog('stryd', 'error', err.message || 'Sync failed');
+            window.intLog('stryd', 'error', _strydErrMsg(err, 'Sync failed'));
             if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
           });
       }
@@ -3063,11 +3075,15 @@
         if (pwEl) pwEl.disabled = true;
         window.intLog('stryd', 'info', 'Connect attempt', { email: email });
         var _status = 0;
-        fetch('/api/stryd/connect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, password: password }),
-        })
+        var connect = function () {
+          return fetch('/api/stryd/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, password: password }),
+          });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(connect)
           .then(function (r) {
             _status = r.status;
             if (!r.ok) {
@@ -3088,7 +3104,8 @@
             if (btn) btn.disabled = false;
             if (emailEl) emailEl.disabled = false;
             if (pwEl) pwEl.disabled = false;
-            var msg = (err && err.detail) ? err.detail : (typeof err === 'string' ? err : 'Connection failed');
+            var raw = (err && err.detail) ? err.detail : (typeof err === 'string' ? err : 'Connection failed');
+            var msg = _strydErrMsg({ message: raw }, 'Connection failed');
             var code = (err && err.status) ? err.status : _status;
             window.intLog('stryd', 'error', 'Connect failed (HTTP ' + (code || '?') + ')', { detail: msg });
             intFeedback('stryd-feedback', typeof msg === 'string' ? msg : 'Connection failed', 'error');
@@ -3099,7 +3116,11 @@
         var btn = document.getElementById('stryd-disconnect-btn');
         intFeedback('stryd-feedback', '', '');
         if (btn) btn.disabled = true;
-        fetch('/api/stryd/disconnect', { method: 'DELETE' })
+        var disconnect = function () {
+          return fetch('/api/stryd/disconnect', { method: 'DELETE' });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(disconnect)
           .then(function (r) {
             if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
             return r.json();
@@ -3110,7 +3131,7 @@
           })
           .catch(function (err) {
             if (btn) btn.disabled = false;
-            intFeedback('stryd-feedback', typeof err === 'string' ? err : 'Disconnect failed', 'error');
+            intFeedback('stryd-feedback', _strydErrMsg(typeof err === 'string' ? { message: err } : err, 'Disconnect failed'), 'error');
           });
       }
 
