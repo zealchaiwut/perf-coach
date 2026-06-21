@@ -1727,7 +1727,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ── History Calendar (issue #829) ─────────────────────────────────────────────
+// ── History Calendar (issue #829 + #830) ──────────────────────────────────────
 
 let hcalMonth = null;          // Date at 1st of displayed month (null = current)
 let hcalWeekStart = null;      // Date of Monday of displayed week (null = current)
@@ -1735,6 +1735,7 @@ let hcalSelectedDate = null;   // ISO string of the selected day (persistent)
 let hcalLogsByDate = {};       // { dateStr: Set(habitId) }
 let hcalFetchedRange = null;   // 'from|to' key for the last fetch
 let _hcalInitialized = false;
+let hcalFilterHabitId = null;  // null = All Habits; number = specific habit ID (issue #830)
 
 const HCAL_MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -1780,6 +1781,85 @@ function _hcalStatusLabel(status) {
   if (status === 'partial') return 'partial';
   if (status === 'not-met') return 'not met';
   return 'no data';
+}
+
+// Compute status for All Habits mode — returns {status, done, total} (issue #830, AC3).
+function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
+  const todayStr = bangkokTodayStr();
+  if (dateStr > todayStr) return { status: 'no-data', done: 0, total: 0 };
+
+  const applicable = (habits || []).filter(h => {
+    if (h.is_archived) return false;
+    if (!h.created_at) return true;
+    return h.created_at.slice(0, 10) <= dateStr;
+  });
+  if (applicable.length === 0) return { status: 'no-data', done: 0, total: 0 };
+
+  const logsOnDate = logsByDate[dateStr] || new Set();
+  const done = applicable.filter(h => logsOnDate.has(h.id)).length;
+  const total = applicable.length;
+  const status = done === total ? 'met' : done > 0 ? 'partial' : 'not-met';
+  return { status, done, total };
+}
+
+// Compute status for a single habit on a given day (issue #830, AC4, AC8).
+// Returns 'no-data' when the habit was created after dateStr (AC8).
+function computeSingleHabitDayStatus(dateStr, habit, logsByDate) {
+  const todayStr = bangkokTodayStr();
+  if (dateStr > todayStr) return 'no-data';
+  if (habit.is_archived) return 'no-data';
+  if (habit.created_at && habit.created_at.slice(0, 10) > dateStr) return 'no-data';
+  const logsOnDate = logsByDate[dateStr] || new Set();
+  return logsOnDate.has(habit.id) ? 'met' : 'not-met';
+}
+
+// Render the filter control for the history calendar (issue #830, AC1/AC2/AC9/AC10).
+function renderHcalFilter() {
+  const el = document.getElementById('hcal-filter');
+  if (!el) return;
+
+  let html = '<button type="button" class="hcal-filter-btn' +
+    (hcalFilterHabitId === null ? ' hcal-filter-btn--active' : '') + '"' +
+    ' data-habit-id=""' +
+    ' aria-pressed="' + (hcalFilterHabitId === null ? 'true' : 'false') + '">' +
+    'All Habits</button>';
+
+  (activeHabits || []).forEach(h => {
+    const active = hcalFilterHabitId === h.id;
+    html += '<button type="button" class="hcal-filter-btn' +
+      (active ? ' hcal-filter-btn--active' : '') + '"' +
+      ' data-habit-id="' + esc(String(h.id)) + '"' +
+      ' aria-pressed="' + (active ? 'true' : 'false') + '">' +
+      esc(h.name) + '</button>';
+  });
+
+  el.innerHTML = html;
+
+  const buttons = Array.from(el.querySelectorAll('.hcal-filter-btn'));
+
+  buttons.forEach((btn, i) => {
+    btn.addEventListener('click', async () => {
+      const idAttr = btn.dataset.habitId;
+      hcalFilterHabitId = idAttr === '' ? null : Number(idAttr);
+      renderHcalFilter();
+      renderHabitMonthCal();
+      renderHabitWeekStrip();
+      if (hcalSelectedDate) await _renderHcalDetail(hcalSelectedDate);
+    });
+
+    // Arrow key navigation within the filter group (AC10)
+    btn.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const next = buttons[(i + 1) % buttons.length];
+        if (next) next.focus();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const prev = buttons[(i - 1 + buttons.length) % buttons.length];
+        if (prev) prev.focus();
+      }
+    });
+  });
 }
 
 async function _fetchCalendarRange(from, to) {
@@ -1839,7 +1919,17 @@ function renderHabitMonthCal() {
         html += '<div class="hcal-cell hcal-cell--no-data" aria-hidden="true"></div>';
       } else {
         const dStr = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(dayNum);
-        const status = computeDayStatus(dStr, activeHabits, hcalLogsByDate);
+        let status, countOverlay = '';
+        if (hcalFilterHabitId === null) {
+          const summary = computeAllHabitsDaySummary(dStr, activeHabits, hcalLogsByDate);
+          status = summary.status;
+          if (status !== 'no-data') {
+            countOverlay = '<span class="hcal-day-count">' + summary.done + '/' + summary.total + '</span>';
+          }
+        } else {
+          const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+          status = habit ? computeSingleHabitDayStatus(dStr, habit, hcalLogsByDate) : 'no-data';
+        }
         const isToday = dStr === todayStr;
         const isSel = dStr === hcalSelectedDate;
         const isNoData = status === 'no-data';
@@ -1864,6 +1954,7 @@ function renderHabitMonthCal() {
           ' aria-pressed="' + (isSel ? 'true' : 'false') + '"' +
           ' role="gridcell">' +
           '<span class="hcal-day-num">' + dayNum + '</span>' +
+          countOverlay +
           '</button>';
         dayNum++;
       }
@@ -1960,7 +2051,17 @@ function renderHabitWeekStrip() {
 
   weekDays.forEach(d => {
     const dStr = _hcalISO(d);
-    const status = computeDayStatus(dStr, activeHabits, hcalLogsByDate);
+    let status, countOverlay = '';
+    if (hcalFilterHabitId === null) {
+      const summary = computeAllHabitsDaySummary(dStr, activeHabits, hcalLogsByDate);
+      status = summary.status;
+      if (status !== 'no-data') {
+        countOverlay = '<span class="hcal-day-count">' + summary.done + '/' + summary.total + '</span>';
+      }
+    } else {
+      const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+      status = habit ? computeSingleHabitDayStatus(dStr, habit, hcalLogsByDate) : 'no-data';
+    }
     const isNoData = status === 'no-data';
     const isToday = dStr === todayStr;
     const isSel = dStr === hcalSelectedDate;
@@ -1984,6 +2085,7 @@ function renderHabitWeekStrip() {
       ' role="gridcell">' +
       '<span class="hcal-strip-day-name">' + HCAL_DAY_ABBR[d.getDay()].slice(0, 1) + '</span>' +
       '<span class="hcal-strip-day-num">' + d.getDate() + '</span>' +
+      countOverlay +
       '</button>';
   });
 
@@ -2064,7 +2166,15 @@ async function _renderHcalDetail(dateStr) {
   const content = document.getElementById('habits-cal-detail-content');
   if (!detail || !content) return;
 
-  const status = computeDayStatus(dateStr, activeHabits, hcalLogsByDate);
+  // Compute status respecting the current filter (issue #830, AC6)
+  let status;
+  if (hcalFilterHabitId === null) {
+    status = computeDayStatus(dateStr, activeHabits, hcalLogsByDate);
+  } else {
+    const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+    status = habit ? computeSingleHabitDayStatus(dateStr, habit, hcalLogsByDate) : 'no-data';
+  }
+
   const dateObj = new Date(dateStr + 'T00:00:00');
   const MONTHS_D = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DAYS_D = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -2085,12 +2195,17 @@ async function _renderHcalDetail(dateStr) {
   detail.style.display = '';
   detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  // Fetch logs for this specific date from H1 endpoint (AC5)
+  // Fetch logs for this specific date
   let dayLogs = [];
   try {
     const res = await fetch(`/api/habits/logs?from=${dateStr}&to=${dateStr}`);
     if (res.ok) dayLogs = await res.json();
   } catch (_) { /* ignore */ }
+
+  // Filter logs by the selected habit if in single-habit mode (issue #830, AC6)
+  if (hcalFilterHabitId !== null) {
+    dayLogs = dayLogs.filter(l => l.habit_id === hcalFilterHabitId);
+  }
 
   const habitMap = {};
   activeHabits.forEach(h => { habitMap[h.id] = h; });
@@ -2126,6 +2241,7 @@ async function _refreshHabitCal() {
   const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
 
   await _fetchCalendarRange(from, to);
+  renderHcalFilter();
   renderHabitMonthCal();
   renderHabitWeekStrip();
 }
@@ -2153,6 +2269,7 @@ async function initHabitCal() {
 
   await _fetchCalendarRange(from, to);
   calSection.style.display = '';
+  renderHcalFilter();
   renderHabitMonthCal();
   renderHabitWeekStrip();
 }
