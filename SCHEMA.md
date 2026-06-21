@@ -60,30 +60,35 @@ Partial unique index: one active target per user.
 
 ---
 
-## habits _(updated Sprint 50)_
+## habits _(updated Sprint 50; v2 columns added Sprint 77)_
 
 | column | type | notes |
 |--------|------|-------|
 | id | UUID PK | |
 | user_id | UUID FK→users | CASCADE |
 | name | varchar(200) | |
-| description | text | nullable |
-| tracking_type | varchar(50) | `daily_checkmark` / `weekly_count` / `minutes` / `quantity` |
-| weekly_target | numeric(10,2) | nullable — target value for the week |
+| habit_type | text | `binary` / `count` / `duration`; default `binary`; check constraint `ck_habits_habit_type_values` |
+| target_value | numeric(12,4) | nullable — target quantity for `count`/`duration` habits |
 | unit | varchar(50) | nullable — display unit (e.g. `min`, `reps`) |
+| schedule_type | text | `daily` / `weekly` / `times_per_week`; default `daily`; check constraint `ck_habits_schedule_type_values` |
+| schedule_target | int | nullable — e.g. number of times per week for `times_per_week` schedules |
+| active | bool | default true — false = soft-deactivated without archiving |
+| display_order | int | default 0 |
+| created_at | timestamptz | |
+| updated_at | timestamptz | nullable |
+| description | text | nullable — legacy |
+| tracking_type | varchar(50) | legacy; `daily_checkmark` / `weekly_count` / `minutes` / `quantity` |
+| weekly_target | numeric(10,2) | nullable — legacy weekly target |
 | auto_fill_source | varchar(100) | nullable — e.g. `zone2_minutes` to auto-fill from workouts |
 | icon | varchar(100) | nullable |
 | color | varchar(20) | nullable |
 | sort_order | int | default 0 |
 | is_archived | bool | default false |
-| created_at | timestamptz | |
-| updated_at | timestamptz | nullable |
-| display_order | int | legacy compat column |
-| archived_at | timestamptz | legacy compat column |
+| archived_at | timestamptz | nullable |
 
 ---
 
-## habit_logs _(updated Sprint 50)_
+## habit_logs _(updated Sprint 50; note column added Sprint 77)_
 
 One row per log event. For `daily_checkmark` habits, one row per day (value=1). For other tracking types, rows are summed over `log_week_start` to compute weekly progress.
 
@@ -93,12 +98,13 @@ One row per log event. For `daily_checkmark` habits, one row per day (value=1). 
 | habit_id | UUID FK→habits | CASCADE |
 | user_id | UUID FK→users | CASCADE |
 | log_date | date | |
-| log_week_start | date | Monday of the week (Asia/Bangkok) |
 | value | numeric(10,4) | default 1 |
-| notes | text | nullable |
-| source | varchar(50) | `manual` / `workout_save` / `auto_fill` / `manual_override` |
+| note | text | nullable — v2 per-log annotation |
 | created_at | timestamptz | |
 | updated_at | timestamptz | nullable |
+| log_week_start | date | legacy — Monday of the week (Asia/Bangkok) |
+| notes | text | nullable — legacy |
+| source | varchar(50) | legacy — `manual` / `workout_save` / `auto_fill` / `manual_override` |
 
 Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 

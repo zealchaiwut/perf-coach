@@ -1,6 +1,6 @@
 from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, Time, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, validates
 
 Base = declarative_base()
 
@@ -114,26 +114,80 @@ class WeightTarget(Base):
     )
 
 
+_HABIT_TYPE_VALUES = ("binary", "count", "duration")
+_SCHEDULE_TYPE_VALUES = ("daily", "weekly", "times_per_week")
+
+
 class Habit(Base):
     __tablename__ = "habits"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(200), nullable=False)
+    # v2 schema columns (issue #821)
+    habit_type = Column(Text, nullable=False, server_default=text("'binary'"))
+    target_value = Column(Numeric(12, 4), nullable=True)
+    unit = Column(String(50), nullable=True)
+    schedule_type = Column(Text, nullable=False, server_default=text("'daily'"))
+    schedule_target = Column(Integer, nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    display_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    # Legacy columns retained for backward-compat with existing code
     description = Column(Text, nullable=True)
     tracking_type = Column(String(50), nullable=False, server_default=text("'daily_checkmark'"))
     weekly_target = Column(Numeric(10, 2), nullable=True)
-    unit = Column(String(50), nullable=True)
     auto_fill_source = Column(String(100), nullable=True)
     icon = Column(String(100), nullable=True)
     color = Column(String(20), nullable=True)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
-    updated_at = Column(DateTime(timezone=True), nullable=True)
-    # Legacy columns kept for backward-compat with existing API code
-    display_order = Column(Integer, server_default=text("0"), nullable=False)
     archived_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "habit_type IN ('binary', 'count', 'duration')",
+            name="ck_habits_habit_type_values",
+        ),
+        CheckConstraint(
+            "schedule_type IN ('daily', 'weekly', 'times_per_week')",
+            name="ck_habits_schedule_type_values",
+        ),
+    )
+
+    habit_logs = relationship(
+        "HabitLog",
+        back_populates="habit",
+        cascade="all, delete-orphan",
+        order_by="HabitLog.log_date",
+    )
+
+    @validates("habit_type")
+    def _validate_habit_type(self, key, value):
+        if value not in _HABIT_TYPE_VALUES:
+            raise ValueError(
+                f"habit_type must be one of {_HABIT_TYPE_VALUES}, got {value!r}"
+            )
+        return value
+
+    @validates("schedule_type")
+    def _validate_schedule_type(self, key, value):
+        if value not in _SCHEDULE_TYPE_VALUES:
+            raise ValueError(
+                f"schedule_type must be one of {_SCHEDULE_TYPE_VALUES}, got {value!r}"
+            )
+        return value
+
+    def effective_schedule_target(self):
+        """Return ``(schedule_target, None)`` when set.
+
+        Returns ``(None, reason)`` when ``schedule_target`` is absent so callers
+        never need to guard against an unhandled exception.
+        """
+        if self.schedule_target is None:
+            return (None, "schedule_target is not set for this habit")
+        return (self.schedule_target, None)
 
 
 class HabitLog(Base):
@@ -145,17 +199,22 @@ class HabitLog(Base):
     habit_id = Column(UUID(as_uuid=True), ForeignKey("habits.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     log_date = Column(Date, nullable=False)
-    log_week_start = Column(Date, nullable=False)
     value = Column(Numeric(10, 4), nullable=False, server_default=text("1"))
-    notes = Column(Text, nullable=True)
-    source = Column(String(50), nullable=False, server_default=text("'manual'"))
+    # v2 column (issue #821)
+    note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=True)
+    # Legacy columns retained for backward-compat with existing code
+    log_week_start = Column(Date, nullable=False)
+    notes = Column(Text, nullable=True)
+    source = Column(String(50), nullable=False, server_default=text("'manual'"))
 
     __table_args__ = (
         UniqueConstraint("habit_id", "log_date", name="uq_habit_logs_habit_log_date"),
         Index("ix_habit_logs_habit_id_log_week_start", "habit_id", "log_week_start"),
     )
+
+    habit = relationship("Habit", back_populates="habit_logs")
 
 
 class Workout(Base):
