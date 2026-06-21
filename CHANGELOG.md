@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 79 — Weight plans table, plan-line recompute, and CRUD endpoints
+
+- #861: Add weight_plans table: migration and SQLAlchemy models
+- #863: Add recompute_plan_from_progress pure function
+- #864: Add CRUD endpoints for user weight plan
+
 ## Sprint 77 — Habits v2 schema, streak/consistency services, and summary endpoint
 
 - #821: Add habits and habit_logs migrations and SQLAlchemy models

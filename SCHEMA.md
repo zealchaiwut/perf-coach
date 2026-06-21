@@ -556,6 +556,28 @@ Unique: `(user_id, exercise_key, rep_band_label)`. Migration: `a1607bab81de`.
 
 ---
 
+## weight_plans _(added Sprint 79)_
+
+Structured weight-goal plan for a user. One active plan per user at a time; creating a new plan deactivates any prior active plan atomically.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE; indexed |
+| start_date | date | NOT NULL |
+| start_weight_kg | numeric(6,2) | NOT NULL |
+| goal_weight_kg | numeric(6,2) | NOT NULL |
+| goal_date | date | nullable |
+| target_rate_kg_per_week | numeric(4,2) | nullable; omit to let `compute_plan_line` derive rate from `goal_date` |
+| phase | text | NOT NULL; default `'cut'`; `cut` / `bulk` / `maintain` |
+| active | bool | NOT NULL; default `true`; false = deactivated (soft delete) |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | server default now(), onupdate now() |
+
+Index: `ix_weight_plans_user_id`. Migration: `64d8ad2d9a42`.
+
+---
+
 ## strength_record_achievements _(added Sprint 74)_
 
 Append-only log of every PR-beating event. Written at workout-ingest time; used to populate the achievements feed without re-deriving history on read.
