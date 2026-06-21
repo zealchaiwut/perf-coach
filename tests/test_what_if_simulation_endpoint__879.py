@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import hash_password as _hash_pw
 from backend.db import engine as _engine
-from backend.models import User as _UserModel, WeightTarget as _WeightTargetModel
+from backend.models import User as _UserModel
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "")
 if not BASE_URL.startswith("http"):
