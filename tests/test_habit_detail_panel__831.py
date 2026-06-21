@@ -255,7 +255,6 @@ def test_logs_endpoint_filters_by_habit_id():
     """AC5: GET /api/habits/logs?habit_id=X filters to that habit's logs only."""
     client, mock_user = _make_client()
     habit_id = uuid.uuid4()
-    other_id = uuid.uuid4()
     today = date.today()
     # Only logs for habit_id should be returned
     habit_logs = [_make_log(habit_id, today - timedelta(days=i)) for i in range(3)]
@@ -451,7 +450,7 @@ def test_summary_endpoint_400_for_bad_id():
 # ── Live integration tests (skipped when server is not running) ───────────────
 
 try:
-    import httpx
+    import httpx  # noqa: F401
     _HTTPX_AVAILABLE = True
 except ImportError:
     _HTTPX_AVAILABLE = False
