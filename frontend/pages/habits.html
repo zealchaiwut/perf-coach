@@ -1295,6 +1295,133 @@
     .btn-primary:hover { background: #162444; }
     .modal-error { font-size: 0.8125rem; color: var(--red); min-height: 1.2em; }
 
+    /* ── Insights panel ────────────────────────────────────────────────────── */
+    .insights-panel {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0b1d3a 100%);
+      border-radius: var(--card-radius);
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: var(--card-shadow);
+      padding: 16px 20px 14px;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+
+    .insights-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .insights-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: rgba(255,255,255,0.6);
+      margin: 0;
+    }
+
+    .insights-disclaimer {
+      font-size: 10px;
+      color: rgba(255,255,255,0.45);
+      font-style: italic;
+      white-space: nowrap;
+    }
+
+    .insights-body {
+      min-height: 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .insights-spinner {
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      padding: 4px 0;
+    }
+
+    .insights-error {
+      font-size: 12px;
+      color: rgba(255,140,100,0.9);
+      padding: 4px 0;
+    }
+
+    .insights-building {
+      font-size: 13px;
+      color: rgba(255,255,255,0.65);
+      line-height: 1.5;
+      padding: 2px 0;
+    }
+
+    .insight-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+
+    .insight-summary {
+      flex: 1;
+      font-size: 13px;
+      color: rgba(255,255,255,0.9);
+      line-height: 1.45;
+    }
+
+    .insight-coeff {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+      min-width: 44px;
+    }
+
+    .insight-coeff-bar-wrap {
+      width: 36px;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .insight-coeff-bar {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #4ade80, #86efac);
+      transition: width 0.4s ease;
+    }
+
+    .insight-coeff-bar.negative {
+      background: linear-gradient(90deg, #f87171, #fca5a5);
+    }
+
+    .insight-coeff-val {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: rgba(255,255,255,0.6);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .insights-footer {
+      margin-top: 10px;
+      font-size: 10.5px;
+      color: rgba(255,255,255,0.38);
+      font-style: italic;
+    }
+
+    @media (max-width: 480px) {
+      .insights-panel { padding: 14px 14px 12px; }
+      .insight-summary { font-size: 12px; }
+    }
+
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
     @media (max-width: 820px) {
       .hero-row { grid-template-columns: 1fr; }
@@ -1418,6 +1545,20 @@
           <div class="stat-tile-sub" id="stat-lastweek-sub">no data</div>
         </div>
       </div>
+    </div>
+
+    <!-- Insights panel (habit-outcome correlations) -->
+    <div class="insights-panel" id="insights-panel">
+      <div class="insights-header">
+        <p class="insights-title">Habit insights</p>
+        <span class="insights-disclaimer">Association, not causation</span>
+      </div>
+      <div class="insights-body" id="insights-body">
+        <span class="insights-spinner">Loading…</span>
+      </div>
+      <p class="insights-footer" id="insights-footer" style="display:none">
+        Based on your last 90 days — Association, not causation
+      </p>
     </div>
 
     <!-- Daily grid card -->

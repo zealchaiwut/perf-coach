@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DailyReadiness, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -4231,6 +4231,133 @@ def delete_habit_log(log_id: str, user: User = Depends(resolve_user)):
     return Response(status_code=204)
 
 
+@app.get("/api/habits/insights")
+def get_habit_insights(user: User = Depends(resolve_user)):
+    """Return correlation-based insights for each active daily habit.
+
+    For every active daily_checkmark habit the endpoint aligns 90 days of
+    habit completion logs with the user's daily readiness scores (lag = 1 day)
+    and computes a Pearson correlation.  Only habits whose correlation meets
+    the MIN_PAIRED_DAYS confidence threshold are included in the response.
+
+    Returns:
+        {"status": "ok", "insights": [...]}
+        {"status": "not_enough_data", "insights": [], "reason": "..."}
+    """
+    from datetime import timedelta as _td
+    from backend.services.habit_outcome_alignment import align_habit_and_outcome
+    from backend.services.correlation import compute_correlation
+
+    uid = user.id
+    today = _date.today()
+    window_start = today - _td(days=89)
+
+    with Session(engine) as session:
+        # Active daily habits for this user
+        habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.tracking_type == "daily_checkmark",
+            )
+            .order_by(Habit.sort_order, Habit.created_at)
+            .all()
+        )
+
+        if not habits:
+            return JSONResponse({
+                "status": "not_enough_data",
+                "insights": [],
+                "reason": "No active daily habits found. Add some habits to start tracking patterns.",
+            })
+
+        # Daily readiness scores over the window (outcome series)
+        readiness_rows = (
+            session.query(DailyReadiness.date, DailyReadiness.score)
+            .filter(
+                DailyReadiness.user_id == uid,
+                DailyReadiness.date >= window_start,
+                DailyReadiness.date <= today,
+            )
+            .all()
+        )
+
+        outcome_series = {str(row.date): float(row.score) for row in readiness_rows}
+
+        if not outcome_series:
+            return JSONResponse({
+                "status": "not_enough_data",
+                "insights": [],
+                "reason": "Not enough readiness data yet. Keep logging daily metrics to build up patterns.",
+            })
+
+        insights = []
+        for habit in habits:
+            habit_id = str(habit.id)
+
+            # Habit completion logs over the window
+            logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id == habit.id,
+                    HabitLog.log_date >= window_start,
+                    HabitLog.log_date <= today,
+                )
+                .all()
+            )
+
+            if not logs:
+                continue
+
+            # Build boolean completion series: True if log exists for that date
+            habit_logs = {str(lg.log_date): bool(float(lg.value) >= 1) for lg in logs}
+
+            # Align with next-day readiness (lag = 1)
+            pairs, _ = align_habit_and_outcome(habit_logs, outcome_series, lag_days=1)
+
+            if not pairs:
+                continue
+
+            # Convert to [[habit_value, outcome_value]] format for compute_correlation
+            paired_values = [[1.0 if p["habit_value"] else 0.0, p["outcome_value"]] for p in pairs]
+
+            result, reason = compute_correlation(paired_values)
+
+            if result is None or not result.get("confident", False):
+                continue
+
+            coeff = result["coefficient"]
+            sample_size = result["sample_size"]
+
+            # Plain-language summary, always phrased as association not causation
+            direction = "higher" if coeff >= 0 else "lower"
+            coeff_str = f"{coeff:+.2f}"
+            summary = (
+                f"Days you complete \"{habit.name}\", next-day readiness tends to be "
+                f"{direction} (r = {coeff_str}, n = {sample_size})"
+            )
+
+            insights.append({
+                "habit_id": habit_id,
+                "habit_name": habit.name,
+                "habit_icon": habit.icon,
+                "habit_color": habit.color,
+                "coefficient": round(coeff, 3),
+                "sample_size": sample_size,
+                "summary": summary,
+            })
+
+        if not insights:
+            return JSONResponse({
+                "status": "not_enough_data",
+                "insights": [],
+                "reason": "Still building patterns. Keep logging your habits and daily metrics — insights appear after enough consistent data.",
+            })
+
+        return JSONResponse({"status": "ok", "insights": insights})
+
+
 # ── Habit v2 CRUD — GET by id, PUT habit-logs upsert, GET habit-logs ──────────
 
 @app.get("/api/habits/{habit_id}")
@@ -4306,6 +4433,7 @@ def get_habit_logs_v2(
     with Session(engine) as session:
         logs = _habits_repo.get_habit_logs(session, hid, user.id, from_d, to_d)
         return JSONResponse([_habit_log_dict_v2(lg) for lg in logs])
+
 
 
 @app.get("/api/stats/active-streak")
