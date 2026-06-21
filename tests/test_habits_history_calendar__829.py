@@ -99,9 +99,10 @@ def test_css_month_cal_shown_desktop():
     assert "habits-month-cal" in html, \
         "habits.html CSS must reference #habits-month-cal for responsive show/hide"
     # The CSS must hide week strip on desktop or show month cal on desktop
-    assert re.search(r'min-width\s*:\s*7[0-9]{2}px', html) or \
-           re.search(r'min-width\s*:\s*\d+px', html), \
-        "habits.html must have a min-width media query for responsive calendar layout"
+    assert (
+        re.search(r'min-width\s*:\s*7[0-9]{2}px', html)
+        or re.search(r'min-width\s*:\s*\d+px', html)
+    ), "habits.html must have a min-width media query for responsive calendar layout"
 
 
 # ── AC2: Week-strip on mobile ─────────────────────────────────────────────────
