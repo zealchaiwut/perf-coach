@@ -2976,6 +2976,7 @@
 
   // ── Sync button state ─────────────────────────────────────────────────────
   var _syncPollTimer = null;
+  var _syncLastTerminalStatus = null;
 
   function _relTime(isoStr) {
     if (!isoStr) return "Never";
@@ -3023,6 +3024,56 @@
     if (stravaBtn) stravaBtn.disabled = busy;
   }
 
+  function _syncToast(msg, isError) {
+    var fb = document.getElementById("log-sync-feedback");
+    if (fb) {
+      fb.textContent = msg;
+      fb.className = isError ? "sync-feedback--error" : "sync-feedback--ok";
+    }
+    if (window.UIStates && UIStates.showToast) {
+      UIStates.showToast(msg, isError);
+    }
+  }
+
+  function _syncClearFeedback() {
+    var fb = document.getElementById("log-sync-feedback");
+    if (fb) {
+      fb.textContent = "";
+      fb.className = "";
+    }
+  }
+
+  function _syncTerminalKey(data) {
+    if (!data) return "";
+    return (
+      String(data.status || "") +
+      "|" +
+      String(data.finished_at || "") +
+      "|" +
+      String(data.error || "")
+    );
+  }
+
+  function _syncHandleTerminal(data, opts) {
+    opts = opts || {};
+    if (!data || data.status === "running" || data.status === "idle") return;
+    var key = _syncTerminalKey(data);
+    if (key && key === _syncLastTerminalStatus) return;
+    _syncLastTerminalStatus = key;
+
+    if (data.status === "error") {
+      _syncToast(data.error || "Sync failed", true);
+      _loadSyncChip();
+      if (opts.refreshList !== false) fetchAndRender();
+      return;
+    }
+    if (data.status === "success" && opts.toastSuccess) {
+      _syncToast("Sync complete");
+      _loadSyncChip();
+      if (opts.refreshList !== false) fetchAndRender();
+    }
+  }
+
   function _syncPollStatus() {
     fetch("/api/sync/status")
       .then(function (res) {
@@ -3042,7 +3093,7 @@
         } else {
           _syncStopStatusPoll();
           _syncSetBusy(false);
-          _loadSyncChip();
+          _syncHandleTerminal(data, { toastSuccess: false });
         }
       })
       .catch(function () {
@@ -3079,12 +3130,6 @@
       } catch (e) { /* keep raw text */ }
       return msg;
     });
-  }
-
-  function _syncToast(msg, isError) {
-    if (window.UIStates && UIStates.showToast) {
-      UIStates.showToast(msg, isError);
-    }
   }
 
   function _syncWaitForComplete() {
@@ -3139,6 +3184,7 @@
   }
 
   function _onSyncAllClick() {
+    _syncClearFeedback();
     _syncSetBusy(true);
     Promise.all([
       fetch("/api/sync/strava/latest")
@@ -3165,9 +3211,21 @@
       })
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
-        _loadSyncChip();
-        fetchAndRender();
-        _syncToast("Sync complete");
+        return fetch("/api/sync/status")
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
+          .then(function (data) {
+            if (data && data.status === "error") {
+              throw new Error(data.error || "Sync failed");
+            }
+            _syncLastTerminalStatus = _syncTerminalKey(
+              data && data.status === "success" ? data : { status: "success", finished_at: "manual" },
+            );
+            _loadSyncChip();
+            fetchAndRender();
+            _syncToast("Sync complete");
+          });
       })
       .catch(function (err) {
         var msg = (err && err.message) ? err.message : "Sync failed";
