@@ -3005,6 +3005,17 @@
         });
       }
 
+      function _strydSyncProgressLabel(job) {
+        if (!job) return '…';
+        if (job.phase === 'reconciling' && job.total) {
+          return 'reconciling (' + (job.current || 0) + '/' + job.total + ')';
+        }
+        if (job.items_synced) {
+          return (job.phase || '…') + ' (' + job.items_synced + ' synced)';
+        }
+        return job.phase || '…';
+      }
+
       function _strydStartSync(full) {
         var payload = full ? { full: true } : {};
         var label = full ? 'Sync all' : 'Sync new';
@@ -3040,7 +3051,7 @@
           .then(function (job) {
             var status = job && job.status || 'idle';
             if (status === 'running') {
-              window.intLog('stryd', 'info', 'Phase: ' + (job.phase || '…') + ' (' + (job.items_synced || 0) + ' synced)');
+              window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
               setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
             } else if (status === 'success') {
               window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });

@@ -8010,10 +8010,20 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
             pass
     try:
         _sync_jobs.set_phase(uid, "pulling_stryd")
-        result = _stryd_sync.sync_stryd_activities(user_id, since_date=since, full=full)
+        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full)
         _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
+        if result["upserted"] == 0 and not full:
+            _sync_jobs.mark_success(uid)
+            return
         _sync_jobs.set_phase(uid, "reconciling")
-        _reconcile.reconcile_workouts(uid, uid)
+        if full:
+            _reconcile.reconcile_workouts(uid, uid)
+        else:
+            _reconcile.reconcile_workouts(
+                uid,
+                uid,
+                stryd_activity_ids=result.get("stryd_activity_ids") or [],
+            )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -8028,7 +8038,7 @@ class _StrydSyncBody(BaseModel):
 def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(resolve_user)):
     """Start an async Stryd pull; returns 202 immediately.
 
-    Default (incremental): since last synced activity minus 1 day, or 90-day
+    Default (incremental): since last completed sync minus 1 day, or 90-day
     lookback on first sync. Pass full=true for a multi-year history pull.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
     """

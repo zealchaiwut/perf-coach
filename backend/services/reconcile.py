@@ -195,8 +195,17 @@ def _merge_source(current: str | None, new_source: str) -> str:
     return "strava,stryd"
 
 
-def reconcile_workouts(job_id, user_id) -> None:
+def reconcile_workouts(
+    job_id,
+    user_id,
+    *,
+    stryd_activity_ids: list[str] | None = None,
+    strava_activity_ids: list[int] | None = None,
+) -> None:
     """Merge strava_activities (and stryd_activities) into workouts.
+
+    When stryd_activity_ids / strava_activity_ids are provided, only those source
+    rows are merged (incremental sync). Otherwise every cached activity is processed.
 
     Phase transitions: sets 'reconciling'. Caller is responsible for mark_success.
     """
@@ -207,6 +216,7 @@ def reconcile_workouts(job_id, user_id) -> None:
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     sync_jobs.set_phase(uid, "reconciling")
+    incremental = stryd_activity_ids is not None or strava_activity_ids is not None
 
     with _Session(engine) as session:
         strava_acts = (
@@ -224,6 +234,13 @@ def reconcile_workouts(job_id, user_id) -> None:
         except Exception:
             stryd_acts = []
 
+        if stryd_activity_ids is not None:
+            stryd_id_set = set(stryd_activity_ids)
+            stryd_acts = [a for a in stryd_acts if a.stryd_activity_id in stryd_id_set]
+        if strava_activity_ids is not None:
+            strava_id_set = set(strava_activity_ids)
+            strava_acts = [a for a in strava_acts if a.strava_activity_id in strava_id_set]
+
         all_acts = [("strava", a) for a in strava_acts] + [("stryd", a) for a in stryd_acts]
         strava_by_id = {a.id: a for a in strava_acts}
         stryd_by_id = {a.id: a for a in stryd_acts}
@@ -234,6 +251,7 @@ def reconcile_workouts(job_id, user_id) -> None:
         sync_jobs.reset_progress(uid, total=len(all_acts))
 
         stryd_pairs = []
+        touched_workouts: list = []
         for source_type, act in all_acts:
             matched = _find_in_memory(act.start_time, existing_workouts, _TOLERANCE)
             proxy = _make_proxy(
@@ -278,6 +296,8 @@ def reconcile_workouts(job_id, user_id) -> None:
                 _apply_stryd_metrics(target, act)
                 stryd_pairs.append((target, act))
 
+            touched_workouts.append(target)
+
             sync_jobs.increment(uid, current=1)
 
         # Flush so newly-created workouts have ids, then (re)build their splits
@@ -290,18 +310,27 @@ def reconcile_workouts(job_id, user_id) -> None:
 
         session.commit()
 
+    affected_workout_ids = {w.id for w in touched_workouts if w.id is not None}
+
     # Derive TSS (fallback) + Zone-2 minutes for runs from the now-current splits.
-    compute_run_metrics(user_id)
+    compute_run_metrics(
+        user_id,
+        workout_ids=affected_workout_ids if incremental else None,
+    )
 
-    # Update the per-athlete best-effort duration curve for all runs.
-    _update_duration_curves(uid)
+    # Update the per-athlete best-effort duration curve for touched runs only.
+    _update_duration_curves(
+        uid,
+        workout_ids=affected_workout_ids if incremental else None,
+    )
 
 
-def compute_run_metrics(user_id) -> None:
+def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     """Per-run: fill zone2_minutes (time in the user's Zone-2 HR band) from the
     km-splits, and TSS via tss.py when a run has none (no Stryd stress).
 
-    Thresholds + Zone-2 band come from user_preferences (defaults applied here)."""
+    Thresholds + Zone-2 band come from user_preferences (defaults applied here).
+    When workout_ids is set, only those runs are updated (incremental sync)."""
     from backend.db import engine
     from backend.models import UserPreferences, Workout, WorkoutSplit
     from backend.services.tss import estimate_tss_for_workout
@@ -318,6 +347,9 @@ def compute_run_metrics(user_id) -> None:
             .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
             .all()
         )
+        if workout_ids is not None:
+            allowed = {wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids}
+            runs = [w for w in runs if w.id in allowed]
         run_ids = [w.id for w in runs]
         splits_by: dict = {}
         if run_ids:
@@ -348,12 +380,11 @@ def compute_run_metrics(user_id) -> None:
         session.commit()
 
 
-def _update_duration_curves(user_id) -> None:
-    """Rebuild the stored best-effort duration curve for all run workouts of one athlete.
+def _update_duration_curves(user_id, workout_ids: set | list | None = None) -> None:
+    """Rebuild the stored best-effort duration curve for run workouts of one athlete.
 
-    Called automatically by reconcile_workouts after each sync completes. Iterates
-    every run workout for the user and merges its computed power curve into the stored
-    best-effort record via update_athlete_power_curve.
+    Called automatically by reconcile_workouts after each sync completes. When
+    workout_ids is set, only those runs are updated (incremental sync).
     """
     from backend.db import engine
     from backend.models import Workout
@@ -361,12 +392,13 @@ def _update_duration_curves(user_id) -> None:
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     with _Session(engine) as session:
-        run_ids = [
-            row[0]
-            for row in session.query(Workout.id)
-            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
-            .all()
-        ]
+        q = session.query(Workout.id).filter(
+            Workout.user_id == uid, Workout.workout_type.ilike("run")
+        )
+        if workout_ids is not None:
+            allowed = [wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids]
+            q = q.filter(Workout.id.in_(allowed))
+        run_ids = [row[0] for row in q.all()]
 
     for workout_id in run_ids:
         with _Session(engine) as session:
