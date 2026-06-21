@@ -6,6 +6,153 @@ from decimal import Decimal
 from typing import Optional
 
 
+def compute_plan_line(plan, as_of_date) -> dict:
+    """Build a daily planned-weight series from a weight plan row.
+
+    Pure function — no DB calls, no I/O, no mutation of inputs.
+
+    Parameters
+    ----------
+    plan : mapping
+        Must supply: ``start_date``, ``start_weight``.
+        Rate resolution (first match wins):
+        1. ``target_rate_kg_per_week`` — explicit weekly change.
+        2. ``goal_weight`` + ``goal_date`` — straight line; rate is implied.
+    as_of_date : date
+        Upper bound of the generated series.
+
+    Returns
+    -------
+    dict
+        ``{"dates": {date: planned_weight, ...}, "debug": {...}}``
+
+        *dates* covers every day from ``start_date`` up to and including
+        ``min(as_of_date, goal_date)``.  String or date keys are consistent
+        with the date-key type resolved from ``as_of_date``.
+
+        *debug* always contains ``method`` (``"explicit"`` or ``"implied"``),
+        ``rate``, ``start_date``, ``start_weight``.
+
+        On any validation failure the function returns
+        ``{"dates": {}, "debug": {"reason": "<explanation>"}}`` and never
+        raises.
+
+    Worked example
+    --------------
+    start_weight=90 kg, target_rate_kg_per_week=-0.4::
+
+        After 14 days (2 full weeks):
+            planned = 90 + (14 / 7) * (-0.4) = 90 + 2 * (-0.4) = 89.2 kg
+
+    Plain-words summary of the math
+    --------------------------------
+    Each day's planned weight = start weight + (days elapsed / 7) × weekly rate.
+    The weekly rate is either read directly from the plan or derived from the
+    slope of the straight line that connects (start_date, start_weight) and
+    (goal_date, goal_weight).  Dividing elapsed days by 7 converts the integer
+    day count into fractional weeks so the rate stays in kg-per-week units.
+    """
+    def _err(reason: str) -> dict:
+        return {"dates": {}, "debug": {"reason": reason}}
+
+    # ── validate required fields ──────────────────────────────────────────────
+    raw_start_date = plan.get("start_date") if hasattr(plan, "get") else getattr(plan, "start_date", None)
+    raw_start_weight = plan.get("start_weight") if hasattr(plan, "get") else getattr(plan, "start_weight", None)
+
+    if raw_start_date is None:
+        return _err("start_date is required")
+    if raw_start_weight is None:
+        return _err("start_weight is required")
+
+    try:
+        start_date = _as_date(raw_start_date)
+    except (ValueError, TypeError):
+        return _err(f"start_date is invalid: {raw_start_date!r}")
+
+    try:
+        start_weight = float(raw_start_weight)
+    except (ValueError, TypeError):
+        return _err(f"start_weight is invalid: {raw_start_weight!r}")
+
+    # ── resolve rate ──────────────────────────────────────────────────────────
+    def _get(key):
+        return plan.get(key) if hasattr(plan, "get") else getattr(plan, key, None)
+
+    raw_rate = _get("target_rate_kg_per_week")
+    raw_goal_weight = _get("goal_weight")
+    raw_goal_date = _get("goal_date")
+
+    rate: Optional[float] = None
+    method: str
+    goal_date: Optional[datetime.date] = None
+
+    if raw_rate is not None:
+        try:
+            rate = float(raw_rate)
+        except (ValueError, TypeError):
+            return _err(f"target_rate_kg_per_week is invalid: {raw_rate!r}")
+        method = "explicit"
+        if raw_goal_date is not None:
+            try:
+                goal_date = _as_date(raw_goal_date)
+            except (ValueError, TypeError):
+                pass
+    elif raw_goal_weight is not None and raw_goal_date is not None:
+        try:
+            goal_weight = float(raw_goal_weight)
+            goal_date = _as_date(raw_goal_date)
+        except (ValueError, TypeError) as exc:
+            return _err(f"goal_weight or goal_date is invalid: {exc}")
+        total_days = (goal_date - start_date).days
+        if total_days == 0:
+            return _err("goal_date equals start_date; cannot derive rate")
+        rate = (goal_weight - start_weight) / total_days * 7
+        method = "implied"
+    else:
+        return _err(
+            "cannot determine planned weight: target_rate_kg_per_week is not set "
+            "and goal_weight/goal_date are incomplete"
+        )
+
+    # ── determine end date ────────────────────────────────────────────────────
+    try:
+        end_date = _as_date(as_of_date)
+    except (ValueError, TypeError):
+        return _err(f"as_of_date is invalid: {as_of_date!r}")
+
+    if goal_date is not None and goal_date < end_date:
+        end_date = goal_date
+
+    if end_date < start_date:
+        return {
+            "dates": {},
+            "debug": {
+                "method": method,
+                "rate": rate,
+                "start_date": str(start_date),
+                "start_weight": start_weight,
+            },
+        }
+
+    # ── build series ──────────────────────────────────────────────────────────
+    dates: dict = {}
+    total_days = (end_date - start_date).days
+    for i in range(total_days + 1):
+        d = start_date + datetime.timedelta(days=i)
+        planned = start_weight + (i / 7) * rate
+        dates[d] = round(planned, 6)
+
+    return {
+        "dates": dates,
+        "debug": {
+            "method": method,
+            "rate": rate,
+            "start_date": str(start_date),
+            "start_weight": start_weight,
+        },
+    }
+
+
 def plan_at(target, on_date: datetime.date) -> Decimal:
     """Linear interpolation between start and target weight; clamped at both ends."""
     start_d = _as_date(target.start_date)
