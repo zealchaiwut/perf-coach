@@ -1295,131 +1295,151 @@
     .btn-primary:hover { background: #162444; }
     .modal-error { font-size: 0.8125rem; color: var(--red); min-height: 1.2em; }
 
-    /* ── Insights panel ────────────────────────────────────────────────────── */
-    .insights-panel {
-      background: linear-gradient(135deg, #1e3a5f 0%, #0b1d3a 100%);
-      border-radius: var(--card-radius);
-      border: 1px solid rgba(255,255,255,0.1);
-      box-shadow: var(--card-shadow);
-      padding: 16px 20px 14px;
+    /* ── Insights panel ───────────────────────────────────────────────────── */
+    .insights-card {
       margin-bottom: 10px;
-      color: #fff;
     }
 
-    .insights-header {
+    .insights-hdr {
       display: flex;
-      align-items: center;
+      align-items: baseline;
       justify-content: space-between;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
       gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
     }
 
     .insights-title {
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 13px;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: rgba(255,255,255,0.6);
-      margin: 0;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
     }
 
     .insights-disclaimer {
-      font-size: 10px;
-      color: rgba(255,255,255,0.45);
+      font-size: 10.5px;
+      color: var(--text-tertiary);
       font-style: italic;
-      white-space: nowrap;
     }
 
-    .insights-body {
-      min-height: 36px;
+    /* Insight cards list */
+    .insights-cards {
       display: flex;
       flex-direction: column;
       gap: 8px;
     }
 
-    .insights-spinner {
-      font-size: 12px;
-      color: rgba(255,255,255,0.55);
-      padding: 4px 0;
-    }
-
-    .insights-error {
-      font-size: 12px;
-      color: rgba(255,140,100,0.9);
-      padding: 4px 0;
-    }
-
-    .insights-building {
-      font-size: 13px;
-      color: rgba(255,255,255,0.65);
-      line-height: 1.5;
-      padding: 2px 0;
-    }
-
     .insight-card {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.1);
+      background: #f7f9fc;
       border-radius: 10px;
-      padding: 10px 14px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
     }
 
-    .insight-summary {
-      flex: 1;
+    .insight-line {
       font-size: 13px;
-      color: rgba(255,255,255,0.9);
+      color: var(--text-primary);
       line-height: 1.45;
     }
 
-    .insight-coeff {
+    .insight-indicator {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 2px;
-      flex-shrink: 0;
-      min-width: 44px;
+      gap: 8px;
     }
 
-    .insight-coeff-bar-wrap {
-      width: 36px;
-      height: 6px;
-      background: rgba(255,255,255,0.15);
-      border-radius: 99px;
+    .insight-bar-outer {
+      flex: 1;
+      height: 4px;
+      background: var(--card-border, rgba(13,30,67,0.06));
+      border-radius: 999px;
       overflow: hidden;
+      max-width: 120px;
     }
 
-    .insight-coeff-bar {
+    .insight-bar-fill {
       height: 100%;
-      border-radius: 99px;
-      background: linear-gradient(90deg, #4ade80, #86efac);
-      transition: width 0.4s ease;
+      border-radius: 999px;
+      transition: width 0.35s ease;
     }
 
-    .insight-coeff-bar.negative {
-      background: linear-gradient(90deg, #f87171, #fca5a5);
-    }
+    .insight-bar-positive { background: #2563eb; }
+    .insight-bar-negative { background: #d97706; }
 
-    .insight-coeff-val {
-      font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
-      color: rgba(255,255,255,0.6);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-
-    .insights-footer {
-      margin-top: 10px;
+    .insight-coeff {
       font-size: 10.5px;
-      color: rgba(255,255,255,0.38);
-      font-style: italic;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-tertiary);
     }
 
-    @media (max-width: 480px) {
-      .insights-panel { padding: 14px 14px 12px; }
-      .insight-summary { font-size: 12px; }
+    .insight-coeff-strong  { color: #16a34a; }
+    .insight-coeff-moderate { color: #2563eb; }
+
+    /* Loading spinner */
+    .insights-loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-tertiary);
+      padding: 12px 0;
+    }
+
+    @keyframes insights-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .insights-spinner {
+      display: inline-block;
+      width: 0.875em;
+      height: 0.875em;
+      border: 2px solid var(--card-border);
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: insights-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* Building / still-learning state */
+    .insights-building {
+      text-align: center;
+      padding: 16px 8px;
+    }
+
+    .insights-building-icon {
+      font-size: 22px;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .insights-building-msg {
+      margin: 0 0 4px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .insights-building-sub {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Error / empty states */
+    .insights-error {
+      font-size: 12.5px;
+      color: var(--red);
+      padding: 10px 0;
+    }
+
+    .insights-empty {
+      font-size: 12.5px;
+      color: var(--text-tertiary);
+      padding: 10px 0;
     }
 
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
@@ -1434,6 +1454,7 @@
     @media (max-width: 768px) {
       main { padding: 16px 16px 20px; }
       .habits-page-header h1 { font-size: 22px; }
+      .insights-hdr { gap: 6px; }
     }
 
     /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
@@ -1457,6 +1478,8 @@
 
       .form-row { grid-template-columns: 1fr; }
       .modal-box { padding: 1.25rem; }
+
+      .insight-bar-outer { max-width: 80px; }
     }
   </style>
 </head>
@@ -1547,20 +1570,6 @@
       </div>
     </div>
 
-    <!-- Insights panel (habit-outcome correlations) -->
-    <div class="insights-panel" id="insights-panel">
-      <div class="insights-header">
-        <p class="insights-title">Habit insights</p>
-        <span class="insights-disclaimer">Association, not causation</span>
-      </div>
-      <div class="insights-body" id="insights-body">
-        <span class="insights-spinner">Loading…</span>
-      </div>
-      <p class="insights-footer" id="insights-footer" style="display:none">
-        Based on your last 90 days — Association, not causation
-      </p>
-    </div>
-
     <!-- Daily grid card -->
     <div class="card habits-day-grid" id="habits-day-grid-card">
       <div class="day-grid-hdr">
@@ -1592,6 +1601,16 @@
           <span id="archived-count" style="color:var(--text-tertiary);font-weight:400;font-size:12px"></span>
         </button>
         <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      </div>
+    </div>
+    <!-- Habit insights panel -->
+    <div id="insights-panel" class="card insights-card">
+      <div class="insights-hdr">
+        <span class="insights-title">Habit insights</span>
+        <span class="insights-disclaimer">Association, not causation</span>
+      </div>
+      <div id="insights-content">
+        <div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>
       </div>
     </div>
   </main>
@@ -1671,6 +1690,7 @@
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
   <script src="js/habits.js"></script>
+  <script src="js/habit-insights.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
 </body>

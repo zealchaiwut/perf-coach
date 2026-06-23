@@ -768,6 +768,7 @@ function scheduleHeroRefresh() {
       renderHeroWheel();
       renderHeroStats();
       refreshGridTotals();
+      if (window.HabitInsights) window.HabitInsights.load();
     } catch (_e) {
       // non-critical: hero will refresh on next full load
     }
@@ -1487,62 +1488,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ── Habit insights panel ──────────────────────────────────────────────────────
-
-async function loadInsights() {
-  const body = document.getElementById('insights-body');
-  const footer = document.getElementById('insights-footer');
-  if (!body) return;
-
-  body.innerHTML = '<span class="insights-spinner">Loading…</span>';
-  if (footer) footer.style.display = 'none';
-
-  try {
-    const res = await fetch('/api/habits/insights');
-    if (!res.ok) {
-      body.innerHTML = `<span class="insights-error">Could not load insights (${res.status})</span>`;
-      return;
-    }
-    const data = await res.json();
-
-    if (data.status === 'not_enough_data') {
-      body.innerHTML = `<span class="insights-building">${esc(data.reason || 'Still building patterns — keep logging your habits and daily metrics.')}</span>`;
-      return;
-    }
-
-    if (!data.insights || data.insights.length === 0) {
-      body.innerHTML = '<span class="insights-building">Still building patterns — keep logging your habits and daily metrics.</span>';
-      return;
-    }
-
-    body.innerHTML = data.insights.map(ins => {
-      const coeff = ins.coefficient;
-      const barPct = Math.round(Math.abs(coeff) * 100);
-      const isNeg = coeff < 0;
-      const coeffStr = (coeff >= 0 ? '+' : '') + coeff.toFixed(2);
-      return `
-        <div class="insight-card">
-          <span class="insight-summary">${esc(ins.summary)}</span>
-          <div class="insight-coeff">
-            <div class="insight-coeff-bar-wrap">
-              <div class="insight-coeff-bar${isNeg ? ' negative' : ''}" style="width:${barPct}%"></div>
-            </div>
-            <span class="insight-coeff-val">${coeffStr}</span>
-          </div>
-        </div>`;
-    }).join('');
-
-    if (footer) footer.style.display = '';
-  } catch (err) {
-    body.innerHTML = `<span class="insights-error">Unable to load insights: ${esc(err.message)}</span>`;
-  }
-}
-
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', () => {
   loadAndRender();
-  loadInsights();
 });
 
 window.addEventListener('userChanged', () => {
