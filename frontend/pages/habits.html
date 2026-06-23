@@ -1948,6 +1948,206 @@
       color: var(--text-primary);
     }
 
+    /* ── Habit detail panel (issue #831) ──────────────────────────────────── */
+    .habit-detail-panel {
+      margin: 0 24px 16px;
+      border-radius: var(--card-radius);
+      overflow: hidden;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--card-border);
+    }
+
+    .detail-panel-header {
+      background: linear-gradient(135deg, #162444 0%, #0b1530 100%);
+      padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+      display: flex;
+      align-items: center;
+      gap: var(--space-3, 0.75rem);
+    }
+
+    .detail-panel-close {
+      margin-left: auto;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .detail-panel-close:hover { background: rgba(255,255,255,0.28); }
+
+    .detail-panel-habit-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-panel-body {
+      background: var(--card-bg);
+      padding: var(--space-4, 1rem) var(--space-5, 1.25rem);
+    }
+
+    /* Stats row */
+    .detail-stats-row {
+      display: flex;
+      gap: 1px;
+      background: var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: var(--space-4, 1rem);
+    }
+
+    .detail-stat-tile {
+      flex: 1;
+      background: var(--card-bg);
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .detail-stat-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .detail-stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      line-height: 1.1;
+      display: block;
+    }
+
+    .detail-stat-sub {
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* History list */
+    .detail-history-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin-bottom: 8px;
+    }
+
+    .detail-history-list {
+      max-height: 240px;
+      overflow-y: auto;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+    }
+
+    .detail-history-entry {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 13px;
+    }
+    .detail-history-entry:last-child { border-bottom: none; }
+
+    .detail-history-date {
+      font-weight: 500;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .detail-history-val {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .detail-history-note {
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+      font-style: italic;
+      margin-left: 8px;
+      flex: 1;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-history-empty {
+      padding: 20px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    /* Action buttons */
+    .detail-actions-row {
+      display: flex;
+      gap: 8px;
+      margin-top: var(--space-4, 1rem);
+    }
+
+    .detail-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: 'Inter Tight', sans-serif;
+      cursor: pointer;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text-primary);
+    }
+    .detail-btn:hover { background: #f1f4fa; }
+
+    .detail-btn-edit { }
+
+    .detail-btn-archive {
+      color: var(--text-secondary);
+    }
+
+    /* Loading skeleton */
+    .detail-loading {
+      padding: var(--space-4, 1rem);
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    /* Clickable habit names in grids */
+    .habit-name-text[data-detail-trigger],
+    .week-habit-name[data-detail-trigger] {
+      cursor: pointer;
+      text-decoration-line: underline;
+      text-decoration-style: dotted;
+      text-decoration-color: transparent;
+    }
+    .habit-name-text[data-detail-trigger]:hover,
+    .week-habit-name[data-detail-trigger]:hover {
+      text-decoration-color: currentColor;
+    }
+
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
     @media (max-width: 820px) {
       .hero-row { grid-template-columns: 1fr; }
@@ -1962,6 +2162,9 @@
       .habits-page-header h1 { font-size: 22px; }
       .today-habit-name { font-size: 13px; }
       .today-duration-input { width: 60px; }
+      .habit-detail-panel { margin: 0 16px 12px; }
+      .detail-stat-value { font-size: 18px; }
+      .detail-history-list { max-height: 200px; }
     }
 
     /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
@@ -1987,6 +2190,10 @@
 
       .form-row { grid-template-columns: 1fr; }
       .modal-box { padding: 1.25rem; }
+      .habit-detail-panel { margin: 0 12px 10px; }
+      .detail-stats-row { flex-direction: column; gap: 0; }
+      .detail-stat-tile { padding: 10px; text-align: left; display: flex; align-items: center; gap: 8px; }
+      .detail-stat-value { font-size: 16px; }
     }
   </style>
 </head>
@@ -2002,7 +2209,7 @@
         <!-- Week navigation pill -->
         <div class="week-nav-pill" id="week-nav-pill">
           <button type="button" class="week-nav-btn" id="week-prev-btn" aria-label="Previous week">‹</button>
-          <span class="week-nav-label" id="week-nav-label">—</span>
+          <span class="week-nav-label" id="week-nav-label">–</span>
           <button type="button" class="week-nav-btn" id="week-next-btn" aria-label="Next week" disabled>›</button>
         </div>
         <button id="add-habit-btn" type="button" class="btn-new-habit">+ New habit</button>
@@ -2074,18 +2281,18 @@
         <div class="stat-tile stat-tile-today" id="stat-today-tile">
           <div class="stat-tile-label" id="stat-today-label">Today</div>
           <div class="stat-tile-val" id="stat-today-val">--/--</div>
-          <div class="stat-tile-sub" id="stat-today-sub">—</div>
+          <div class="stat-tile-sub" id="stat-today-sub">–</div>
         </div>
         <!-- Best streak tile (hidden when streaks.best is null) -->
         <div class="stat-tile" id="stat-streak-tile" style="display:none">
           <div class="stat-tile-label">Best streak</div>
           <div class="stat-tile-val" id="stat-streak-val">-- days</div>
-          <div class="stat-tile-sub" id="stat-streak-sub">—</div>
+          <div class="stat-tile-sub" id="stat-streak-sub">–</div>
         </div>
         <!-- Last week tile -->
         <div class="stat-tile" id="stat-lastweek-tile">
           <div class="stat-tile-label">Last week</div>
-          <div class="stat-tile-val" id="stat-lastweek-val">—</div>
+          <div class="stat-tile-val" id="stat-lastweek-val">–</div>
           <div class="stat-tile-sub" id="stat-lastweek-sub">no data</div>
         </div>
       </div>
@@ -2209,6 +2416,50 @@
     </div>
   </div>
 
+  <!-- Habit detail panel (issue #831) — revealed when a habit is selected -->
+  <div class="habit-detail-panel" id="habit-detail-panel" style="display:none" role="region" aria-label="Habit detail">
+    <div class="detail-panel-header" id="detail-panel-header">
+      <span id="detail-panel-icon"></span>
+      <span class="detail-panel-habit-name" id="detail-panel-habit-name">–</span>
+      <button type="button" class="detail-panel-close" id="detail-panel-close" aria-label="Close habit detail">×</button>
+    </div>
+    <div class="detail-panel-body" id="detail-panel-body">
+      <div class="detail-loading" id="detail-loading">Loading…</div>
+      <div id="detail-content" style="display:none">
+        <!-- Stats row -->
+        <div class="detail-stats-row">
+          <div class="detail-stat-tile">
+            <span class="detail-stat-label">Current streak</span>
+            <span class="detail-stat-value" id="detail-current-streak">0</span>
+            <span class="detail-stat-sub">days</span>
+          </div>
+          <div class="detail-stat-tile">
+            <span class="detail-stat-label">Longest streak</span>
+            <span class="detail-stat-value" id="detail-longest-streak">0</span>
+            <span class="detail-stat-sub">days</span>
+          </div>
+          <div class="detail-stat-tile">
+            <span class="detail-stat-label">Last 30 days</span>
+            <span class="detail-stat-value" id="detail-consistency">0%</span>
+            <span class="detail-stat-sub" id="detail-consistency-sub">consistency</span>
+          </div>
+        </div>
+        <!-- Log history -->
+        <div class="detail-history-title">Log history</div>
+        <div class="detail-history-list" id="detail-history-list">
+          <div class="detail-history-empty" id="detail-history-empty" style="display:none">
+            No log entries yet. Start logging to track your progress!
+          </div>
+        </div>
+        <!-- Action buttons -->
+        <div class="detail-actions-row">
+          <button type="button" class="detail-btn detail-btn-edit" id="detail-edit-btn">Edit</button>
+          <button type="button" class="detail-btn detail-btn-archive" id="detail-archive-btn">Archive</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- New / Edit habit modal -->
   <div id="habit-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-box">
@@ -2228,10 +2479,10 @@
         <div class="form-field">
           <label for="modal-tracking-type">Tracking type</label>
           <select id="modal-tracking-type">
-            <option value="daily_checkmark">Daily checkmark — Did you do it today? (1–7 days/week)</option>
-            <option value="weekly_count">Weekly count — How many times this week?</option>
-            <option value="weekly_minutes">Weekly minutes — Total minutes logged this week</option>
-            <option value="weekly_quantity">Weekly quantity — Any numeric total (km, reps…)</option>
+            <option value="daily_checkmark">Daily checkmark: Did you do it today? (1–7 days/week)</option>
+            <option value="weekly_count">Weekly count: How many times this week?</option>
+            <option value="weekly_minutes">Weekly minutes: Total minutes logged this week</option>
+            <option value="weekly_quantity">Weekly quantity: Any numeric total (km, reps…)</option>
           </select>
           <span id="modal-tracking-type-hint" class="hint" style="display:none;color:var(--red,#ef4444)">user_id and tracking_type cannot be updated</span>
         </div>
@@ -2250,12 +2501,12 @@
         <div class="form-field">
           <label for="modal-auto-fill">Auto-fill source</label>
           <select id="modal-auto-fill">
-            <option value="">None — log manually</option>
-            <option value="workout.zone2_minutes">Zone 2 minutes — filled from workout zone 2 data</option>
-            <option value="workout.run_count">Run count — incremented per run workout</option>
-            <option value="workout.lift_count">Lift count — incremented per strength workout</option>
-            <option value="workout.total_duration_minutes">Total duration — sum of all workout minutes</option>
-            <option value="workout.distance_km">Distance — sum of workout distances (km)</option>
+            <option value="">None (log manually)</option>
+            <option value="workout.zone2_minutes">Zone 2 minutes (from workout zone 2 data)</option>
+            <option value="workout.run_count">Run count (per run workout)</option>
+            <option value="workout.lift_count">Lift count (per strength workout)</option>
+            <option value="workout.total_duration_minutes">Total duration (sum of all workout minutes)</option>
+            <option value="workout.distance_km">Distance in km (sum of workout distances)</option>
           </select>
           <span class="hint">Auto fills from workout data. <a href="/log" target="_blank">View workouts →</a></span>
         </div>
