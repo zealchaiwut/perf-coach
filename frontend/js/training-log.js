@@ -1049,6 +1049,20 @@
     );
   }
 
+  // Synced = backed by a Strava/Stryd activity. Deleting these tombstones the
+  // activity (so it won't resync); they can be restored from the Removed list.
+  function isSyncedWorkout(workout) {
+    if (!workout) return false;
+    var src = workout.source || "";
+    return (
+      src.includes("strava") ||
+      src.includes("stryd") ||
+      !!workout.strava_activity_url ||
+      !!workout.has_strava ||
+      !!workout.has_stryd
+    );
+  }
+
   function buildEntryRow(w) {
     var row = document.createElement("div");
     row.className = "entry-row";
@@ -1542,7 +1556,11 @@
       }
     }
     if (menuDelete) {
-      menuDelete.style.display = hasWorkout && !isStrava ? "" : "none";
+      // Always allow removal. Synced workouts are tombstoned (won't resync) and
+      // are restorable; manual workouts are permanently deleted.
+      menuDelete.style.display = hasWorkout ? "" : "none";
+      menuDelete.textContent =
+        hasWorkout && isSyncedWorkout(workout) ? "Remove from log" : "Delete";
     }
   }
 
@@ -1569,6 +1587,182 @@
     if (!menu) return;
     if (menu.classList.contains("is-open")) closeOverflowMenu();
     else openOverflowMenu();
+  }
+
+  var _detailScreenshotBusy = false;
+
+  function slugifyScreenshotName(name) {
+    return (
+      String(name || "workout")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "workout"
+    );
+  }
+
+  function buildDetailScreenshotFilename() {
+    var w = cachedDetailWorkout;
+    var parts = [slugifyScreenshotName(w && w.name)];
+    if (w && w.workout_date) parts.push(w.workout_date);
+    return parts.join("-") + ".png";
+  }
+
+  function expandScreenshotOverflow(root) {
+    var touched = [];
+    if (!root) return touched;
+    root.querySelectorAll("*").forEach(function (el) {
+      var cs = window.getComputedStyle(el);
+      var patch = {};
+      if (
+        cs.overflow === "auto" ||
+        cs.overflow === "scroll" ||
+        cs.overflow === "hidden"
+      ) {
+        patch.overflow = el.style.overflow;
+        el.style.overflow = "visible";
+      }
+      if (cs.maxHeight && cs.maxHeight !== "none") {
+        patch.maxHeight = el.style.maxHeight;
+        el.style.maxHeight = "none";
+      }
+      if (Object.keys(patch).length) touched.push({ el: el, patch: patch });
+    });
+    return touched;
+  }
+
+  function restoreScreenshotOverflow(touched) {
+    touched.forEach(function (item) {
+      Object.keys(item.patch).forEach(function (key) {
+        item.el.style[key] = item.patch[key];
+      });
+    });
+  }
+
+  /** Run detail: header, Load & intensity, and laps only (skip route, sync, etc.). */
+  function buildScreenshotClone(contentEl) {
+    var stack = contentEl.querySelector(".rd4-stack");
+    if (!stack) return contentEl.cloneNode(true);
+
+    var out = document.createElement("div");
+    out.className = "rd4-stack";
+
+    var header = stack.querySelector(".rd4-header");
+    if (header) out.appendChild(header.cloneNode(true));
+
+    stack.querySelectorAll(".rd4-card").forEach(function (card) {
+      if (
+        card.classList.contains("rd4-header") ||
+        card.classList.contains("rd4-laps-card")
+      )
+        return;
+      var title = card.querySelector(".rd4-sec-title");
+      if (!title) return;
+      var label = title.textContent.replace(/\s+/g, " ").trim();
+      if (/^load\s*&\s*intensity$/i.test(label)) {
+        out.appendChild(card.cloneNode(true));
+      }
+    });
+
+    var laps = stack.querySelector(".rd4-laps-card");
+    if (laps) out.appendChild(laps.cloneNode(true));
+
+    return out.childElementCount ? out : contentEl.cloneNode(true);
+  }
+
+  function saveDetailScreenshot() {
+    if (_detailScreenshotBusy) return;
+    if (panelMode !== "view") return;
+
+    if (typeof window.html2canvas !== "function") {
+      UIStates.showToast(
+        "Screenshot tool failed to load. Refresh and try again.",
+        true,
+      );
+      return;
+    }
+
+    var contentEl = document.getElementById("dp-content");
+    var loadingEl = document.getElementById("dp-loading");
+    if (!contentEl || !contentEl.firstElementChild) {
+      UIStates.showToast("Nothing to capture yet.", true);
+      return;
+    }
+    if (loadingEl && loadingEl.style.display !== "none") {
+      UIStates.showToast("Still loading workout…", true);
+      return;
+    }
+
+    closeOverflowMenu();
+    _detailScreenshotBusy = true;
+
+    var shotBtn = document.getElementById("dp-screenshot-btn");
+    if (shotBtn) shotBtn.disabled = true;
+
+    var scrollEl = document.getElementById("dp-scroll");
+    var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    if (scrollEl) scrollEl.scrollTop = 0;
+
+    var panel = document.getElementById("detail-panel");
+    var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
+    var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+
+    var host = document.createElement("div");
+    host.className = "dp-screenshot-capture";
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText =
+      "position:fixed;left:-10000px;top:0;width:" +
+      captureWidth +
+      "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;z-index:-1;";
+
+    var clone = buildScreenshotClone(contentEl);
+    host.appendChild(clone);
+    document.body.appendChild(host);
+
+    var overflowPatches = expandScreenshotOverflow(clone);
+
+    window
+      .html2canvas(host, {
+        backgroundColor: "#ffffff",
+        scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+        logging: false,
+        useCORS: true,
+        width: captureWidth,
+        windowWidth: captureWidth,
+      })
+      .then(function (canvas) {
+        return new Promise(function (resolve, reject) {
+          canvas.toBlob(function (blob) {
+            if (!blob) {
+              reject(new Error("empty blob"));
+              return;
+            }
+            resolve(blob);
+          }, "image/png");
+        });
+      })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = buildDetailScreenshotFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        UIStates.showToast("Workout saved as image");
+      })
+      .catch(function (err) {
+        console.error("detail screenshot failed", err);
+        UIStates.showToast("Could not save image. Try again.", true);
+      })
+      .finally(function () {
+        restoreScreenshotOverflow(overflowPatches);
+        if (host.parentNode) host.parentNode.removeChild(host);
+        if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+        _detailScreenshotBusy = false;
+        if (shotBtn) shotBtn.disabled = false;
+      });
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────
@@ -1750,6 +1944,83 @@
       }
     }
     return ex.rpe != null ? String(ex.rpe) : null;
+  }
+
+  // Aggregate a numeric per-set field: show the common value when every set
+  // agrees, otherwise the average (user preference: "if not the same, use avg").
+  function _setAgg(values) {
+    var nums = values.filter(function (v) {
+      return v != null && !isNaN(v);
+    });
+    if (!nums.length) return { value: null, uniform: true };
+    var first = nums[0];
+    var uniform = nums.every(function (v) {
+      return v === first;
+    });
+    if (uniform) return { value: first, uniform: true };
+    var sum = nums.reduce(function (a, v) {
+      return a + Number(v);
+    }, 0);
+    return { value: sum / nums.length, uniform: false };
+  }
+
+  // Build a per-exercise row summary for the strength detail table.
+  function _strengthExRow(ex) {
+    var sets = _parseSetsJson(ex);
+    var use = null;
+    if (sets && sets.length) {
+      var working = sets.filter(function (s) {
+        return s.type !== "warmup";
+      });
+      use = working.length ? working : sets;
+    }
+    var count, repsAgg, wAgg, rpeAgg;
+    if (use) {
+      count = use.length;
+      repsAgg = _setAgg(use.map(function (s) { return s.reps; }));
+      wAgg = _setAgg(use.map(function (s) { return s.weight; }));
+      rpeAgg = _setAgg(use.map(function (s) { return s.rpe; }));
+    } else {
+      count = ex.sets != null ? ex.sets : null;
+      repsAgg = { value: ex.reps != null ? ex.reps : null, uniform: true };
+      wAgg = { value: ex.weight_kg != null ? ex.weight_kg : null, uniform: true };
+      rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
+    }
+
+    var setsTxt = "—";
+    if (count != null) {
+      if (repsAgg.value != null) {
+        var repsTxt = repsAgg.uniform
+          ? String(repsAgg.value)
+          : "~" + Math.round(repsAgg.value);
+        setsTxt = count + " × " + repsTxt;
+      } else {
+        setsTxt = count + (count === 1 ? " set" : " sets");
+      }
+    }
+
+    var wTxt = "—";
+    if (wAgg.value != null) {
+      var wNum = wAgg.uniform ? wAgg.value : Math.round(wAgg.value);
+      wTxt = (wAgg.uniform ? "" : "avg ") + wNum + " kg";
+    }
+
+    var rpeVal = rpeAgg.value;
+    var rpeTxt = "—";
+    if (rpeVal != null) {
+      var rpeNum = rpeAgg.uniform ? rpeVal : Number(rpeVal).toFixed(1);
+      rpeTxt = (rpeAgg.uniform ? "" : "avg ") + rpeNum;
+    }
+
+    var vol = _calcExVolume(ex);
+    return {
+      name: ex.name || "—",
+      setsTxt: setsTxt,
+      weightTxt: wTxt,
+      rpeTxt: rpeTxt,
+      rpeClass: _rpeBarClass(rpeVal),
+      volTxt: vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "—",
+    };
   }
 
   function buildEffortProfileView(segData) {
@@ -2463,36 +2734,27 @@
       var totalVol = 0;
       var rpeSum = 0,
         rpeCount = 0;
-      var exCards = "";
+      var exRows = "";
       exercises.forEach(function (ex) {
-        var vol = _calcExVolume(ex);
-        totalVol += vol;
+        totalVol += _calcExVolume(ex);
         var rpe = _avgRpeFromEx(ex);
         if (rpe != null) {
           rpeSum += parseFloat(rpe);
           rpeCount += 1;
         }
-        var volStr =
-          vol > 0 ? Math.round(vol).toLocaleString() + " kg" : "\u2014";
-        exCards +=
-          '<div class="dp-ex-card dp-exercise-item">' +
-          '<div class="dp-ex-card-head">' +
-          '<span class="dp-ex-card-name">' +
-          esc(ex.name || "\u2014") +
-          "</span>" +
-          '<span class="dp-ex-card-vol">' +
-          esc(volStr) +
-          "</span>" +
-          "</div>" +
-          '<div class="dp-ex-card-body">' +
-          '<span class="dp-ex-card-sub">' +
-          esc(_formatStrengthExSub(ex)) +
-          "</span>" +
-          (rpe
-            ? '<span class="dp-ex-card-rpe">RPE ' + esc(rpe) + "</span>"
-            : "") +
-          "</div>" +
-          "</div>";
+        var r = _strengthExRow(ex);
+        exRows +=
+          "<tr>" +
+          '<td class="dp-ex-td-name">' + esc(r.name) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.setsTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.weightTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' +
+          (r.rpeTxt !== "\u2014"
+            ? '<span class="dp-ex-rpe-pill ' + r.rpeClass + '">' + esc(r.rpeTxt) + "</span>"
+            : "\u2014") +
+          "</td>" +
+          '<td class="dp-ex-td-num">' + esc(r.volTxt) + "</td>" +
+          "</tr>";
       });
       var avgRpeFoot = rpeCount ? (rpeSum / rpeCount).toFixed(1) : "\u2014";
       var volFoot =
@@ -2501,9 +2763,12 @@
         '<div class="dp-section">' +
         rpeProfile +
         '<div class="dp-section-title">Exercises</div>' +
-        '<div class="dp-ex-list">' +
-        exCards +
-        "</div>" +
+        '<div class="dp-ex-table-wrap"><table class="dp-ex-table">' +
+        "<thead><tr>" +
+        "<th>Exercise</th><th>Sets</th><th>Weight</th><th>RPE</th><th>Volume</th>" +
+        "</tr></thead><tbody>" +
+        exRows +
+        "</tbody></table></div>" +
         '<div class="dp-seg-footer" style="margin-top:10px;border-radius:10px;">' +
         "<span>Total volume \u00b7 avg RPE</span>" +
         "<strong>" +
@@ -2925,20 +3190,108 @@
   }
 
   // ── Delete workout ────────────────────────────────────────────────────────
-  function deleteWorkout(workoutId) {
-    if (!confirm("Delete this workout? This cannot be undone.")) return;
+  function deleteWorkout(workoutId, isSynced) {
+    var msg = isSynced
+      ? "Remove this workout from your log? It won't be re-synced from Strava/Stryd. You can restore it later from Removed workouts."
+      : "Delete this workout? This cannot be undone.";
+    if (!confirm(msg)) return;
 
     fetch("/api/workouts/" + workoutId, { method: "DELETE" })
       .then(function (res) {
         if (!res.ok && res.status !== 204)
           throw new Error("HTTP " + res.status);
-        UIStates.showToast("Workout deleted");
+        UIStates.showToast(isSynced ? "Removed from log" : "Workout deleted");
         closeDetailPanel();
         fetchAndRender();
       })
       .catch(function () {
-        UIStates.showToast("Could not delete workout. Please try again.", true);
+        UIStates.showToast("Could not remove workout. Please try again.", true);
       });
+  }
+
+  // ── Removed workouts modal (restore tombstoned synced activities) ─────────
+  function openRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (!modal) return;
+    modal.hidden = false;
+    loadRemovedList();
+  }
+
+  function closeRemovedModal() {
+    var modal = document.getElementById("removed-modal");
+    if (modal) modal.hidden = true;
+  }
+
+  function loadRemovedList() {
+    var list = document.getElementById("removed-modal-list");
+    if (!list) return;
+    list.innerHTML = '<div class="removed-empty">Loading…</div>';
+    fetch("/api/workouts/removed")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (rows) {
+        if (!rows || !rows.length) {
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        rows.forEach(function (r) {
+          var row = document.createElement("div");
+          row.className = "removed-row";
+          var src = (r.source || "").toLowerCase();
+          var meta = [fmtDate(r.workout_date), src ? src.charAt(0).toUpperCase() + src.slice(1) : ""]
+            .filter(Boolean).join(" · ");
+          row.innerHTML =
+            '<div class="removed-row-info">' +
+            '<div class="removed-row-name">' + esc(r.name || "Workout") + "</div>" +
+            '<div class="removed-row-meta">' + esc(meta) + "</div>" +
+            "</div>" +
+            '<button class="removed-row-restore" type="button">Restore</button>';
+          row.querySelector(".removed-row-restore").addEventListener("click", function () {
+            restoreRemoved(r.id, row);
+          });
+          list.appendChild(row);
+        });
+      })
+      .catch(function () {
+        list.innerHTML = '<div class="removed-empty">Could not load removed workouts.</div>';
+      });
+  }
+
+  function restoreRemoved(removedId, rowEl) {
+    var btn = rowEl ? rowEl.querySelector(".removed-row-restore") : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Restoring…";
+    }
+    fetch("/api/workouts/removed/" + removedId + "/restore", { method: "POST" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        UIStates.showToast("Workout restored");
+        if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+        var list = document.getElementById("removed-modal-list");
+        if (list && !list.querySelector(".removed-row"))
+          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+        fetchAndRender();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not restore workout. Please try again.", true);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Restore";
+        }
+      });
+  }
+
+  function wireRemovedModal() {
+    var openBtn = document.getElementById("log-removed-btn");
+    if (openBtn) openBtn.addEventListener("click", openRemovedModal);
+    var closeBtn = document.getElementById("removed-modal-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeRemovedModal);
+    var backdrop = document.getElementById("removed-modal-backdrop");
+    if (backdrop) backdrop.addEventListener("click", closeRemovedModal);
   }
 
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
@@ -2976,6 +3329,7 @@
 
   // ── Sync button state ─────────────────────────────────────────────────────
   var _syncPollTimer = null;
+  var _syncLastTerminalStatus = null;
 
   function _relTime(isoStr) {
     if (!isoStr) return "Never";
@@ -3023,6 +3377,56 @@
     if (stravaBtn) stravaBtn.disabled = busy;
   }
 
+  function _syncToast(msg, isError) {
+    var fb = document.getElementById("log-sync-feedback");
+    if (fb) {
+      fb.textContent = msg;
+      fb.className = isError ? "sync-feedback--error" : "sync-feedback--ok";
+    }
+    if (window.UIStates && UIStates.showToast) {
+      UIStates.showToast(msg, isError);
+    }
+  }
+
+  function _syncClearFeedback() {
+    var fb = document.getElementById("log-sync-feedback");
+    if (fb) {
+      fb.textContent = "";
+      fb.className = "";
+    }
+  }
+
+  function _syncTerminalKey(data) {
+    if (!data) return "";
+    return (
+      String(data.status || "") +
+      "|" +
+      String(data.finished_at || "") +
+      "|" +
+      String(data.error || "")
+    );
+  }
+
+  function _syncHandleTerminal(data, opts) {
+    opts = opts || {};
+    if (!data || data.status === "running" || data.status === "idle") return;
+    var key = _syncTerminalKey(data);
+    if (key && key === _syncLastTerminalStatus) return;
+    _syncLastTerminalStatus = key;
+
+    if (data.status === "error") {
+      _syncToast(data.error || "Sync failed", true);
+      _loadSyncChip();
+      if (opts.refreshList !== false) fetchAndRender();
+      return;
+    }
+    if (data.status === "success" && opts.toastSuccess) {
+      _syncToast("Sync complete");
+      _loadSyncChip();
+      if (opts.refreshList !== false) fetchAndRender();
+    }
+  }
+
   function _syncPollStatus() {
     fetch("/api/sync/status")
       .then(function (res) {
@@ -3042,7 +3446,7 @@
         } else {
           _syncStopStatusPoll();
           _syncSetBusy(false);
-          _loadSyncChip();
+          _syncHandleTerminal(data, { toastSuccess: false });
         }
       })
       .catch(function () {
@@ -3058,81 +3462,138 @@
     }
   }
 
-  function _syncSinceDate(latest) {
-    if (!latest || !latest.synced_at) return null;
-    var d = new Date(latest.synced_at);
-    if (isNaN(d.getTime())) return null;
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
+  function _syncApiError(r) {
+    return r.text().then(function (text) {
+      var msg = text || "HTTP " + r.status;
+      try {
+        var parsed = JSON.parse(text);
+        if (parsed && parsed.detail) {
+          msg = typeof parsed.detail === "string"
+            ? parsed.detail
+            : JSON.stringify(parsed.detail);
+        }
+      } catch (e) { /* keep raw text */ }
+      return msg;
+    });
+  }
+
+  function _syncFriendlyMsg(msg) {
+    if (msg === "CSRF token missing or invalid") {
+      return "Session security token expired — reload the page and try again.";
+    }
+    return msg;
   }
 
   function _syncWaitForComplete() {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
       function poll() {
         fetch("/api/sync/status")
           .then(function (res) {
             return res.ok ? res.json() : null;
           })
           .then(function (data) {
-            if (!data || data.status !== "running") {
+            if (!data || data.status === "idle") {
               resolve();
-            } else {
-              setTimeout(poll, 2000);
+              return;
             }
+            if (data.status === "error") {
+              reject(new Error(data.error || "Sync failed"));
+              return;
+            }
+            if (data.status !== "running") {
+              resolve();
+              return;
+            }
+            setTimeout(poll, 2000);
           })
-          .catch(resolve);
+          .catch(function () {
+            resolve();
+          });
       }
       poll();
     });
   }
 
-  function _syncProvider(url, sinceDate) {
-    var body = sinceDate
-      ? JSON.stringify({ since_date: sinceDate })
-      : "{}";
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body,
-    }).then(function (r) {
-      if (r.status === 202 || r.status === 409) {
-        return _syncWaitForComplete();
-      }
-      return null;
-    });
+  function _syncBuildBody(options) {
+    options = options || {};
+    if (options.full) return JSON.stringify({ full: true });
+    if (options.sinceDate) return JSON.stringify({ since_date: options.sinceDate });
+    return "{}";
   }
 
-  function _onSyncAllClick() {
-    _syncSetBusy(true);
-    Promise.all([
-      fetch("/api/sync/strava/latest")
-        .then(function (r) {
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () {
-          return null;
-        }),
-      fetch("/api/sync/stryd/latest")
-        .then(function (r) {
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () {
-          return null;
-        }),
-    ])
-      .then(function (latest) {
-        var stravaSince = _syncSinceDate(latest[0]);
-        var strydSince = _syncSinceDate(latest[1]);
-        return _syncProvider("/api/strava/sync", stravaSince).then(function () {
-          return _syncProvider("/api/stryd/sync", strydSince);
+  function _syncProvider(label, url, options) {
+    var body = _syncBuildBody(options);
+    var start = window.ensureCsrfReady
+      ? window.ensureCsrfReady(true)
+      : Promise.resolve();
+    return start
+      .then(function () {
+        return fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body,
+        });
+      })
+      .then(function (r) {
+        if (r.status === 202 || r.status === 409) {
+          return _syncWaitForComplete();
+        }
+        if (!r.ok) {
+          return _syncApiError(r).then(function (msg) {
+            throw new Error(label + ": " + _syncFriendlyMsg(msg));
+          });
+        }
+        return null;
+      });
+  }
+
+  function _syncAllProviders() {
+    var incremental = { full: false };
+    var errors = [];
+
+    return _syncProvider("Strava", "/api/strava/sync", incremental)
+      .catch(function (err) {
+        errors.push((err && err.message) || "Strava: Sync failed");
+      })
+      .then(function () {
+        return _syncProvider("Stryd", "/api/stryd/sync", incremental).catch(function (err) {
+          errors.push((err && err.message) || "Stryd: Sync failed");
         });
       })
       .then(function () {
-        if (window.syncBarRefresh) window.syncBarRefresh();
-        _loadSyncChip();
+        if (errors.length) throw new Error(errors.join(" · "));
+      });
+  }
+
+  function _onSyncAllClick() {
+    _syncClearFeedback();
+    _syncSetBusy(true);
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    ready
+      .then(function () {
+        return _syncAllProviders();
       })
-      .catch(function () {
-        /* best-effort */
+      .then(function () {
+        if (window.syncBarRefresh) window.syncBarRefresh();
+        return fetch("/api/sync/status")
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
+          .then(function (data) {
+            if (data && data.status === "error") {
+              throw new Error(data.error || "Sync failed");
+            }
+            _syncLastTerminalStatus = _syncTerminalKey(
+              data && data.status === "success" ? data : { status: "success", finished_at: "manual" },
+            );
+            _loadSyncChip();
+            fetchAndRender();
+            _syncToast("Sync complete");
+          });
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : "Sync failed";
+        _syncToast(msg, true);
       })
       .finally(function () {
         _syncSetBusy(false);
@@ -3173,6 +3634,8 @@
         openPanelCreate(createPresetDate());
       });
 
+    wireRemovedModal();
+
     var emptyCta = document.getElementById("log-empty-cta");
     if (emptyCta)
       emptyCta.addEventListener("click", function () {
@@ -3203,6 +3666,14 @@
       TrainingEditor.setHooks({ onSaved: handleEditorSaved });
     }
 
+    var screenshotBtn = document.getElementById("dp-screenshot-btn");
+    if (screenshotBtn) {
+      screenshotBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        saveDetailScreenshot();
+      });
+    }
+
     var overflowBtn = document.getElementById("dp-overflow-btn");
     if (overflowBtn) {
       overflowBtn.addEventListener("click", function (e) {
@@ -3225,7 +3696,8 @@
     if (menuDelete)
       menuDelete.addEventListener("click", function () {
         closeOverflowMenu();
-        if (activeDetailWorkoutId) deleteWorkout(activeDetailWorkoutId);
+        if (activeDetailWorkoutId)
+          deleteWorkout(activeDetailWorkoutId, isSyncedWorkout(cachedDetailWorkout));
       });
 
     document.addEventListener("click", function (e) {

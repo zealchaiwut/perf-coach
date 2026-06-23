@@ -201,7 +201,8 @@ def test_workout_type_mapping():
     assert _map_workout_type("Run") == "run"
     assert _map_workout_type("Ride") == "bike"
     assert _map_workout_type("WeightTraining") == "strength"
-    assert _map_workout_type("Workout") == "wod"
+    # Strava's generic "Workout" is treated as strength so the exercise editor shows.
+    assert _map_workout_type("Workout") == "strength"
     assert _map_workout_type("Swim") == "other"
     assert _map_workout_type("VirtualRide") == "other"
     assert _map_workout_type("Unknown") == "other"

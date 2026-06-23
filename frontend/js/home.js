@@ -1,4 +1,14 @@
 (function () {
+  /* ---- HTML escaping (XSS guard for user/API strings in innerHTML) ---- */
+  function esc(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   /* ---- Centralized fetch helper ---- */
 
   async function _homeFetch(url) {
@@ -241,7 +251,7 @@
     return '<div class="' + rowCls + '">' +
       '<div class="perf-track">' +
         '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
-        '<div><div class="trk-name">' + pr.track_name + '</div>' +
+        '<div><div class="trk-name">' + esc(pr.track_name) + '</div>' +
              '<div class="trk-sub">' + cfg.sub + '</div></div>' +
       '</div>' +
       '<div>' +
@@ -262,7 +272,7 @@
     return '<div class="' + blockCls + '">' +
       '<div class="perf-track-head">' +
         '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
-        '<div><div class="trk-name">' + pr.track_name + '</div>' +
+        '<div><div class="trk-name">' + esc(pr.track_name) + '</div>' +
              '<div class="trk-sub">' + cfg.sub + '</div></div>' +
       '</div>' +
       '<div class="perf-cells">' +
@@ -319,7 +329,7 @@
       '<div class="perf-track">' +
         '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
         '<div>' +
-          '<div class="trk-name">' + track.track_name + '</div>' +
+          '<div class="trk-name">' + esc(track.track_name) + '</div>' +
           '<div class="trk-sub">' + ic.sub + '</div>' +
         '</div>' +
       '</div>' +
@@ -463,7 +473,7 @@
   function buildWorkoutRow(w, extraCls) {
     var ic = workoutTypeIcon(w.workout_type);
 
-    var titleText = w.name;
+    var titleText = esc(w.name);
     if (w.distance_km != null) {
       titleText += ' · ' + Number(w.distance_km).toFixed(1) + ' km';
     }

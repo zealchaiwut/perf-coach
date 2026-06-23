@@ -5,9 +5,15 @@ Streak rules:
 - A log on date D counts regardless of source (manual, autofill, etc.).
 - Streaks are continuous across week boundaries.
 - Streak scan capped at 365 days lookback.
+
+The "met" rule for individual days is delegated to
+``habit_completion._is_binary_met`` so the logic lives in exactly one place.
 """
 
+from collections import defaultdict
 from datetime import date, timedelta
+
+from backend.services.habit_completion import _is_binary_met
 
 
 # ── Pure computation helpers ──────────────────────────────────────────────────
@@ -69,7 +75,12 @@ def current_streak(habit_id, as_of_date: date, *, session) -> int:
         )
         .all()
     )
-    return _current_streak_from_dates(as_of_date, {lg.log_date for lg in logs})
+    # Group logs by date and delegate the per-day met check to _is_binary_met
+    logs_by_date: dict = defaultdict(list)
+    for lg in logs:
+        logs_by_date[lg.log_date].append(lg)
+    logged_dates = {d for d, day_logs in logs_by_date.items() if _is_binary_met(day_logs)[0]}
+    return _current_streak_from_dates(as_of_date, logged_dates)
 
 
 def best_streak(habit_id, *, session) -> dict:
@@ -94,8 +105,12 @@ def best_streak(habit_id, *, session) -> dict:
         )
         .all()
     )
-    sorted_dates = sorted({lg.log_date for lg in logs})
-    return {"length": _best_streak_from_dates(sorted_dates)}
+    # Group by date and delegate met check to _is_binary_met
+    logs_by_date: dict = defaultdict(list)
+    for lg in logs:
+        logs_by_date[lg.log_date].append(lg)
+    logged_dates = {d for d, day_logs in logs_by_date.items() if _is_binary_met(day_logs)[0]}
+    return {"length": _best_streak_from_dates(sorted(logged_dates))}
 
 
 def week_summary(user_id, week_start: date, *, session) -> dict | None:

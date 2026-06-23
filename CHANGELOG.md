@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 79 — Weight plans table, plan-line recompute, and CRUD endpoints
+
+- #861: Add weight_plans table: migration and SQLAlchemy models
+- #863: Add recompute_plan_from_progress pure function
+- #864: Add CRUD endpoints for user weight plan
+
 ## Sprint 78.1 — Create and Edit Habit form
 
 - #832: Build Create and Edit Habit Form (Slide-Over/Modal)
@@ -10,6 +16,14 @@
 - #828: Wire Today quick-log writes with upsert and streak refresh
 - #829: Add Habits history calendar with day-status cells
 - #830: Add habit filter to history calendar view
+
+## Sprint 77 — Habits v2 schema, streak/consistency services, and summary endpoint
+
+- #821: Add habits and habit_logs migrations and SQLAlchemy models
+- #822: Add is_period_met pure function for habit completion logic
+- #823: Add compute_streak pure function for habit streaks
+- #824: Add compute_consistency pure function for habit schedule adherence
+- #826: Add habits summary endpoint with streaks and consistency
 
 ## Sprint 76 — Training > Performance sub-tab and settings thresholds/zones enhancements
 

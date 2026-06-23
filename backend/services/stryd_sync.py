@@ -11,6 +11,7 @@ in ONE place so fixing the shape is a single-file change.
 reconcile.py already consumes stryd_activities, so no reconcile change is needed.
 """
 import json as _json
+import uuid as _uuid
 import urllib.error as _urllib_error
 import urllib.request as _urllib_request
 from datetime import date, datetime, timedelta, timezone
@@ -33,6 +34,8 @@ logger = get_logger(__name__)
 #   -> {"activities": [ {full activity incl. per-point *_list streams}, … ]}
 _STRYD_API_BASE = "https://www.stryd.com/b/api/v1"
 _DEFAULT_LOOKBACK_DAYS = 90
+# Full-history pulls for Settings "Sync all" (Stryd PowerCenter calendar API).
+_FULL_LOOKBACK_DAYS = 365 * 5
 
 
 def _fmt(d: date) -> str:
@@ -216,32 +219,88 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
-def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> dict:
+# Max streams-less activities to backfill per sync run (Stryd rate-limit guard).
+_STREAM_HEAL_CAP = 60
+
+
+def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
+    """Fetch one Stryd activity's streams and store streams_payload + splits +
+    NP / max power. Returns True if streams were stored. Swallows errors (logged)
+    so one bad activity never aborts a sync."""
+    try:
+        streams = fetch_stryd_activity_streams(token, aid)
+        splits = compute_km_splits(streams)
+        powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
+        fm = dict(base_form or {})
+        np = _normalized_power(powers)
+        if np is not None:
+            fm["np_w"] = np
+        if powers:
+            fm["max_power_w"] = round(max(powers))
+        vals: dict = {}
+        if splits:
+            vals["splits"] = splits
+        if fm:
+            vals["form_metrics"] = fm
+        if streams.get("timestamp_list"):
+            vals["streams_payload"] = streams
+        if vals:
+            with Session(engine) as session:
+                session.query(StrydActivity).filter(
+                    StrydActivity.stryd_activity_id == aid
+                ).update(vals, synchronize_session=False)
+                session.commit()
+        return bool(vals.get("streams_payload"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stryd enrich failed", extra={"activity_id": aid, "error": str(exc)})
+        return False
+
+
+def sync_stryd_activities(
+    user_id: str,
+    since_date: Optional[date] = None,
+    *,
+    full: bool = False,
+) -> dict:
     """Pull Stryd activities into stryd_activities (idempotent upsert). Writes a
     SyncJob row (source='stryd') for the history panel. Does NOT reconcile —
     caller runs reconcile. Returns counts."""
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     now_utc = datetime.now(tz=timezone.utc)
     explicit_since = since_date is not None
 
-    # Resolve since_date: explicit > last sync > 90-day lookback on first sync.
-    if not explicit_since:
+    # Resolve since_date: full > explicit > last completed job > latest row > 90-day backfill.
+    if full:
+        since_date = now_utc.date() - timedelta(days=_FULL_LOOKBACK_DAYS)
+        job_type = "full"
+    elif not explicit_since:
         with Session(engine) as session:
             from sqlalchemy import func, select
+
+            last_completed = session.execute(
+                select(SyncJob.completed_at)
+                .where(SyncJob.user_id == uid)
+                .where(SyncJob.source == "stryd")
+                .where(SyncJob.status == "completed")
+                .order_by(SyncJob.completed_at.desc())
+                .limit(1)
+            ).scalar()
             latest_synced = session.execute(
                 select(func.max(StrydActivity.synced_at))
-                .where(StrydActivity.user_id == user_id)
+                .where(StrydActivity.user_id == uid)
             ).scalar()
-        if latest_synced is not None:
-            since_date = latest_synced.date() - timedelta(days=1)
+        anchor = last_completed or latest_synced
+        if anchor is not None:
+            since_date = anchor.date() - timedelta(days=1)
             job_type = "incremental"
         else:
-            since_date = (datetime.now(tz=timezone.utc).date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS))
+            since_date = now_utc.date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS)
             job_type = "full"
     else:
         job_type = "manual"
     with Session(engine) as session:
         job = SyncJob(
-            user_id=user_id, source="stryd", job_type=job_type,
+            user_id=uid, source="stryd", job_type=job_type,
             status="running", started_at=now_utc, since_date=since_date,
         )
         session.add(job)
@@ -251,19 +310,23 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
 
     created = updated = fetched = 0
     try:
-        token = refresh_stryd_session_if_needed(user_id)
+        token = refresh_stryd_session_if_needed(str(uid))
         with Session(engine) as session:
-            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).one()
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).one()
             athlete_id = cred.athlete_id
         if not athlete_id:
             raise RuntimeError("Stryd athlete_id missing; reconnect Stryd")
         raw_acts = fetch_stryd_activities(token, athlete_id, since_date=since_date)
         fetched = len(raw_acts)
-        mapped = [map_stryd_activity(a, user_id) for a in raw_acts]
+        mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
+        # Dedup by stryd_activity_id (keep last). A duplicate id in a single batch
+        # makes ON CONFLICT DO UPDATE raise "cannot affect row a second time".
+        _deduped = {m["stryd_activity_id"]: m for m in mapped}
+        mapped = list(_deduped.values())
+        ids = [m["stryd_activity_id"] for m in mapped]
 
         if mapped:
-            ids = [m["stryd_activity_id"] for m in mapped]
             with Session(engine) as session:
                 existing = set(session.execute(
                     select(StrydActivity.stryd_activity_id)
@@ -300,42 +363,55 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
             #    list of dicts) so re-syncs stay cheap.
             with Session(engine) as session:
                 rows = session.execute(
-                    select(StrydActivity.stryd_activity_id, StrydActivity.splits)
+                    select(
+                        StrydActivity.stryd_activity_id,
+                        StrydActivity.splits,
+                        StrydActivity.streams_payload,
+                    )
                     .where(StrydActivity.stryd_activity_id.in_(ids))
                 ).all()
-            already = {sid for sid, sp in rows if isinstance(sp, list) and sp and isinstance(sp[0], dict)}
+            # Skip only when BOTH per-km splits AND per-point streams are present.
+            # Activities enriched before streams capture have splits but no
+            # streams; requiring streams here makes every sync self-heal them
+            # (so manual laps / interval stats become available without a
+            # separate backfill). New activities still enrich on first sync.
+            already = {
+                sid for sid, sp, st in rows
+                if isinstance(sp, list) and sp and isinstance(sp[0], dict)
+                and isinstance(st, dict) and st.get("timestamp_list")
+            }
             base_form = {m["stryd_activity_id"]: (m.get("form_metrics") or {}) for m in mapped}
             for aid in ids:
                 if aid in already:
                     continue
-                try:
-                    streams = fetch_stryd_activity_streams(token, aid)
-                    splits = compute_km_splits(streams)
-                    powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
-                    fm = dict(base_form.get(aid) or {})
-                    np = _normalized_power(powers)
-                    if np is not None:
-                        fm["np_w"] = np
-                    if powers:
-                        fm["max_power_w"] = round(max(powers))
-                    vals: dict = {}
-                    if splits:
-                        vals["splits"] = splits
-                    if fm:
-                        vals["form_metrics"] = fm
-                    # Store raw streams (timestamp_list + channel *_list) before
-                    # _slim_payload stripped them — reconcile reads this to populate
-                    # activity_streams after workout_id is known.
-                    if streams.get("timestamp_list"):
-                        vals["streams_payload"] = streams
-                    if vals:
-                        with Session(engine) as session:
-                            session.query(StrydActivity).filter(
-                                StrydActivity.stryd_activity_id == aid
-                            ).update(vals, synchronize_session=False)
-                            session.commit()
-                except Exception as exc:
-                    logger.warning("stryd enrich failed", extra={"activity_id": aid, "error": str(exc)})
+                # Store raw streams (timestamp_list + channel *_list) so manual
+                # laps / interval stats can be computed; also per-km splits + NP.
+                _enrich_one(token, aid, base_form.get(aid))
+
+        # Self-heal: backfill streams for any of this user's activities still
+        # missing them (e.g. enriched before streams capture), so a normal
+        # "Sync new" also clears the backlog — not just newly-pulled rows.
+        # Bounded per run to respect Stryd rate limits; repeated syncs drain it.
+        with Session(engine) as session:
+            heal_rows = session.execute(
+                select(StrydActivity.stryd_activity_id, StrydActivity.streams_payload)
+                .where(StrydActivity.user_id == uid)
+                .order_by(StrydActivity.start_time.desc())
+            ).all()
+        processed = set(ids)
+        heal_ids = [
+            sid for sid, st in heal_rows
+            if sid not in processed
+            and not (isinstance(st, dict) and st.get("timestamp_list"))
+        ]
+        remaining = len(heal_ids)
+        for aid in heal_ids[:_STREAM_HEAL_CAP]:
+            _enrich_one(token, aid)
+        if remaining > _STREAM_HEAL_CAP:
+            logger.info(
+                "stryd stream heal capped",
+                extra={"healed": _STREAM_HEAL_CAP, "remaining": remaining - _STREAM_HEAL_CAP},
+            )
 
         with Session(engine) as session:
             jr = session.get(SyncJob, job_db_id)
@@ -346,7 +422,13 @@ def sync_stryd_activities(user_id: str, since_date: Optional[date] = None) -> di
             jr.activities_updated = updated
             session.commit()
 
-        return {"fetched": fetched, "created": created, "updated": updated, "upserted": created + updated}
+        return {
+            "fetched": fetched,
+            "created": created,
+            "updated": updated,
+            "upserted": created + updated,
+            "stryd_activity_ids": ids,
+        }
 
     except Exception as exc:
         with Session(engine) as session:

@@ -339,6 +339,45 @@
   gap: 8px;
 }
 
+/* Strength exercise table (laps-style) */
+.dp-ex-table-wrap { overflow-x: auto; }
+.dp-ex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.dp-ex-table thead th {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sub);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.dp-ex-table thead th:first-child { text-align: left; }
+.dp-ex-table tbody td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border, #eef2f7);
+}
+.dp-ex-table tbody tr:last-child td { border-bottom: none; }
+.dp-ex-td-name { font-weight: 600; }
+.dp-ex-td-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-ex-rpe-pill {
+  display: inline-block;
+  min-width: 34px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.dp-ex-rpe-pill.rpe-low { background: #16a34a; }
+.dp-ex-rpe-pill.rpe-mid { background: #eab308; }
+.dp-ex-rpe-pill.rpe-high { background: #ea580c; }
+.dp-ex-rpe-pill.rpe-max { background: #dc2626; }
+
 @media (max-width: 400px) {
   .dp-run-metric-val { font-size: 1.375rem; }
   .dp-lift-stats { grid-template-columns: repeat(2, 1fr); }

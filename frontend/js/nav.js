@@ -14,6 +14,94 @@
   if (!window._csrfFetchPatched) {
     window._csrfFetchPatched = true;
     var _origFetch = window.fetch.bind(window);
+    var _csrfBootstrap = null;
+
+    function _readCsrfCookie() {
+      var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : null;
+    }
+
+    function _writeCsrfCookie(token) {
+      if (!token) return;
+      var secure =
+        window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie =
+        "csrf-token=" +
+        encodeURIComponent(token) +
+        "; Path=/; SameSite=Lax" +
+        secure;
+    }
+
+    function _fetchCsrfToken() {
+      return _origFetch("/api/csrf-token", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) return _readCsrfCookie();
+          return res.json().then(function (body) {
+            var token = (body && body.csrf_token) || _readCsrfCookie();
+            if (token) _writeCsrfCookie(token);
+            return _readCsrfCookie();
+          });
+        })
+        .catch(function () {
+          return _readCsrfCookie();
+        });
+    }
+
+    function ensureCsrfReady() {
+      var cookie = _readCsrfCookie();
+      if (cookie) return Promise.resolve(cookie);
+      if (!_csrfBootstrap) {
+        _csrfBootstrap = _fetchCsrfToken().finally(function () {
+          _csrfBootstrap = null;
+        });
+      }
+      return _csrfBootstrap.then(function (token) {
+        return token || _readCsrfCookie();
+      });
+    }
+
+    function _attachCsrfHeader(opts, token) {
+      if (!token) return opts;
+      var headers = opts.headers || {};
+      if (headers instanceof Headers) {
+        headers = new Headers(headers);
+        headers.set("X-CSRF-Token", token);
+      } else {
+        headers = Object.assign({}, headers, { "X-CSRF-Token": token });
+      }
+      return Object.assign({}, opts, { headers: headers, credentials: "same-origin" });
+    }
+
+    function _isCsrfForbidden(res) {
+      if (!res || res.status !== 403) return Promise.resolve(false);
+      return res
+        .clone()
+        .json()
+        .then(function (body) {
+          return !!(body && body.detail === "CSRF token missing or invalid");
+        })
+        .catch(function () {
+          return false;
+        });
+    }
+
+    function _mutatingFetch(url, opts, allowRetry) {
+      return ensureCsrfReady().then(function (token) {
+        var reqToken = token || _readCsrfCookie();
+        var reqOpts = _attachCsrfHeader(opts, reqToken);
+        return _origFetch(url, reqOpts).then(function (res) {
+          if (!allowRetry) return res;
+          return _isCsrfForbidden(res).then(function (csrfFail) {
+            if (!csrfFail) return res;
+            return _fetchCsrfToken().then(function (fresh) {
+              if (!fresh) return res;
+              return _origFetch(url, _attachCsrfHeader(opts, fresh));
+            });
+          });
+        });
+      });
+    }
+
     window.fetch = function (url, opts) {
       opts = opts || {};
       var method = (opts.method || "GET").toUpperCase();
@@ -23,22 +111,15 @@
         method === "DELETE" ||
         method === "PUT"
       ) {
-        var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
-        if (match) {
-          var headers = opts.headers || {};
-          if (headers instanceof Headers) {
-            headers = new Headers(headers);
-            headers.set("X-CSRF-Token", decodeURIComponent(match[1]));
-          } else {
-            headers = Object.assign({}, headers, {
-              "X-CSRF-Token": decodeURIComponent(match[1]),
-            });
-          }
-          opts = Object.assign({}, opts, { headers: headers });
-        }
+        return _mutatingFetch(url, opts, true);
       }
       return _origFetch(url, opts);
     };
+
+    window.ensureCsrfReady = ensureCsrfReady;
+
+    // Warm csrf-token for sessions that pre-date CSRF rollout.
+    ensureCsrfReady().catch(function () {});
   }
 
   // Every primary destination, shown inline in the bar (left → right).
