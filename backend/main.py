@@ -4231,6 +4231,83 @@ def delete_habit_log(log_id: str, user: User = Depends(resolve_user)):
     return Response(status_code=204)
 
 
+# ── Habit insights endpoint ────────────────────────────────────────────────────
+
+from backend.services.habit_insights import (  # noqa: E402
+    build_insights as _build_insights,
+    OUTCOME_FIELDS as _INSIGHT_OUTCOME_FIELDS,
+)
+
+
+@app.get("/api/habits/insights")
+def get_habit_insights(user: User = Depends(resolve_user)):
+    """Return statistically confident habit-outcome correlation insights.
+
+    Response always has exactly three top-level keys:
+    ``insights`` (list), ``building`` (bool), ``reason`` (str or null).
+    HTTP status is always 200.
+    """
+    uid = user.id
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        habit_ids = [h.id for h in active_habits]
+
+        # Fetch all habit logs for active habits; convert value to float
+        habit_logs_by_habit: dict = {}
+        if habit_ids:
+            all_logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id.in_(habit_ids),
+                    HabitLog.user_id == uid,
+                )
+                .all()
+            )
+            for log in all_logs:
+                key = str(log.habit_id)
+                date_str = log.log_date.isoformat()
+                habit_logs_by_habit.setdefault(key, {})[date_str] = (
+                    float(log.value) if log.value is not None else 0.0
+                )
+
+        # Fetch outcome series from daily_metrics
+        outcome_series_by_name: dict = {f: {} for f in _INSIGHT_OUTCOME_FIELDS}
+        daily_rows = (
+            session.query(DailyMetric)
+            .filter(DailyMetric.user_id == uid)
+            .all()
+        )
+        for row in daily_rows:
+            date_str = row.metric_date.isoformat()
+            for field in _INSIGHT_OUTCOME_FIELDS:
+                val = getattr(row, field, None)
+                if val is not None:
+                    outcome_series_by_name[field][date_str] = float(val)
+
+    insights, building, reason = _build_insights(
+        habits=active_habits,
+        habit_logs_by_habit=habit_logs_by_habit,
+        outcome_series_by_name=outcome_series_by_name,
+    )
+
+    return JSONResponse({
+        "insights": insights,
+        "building": building,
+        "reason": reason,
+    })
+
+
 # ── Habit v2 CRUD — GET by id, PUT habit-logs upsert, GET habit-logs ──────────
 
 @app.get("/api/habits/{habit_id}")
