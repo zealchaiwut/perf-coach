@@ -181,6 +181,241 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Today quick-log surface ───────────────────────────────────────────────────
+// Fetches /api/habits/summary and renders a per-habit row with type-specific
+// quick-log controls. Controls POST to /api/habits/{id}/log (upsert semantics)
+// and refresh only the specific row's streak from /api/habits/summary.
+
+async function _logHabitToday(habitId, value) {
+  const today = bangkokTodayStr();
+  const body = { log_date: today };
+  if (value !== undefined && value !== null) body.value = value;
+
+  const res = await fetch(`/api/habits/${habitId}/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.message || `Error ${res.status}`);
+  }
+
+  await _refreshHabitStreak(habitId);
+}
+
+async function _refreshHabitStreak(habitId) {
+  const res = await fetch('/api/habits/summary');
+  if (!res.ok) return;
+  const data = await res.json();
+  const habit = (data.habits || []).find(h => h.id === habitId);
+  if (!habit) return;
+
+  const row = document.querySelector(`[data-habit-id="${habitId}"]`);
+  if (!row) return;
+  const metaEl = row.querySelector('.today-habit-meta');
+  if (!metaEl) return;
+
+  const streak = habit.current_streak || 0;
+  const newBadgeHTML = streak >= 3
+    ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
+    : streak > 0
+      ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
+      : '';
+
+  const existingBadge = metaEl.querySelector('.streak-badge');
+  if (existingBadge) {
+    existingBadge.outerHTML = newBadgeHTML || '';
+  } else if (newBadgeHTML) {
+    metaEl.insertAdjacentHTML('beforeend', newBadgeHTML);
+  }
+}
+
+function _showRowError(row, msg) {
+  let errEl = row.querySelector('.today-row-error');
+  if (!errEl) {
+    errEl = document.createElement('p');
+    errEl.className = 'today-row-error';
+    errEl.setAttribute('role', 'alert');
+    row.appendChild(errEl);
+  }
+  errEl.textContent = msg;
+  setTimeout(() => { if (errEl.parentNode) errEl.textContent = ''; }, 4000);
+}
+
+async function loadTodayCard() {
+  const card = document.getElementById('today-quick-log-card');
+  if (!card) return;
+
+  try {
+    const res = await fetch('/api/habits/summary');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderTodayCard(data.habits || []);
+  } catch (_e) {
+    // non-critical: rest of the page loads normally
+  }
+}
+
+function renderTodayCard(habits) {
+  const card = document.getElementById('today-quick-log-card');
+  const list = document.getElementById('today-habits-list');
+  const emptyEl = document.getElementById('today-empty-state');
+  const dateLabel = document.getElementById('today-date-label');
+  if (!card || !list) return;
+
+  // Show date label
+  if (dateLabel) {
+    const today = bangkokToday();
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    dateLabel.textContent = `${DAYS[today.getDay()]}, ${MONTHS[today.getMonth()]} ${today.getDate()}`;
+  }
+
+  card.style.display = '';
+
+  if (!habits || habits.length === 0) {
+    list.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = '';
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  list.innerHTML = '';
+  habits.forEach(habit => {
+    const row = document.createElement('div');
+    row.className = 'today-habit-row';
+    row.dataset.habitId = habit.id;
+    row.dataset.trackingType = habit.tracking_type;
+
+    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
+
+    // Streak badge (sourced from endpoint, never computed client-side)
+    const streak = habit.current_streak || 0;
+    const streakBadgeHTML = streak >= 3
+      ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
+      : streak > 0
+        ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
+        : '';
+
+    // Target label
+    const targetStr = habit.weekly_target != null
+      ? `target: ${habit.weekly_target}${habit.unit ? ' ' + habit.unit : ''}/wk`
+      : '';
+
+    // Type-specific control HTML
+    let controlHTML = '';
+    if (habit.tracking_type === 'daily_checkmark') {
+      controlHTML = `<button type="button" class="today-toggle-btn" aria-label="Mark ${esc(habit.name)} done"><i class="ti ti-check" aria-hidden="true"></i></button>`;
+    } else if (habit.tracking_type === 'weekly_count') {
+      controlHTML = `<div class="today-stepper" aria-label="${esc(habit.name)} count">
+        <button type="button" class="stepper-dec" aria-label="Decrease">−</button>
+        <span class="stepper-val">0</span>
+        <button type="button" class="stepper-inc" aria-label="Increase">+</button>
+      </div>`;
+    } else {
+      // weekly_minutes, weekly_quantity — duration/quantity entry
+      const unitHint = habit.unit ? ` placeholder="${esc(habit.unit)}"` : '';
+      controlHTML = `<input type="number" class="today-duration-input" min="0" step="1"${unitHint} aria-label="${esc(habit.name)} value">`;
+    }
+
+    row.innerHTML = `
+      <div style="flex-shrink:0">${iconHTML}</div>
+      <div class="today-habit-info">
+        <div class="today-habit-name">${esc(habit.name)}</div>
+        <div class="today-habit-meta">
+          ${targetStr ? `<span class="today-target">${esc(targetStr)}</span>` : ''}
+          ${streakBadgeHTML}
+        </div>
+      </div>
+      <div class="today-habit-control">${controlHTML}</div>`;
+
+    list.appendChild(row);
+  });
+
+  // Attach interactive handlers — POST to upsert-log endpoint then refresh streak
+  list.querySelectorAll('.today-toggle-btn').forEach(btn => {
+    const row = btn.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
+    btn.addEventListener('click', async () => {
+      btn.classList.toggle('toggled');
+      btn.disabled = true;
+      try {
+        await _logHabitToday(habitId, 1);
+      } catch (e) {
+        btn.classList.toggle('toggled'); // revert
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  list.querySelectorAll('.today-stepper').forEach(stepper => {
+    const row = stepper.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
+    const dec = stepper.querySelector('.stepper-dec');
+    const inc = stepper.querySelector('.stepper-inc');
+    const val = stepper.querySelector('.stepper-val');
+    let count = 0;
+
+    if (dec) dec.addEventListener('click', async () => {
+      if (count <= 0) return;
+      count--;
+      val.textContent = count;
+      dec.disabled = true;
+      try {
+        await _logHabitToday(habitId, count);
+      } catch (e) {
+        count++;
+        val.textContent = count;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        dec.disabled = false;
+      }
+    });
+
+    if (inc) inc.addEventListener('click', async () => {
+      count++;
+      val.textContent = count;
+      inc.disabled = true;
+      try {
+        await _logHabitToday(habitId, count);
+      } catch (e) {
+        count--;
+        val.textContent = count;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        inc.disabled = false;
+      }
+    });
+  });
+
+  list.querySelectorAll('.today-duration-input').forEach(input => {
+    const row = input.closest('.today-habit-row');
+    const habitId = row && row.dataset.habitId;
+    let lastValue = '';
+    input.addEventListener('change', async () => {
+      const v = parseFloat(input.value);
+      if (isNaN(v) || v <= 0) return;
+      const prev = lastValue;
+      lastValue = input.value;
+      input.disabled = true;
+      try {
+        await _logHabitToday(habitId, v);
+      } catch (e) {
+        input.value = prev;
+        lastValue = prev;
+        if (row) _showRowError(row, e.message || 'Failed to log habit');
+      } finally {
+        input.disabled = false;
+      }
+    });
+  });
+}
+
 // ── Load & Render (main entry) ────────────────────────────────────────────────
 
 async function loadAndRender() {
@@ -245,6 +480,7 @@ async function loadAndRender() {
     renderDailyGrid(logSet);
     renderWeeklyHabits(weekData.weekly_habits || [], weekData, activeHabits);
     renderArchivedList();
+    initHabitCal();
 
   } catch (e) {
     showError('Unable to load habits: ' + e.message);
@@ -258,6 +494,10 @@ function renderEmptyState() {
   document.getElementById('hero-row').style.display = 'none';
   document.getElementById('habits-day-grid-card').style.display = 'none';
   document.getElementById('weekly-habits-card').style.display = 'none';
+  const cal = document.getElementById('habits-history-cal');
+  if (cal) cal.style.display = 'none';
+  const detail = document.getElementById('habits-cal-detail');
+  if (detail) detail.style.display = 'none';
 
   renderStarterGrid();
 }
@@ -538,7 +778,7 @@ function renderDailyGrid(logSet) {
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
-          <div class="habit-name-text">${esc(habit.name)}</div>
+          <div class="habit-name-text" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="habit-meta-line">
             <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
             ${streakBadge}
@@ -643,7 +883,7 @@ function renderDailyGrid(logSet) {
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.textContent = 'Edit';
-      editBtn.addEventListener('click', () => { closeAllMenus(); openEditModal(fullHabit); });
+      editBtn.addEventListener('click', () => { closeAllMenus(); openHabitForm(fullHabit); });
       menu.appendChild(editBtn);
 
       const archiveBtn = document.createElement('button');
@@ -691,6 +931,8 @@ function renderDailyGrid(logSet) {
       });
     }
   });
+
+  _wireDetailTriggers();
 }
 
 // Update just the totals portion of the grid after a mutation (without rebuilding everything)
@@ -906,9 +1148,9 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
     const emptyBtn = container.querySelector('#weekly-empty-new-btn');
     if (emptyBtn) {
       emptyBtn.addEventListener('click', () => {
-        openNewModal();
-        const sel = document.getElementById('modal-tracking-type');
-        if (sel) sel.value = 'weekly_minutes';
+        openHabitForm();
+        const sel = document.getElementById('habit-form-habit-type');
+        if (sel) { sel.value = 'duration'; _sfUpdateVisibility(); }
       });
     }
     return;
@@ -976,7 +1218,7 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       <div class="week-habit-left">
         ${iconHTML}
         <div class="week-habit-info">
-          <div class="week-habit-name">${esc(habit.name)}</div>
+          <div class="week-habit-name" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
           <div class="week-habit-meta">${metaHTML}</div>
         </div>
       </div>
@@ -1043,6 +1285,8 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       });
     });
   }
+
+  _wireDetailTriggers();
 }
 
 // ── Log popover ───────────────────────────────────────────────────────────────
@@ -1377,7 +1621,7 @@ function closeModal() {
 // ── Form submit ───────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('add-habit-btn').addEventListener('click', openNewModal);
+  document.getElementById('add-habit-btn').addEventListener('click', () => openHabitForm());
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
 
   // ── Week navigation ──
@@ -1417,7 +1661,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeModal(); closeHabitForm(); }
   });
 
   const archivedToggle = document.getElementById('archived-toggle');
@@ -1487,12 +1731,1000 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── Habit slide-over form (issue #832) ───────────────────────────────────────
+
+let _sfEditingHabitId = null;
+
+function openHabitForm(habit) {
+  _sfEditingHabitId = habit ? habit.id : null;
+
+  const titleEl = document.getElementById('habit-form-title');
+  const submitEl = document.getElementById('habit-form-submit');
+  const archiveEl = document.getElementById('habit-form-archive');
+
+  if (titleEl) titleEl.textContent = habit ? 'Edit Habit' : 'New Habit';
+  if (submitEl) submitEl.textContent = habit ? 'Save Changes' : 'Save Habit';
+  if (archiveEl) archiveEl.style.display = habit ? '' : 'none';
+
+  const errorIds = [
+    'habit-form-name-error',
+    'habit-form-target-value-error',
+    'habit-form-schedule-target-error',
+    'habit-form-error',
+  ];
+  errorIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.classList.remove('is-visible'); }
+  });
+
+  if (habit) {
+    const fields = _sfApiToForm(habit);
+    document.getElementById('habit-form-name').value = habit.name || '';
+    document.getElementById('habit-form-habit-type').value = fields.habitType;
+    document.getElementById('habit-form-target-value').value = fields.targetValue != null ? fields.targetValue : '';
+    document.getElementById('habit-form-unit').value = habit.unit || '';
+    document.getElementById('habit-form-schedule-type').value = fields.scheduleType;
+    document.getElementById('habit-form-schedule-target').value = fields.scheduleTarget != null ? fields.scheduleTarget : '';
+  } else {
+    document.getElementById('habit-form-name').value = '';
+    document.getElementById('habit-form-habit-type').value = 'binary';
+    document.getElementById('habit-form-target-value').value = '';
+    document.getElementById('habit-form-unit').value = '';
+    document.getElementById('habit-form-schedule-type').value = 'daily';
+    document.getElementById('habit-form-schedule-target').value = '';
+  }
+
+  _sfUpdateVisibility();
+
+  const overlay = document.getElementById('habit-slideover');
+  if (overlay) overlay.classList.add('is-open');
+  const nameEl = document.getElementById('habit-form-name');
+  if (nameEl) nameEl.focus();
+}
+
+function closeHabitForm() {
+  const overlay = document.getElementById('habit-slideover');
+  if (overlay) overlay.classList.remove('is-open');
+  _sfEditingHabitId = null;
+}
+
+function _sfUpdateVisibility() {
+  const habitType = (document.getElementById('habit-form-habit-type') || {}).value;
+  const scheduleType = (document.getElementById('habit-form-schedule-type') || {}).value;
+
+  const targetRow = document.getElementById('habit-form-target-row');
+  const scheduleTargetRow = document.getElementById('habit-form-schedule-target-row');
+
+  const showTarget = habitType === 'count' || habitType === 'duration';
+  if (targetRow) {
+    targetRow.style.display = showTarget ? '' : 'none';
+    if (!showTarget) {
+      document.getElementById('habit-form-target-value').value = '';
+      document.getElementById('habit-form-unit').value = '';
+    }
+  }
+
+  const showScheduleTarget = scheduleType === 'times_per_week';
+  if (scheduleTargetRow) {
+    scheduleTargetRow.style.display = showScheduleTarget ? '' : 'none';
+    if (!showScheduleTarget) {
+      document.getElementById('habit-form-schedule-target').value = '';
+    }
+  }
+}
+
+function _sfApiToForm(habit) {
+  let habitType = 'binary';
+  let scheduleType = 'daily';
+  let targetValue = null;
+  let scheduleTarget = null;
+
+  switch (habit.tracking_type) {
+    case 'daily_checkmark':
+      habitType = 'binary'; scheduleType = 'daily';
+      break;
+    case 'weekly_count':
+      habitType = 'count'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    case 'weekly_minutes':
+      habitType = 'duration'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    case 'weekly_quantity':
+      habitType = 'count'; scheduleType = 'weekly';
+      targetValue = habit.weekly_target;
+      break;
+    default:
+      habitType = 'binary'; scheduleType = 'daily';
+  }
+
+  return { habitType, scheduleType, targetValue, scheduleTarget };
+}
+
+function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit) {
+  let tracking_type;
+  let weekly_target = null;
+
+  if (habitType === 'binary') {
+    if (scheduleType === 'daily') {
+      tracking_type = 'daily_checkmark';
+    } else if (scheduleType === 'weekly') {
+      tracking_type = 'weekly_count';
+      weekly_target = 7;
+    } else {
+      tracking_type = 'weekly_count';
+      weekly_target = scheduleTarget;
+    }
+  } else if (habitType === 'count') {
+    tracking_type = 'weekly_count';
+    weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
+  } else {
+    tracking_type = 'weekly_minutes';
+    weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
+  }
+
+  return {
+    name,
+    tracking_type,
+    weekly_target,
+    unit: habitType !== 'binary' ? (unit || null) : null,
+  };
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const habitTypeEl = document.getElementById('habit-form-habit-type');
+  const schedTypeEl = document.getElementById('habit-form-schedule-type');
+  if (habitTypeEl) habitTypeEl.addEventListener('change', _sfUpdateVisibility);
+  if (schedTypeEl) schedTypeEl.addEventListener('change', _sfUpdateVisibility);
+
+  const cancelBtn = document.getElementById('habit-form-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeHabitForm);
+
+  const closeBtn = document.getElementById('habit-slideover-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closeHabitForm);
+
+  const backdrop = document.getElementById('habit-slideover-backdrop');
+  if (backdrop) backdrop.addEventListener('click', closeHabitForm);
+
+  const archiveBtn = document.getElementById('habit-form-archive');
+  if (archiveBtn) {
+    archiveBtn.addEventListener('click', async () => {
+      if (!_sfEditingHabitId) return;
+      if (!confirm('Archive this habit? Its log history will be preserved.')) return;
+      const errorEl = document.getElementById('habit-form-error');
+      try {
+        const res = await fetch(`/api/habits/${encodeURIComponent(_sfEditingHabitId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_archived: true }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (errorEl) { errorEl.textContent = body.detail || `Server error ${res.status}`; errorEl.classList.add('is-visible'); }
+          return;
+        }
+        closeHabitForm();
+        if (typeof UIStates !== 'undefined') UIStates.showToast('Habit archived');
+        await loadAndRender();
+      } catch (err) {
+        if (errorEl) { errorEl.textContent = 'Failed to archive: ' + err.message; errorEl.classList.add('is-visible'); }
+      }
+    });
+  }
+
+  const habitForm = document.getElementById('habit-form');
+  if (habitForm) {
+    habitForm.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const errorIds = ['habit-form-name-error', 'habit-form-target-value-error', 'habit-form-schedule-target-error', 'habit-form-error'];
+      errorIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = ''; el.classList.remove('is-visible'); }
+      });
+
+      let valid = true;
+      let firstInvalid = null;
+
+      const name = document.getElementById('habit-form-name').value.trim();
+      if (!name) {
+        const err = document.getElementById('habit-form-name-error');
+        if (err) { err.textContent = 'Name is required.'; err.classList.add('is-visible'); }
+        firstInvalid = firstInvalid || document.getElementById('habit-form-name');
+        valid = false;
+      }
+
+      const habitType = document.getElementById('habit-form-habit-type').value;
+      const scheduleType = document.getElementById('habit-form-schedule-type').value;
+
+      let targetValue = null;
+      if (habitType === 'count' || habitType === 'duration') {
+        const tvEl = document.getElementById('habit-form-target-value');
+        const val = parseFloat(tvEl.value);
+        if (!tvEl.value || isNaN(val) || val <= 0) {
+          const err = document.getElementById('habit-form-target-value-error');
+          if (err) { err.textContent = 'Target value must be a positive number.'; err.classList.add('is-visible'); }
+          firstInvalid = firstInvalid || tvEl;
+          valid = false;
+        } else {
+          targetValue = val;
+        }
+      }
+
+      let scheduleTarget = null;
+      if (scheduleType === 'times_per_week') {
+        const stEl = document.getElementById('habit-form-schedule-target');
+        const val = parseInt(stEl.value, 10);
+        if (!stEl.value || isNaN(val) || val <= 0) {
+          const err = document.getElementById('habit-form-schedule-target-error');
+          if (err) { err.textContent = 'Times per week must be a positive integer.'; err.classList.add('is-visible'); }
+          firstInvalid = firstInvalid || stEl;
+          valid = false;
+        } else {
+          scheduleTarget = val;
+        }
+      }
+
+      if (!valid) {
+        if (firstInvalid) firstInvalid.focus();
+        return;
+      }
+
+      const unit = document.getElementById('habit-form-unit').value.trim() || null;
+      const payload = _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit);
+
+      if (_sfEditingHabitId) delete payload.tracking_type;
+
+      const genErrorEl = document.getElementById('habit-form-error');
+      try {
+        let res;
+        if (_sfEditingHabitId) {
+          res = await fetch(`/api/habits/${encodeURIComponent(_sfEditingHabitId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } else {
+          res = await fetch('/api/habits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (genErrorEl) { genErrorEl.textContent = body.detail || `Server error ${res.status}`; genErrorEl.classList.add('is-visible'); }
+          return;
+        }
+        closeHabitForm();
+        if (typeof UIStates !== 'undefined') UIStates.showToast(_sfEditingHabitId ? 'Habit updated' : 'Habit added');
+        await loadAndRender();
+      } catch (err) {
+        if (genErrorEl) { genErrorEl.textContent = 'Failed to save: ' + err.message; genErrorEl.classList.add('is-visible'); }
+      }
+    });
+  }
+});
+
+// ── History Calendar (issue #829 + #830) ──────────────────────────────────────
+
+let hcalMonth = null;          // Date at 1st of displayed month (null = current)
+let hcalWeekStart = null;      // Date of Monday of displayed week (null = current)
+let hcalSelectedDate = null;   // ISO string of the selected day (persistent)
+let hcalLogsByDate = {};       // { dateStr: Set(habitId) }
+let hcalFetchedRange = null;   // 'from|to' key for the last fetch
+let _hcalInitialized = false;
+let hcalFilterHabitId = null;  // null = All Habits; number = specific habit ID (issue #830)
+
+const HCAL_MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+const HCAL_WEEKDAY_ABBR = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+const HCAL_DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function _hcalPad(n) { return String(n).padStart(2, '0'); }
+
+function _hcalISO(d) {
+  return d.getFullYear() + '-' + _hcalPad(d.getMonth() + 1) + '-' + _hcalPad(d.getDate());
+}
+
+// Compute met/partial/not-met/no-data for one calendar day (AC4).
+// Reuses the same per-day log-presence logic as the Habits summary endpoint:
+//   - applicable = active habits whose created_at date ≤ dateStr
+//   - met     → all applicable habits have a log entry for dateStr
+//   - partial → at least one (but not all) applicable habits have a log
+//   - not-met → zero applicable habits have logs (but some apply)
+//   - no-data → future date OR no habits existed yet on that date
+function computeDayStatus(dateStr, habits, logsByDate) {
+  const todayStr = bangkokTodayStr();
+  if (dateStr > todayStr) return 'no-data';
+
+  const applicable = (habits || []).filter(h => {
+    if (h.is_archived) return false;
+    if (!h.created_at) return true;
+    return h.created_at.slice(0, 10) <= dateStr;
+  });
+  if (applicable.length === 0) return 'no-data';
+
+  const logsOnDate = logsByDate[dateStr] || new Set();
+  const loggedCount = applicable.filter(h => logsOnDate.has(h.id)).length;
+
+  if (loggedCount === applicable.length) return 'met';
+  if (loggedCount > 0) return 'partial';
+  return 'not-met';
+}
+
+function _hcalStatusLabel(status) {
+  if (status === 'met') return 'met';
+  if (status === 'partial') return 'partial';
+  if (status === 'not-met') return 'not met';
+  return 'no data';
+}
+
+// Compute status for All Habits mode — returns {status, done, total} (issue #830, AC3).
+function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
+  const todayStr = bangkokTodayStr();
+  if (dateStr > todayStr) return { status: 'no-data', done: 0, total: 0 };
+
+  const applicable = (habits || []).filter(h => {
+    if (h.is_archived) return false;
+    if (!h.created_at) return true;
+    return h.created_at.slice(0, 10) <= dateStr;
+  });
+  if (applicable.length === 0) return { status: 'no-data', done: 0, total: 0 };
+
+  const logsOnDate = logsByDate[dateStr] || new Set();
+  const done = applicable.filter(h => logsOnDate.has(h.id)).length;
+  const total = applicable.length;
+  const status = done === total ? 'met' : done > 0 ? 'partial' : 'not-met';
+  return { status, done, total };
+}
+
+// Compute status for a single habit on a given day (issue #830, AC4, AC8).
+// Returns 'no-data' when the habit was created after dateStr (AC8).
+function computeSingleHabitDayStatus(dateStr, habit, logsByDate) {
+  const todayStr = bangkokTodayStr();
+  if (dateStr > todayStr) return 'no-data';
+  if (habit.is_archived) return 'no-data';
+  if (habit.created_at && habit.created_at.slice(0, 10) > dateStr) return 'no-data';
+  const logsOnDate = logsByDate[dateStr] || new Set();
+  return logsOnDate.has(habit.id) ? 'met' : 'not-met';
+}
+
+// Render the filter control for the history calendar (issue #830, AC1/AC2/AC9/AC10).
+function renderHcalFilter() {
+  const el = document.getElementById('hcal-filter');
+  if (!el) return;
+
+  let html = '<button type="button" class="hcal-filter-btn' +
+    (hcalFilterHabitId === null ? ' hcal-filter-btn--active' : '') + '"' +
+    ' data-habit-id=""' +
+    ' aria-pressed="' + (hcalFilterHabitId === null ? 'true' : 'false') + '">' +
+    'All Habits</button>';
+
+  (activeHabits || []).forEach(h => {
+    const active = hcalFilterHabitId === h.id;
+    html += '<button type="button" class="hcal-filter-btn' +
+      (active ? ' hcal-filter-btn--active' : '') + '"' +
+      ' data-habit-id="' + esc(String(h.id)) + '"' +
+      ' aria-pressed="' + (active ? 'true' : 'false') + '">' +
+      esc(h.name) + '</button>';
+  });
+
+  el.innerHTML = html;
+
+  const buttons = Array.from(el.querySelectorAll('.hcal-filter-btn'));
+
+  buttons.forEach((btn, i) => {
+    btn.addEventListener('click', async () => {
+      const idAttr = btn.dataset.habitId;
+      hcalFilterHabitId = idAttr === '' ? null : Number(idAttr);
+      renderHcalFilter();
+      renderHabitMonthCal();
+      renderHabitWeekStrip();
+      if (hcalSelectedDate) await _renderHcalDetail(hcalSelectedDate);
+    });
+
+    // Arrow key navigation within the filter group (AC10)
+    btn.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const next = buttons[(i + 1) % buttons.length];
+        if (next) next.focus();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const prev = buttons[(i - 1 + buttons.length) % buttons.length];
+        if (prev) prev.focus();
+      }
+    });
+  });
+}
+
+async function _fetchCalendarRange(from, to) {
+  const key = from + '|' + to;
+  if (hcalFetchedRange === key) return;
+  try {
+    const res = await fetch(`/api/habits/logs?from=${from}&to=${to}`);
+    if (!res.ok) return;
+    const logs = await res.json();
+    hcalLogsByDate = {};
+    (logs || []).forEach(l => {
+      const d = l.logged_date;
+      if (!hcalLogsByDate[d]) hcalLogsByDate[d] = new Set();
+      hcalLogsByDate[d].add(l.habit_id);
+    });
+    hcalFetchedRange = key;
+  } catch (_) { /* silently ignore */ }
+}
+
+function renderHabitMonthCal() {
+  const el = document.getElementById('habits-month-cal');
+  if (!el) return;
+
+  const now = new Date();
+  if (!hcalMonth) hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const year = hcalMonth.getFullYear();
+  const month = hcalMonth.getMonth();
+  const today = bangkokToday();
+  const todayStr = _hcalISO(today);
+  const lastDayNum = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();
+  const startOffset = (firstDow + 6) % 7;
+  const rows = Math.ceil((startOffset + lastDayNum) / 7);
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+
+  let html =
+    '<div class="hcal-nav">' +
+      '<button type="button" id="hcal-month-prev" class="hcal-nav-btn" aria-label="Previous month">&#8249;</button>' +
+      '<span class="hcal-month-label">' + HCAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
+      '<button type="button" id="hcal-today-btn" class="hcal-nav-btn hcal-nav-btn--today"' +
+        (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
+      '<button type="button" id="hcal-month-next" class="hcal-nav-btn" aria-label="Next month"' +
+        (isCurrentMonth ? ' disabled' : '') + '>&#8250;</button>' +
+    '</div>' +
+    '<div class="hcal-grid" role="grid" aria-label="' + HCAL_MONTH_NAMES[month] + ' ' + year + '">';
+
+  HCAL_WEEKDAY_ABBR.forEach(abbr => {
+    html += '<div class="hcal-weekday" role="columnheader">' + esc(abbr) + '</div>';
+  });
+
+  let dayNum = 1;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < 7; col++) {
+      const cellIdx = row * 7 + col;
+      if (cellIdx < startOffset || dayNum > lastDayNum) {
+        html += '<div class="hcal-cell hcal-cell--no-data" aria-hidden="true"></div>';
+      } else {
+        const dStr = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(dayNum);
+        let status, countOverlay = '';
+        if (hcalFilterHabitId === null) {
+          const summary = computeAllHabitsDaySummary(dStr, activeHabits, hcalLogsByDate);
+          status = summary.status;
+          if (status !== 'no-data') {
+            countOverlay = '<span class="hcal-day-count">' + summary.done + '/' + summary.total + '</span>';
+          }
+        } else {
+          const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+          status = habit ? computeSingleHabitDayStatus(dStr, habit, hcalLogsByDate) : 'no-data';
+        }
+        const isToday = dStr === todayStr;
+        const isSel = dStr === hcalSelectedDate;
+        const isNoData = status === 'no-data';
+
+        let cls = 'hcal-cell';
+        if (isNoData) cls += ' hcal-cell--no-data';
+        else if (status === 'met') cls += ' hcal-cell--met';
+        else if (status === 'partial') cls += ' hcal-cell--partial';
+        else cls += ' hcal-cell--not-met';
+        if (isToday && !isNoData) cls += ' hcal-cell--today';
+        if (isSel) cls += ' is-selected';
+
+        const dateObj = new Date(year, month, dayNum);
+        const fullDate = dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        const ariaLabel = fullDate + ', ' + _hcalStatusLabel(status);
+
+        html +=
+          '<button type="button" class="' + cls + '"' +
+          ' data-date="' + dStr + '"' +
+          ' tabindex="' + (isNoData ? '-1' : '0') + '"' +
+          ' aria-label="' + esc(ariaLabel) + '"' +
+          ' aria-pressed="' + (isSel ? 'true' : 'false') + '"' +
+          ' role="gridcell">' +
+          '<span class="hcal-day-num">' + dayNum + '</span>' +
+          countOverlay +
+          '</button>';
+        dayNum++;
+      }
+    }
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+
+  const prevBtn = document.getElementById('hcal-month-prev');
+  const nextBtn = document.getElementById('hcal-month-next');
+  const todayBtn = document.getElementById('hcal-today-btn');
+
+  if (prevBtn) prevBtn.addEventListener('click', async () => {
+    hcalMonth = new Date(year, month - 1, 1);
+    await _refreshHabitCal();
+  });
+  if (nextBtn) nextBtn.addEventListener('click', async () => {
+    hcalMonth = new Date(year, month + 1, 1);
+    await _refreshHabitCal();
+  });
+  if (todayBtn) todayBtn.addEventListener('click', async () => {
+    const t = new Date();
+    hcalMonth = new Date(t.getFullYear(), t.getMonth(), 1);
+    await _refreshHabitCal();
+  });
+
+  const grid = el.querySelector('.hcal-grid');
+  if (grid) {
+    grid.addEventListener('click', e => {
+      const cell = e.target.closest('.hcal-cell:not(.hcal-cell--no-data)');
+      if (!cell) return;
+      const date = cell.getAttribute('data-date');
+      if (date) _hcalSelectDate(date);
+    });
+
+    grid.addEventListener('keydown', e => {
+      const cell = e.target.closest('.hcal-cell:not(.hcal-cell--no-data)');
+      if (!cell) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const date = cell.getAttribute('data-date');
+        if (date) _hcalSelectDate(date);
+        return;
+      }
+      if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+      e.preventDefault();
+      const cells = Array.from(grid.querySelectorAll('.hcal-cell:not(.hcal-cell--no-data)'));
+      const idx = cells.indexOf(cell);
+      const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[e.key];
+      const newIdx = idx + delta;
+      if (newIdx >= 0 && newIdx < cells.length) cells[newIdx].focus();
+    });
+  }
+}
+
+function renderHabitWeekStrip() {
+  const el = document.getElementById('habits-week-strip');
+  if (!el) return;
+
+  const today = bangkokToday();
+  const todayStr = _hcalISO(today);
+
+  if (!hcalWeekStart) {
+    const dow = today.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    hcalWeekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() + diff);
+  }
+
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(hcalWeekStart.getFullYear(), hcalWeekStart.getMonth(), hcalWeekStart.getDate() + i);
+    weekDays.push(d);
+  }
+
+  const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fromDate = weekDays[0];
+  const toDate = weekDays[6];
+  const label = fromDate.getMonth() === toDate.getMonth()
+    ? MONTHS_SHORT[fromDate.getMonth()] + ' ' + fromDate.getDate() + '–' + toDate.getDate()
+    : MONTHS_SHORT[fromDate.getMonth()] + ' ' + fromDate.getDate() + ' – ' + MONTHS_SHORT[toDate.getMonth()] + ' ' + toDate.getDate();
+
+  const weekEndStr = _hcalISO(weekDays[6]);
+  const isCurrentWeek = _hcalISO(hcalWeekStart) <= todayStr && weekEndStr >= todayStr;
+
+  let html =
+    '<div class="hcal-nav">' +
+      '<button type="button" id="hcal-strip-prev" class="hcal-nav-btn" aria-label="Previous week">&#8249;</button>' +
+      '<span class="hcal-week-label">' + esc(label) + '</span>' +
+      '<button type="button" id="hcal-strip-next" class="hcal-nav-btn" aria-label="Next week"' +
+        (isCurrentWeek ? ' disabled' : '') + '>&#8250;</button>' +
+    '</div>' +
+    '<div class="hcal-strip" role="grid" aria-label="' + esc('Week of ' + label) + '">';
+
+  weekDays.forEach(d => {
+    const dStr = _hcalISO(d);
+    let status, countOverlay = '';
+    if (hcalFilterHabitId === null) {
+      const summary = computeAllHabitsDaySummary(dStr, activeHabits, hcalLogsByDate);
+      status = summary.status;
+      if (status !== 'no-data') {
+        countOverlay = '<span class="hcal-day-count">' + summary.done + '/' + summary.total + '</span>';
+      }
+    } else {
+      const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+      status = habit ? computeSingleHabitDayStatus(dStr, habit, hcalLogsByDate) : 'no-data';
+    }
+    const isNoData = status === 'no-data';
+    const isToday = dStr === todayStr;
+    const isSel = dStr === hcalSelectedDate;
+
+    let cls = 'hcal-strip-cell';
+    if (isNoData) cls += ' hcal-strip-cell--no-data hcal-cell--no-data';
+    else if (status === 'met') cls += ' hcal-cell--met';
+    else if (status === 'partial') cls += ' hcal-cell--partial';
+    else cls += ' hcal-cell--not-met';
+    if (isToday && !isNoData) cls += ' hcal-cell--today';
+    if (isSel) cls += ' is-selected';
+
+    const ariaLabel = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + ', ' + _hcalStatusLabel(status);
+
+    html +=
+      '<button type="button" class="' + cls + '"' +
+      ' data-date="' + dStr + '"' +
+      ' tabindex="' + (isNoData ? '-1' : '0') + '"' +
+      ' aria-label="' + esc(ariaLabel) + '"' +
+      ' aria-pressed="' + (isSel ? 'true' : 'false') + '"' +
+      ' role="gridcell">' +
+      '<span class="hcal-strip-day-name">' + HCAL_DAY_ABBR[d.getDay()].slice(0, 1) + '</span>' +
+      '<span class="hcal-strip-day-num">' + d.getDate() + '</span>' +
+      countOverlay +
+      '</button>';
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+
+  const prevBtn = document.getElementById('hcal-strip-prev');
+  const nextBtn = document.getElementById('hcal-strip-next');
+
+  if (prevBtn) prevBtn.addEventListener('click', async () => {
+    hcalWeekStart = new Date(hcalWeekStart.getFullYear(), hcalWeekStart.getMonth(), hcalWeekStart.getDate() - 7);
+    await _refreshHabitCal();
+  });
+  if (nextBtn) nextBtn.addEventListener('click', async () => {
+    hcalWeekStart = new Date(hcalWeekStart.getFullYear(), hcalWeekStart.getMonth(), hcalWeekStart.getDate() + 7);
+    await _refreshHabitCal();
+  });
+
+  const strip = el.querySelector('.hcal-strip');
+  if (strip) {
+    strip.addEventListener('click', e => {
+      const cell = e.target.closest('.hcal-strip-cell:not(.hcal-strip-cell--no-data)');
+      if (!cell) return;
+      const date = cell.getAttribute('data-date');
+      if (date) _hcalSelectDate(date);
+    });
+
+    strip.addEventListener('keydown', e => {
+      const cell = e.target.closest('.hcal-strip-cell:not(.hcal-strip-cell--no-data)');
+      if (!cell) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const date = cell.getAttribute('data-date');
+        if (date) _hcalSelectDate(date);
+        return;
+      }
+      if (!['ArrowLeft','ArrowRight'].includes(e.key)) return;
+      e.preventDefault();
+      const cells = Array.from(strip.querySelectorAll('.hcal-strip-cell:not(.hcal-strip-cell--no-data)'));
+      const idx = cells.indexOf(cell);
+      const delta = e.key === 'ArrowRight' ? 1 : -1;
+      const newIdx = idx + delta;
+      if (newIdx >= 0 && newIdx < cells.length) cells[newIdx].focus();
+    });
+  }
+}
+
+// Persistent highlight on click — sets is-selected on the clicked cell and
+// reveals log entries without hiding other cells (AC6, AC7).
+function _hcalSelectDate(dateStr) {
+  hcalSelectedDate = dateStr;
+
+  // Update month cal: toggle is-selected on all cells, never hide siblings (AC7)
+  const monthEl = document.getElementById('habits-month-cal');
+  if (monthEl) {
+    monthEl.querySelectorAll('[data-date]').forEach(c => {
+      const sel = c.getAttribute('data-date') === dateStr;
+      c.classList.toggle('is-selected', sel);
+      c.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    });
+  }
+
+  // Update week strip
+  const stripEl = document.getElementById('habits-week-strip');
+  if (stripEl) {
+    stripEl.querySelectorAll('[data-date]').forEach(c => {
+      const sel = c.getAttribute('data-date') === dateStr;
+      c.classList.toggle('is-selected', sel);
+      c.setAttribute('aria-pressed', sel ? 'true' : 'false');
+    });
+  }
+
+  _renderHcalDetail(dateStr);
+}
+
+async function _renderHcalDetail(dateStr) {
+  const detail = document.getElementById('habits-cal-detail');
+  const content = document.getElementById('habits-cal-detail-content');
+  if (!detail || !content) return;
+
+  // Compute status respecting the current filter (issue #830, AC6)
+  let status;
+  if (hcalFilterHabitId === null) {
+    status = computeDayStatus(dateStr, activeHabits, hcalLogsByDate);
+  } else {
+    const habit = activeHabits.find(h => h.id === hcalFilterHabitId);
+    status = habit ? computeSingleHabitDayStatus(dateStr, habit, hcalLogsByDate) : 'no-data';
+  }
+
+  const dateObj = new Date(dateStr + 'T00:00:00');
+  const MONTHS_D = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAYS_D = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dateLabel = DAYS_D[dateObj.getDay()] + ', ' + MONTHS_D[dateObj.getMonth()] + ' ' + dateObj.getDate();
+
+  const badgeClass = status === 'met' ? 'hcal-detail-status-badge--met'
+    : status === 'partial' ? 'hcal-detail-status-badge--partial'
+    : 'hcal-detail-status-badge--not-met';
+  const badgeText = status === 'met' ? 'Met' : status === 'partial' ? 'Partial' : 'Not met';
+
+  content.innerHTML = '<div class="hcal-detail-hdr">' +
+    '<span class="hcal-detail-date">' + esc(dateLabel) + '</span>' +
+    (status !== 'no-data'
+      ? '<span class="hcal-detail-status-badge ' + esc(badgeClass) + '">' + esc(badgeText) + '</span>'
+      : '') +
+    '</div><div class="hcal-log-empty">Loading…</div>';
+
+  detail.style.display = '';
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Fetch logs for this specific date
+  let dayLogs = [];
+  try {
+    const res = await fetch(`/api/habits/logs?from=${dateStr}&to=${dateStr}`);
+    if (res.ok) dayLogs = await res.json();
+  } catch (_) { /* ignore */ }
+
+  // Filter logs by the selected habit if in single-habit mode (issue #830, AC6)
+  if (hcalFilterHabitId !== null) {
+    dayLogs = dayLogs.filter(l => l.habit_id === hcalFilterHabitId);
+  }
+
+  const habitMap = {};
+  activeHabits.forEach(h => { habitMap[h.id] = h; });
+
+  let logsHtml = '';
+  if (dayLogs.length > 0) {
+    dayLogs.forEach(log => {
+      const habit = habitMap[log.habit_id];
+      const iconHTML = habit ? habitIconHTML(habit.icon, habit.color, 22) : '';
+      const name = habit ? esc(habit.name) : 'Unknown habit';
+      logsHtml += '<div class="hcal-log-entry">' + iconHTML + '<span>' + name + '</span></div>';
+    });
+  } else {
+    logsHtml = '<div class="hcal-log-empty">No logs for this day</div>';
+  }
+
+  content.innerHTML = '<div class="hcal-detail-hdr">' +
+    '<span class="hcal-detail-date">' + esc(dateLabel) + '</span>' +
+    (status !== 'no-data'
+      ? '<span class="hcal-detail-status-badge ' + esc(badgeClass) + '">' + esc(badgeText) + '</span>'
+      : '') +
+    '</div>' + logsHtml;
+}
+
+async function _refreshHabitCal() {
+  // Invalidate cached range so the next fetch is fresh
+  hcalFetchedRange = null;
+
+  const year = hcalMonth ? hcalMonth.getFullYear() : new Date().getFullYear();
+  const month = hcalMonth ? hcalMonth.getMonth() : new Date().getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const from = year + '-' + _hcalPad(month + 1) + '-01';
+  const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+
+  await _fetchCalendarRange(from, to);
+  renderHcalFilter();
+  renderHabitMonthCal();
+  renderHabitWeekStrip();
+}
+
+async function initHabitCal() {
+  const calSection = document.getElementById('habits-history-cal');
+  if (!calSection) return;
+
+  if (!_hcalInitialized) {
+    const now = new Date();
+    hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const today = bangkokToday();
+    const dow = today.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    hcalWeekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() + diff);
+    _hcalInitialized = true;
+  }
+
+  const year = hcalMonth.getFullYear();
+  const month = hcalMonth.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const from = year + '-' + _hcalPad(month + 1) + '-01';
+  const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+
+  await _fetchCalendarRange(from, to);
+  calSection.style.display = '';
+  renderHcalFilter();
+  renderHabitMonthCal();
+  renderHabitWeekStrip();
+}
+
+// ── Habit detail panel (issue #831) ──────────────────────────────────────────
+
+let _detailHabitId = null;
+
+function closeHabitDetail() {
+  const panel = document.getElementById('habit-detail-panel');
+  if (panel) panel.style.display = 'none';
+  _detailHabitId = null;
+}
+
+async function openHabitDetail(habitId, habitObj) {
+  const panel = document.getElementById('habit-detail-panel');
+  if (!panel) return;
+
+  _detailHabitId = habitId;
+
+  // Show panel with loading state
+  panel.style.display = '';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (loadingEl) loadingEl.style.display = '';
+  if (contentEl) contentEl.style.display = 'none';
+
+  // Show habit name and icon immediately from local data
+  if (habitObj) {
+    if (nameEl) nameEl.textContent = habitObj.name || '—';
+    if (iconEl) iconEl.innerHTML = habitIconHTML(habitObj.icon, habitObj.color, 28);
+  }
+
+  try {
+    const today = bangkokTodayStr();
+    const ninetyDaysAgo = isoDate(new Date(bangkokToday().getTime() - 90 * 86400000));
+
+    const [summaryRes, logsRes] = await Promise.all([
+      fetch(`/api/habits/${habitId}/summary`),
+      fetch(`/api/habits/logs?habit_id=${habitId}&from=${ninetyDaysAgo}&to=${today}`),
+    ]);
+
+    // Abort if user opened a different panel while fetching
+    if (_detailHabitId !== habitId) return;
+
+    if (!summaryRes.ok) throw new Error(`Summary fetch failed (${summaryRes.status})`);
+    const summary = await summaryRes.json();
+
+    let logs = [];
+    if (logsRes.ok) logs = await logsRes.json();
+
+    renderHabitDetail(summary, logs);
+  } catch (e) {
+    if (_detailHabitId !== habitId) return;
+    if (loadingEl) loadingEl.textContent = 'Failed to load habit details.';
+  }
+}
+
+function renderHabitDetail(summary, logs) {
+  const loadingEl = document.getElementById('detail-loading');
+  const contentEl = document.getElementById('detail-content');
+  const nameEl = document.getElementById('detail-panel-habit-name');
+  const iconEl = document.getElementById('detail-panel-icon');
+
+  if (!contentEl) return;
+
+  const habit = summary.habit || {};
+  if (nameEl) nameEl.textContent = habit.name || '—';
+  if (iconEl) iconEl.innerHTML = habitIconHTML(habit.icon, habit.color, 28);
+
+  // Stats
+  const streakEl = document.getElementById('detail-current-streak');
+  const longestEl = document.getElementById('detail-longest-streak');
+  const consistencyEl = document.getElementById('detail-consistency');
+  const consistencySubEl = document.getElementById('detail-consistency-sub');
+
+  if (streakEl) streakEl.textContent = summary.current_streak ?? 0;
+  if (longestEl) longestEl.textContent = summary.longest_streak ?? 0;
+  if (consistencyEl) consistencyEl.textContent = (summary.consistency_pct ?? 0) + '%';
+  if (consistencySubEl) {
+    const checked = summary.days_checked ?? 0;
+    const total = summary.days_total ?? 30;
+    consistencySubEl.textContent = `${checked}/${total} days`;
+  }
+
+  // Log history
+  const historyList = document.getElementById('detail-history-list');
+  const historyEmpty = document.getElementById('detail-history-empty');
+  if (historyList) {
+    historyList.innerHTML = '';
+    if (!logs || logs.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'detail-history-empty';
+      emptyDiv.textContent = 'No log entries yet — start logging to track your progress!';
+      historyList.appendChild(emptyDiv);
+    } else {
+      logs.forEach(log => {
+        const entry = document.createElement('div');
+        entry.className = 'detail-history-entry';
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'detail-history-date';
+        dateSpan.textContent = log.logged_date || log.log_date || '—';
+        entry.appendChild(dateSpan);
+        if (log.value != null && log.value !== 1) {
+          const valSpan = document.createElement('span');
+          valSpan.className = 'detail-history-val';
+          valSpan.textContent = log.value;
+          entry.appendChild(valSpan);
+        }
+        if (log.notes) {
+          const noteSpan = document.createElement('span');
+          noteSpan.className = 'detail-history-note';
+          noteSpan.textContent = log.notes;
+          entry.appendChild(noteSpan);
+        }
+        historyList.appendChild(entry);
+      });
+    }
+  }
+
+  // Show content
+  if (loadingEl) loadingEl.style.display = 'none';
+  contentEl.style.display = '';
+
+  // Edit/Archive buttons — no-op placeholders
+  const editBtn = document.getElementById('detail-edit-btn');
+  const archiveBtn = document.getElementById('detail-archive-btn');
+  if (editBtn) editBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+  if (archiveBtn) archiveBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+}
+
+function _wireDetailTriggers() {
+  // Wire habit-name clicks in daily grid
+  document.querySelectorAll('.habit-name-text[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[data-habit-id]');
+      const hid = row && row.dataset.habitId;
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+  // Wire habit-name clicks in weekly habits list
+  document.querySelectorAll('.week-habit-name[data-detail-trigger]').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = el.closest('[id^="habit-week-row-"]');
+      const hid = row && row.id.replace('habit-week-row-', '');
+      if (!hid) return;
+      const habit = activeHabits.find(h => String(h.id) === hid) ||
+                    archivedHabits.find(h => String(h.id) === hid);
+      openHabitDetail(hid, habit || null);
+    });
+  });
+}
+
+// Close panel button
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('detail-panel-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeHabitDetail);
+});
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', () => {
+  loadTodayCard();
   loadAndRender();
 });
 
 window.addEventListener('userChanged', () => {
+  loadTodayCard();
   loadAndRender();
 });

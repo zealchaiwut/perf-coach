@@ -6,6 +6,17 @@
 - #863: Add recompute_plan_from_progress pure function
 - #864: Add CRUD endpoints for user weight plan
 
+## Sprint 78.1 — Create and Edit Habit form
+
+- #832: Build Create and Edit Habit Form (Slide-Over/Modal)
+
+## Sprint 78 — Habits page shell, Today quick-log, and history calendar
+
+- #827: Build Habits page shell and Today quick-log surface
+- #828: Wire Today quick-log writes with upsert and streak refresh
+- #829: Add Habits history calendar with day-status cells
+- #830: Add habit filter to history calendar view
+
 ## Sprint 77 — Habits v2 schema, streak/consistency services, and summary endpoint
 
 - #821: Add habits and habit_logs migrations and SQLAlchemy models
