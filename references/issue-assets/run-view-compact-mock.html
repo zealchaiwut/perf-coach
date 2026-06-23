@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>perf-coach — run view compact + snapshot mode</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg-1:#5a8dee;--bg-2:#1f3b8a;
+    --card:#fff;--card-divider:rgba(13,30,67,0.07);
+    --text-primary:#0b1530;--text-secondary:#5c6886;--text-tertiary:#8b95ad;
+    --green-line:#16a34a;--green-soft:#dcfce7;--green-text:#15803d;
+    --amber-line:#d97706;--orange-line:#ea580c;--red-line:#dc2626;
+    --blue-line:#2563eb;--blue-soft:#dbeafe;--blue-text:#1d4ed8;
+    --purple-line:#7c5cff;--purple-soft:#ede9fe;--purple-text:#6d28d9;
+    --teal:#14b8a6;--teal-soft:#ecfdf5;
+    --strava:#fc4c02;--stryd:#0f1830;
+    --tile:#f6f8fc;--grid:#eef1f6;
+    --mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Inter Tight',system-ui,sans-serif;color:var(--text-primary);
+    background:linear-gradient(160deg,var(--bg-1),var(--bg-2) 75%);min-height:100vh;
+    letter-spacing:-0.01em;font-size:13px;padding:24px 16px 50px;}
+  .wrap{max-width:1180px;margin:0 auto;}
+  .ptitle{color:#fff;font-size:18px;font-weight:600;margin-bottom:4px;}
+  .psub{color:rgba(255,255,255,0.82);font-size:11.5px;margin-bottom:16px;line-height:1.5;max-width:920px;}
+  .modebar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
+  .modebtn{font-family:var(--mono);font-size:11px;font-weight:700;padding:7px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#fff;cursor:pointer;}
+  .modebtn.active{background:#fff;color:var(--bg-2);border-color:#fff;}
+  .modebtn.snap{background:var(--green-line);border-color:var(--green-line);}
+  .modebtn.snap.active{background:#fff;color:var(--green-text);}
+
+  .cols{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+  .col{flex:1;min-width:340px;}
+  .col-label{font-size:9.5px;font-weight:700;letter-spacing:0.1em;color:rgba(255,255,255,0.72);text-transform:uppercase;margin-bottom:9px;}
+
+  .card{background:var(--card);border-radius:13px;border:1px solid var(--card-divider);box-shadow:0 4px 14px rgba(8,18,48,0.10);padding:14px 15px;margin-bottom:11px;}
+  .sec-title{margin:0 0 10px;font-size:10px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-tertiary);}
+
+  /* ── COMPACT HEADER ── */
+  .hd-top{display:flex;align-items:center;gap:7px;margin-bottom:8px;}
+  .badge{font-size:10px;font-weight:800;letter-spacing:0.07em;color:var(--blue-text);background:var(--blue-soft);padding:3px 8px;border-radius:5px;}
+  .srcwrap{margin-left:auto;display:flex;gap:5px;}
+  .src{font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;color:#fff;}
+  .src.strava{background:var(--strava);} .src.stryd{background:var(--stryd);}
+  .hd-title{font-size:18px;font-weight:800;letter-spacing:-0.02em;line-height:1.15;}
+  .hd-meta{font-size:11px;color:var(--text-secondary);margin-top:3px;font-family:var(--mono);}
+
+  /* ── COMBINED HERO STRIP (was 3 big stacked tiles) ── */
+  .hero-strip{display:flex;align-items:stretch;background:var(--tile);border-radius:10px;overflow:hidden;margin-top:10px;}
+  .hero-cell{flex:1;padding:10px 12px;border-right:1px solid var(--card-divider);}
+  .hero-cell:last-child{border-right:0;}
+  .hero-v{font-family:var(--mono);font-size:19px;font-weight:700;line-height:1;}
+  .hero-v .u{font-size:10px;color:var(--text-tertiary);font-weight:500;font-family:'Inter Tight';margin-left:1px;}
+  .hero-l{font-size:8.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-tertiary);margin-top:4px;}
+
+  /* ── DENSE STAT GRID: 4 columns, tight ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--grid);border-radius:10px;overflow:hidden;}
+  .stat-grid.snap5{grid-template-columns:repeat(5,1fr);}
+  .stat{background:#fff;padding:9px 10px;min-height:0;}
+  .stat.hero{background:linear-gradient(135deg,#eef3ff,#f6f9ff);}
+  .stat-l{font-size:8px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-tertiary);display:flex;align-items:center;gap:3px;flex-wrap:wrap;line-height:1.3;}
+  .stat-v{margin-top:4px;font-family:var(--mono);font-size:15px;font-weight:700;line-height:1;}
+  .stat.hero .stat-v{font-size:17px;color:var(--blue-text);}
+  .stat-v .u{font-size:9px;color:var(--text-secondary);font-weight:500;font-family:'Inter Tight';margin-left:1px;}
+  .stat-v.dash{color:var(--text-tertiary);font-family:'Inter Tight';font-size:13px;}
+  .pill{font-size:7px;font-weight:800;padding:1px 4px;border-radius:3px;letter-spacing:0.03em;}
+  .pill.stryd{background:var(--purple-line);color:#fff;} .pill.strava{background:var(--strava);color:#fff;}
+  .foot{margin-top:8px;font-size:9.5px;color:var(--text-tertiary);font-family:var(--mono);}
+
+  /* ── LAP CHART ── */
+  .lapchart{display:flex;align-items:flex-end;gap:2px;height:64px;margin:6px 0 4px;}
+  .lapbar{flex:1;border-radius:3px 3px 0 0;min-height:5px;background:var(--orange-line);}
+  .lapbar.z2{outline:2px solid var(--teal);outline-offset:-2px;}
+  .toggle{display:inline-flex;background:var(--grid);border-radius:7px;padding:2px;margin-bottom:7px;}
+  .tg{border:0;background:none;font-size:10px;font-weight:600;color:var(--text-secondary);padding:4px 10px;border-radius:5px;cursor:pointer;font-family:inherit;}
+  .tg.on{background:var(--stryd);color:#fff;}
+  .z2note{font-size:9.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+  .z2sw{width:11px;height:11px;border-radius:3px;background:var(--teal-soft);border:2px solid var(--teal);}
+
+  /* ── LAP TABLE: full width, no clipping, all cols ── */
+  .laptbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:fixed;}
+  .laptbl th{font-family:'Inter Tight';text-align:right;font-size:8px;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;color:var(--text-tertiary);padding:5px 4px;border-bottom:1px solid var(--card-divider);}
+  .laptbl th:first-child{text-align:left;}
+  .laptbl td{text-align:right;padding:5px 4px;border-bottom:1px solid #f3f5f9;white-space:nowrap;}
+  .laptbl td:first-child{text-align:left;font-weight:700;}
+  .laptbl tr.z2 td{background:var(--teal-soft);}
+  .laptbl tr.z2 td:first-child{color:var(--teal);}
+  .laptbl tr.brk td{background:#f1f5f9;color:#64748b;}
+  .z2p{font-size:7px;font-weight:800;background:var(--teal);color:#fff;padding:0 4px;border-radius:999px;margin-left:3px;}
+  .brkp{font-size:7px;font-weight:800;background:#e2e8f0;color:#475569;padding:0 4px;border-radius:999px;margin-left:3px;}
+  .laptbl td.fast{color:var(--green-text);font-weight:700;}
+  .laptbl td .u{font-size:7px;color:var(--text-tertiary);}
+
+  /* profile */
+  .prof{display:flex;align-items:flex-end;gap:2px;height:50px;background:var(--tile);border-radius:9px;padding:7px;}
+  .pseg{flex:1;min-width:3px;border-radius:3px 3px 0 0;}
+  .phases{display:flex;gap:3px;margin-top:6px;}
+  .ph{font-size:8px;font-weight:700;color:#fff;padding:2px 4px;border-radius:4px;text-align:center;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  /* snapshot wrapper */
+  .snapshot{background:#fff;border-radius:14px;padding:16px;max-width:560px;margin:0 auto;box-shadow:0 8px 30px rgba(8,18,48,0.24);}
+  .snap-watermark{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--card-divider);font-size:10px;color:var(--text-tertiary);font-family:var(--mono);}
+  .snap-watermark b{color:var(--blue-text);font-family:'Inter Tight';}
+
+  .note{background:rgba(255,255,255,0.12);border:1px dashed rgba(255,255,255,0.35);border-radius:12px;padding:12px 15px;color:rgba(255,255,255,0.92);font-size:11px;line-height:1.55;margin-top:18px;}
+  .note b{color:#fff;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="ptitle">Run view — compact layout + dedicated snapshot mode</div>
+  <div class="psub">Left: the <b style="color:#fff">full run view</b>, compacted (combined hero strip, 4-col stat grid, full-width lap table with every column visible). Right: <b style="color:#fff">snapshot mode</b> — a single share-card sized for one clean screenshot, with extra summary data the freed space allows. Toggle below.</div>
+
+  <div class="modebar">
+    <span style="color:rgba(255,255,255,0.7);font-size:11px;">View:</span>
+    <button class="modebtn active" id="mFull" onclick="setMode('full')">Full (compact)</button>
+    <button class="modebtn snap" id="mSnap" onclick="setMode('snap')">📸 Snapshot mode</button>
+  </div>
+
+  <!-- ============ FULL COMPACT ============ -->
+  <div id="fullView">
+  <div class="cols">
+    <div class="col">
+      <div class="col-label">Full run view · compacted</div>
+
+      <!-- header + hero strip -->
+      <div class="card">
+        <div class="hd-top">
+          <span class="badge">RUN</span>
+          <span class="srcwrap"><span class="src strava">Strava</span><span class="src stryd">Stryd</span></span>
+        </div>
+        <div class="hd-title">Run 5000 Excite Live: Quick Start</div>
+        <div class="hd-meta">69dad541…34936f · Tue Jun 23 · 07:53</div>
+        <div class="hero-strip">
+          <div class="hero-cell"><div class="hero-v">8.54<span class="u">km</span></div><div class="hero-l">Distance</div></div>
+          <div class="hero-cell"><div class="hero-v">8:47<span class="u">/km</span></div><div class="hero-l">Avg pace</div></div>
+          <div class="hero-cell"><div class="hero-v">1:15:01</div><div class="hero-l">Duration</div></div>
+        </div>
+      </div>
+
+      <!-- load grid: 4 cols -->
+      <div class="card">
+        <div class="sec-title">Load &amp; Intensity</div>
+        <div class="stat-grid">
+          <div class="stat hero"><div class="stat-l">TSS · pace</div><div class="stat-v">55</div></div>
+          <div class="stat"><div class="stat-l">Zone 2</div><div class="stat-v dash">—</div></div>
+          <div class="stat"><div class="stat-l">Elev <span class="pill strava">ST</span></div><div class="stat-v">123<span class="u">m</span></div></div>
+          <div class="stat"><div class="stat-l">Avg HR</div><div class="stat-v">138<span class="u">bpm</span></div></div>
+          <div class="stat"><div class="stat-l">Max HR <span class="pill strava">ST</span></div><div class="stat-v">—</div></div>
+          <div class="stat"><div class="stat-l">Avg pwr <span class="pill stryd">SD</span></div><div class="stat-v">207<span class="u">W</span></div></div>
+          <div class="stat"><div class="stat-l">NP <span class="pill stryd">SD</span></div><div class="stat-v">213<span class="u">W</span></div></div>
+          <div class="stat"><div class="stat-l">Max pwr <span class="pill stryd">SD</span></div><div class="stat-v">—</div></div>
+          <div class="stat"><div class="stat-l">Stride <span class="pill stryd">SD</span></div><div class="stat-v">0.71<span class="u">m</span></div></div>
+          <div class="stat"><div class="stat-l">Cadence <span class="pill stryd">SD</span></div><div class="stat-v">157<span class="u">spm</span></div></div>
+          <div class="stat"><div class="stat-l">Var. index</div><div class="stat-v">1.03</div></div>
+          <div class="stat"><div class="stat-l">Decoupling</div><div class="stat-v" style="color:var(--green-text)">2<span class="u">%</span></div></div>
+        </div>
+      </div>
+
+      <!-- profile -->
+      <div class="card">
+        <div class="sec-title">Session Profile · Effort</div>
+        <div class="prof" id="profFull"></div>
+        <div class="phases"><span class="ph" style="background:var(--green-line);flex:5">Easy</span><span class="ph" style="background:var(--amber-line);flex:3">Steady</span><span class="ph" style="background:var(--green-line);flex:1"></span></div>
+      </div>
+
+      <!-- laps -->
+      <div class="card">
+        <div class="sec-title">Laps · 1 km splits (9)</div>
+        <div class="toggle"><button class="tg on">Pace</button><button class="tg">HR</button><button class="tg">Power</button></div>
+        <div class="lapchart" id="lapFull"></div>
+        <div class="z2note"><span class="z2sw"></span> Zone 2 laps (HR 130–155) · grey = break</div>
+        <table class="laptbl" id="tblFull"></table>
+      </div>
+    </div>
+
+    <div class="col" style="max-width:300px;">
+      <div class="col-label">Why it's shorter</div>
+      <div class="card" style="font-size:11.5px;line-height:1.6;color:var(--text-secondary);">
+        <p style="margin-bottom:10px;"><b style="color:var(--text-primary)">1. Hero strip.</b> Distance / Pace / Duration were three full-width stacked tiles (~210px). Now one horizontal strip (~58px). <b style="color:var(--green-text)">−150px.</b></p>
+        <p style="margin-bottom:10px;"><b style="color:var(--text-primary)">2. 4-col stat grid.</b> Was 2 tiles/row, tall & centered (5 rows). Now 4/row, compact-left (3 rows) — and the freed room let me <b style="color:var(--text-primary)">add Var index + Decoupling</b> without growing. <b style="color:var(--green-text)">−40%.</b></p>
+        <p style="margin-bottom:10px;"><b style="color:var(--text-primary)">3. Lap table fits.</b> Was min-width 500px → Power/Cadence clipped off-screen on export. Now <code>table-layout:fixed</code>, all 7 columns (Lap·Dist·Pace·HR·Pwr·Cad·Len) visible, no horizontal scroll. <b style="color:var(--green-text)">nothing clipped.</b></p>
+        <p><b style="color:var(--text-primary)">4. Tighter cards.</b> Padding 20→14px, section titles smaller. Across ~7 cards that's another big chunk.</p>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- ============ SNAPSHOT MODE ============ -->
+  <div id="snapView" class="hidden">
+    <div class="col-label" style="text-align:center;">📸 Snapshot mode · one clean share-card</div>
+    <div class="snapshot">
+      <div class="hd-top">
+        <span class="badge">RUN</span>
+        <span class="srcwrap"><span class="src strava">Strava</span><span class="src stryd">Stryd</span></span>
+      </div>
+      <div class="hd-title" style="font-size:20px;">Run 5000 Excite Live: Quick Start</div>
+      <div class="hd-meta">Tue Jun 23 · 07:53 · half-distance run</div>
+
+      <div class="hero-strip" style="margin-top:12px;">
+        <div class="hero-cell"><div class="hero-v" style="font-size:22px;">8.54<span class="u">km</span></div><div class="hero-l">Distance</div></div>
+        <div class="hero-cell"><div class="hero-v" style="font-size:22px;">8:47<span class="u">/km</span></div><div class="hero-l">Avg pace</div></div>
+        <div class="hero-cell"><div class="hero-v" style="font-size:22px;">1:15:01</div><div class="hero-l">Duration</div></div>
+        <div class="hero-cell"><div class="hero-v" style="font-size:22px;color:var(--blue-text);">55</div><div class="hero-l">TSS</div></div>
+      </div>
+
+      <!-- snapshot stat grid: 5 cols, only populated metrics -->
+      <div class="stat-grid snap5" style="margin-top:11px;">
+        <div class="stat"><div class="stat-l">Avg HR</div><div class="stat-v">138<span class="u">bpm</span></div></div>
+        <div class="stat"><div class="stat-l">Avg pwr <span class="pill stryd">SD</span></div><div class="stat-v">207<span class="u">W</span></div></div>
+        <div class="stat"><div class="stat-l">NP <span class="pill stryd">SD</span></div><div class="stat-v">213<span class="u">W</span></div></div>
+        <div class="stat"><div class="stat-l">Cadence</div><div class="stat-v">157<span class="u">spm</span></div></div>
+        <div class="stat"><div class="stat-l">Stride</div><div class="stat-v">0.71<span class="u">m</span></div></div>
+      </div>
+
+      <!-- snapshot lap chart only (no full table — keeps it one screen) -->
+      <div style="margin-top:13px;">
+        <div class="sec-title">Pace per km · 9 laps</div>
+        <div class="lapchart" id="lapSnap" style="height:54px;"></div>
+      </div>
+
+      <!-- compact splits summary: every lap, ultra-dense, fits -->
+      <div style="margin-top:11px;">
+        <div class="sec-title">Splits</div>
+        <table class="laptbl" id="tblSnap" style="font-size:10px;"></table>
+      </div>
+
+      <div class="snap-watermark">
+        <span>706 workouts · 36,341 TSS lifetime</span>
+        <span><b>perf-coach</b></span>
+      </div>
+    </div>
+    <div style="text-align:center;color:rgba(255,255,255,0.7);font-size:10.5px;margin-top:10px;font-family:var(--mono);">↑ one screenshot grabs the whole card — fixed width, fits HR · Power · Cadence · Stride · every split</div>
+  </div>
+
+  <div class="note" id="noteFull">
+    <b>This is a mock for review.</b> Once you approve, I apply option 2 (compact + add more data) to the real <code>run-view.html</code> + <code>run-view.js</code> in your UAT working copy: combine the hero into a strip, make the Load grid 4-col with the freed room used for Variability + Decoupling, switch the lap table to a fixed full-width layout so Power/Cadence/Stride never clip, tighten card padding — and add a Snapshot button that renders the share-card on the right. I won't touch the repo until you say go.
+  </div>
+</div>
+
+<script>
+  // real Yamanakako-style demo (this screenshot's run: 9 laps)
+  var laps=[
+    {n:1,d:1.00,pace:"9:10",hr:112,pw:190,cad:152,len:0.68,z2:false},
+    {n:2,d:1.00,pace:"8:49",hr:136,pw:205,cad:156,len:0.71,z2:true},
+    {n:3,d:1.00,pace:"9:10",hr:138,pw:198,cad:155,len:0.70,z2:true},
+    {n:4,d:1.00,pace:"9:19",hr:142,pw:201,cad:157,len:0.71,z2:true},
+    {n:5,d:1.00,pace:"8:50",hr:144,pw:212,cad:158,len:0.72,z2:true},
+    {n:6,d:1.00,pace:"9:19",hr:145,pw:208,cad:156,len:0.71,z2:true},
+    {n:7,d:1.00,pace:"8:50",hr:148,pw:215,cad:159,len:0.72,z2:true},
+    {n:8,d:1.00,pace:"8:19",hr:144,pw:220,cad:160,len:0.73,z2:true},
+    {n:9,d:0.18,pace:"10:22",hr:136,pw:188,cad:150,len:0.66,z2:true}
+  ];
+  function ps(p){var a=p.split(":");return +a[0]*60+ +a[1];}
+  function fastestIdx(){var m=1e9,idx=-1;laps.forEach(function(l,i){if(l.d>0.5&&ps(l.pace)<m){m=ps(l.pace);idx=i;}});return idx;}
+  var FAST=fastestIdx();
+
+  function drawLapChart(elId){
+    var el=document.getElementById(elId);if(!el)return;el.innerHTML="";
+    var vals=laps.map(function(l){return ps(l.pace);});
+    var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),rg=(mx-mn)||1;
+    laps.forEach(function(l){
+      var norm=1-(ps(l.pace)-mn)/rg; // faster = taller
+      var h=Math.max(12,Math.round(norm*88)+12);
+      var b=document.createElement("div");
+      b.className="lapbar"+(l.z2?" z2":"");
+      b.style.height=h+"%";
+      var col=h<40?"#86efac":h<70?"#fcd34d":"#fb923c";
+      b.style.background=col;
+      b.title="Lap "+l.n+" · "+l.pace;
+      el.appendChild(b);
+    });
+  }
+  function drawProfile(elId){
+    var el=document.getElementById(elId);if(!el)return;el.innerHTML="";
+    var mx=Math.max.apply(null,laps.map(function(l){return l.pw;}));
+    laps.forEach(function(l){
+      var b=document.createElement("div");
+      b.className="pseg";
+      b.style.height=(25+(l.pw/mx)*70)+"%";
+      b.style.background=l.pw<200?"#16a34a":l.pw<215?"#d97706":"#ea580c";
+      el.appendChild(b);
+    });
+  }
+  function drawTable(elId,dense){
+    var el=document.getElementById(elId);if(!el)return;
+    var head="<thead><tr><th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>Pwr</th><th>Cad</th><th>Len</th></tr></thead>";
+    var rows=laps.map(function(l,i){
+      var cls=l.z2?" class=\"z2\"":"";
+      var pill=l.z2?'<span class="z2p">Z2</span>':"";
+      var fast=i===FAST?' class="fast"':"";
+      return "<tr"+cls+"><td>"+l.n+pill+"</td>"+
+        "<td>"+l.d.toFixed(2)+'<span class="u">km</span></td>'+
+        "<td"+fast+">"+l.pace+"</td>"+
+        "<td>"+l.hr+"</td>"+
+        "<td>"+l.pw+'<span class="u">W</span></td>'+
+        "<td>"+l.cad+"</td>"+
+        "<td>"+l.len.toFixed(2)+"</td></tr>";
+    }).join("");
+    el.innerHTML=head+"<tbody>"+rows+"</tbody>";
+  }
+
+  function setMode(m){
+    var full=m==="full";
+    document.getElementById("fullView").classList.toggle("hidden",!full);
+    document.getElementById("snapView").classList.toggle("hidden",full);
+    document.getElementById("noteFull").classList.toggle("hidden",!full);
+    document.getElementById("mFull").classList.toggle("active",full);
+    document.getElementById("mSnap").classList.toggle("active",!full);
+    if(full){drawProfile("profFull");drawLapChart("lapFull");drawTable("tblFull");}
+    else{drawLapChart("lapSnap");drawTable("tblSnap",true);}
+  }
+  setMode("full");
+</script>
+</body>
+</html>
