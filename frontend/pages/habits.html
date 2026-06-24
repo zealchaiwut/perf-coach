@@ -1468,6 +1468,21 @@
     }
 
     .today-card-title {
+    /* ── Insights panel ───────────────────────────────────────────────────── */
+    .insights-card {
+      margin-bottom: 10px;
+    }
+
+    .insights-hdr {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .insights-title {
       font-size: 13px;
       font-weight: 600;
       text-transform: uppercase;
@@ -2146,6 +2161,129 @@
     .habit-name-text[data-detail-trigger]:hover,
     .week-habit-name[data-detail-trigger]:hover {
       text-decoration-color: currentColor;
+    .insights-disclaimer {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    /* Insight cards list */
+    .insights-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .insight-card {
+      background: #f7f9fc;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .insight-line {
+      font-size: 13px;
+      color: var(--text-primary);
+      line-height: 1.45;
+    }
+
+    .insight-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .insight-bar-outer {
+      flex: 1;
+      height: 4px;
+      background: var(--card-border, rgba(13,30,67,0.06));
+      border-radius: 999px;
+      overflow: hidden;
+      max-width: 120px;
+    }
+
+    .insight-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.35s ease;
+    }
+
+    .insight-bar-positive { background: #2563eb; }
+    .insight-bar-negative { background: #d97706; }
+
+    .insight-coeff {
+      font-size: 10.5px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-tertiary);
+    }
+
+    .insight-coeff-strong  { color: #16a34a; }
+    .insight-coeff-moderate { color: #2563eb; }
+
+    /* Loading spinner */
+    .insights-loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-tertiary);
+      padding: 12px 0;
+    }
+
+    @keyframes insights-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .insights-spinner {
+      display: inline-block;
+      width: 0.875em;
+      height: 0.875em;
+      border: 2px solid var(--card-border);
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: insights-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* Building / still-learning state */
+    .insights-building {
+      text-align: center;
+      padding: 16px 8px;
+    }
+
+    .insights-building-icon {
+      font-size: 22px;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .insights-building-msg {
+      margin: 0 0 4px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .insights-building-sub {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Error / empty states */
+    .insights-error {
+      font-size: 12.5px;
+      color: var(--red);
+      padding: 10px 0;
+    }
+
+    .insights-empty {
+      font-size: 12.5px;
+      color: var(--text-tertiary);
+      padding: 10px 0;
     }
 
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
@@ -2165,6 +2303,7 @@
       .habit-detail-panel { margin: 0 16px 12px; }
       .detail-stat-value { font-size: 18px; }
       .detail-history-list { max-height: 200px; }
+      .insights-hdr { gap: 6px; }
     }
 
     /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
@@ -2194,6 +2333,8 @@
       .detail-stats-row { flex-direction: column; gap: 0; }
       .detail-stat-tile { padding: 10px; text-align: left; display: flex; align-items: center; gap: 8px; }
       .detail-stat-value { font-size: 16px; }
+
+      .insight-bar-outer { max-width: 80px; }
     }
   </style>
 </head>
@@ -2329,6 +2470,16 @@
           <span id="archived-count" style="color:var(--text-tertiary);font-weight:400;font-size:12px"></span>
         </button>
         <ul class="archived-list" id="archived-list" style="display:none"></ul>
+      </div>
+    </div>
+    <!-- Habit insights panel -->
+    <div id="insights-panel" class="card insights-card">
+      <div class="insights-hdr">
+        <span class="insights-title">Habit insights</span>
+        <span class="insights-disclaimer">Association, not causation</span>
+      </div>
+      <div id="insights-body">
+        <div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>
       </div>
     </div>
   </main>
@@ -2535,6 +2686,7 @@
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
   <script src="js/habits.js"></script>
+  <script src="js/habit-insights.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
 </body>
