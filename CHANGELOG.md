@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 80 — Weight goal projection and what-if simulation
+
+- #874: Add pure function compute_planned_series(plan, as_of_date)
+- #876: Add pure function to project goal arrival date
+- #877: Add simulate_what_if pure function for weight projection
+- #878: Add projection endpoint for arrival date and rate
+- #879: Add what-if simulation endpoint for goal rate preview
+
 ## Sprint 79 — Weight plans table, plan-line recompute, and CRUD endpoints
 
 - #861: Add weight_plans table: migration and SQLAlchemy models
@@ -16,6 +24,7 @@
 - #828: Wire Today quick-log writes with upsert and streak refresh
 - #829: Add Habits history calendar with day-status cells
 - #830: Add habit filter to history calendar view
+
 
 ## Sprint 77 — Habits v2 schema, streak/consistency services, and summary endpoint
 
