@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -63,6 +63,7 @@ from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
+from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import workout_reconcile as _workout_reconcile
@@ -85,6 +86,12 @@ def _derive_goal_pace(goal_time_seconds, distance_km):
 _start_time = time.monotonic()
 
 app = FastAPI()
+
+
+def _derive_goal_pace(goal_time_seconds, distance_km):
+    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
+    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
+    return pace
 
 
 def _today_bkk() -> _date:
@@ -1375,6 +1382,191 @@ def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User =
     arrival_date = str(result["arrival_date"]) if result["arrival_date"] else None
 
     return JSONResponse({"simulated_line": simulated_line, "arrival_date": arrival_date})
+
+
+# ── Weight plan endpoints (issue #864) ────────────────────────────────────────
+
+class WeightPlanCreateIn(BaseModel):
+    start_weight: float
+    goal_weight: float
+    start_date: str          # YYYY-MM-DD
+    goal_date: Optional[str] = None   # YYYY-MM-DD; may be omitted when rate is given
+    rate: Optional[float] = None      # target_rate_kg_per_week; may be omitted when goal_date is given
+    phase: Optional[str] = "cut"      # "cut" | "bulk" | "maintain"
+
+
+class WeightPlanPatchIn(BaseModel):
+    goal_weight: Optional[float] = None
+    goal_date: Optional[str] = None
+    rate: Optional[float] = None
+    phase: Optional[str] = None
+
+
+def _weight_plan_dict(p: WeightPlan) -> dict:
+    return {
+        "id": str(p.id),
+        "user_id": str(p.user_id),
+        "start_date": str(p.start_date),
+        "start_weight": float(p.start_weight_kg),
+        "goal_weight": float(p.goal_weight_kg),
+        "goal_date": str(p.goal_date) if p.goal_date is not None else None,
+        "rate": float(p.target_rate_kg_per_week) if p.target_rate_kg_per_week is not None else None,
+        "phase": p.phase,
+        "active": p.active,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _validate_weight_plan_fields(
+    start_weight: Optional[float],
+    goal_weight: Optional[float],
+    rate: Optional[float],
+    start_date_str: Optional[str],
+    goal_date_str: Optional[str],
+    phase: Optional[str],
+) -> None:
+    """Raise HTTPException 422 with a field-specific message if validation fails."""
+    if start_weight is not None and start_weight <= 0:
+        raise HTTPException(status_code=422, detail={"field": "start_weight", "msg": "start_weight must be positive"})
+    if goal_weight is not None and goal_weight <= 0:
+        raise HTTPException(status_code=422, detail={"field": "goal_weight", "msg": "goal_weight must be positive"})
+    if rate is not None and rate <= 0:
+        raise HTTPException(status_code=422, detail={"field": "rate", "msg": "rate must be positive"})
+
+    start_date = None
+    if start_date_str is not None:
+        try:
+            start_date = _date.fromisoformat(start_date_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be YYYY-MM-DD"})
+
+    goal_date = None
+    if goal_date_str is not None:
+        try:
+            goal_date = _date.fromisoformat(goal_date_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "goal_date", "msg": "goal_date must be YYYY-MM-DD"})
+
+    if start_date is not None and goal_date is not None and start_date >= goal_date:
+        raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be before goal_date"})
+
+    if phase is not None and start_weight is not None and goal_weight is not None:
+        if phase == "cut" and goal_weight >= start_weight:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "goal_weight", "msg": "cut phase requires goal_weight < start_weight"},
+            )
+        if phase == "bulk" and goal_weight <= start_weight:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "goal_weight", "msg": "bulk phase requires goal_weight > start_weight"},
+            )
+
+
+@app.post("/api/weight-plans", status_code=201)
+def create_weight_plan(body: WeightPlanCreateIn, user: User = Depends(resolve_user)):
+    _validate_weight_plan_fields(
+        start_weight=body.start_weight,
+        goal_weight=body.goal_weight,
+        rate=body.rate,
+        start_date_str=body.start_date,
+        goal_date_str=body.goal_date,
+        phase=body.phase,
+    )
+    start_date = _date.fromisoformat(body.start_date)
+    goal_date = _date.fromisoformat(body.goal_date) if body.goal_date else None
+
+    with Session(engine) as session:
+        plan = _wp_repo.create_plan(
+            session,
+            user_id=user.id,
+            start_date=start_date,
+            start_weight_kg=body.start_weight,
+            goal_weight_kg=body.goal_weight,
+            goal_date=goal_date,
+            target_rate_kg_per_week=body.rate,
+            phase=body.phase or "cut",
+        )
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(status_code=201, content=_weight_plan_dict(plan))
+
+
+@app.get("/api/weight-plans/active")
+def get_active_weight_plan(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        plan = _wp_repo.get_active_plan(session, user.id)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="No active weight plan")
+        return JSONResponse(_weight_plan_dict(plan))
+
+
+@app.patch("/api/weight-plans/{plan_id}")
+def patch_weight_plan(plan_id: str, body: WeightPlanPatchIn, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+
+    with Session(engine) as session:
+        plan = _wp_repo.get_plan_by_id(session, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Weight plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Resolve effective values after potential update for direction validation
+        new_goal_weight = body.goal_weight if body.goal_weight is not None else float(plan.goal_weight_kg)
+        new_start_weight = float(plan.start_weight_kg)
+        new_phase = body.phase if body.phase is not None else plan.phase
+        new_goal_date = body.goal_date  # may stay None
+        new_rate = body.rate
+
+        _validate_weight_plan_fields(
+            start_weight=new_start_weight,
+            goal_weight=new_goal_weight,
+            rate=new_rate,
+            start_date_str=None,
+            goal_date_str=new_goal_date,
+            phase=new_phase,
+        )
+
+        fields: dict = {}
+        if body.goal_weight is not None:
+            fields["goal_weight_kg"] = body.goal_weight
+        if body.goal_date is not None:
+            fields["goal_date"] = _date.fromisoformat(body.goal_date)
+        if body.rate is not None:
+            fields["target_rate_kg_per_week"] = body.rate
+        if body.phase is not None:
+            fields["phase"] = body.phase
+
+        plan = _wp_repo.update_plan(session, plan, fields)
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_weight_plan_dict(plan))
+
+
+@app.delete("/api/weight-plans/{plan_id}")
+def delete_weight_plan(plan_id: str, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+
+    with Session(engine) as session:
+        plan = _wp_repo.get_plan_by_id(session, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Weight plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        plan = _wp_repo.deactivate_plan(session, plan)
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_weight_plan_dict(plan))
+
 
 
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
@@ -3705,6 +3897,75 @@ def get_habit_progress(
         })
 
 
+# ── Per-habit detail summary endpoint (issue #831) ───────────────────────────
+
+@app.get("/api/habits/{habit_id}/summary")
+def get_habit_summary(
+    habit_id: str,
+    user: User = Depends(resolve_user),
+):
+    """Return per-habit stats for the detail panel.
+
+    Includes current streak, longest streak, and consistency pct
+    for the last 30 days."""
+    from backend.services.habit_stats import (
+        _current_streak_from_dates,
+        _best_streak_from_dates,
+    )
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+
+    today = _date.today()
+    lookback_30 = today - _timedelta(days=29)
+    lookback_365 = today - _timedelta(days=365)
+
+    with Session(engine) as session:
+        habit = session.get(Habit, hid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        if habit.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        all_logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id == hid,
+                HabitLog.user_id == user.id,
+                HabitLog.log_date >= lookback_365,
+                HabitLog.log_date <= today,
+            )
+            .all()
+        )
+
+    all_dates = {lg.log_date for lg in all_logs}
+    sorted_dates = sorted(all_dates)
+
+    if habit.tracking_type == "daily_checkmark":
+        current_streak = _current_streak_from_dates(today, all_dates)
+        longest_streak = _best_streak_from_dates(sorted_dates)
+    else:
+        current_streak = 0
+        longest_streak = 0
+
+    days_in_window = (today - lookback_30).days + 1  # 30 days
+    days_checked = len([d for d in all_dates if lookback_30 <= d <= today])
+    consistency_pct = (
+        round(days_checked / days_in_window * 100.0, 1)
+        if days_in_window > 0 else 0.0
+    )
+
+    return JSONResponse({
+        "habit": _habit_dict(habit),
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "consistency_pct": consistency_pct,
+        "days_checked": days_checked,
+        "days_total": days_in_window,
+    })
+
+
 # ── Habits week-view batch endpoint (issue #429) ─────────────────────────────
 
 @app.get("/api/habits/week")
@@ -3955,10 +4216,60 @@ def get_habits_week(
         })
 
 
+@app.get("/api/habits/summary")
+def get_habits_summary(user: User = Depends(resolve_user)):
+    """Return each active habit with its current streak for the Today quick-log surface."""
+    from datetime import date as _date_cls, timedelta as _td
+    from backend.services.habit_stats import _current_streak_from_dates
+    today = _date_cls.today()
+    lookback = today - _td(days=365)
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == user.id,
+                Habit.is_archived.is_(False),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        if not active_habits:
+            return JSONResponse({"habits": []})
+
+        habit_ids = [h.id for h in active_habits]
+        logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id.in_(habit_ids),
+                HabitLog.user_id == user.id,
+                HabitLog.log_date >= lookback,
+                HabitLog.log_date <= today,
+            )
+            .all()
+        )
+
+    logs_by_habit: dict = {}
+    for log in logs:
+        logs_by_habit.setdefault(log.habit_id, set()).add(log.log_date)
+
+    result = []
+    for habit in active_habits:
+        dated = logs_by_habit.get(habit.id, set())
+        streak = _current_streak_from_dates(today, dated) if habit.tracking_type == "daily_checkmark" else 0
+        entry = _habit_dict(habit)
+        entry["current_streak"] = streak
+        result.append(entry)
+
+    return JSONResponse({"habits": result})
+
+
 @app.get("/api/habits/logs")
 def get_habit_logs(
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    habit_id: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
 ):
     try:
@@ -3966,22 +4277,29 @@ def get_habit_logs(
         to_d = _date.fromisoformat(to_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    hid_filter = None
+    if habit_id is not None:
+        try:
+            hid_filter = _uuid.UUID(habit_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid habit_id")
     with Session(engine) as session:
-        rows = (
-            session.query(HabitLog)
-            .filter(
-                HabitLog.user_id == user.id,
-                HabitLog.log_date >= from_d,
-                HabitLog.log_date <= to_d,
-            )
-            .all()
+        q = session.query(HabitLog).filter(
+            HabitLog.user_id == user.id,
+            HabitLog.log_date >= from_d,
+            HabitLog.log_date <= to_d,
         )
+        if hid_filter is not None:
+            q = q.filter(HabitLog.habit_id == hid_filter)
+        rows = q.order_by(HabitLog.log_date.desc()).all()
         return JSONResponse([
             {
                 "id": str(r.id),
                 "habit_id": str(r.habit_id),
                 "user_id": str(r.user_id),
                 "logged_date": str(r.log_date),
+                "value": float(r.value) if r.value is not None else None,
+                "notes": r.notes,
             }
             for r in rows
         ])
