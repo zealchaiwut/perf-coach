@@ -7,6 +7,9 @@
 - #877: Add simulate_what_if pure function for weight projection
 - #878: Add projection endpoint for arrival date and rate
 - #879: Add what-if simulation endpoint for goal rate preview
+## Sprint 81 — Habit-outcome alignment function
+
+- #881: Add align_habit_and_outcome pure function with lag support
 
 ## Sprint 79 — Weight plans table, plan-line recompute, and CRUD endpoints
 
