@@ -5,7 +5,7 @@
   'use strict';
 
   const panelEl = () => document.getElementById('insights-panel');
-  const contentEl = () => document.getElementById('insights-content');
+  const contentEl = () => document.getElementById('insights-body');
 
   function _outcomeLabel(name) {
     return name

@@ -1488,10 +1488,52 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── Habit Insights ────────────────────────────────────────────────────────────
+
+async function loadInsights() {
+  const el = document.getElementById('insights-body');
+  if (!el) return;
+  el.innerHTML = '<div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>';
+  try {
+    const res = await fetch('/api/habits/insights');
+    if (!res.ok) {
+      el.innerHTML = `<div class="insights-error" role="alert">Error ${res.status}: could not load insights.</div>`;
+      return;
+    }
+    const data = await res.json();
+    if (data.status === 'not_enough_data') {
+      el.innerHTML =
+        '<div class="insights-building">' +
+          '<p class="insights-building-msg">Still learning your patterns.</p>' +
+          '<p class="insights-building-sub">Keep logging — insights appear once there\'s enough data to detect a reliable association.</p>' +
+        '</div>';
+      return;
+    }
+    const cards = (data.insights || []).map(ins => {
+      const r = typeof ins.coefficient === 'number' ? ins.coefficient : 0;
+      const pct = Math.min(100, Math.round(Math.abs(r) * 100));
+      const dir = r >= 0 ? 'positive' : 'negative';
+      return `<div class="insight-card">
+  <div class="insight-line">${ins.summary || ''}</div>
+  <div class="insight-indicator">
+    <div class="insight-bar-outer" title="r = ${r.toFixed(2)}">
+      <div class="insight-bar-fill insight-bar-${dir}" style="width:${pct}%"></div>
+    </div>
+    <span class="insight-coeff">r = ${r.toFixed(2)}</span>
+  </div>
+</div>`;
+    });
+    el.innerHTML = cards.join('') || '<div class="insights-empty">No confident associations found yet.</div>';
+  } catch (err) {
+    if (el) el.innerHTML = `<div class="insights-error" role="alert">Failed to load insights: ${err.message}</div>`;
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', () => {
   loadAndRender();
+  loadInsights();
 });
 
 window.addEventListener('userChanged', () => {
