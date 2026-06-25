@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DailyReadiness, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -72,6 +72,7 @@ from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
+from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
@@ -4214,55 +4215,6 @@ def get_habits_week(
             "streaks": streaks,
             "last_week": last_week,
         })
-
-
-@app.get("/api/habits/summary")
-def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with its current streak for the Today quick-log surface."""
-    from datetime import date as _date_cls, timedelta as _td
-    from backend.services.habit_stats import _current_streak_from_dates
-    today = _date_cls.today()
-    lookback = today - _td(days=365)
-
-    with Session(engine) as session:
-        active_habits = (
-            session.query(Habit)
-            .filter(
-                Habit.user_id == user.id,
-                Habit.is_archived.is_(False),
-            )
-            .order_by(Habit.sort_order)
-            .all()
-        )
-
-        if not active_habits:
-            return JSONResponse({"habits": []})
-
-        habit_ids = [h.id for h in active_habits]
-        logs = (
-            session.query(HabitLog)
-            .filter(
-                HabitLog.habit_id.in_(habit_ids),
-                HabitLog.user_id == user.id,
-                HabitLog.log_date >= lookback,
-                HabitLog.log_date <= today,
-            )
-            .all()
-        )
-
-    logs_by_habit: dict = {}
-    for log in logs:
-        logs_by_habit.setdefault(log.habit_id, set()).add(log.log_date)
-
-    result = []
-    for habit in active_habits:
-        dated = logs_by_habit.get(habit.id, set())
-        streak = _current_streak_from_dates(today, dated) if habit.tracking_type == "daily_checkmark" else 0
-        entry = _habit_dict(habit)
-        entry["current_streak"] = streak
-        result.append(entry)
-
-    return JSONResponse({"habits": result})
 
 
 @app.get("/api/habits/logs")
@@ -10899,6 +10851,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 _logging.getLogger(__name__).warning(
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
+            # Rebuild duration curve in background so performance scores and PR
+            # detection use up-to-date curve bests after thresholds change.
+            _trigger_curve_rebuild_background(uid)
         return JSONResponse(_prefs_row_dict(prefs))
 
 
@@ -12032,6 +11987,9 @@ async def accept_threshold_suggestions(
 
         prefs.updated_at = _now
         session.commit()
+        # Rebuild duration curve in background so performance scores and PR
+        # detection use up-to-date curve bests after thresholds are accepted.
+        _trigger_curve_rebuild_background(user.id)
         return JSONResponse({"written": written, "skipped": []})
 
 
@@ -12151,7 +12109,137 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
     })
 
 
+# ── Athlete detected personal records ─────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/detected-prs")
+def get_athlete_detected_prs(user: User = Depends(resolve_user)):
+    """Return automatically detected personal records for the authenticated athlete.
+
+    Computes speed, power, and volume records on the fly from run history and
+    the stored best-effort duration curve.  No manual PR entry is required.
+
+    Speed records: fastest estimated time at each standard distance (1 km, 1 mile,
+    5 km, 10 km, half marathon, marathon).
+    Power records: highest mean power at standard durations (1 min, 5 min, 20 min).
+    Volume records: longest run by distance, longest by duration, best weekly totals.
+
+    Returns 200 with ``speedRecords``, ``powerRecords``, and ``volumeRecords`` keys.
+    """
+    from backend.services.pr_detection import fetch_and_detect_records
+
+    uid = user.id
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        records = fetch_and_detect_records(uid, session)
+
+    return JSONResponse(records)
+
+
+def _trigger_curve_rebuild_background(user_id) -> None:
+    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
+
+    Used after threshold saves so the duration curve reflects the latest data
+    without blocking the HTTP response.  Errors are logged but do not propagate.
+    """
+    _curve_log = _logging.getLogger(__name__)
+
+    def _rebuild():
+        try:
+            from sqlalchemy.orm import Session as _Session
+            with _Session(engine) as _db:
+                _rebuild_athlete_duration_curve(user_id, _db)
+        except Exception as _exc:
+            _curve_log.warning(
+                "background curve rebuild failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_rebuild, daemon=True)
+    t.start()
+
+
 # ── Athlete performance scores ────────────────────────────────────────────────
+
+_performance_log = _logging.getLogger(__name__)
+
+_NEEDS_THRESHOLDS_REASON = (
+    "Set your FTP, threshold heart rate, or threshold pace to unlock performance scores."
+)
+
+
+def _check_needs_thresholds(preferences) -> bool:
+    """Return True when none of the three threshold values are set in preferences.
+
+    Checks ftp_w, threshold_hr, and threshold_pace_seconds_per_km. Returns True
+    when preferences is None or all three keys are absent or None.
+    """
+    if preferences is None:
+        return True
+    return not any(
+        preferences.get(k) is not None
+        for k in ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+    )
+
+
+def _build_performance_log_entry(
+    preferences,
+    runs,
+    endurance,
+    speed,
+):
+    """Assemble a structured log dict for the performance endpoint.
+
+    All field access is guarded — this function must never raise even when
+    preferences is None, runs is empty, or score dicts are missing keys.
+    """
+    user_preferences_found = preferences is not None
+
+    if preferences is not None:
+        ftp_w_present = bool(preferences.get("ftp_w") is not None)
+        threshold_hr_present = bool(preferences.get("threshold_hr") is not None)
+        threshold_pace_present = bool(preferences.get("threshold_pace_seconds_per_km") is not None)
+    else:
+        ftp_w_present = None
+        threshold_hr_present = None
+        threshold_pace_present = None
+
+    runs_assembled_count = len(runs) if runs else 0
+    laps_with_band_count = 0
+    total_laps_count = 0
+    for run in (runs or []):
+        laps = run.get("laps") or [] if isinstance(run, dict) else []
+        total_laps_count += len(laps)
+        laps_with_band_count += sum(1 for lap in laps if lap.get("band") is not None)
+
+    def _score_shape(result):
+        if not isinstance(result, dict):
+            return "null"
+        if result.get("state") == "needs_thresholds":
+            return "needs_thresholds"
+        if result.get("state") == "building_baseline":
+            return "building_baseline"
+        score = result.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return "numeric"
+        return "null"
+
+    return {
+        "event": "performance_score_computed",
+        "user_preferences_found": user_preferences_found,
+        "ftp_w_present": ftp_w_present,
+        "threshold_hr_present": threshold_hr_present,
+        "threshold_pace_seconds_per_km_present": threshold_pace_present,
+        "runs_assembled_count": runs_assembled_count,
+        "laps_with_band_count": laps_with_band_count,
+        "total_laps_count": total_laps_count,
+        "endurance_result_shape": _score_shape(endurance),
+        "speed_result_shape": _score_shape(speed),
+    }
+
 
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(user: User = Depends(resolve_user)):
@@ -12278,8 +12366,104 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             })
 
     # All DB access is finished above.  The pure functions below perform no I/O.
+
+    # AC #912: check for missing thresholds before calling score functions so the
+    # UI can render a prompt instead of an unexplained dash.
+    if _check_needs_thresholds(preferences):
+        _needs_thresholds_obj = {
+            "state": "needs_thresholds",
+            "reason": _NEEDS_THRESHOLDS_REASON,
+        }
+        log_entry = _build_performance_log_entry(
+            preferences=preferences,
+            runs=runs,
+            endurance=_needs_thresholds_obj,
+            speed=_needs_thresholds_obj,
+        )
+        _performance_log.info("performance score request", extra=log_entry)
+        return JSONResponse({
+            "endurance": _needs_thresholds_obj,
+            "speed": _needs_thresholds_obj,
+        })
+
     zone_constants = make_zone_constants()
     endurance = compute_endurance_score(runs, preferences, zone_constants)
     speed = compute_speed_score(runs, preferences, zone_constants)
 
+    log_entry = _build_performance_log_entry(
+        preferences=preferences,
+        runs=runs,
+        endurance=endurance,
+        speed=speed,
+    )
+    _performance_log.info("performance score request", extra=log_entry)
+
     return JSONResponse({"endurance": endurance, "speed": speed})
+
+
+# ── Athlete run personal records ───────────────────────────────────────────────
+
+_run_pr_log = _logging.getLogger(__name__)
+
+
+def _build_run_pr_log_entry(meta, records):
+    """Assemble a structured log dict for the run personal records endpoint.
+
+    All field access is guarded — never raises even when meta or records is None
+    or malformed.
+    """
+    duration_curve_populated = bool((meta or {}).get("duration_curve_populated", False))
+    runs_considered = int((meta or {}).get("runs_considered", 0))
+
+    def _count_detected(result_dict):
+        if not isinstance(result_dict, dict):
+            return 0
+        if "reason" in result_dict and len(result_dict) == 1:
+            return 0
+        return sum(
+            1
+            for k, v in result_dict.items()
+            if k not in ("debug", "reason")
+            and isinstance(v, dict)
+            and "value" in v
+        )
+
+    rec = records or {}
+    speed_count = _count_detected(rec.get("speedRecords", {}))
+    power_count = _count_detected(rec.get("powerRecords", {}))
+    volume_count = _count_detected(rec.get("volumeRecords", {}))
+
+    return {
+        "event": "run_pr_detected",
+        "duration_curve_populated": duration_curve_populated,
+        "runs_considered": runs_considered,
+        "records_returned": speed_count + power_count + volume_count,
+        "speed_records_count": speed_count,
+        "power_records_count": power_count,
+        "volume_records_count": volume_count,
+    }
+
+
+@app.get("/api/athletes/{athlete_id}/run-personal-records")
+def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
+    """Return auto-detected personal records from the athlete's run history.
+
+    Reads completed run workouts and the stored best-effort duration curve,
+    then delegates detection to the three pure functions in
+    ``backend.services.pr_detection``.  Each record dict contains ``value``,
+    ``date``, and ``sourceWorkout``; missing records carry a ``reason`` string
+    so the client can display an honest message rather than a blank.
+
+    Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
+    """
+    from backend.services.pr_detection import fetch_and_detect_records
+
+    uid = user.id
+    with Session(engine) as session:
+        raw = fetch_and_detect_records(uid, session)
+
+    meta = raw.pop("_meta", {})
+    log_entry = _build_run_pr_log_entry(meta, raw)
+    _run_pr_log.info("run_pr_detected", extra=log_entry)
+
+    return JSONResponse(raw)
