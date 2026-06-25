@@ -458,7 +458,6 @@ class TestEndpointCallsEnrichment:
     """Verify the enrichment is applied inside get_athlete_run_personal_records."""
 
     def _call_endpoint_with_empty_data(self, caplog):
-        import logging
         import backend.main as main_mod
 
         fake_raw = {
@@ -489,7 +488,6 @@ class TestEndpointCallsEnrichment:
 
     def test_endpoint_power_slots_populated_when_no_power_data(self, caplog):
         """AC1: endpoint response has best1Min in powerRecords when power curve is empty."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         assert "best1Min" in body["powerRecords"], (
             f"best1Min must be present; powerRecords was: {body['powerRecords']}"
@@ -497,7 +495,6 @@ class TestEndpointCallsEnrichment:
 
     def test_endpoint_speed_slots_populated_when_no_runs(self, caplog):
         """AC1: endpoint response has 1km in speedRecords when no runs exist."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         assert "1km" in body["speedRecords"], (
             f"1km must be present; speedRecords was: {body['speedRecords']}"
@@ -505,13 +502,11 @@ class TestEndpointCallsEnrichment:
 
     def test_endpoint_volume_slots_populated_when_no_runs(self, caplog):
         """AC1: endpoint response has longestByDistance in volumeRecords when no runs exist."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         assert "longestByDistance" in body["volumeRecords"]
 
     def test_endpoint_power_slot_has_reason_not_value(self, caplog):
         """AC1: endpoint power slot has reason, not value."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         slot = body["powerRecords"]["best1Min"]
         assert "reason" in slot
@@ -519,13 +514,11 @@ class TestEndpointCallsEnrichment:
 
     def test_endpoint_power_reason_mentions_power(self, caplog):
         """AC2: endpoint power reason mentions power, not GPS."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         reason = body["powerRecords"]["best1Min"]["reason"]
         assert "power" in reason.lower(), f"Got: {reason!r}"
 
     def test_endpoint_meta_not_present(self, caplog):
         """_meta must be stripped before the response is returned."""
-        import logging
         body = self._call_endpoint_with_empty_data(caplog)
         assert "_meta" not in body
