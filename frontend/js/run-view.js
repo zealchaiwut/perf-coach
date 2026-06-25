@@ -414,16 +414,19 @@
 
   // ── Tile helpers ──────────────────────────────────────────────────────────
 
-  function tile(label, value, extra) {
+  function tile(label, value, extra, pillHtml) {
+    var labelContent = pillHtml
+      ? label + '<span class="rv-pill ' + pillHtml + '"></span>'
+      : label;
     return (
       '<div class="rv-tile' +
       (extra || "") +
       '">' +
+      '<div class="rv-tile-label">' +
+      labelContent +
+      "</div>" +
       '<div class="rv-tile-val rv-mono">' +
       dash(value) +
-      "</div>" +
-      '<div class="rv-tile-label">' +
-      label +
       "</div>" +
       "</div>"
     );
@@ -431,6 +434,34 @@
 
   function heroTile(label, value) {
     return tile(label, value, " rv-tile--hero");
+  }
+
+  function strydTile(label, value) {
+    return (
+      '<div class="rv-tile">' +
+      '<div class="rv-tile-label">' +
+      label +
+      ' <span class="rv-pill rv-pill--stryd">STRYD</span>' +
+      "</div>" +
+      '<div class="rv-tile-val rv-mono">' +
+      dash(value) +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function stravaTile(label, value) {
+    return (
+      '<div class="rv-tile">' +
+      '<div class="rv-tile-label">' +
+      label +
+      ' <span class="rv-pill rv-pill--strava">STRAVA</span>' +
+      "</div>" +
+      '<div class="rv-tile-val rv-mono">' +
+      dash(value) +
+      "</div>" +
+      "</div>"
+    );
   }
 
   // ── Source strip ──────────────────────────────────────────────────────────
@@ -496,24 +527,37 @@
       "</div>" +
       "</div>";
 
-    // Basic tiles: Distance, Avg Pace, Duration
+    // Hero strip: Distance, Avg Pace, Duration side-by-side
     var dist = w.distance_km ? w.distance_km.toFixed(2) + " km" : null;
     var pace = fmtPace(w.distance_km, w.duration_seconds);
     var dur = fmtDuration(w.duration_seconds);
     var heroSection =
-      '<div class="rv-card rv-hero-row">' +
-      tile("Distance", dist, " rv-tile--lg") +
-      tile("Avg Pace", pace !== "—" ? pace : null, " rv-tile--lg") +
-      tile("Duration", dur, " rv-tile--lg") +
+      '<div class="rv-card">' +
+      '<div class="rv-hero-strip">' +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(dist) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Distance</div>' +
+      "</div>" +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(pace !== "—" ? pace : null) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Avg Pace</div>' +
+      "</div>" +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(dur !== "—" ? dur : null) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Duration</div>' +
+      "</div>" +
+      "</div>" +
       "</div>";
 
-    // Load & Intensity tiles
+    // Load & Intensity tiles — 4-column compact grid
     var z2min = w.zone2_minutes != null ? w.zone2_minutes + " min" : null;
     var elev = w.elevation_m != null ? w.elevation_m + " m" : null;
     var avgHr = w.avg_hr != null ? w.avg_hr + " bpm" : null;
     var maxHr = w.max_hr != null ? w.max_hr + " bpm" : null;
     var avgPwr =
       strydPresent && w.avg_power != null ? w.avg_power + " W" : null;
+    var npVal =
+      strydPresent && w.np != null ? w.np + " W" : null;
     var maxPwr =
       strydPresent && w.max_power != null ? w.max_power + " W" : null;
     var stride =
@@ -523,19 +567,42 @@
         ? w.avg_cadence_spm + " spm"
         : null;
 
+    // Variability Index = np / avg_power, rounded to 2 decimal places
+    var varIndex = null;
+    if (w.np != null && w.avg_power != null && w.avg_power !== 0) {
+      varIndex = (w.np / w.avg_power).toFixed(2);
+    }
+
+    // Decoupling from aerobic_decoupling.decoupling_pct
+    var aerDecoupling = data.aerobic_decoupling;
+    var decouplingPct = (aerDecoupling && aerDecoupling.decoupling_pct != null)
+      ? aerDecoupling.decoupling_pct.toFixed(1) + "%"
+      : null;
+
+    var elevTile = stravaSrc ? stravaTile("Elevation", elev) : tile("Elevation", elev);
+    var maxHrTile = stravaSrc ? stravaTile("Max HR", maxHr) : tile("Max HR", maxHr);
+    var avgPwrTile = strydPresent ? strydTile("Avg Power", avgPwr) : tile("Avg Power", avgPwr);
+    var npTile = strydPresent ? strydTile("NP", npVal) : tile("NP", npVal);
+    var maxPwrTile = strydPresent ? strydTile("Max Power", maxPwr) : tile("Max Power", maxPwr);
+    var strideTile = strydPresent ? strydTile("Stride", stride) : tile("Stride", stride);
+    var cadTile = strydPresent ? strydTile("Cadence", cad) : tile("Cadence", cad);
+
     var intensitySection =
       '<div class="rv-card rv-intensity">' +
       '<h2 class="rv-section-title">Load &amp; Intensity</h2>' +
       '<div class="rv-tile-grid">' +
       heroTile("TSS", w.tss != null ? Math.round(w.tss) : null) +
       tile("Zone 2", z2min) +
-      tile("Elevation", elev) +
+      elevTile +
       tile("Avg HR", avgHr) +
-      tile("Max HR", maxHr) +
-      tile("Avg Power", avgPwr) +
-      tile("Max Power", maxPwr) +
-      tile("Stride Length", stride) +
-      tile("Cadence", cad) +
+      maxHrTile +
+      avgPwrTile +
+      npTile +
+      maxPwrTile +
+      strideTile +
+      cadTile +
+      tile("Var. Index", varIndex) +
+      tile("Decoupling", decouplingPct) +
       "</div>" +
       '<p class="rv-footnote">NP · stride = avg per step · cadence = steps/min</p>' +
       "</div>";
