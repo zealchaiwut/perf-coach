@@ -12155,6 +12155,24 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
 
 _performance_log = _logging.getLogger(__name__)
 
+_NEEDS_THRESHOLDS_REASON = (
+    "Set your FTP, threshold heart rate, or threshold pace to unlock performance scores."
+)
+
+
+def _check_needs_thresholds(preferences) -> bool:
+    """Return True when none of the three threshold values are set in preferences.
+
+    Checks ftp_w, threshold_hr, and threshold_pace_seconds_per_km. Returns True
+    when preferences is None or all three keys are absent or None.
+    """
+    if preferences is None:
+        return True
+    return not any(
+        preferences.get(k) is not None
+        for k in ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+    )
+
 
 def _build_performance_log_entry(
     preferences,
@@ -12189,6 +12207,8 @@ def _build_performance_log_entry(
     def _score_shape(result):
         if not isinstance(result, dict):
             return "null"
+        if result.get("state") == "needs_thresholds":
+            return "needs_thresholds"
         if result.get("state") == "building_baseline":
             return "building_baseline"
         score = result.get("score")
@@ -12335,6 +12355,26 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             })
 
     # All DB access is finished above.  The pure functions below perform no I/O.
+
+    # AC #912: check for missing thresholds before calling score functions so the
+    # UI can render a prompt instead of an unexplained dash.
+    if _check_needs_thresholds(preferences):
+        _needs_thresholds_obj = {
+            "state": "needs_thresholds",
+            "reason": _NEEDS_THRESHOLDS_REASON,
+        }
+        log_entry = _build_performance_log_entry(
+            preferences=preferences,
+            runs=runs,
+            endurance=_needs_thresholds_obj,
+            speed=_needs_thresholds_obj,
+        )
+        _performance_log.info("performance score request", extra=log_entry)
+        return JSONResponse({
+            "endurance": _needs_thresholds_obj,
+            "speed": _needs_thresholds_obj,
+        })
+
     zone_constants = make_zone_constants()
     endurance = compute_endurance_score(runs, preferences, zone_constants)
     speed = compute_speed_score(runs, preferences, zone_constants)
