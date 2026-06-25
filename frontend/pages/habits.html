@@ -796,6 +796,56 @@
       flex-shrink: 0;
     }
 
+    /* ── Coaching copy (issue #920) ───────────────────────────────────────── */
+    .coaching-copy {
+      font-size: 11px;
+      color: var(--text-secondary, #6b7280);
+      white-space: normal;
+      line-height: 1.3;
+    }
+    .coaching-copy--miss { color: #0369a1; }
+    .coaching-copy--milestone {
+      color: #7c3aed;
+      font-weight: 600;
+    }
+    .coaching-copy--streak { color: #059669; }
+    .coaching-copy--weekly { color: var(--text-secondary, #6b7280); }
+
+    /* Milestone banner */
+    .habit-milestone-banner {
+      position: relative;
+      background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+      border: 1px solid #c4b5fd;
+      border-radius: 10px;
+      padding: 14px 40px 14px 16px;
+      margin: 12px 0;
+    }
+    .habit-milestone-msg {
+      font-size: 14px;
+      font-weight: 600;
+      color: #5b21b6;
+      margin: 0 0 4px;
+      line-height: 1.4;
+    }
+    .habit-milestone-identity {
+      font-size: 12px;
+      color: #7c3aed;
+      margin: 0;
+      font-style: italic;
+    }
+    .habit-milestone-close {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: none;
+      border: none;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      color: #7c3aed;
+      padding: 0 4px;
+    }
+
     /* ── Daily grid overflow menu ──────────────────────────────────────────── */
     .habit-actions-hdr { min-width: 32px; }
 
@@ -2829,6 +2879,7 @@
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
   <script src="js/habit-wheel-fx.js"></script>
+  <script src="js/lib/habit-voice.js"></script>
   <script src="js/habits.js"></script>
   <script src="js/habit-insights.js"></script>
   <script src="js/user.js"></script>

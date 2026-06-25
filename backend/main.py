@@ -3386,10 +3386,20 @@ class HabitLogUpsertIn(BaseModel):
 
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with streak and 30-day consistency stats."""
+    """Return each active habit with streak, consistency, and coaching fields.
+
+    Added fields (issue #920):
+      week_done   — distinct days logged in the current Mon–Sun week (int)
+      total_logs  — all-time log count for this habit (int)
+
+    These are sourced from the same log fetch; no extra DB queries.
+    """
     from datetime import date as _date_cls, timedelta as _td
     today = _date_cls.today()
     window_start = today - _td(days=29)
+    # Current week boundaries (Mon–Sun)
+    week_start = today - _td(days=today.weekday())
+    week_end = week_start + _td(days=6)
 
     with Session(engine) as session:
         active_habits = (
@@ -3429,6 +3439,13 @@ def get_habits_summary(user: User = Depends(resolve_user)):
         entry["current_streak"] = streak_data["current_streak"]
         entry["longest_streak"] = streak_data["longest_streak"]
         entry["consistency_percent"] = consistency_data["consistency_percent"]
+        # Coaching fields (issue #920) — sourced from existing log fetch
+        week_dates = {
+            lg.log_date for lg in habit_logs
+            if week_start <= lg.log_date <= week_end
+        }
+        entry["week_done"] = len(week_dates)
+        entry["total_logs"] = len(habit_logs)
         result.append(entry)
 
     return JSONResponse({"habits": result})
