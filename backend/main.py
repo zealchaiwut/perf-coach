@@ -4233,55 +4233,6 @@ def get_habits_week(
         })
 
 
-@app.get("/api/habits/summary")
-def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with its current streak for the Today quick-log surface."""
-    from datetime import date as _date_cls, timedelta as _td
-    from backend.services.habit_stats import _current_streak_from_dates
-    today = _date_cls.today()
-    lookback = today - _td(days=365)
-
-    with Session(engine) as session:
-        active_habits = (
-            session.query(Habit)
-            .filter(
-                Habit.user_id == user.id,
-                Habit.is_archived.is_(False),
-            )
-            .order_by(Habit.sort_order)
-            .all()
-        )
-
-        if not active_habits:
-            return JSONResponse({"habits": []})
-
-        habit_ids = [h.id for h in active_habits]
-        logs = (
-            session.query(HabitLog)
-            .filter(
-                HabitLog.habit_id.in_(habit_ids),
-                HabitLog.user_id == user.id,
-                HabitLog.log_date >= lookback,
-                HabitLog.log_date <= today,
-            )
-            .all()
-        )
-
-    logs_by_habit: dict = {}
-    for log in logs:
-        logs_by_habit.setdefault(log.habit_id, set()).add(log.log_date)
-
-    result = []
-    for habit in active_habits:
-        dated = logs_by_habit.get(habit.id, set())
-        streak = _current_streak_from_dates(today, dated) if habit.tracking_type == "daily_checkmark" else 0
-        entry = _habit_dict(habit)
-        entry["current_streak"] = streak
-        result.append(entry)
-
-    return JSONResponse({"habits": result})
-
-
 @app.get("/api/habits/logs")
 def get_habit_logs(
     from_date: str = Query(alias="from"),
