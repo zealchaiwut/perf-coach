@@ -435,6 +435,20 @@
 
   // ── Training-load surfaces (issue #528) ─────────────────────────────────────
   var volumeChart = null;
+  var _lastReadinessData = null;
+
+  // The readiness sparklines are <canvas> elements sized to their container's
+  // pixel width at render time, and the volume chart is a Chart.js canvas.
+  // When the detail panel opens/closes on desktop it resizes the left column,
+  // so re-draw both at the new width (after the grid has settled).
+  function reflowPanelCharts() {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (_lastReadinessData) renderReadinessWidget(_lastReadinessData);
+        if (volumeChart && typeof volumeChart.resize === "function") volumeChart.resize();
+      });
+    });
+  }
 
   function fmtLoadNum(v) {
     if (v === null || v === undefined || isNaN(v)) return "—";
@@ -509,6 +523,7 @@
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
+    _lastReadinessData = data;
 
     if (data.building_baseline) {
       el.innerHTML =
@@ -1312,6 +1327,7 @@
 
     if (isDesktop()) {
       if (wrapper) wrapper.classList.add("has-panel");
+      reflowPanelCharts();
     } else {
       if (overlay) {
         overlay.classList.add("is-open");
@@ -1510,6 +1526,7 @@
     }
     if (wrapper) wrapper.classList.remove("has-panel");
     document.body.style.overflow = "";
+    if (isDesktop()) reflowPanelCharts();
 
     var formWrap = document.getElementById("dp-form-wrap");
     var formActions = document.getElementById("dp-actions-form");
