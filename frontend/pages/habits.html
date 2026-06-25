@@ -115,6 +115,136 @@
       padding: 16px 18px;
     }
 
+    /* ── Theme 2: tinted card + raised white ring plate + fire ──────────── */
+    .hw2-card {
+      position: relative;
+      overflow: hidden;
+      border: 1.5px solid rgba(53, 99, 212, 0.18);
+      background: linear-gradient(180deg, #eef3ff 0%, #ffffff 62%);
+      transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+    }
+    .hw2-card.is-lit {
+      background: linear-gradient(180deg, #fff1de 0%, #fff9f1 64%);
+      border-color: rgba(217, 119, 6, 0.30);
+      box-shadow: 0 14px 44px rgba(180, 83, 9, 0.26);
+    }
+
+    .hw2-plate-wrap { width: 168px; height: 168px; }
+
+    .hw2-plate {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 10px 26px rgba(20,40,90,0.16), inset 0 0 0 1.5px rgba(13,30,67,0.05);
+      transition: box-shadow 0.5s ease;
+      z-index: 2;
+    }
+    .hw2-card.is-lit .hw2-plate {
+      box-shadow: 0 10px 30px rgba(180,83,9,0.32), inset 0 0 0 1.5px rgba(217,119,6,0.10);
+    }
+
+    .hw2-wheel-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; overflow: visible; }
+
+    .hw2-seg {
+      fill: none; stroke-width: 18; stroke-linecap: round;
+      transition: stroke 0.3s ease;
+    }
+    .hw2-seg-done     { stroke: #16a34a; }
+    .hw2-seg-partial  { stroke: #d97706; }
+    .hw2-seg-today    { stroke: #3563d4; }
+    .hw2-seg-upcoming { stroke: #e4e8f0; }
+
+    .hw2-center { z-index: 4; }
+    .hw2-center-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 30px; font-weight: 700; line-height: 1; color: #3563d4;
+      transition: color 0.4s ease;
+    }
+    .hw2-card.is-lit .hw2-center-num { color: #d97706; }
+    .hw2-center.is-done .hw2-center-num { color: #16a34a; }
+    .hw2-center-sub {
+      margin-top: 3px; font-size: 8px; font-weight: 800; letter-spacing: 0.10em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .hw2-center-check { width: 28px; height: 28px; color: #16a34a; }
+
+    @keyframes hw2-center-tick { 0%{transform:scale(1)} 45%{transform:scale(1.18)} 100%{transform:scale(1)} }
+    .hw2-center.tick { animation: hw2-center-tick 0.4s ease; }
+
+    /* Fire streak badge (visible only while lit) */
+    .hw2-badge {
+      position: absolute; top: 14px; right: 16px;
+      display: none; align-items: center; gap: 5px;
+      padding: 5px 11px; border-radius: 999px; background: #fff;
+      border: 1.5px solid rgba(217,119,6,0.35); color: #d97706;
+      font-size: 11.5px; font-weight: 800;
+      box-shadow: 0 4px 12px rgba(180,83,9,0.18); z-index: 6;
+    }
+    .hw2-card.is-lit .hw2-badge { display: inline-flex; }
+
+    /* Fire layer behind the plate */
+    .hw2-fire {
+      position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+      width: 158px; height: 132px; z-index: 1; pointer-events: none;
+      opacity: 0; transition: opacity 0.45s ease;
+    }
+    .hw2-card.is-lit .hw2-fire { opacity: 1; }
+    .hw2-glow {
+      position: absolute; left: 22%; right: 22%; top: 30%; height: 70%;
+      background: radial-gradient(ellipse at 50% 80%, rgba(249,150,40,0.42), rgba(249,115,22,0) 70%);
+      filter: blur(8px); opacity: 0; transition: opacity 0.5s ease; z-index: 0; pointer-events: none;
+    }
+    .hw2-card.is-lit .hw2-glow { opacity: 1; }
+    .hw2-flame {
+      position: absolute; bottom: 0; left: 50%; width: 56px; height: 96px; margin-left: -28px;
+      background: linear-gradient(to top, #fde047 0%, #fb923c 42%, #ef4444 78%, rgba(239,68,68,0) 100%);
+      border-radius: 50% 50% 50% 50% / 64% 64% 36% 36%;
+      transform-origin: 50% 100%; filter: blur(1px);
+      animation: hw2-flicker 0.9s ease-in-out infinite alternate;
+    }
+    .hw2-flame.f2 { width: 38px; margin-left: -19px; height: 76px; left: 34%; opacity: 0.85; animation-duration: 0.75s; }
+    .hw2-flame.f3 { width: 34px; margin-left: -17px; height: 70px; left: 66%; opacity: 0.8; animation-duration: 1.05s; }
+    @keyframes hw2-flicker {
+      0%{transform:scaleY(0.94) scaleX(1.02) skewX(-2deg)}
+      50%{transform:scaleY(1.06) scaleX(0.97) skewX(3deg)}
+      100%{transform:scaleY(0.98) scaleX(1.03) skewX(-3deg)}
+    }
+    .hw2-ember {
+      position: absolute; bottom: 22px; width: 5px; height: 5px; border-radius: 50%;
+      background: #fbbf24; box-shadow: 0 0 6px 1px rgba(251,191,36,0.8); opacity: 0;
+    }
+    .hw2-card.is-lit .hw2-ember { animation: hw2-ember-rise var(--dur,2.4s) ease-in var(--delay,0s) infinite; }
+    @keyframes hw2-ember-rise {
+      0%{transform:translate(0,0) scale(1); opacity:0} 12%{opacity:0.9}
+      100%{transform:translate(var(--dx,0),-100px) scale(0.4); opacity:0}
+    }
+
+    /* Check-in FX: burst ring + confetti + slice pop */
+    .hw2-fx { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: visible; }
+    .hw2-burst {
+      position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+      border-radius: 50%; border: 3px solid #3563d4; opacity: 0;
+    }
+    .hw2-burst.go { animation: hw2-burst 0.55s ease-out forwards; }
+    @keyframes hw2-burst { 0%{transform:scale(0.4); opacity:0.9} 100%{transform:scale(3.4); opacity:0} }
+    .hw2-confetti { position: absolute; width: 7px; height: 7px; border-radius: 1.5px; opacity: 0; }
+    .hw2-confetti.go { animation: hw2-confetti 0.7s ease-out forwards; }
+    @keyframes hw2-confetti {
+      0%{transform:translate(0,0) rotate(0); opacity:1}
+      100%{transform:translate(var(--cx),var(--cy)) rotate(var(--cr)); opacity:0}
+    }
+    @keyframes hw2-slice-pop {
+      0%{stroke-width:18} 40%{stroke-width:27} 70%{stroke-width:15} 100%{stroke-width:18}
+    }
+    .hw2-seg.pop { animation: hw2-slice-pop 0.55s cubic-bezier(0.34,1.56,0.64,1); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hw2-card, .hw2-plate, .hw2-center-num, .hw2-fire, .hw2-glow { transition: none; }
+      .hw2-flame, .hw2-ember, .hw2-burst.go, .hw2-confetti.go, .hw2-seg.pop, .hw2-center.tick {
+        animation: none !important;
+      }
+      .hw2-burst.go, .hw2-confetti.go { opacity: 0; }
+    }
+
     .hero-card-title {
       font-size: 11px;
       font-weight: 600;
@@ -1468,6 +1598,13 @@
     }
 
     .today-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
     /* ── Insights panel ───────────────────────────────────────────────────── */
     .insights-card {
       margin-bottom: 10px;
@@ -2161,6 +2298,7 @@
     .habit-name-text[data-detail-trigger]:hover,
     .week-habit-name[data-detail-trigger]:hover {
       text-decoration-color: currentColor;
+    }
     .insights-disclaimer {
       font-size: 10.5px;
       color: var(--text-tertiary);
@@ -2388,16 +2526,21 @@
     <!-- Hero row: Card A (week wheel) | Card B (3-up stats) -->
     <div class="hero-row" id="hero-row">
 
-      <!-- Card A: Week Wheel -->
-      <div class="card hero-wheel-card" id="wheel-card">
+      <!-- Card A: Week Wheel (themed: tinted card + raised white plate) -->
+      <div class="card hero-wheel-card hw2-card" id="wheel-card">
         <p class="hero-card-title">This week</p>
+        <div class="hw2-badge" id="wheel-fire-badge" aria-hidden="true">🔥 <span data-streak>0</span>-day streak</div>
         <div class="wheel-and-info">
-          <!-- SVG wheel — 7 arc segments drawn by JS -->
-          <div class="wheel-wrap" id="wheel-wrap">
-            <svg id="week-wheel-svg" class="week-wheel-svg" viewBox="0 0 148 148" aria-hidden="true">
-              <!-- arcs and day labels injected by habits.js -->
+          <!-- SVG wheel — 7 themed arc segments drawn by habit-wheel-fx.js -->
+          <div class="wheel-wrap hw2-plate-wrap" id="wheel-wrap">
+            <div class="hw2-glow" aria-hidden="true"></div>
+            <div class="hw2-fire" id="wheel-fire" aria-hidden="true"></div>
+            <div class="hw2-plate" aria-hidden="true"></div>
+            <svg id="week-wheel-svg" class="week-wheel-svg hw2-wheel-svg" viewBox="0 0 200 200" aria-hidden="true">
+              <!-- arcs injected by habit-wheel-fx.js -->
             </svg>
-            <div class="wheel-center">
+            <div class="hw2-fx" id="wheel-fx" aria-hidden="true"></div>
+            <div class="wheel-center hw2-center" id="wheel-center">
               <span class="wheel-pct" id="wheel-pct">--%</span>
               <span class="wheel-sublabel" id="wheel-days-line">0 of 7 days</span>
             </div>
@@ -2685,6 +2828,7 @@
   <script src="js/nav.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
+  <script src="js/habit-wheel-fx.js"></script>
   <script src="js/habits.js"></script>
   <script src="js/habit-insights.js"></script>
   <script src="js/user.js"></script>

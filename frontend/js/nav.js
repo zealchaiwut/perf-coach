@@ -229,7 +229,7 @@
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href =
-      "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css";
+      "https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css";
     // Insert early so icons render before first paint on slow connections.
     var head = document.head;
     if (head.firstChild) head.insertBefore(link, head.firstChild);

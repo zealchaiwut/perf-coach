@@ -233,13 +233,16 @@ def test_ac4_pace_toggle_button():
     ), "run-view.js must include a Pace toggle button for the lap chart"
 
 
-def test_ac4_hr_toggle_button():
-    """An HR toggle button must be present in the lap chart controls."""
+def test_ac4_hr_line_always_shown():
+    """HR is now always drawn as a line on the lap chart (its own scale) rather
+    than a bar-toggle option — the bar toggle is Pace/Power only."""
     js = _js()
-    assert (
-        'data-metric="hr"' in js
-        or "data-metric='hr'" in js
-    ), "run-view.js must include an HR toggle button for the lap chart"
+    assert "rv2-hr-svg" in js and "polyline" in js, (
+        "run-view.js must render HR as a line series (rv2-hr-svg polyline) on the lap chart"
+    )
+    assert "rv2-hr-key" in js, (
+        "the lap chart legend must include the HR series (rv2-hr-key) with its bpm range"
+    )
 
 
 def test_ac4_power_toggle_button():

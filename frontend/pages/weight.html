@@ -515,10 +515,16 @@
       /* Three-stat row */
       .progress-stat-row {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
         gap: 6px;
         margin-bottom: 14px;
         text-align: center;
+      }
+      .pstat-val-amber {
+        color: #d97706;
+      }
+      .pstat-date-amber {
+        color: #d97706;
       }
       .pstat-lbl {
         font-size: 10px;
@@ -2093,10 +2099,19 @@
                   </div>
                 </div>
                 <div>
+                  <div class="pstat-val pstat-val-amber" id="pstat-next-val">
+                    -- kg
+                  </div>
+                  <div class="pstat-lbl">Next goal</div>
+                  <div class="pstat-date pstat-date-amber" id="pstat-next-date">
+                    --
+                  </div>
+                </div>
+                <div>
                   <div class="pstat-val pstat-val-green" id="pstat-goal-val">
                     -- kg
                   </div>
-                  <div class="pstat-lbl">Goal</div>
+                  <div class="pstat-lbl">Final goal</div>
                   <div class="pstat-date pstat-date-green" id="pstat-goal-date">
                     --
                   </div>

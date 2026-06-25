@@ -238,11 +238,13 @@
     var bar = document.getElementById("filter-bar");
     if (!bar) return;
 
-    // Type pills row — All / Run / Lift / WOD / Bike
+    // Type pills row — All / Run / Lift (WOD and Bike disabled for now)
     var chipsRow = document.createElement('div');
     chipsRow.className = 'fb-chips-row';
-    var TYPE_OPTS   = ['all','run','lift','wod','bike'];
+    var TYPE_OPTS   = ['all','run','lift'];
     var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
+    // A stale ?type=wod/bike URL would filter to a now-hidden pill — fall back to All.
+    if (TYPE_OPTS.indexOf(filters.type) === -1) filters.type = 'all';
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -435,6 +437,20 @@
 
   // ── Training-load surfaces (issue #528) ─────────────────────────────────────
   var volumeChart = null;
+  var _lastReadinessData = null;
+
+  // The readiness sparklines are <canvas> elements sized to their container's
+  // pixel width at render time, and the volume chart is a Chart.js canvas.
+  // When the detail panel opens/closes on desktop it resizes the left column,
+  // so re-draw both at the new width (after the grid has settled).
+  function reflowPanelCharts() {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (_lastReadinessData) renderReadinessWidget(_lastReadinessData);
+        if (volumeChart && typeof volumeChart.resize === "function") volumeChart.resize();
+      });
+    });
+  }
 
   function fmtLoadNum(v) {
     if (v === null || v === undefined || isNaN(v)) return "—";
@@ -509,6 +525,7 @@
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
+    _lastReadinessData = data;
 
     if (data.building_baseline) {
       el.innerHTML =
@@ -846,6 +863,44 @@
   // ── Log list rendering ────────────────────────────────────────────────────
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
+  // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
+  function buildMonthSeparator(dateStr, agg) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var sep = document.createElement('div');
+    sep.className = 'month-sep';
+
+    var title = document.createElement('div');
+    title.className = 'month-sep-title';
+    title.textContent = isNaN(d.getMonth())
+      ? (dateStr || '').slice(0, 7)
+      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    sep.appendChild(title);
+
+    var stats = document.createElement('div');
+    stats.className = 'month-sep-stats';
+    var parts = [
+      ['Run TSS', agg ? Math.round(agg.runTss) : 0],
+      ['Lift TSS', agg ? Math.round(agg.liftTss) : 0],
+      ['Time', (agg && agg.secs) ? fmtDuration(agg.secs) : '0min'],
+      ['KM', agg ? (Math.round(agg.km * 10) / 10) : 0],
+    ];
+    parts.forEach(function (p) {
+      var chip = document.createElement('span');
+      chip.className = 'month-stat';
+      var val = document.createElement('span');
+      val.className = 'month-stat-val';
+      val.textContent = p[1];
+      var lbl = document.createElement('span');
+      lbl.className = 'month-stat-lbl';
+      lbl.textContent = p[0];
+      chip.appendChild(val);
+      chip.appendChild(lbl);
+      stats.appendChild(chip);
+    });
+    sep.appendChild(stats);
+    return sep;
+  }
+
   function renderDayGroupedList(container, weeks) {
     if (!container) return;
     container.innerHTML = "";
@@ -880,7 +935,29 @@
     // Ensure newest-first day order.
     days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
 
+    // Per-month rollups (Run TSS / Lift TSS / Time / KM), keyed by YYYY-MM.
+    var monthAgg = {};
+    entries.forEach(function (e) {
+      var mk = (e.date || '').slice(0, 7);
+      if (!mk) return;
+      if (!monthAgg[mk]) monthAgg[mk] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+      var tk = normalizeTypeKey(e.type);
+      var tss = Number(e.tss) || 0;
+      if (tk === 'run') monthAgg[mk].runTss += tss;
+      else if (tk === 'lift') monthAgg[mk].liftTss += tss;
+      if (e.duration_seconds) monthAgg[mk].secs += Number(e.duration_seconds) || 0;
+      if (e.distance_km) monthAgg[mk].km += Number(e.distance_km) || 0;
+    });
+
+    var lastMonthKey = null;
+
     days.forEach(function (dateStr) {
+      var monthKey = dateStr.slice(0, 7);
+      if (monthKey !== lastMonthKey) {
+        lastMonthKey = monthKey;
+        container.appendChild(buildMonthSeparator(dateStr, monthAgg[monthKey]));
+      }
+
       var d = new Date(dateStr + 'T00:00:00');
       var dayGroup = document.createElement('div');
       dayGroup.className = 'day-group';
@@ -1312,6 +1389,7 @@
 
     if (isDesktop()) {
       if (wrapper) wrapper.classList.add("has-panel");
+      reflowPanelCharts();
     } else {
       if (overlay) {
         overlay.classList.add("is-open");
@@ -1510,6 +1588,7 @@
     }
     if (wrapper) wrapper.classList.remove("has-panel");
     document.body.style.overflow = "";
+    if (isDesktop()) reflowPanelCharts();
 
     var formWrap = document.getElementById("dp-form-wrap");
     var formActions = document.getElementById("dp-actions-form");
