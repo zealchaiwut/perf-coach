@@ -414,6 +414,44 @@
         color: var(--text-secondary);
       }
 
+      /* ── What-if prompt: shown when behind plan (AC5) ─────────────────────── */
+      .whatif-prompt {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        flex-wrap: wrap;
+      }
+      .whatif-prompt[hidden] {
+        display: none;
+      }
+      .whatif-headline {
+        flex: 1;
+        font-size: 12.5px;
+        color: #92400e;
+        line-height: 1.4;
+      }
+      .whatif-open-btn {
+        flex-shrink: 0;
+        padding: 4px 12px;
+        background: #f59e0b;
+        color: #451a03;
+        border: none;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: "Inter Tight", sans-serif;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .whatif-open-btn:hover {
+        opacity: 0.88;
+      }
+
       .chart-legend {
         display: flex;
         flex-wrap: wrap;
@@ -2230,6 +2268,11 @@
           <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
           <span id="chart-verdict-text" class="chart-verdict-text"></span>
         </div>
+        <!-- What-if prompt: surfaced when behind plan (AC5). JS manages hidden. -->
+        <div id="whatif-prompt" class="whatif-prompt" hidden>
+          <span id="whatif-headline" class="whatif-headline"></span>
+          <button id="whatif-open-btn" class="whatif-open-btn" type="button">Adjust target →</button>
+        </div>
         <div class="range-tabs" role="group" aria-label="Chart date range">
           <button class="range-tab" data-range="7d" type="button">7D</button>
           <button class="range-tab active" data-range="30d" type="button">
@@ -2469,6 +2512,7 @@
 
     <script src="js/nav.js"></script>
     <script src="js/ui-states.js"></script>
+    <script src="js/lib/weight-voice.js"></script>
     <script src="js/weight-chart.js"></script>
     <script src="js/lib/weight-current-card.js"></script>
     <script src="js/weight.js"></script>
