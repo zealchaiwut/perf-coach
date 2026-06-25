@@ -265,6 +265,18 @@ function renderProgress(target) {
   if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
   if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan says ${planTodayKg.toFixed(1)}` : 'plan --';
 
+  // Next goal = closest upcoming milestone (earliest date still ahead of today).
+  // Falls back to the final goal when no intermediate milestone remains.
+  const nextValEl  = document.getElementById('pstat-next-val');
+  const nextDateEl = document.getElementById('pstat-next-date');
+  const _today = todayISO();
+  const upcoming = (target.milestones || [])
+    .filter(m => m.kind !== 'today' && m.plan_kg != null && m.date && m.date > _today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nextMs = upcoming[0];
+  if (nextValEl)  nextValEl.textContent  = nextMs ? `${nextMs.plan_kg.toFixed(1)} kg` : '--';
+  if (nextDateEl) nextDateEl.textContent = nextMs ? _fmtShortDate(nextMs.date) : '--';
+
   const goalValEl  = document.getElementById('pstat-goal-val');
   const goalDateEl = document.getElementById('pstat-goal-date');
   if (goalValEl)  goalValEl.textContent  = `${targetW.toFixed(1)} kg`;
