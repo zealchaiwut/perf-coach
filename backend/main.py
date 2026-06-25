@@ -12409,6 +12409,60 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
 _run_pr_log = _logging.getLogger(__name__)
 
 
+_SPEED_DISTANCE_LABELS = ("1km", "1mile", "5km", "10km", "half_marathon", "marathon")
+_POWER_DURATION_LABELS = ("best1Min", "best5Min", "best20Min")
+_VOLUME_LABELS = ("longestByDistance", "longestByDuration", "weeklyDistanceRecord", "weeklyLoadRecord")
+
+_VOLUME_MISSING_REASONS = {
+    "longestByDistance":    "insufficient data: no GPS distance measurements found in run history",
+    "longestByDuration":    "insufficient data: no run duration measurements found in run history",
+    "weeklyDistanceRecord": "insufficient data: no GPS distance measurements found in run history",
+    "weeklyLoadRecord":     "insufficient data: no training load (TSS) values found in run history",
+}
+
+
+def _enrich_run_pr_reasons(raw: dict) -> None:
+    """Add explicit per-slot reason strings for uncomputable record categories.
+
+    Mutates ``raw`` in-place.  When pr_detection returns a top-level reason-only
+    dict for speedRecords or powerRecords the individual expected slots are absent;
+    this function populates each missing slot with a reason string that identifies
+    the specific missing data type (power measurements vs. GPS pace data).  For
+    volumeRecords, sub-category keys that are simply absent from the output dict
+    receive per-key reasons distinguishing distance data from TSS data.
+
+    Computed slots (those that already carry ``value``, ``date``, and
+    ``sourceWorkout``) are never modified.
+    """
+    speed = raw.get("speedRecords")
+    if isinstance(speed, dict):
+        top_level_failure = "reason" in speed and not any(k in speed for k in _SPEED_DISTANCE_LABELS)
+        if top_level_failure:
+            for label in _SPEED_DISTANCE_LABELS:
+                if label not in speed:
+                    speed[label] = {"reason": "insufficient data: no GPS pace data available for this athlete"}
+
+    power = raw.get("powerRecords")
+    if isinstance(power, dict):
+        top_level_failure = "reason" in power and not any(k in power for k in _POWER_DURATION_LABELS)
+        if top_level_failure:
+            for label in _POWER_DURATION_LABELS:
+                if label not in power:
+                    power[label] = {"reason": "insufficient data: no power measurements found for this athlete"}
+
+    volume = raw.get("volumeRecords")
+    if isinstance(volume, dict):
+        top_level_failure = "reason" in volume and not any(k in volume for k in _VOLUME_LABELS)
+        if top_level_failure:
+            for label in _VOLUME_LABELS:
+                if label not in volume:
+                    volume[label] = {"reason": "insufficient data: no completed runs found"}
+        else:
+            for label, reason in _VOLUME_MISSING_REASONS.items():
+                if label not in volume:
+                    volume[label] = {"reason": reason}
+
+
 def _build_run_pr_log_entry(meta, records):
     """Assemble a structured log dict for the run personal records endpoint.
 
@@ -12502,6 +12556,7 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
         raw = fetch_and_detect_records(uid, session)
 
     raw.pop("_meta", {})
+    _enrich_run_pr_reasons(raw)
     _run_pr_log.info(
         "pr_detection_output",
         extra={"event": "pr_detection_output", "raw_output": raw},
