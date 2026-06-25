@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 85 — Performance score states, PR reason strings, logging observability, and duration-curve gap fix
+
+- #927: Add observability to diagnose null performance scores
+- #928: Classify laps before scoring in performance endpoint
+- #929: Surface needs_thresholds state when athlete has no thresholds set
+- #930: Render four distinct score-card states on Performance tab
+- #984: Add structured INFO logging to PR endpoint caller
+- #985: Fix duration curve data gap: lap classification and threshold population
+- #986: Return explicit reason string for uncomputable personal records
+- #987: Add unit tests for PR endpoint caller: logging and empty-curve branch
+
 ## Sprint 83 — Performance observability, needs-thresholds state, auto-detected PRs, and lap-classification backfill
 
 - #910: Add observability to diagnose null performance scores
