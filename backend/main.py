@@ -503,16 +503,25 @@ def login(body: LoginIn, request: Request):
     try:
         with Session(engine) as session:
             user = session.query(User).filter(User.name == body.username).first()
+            if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
+                _record_failure(body.username, ip)
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+            _clear_lockout(body.username, ip)
+            if not getattr(user, "is_active", True):
+                raise HTTPException(status_code=403, detail="Account disabled")
+            user_id, user_name, user_is_admin = str(user.id), user.name, bool(user.is_admin)
+            # Stamp the successful login (best-effort; never blocks login).
+            try:
+                user.last_login_at = _datetime.now(_timezone.utc)
+                session.commit()
+            except sa_exc.SQLAlchemyError:
+                session.rollback()
+    except HTTPException:
+        raise
     except sa_exc.SQLAlchemyError:
         raise HTTPException(status_code=500, detail="Database error")
-    if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
-        _record_failure(body.username, ip)
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    _clear_lockout(body.username, ip)
-    if not getattr(user, "is_active", True):
-        raise HTTPException(status_code=403, detail="Account disabled")
-    resp = JSONResponse({"id": str(user.id), "name": user.name, "is_admin": bool(user.is_admin)})
-    set_session(resp, str(user.id))
+    resp = JSONResponse({"id": user_id, "name": user_name, "is_admin": user_is_admin})
+    set_session(resp, user_id)
     return resp
 
 
@@ -10440,11 +10449,16 @@ def admin_create_user(body: AdminUserCreateIn):
 
 @app.get("/api/admin/users", dependencies=[Depends(require_admin)])
 def admin_list_users():
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     with Session(engine) as session:
         strava_sub = select(StravaToken.user_id).subquery()
         google_sub = select(GoogleOAuthCredentials.user_id).subquery()
         stryd_sub = select(StrydCredentials.user_id).subquery()
+        wc_sub = (
+            select(Workout.user_id.label("user_id"), func.count().label("wc"))
+            .group_by(Workout.user_id)
+            .subquery()
+        )
 
         rows = (
             session.query(
@@ -10452,10 +10466,12 @@ def admin_list_users():
                 strava_sub.c.user_id.isnot(None).label("has_strava"),
                 google_sub.c.user_id.isnot(None).label("has_google"),
                 stryd_sub.c.user_id.isnot(None).label("has_stryd"),
+                func.coalesce(wc_sub.c.wc, 0).label("workout_count"),
             )
             .outerjoin(strava_sub, User.id == strava_sub.c.user_id)
             .outerjoin(google_sub, User.id == google_sub.c.user_id)
             .outerjoin(stryd_sub, User.id == stryd_sub.c.user_id)
+            .outerjoin(wc_sub, User.id == wc_sub.c.user_id)
             .order_by(User.name)
             .all()
         )
@@ -10467,8 +10483,38 @@ def admin_list_users():
                 "is_active": bool(getattr(u, "is_active", True)),
                 "integration_count": int(bool(has_strava)) + int(bool(has_google)) + int(bool(has_stryd)),
                 "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_login_at": u.last_login_at.isoformat() if getattr(u, "last_login_at", None) else None,
+                "workout_count": int(workout_count or 0),
             }
-            for u, has_strava, has_google, has_stryd in rows
+            for u, has_strava, has_google, has_stryd, workout_count in rows
+        ])
+
+
+@app.get("/api/admin/users/{user_id}/recent-activities", dependencies=[Depends(require_admin)])
+def admin_user_recent_activities(user_id: str):
+    """Last 3 workouts for a user (admin user-detail modal): when + what."""
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid user id")
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid)
+            .order_by(Workout.workout_date.desc(), Workout.start_time.desc().nullslast())
+            .limit(3)
+            .all()
+        )
+        return JSONResponse([
+            {
+                "id": str(w.id),
+                "date": w.workout_date.isoformat() if w.workout_date else None,
+                "name": w.name,
+                "type": w.workout_type,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "duration_seconds": int(w.duration_seconds) if w.duration_seconds is not None else None,
+            }
+            for w in workouts
         ])
 
 

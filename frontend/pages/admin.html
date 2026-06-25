@@ -381,11 +381,13 @@
           <th>Status</th>
           <th>Integrations</th>
           <th>Created</th>
+          <th>Last login</th>
+          <th>Workouts</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody id="users-tbody">
-        <tr><td colspan="6" class="table-empty">Loading…</td></tr>
+        <tr><td colspan="8" class="table-empty">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -404,6 +406,16 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="reset-pw-cancel">Cancel</button>
       <button class="btn-primary" id="reset-pw-submit">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="activities-modal">
+  <div class="modal">
+    <h2 id="activities-title">Recent activity</h2>
+    <div id="activities-body"><p style="color:#5c6886;">Loading…</p></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="activities-close">Close</button>
     </div>
   </div>
 </div>
@@ -467,7 +479,7 @@
   function renderUsers(users) {
     var tbody = document.getElementById('users-tbody');
     if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="table-empty">No users found.</td></tr>';
       return;
     }
     tbody.innerHTML = users.map(function (u) {
@@ -508,12 +520,20 @@
           + ' data-action="delete" data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">'
           + 'Delete</button>';
 
+      var wc = u.workout_count || 0;
+      var workoutsCell = wc > 0
+        ? '<button class="btn-action btn-action-default" data-action="activities"'
+          + ' data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">' + wc + ' ›</button>'
+        : '<span style="color:#9aa3b2;">0</span>';
+
       return '<tr>'
         + '<td>' + escHtml(u.username) + (isSelf ? ' <span style="font-size:10px;color:#5c6886;">(you)</span>' : '') + '</td>'
         + '<td>' + roleBadge + '</td>'
         + '<td>' + statusBadge + '</td>'
         + '<td>' + u.integration_count + '</td>'
         + '<td>' + formatDate(u.created_at) + '</td>'
+        + '<td>' + (u.last_login_at ? formatDate(u.last_login_at) : '<span style="color:#9aa3b2;">never</span>') + '</td>'
+        + '<td>' + workoutsCell + '</td>'
         + '<td class="actions-cell">' + resetBtn + ' ' + toggleAdminBtn + ' ' + disableBtn + (deleteBtn ? ' ' + deleteBtn : '') + '</td>'
         + '</tr>';
     }).join('');
@@ -549,8 +569,52 @@
       doEnable(userId, username, btn);
     } else if (action === 'delete') {
       doDelete(userId, username, btn);
+    } else if (action === 'activities') {
+      openActivitiesModal(userId, username);
     }
   });
+
+  // ── Recent-activities modal ──────────────────────────────────────────────
+  function openActivitiesModal(userId, username) {
+    var modal = document.getElementById('activities-modal');
+    var titleEl = document.getElementById('activities-title');
+    var bodyEl = document.getElementById('activities-body');
+    if (titleEl) titleEl.textContent = username + ' · recent activity';
+    if (bodyEl) bodyEl.innerHTML = '<p style="color:#5c6886;">Loading…</p>';
+    modal.classList.add('open');
+
+    fetch('/api/admin/users/' + encodeURIComponent(userId) + '/recent-activities',
+          { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (acts) {
+        if (!acts.length) {
+          bodyEl.innerHTML = '<p style="color:#5c6886;">No workouts yet.</p>';
+          return;
+        }
+        bodyEl.innerHTML = acts.map(function (a) {
+          var type = (a.type || 'workout').toUpperCase();
+          var bits = [];
+          if (a.distance_km != null) bits.push(a.distance_km.toFixed(2) + ' km');
+          if (a.duration_seconds != null) {
+            var m = Math.round(a.duration_seconds / 60);
+            bits.push(m + ' min');
+          }
+          var meta = bits.length ? ' · ' + bits.join(' · ') : '';
+          return '<div style="padding:10px 0;border-bottom:1px solid #f0f4fb;">'
+            + '<div style="font-size:12px;color:#5c6886;">' + (a.date || '—') + '</div>'
+            + '<div style="font-weight:600;">' + escHtml(a.name || 'Untitled') + '</div>'
+            + '<div style="font-size:12px;color:#5c6886;">' + escHtml(type) + meta + '</div>'
+            + '</div>';
+        }).join('');
+      })
+      .catch(function () {
+        bodyEl.innerHTML = '<p style="color:#c0392b;">Failed to load activity.</p>';
+      });
+  }
+
+  function closeActivitiesModal() {
+    document.getElementById('activities-modal').classList.remove('open');
+  }
 
   function apiAction(method, url, body, btn, onSuccess) {
     if (btn) btn.disabled = true;
@@ -614,6 +678,11 @@
   }
 
   document.getElementById('reset-pw-cancel').addEventListener('click', closeResetPwModal);
+
+  document.getElementById('activities-close').addEventListener('click', closeActivitiesModal);
+  document.getElementById('activities-modal').addEventListener('click', function (e) {
+    if (e.target === document.getElementById('activities-modal')) closeActivitiesModal();
+  });
 
   resetPwModal.addEventListener('click', function (e) {
     if (e.target === resetPwModal) closeResetPwModal();
