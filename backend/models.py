@@ -144,6 +144,9 @@ class Habit(Base):
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True), nullable=True)
+    # Focus-aware coaching fields (issue #925)
+    minimum_version = Column(Text, nullable=True)
+    anchor_event = Column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
