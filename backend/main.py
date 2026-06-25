@@ -12486,6 +12486,15 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
         )
         curve_populated = session.get(_AthleteDurationCurve, uid) is not None
 
+        # If no curve row exists yet the athlete has runs, build it now so that
+        # fetch_and_detect_records can read it.  This is a one-time cost: once the
+        # row exists (even with empty curve_data for non-power athletes) we skip it.
+        # Thresholds are driven by _DEFAULT_DURATION_LADDER from duration_curve.py
+        # via fetch_and_compute_curves — no values are hardcoded here.
+        if not curve_populated:
+            _rebuild_athlete_duration_curve(uid, session)
+            curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+
         _run_pr_log.info(
             "pr_detection_input",
             extra=_build_run_pr_pre_detection_log_entry(curve_populated, run_count),

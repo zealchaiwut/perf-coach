@@ -61,12 +61,13 @@ def rebuild_athlete_duration_curve(user_id, db):
 
     # Start from an empty curve and merge every workout in chronological order.
     # This is a full rebuild — the result is always the true best-ever at each duration.
+    # merge_best_effort handles empty point lists safely (no-op), so we always call it
+    # regardless of whether the workout has power data, ensuring no workout is silently
+    # skipped if its lap classification data becomes available after an earlier rebuild.
     merged_curve: dict = {}
     for workout in run_workouts:
         curves = fetch_and_compute_curves(workout.id, db)
         new_points = curves.get("power_curve", [])
-        if not new_points:
-            continue
         merged_curve, reason = merge_best_effort(merged_curve, new_points, higher_is_better=True)
         if reason is not None:
             # Log and continue — one bad workout doesn't abort the entire rebuild
