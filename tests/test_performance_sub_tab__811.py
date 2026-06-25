@@ -269,9 +269,20 @@ def test_pr_strip_container(perf_panel_html):
 
 
 def test_pr_js_fetches_endpoint(perf_js):
-    """AC11: JS fetches the personal-records endpoint."""
-    assert "personal-records" in perf_js or "personalRecords" in perf_js, \
-        "training-performance.js must fetch the personal-records endpoint"
+    """AC11: JS fetches a personal-records endpoint.
+
+    Updated by issue #914: the PRs strip now uses /api/athletes/{id}/detected-prs
+    (auto-detected PRs) instead of the manual personal-records endpoint.  Either
+    endpoint reference satisfies this AC — the requirement is that the strip
+    fetches PR data from the API.
+    """
+    fetches_pr_data = (
+        "personal-records" in perf_js
+        or "personalRecords" in perf_js
+        or "detected-prs" in perf_js
+    )
+    assert fetches_pr_data, \
+        "training-performance.js must fetch PR data from an API endpoint"
 
 
 # ── AC12: Null renders as dash ────────────────────────────────────────────────

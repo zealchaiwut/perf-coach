@@ -72,6 +72,7 @@ from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
+from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
@@ -10899,6 +10900,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 _logging.getLogger(__name__).warning(
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
+            # Rebuild duration curve in background so performance scores and PR
+            # detection use up-to-date curve bests after thresholds change.
+            _trigger_curve_rebuild_background(uid)
         return JSONResponse(_prefs_row_dict(prefs))
 
 
@@ -12032,6 +12036,9 @@ async def accept_threshold_suggestions(
 
         prefs.updated_at = _now
         session.commit()
+        # Rebuild duration curve in background so performance scores and PR
+        # detection use up-to-date curve bests after thresholds are accepted.
+        _trigger_curve_rebuild_background(user.id)
         return JSONResponse({"written": written, "skipped": []})
 
 
@@ -12149,6 +12156,59 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
         "curve": curve_entries,
         "debug": [e["debug"] for e in curve_entries],
     })
+
+
+# ── Athlete detected personal records ─────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/detected-prs")
+def get_athlete_detected_prs(user: User = Depends(resolve_user)):
+    """Return automatically detected personal records for the authenticated athlete.
+
+    Computes speed, power, and volume records on the fly from run history and
+    the stored best-effort duration curve.  No manual PR entry is required.
+
+    Speed records: fastest estimated time at each standard distance (1 km, 1 mile,
+    5 km, 10 km, half marathon, marathon).
+    Power records: highest mean power at standard durations (1 min, 5 min, 20 min).
+    Volume records: longest run by distance, longest by duration, best weekly totals.
+
+    Returns 200 with ``speedRecords``, ``powerRecords``, and ``volumeRecords`` keys.
+    """
+    from backend.services.pr_detection import fetch_and_detect_records
+
+    uid = user.id
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        records = fetch_and_detect_records(uid, session)
+
+    return JSONResponse(records)
+
+
+def _trigger_curve_rebuild_background(user_id) -> None:
+    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
+
+    Used after threshold saves so the duration curve reflects the latest data
+    without blocking the HTTP response.  Errors are logged but do not propagate.
+    """
+    _curve_log = _logging.getLogger(__name__)
+
+    def _rebuild():
+        try:
+            from sqlalchemy.orm import Session as _Session
+            with _Session(engine) as _db:
+                _rebuild_athlete_duration_curve(user_id, _db)
+        except Exception as _exc:
+            _curve_log.warning(
+                "background curve rebuild failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_rebuild, daemon=True)
+    t.start()
 
 
 # ── Athlete performance scores ────────────────────────────────────────────────
