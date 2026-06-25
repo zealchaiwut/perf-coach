@@ -1309,7 +1309,7 @@
       width: 34px; height: 34px;
       border: none; background: none; border-radius: 6px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
-      color: #5c6886; font-size: 1.125rem; flex-shrink: 0;
+      color: #0b1530; font-size: 1.125rem; flex-shrink: 0;
       transition: background 0.1s, color 0.1s;
       font-family: inherit;
     }
@@ -1346,7 +1346,8 @@
     .dp-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
     /* icon visibility by viewport — block inside flex btn (inline breaks layout) */
-    .dp-icon-btn > [class*="dp-icon-"] { display: none; line-height: 1; }
+    .dp-icon-btn > [class*="dp-icon-"],
+    .dp-nav-btn > [class*="dp-icon-"] { display: none; line-height: 1; }
 
     .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: block; }
 
