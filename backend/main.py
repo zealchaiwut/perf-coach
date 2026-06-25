@@ -76,6 +76,7 @@ from backend.services.lap_recompute import rebuild_athlete_duration_curve as _re
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
+from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -12167,8 +12168,6 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 
 _performance_log = _logging.getLogger(__name__)
 
-from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
-
 
 def _check_needs_thresholds(preferences) -> bool:
     """Return True when none of the three threshold values are set in preferences.
@@ -12485,6 +12484,15 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
             .count()
         )
         curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+
+        # If no curve row exists yet the athlete has runs, build it now so that
+        # fetch_and_detect_records can read it.  This is a one-time cost: once the
+        # row exists (even with empty curve_data for non-power athletes) we skip it.
+        # Thresholds are driven by _DEFAULT_DURATION_LADDER from duration_curve.py
+        # via fetch_and_compute_curves — no values are hardcoded here.
+        if not curve_populated:
+            _rebuild_athlete_duration_curve(uid, session)
+            curve_populated = session.get(_AthleteDurationCurve, uid) is not None
 
         _run_pr_log.info(
             "pr_detection_input",
