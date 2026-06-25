@@ -2839,13 +2839,11 @@ async function loadInsights() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('userReady', () => {
-  loadTodayCard();
   loadAndRender();
   loadInsights();
 });
 
 window.addEventListener('userChanged', () => {
-  loadTodayCard();
   loadAndRender();
   loadInsights();
 });
