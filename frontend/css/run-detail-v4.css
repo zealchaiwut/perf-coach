@@ -612,41 +612,29 @@
 
 /* ── Theme-2: session profile (bars + zone brackets) + combined laps chart ── */
 .rd4-row2 { display: flex; gap: 0; align-items: flex-end; }
-.rd4-cell2 { min-width: 0; padding: 0 3px; box-sizing: border-box; }
-/* Bar cells must fill the row height so the bars' percentage heights resolve
-   (flex items don't stretch under align-items:flex-end); bars sit at bottom. */
-.rd4-prof2-bars .rd4-cell2,
-.rd4-chart2-bars .rd4-cell2 {
-  align-self: stretch;
-  height: 100%;
-  position: relative;   /* containing block for the absolutely-placed bar */
-}
-/* Bars are absolutely anchored to the cell bottom so their % height resolves
-   against the (definite) full-height cell, regardless of flex quirks. */
-.rd4-prof2-bars .rd4-prof2-bar,
-.rd4-chart2-bars .rd4-cbar2 {
-  position: absolute;
-  left: 3px; right: 3px; bottom: 0;
-  width: auto;
-}
+/* No cell padding → cells are a pure proportional partition, so the bars row
+   and the brackets row line up exactly even though they have different cell
+   counts. The visual gap comes from each bar's horizontal margin instead.
+   Bar heights are set in px by JS, so no CSS %-height resolution is involved. */
+.rd4-cell2 { min-width: 0; box-sizing: border-box; }
 .rd4-grid2 { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
 .rd4-grid2 span { border-top: 1px dotted rgba(13,30,67,0.10); height: 0; }
 
 .rd4-prof2-chart { position: relative; }
 .rd4-prof2-bars { position: relative; z-index: 1; height: 84px; }
-.rd4-prof2-bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 5px; }
+.rd4-prof2-bar { display: block; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 5px; }
 .rd4-prof2-bar--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
 .rd4-prof2-bar--break { background: #94a3b8 !important; opacity: 0.85; }
 
 .rd4-bracket2-row { margin-top: 8px; }
 .rd4-bracket2 { text-align: center; }
-.rd4-bracket2-line { height: 9px; border: 1.5px solid #5c6886; border-bottom: none; border-radius: 5px 5px 0 0; opacity: 0.45; }
+.rd4-bracket2-line { margin: 0 3px; height: 9px; border: 1.5px solid #5c6886; border-bottom: none; border-radius: 5px 5px 0 0; opacity: 0.45; }
 .rd4-bracket2-name { margin-top: 5px; font-size: 12px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
 .rd4-bracket2-range { font-size: 10px; color: #5c6886; margin-top: 2px; }
 
 .rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; }
 .rd4-chart2-bars { position: relative; z-index: 1; height: 100%; }
-.rd4-cbar2 { width: 100%; border-radius: 4px 4px 0 0; min-height: 4px; }
+.rd4-cbar2 { display: block; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 4px; }
 .rd4-cbar2--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
 .rd4-cbar2--break { background: #94a3b8 !important; opacity: 0.85; }
 .rd4-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
