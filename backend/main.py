@@ -12153,6 +12153,63 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
 
 # ── Athlete performance scores ────────────────────────────────────────────────
 
+_performance_log = _logging.getLogger(__name__)
+
+
+def _build_performance_log_entry(
+    preferences,
+    runs,
+    endurance,
+    speed,
+):
+    """Assemble a structured log dict for the performance endpoint.
+
+    All field access is guarded — this function must never raise even when
+    preferences is None, runs is empty, or score dicts are missing keys.
+    """
+    user_preferences_found = preferences is not None
+
+    if preferences is not None:
+        ftp_w_present = bool(preferences.get("ftp_w") is not None)
+        threshold_hr_present = bool(preferences.get("threshold_hr") is not None)
+        threshold_pace_present = bool(preferences.get("threshold_pace_seconds_per_km") is not None)
+    else:
+        ftp_w_present = None
+        threshold_hr_present = None
+        threshold_pace_present = None
+
+    runs_assembled_count = len(runs) if runs else 0
+    laps_with_band_count = 0
+    total_laps_count = 0
+    for run in (runs or []):
+        laps = run.get("laps") or [] if isinstance(run, dict) else []
+        total_laps_count += len(laps)
+        laps_with_band_count += sum(1 for lap in laps if lap.get("band") is not None)
+
+    def _score_shape(result):
+        if not isinstance(result, dict):
+            return "null"
+        if result.get("state") == "building_baseline":
+            return "building_baseline"
+        score = result.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return "numeric"
+        return "null"
+
+    return {
+        "event": "performance_score_computed",
+        "user_preferences_found": user_preferences_found,
+        "ftp_w_present": ftp_w_present,
+        "threshold_hr_present": threshold_hr_present,
+        "threshold_pace_seconds_per_km_present": threshold_pace_present,
+        "runs_assembled_count": runs_assembled_count,
+        "laps_with_band_count": laps_with_band_count,
+        "total_laps_count": total_laps_count,
+        "endurance_result_shape": _score_shape(endurance),
+        "speed_result_shape": _score_shape(speed),
+    }
+
+
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete.
@@ -12281,5 +12338,13 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     zone_constants = make_zone_constants()
     endurance = compute_endurance_score(runs, preferences, zone_constants)
     speed = compute_speed_score(runs, preferences, zone_constants)
+
+    log_entry = _build_performance_log_entry(
+        preferences=preferences,
+        runs=runs,
+        endurance=endurance,
+        speed=speed,
+    )
+    _performance_log.info("performance score request", extra=log_entry)
 
     return JSONResponse({"endurance": endurance, "speed": speed})
