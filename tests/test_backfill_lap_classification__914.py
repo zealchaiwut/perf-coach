@@ -22,11 +22,8 @@ Acceptance Criteria covered:
        strip outcome as the manual backfill script.
 """
 
-import importlib
 import inspect
 import os
-import sys
-import types
 from types import SimpleNamespace
 from unittest import mock
 
@@ -113,7 +110,6 @@ class TestScriptExists:
             "Script must accept a --user-id or --user_id argument"
         )
         # Verify the argparse setup accepts the argument by parsing with a known value
-        import argparse
         parser_fn = getattr(mod, "_parse_args", None)
         assert parser_fn is not None
         # Use parse_known_args to avoid error on missing required args in test env
@@ -232,7 +228,6 @@ class TestThresholdsFromDB:
         from backend.services.lap_recompute import rebuild_athlete_duration_curve
 
         # Mock DB: has 1 run workout, has prefs
-        import datetime
         mock_workout = _make_workout(1, workout_date_str="2026-01-01")
         mock_prefs = _make_prefs(ftp_w=220)
 
