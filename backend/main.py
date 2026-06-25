@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DailyReadiness, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -3386,10 +3386,20 @@ class HabitLogUpsertIn(BaseModel):
 
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with streak and 30-day consistency stats."""
+    """Return each active habit with streak, consistency, and coaching fields.
+
+    Added fields (issue #920):
+      week_done   — distinct days logged in the current Mon–Sun week (int)
+      total_logs  — all-time log count for this habit (int)
+
+    These are sourced from the same log fetch; no extra DB queries.
+    """
     from datetime import date as _date_cls, timedelta as _td
     today = _date_cls.today()
     window_start = today - _td(days=29)
+    # Current week boundaries (Mon–Sun)
+    week_start = today - _td(days=today.weekday())
+    week_end = week_start + _td(days=6)
 
     with Session(engine) as session:
         active_habits = (
@@ -3429,6 +3439,13 @@ def get_habits_summary(user: User = Depends(resolve_user)):
         entry["current_streak"] = streak_data["current_streak"]
         entry["longest_streak"] = streak_data["longest_streak"]
         entry["consistency_percent"] = consistency_data["consistency_percent"]
+        # Coaching fields (issue #920) — sourced from existing log fetch
+        week_dates = {
+            lg.log_date for lg in habit_logs
+            if week_start <= lg.log_date <= week_end
+        }
+        entry["week_done"] = len(week_dates)
+        entry["total_logs"] = len(habit_logs)
         result.append(entry)
 
     return JSONResponse({"habits": result})
@@ -4214,55 +4231,6 @@ def get_habits_week(
             "streaks": streaks,
             "last_week": last_week,
         })
-
-
-@app.get("/api/habits/summary")
-def get_habits_summary(user: User = Depends(resolve_user)):
-    """Return each active habit with its current streak for the Today quick-log surface."""
-    from datetime import date as _date_cls, timedelta as _td
-    from backend.services.habit_stats import _current_streak_from_dates
-    today = _date_cls.today()
-    lookback = today - _td(days=365)
-
-    with Session(engine) as session:
-        active_habits = (
-            session.query(Habit)
-            .filter(
-                Habit.user_id == user.id,
-                Habit.is_archived.is_(False),
-            )
-            .order_by(Habit.sort_order)
-            .all()
-        )
-
-        if not active_habits:
-            return JSONResponse({"habits": []})
-
-        habit_ids = [h.id for h in active_habits]
-        logs = (
-            session.query(HabitLog)
-            .filter(
-                HabitLog.habit_id.in_(habit_ids),
-                HabitLog.user_id == user.id,
-                HabitLog.log_date >= lookback,
-                HabitLog.log_date <= today,
-            )
-            .all()
-        )
-
-    logs_by_habit: dict = {}
-    for log in logs:
-        logs_by_habit.setdefault(log.habit_id, set()).add(log.log_date)
-
-    result = []
-    for habit in active_habits:
-        dated = logs_by_habit.get(habit.id, set())
-        streak = _current_streak_from_dates(today, dated) if habit.tracking_type == "daily_checkmark" else 0
-        entry = _habit_dict(habit)
-        entry["current_streak"] = streak
-        result.append(entry)
-
-    return JSONResponse({"habits": result})
 
 
 @app.get("/api/habits/logs")
