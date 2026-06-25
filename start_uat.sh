@@ -94,6 +94,6 @@ echo "Server listening on port $PORT"
 source .venv/bin/activate
 
 echo "Applying database migrations (UAT)..."
-uv run alembic upgrade head
+.venv/bin/alembic upgrade head
 
-exec uv run uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
+exec .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
