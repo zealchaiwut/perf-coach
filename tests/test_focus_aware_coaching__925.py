@@ -25,9 +25,6 @@ AC12 — All user-facing copy passes through the voice module; no raw strings ha
 from __future__ import annotations
 
 import re
-import types
-
-import pytest
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +52,7 @@ _SHAMING_RE = re.compile(
 
 
 def _make_slipping_signal(*, is_slipping=True, predicted_miss_weekday="Thursday",
-                           days_until_miss=1, consistency_pct_7d=30.0):
+                          days_until_miss=1, consistency_pct_7d=30.0):
     return {
         "is_slipping": is_slipping,
         "predicted_miss_weekday": predicted_miss_weekday,
@@ -516,9 +513,6 @@ class TestNoFabricatedNumbers:
 
         # Find all numbers in the message
         numbers_in_msg = re.findall(r"\d+\.?\d*", msg)
-        # Each number in the message should be derivable from the signal
-        # (r=0.55, n=20, or derived from the habit names/context)
-        allowed_values = {"0.55", "0.6", "20", "55", "2"}  # plausible derivations
         # Key guard: the message must not contain completely unrelated numbers
         # We verify this by checking the n value (20) or r value appears
         has_signal_reference = any(
@@ -578,7 +572,11 @@ class TestSchemaMigration:
         assert "anchor_event" in content
         # Should NOT alter or drop existing columns in upgrade()
         upgrade_section = content.split("def upgrade")[1].split("def downgrade")[0]
-        assert "alter_column" not in upgrade_section or "minimum_version" in upgrade_section or "anchor_event" in upgrade_section
+        assert (
+            "alter_column" not in upgrade_section
+            or "minimum_version" in upgrade_section
+            or "anchor_event" in upgrade_section
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════════════
