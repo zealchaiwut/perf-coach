@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session profile — approach B (adaptive: structured vs variable/race)</title>
+<!--
+  Reference for the adaptive Session Profile (frontend/js/run-view.js,
+  renderSessionProfile). The live page reads per-lap band + avg_power + the
+  detected_profile object from GET /api/workouts/{id}/full; this mock uses two
+  sample sessions.
+
+  Regime is auto-detected:
+   - STRUCTURED: a few clean phases → per-lap bars + named zone brackets.
+   - VARIABLE/RACE: one dominant band with scattered deviations → bars + a
+     "Sustained <band>" headline (avg power of the dominant laps only) and
+     deviation chips (band, direction, count, group avg power, lap numbers),
+     with up/down triangle markers on the deviating bars. A race that flickers
+     tempo/threshold lap-to-lap is summarised, NOT bracketed a dozen times.
+-->
+<style>
+  :root {
+    --tempo: #f59e0b; --threshold: #ef4444; --steady: #22c55e;
+    --cooldown: #a78bfa; --warmup: #3b82f6;
+    --ink: #0b1530; --sub: #5c6886; --tertiary: #8b95ad; --grid: rgba(13,30,67,0.10);
+  }
+  body { margin: 0; background: #2b4ca8; padding: 24px; font-family: "Inter Tight", system-ui, sans-serif; color: var(--ink); }
+  .wrap { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+  .head { display: flex; justify-content: space-between; color: #cdd8ff; font-size: 12px; font-weight: 700; margin-bottom: 10px; }
+  .head .meta { color: #9fb2ee; font-family: "JetBrains Mono", monospace; font-size: 11px; }
+  .card { background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 14px 40px rgba(20,40,90,0.16); }
+  .title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tertiary); display: flex; justify-content: space-between; margin: 0 0 16px; }
+  .basis { font-family: "JetBrains Mono", monospace; }
+
+  .chart { position: relative; height: 110px; }
+  .grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; z-index: 0; }
+  .grid span { border-top: 1px dotted var(--grid); }
+  .bars { position: relative; z-index: 1; display: flex; gap: 0; align-items: flex-end; height: 100%; }
+  .cell { position: relative; min-width: 0; }
+  .bar { width: auto; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 5px; }
+  .mark { position: absolute; top: -3px; left: 50%; transform: translateX(-50%); font-size: 10px; line-height: 1; z-index: 2; }
+
+  .headline { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: #f6f8fc; }
+  .hl-sw { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; }
+  .hl-t { flex: 1; }
+  .hl-title { font-size: 16px; font-weight: 700; }
+  .hl-sub { font-size: 12px; color: var(--sub); margin-top: 1px; }
+  .hl-num { font-family: "JetBrains Mono", monospace; font-size: 26px; font-weight: 700; text-align: right; line-height: 1; }
+  .hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tertiary); margin-top: 3px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: #fff; color: var(--sub); }
+  .chip .ar { font-weight: 800; }
+  .chip.up { border-color: rgba(239,68,68,0.35); } .chip.up .ar { color: #ef4444; }
+  .chip.down { border-color: rgba(34,197,94,0.35); } .chip.down .ar { color: #22c55e; }
+  @media (max-width: 480px) { .card { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div><div class="head"><span>EXAMPLE · TEMPO RACE</span><span class="meta">22 laps · image 2</span></div><div class="card" id="ex1"></div></div>
+  <div><div class="head"><span>EXAMPLE · REP WORKOUT</span><span class="meta">22 laps · reps 2 · image 4</span></div><div class="card" id="ex2"></div></div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var RANK = { cooldown: 0, warmup: 1, steady: 2, tempo: 3, threshold: 4 };
+  var NAME = { cooldown: "Cool-down", warmup: "Warm-up", steady: "Steady", tempo: "Tempo", threshold: "Threshold" };
+  function rank(k) { return RANK[k] == null ? 2 : RANK[k]; }
+  function avg(a) { a = a.filter(function (x) { return x != null; }); return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : null; }
+  function rng(f, t) { return f === t ? "" + (f + 1) : (f + 1) + "–" + (t + 1); }
+  function gridSpans(n) { var s = ""; for (var i = 0; i < n; i++) s += "<span></span>"; return s; }
+
+  // Sample sessions: per-lap band + per-lap avg power. h = bar height %.
+  var EX1 = {  // tempo race, dominant tempo, threshold surges + one steady dip
+    reps: null, basis: "POWER",
+    band: ["tempo","tempo","threshold","threshold","tempo","tempo","tempo","threshold","tempo","tempo","tempo","tempo","tempo","tempo","threshold","tempo","tempo","tempo","tempo","steady","tempo","tempo"],
+    pwr:  [210,212,236,238,214,210,213,235,212,214,210,213,215,214,239,212,210,214,213,196,212,214],
+  };
+  var EX2 = {  // rep workout (reps 2), tempo dominant, steady dips, long cooldown
+    reps: 2, basis: "POWER",
+    band: ["tempo","tempo","threshold","tempo","tempo","tempo","tempo","tempo","steady","tempo","tempo","steady","tempo","cooldown","cooldown","cooldown","cooldown","cooldown","cooldown","cooldown","cooldown","cooldown"],
+    pwr:  [212,214,235,215,213,214,216,215,198,214,213,198,215,172,170,171,169,172,170,171,170,168],
+  };
+
+  function render(el, sess) {
+    var band = sess.band, pwr = sess.pwr, n = band.length;
+    // runs
+    var runs = [], cur = null;
+    band.forEach(function (k, i) { if (!cur || cur.key !== k) { cur = { key: k, from: i, to: i }; runs.push(cur); } else cur.to = i; });
+    // dominant
+    var cnt = {}; band.forEach(function (k) { cnt[k] = (cnt[k] || 0) + 1; });
+    var dom = null, dn = 0; Object.keys(cnt).forEach(function (k) { if (cnt[k] > dn) { dn = cnt[k]; dom = k; } });
+    var devRuns = runs.filter(function (r) { return r.key !== dom; });
+
+    var devDir = {};
+    devRuns.forEach(function (r) { var d = rank(r.key) > rank(dom) ? "up" : "down"; for (var i = r.from; i <= r.to; i++) devDir[i] = d; });
+
+    // bars (height ~ intensity)
+    var H = { cooldown: 30, warmup: 45, steady: 55, tempo: 78, threshold: 96 };
+    var bars = band.map(function (k, i) {
+      var m = devDir[i] ? '<i class="mark" style="color:var(--' + k + ')">' + (devDir[i] === "up" ? "▲" : "▼") + "</i>" : "";
+      return '<div class="cell" style="flex:1 0 0">' + m + '<div class="bar" style="height:' + H[k] + '%;background:var(--' + k + ')"></div></div>';
+    }).join("");
+
+    // headline
+    var domIdx = []; band.forEach(function (k, i) { if (k === dom) domIdx.push(i); });
+    var dp = Math.round(avg(domIdx.map(function (i) { return pwr[i]; })));
+    var headline = '<div class="headline"><span class="hl-sw" style="background:var(--' + dom + ')"></span>' +
+      '<div class="hl-t"><div class="hl-title">Sustained ' + NAME[dom] + '</div><div class="hl-sub">' + dn + ' of ' + n + ' laps</div></div>' +
+      '<div class="hl-num">' + dp + '<span>W avg</span></div></div>';
+
+    // chips
+    var grp = {};
+    devRuns.forEach(function (r) {
+      var d = rank(r.key) > rank(dom) ? "up" : "down", gk = r.key + "|" + d;
+      if (!grp[gk]) grp[gk] = { key: r.key, dir: d, runs: [], laps: [] };
+      grp[gk].runs.push(r); for (var i = r.from; i <= r.to; i++) grp[gk].laps.push(i);
+    });
+    var chips = Object.keys(grp).sort(function (a, b) { return (grp[b].dir === "up") - (grp[a].dir === "up"); }).map(function (gk) {
+      var g = grp[gk];
+      var ranges = g.runs.map(function (r) { return rng(r.from, r.to); }).join(", ");
+      var gp = Math.round(avg(g.laps.map(function (i) { return pwr[i]; })));
+      return '<span class="chip ' + g.dir + '"><span class="ar">' + (g.dir === "up" ? "↑" : "↓") + "</span> " +
+        NAME[g.key] + " ×" + g.runs.length + " · " + gp + " W · lap " + ranges + "</span>";
+    }).join("");
+
+    el.innerHTML =
+      '<div class="title"><span>Session profile · effort</span><span class="basis">BASIS · ' + sess.basis +
+        (sess.reps != null ? " · REPS " + sess.reps : "") + "</span></div>" +
+      '<div class="chart"><div class="grid">' + gridSpans(4) + '</div><div class="bars">' + bars + "</div></div>" +
+      headline +
+      '<div class="chips">' + chips + "</div>";
+  }
+
+  render(document.getElementById("ex1"), EX1);
+  render(document.getElementById("ex2"), EX2);
+})();
+</script>
+</body>
+</html>
