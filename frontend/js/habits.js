@@ -344,6 +344,10 @@ function renderTodayCard(habits) {
       btn.disabled = true;
       try {
         await _logHabitToday(habitId, 1);
+        if (btn.classList.contains('toggled')) {
+          _pendingCheckCelebrate = true;
+          scheduleHeroRefresh();
+        }
       } catch (e) {
         btn.classList.toggle('toggled'); // revert
         if (row) _showRowError(row, e.message || 'Failed to log habit');
@@ -590,25 +594,74 @@ function renderPageHeader() {
 
 // ── Hero wheel (Card A) — 7 solid wedges + center hub ───────────────────────
 
+// Today's done/of/remaining from the current-week day scores.
+function _todayScore() {
+  const today = bangkokTodayStr();
+  const ds = (weekData && weekData.day_scores || []).find(d => d.date === today);
+  const done = ds ? ds.done : 0;
+  const of = ds ? ds.of : 0;
+  return { done, of, remaining: Math.max(0, of - done) };
+}
+
+// Mon..Sun index (0..6) of today within the wheel, or -1.
+function _todayWheelIndex() {
+  const today = bangkokTodayStr();
+  return (weekData && weekData.day_scores || []).findIndex(d => d.date === today);
+}
+
+// All-streak: every daily habit scheduled today is on an active streak (>=1).
+// Returns the binding (minimum) streak length, or 0 when not all are on streak.
+function _allStreakLength() {
+  const daily = (weekData && weekData.daily_habits) || [];
+  const per = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
+  if (!daily.length) return 0;
+  let min = Infinity;
+  for (const h of daily) {
+    const s = per[h.id] || 0;
+    if (s < 1) return 0;
+    if (s < min) min = s;
+  }
+  return min === Infinity ? 0 : min;
+}
+
 function renderHeroWheel() {
   const svg = document.getElementById('week-wheel-svg');
-  const pctEl = document.getElementById('wheel-pct');
-  const daysEl = document.getElementById('wheel-days-line');
+  const centerEl = document.getElementById('wheel-center');
   const checksEl = document.getElementById('wheel-checks-line');
   if (!svg || !weekData) return;
 
   const wheel = weekData.wheel || [];
   const totals = weekData.week_totals;
+  const FX = window.HabitWheelFx;
   const WH = window.WheelHelpers;
 
-  if (WH && WH.renderWheelDom) {
+  if (FX && FX.renderThemedWheel) {
+    FX.renderThemedWheel(svg, wheel);
+  } else if (WH && WH.renderWheelDom) {
     WH.renderWheelDom(svg, wheel);
   }
 
-  const fullDays = WH ? WH.countFullDays(weekData.day_scores) : 0;
+  // Center: "N more today" countdown when focused on the current week;
+  // the weekly percent for a past-week summary view.
+  if (FX && FX.renderCenter && centerEl) {
+    if (weekData.is_current_week) {
+      FX.renderCenter(centerEl, { mode: 'countdown', remaining: _todayScore().remaining });
+    } else {
+      FX.renderCenter(centerEl, { mode: 'weekly', pct: totals.pct_full_week });
+    }
+  }
 
-  if (pctEl) pctEl.textContent = Math.round(totals.pct_elapsed) + '%';
-  if (daysEl) daysEl.textContent = `${fullDays} of 7 days`;
+  // All-streak fire: lit only when today's habits are all done AND all on streak.
+  if (FX && FX.setFire) {
+    const streakLen = _allStreakLength();
+    const lit = weekData.is_current_week && _todayScore().remaining === 0 && streakLen >= 1;
+    FX.setFire(lit, {
+      card: document.getElementById('wheel-card'),
+      fire: document.getElementById('wheel-fire'),
+      badge: document.getElementById('wheel-fire-badge'),
+      streakLen: streakLen,
+    });
+  }
 
   // Checks line (right of wheel)
   if (checksEl) {
@@ -995,6 +1048,23 @@ function refreshGridTotals() {
   }
 }
 
+// Set when a today check-in just landed; consumed after the next hero render
+// to play the wheel celebration (pop + burst + confetti + center tick).
+let _pendingCheckCelebrate = false;
+
+function celebrateTodayCheckin() {
+  const FX = window.HabitWheelFx;
+  if (!FX || !FX.playCheckIn) return;
+  const idx = _todayWheelIndex();
+  if (idx < 0) return;
+  FX.playCheckIn({
+    svg: document.getElementById('week-wheel-svg'),
+    center: document.getElementById('wheel-center'),
+    fx: document.getElementById('wheel-fx'),
+    segIndex: idx,
+  });
+}
+
 // Debounced 300 ms refetch of /api/habits/week → refresh hero + grid totals
 function scheduleHeroRefresh() {
   if (_gridRefreshTimer) clearTimeout(_gridRefreshTimer);
@@ -1010,6 +1080,10 @@ function scheduleHeroRefresh() {
       renderHeroWheel();
       renderHeroStats();
       refreshGridTotals();
+      if (_pendingCheckCelebrate) {
+        _pendingCheckCelebrate = false;
+        celebrateTodayCheckin();
+      }
       if (window.HabitInsights) window.HabitInsights.load();
     } catch (_e) {
       // non-critical: hero will refresh on next full load
@@ -1063,6 +1137,9 @@ async function handleGridCellAction(btn) {
       const data = await res.json();
       btn.dataset.logId = data.id || '';
     }
+
+    // Celebrate only when a today cell was just checked ON (not unchecked).
+    if (prevState !== 'done' && dateStr === todayStr) _pendingCheckCelebrate = true;
 
     scheduleHeroRefresh();
 
