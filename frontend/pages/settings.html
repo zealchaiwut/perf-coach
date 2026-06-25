@@ -1,0 +1,3729 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings – perf-coach</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .settings-layout {
+      display: flex;
+      min-height: calc(100vh - 57px);
+    }
+
+    /* ── Sidebar ── */
+    .settings-sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 1px solid #e5e5e5;
+      background: #fff;
+      padding: 24px 0;
+    }
+
+    .settings-sidebar nav {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .settings-nav-item {
+      display: block;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #444;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      background: none;
+      text-align: left;
+      width: 100%;
+      font-family: inherit;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .settings-nav-item:hover {
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    .settings-nav-item.active {
+      background: #f0f4ff;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+
+    /* ── Content area ── */
+    .settings-content {
+      flex: 1;
+      padding: 32px 40px;
+      max-width: 720px;
+    }
+
+    .settings-section {
+      display: none;
+    }
+
+    .settings-section.active {
+      display: block;
+    }
+
+    .settings-section h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin: 0 0 16px;
+      letter-spacing: -0.01em;
+    }
+
+    .settings-placeholder {
+      font-size: 14px;
+      color: #9ca3af;
+      padding: 20px;
+      border: 1px dashed #e5e5e5;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+
+    /* ── Responsive: <880px sidebar → horizontal tab strip ── */
+    @media (max-width: 880px) {
+      .settings-layout {
+        flex-direction: column;
+      }
+
+      .settings-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #e5e5e5;
+        padding: 0;
+      }
+
+      .settings-sidebar nav {
+        flex-direction: row;
+        overflow-x: auto;
+        gap: 0;
+      }
+
+      .settings-nav-item {
+        padding: 12px 16px;
+        white-space: nowrap;
+        border-bottom: 2px solid transparent;
+      }
+
+      .settings-nav-item.active {
+        border-bottom-color: #1a1a1a;
+        background: none;
+      }
+
+      .settings-content {
+        padding: 20px 16px;
+      }
+    }
+
+    /* ── Profile form ── */
+    .settings-save-btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      font-weight: 600;
+      font-family: inherit;
+      background: #0b1530;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .settings-save-btn:hover { opacity: 0.85; }
+    .settings-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .settings-feedback {
+      margin-top: 10px;
+      font-size: 13px;
+      min-height: 18px;
+    }
+    .settings-feedback.success { color: #15803d; }
+    .settings-feedback.error   { color: #b91c1c; }
+
+    .avatar-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 8px;
+    }
+
+    .settings-avatar-circle {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ffb88a, #d97a3a);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 28px;
+      flex-shrink: 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .settings-avatar-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .settings-avatar-circle span {
+      position: relative;
+    }
+
+    .profile-form-group {
+      margin-bottom: 14px;
+    }
+
+    .profile-label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #0b1530;
+      margin-bottom: 5px;
+      letter-spacing: 0.01em;
+    }
+
+    .profile-input,
+    .profile-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 11px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 8px;
+      font-size: 13.5px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .profile-input:focus,
+    .profile-select:focus { border-color: #0b1530; }
+    .profile-input[readonly] {
+      background: #f8f9fb;
+      color: #8b95ad;
+      cursor: default;
+    }
+
+    .profile-field-error {
+      font-size: 12px;
+      color: #b91c1c;
+      margin-top: 4px;
+      min-height: 16px;
+    }
+
+    .profile-actions-row {
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 480px) {
+      .profile-input,
+      .profile-select { font-size: 16px; }
+      .profile-actions-row { flex-direction: column; align-items: stretch; }
+      .profile-actions-row .settings-save-btn { width: 100%; text-align: center; }
+      .thresholds-zone2-band-row { flex-wrap: wrap; }
+      .thresholds-zone2-band-row .thresholds-input { min-width: 80px; }
+    }
+
+    /* ── Thresholds section ── */
+    .thresholds-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .thresholds-input {
+      flex: 1;
+    }
+    .thresholds-default-btn {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #f1f5f9;
+      color: #0b1530;
+      border: 1px solid rgba(13, 30, 67, 0.12);
+      transition: opacity 0.15s;
+    }
+    .thresholds-default-btn:hover { opacity: 0.82; }
+    .thresholds-desc {
+      font-size: 12px;
+      color: #8b95ad;
+      margin: 4px 0 0;
+    }
+    .thresholds-desc code {
+      background: #f1f5f9;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-size: 11.5px;
+    }
+    .thresholds-info-card {
+      margin-top: 20px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      font-size: 12.5px;
+      color: #78350f;
+      line-height: 1.5;
+    }
+
+    /* ── Unit label next to inputs ── */
+    .thresholds-unit-label {
+      flex-shrink: 0;
+      font-size: 13px;
+      color: #8b95ad;
+      padding-left: 2px;
+    }
+
+    /* ── Last-set timestamp ── */
+    .thresholds-last-set {
+      font-size: 11px;
+      color: #b0b8cc;
+      margin: 2px 0 0;
+      min-height: 14px;
+    }
+
+    /* ── Suggestion banner (inline below input row) ── */
+    .thresholds-suggestion-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      font-size: 12.5px;
+      color: #1d4ed8;
+    }
+    .thresholds-suggestion-banner.visible { display: flex; }
+    .thresholds-suggestion-banner .suggestion-text { flex: 1; }
+    .thresholds-suggestion-banner .suggestion-accept-btn {
+      flex-shrink: 0;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #1d4ed8;
+      color: #fff;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .thresholds-suggestion-banner .suggestion-accept-btn:hover { opacity: 0.85; }
+
+    /* ── Suggestion chip (legacy, kept for backward compat) ── */
+    .thresholds-suggestion-chip {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .thresholds-suggestion-chip.visible { display: inline-flex; }
+    .thresholds-suggestion-chip:hover { background: #dbeafe; }
+
+    /* ── Integration cards ── */
+    .integration-card {
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+      background: #fafafa;
+    }
+    .integration-card:last-child { margin-bottom: 0; }
+
+    .integration-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .integration-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0b1530;
+    }
+
+    .integration-badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+    .integration-badge--connected {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .integration-badge--disconnected {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .integration-badge--unconfigured {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .integration-meta {
+      font-size: 12.5px;
+      color: #8b95ad;
+      margin-bottom: 10px;
+      min-height: 16px;
+    }
+
+    .integration-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .integration-btn {
+      padding: 7px 14px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    .integration-btn:hover:not(:disabled) { opacity: 0.82; }
+    .integration-btn:disabled { opacity: 0.45; cursor: default; }
+
+    .integration-btn--primary {
+      background: #0b1530;
+      color: #fff;
+    }
+    .integration-btn--secondary {
+      background: #f1f5f9;
+      color: #0b1530;
+      border: 1px solid rgba(13, 30, 67, 0.12);
+    }
+    .integration-btn--danger {
+      background: none;
+      color: #b91c1c;
+      border: 1.5px solid rgba(185, 28, 28, 0.25);
+    }
+    .integration-btn--danger:hover:not(:disabled) { background: rgba(185, 28, 28, 0.05); }
+
+    .integration-feedback {
+      font-size: 12.5px;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+    .integration-feedback.success { color: #15803d; }
+    .integration-feedback.error   { color: #b91c1c; }
+
+    .integration-last-synced {
+      font-size: 12px;
+      color: #8b95ad;
+      margin-bottom: 8px;
+      min-height: 14px;
+    }
+
+    .strava-sync-panel {
+      margin-top: 10px;
+      padding: 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-sync-panel-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .strava-sync-panel-row:last-child { margin-bottom: 0; }
+    .strava-sync-panel label {
+      font-size: 12.5px;
+      color: #3a4361;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .strava-sync-panel input[type="date"] {
+      padding: 5px 8px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #fff;
+    }
+    .strava-sync-preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      margin-top: 8px;
+    }
+    .strava-sync-preview-table th {
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
+    }
+    .strava-sync-preview-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
+      color: #0b1530;
+    }
+    .strava-sync-preview-table tr:last-child td { border-bottom: 0; }
+    .strava-sync-tag--new {
+      background: #dcfce7;
+      color: #15803d;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-weight: 600;
+    }
+    .strava-sync-tag--match {
+      background: #f1f5f9;
+      color: #475569;
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .strava-sync-progress {
+      font-size: 12px;
+      color: #3a4361;
+      padding: 8px 0;
+    }
+    .strava-sync-success {
+      font-size: 12.5px;
+      color: #15803d;
+      font-weight: 500;
+    }
+    .strava-sync-success a { color: #15803d; font-weight: 700; }
+    .strava-sync-error {
+      font-size: 12.5px;
+      color: #b91c1c;
+      font-weight: 500;
+    }
+
+    .stryd-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .stryd-form input {
+      padding: 8px 10px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      color: #0b1530;
+      background: #fff;
+      outline: none;
+    }
+    .stryd-form input:focus { border-color: #0b1530; }
+    .stryd-form input:disabled { background: #f8f9fb; color: #adb5c4; }
+
+    .integration-name-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .integration-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .integration-card--placeholder {
+      opacity: 0.7;
+    }
+
+    .integration-coming-soon {
+      font-size: 12px;
+      color: #8b95ad;
+      font-style: italic;
+    }
+
+    /* ── Sync history panel ── */
+    .strava-history-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 12.5px;
+      font-family: inherit;
+      color: #3a4361;
+      font-weight: 500;
+      margin-top: 8px;
+      user-select: none;
+    }
+    .strava-history-toggle .toggle-arrow {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    .strava-history-toggle.open .toggle-arrow { transform: rotate(90deg); }
+    #strava-history-panel {
+      margin-top: 8px;
+      display: none;
+    }
+    #strava-history-panel.open { display: block; }
+    .strava-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .strava-history-table th {
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
+      background: #f1f5f9;
+    }
+    .strava-history-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
+      color: #0b1530;
+      vertical-align: top;
+    }
+    .strava-history-table tr:last-child td { border-bottom: 0; }
+    .sync-status-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .sync-status-badge--completed { background: #dcfce7; color: #15803d; }
+    .sync-status-badge--failed    { background: #fee2e2; color: #b91c1c; }
+    .sync-status-badge--running   { background: #dbeafe; color: #1d4ed8; }
+    .sync-status-badge--pending   { background: #f1f5f9; color: #64748b; }
+    .sync-history-error-msg {
+      font-size: 11px;
+      color: #b91c1c;
+      margin-top: 2px;
+    }
+    .sync-history-empty {
+      font-size: 12px;
+      color: #8b95ad;
+      padding: 10px 0;
+      text-align: center;
+    }
+
+    /* ── Scheduled sync placeholder ── */
+    .strava-scheduled-sync {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-scheduled-sync-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .strava-scheduled-sync-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #3a4361;
+    }
+    .coming-soon-tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .strava-scheduled-sync-copy {
+      font-size: 12px;
+      color: #8b95ad;
+    }
+
+    /* ── Data quality panel ── */
+    .strava-data-quality {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f8f9fc;
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 8px;
+    }
+    .strava-data-quality-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .strava-data-quality-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a2540;
+    }
+    .strava-data-quality-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+    }
+    .strava-data-quality-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #5c6886;
+    }
+    .strava-data-quality-val {
+      font-weight: 600;
+      color: #1a2540;
+      min-width: 24px;
+      text-align: right;
+    }
+    .strava-data-quality-val--warn { color: #e05c2a; }
+
+    /* ── Shared integration sync/debug log ── */
+    .integration-log {
+      border: 1px solid #21262d;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      background: #0d1117;
+      overflow: hidden;
+    }
+    .integration-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #161b22;
+      border-bottom: 1px solid #21262d;
+    }
+    .integration-log-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #8b949e;
+    }
+    .integration-log-clear {
+      font-size: 11px;
+      color: #8b949e;
+      background: none;
+      border: 1px solid #30363d;
+      border-radius: 5px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+    .integration-log-clear:hover { color: #c9d1d9; border-color: #8b949e; }
+    .integration-log-body {
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #c9d1d9;
+    }
+    .integration-log-empty { color: #6e7681; font-style: italic; }
+    .integration-log-entry { white-space: pre-wrap; word-break: break-word; margin-bottom: 2px; }
+    .integration-log-ts { color: #6e7681; }
+    .integration-log-src { font-weight: 700; }
+    .integration-log-src--strava { color: #fc8d62; }
+    .integration-log-src--stryd { color: #6ea8fe; }
+    .integration-log-src--system { color: #8b949e; }
+    .integration-log-lvl--error { color: #ff7b72; }
+    .integration-log-lvl--success { color: #3fb950; }
+    .integration-log-data { color: #79c0ff; }
+
+    /* Strava identity / debug row (athlete name + id) */
+    .integration-identity {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: #4b5563;
+    }
+    .integration-identity img {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid #e2e5e9;
+    }
+    .integration-identity code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px;
+      color: #6b7280;
+    }
+
+    /* ── About section ── */
+    .about-grid {
+      border: 1px solid rgba(13, 30, 67, 0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .about-row {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+      gap: 12px;
+    }
+
+    .about-row:last-child { border-bottom: none; }
+
+    .about-label {
+      font-size: 13px;
+      color: #8b95ad;
+      font-weight: 500;
+      min-width: 120px;
+    }
+
+    .about-value {
+      font-size: 13px;
+      color: #0b1530;
+      font-weight: 500;
+    }
+
+    .about-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .about-links {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .about-link {
+      font-size: 13px;
+      color: #0b1530;
+      font-weight: 500;
+      text-decoration: none;
+      padding: 6px 12px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s;
+    }
+
+    .about-link:hover { background: #f1f5f9; }
+
+    /* ── Personal Records section ── */
+    .pr-action-bar { margin-bottom: 16px; }
+
+    .pr-empty-state {
+      padding: 24px;
+      border: 1px dashed #e5e5e5;
+      border-radius: 10px;
+      background: #fafafa;
+      text-align: center;
+    }
+    .pr-empty-state p {
+      font-size: 13.5px;
+      color: #64748b;
+      margin: 0 0 16px;
+      line-height: 1.6;
+    }
+
+    .pr-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .pr-table th {
+      text-align: left;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #8b95ad;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0 10px 10px 0;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    .pr-table td {
+      padding: 12px 10px 12px 0;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+    .pr-table tr:last-child td { border-bottom: none; }
+    .pr-td-track { font-weight: 600; color: #1a1a1a; }
+    .pr-td-best  { color: #0b1530; }
+    .pr-td-date  { color: #8b95ad; font-size: 12.5px; }
+    .pr-td-trend { font-size: 16px; }
+    .pr-trend-up   { color: #15803d; }
+    .pr-trend-down { color: #b91c1c; }
+    .pr-trend-flat { color: #8b95ad; }
+    .pr-td-actions { white-space: nowrap; }
+    .pr-action-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 5px 7px;
+      border-radius: 6px;
+      color: #8b95ad;
+      font-size: 15px;
+      transition: background 0.1s, color 0.1s;
+      margin-right: 2px;
+    }
+    .pr-action-btn:hover { background: #f1f5f9; color: #0b1530; }
+
+    .pr-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .pr-modal {
+      background: #fff;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 440px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    }
+    .pr-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .pr-modal-title { font-size: 16px; font-weight: 700; color: #1a1a1a; margin: 0; }
+    .pr-modal-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      color: #8b95ad;
+      padding: 2px 6px;
+      border-radius: 5px;
+      line-height: 1;
+      transition: color 0.1s, background 0.1s;
+    }
+    .pr-modal-close:hover { background: #f1f5f9; color: #1a1a1a; }
+    .pr-modal-body { padding: 16px 20px 20px; }
+
+    .pr-value-row { display: flex; align-items: center; gap: 8px; }
+    .pr-value-row .profile-input { flex: 1; }
+    .pr-value-suffix { font-size: 13px; color: #8b95ad; flex-shrink: 0; }
+
+    .pr-form-actions {
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pr-delete-btn {
+      padding: 9px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      background: none;
+      color: #b91c1c;
+      border: 1.5px solid rgba(185,28,28,0.3);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .pr-delete-btn:hover { background: rgba(185,28,28,0.05); }
+    .pr-delete-confirm {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fff5f5;
+      border: 1px solid rgba(185,28,28,0.2);
+    }
+    .pr-delete-confirm p { font-size: 13px; color: #1a1a1a; margin: 0 0 10px; }
+    .pr-delete-confirm-actions { display: flex; gap: 8px; }
+
+    .pr-notes-input { resize: vertical; min-height: 56px; }
+
+    .pr-history-list { display: flex; flex-direction: column; gap: 10px; }
+    .pr-hist-row {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f8f9fb;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 12px;
+      align-items: center;
+    }
+    .pr-hist-date { font-size: 12px; color: #8b95ad; grid-column: 1; }
+    .pr-hist-val  { font-size: 14px; font-weight: 600; color: #0b1530; grid-column: 2; grid-row: 1 / 3; text-align: right; }
+    .pr-hist-source { font-size: 12px; color: #a0aab8; grid-column: 1; }
+    .pr-hist-imp { grid-column: 1; }
+    .pr-hist-improvement { font-size: 12px; color: #64748b; font-style: italic; }
+  </style>
+</head>
+<body>
+  <script src="/js/nav.js"></script>
+  <script src="/js/env.js"></script>
+
+  <div class="settings-layout">
+    <aside class="settings-sidebar">
+      <nav>
+        <button class="settings-nav-item" data-section="profile">Profile</button>
+        <button class="settings-nav-item" data-section="thresholds">Performance Thresholds</button>
+        <button class="settings-nav-item" data-section="device-zones">Zones</button>
+        <button class="settings-nav-item" data-section="personal-records">Personal Records</button>
+        <button class="settings-nav-item" data-section="integrations">Integrations</button>
+        <button class="settings-nav-item" data-section="about">About</button>
+      </nav>
+    </aside>
+
+    <div class="settings-content">
+      <div id="section-profile" class="settings-section">
+        <h1>Profile</h1>
+        <!-- Avatar upload deferred to future sprint. -->
+        <div class="avatar-row">
+          <div class="settings-avatar-circle" id="settings-avatar-circle" aria-label="Your avatar">
+            <span id="settings-avatar-initials">U</span>
+          </div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-display-name">Display name</label>
+          <input type="text" id="profile-display-name" class="profile-input" placeholder="Loading…" autocomplete="name" maxlength="100">
+          <div class="profile-field-error" id="profile-display-name-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-email">Email</label>
+          <input type="email" id="profile-email" class="profile-input" readonly>
+          <div class="profile-field-error" id="profile-email-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-user-id">User ID</label>
+          <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-timezone">Timezone</label>
+          <select id="profile-timezone" class="profile-select">
+            <option value="Asia/Bangkok">Asia/Bangkok</option>
+            <option value="Asia/Singapore">Asia/Singapore</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="UTC">UTC</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="Europe/Berlin">Europe/Berlin</option>
+            <option value="Australia/Sydney">Australia/Sydney</option>
+          </select>
+          <div class="profile-field-error" id="profile-timezone-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-week-start">Week starts on</label>
+          <select id="profile-week-start" class="profile-select">
+            <option value="1">Monday</option>
+            <option value="7">Sunday</option>
+          </select>
+          <div class="profile-field-error" id="profile-week-start-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-actions-row">
+          <button class="settings-save-btn" id="profile-save-btn" type="button" disabled>Save</button>
+          <div class="settings-feedback" id="profile-feedback" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div id="section-thresholds" class="settings-section">
+        <h1>Performance Thresholds</h1>
+
+        <!-- FTP -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-ftp">FTP (Functional Threshold Power)</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
+              min="50" max="600" placeholder="(default: 280)">
+            <span class="thresholds-unit-label">W</span>
+            <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-ftp-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-ftp-last-set"></p>
+          <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
+          <div class="profile-field-error" id="thresholds-ftp-error"></div>
+        </div>
+
+        <!-- Threshold HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-hr">Threshold Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
+              min="100" max="220" placeholder="(default: 170)">
+            <span class="thresholds-unit-label">bpm</span>
+            <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-hr-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-hr-last-set"></p>
+          <p class="thresholds-desc">Heart rate at lactate threshold (bpm). Used when power data is unavailable. Estimate as ~88–92% of max HR, or from a race/hard effort.</p>
+          <div class="profile-field-error" id="thresholds-hr-error"></div>
+        </div>
+
+        <!-- Max HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-max-hr">Max Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-max-hr" class="profile-input thresholds-input"
+              min="120" max="230" placeholder="(default: 190)">
+            <span class="thresholds-unit-label">bpm</span>
+            <button type="button" class="thresholds-default-btn" data-field="max-hr">Use default</button>
+          </div>
+          <p class="thresholds-desc">Your maximum heart rate (bpm). Used to define training zones. Estimate as 220 − age, or from a maximal-effort test.</p>
+          <div class="profile-field-error" id="thresholds-max-hr-error"></div>
+        </div>
+
+        <!-- Threshold Pace -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-pace">Threshold Pace</label>
+          <div class="thresholds-input-row">
+            <input type="text" id="thresholds-pace" class="profile-input thresholds-input"
+              placeholder="(default: 4:30/km)">
+            <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-pace-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-pace-last-set"></p>
+          <p class="thresholds-desc">Running pace you can sustain for ~1 hour (M:SS/km). Used to compute running TSS. Enter as <code>4:30</code>, <code>4:30/km</code>, or <code>4:30 /km</code>.</p>
+          <div class="profile-field-error" id="thresholds-pace-error"></div>
+        </div>
+
+        <!-- Zone 2 HR band -->
+        <div class="profile-form-group">
+          <label class="profile-label">Zone 2 HR</label>
+          <div class="thresholds-input-row thresholds-zone2-band-row">
+            <input type="number" id="thresholds-zone2-hr-min" class="profile-input thresholds-input"
+              min="60" max="200" placeholder="min">
+            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding:0 2px;">–</span>
+            <input type="number" id="thresholds-zone2-hr-max" class="profile-input thresholds-input"
+              min="60" max="210" placeholder="max">
+            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding-left:4px;">bpm</span>
+          </div>
+          <p class="thresholds-desc">Heart-rate band for Zone 2 aerobic work. Used to calculate Zone 2 minutes per workout.</p>
+          <div class="profile-field-error" id="thresholds-zone2-hr-error" aria-live="polite"></div>
+        </div>
+
+        <!-- Weekly Zone 2 Target -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-weekly-zone2-target">Weekly Zone 2 Target</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-weekly-zone2-target" class="profile-input thresholds-input"
+              min="0" max="2000" placeholder="(e.g. 150)">
+            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding-left:4px;">min</span>
+          </div>
+          <p class="thresholds-desc">Target Zone 2 training minutes per week. Shown on the home dashboard as a weekly goal.</p>
+          <div class="profile-field-error" id="thresholds-weekly-zone2-target-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-actions-row">
+          <button type="button" id="thresholds-save-btn" class="settings-save-btn">Save</button>
+          <span id="thresholds-feedback" class="settings-feedback" aria-live="polite"></span>
+        </div>
+
+        <div class="thresholds-info-card">
+          Changing these will recompute TSS for new workouts only. Past workouts keep their original TSS values (no retro recompute in this sprint).
+        </div>
+
+        <!-- Track Zone 2 habit opt-in -->
+        <div id="provision-zone2-card" style="margin-top:24px;padding:16px 20px;border:1px solid #e5e5e5;border-radius:8px;background:#f9fafb;">
+          <p style="margin:0 0 10px;font-size:14px;font-weight:500;color:#1a1a1a;">Track Zone 2 in habits</p>
+          <p style="margin:0 0 14px;font-size:13px;color:#8b95ad;">Provision a pre-configured Zone 2 habit seeded from your weekly target above. The habit tracks weekly Zone 2 minutes auto-filled from workout data.</p>
+          <div id="provision-zone2-existing" style="display:none;font-size:13px;color:#4b7cf6;margin-bottom:10px;" aria-live="polite"></div>
+          <div id="provision-zone2-success" style="display:none;font-size:13px;color:#2d9e2d;margin-bottom:10px;" aria-live="polite"></div>
+          <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn" style="font-size:13px;padding:7px 16px;">Track Zone 2 in habits</button>
+        </div>
+      </div>
+
+      <!-- Device Zones: read-only power zones sourced from a connected device (e.g. Stryd) -->
+      <div id="section-device-zones" class="settings-section thresholds-device-zones">
+        <h1>Zones</h1>
+        <p style="font-size:13px;color:#8b95ad;margin:0 0 16px;">Power zones reported by your connected device. These values are read-only and update when you sync.</p>
+        <div id="device-zones-content">
+          <p id="device-zones-empty" style="font-size:13px;color:#8b95ad;">No device-sourced zones available. Connect Stryd and sync to see power zones here.</p>
+          <div id="device-zones-table" style="display:none;">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+              <span style="font-size:13px;font-weight:600;color:#1a1a1a;">Critical Power (FTP):</span>
+              <span id="device-ftp-value" style="font-size:14px;font-weight:700;color:#4b7cf6;"></span>
+              <span style="font-size:12px;color:#8b95ad;">W — from Stryd</span>
+            </div>
+            <div id="device-zones-list" style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:#374151;"></div>
+            <p id="device-zones-date" style="font-size:12px;color:#8b95ad;margin-top:8px;"></p>
+          </div>
+        </div>
+      </div>
+
+      <div id="section-personal-records" class="settings-section">
+        <h1>Personal Records</h1>
+
+        <div class="pr-action-bar">
+          <button id="pr-add-btn" type="button" class="settings-save-btn">Add a record</button>
+        </div>
+
+        <div id="pr-empty-state" class="pr-empty-state" style="display:none">
+          <p>Set your personal records to track progress over time. Start with your half marathon time, 10K time, and 1RM lifts.</p>
+          <button id="pr-empty-add-btn" type="button" class="settings-save-btn">Add a record</button>
+        </div>
+
+        <table id="pr-table" class="pr-table" style="display:none">
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Current best</th>
+              <th>Achieved on</th>
+              <th>Trend</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pr-tbody"></tbody>
+        </table>
+
+        <!-- Add / Edit modal -->
+        <div id="pr-form-overlay" class="pr-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pr-form-title">
+          <div class="pr-modal">
+            <div class="pr-modal-header">
+              <h2 id="pr-form-title" class="pr-modal-title">Add a record</h2>
+              <button type="button" class="pr-modal-close" id="pr-form-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pr-modal-body">
+              <input type="hidden" id="pr-edit-id">
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-track-select">Track</label>
+                <select id="pr-track-select" class="profile-select">
+                  <option value="">Select a track…</option>
+                  <option value="__other__">Other (custom)</option>
+                </select>
+                <div class="profile-field-error" id="pr-track-error"></div>
+              </div>
+
+              <div class="profile-form-group" id="pr-custom-track-group" style="display:none">
+                <label class="profile-label" for="pr-custom-track-key">Custom track key</label>
+                <input type="text" id="pr-custom-track-key" class="profile-input" placeholder="e.g. mile_run">
+                <div class="profile-field-error" id="pr-custom-track-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-value-input">Value</label>
+                <div class="pr-value-row">
+                  <input type="text" id="pr-value-input" class="profile-input" placeholder="H:MM:SS or MM:SS">
+                  <span class="pr-value-suffix" id="pr-value-suffix" style="display:none">kg</span>
+                </div>
+                <div class="profile-field-error" id="pr-value-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-achieved-on">Achieved on</label>
+                <input type="date" id="pr-achieved-on" class="profile-input">
+                <div class="profile-field-error" id="pr-achieved-error"></div>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-source">Source</label>
+                <select id="pr-source" class="profile-select">
+                  <option value="">Select source…</option>
+                  <option value="Manual">Manual</option>
+                  <option value="Race">Race</option>
+                  <option value="Test">Test</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div class="profile-form-group">
+                <label class="profile-label" for="pr-notes">Notes <span style="font-weight:400;color:#8b95ad">(optional)</span></label>
+                <textarea id="pr-notes" class="profile-input pr-notes-input" rows="2" placeholder="Optional notes…"></textarea>
+              </div>
+
+              <div class="pr-form-actions">
+                <button type="button" id="pr-form-submit" class="settings-save-btn">Save</button>
+                <button type="button" id="pr-form-delete" class="pr-delete-btn" style="display:none">Delete</button>
+                <div id="pr-form-feedback" class="settings-feedback" aria-live="polite"></div>
+              </div>
+
+              <div id="pr-delete-confirm" class="pr-delete-confirm" style="display:none">
+                <p>Delete this record? This cannot be undone.</p>
+                <div class="pr-delete-confirm-actions">
+                  <button type="button" id="pr-delete-yes" class="integration-btn integration-btn--danger">Delete</button>
+                  <button type="button" id="pr-delete-no" class="integration-btn integration-btn--secondary">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- History modal -->
+        <div id="pr-history-overlay" class="pr-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pr-history-title">
+          <div class="pr-modal">
+            <div class="pr-modal-header">
+              <h2 id="pr-history-title" class="pr-modal-title">History</h2>
+              <button type="button" class="pr-modal-close" id="pr-history-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pr-modal-body" id="pr-history-body"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="section-integrations" class="settings-section">
+        <h1>Integrations</h1>
+
+        <!-- Shared sync/debug log — reused by every integration (Strava, Stryd, …) -->
+        <div class="integration-log" id="integration-log">
+          <div class="integration-log-header">
+            <span class="integration-log-title">Sync log</span>
+            <button type="button" class="integration-log-clear" id="integration-log-clear">Clear</button>
+          </div>
+          <div class="integration-log-body" id="integration-log-body" aria-live="polite">
+            <div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>
+          </div>
+        </div>
+
+        <!-- Strava -->
+        <div class="integration-card" id="strava-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon strava-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#FC4C02"/>
+                  <path d="M10.5 17.5L8 12.5H11L13.5 7L16 12.5H19L13.5 22L10.5 17.5Z" fill="white"/>
+                </svg>
+              </span>
+              <span class="integration-name">Strava</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="strava-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="strava-meta"></div>
+          <div class="integration-identity" id="strava-identity" style="display:none"></div>
+          <div class="integration-last-synced" id="strava-last-synced"></div>
+          <div class="integration-actions" id="strava-actions"></div>
+          <div id="strava-sync-panel"></div>
+
+          <!-- Sync history (AC B) -->
+          <button class="strava-history-toggle" id="strava-history-toggle" type="button" aria-expanded="false">
+            <span class="toggle-arrow">&#9654;</span> Sync history
+          </button>
+          <div id="strava-history-panel" role="region" aria-label="Sync history"></div>
+
+          <!-- Scheduled sync placeholder (AC C) -->
+          <div class="strava-scheduled-sync" id="strava-scheduled-sync">
+            <div class="strava-scheduled-sync-header">
+              <span class="strava-scheduled-sync-title">Scheduled sync</span>
+              <span class="coming-soon-tag">Coming soon</span>
+            </div>
+            <p class="strava-scheduled-sync-copy">Automatic background syncs every hour are planned. For now, manual sync only.</p>
+          </div>
+
+          <!-- Data quality panel -->
+          <div class="strava-data-quality" id="strava-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid" id="strava-data-quality-grid">
+              <div class="strava-data-quality-row">
+                <span>Strava activities</span>
+                <span class="strava-data-quality-val" id="dq-strava-activities">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (Strava source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-strava">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (no source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-no-source">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Stryd-matched</span>
+                <span class="strava-data-quality-val" id="dq-stryd-synced">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Potential duplicates</span>
+                <span class="strava-data-quality-val" id="dq-potential-dupes">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
+        </div>
+
+        <!-- Stryd -->
+        <div class="integration-card" id="stryd-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon stryd-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#1A1A2E"/>
+                  <path d="M13 4L7 13H12L11 20L17 11H12L13 4Z" fill="#00D4AA"/>
+                </svg>
+              </span>
+              <span class="integration-name">Stryd</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="stryd-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="stryd-meta"></div>
+          <div id="stryd-form-wrap"></div>
+          <div class="integration-last-synced" id="stryd-last-synced"></div>
+          <div class="integration-actions" id="stryd-actions"></div>
+
+          <button class="strava-history-toggle" id="stryd-history-toggle" type="button" aria-expanded="false" style="display:none">
+            <span class="toggle-arrow">&#8250;</span> Sync history
+          </button>
+          <div id="stryd-history-panel" role="region" aria-label="Stryd sync history"></div>
+
+          <div class="strava-data-quality" id="stryd-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid">
+              <div class="strava-data-quality-row"><span>Stryd activities</span><span class="strava-data-quality-val" id="dq-stryd-activities">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Stryd</span><span class="strava-data-quality-val" id="dq-workouts-stryd">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Strava</span><span class="strava-data-quality-val" id="dq-workouts-strava2">—</span></div>
+              <div class="strava-data-quality-row"><span>Merged (both)</span><span class="strava-data-quality-val" id="dq-workouts-both">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ TSS</span><span class="strava-data-quality-val" id="dq-workouts-tss">—</span></div>
+            </div>
+          </div>
+
+          <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
+        </div>
+
+        <!-- Google (placeholder) -->
+        <div class="integration-card integration-card--placeholder" id="google-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#f1f5f9"/>
+                  <text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#8b95ad">G</text>
+                </svg>
+              </span>
+              <span class="integration-name">Google</span>
+            </div>
+            <span class="integration-badge integration-badge--unconfigured">Coming soon</span>
+          </div>
+          <div class="integration-meta">
+            <span class="integration-coming-soon">Sign in with Google — coming soon</span>
+          </div>
+        </div>
+
+        <!-- Samsung Health (placeholder) -->
+        <div class="integration-card integration-card--placeholder" id="samsung-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#f1f5f9"/>
+                  <text x="12" y="17" text-anchor="middle" font-size="11" font-weight="700" fill="#8b95ad">SH</text>
+                </svg>
+              </span>
+              <span class="integration-name">Samsung Health</span>
+            </div>
+            <span class="integration-badge integration-badge--unconfigured">Coming soon</span>
+          </div>
+          <div class="integration-meta">
+            <span class="integration-coming-soon">Sleep import — coming soon</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="section-about" class="settings-section">
+        <h1>About</h1>
+        <div class="about-grid">
+          <div class="about-row">
+            <span class="about-label">App Version</span>
+            <span class="about-value" id="about-version">—</span>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Build SHA</span>
+            <code class="about-value about-mono" id="about-sha">—</code>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Environment</span>
+            <span class="about-value" id="about-env">—</span>
+          </div>
+        </div>
+        <div class="about-links">
+          <a href="https://github.com/zealchaiwut/perf-coach" target="_blank" rel="noopener noreferrer" class="about-link">GitHub ↗</a>
+          <a href="/docs/" target="_blank" rel="noopener noreferrer" class="about-link">Docs ↗</a>
+          <a href="/CHANGELOG.md" target="_blank" rel="noopener noreferrer" class="about-link" id="about-changelog-link" style="display:none">Changelog ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/user.js"></script>
+  <script>
+    (function () {
+      // Profile section: display_name, email, timezone, week_start_day
+      var _baseline = {};
+
+      function _initials(displayName, email) {
+        var src = (displayName || email || '').trim();
+        if (!src) return 'U';
+        var words = src.split(/\s+/).filter(Boolean);
+        if (words.length >= 2) {
+          return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+        }
+        return src[0].toUpperCase();
+      }
+
+      function _currentValues() {
+        return {
+          display_name: document.getElementById('profile-display-name').value,
+          timezone: document.getElementById('profile-timezone').value,
+          week_start_day: parseInt(document.getElementById('profile-week-start').value, 10),
+        };
+      }
+
+      function _isDirty() {
+        var cur = _currentValues();
+        return cur.display_name !== (_baseline.display_name || '')
+          || cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')
+          || cur.week_start_day !== (_baseline.week_start_day || 1);
+      }
+
+      function _updateSaveBtn() {
+        var btn = document.getElementById('profile-save-btn');
+        if (btn) btn.disabled = !_isDirty();
+      }
+
+      function _clearFieldErrors() {
+        ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '';
+          });
+      }
+
+      function _setFeedback(msg, type) {
+        var el = document.getElementById('profile-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
+      }
+
+      function _loadPrefs() {
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = data.row || {};
+            _baseline = {
+              display_name: row.display_name || '',
+              timezone: row.timezone || 'Asia/Bangkok',
+              week_start_day: row.week_start_day || 1,
+            };
+
+            var dnEl = document.getElementById('profile-display-name');
+            if (dnEl) {
+              dnEl.value = _baseline.display_name;
+              dnEl.placeholder = row.user_name || 'Display name';
+            }
+
+            var emailEl = document.getElementById('profile-email');
+            if (emailEl) emailEl.value = row.user_email || '';
+
+            var uidEl = document.getElementById('profile-user-id');
+            if (uidEl) uidEl.value = row.user_id || '';
+
+            var tzEl = document.getElementById('profile-timezone');
+            if (tzEl) tzEl.value = _baseline.timezone;
+
+            var wsEl = document.getElementById('profile-week-start');
+            if (wsEl) wsEl.value = String(_baseline.week_start_day);
+
+            var initialsEl = document.getElementById('settings-avatar-initials');
+            if (initialsEl) {
+              initialsEl.textContent = _initials(_baseline.display_name || row.user_name, row.user_email);
+            }
+
+            _updateSaveBtn();
+          })
+          .catch(function () {
+            _setFeedback('Failed to load profile.', 'error');
+          });
+      }
+
+      function _handleSave() {
+        var btn = document.getElementById('profile-save-btn');
+        _clearFieldErrors();
+        _setFeedback('', '');
+
+        var cur = _currentValues();
+        var patch = {};
+        if (cur.display_name !== (_baseline.display_name || '')) patch.display_name = cur.display_name;
+        if (cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')) patch.timezone = cur.timezone;
+        if (cur.week_start_day !== (_baseline.week_start_day || 1)) patch.week_start_day = cur.week_start_day;
+
+        if (!Object.keys(patch).length) return;
+
+        if (btn) btn.disabled = true;
+        fetch('/api/user-preferences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+          .then(function (r) {
+            if (!r.ok) {
+              return r.json().then(function (d) { return Promise.reject(d); });
+            }
+            return r.json();
+          })
+          .then(function (saved) {
+            _baseline = {
+              display_name: saved.display_name || '',
+              timezone: saved.timezone || 'Asia/Bangkok',
+              week_start_day: saved.week_start_day || 1,
+            };
+            var initialsEl = document.getElementById('settings-avatar-initials');
+            if (initialsEl) {
+              var emailEl = document.getElementById('profile-email');
+              initialsEl.textContent = _initials(_baseline.display_name, emailEl ? emailEl.value : '');
+            }
+            _setFeedback('Saved.', 'success');
+            _updateSaveBtn();
+          })
+          .catch(function (errData) {
+            if (btn) btn.disabled = false;
+            var detail = errData && errData.detail;
+            if (Array.isArray(detail)) {
+              detail.forEach(function (e) {
+                var errEl = document.getElementById('profile-' + (e.field || '').replace(/_/g, '-') + '-error');
+                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+              });
+              _setFeedback('Fix the errors above and try again.', 'error');
+            } else {
+              _setFeedback(typeof detail === 'string' ? detail : 'Save failed.', 'error');
+            }
+          });
+      }
+
+      ['profile-display-name', 'profile-timezone', 'profile-week-start'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', _updateSaveBtn);
+        if (el) el.addEventListener('change', _updateSaveBtn);
+      });
+
+      var saveBtn = document.getElementById('profile-save-btn');
+      if (saveBtn) saveBtn.addEventListener('click', _handleSave);
+
+      window.addEventListener('userReady', function () {
+        _loadPrefs();
+      });
+    }());
+  </script>
+  <script>
+    (function () {
+      // Performance Thresholds section
+      // Baseline holds the displayed value for each field (row[field] ?? defaults[field]).
+      // PATCH sends only fields that differ from the baseline so unchanged values are omitted.
+      var _tBaseline = { ftp_w: null, threshold_hr: null, max_hr: null, threshold_pace_seconds_per_km: null, zone2_hr_min: null, zone2_hr_max: null, weekly_zone2_target_min: null };
+      var _tDefaults = { ftp_w: 280, threshold_hr: 170, max_hr: 190, threshold_pace_seconds_per_km: 270, zone2_hr_min: 130, zone2_hr_max: 155, weekly_zone2_target_min: 150 };
+      var _tFieldToErrorId = {
+        'ftp_w': 'thresholds-ftp-error',
+        'threshold_hr': 'thresholds-hr-error',
+        'max_hr': 'thresholds-max-hr-error',
+        'threshold_pace_seconds_per_km': 'thresholds-pace-error',
+        'zone2_hr_min': 'thresholds-zone2-hr-error',
+        'zone2_hr_max': 'thresholds-zone2-hr-error',
+        'weekly_zone2_target_min': 'thresholds-weekly-zone2-target-error',
+      };
+
+      function _secsToMMSS(secs) {
+        if (secs == null) return '';
+        var m = Math.floor(secs / 60);
+        var s = secs % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+      }
+
+      function _parsePace(str) {
+        // Accepts "4:30", "4:30/km", "4:30 /km" — returns integer seconds or null on failure
+        if (!str || !str.trim()) return null;
+        var clean = str.trim().replace(/\s*\/\s*km\s*$/i, '').trim();
+        var match = clean.match(/^(\d{1,2}):(\d{2})$/);
+        if (!match) return null;
+        var mins = parseInt(match[1], 10);
+        var secs = parseInt(match[2], 10);
+        if (secs >= 60) return null;
+        return mins * 60 + secs;
+      }
+
+      function _tClearErrors() {
+        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-max-hr-error', 'thresholds-pace-error',
+          'thresholds-zone2-hr-error', 'thresholds-weekly-zone2-target-error']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '';
+          });
+      }
+
+      function _tSetFeedback(msg, type) {
+        var el = document.getElementById('thresholds-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
+      }
+
+      function _tLoadPrefs() {
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = data.row || {};
+            var defs = data.defaults || _tDefaults;
+
+            // Prefill each input with row value when present, otherwise system default (AC3).
+            // Baseline is the displayed value so the dirty-check in _tValidateAndBuildPatch
+            // only includes fields the user actually changed (AC4).
+            var displayFtp   = row.ftp_w != null ? row.ftp_w : (defs.ftp_w != null ? defs.ftp_w : _tDefaults.ftp_w);
+            var displayHr    = row.threshold_hr != null ? row.threshold_hr : (defs.threshold_hr != null ? defs.threshold_hr : _tDefaults.threshold_hr);
+            var displayMaxHr = row.max_hr != null ? row.max_hr : (defs.max_hr != null ? defs.max_hr : _tDefaults.max_hr);
+            var displayPace  = row.threshold_pace_seconds_per_km != null
+              ? row.threshold_pace_seconds_per_km
+              : (defs.threshold_pace_seconds_per_km != null ? defs.threshold_pace_seconds_per_km : _tDefaults.threshold_pace_seconds_per_km);
+            var displayZ2Min = row.zone2_hr_min != null ? row.zone2_hr_min : (defs.zone2_hr_min != null ? defs.zone2_hr_min : _tDefaults.zone2_hr_min);
+            var displayZ2Max = row.zone2_hr_max != null ? row.zone2_hr_max : (defs.zone2_hr_max != null ? defs.zone2_hr_max : _tDefaults.zone2_hr_max);
+            var displayWeeklyZ2 = row.weekly_zone2_target_min != null ? row.weekly_zone2_target_min : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : _tDefaults.weekly_zone2_target_min);
+
+            _tBaseline = {
+              ftp_w: displayFtp,
+              threshold_hr: displayHr,
+              max_hr: displayMaxHr,
+              threshold_pace_seconds_per_km: displayPace,
+              zone2_hr_min: displayZ2Min,
+              zone2_hr_max: displayZ2Max,
+              weekly_zone2_target_min: displayWeeklyZ2,
+            };
+
+            var ftpEl = document.getElementById('thresholds-ftp');
+            if (ftpEl) ftpEl.value = String(displayFtp);
+
+            var hrEl = document.getElementById('thresholds-hr');
+            if (hrEl) hrEl.value = String(displayHr);
+
+            var maxHrEl = document.getElementById('thresholds-max-hr');
+            if (maxHrEl) maxHrEl.value = String(displayMaxHr);
+
+            var paceEl = document.getElementById('thresholds-pace');
+            if (paceEl) paceEl.value = _secsToMMSS(displayPace) + '/km';
+
+            var z2MinEl = document.getElementById('thresholds-zone2-hr-min');
+            if (z2MinEl) z2MinEl.value = String(displayZ2Min);
+
+            var z2MaxEl = document.getElementById('thresholds-zone2-hr-max');
+            if (z2MaxEl) z2MaxEl.value = String(displayZ2Max);
+
+            var weeklyZ2El = document.getElementById('thresholds-weekly-zone2-target');
+            if (weeklyZ2El) weeklyZ2El.value = String(displayWeeklyZ2);
+
+            // Populate "last set" timestamps (AC2)
+            _tSetLastSet('thresholds-ftp-last-set', row.ftp_w_updated_at);
+            _tSetLastSet('thresholds-hr-last-set', row.threshold_hr_updated_at);
+            _tSetLastSet('thresholds-pace-last-set', row.threshold_pace_seconds_per_km_updated_at);
+          })
+          .catch(function () {
+            _tSetFeedback('Failed to load thresholds.', 'error');
+          });
+      }
+
+      function _tFmtTimestamp(iso) {
+        if (!iso) return '';
+        try {
+          var d = new Date(iso);
+          return 'Last set: ' + d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        } catch (e) { return ''; }
+      }
+
+      function _tSetLastSet(elId, isoString) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        el.textContent = _tFmtTimestamp(isoString);
+      }
+
+      function _tValidateAndBuildPatch() {
+        _tClearErrors();
+        var patch = {};
+        var hasError = false;
+
+        // FTP
+        var ftpEl = document.getElementById('thresholds-ftp');
+        var ftpVal = ftpEl ? ftpEl.value.trim() : '';
+        if (ftpVal === '') {
+          if (_tBaseline.ftp_w !== null) patch.ftp_w = null;
+        } else {
+          var ftpNum = parseInt(ftpVal, 10);
+          if (isNaN(ftpNum) || ftpNum < 50 || ftpNum > 600) {
+            var ftpErrEl = document.getElementById('thresholds-ftp-error');
+            if (ftpErrEl) ftpErrEl.textContent = 'FTP must be between 50 and 600 W';
+            hasError = true;
+          } else if (ftpNum !== _tBaseline.ftp_w) {
+            patch.ftp_w = ftpNum;
+          }
+        }
+
+        // Threshold HR
+        var hrEl = document.getElementById('thresholds-hr');
+        var hrVal = hrEl ? hrEl.value.trim() : '';
+        if (hrVal === '') {
+          if (_tBaseline.threshold_hr !== null) patch.threshold_hr = null;
+        } else {
+          var hrNum = parseInt(hrVal, 10);
+          if (isNaN(hrNum) || hrNum < 100 || hrNum > 220) {
+            var hrErrEl = document.getElementById('thresholds-hr-error');
+            if (hrErrEl) hrErrEl.textContent = 'Threshold HR must be between 100 and 220 bpm';
+            hasError = true;
+          } else if (hrNum !== _tBaseline.threshold_hr) {
+            patch.threshold_hr = hrNum;
+          }
+        }
+
+        // Max HR
+        var maxHrEl = document.getElementById('thresholds-max-hr');
+        var maxHrVal = maxHrEl ? maxHrEl.value.trim() : '';
+        if (maxHrVal === '') {
+          if (_tBaseline.max_hr !== null) patch.max_hr = null;
+        } else {
+          var maxHrNum = parseInt(maxHrVal, 10);
+          if (isNaN(maxHrNum) || maxHrNum < 120 || maxHrNum > 230) {
+            var maxHrErrEl = document.getElementById('thresholds-max-hr-error');
+            if (maxHrErrEl) maxHrErrEl.textContent = 'Max HR must be between 120 and 230 bpm';
+            hasError = true;
+          } else if (maxHrNum !== _tBaseline.max_hr) {
+            patch.max_hr = maxHrNum;
+          }
+        }
+
+        // Threshold Pace
+        var paceEl = document.getElementById('thresholds-pace');
+        var paceVal = paceEl ? paceEl.value.trim() : '';
+        if (paceVal === '') {
+          if (_tBaseline.threshold_pace_seconds_per_km !== null) patch.threshold_pace_seconds_per_km = null;
+        } else {
+          var paceSecs = _parsePace(paceVal);
+          if (paceSecs === null || paceSecs < 180 || paceSecs > 540) {
+            var paceErrEl = document.getElementById('thresholds-pace-error');
+            if (paceErrEl) paceErrEl.textContent = 'Enter pace as M:SS/km (e.g. 4:30/km), range 3:00–9:00/km';
+            hasError = true;
+          } else if (paceSecs !== _tBaseline.threshold_pace_seconds_per_km) {
+            patch.threshold_pace_seconds_per_km = paceSecs;
+          }
+        }
+
+        // Zone 2 HR band (cross-field: min must be < max)
+        var z2MinEl = document.getElementById('thresholds-zone2-hr-min');
+        var z2MaxEl = document.getElementById('thresholds-zone2-hr-max');
+        var z2MinVal = z2MinEl ? z2MinEl.value.trim() : '';
+        var z2MaxVal = z2MaxEl ? z2MaxEl.value.trim() : '';
+        var z2MinNum = z2MinVal !== '' ? parseInt(z2MinVal, 10) : null;
+        var z2MaxNum = z2MaxVal !== '' ? parseInt(z2MaxVal, 10) : null;
+
+        if (z2MinNum !== null && z2MaxNum !== null && z2MinNum >= z2MaxNum) {
+          var z2ErrEl = document.getElementById('thresholds-zone2-hr-error');
+          if (z2ErrEl) z2ErrEl.textContent = 'Min must be less than Max';
+          hasError = true;
+        } else {
+          if (z2MinVal === '') {
+            if (_tBaseline.zone2_hr_min !== null) patch.zone2_hr_min = null;
+          } else if (z2MinNum !== null && z2MinNum !== _tBaseline.zone2_hr_min) {
+            patch.zone2_hr_min = z2MinNum;
+          }
+          if (z2MaxVal === '') {
+            if (_tBaseline.zone2_hr_max !== null) patch.zone2_hr_max = null;
+          } else if (z2MaxNum !== null && z2MaxNum !== _tBaseline.zone2_hr_max) {
+            patch.zone2_hr_max = z2MaxNum;
+          }
+        }
+
+        // Weekly Zone 2 Target
+        var weeklyZ2El = document.getElementById('thresholds-weekly-zone2-target');
+        var weeklyZ2Val = weeklyZ2El ? weeklyZ2El.value.trim() : '';
+        if (weeklyZ2Val === '') {
+          if (_tBaseline.weekly_zone2_target_min !== null) patch.weekly_zone2_target_min = null;
+        } else {
+          var weeklyZ2Num = parseInt(weeklyZ2Val, 10);
+          if (isNaN(weeklyZ2Num) || weeklyZ2Num < 0 || weeklyZ2Num > 2000) {
+            var weeklyZ2ErrEl = document.getElementById('thresholds-weekly-zone2-target-error');
+            if (weeklyZ2ErrEl) weeklyZ2ErrEl.textContent = 'Weekly target must be between 0 and 2000 min';
+            hasError = true;
+          } else if (weeklyZ2Num !== _tBaseline.weekly_zone2_target_min) {
+            patch.weekly_zone2_target_min = weeklyZ2Num;
+          }
+        }
+
+        return hasError ? null : patch;
+      }
+
+      function _tHandleSave() {
+        var btn = document.getElementById('thresholds-save-btn');
+        _tSetFeedback('', '');
+
+        var patch = _tValidateAndBuildPatch();
+        if (patch === null) {
+          _tSetFeedback('Fix the errors above and try again.', 'error');
+          return;
+        }
+
+        // No fields changed — nothing to save
+        if (!Object.keys(patch).length) {
+          _tSetFeedback('No changes to save.', '');
+          return;
+        }
+
+        if (btn) btn.disabled = true;
+        fetch('/api/user-preferences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function (saved) {
+            var defs = _tDefaults;
+            _tBaseline = {
+              ftp_w: saved.ftp_w != null ? saved.ftp_w : defs.ftp_w,
+              threshold_hr: saved.threshold_hr != null ? saved.threshold_hr : defs.threshold_hr,
+              max_hr: saved.max_hr != null ? saved.max_hr : defs.max_hr,
+              threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km != null
+                ? saved.threshold_pace_seconds_per_km : defs.threshold_pace_seconds_per_km,
+              zone2_hr_min: saved.zone2_hr_min != null ? saved.zone2_hr_min : defs.zone2_hr_min,
+              zone2_hr_max: saved.zone2_hr_max != null ? saved.zone2_hr_max : defs.zone2_hr_max,
+              weekly_zone2_target_min: saved.weekly_zone2_target_min != null ? saved.weekly_zone2_target_min : defs.weekly_zone2_target_min,
+            };
+            // Normalise pace display to M:SS/km after save
+            var paceEl = document.getElementById('thresholds-pace');
+            if (paceEl) paceEl.value = _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km';
+            // Refresh timestamps from the saved row (AC2)
+            _tSetLastSet('thresholds-ftp-last-set', saved.ftp_w_updated_at);
+            _tSetLastSet('thresholds-hr-last-set', saved.threshold_hr_updated_at);
+            _tSetLastSet('thresholds-pace-last-set', saved.threshold_pace_seconds_per_km_updated_at);
+            _tSetFeedback('Preferences saved.', 'success');
+          })
+          .catch(function (errData) {
+            var detail = errData && errData.detail;
+            if (Array.isArray(detail)) {
+              detail.forEach(function (e) {
+                var errElId = _tFieldToErrorId[e.field] ||
+                  ('thresholds-' + (e.field || '').replace(/_/g, '-').replace('threshold-', '') + '-error');
+                var errEl = document.getElementById(errElId);
+                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+              });
+              _tSetFeedback('Fix the errors above and try again.', 'error');
+            } else {
+              _tSetFeedback(typeof detail === 'string' ? detail : 'Save failed.', 'error');
+            }
+          })
+          .finally(function () {
+            if (btn) btn.disabled = false;
+          });
+      }
+
+      // "Use default" buttons clear their field (signals "revert to system default")
+      document.querySelectorAll('.thresholds-default-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var field = btn.getAttribute('data-field');
+          var inputId = 'thresholds-' + field;
+          var el = document.getElementById(inputId);
+          if (el) el.value = '';
+          var errEl = document.getElementById(inputId + '-error');
+          if (errEl) errEl.textContent = '';
+          _tSetFeedback('', '');
+        });
+      });
+
+      var tSaveBtn = document.getElementById('thresholds-save-btn');
+      if (tSaveBtn) tSaveBtn.addEventListener('click', _tHandleSave);
+
+      // ── Threshold suggestions ─────────────────────────────────────────────
+      // Fetches /api/thresholds/suggestions and shows an inline suggestion banner
+      // with formula text and an Accept button per field (AC5).
+      // Clicking Accept calls POST /api/thresholds/suggestions/accept and writes
+      // the value to user_preferences; the banner then disappears (AC6).
+
+      function _loadThresholdSuggestions() {
+        fetch('/api/thresholds/suggestions')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.pending) return;
+            var pending = data.pending;
+            if (pending.ftp_w) {
+              _showSuggestionBanner('thresholds-ftp-suggestion', 'thresholds-ftp', 'ftp_w', pending.ftp_w, false);
+            }
+            if (pending.threshold_hr) {
+              _showSuggestionBanner('thresholds-hr-suggestion', 'thresholds-hr', 'threshold_hr', pending.threshold_hr, false);
+            }
+            if (pending.threshold_pace_seconds_per_km) {
+              _showSuggestionBanner('thresholds-pace-suggestion', 'thresholds-pace', 'threshold_pace_seconds_per_km', pending.threshold_pace_seconds_per_km, true);
+            }
+          })
+          .catch(function () {});
+      }
+
+      function _showSuggestionBanner(bannerId, inputId, prefKey, suggestion, isPace) {
+        var banner = document.getElementById(bannerId);
+        if (!banner) return;
+        var rawValue = suggestion.value;
+        var formula = suggestion.formula || '';
+
+        var displayVal = isPace
+          ? (_secsToMMSS(rawValue) + '/km')
+          : (Math.round(rawValue) + (prefKey === 'ftp_w' ? ' W' : ' bpm'));
+
+        var suggestText = 'Suggested ' + displayVal;
+        if (formula) suggestText += ' — ' + formula;
+
+        banner.innerHTML = '';
+        var textSpan = document.createElement('span');
+        textSpan.className = 'suggestion-text';
+        textSpan.textContent = suggestText;
+
+        var acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'suggestion-accept-btn';
+        acceptBtn.textContent = 'Accept';
+        acceptBtn.addEventListener('click', function () {
+          acceptBtn.disabled = true;
+          function _readCsrf() {
+            var csrf = '';
+            var metaEl = document.querySelector('meta[name="csrf-token"]');
+            if (metaEl) csrf = metaEl.getAttribute('content');
+            if (!csrf) {
+              document.cookie.split(';').forEach(function (c) {
+                var pair = c.trim();
+                if (pair.startsWith('csrf-token=')) csrf = decodeURIComponent(pair.slice('csrf-token='.length));
+              });
+            }
+            return csrf;
+          }
+          function _acceptWithCsrf() {
+            var csrf = _readCsrf();
+            if (csrf) return Promise.resolve(csrf);
+            return fetch('/api/csrf-token').then(function (r) {
+              return r.ok ? r.json() : {};
+            }).then(function (d) {
+              return (d && d.csrf_token) || _readCsrf();
+            });
+          }
+          _acceptWithCsrf().then(function (csrf) {
+            return fetch('/api/thresholds/suggestions/accept', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+              body: JSON.stringify({ keys: [prefKey] }),
+            });
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (result) {
+              var written = result.written || {};
+              if (prefKey in written) {
+                // Update the input field with the accepted value (AC6)
+                var inputEl = document.getElementById(inputId);
+                if (inputEl) {
+                  inputEl.value = isPace
+                    ? (_secsToMMSS(written[prefKey]) + '/km')
+                    : String(written[prefKey]);
+                }
+                // Update baseline so dirty-check recognises the new value as saved
+                if (prefKey in _tBaseline) _tBaseline[prefKey] = written[prefKey];
+                // Hide the banner (AC6)
+                banner.classList.remove('visible');
+                banner.innerHTML = '';
+                // Refresh timestamps
+                _tLoadPrefs();
+              } else {
+                acceptBtn.disabled = false;
+              }
+            })
+            .catch(function () { acceptBtn.disabled = false; });
+        });
+
+        banner.appendChild(textSpan);
+        banner.appendChild(acceptBtn);
+        banner.classList.add('visible');
+      }
+
+      // ── Zone 2 habit opt-in provision button ──────────────────────────────
+      function _updateProvisionZone2UI(existingHabit) {
+        var btn = document.getElementById('thresholds-provision-zone2-btn');
+        var existingEl = document.getElementById('provision-zone2-existing');
+        var successEl = document.getElementById('provision-zone2-success');
+        if (!btn) return;
+        if (existingHabit) {
+          btn.disabled = true;
+          btn.style.opacity = '0.45';
+          if (existingEl) {
+            existingEl.style.display = '';
+            existingEl.innerHTML = 'A Zone 2 habit already exists. <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
+          }
+        } else {
+          btn.disabled = false;
+          btn.style.opacity = '';
+          if (existingEl) {
+            existingEl.style.display = 'none';
+            existingEl.innerHTML = '';
+          }
+          if (successEl) successEl.style.display = 'none';
+        }
+      }
+
+      function _checkZone2HabitExists(callback) {
+        fetch('/api/habits')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (habits) {
+            var found = habits.find(function (h) {
+              return h.auto_fill_source === 'workout.zone2_minutes';
+            });
+            callback(found || null);
+          })
+          .catch(function () { callback(null); });
+      }
+
+      function _handleProvisionZone2Click() {
+        var btn = document.getElementById('thresholds-provision-zone2-btn');
+        var successEl = document.getElementById('provision-zone2-success');
+        if (btn) btn.disabled = true;
+
+        fetch('/api/user-preferences')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var row = (data && data.row) || {};
+            var defs = (data && data.defaults) || {};
+            var target = row.weekly_zone2_target_min != null
+              ? row.weekly_zone2_target_min
+              : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : 150);
+
+            var csrf = '';
+            var metaEl = document.querySelector('meta[name="csrf-token"]');
+            if (metaEl) csrf = metaEl.getAttribute('content');
+            if (!csrf) {
+              document.cookie.split(';').forEach(function (c) {
+                var pair = c.trim();
+                if (pair.startsWith('csrf-token=')) csrf = pair.slice('csrf-token='.length);
+              });
+            }
+
+            return fetch('/api/habits', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+              body: JSON.stringify({
+                name: 'Zone 2',
+                tracking_type: 'weekly_minutes',
+                auto_fill_source: 'workout.zone2_minutes',
+                unit: 'min',
+                weekly_target: target,
+              }),
+            });
+          })
+          .then(function (r) {
+            if (r.status === 409) {
+              // Already exists — refresh UI state
+              _checkZone2HabitExists(_updateProvisionZone2UI);
+              return null;
+            }
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function (habit) {
+            if (!habit) return;
+            if (successEl) {
+              successEl.style.display = '';
+              successEl.innerHTML = 'Zone 2 habit created! <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
+            }
+            _updateProvisionZone2UI(habit);
+          })
+          .catch(function () {
+            if (btn) {
+              btn.disabled = false;
+              btn.style.opacity = '';
+            }
+            var existingEl = document.getElementById('provision-zone2-existing');
+            if (existingEl) {
+              existingEl.style.display = '';
+              existingEl.textContent = 'Failed to create habit. Please try again.';
+            }
+          });
+      }
+
+      var provBtn = document.getElementById('thresholds-provision-zone2-btn');
+      if (provBtn) provBtn.addEventListener('click', _handleProvisionZone2Click);
+
+      window.addEventListener('userReady', function () {
+        _tLoadPrefs();
+        _loadThresholdSuggestions();
+        _checkZone2HabitExists(_updateProvisionZone2UI);
+        _loadDeviceZones();
+      });
+
+      // ── Device zones: read-only display from Stryd (AC10) ─────────────────
+      function _loadDeviceZones() {
+        fetch('/api/thresholds/device-zones')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.source) return;
+            var emptyEl = document.getElementById('device-zones-empty');
+            var tableEl = document.getElementById('device-zones-table');
+            if (emptyEl) emptyEl.style.display = 'none';
+            if (tableEl) tableEl.style.display = '';
+
+            var ftpEl = document.getElementById('device-ftp-value');
+            if (ftpEl) ftpEl.textContent = data.critical_power_w != null ? String(data.critical_power_w) : '—';
+
+            var listEl = document.getElementById('device-zones-list');
+            if (listEl && data.zones) {
+              listEl.innerHTML = '';
+              Object.keys(data.zones).sort().forEach(function (z) {
+                var label = document.createElement('span');
+                label.style.fontWeight = '600';
+                label.textContent = z.toUpperCase() + ':';
+                var val = document.createElement('span');
+                val.textContent = data.zones[z] != null ? data.zones[z] + ' W' : '—';
+                listEl.appendChild(label);
+                listEl.appendChild(val);
+              });
+            }
+
+            var dateEl = document.getElementById('device-zones-date');
+            if (dateEl && data.activity_date) {
+              dateEl.textContent = 'From Stryd activity on ' + data.activity_date;
+            }
+          })
+          .catch(function () {});
+      }
+    }());
+  </script>
+  <script>
+    (function () {
+      function intFeedback(id, msg, type) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'integration-feedback' + (type ? ' ' + type : '');
+      }
+
+      function renderComingSoon(cardId) {
+        var card = document.getElementById(cardId);
+        if (!card) return;
+        var badgeId = cardId.replace('-card', '-badge');
+        var badge = document.getElementById(badgeId);
+        if (badge) {
+          badge.textContent = 'Integration coming soon';
+          badge.className = 'integration-badge integration-badge--unconfigured';
+        }
+        var actionsId = cardId.replace('-card', '-actions');
+        var actions = document.getElementById(actionsId);
+        if (actions) actions.innerHTML = '';
+        var metaId = cardId.replace('-card', '-meta');
+        var meta = document.getElementById(metaId);
+        if (meta) meta.textContent = '';
+        var formWrap = document.getElementById('stryd-form-wrap');
+        if (cardId === 'stryd-card' && formWrap) formWrap.innerHTML = '';
+        card.classList.add('integration-card--placeholder');
+      }
+
+      // ── Shared integration sync/debug log ───────────────────────────────────
+      // window.intLog(source, level, msg, data) — source: 'strava'|'stryd'|'system',
+      // level: 'info'|'success'|'error'. Reused by every integration.
+      var _intLogEntries = [];
+
+      function _intLogEsc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function _renderIntLog() {
+        var body = document.getElementById('integration-log-body');
+        if (!body) return;
+        if (!_intLogEntries.length) {
+          body.innerHTML = '<div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>';
+          return;
+        }
+        var html = '';
+        _intLogEntries.forEach(function (e) {
+          var dataStr = '';
+          if (e.data !== undefined && e.data !== null) {
+            var raw;
+            try { raw = typeof e.data === 'string' ? e.data : JSON.stringify(e.data); }
+            catch (x) { raw = '[unserializable]'; }
+            dataStr = ' <span class="integration-log-data">' + _intLogEsc(raw) + '</span>';
+          }
+          html += '<div class="integration-log-entry">' +
+            '<span class="integration-log-ts">' + e.ts + '</span> ' +
+            '<span class="integration-log-src integration-log-src--' + e.source + '">[' + e.source + ']</span> ' +
+            '<span class="integration-log-lvl--' + e.level + '">' + _intLogEsc(e.msg) + '</span>' + dataStr +
+            '</div>';
+        });
+        body.innerHTML = html;
+        body.scrollTop = body.scrollHeight;
+      }
+
+      window.intLog = function (source, level, msg, data) {
+        var ts;
+        try { ts = new Date().toLocaleTimeString(); } catch (x) { ts = ''; }
+        _intLogEntries.push({
+          ts: ts,
+          source: source || 'system',
+          level: level || 'info',
+          msg: msg || '',
+          data: data,
+        });
+        if (_intLogEntries.length > 200) _intLogEntries.shift();
+        _renderIntLog();
+      };
+
+      (function _initIntLogClear() {
+        var btn = document.getElementById('integration-log-clear');
+        if (btn) btn.addEventListener('click', function () { _intLogEntries = []; _renderIntLog(); });
+      })();
+
+      // ── Strava ─────────────────────────────────────────────────────────────
+
+      var _stravaUserId = null;
+      var _stravaSyncPollTimer = null;
+      var _stravaSyncPanelOpen = false;
+      var _stravaHistoryOpen = false;
+      var _stravaSinceDateValue = null;
+      var _stravaShowPreview = true;
+
+      function _stravaRelativeTime(isoStr) {
+        if (!isoStr) return 'Never synced';
+        var diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+        if (diff < 60) return 'Last synced just now';
+        if (diff < 3600) return 'Last synced ' + Math.floor(diff / 60) + ' min ago';
+        if (diff < 86400) return 'Last synced ' + Math.floor(diff / 3600) + ' hours ago';
+        return 'Last synced ' + Math.floor(diff / 86400) + ' days ago';
+      }
+
+      function loadStravaSyncLatest() {
+        var el = document.getElementById('strava-last-synced');
+        if (!el) return;
+        fetch('/api/sync/strava/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d) { el.textContent = ''; return; }
+            if (!d.synced_at) {
+              el.textContent = 'Never synced';
+            } else {
+              el.textContent = _stravaRelativeTime(d.synced_at) +
+                ': synced ' + d.activities_synced + ' activities (' + d.new_workouts + ' new workouts)';
+            }
+          })
+          .catch(function () { el.textContent = ''; });
+      }
+
+      function _stravaSinceDefault(latestSyncedAt) {
+        if (latestSyncedAt) {
+          return new Date(latestSyncedAt).toISOString().slice(0, 10);
+        }
+        var d = new Date();
+        d.setDate(d.getDate() - 90);
+        return d.toISOString().slice(0, 10);
+      }
+
+      function _clearStravaSyncPoll() {
+        if (_stravaSyncPollTimer) {
+          clearTimeout(_stravaSyncPollTimer);
+          _stravaSyncPollTimer = null;
+        }
+      }
+
+      function openStravaSyncPanel() {
+        if (_stravaSyncPanelOpen) { closeStravaSyncPanel(); return; }
+        _stravaSyncPanelOpen = true;
+        var btn = document.getElementById('strava-sync-now-btn');
+        if (btn) btn.textContent = 'Close custom range';
+
+        fetch('/api/sync/strava/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var sinceDefault = _stravaSinceDefault(d && d.synced_at);
+            _renderStravaSyncPanel(sinceDefault);
+          })
+          .catch(function () { _renderStravaSyncPanel(_stravaSinceDefault(null)); });
+      }
+
+      function closeStravaSyncPanel() {
+        _stravaSyncPanelOpen = false;
+        _clearStravaSyncPoll();
+        var panel = document.getElementById('strava-sync-panel');
+        if (panel) panel.innerHTML = '';
+        var btn = document.getElementById('strava-sync-now-btn');
+        if (btn) btn.textContent = 'Custom range…';
+      }
+
+      function _renderStravaSyncPanel(sinceDefault) {
+        var panel = document.getElementById('strava-sync-panel');
+        if (!panel) return;
+        _stravaSinceDateValue = sinceDefault;
+        panel.innerHTML =
+          '<div class="strava-sync-panel">' +
+            '<div class="strava-sync-panel-row">' +
+              '<label>Since <input type="date" id="strava-since-date" value="' + sinceDefault + '"></label>' +
+              '<label><input type="checkbox" id="strava-preview-toggle"' + (_stravaShowPreview ? ' checked' : '') + '> Show preview first</label>' +
+            '</div>' +
+            '<div class="strava-sync-panel-row">' +
+              '<button class="integration-btn integration-btn--secondary" id="strava-preview-btn">Preview</button>' +
+              '<button class="integration-btn integration-btn--primary" id="strava-run-sync-btn">Run sync</button>' +
+            '</div>' +
+            '<div id="strava-panel-result"></div>' +
+          '</div>';
+        document.getElementById('strava-since-date').addEventListener('change', function () {
+          _stravaSinceDateValue = this.value;
+        });
+        document.getElementById('strava-preview-toggle').addEventListener('change', function () {
+          _stravaShowPreview = this.checked;
+        });
+        document.getElementById('strava-preview-btn').addEventListener('click', stravaPreview);
+        document.getElementById('strava-run-sync-btn').addEventListener('click', stravaRunSync);
+      }
+
+      function _sinceDate() {
+        return _stravaSinceDateValue;
+      }
+
+      function stravaPreview() {
+        if (!_stravaUserId) return;
+        var resultEl = document.getElementById('strava-panel-result');
+        if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Loading preview…</div>';
+        var params = 'user_id=' + encodeURIComponent(_stravaUserId);
+        var since = _sinceDate();
+        if (since) params += '&since_date=' + encodeURIComponent(since);
+        params += '&limit=20';
+        fetch('/api/sync/strava/dry-run?' + params)
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Preview failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            if (!resultEl) return;
+            var rows = d.preview || [];
+            window.intLog('strava', rows.length ? 'info' : 'info',
+              'Preview: ' + rows.length + ' activit' + (rows.length === 1 ? 'y' : 'ies') + ' (since ' + (since || '90d') + ')',
+              rows);
+            if (!rows.length) {
+              resultEl.innerHTML = '<div class="strava-sync-progress">No activities to preview for this date range.</div>';
+              return;
+            }
+            var tbl =
+              '<table class="strava-sync-preview-table">' +
+                '<thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Action</th></tr></thead>' +
+                '<tbody>';
+            rows.forEach(function (a) {
+              var date = a.start_time ? a.start_time.slice(0, 10) : '—';
+              var action = a.would_create_new
+                ? '<span class="strava-sync-tag--new">New workout</span>'
+                : '<span class="strava-sync-tag--match">Match existing</span>';
+              tbl += '<tr><td>' + date + '</td><td>' + (a.name || '—') + '</td><td>' + (a.activity_type || '—') + '</td><td>' + action + '</td></tr>';
+            });
+            tbl += '</tbody></table>';
+            resultEl.innerHTML = tbl;
+          })
+          .catch(function (err) {
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + (err.message || 'Preview failed') + '</div>';
+          });
+      }
+
+      function stravaRunSync() {
+        _clearStravaSyncPoll();
+        var resultEl = document.getElementById('strava-panel-result');
+        if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Starting sync…</div>';
+        var since = _sinceDate();
+        window.intLog('strava', 'info', 'Custom sync started', { since_date: since || null });
+        _stravaStartSync({ sinceDate: since }, resultEl);
+      }
+
+      function stravaQuickSync(full) {
+        _clearStravaSyncPoll();
+        var label = full ? 'Sync all' : 'Sync new';
+        window.intLog('strava', 'info', label + ' started', { full: full });
+        _stravaStartSync({ full: full }, null);
+      }
+
+      function _stravaStartSync(opts, resultEl) {
+        var payload = {};
+        if (opts.full) payload.full = true;
+        else if (opts.sinceDate) payload.since_date = opts.sinceDate;
+        var body = JSON.stringify(payload);
+        var startSync = function () {
+          return fetch('/api/strava/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body,
+          });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve())
+          .then(startSync)
+          .then(function (r) {
+            if (r.status === 409) throw new Error('Sync already in progress');
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
+            return r.json();
+          })
+          .then(function () {
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Sync running…</div>';
+            _pollStravaSync(0);
+          })
+          .catch(function (err) {
+            var msg = err.message || 'Sync failed';
+            if (msg === 'CSRF token missing or invalid') {
+              msg = 'Session security token expired — reload the page and try again.';
+            }
+            window.intLog('strava', 'error', msg);
+            if (resultEl) resultEl.innerHTML = '<div class="strava-sync-error">' + msg + '</div>';
+          });
+      }
+
+      function _pollStravaSync(attempt) {
+        var resultEl = document.getElementById('strava-panel-result');
+        fetch('/api/sync/status')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (job) {
+            if (!job || !resultEl) return;
+            var status = job.status || 'idle';
+            if (status === 'running') {
+              var phase = job.phase || '';
+              var fetched = job.current || 0;
+              var msg = phase === 'reconciling'
+                ? 'Reconciling activities…'
+                : 'Fetching activities… ' + fetched + ' fetched';
+              resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
+              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+            } else if (status === 'success') {
+              loadStravaSyncLatest();
+              fetch('/api/sync/strava/latest')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                  var n = d && d.new_workouts ? d.new_workouts : 0;
+                  window.intLog('strava', 'success', 'Sync complete', {
+                    activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
+                  });
+                  if (resultEl) {
+                    resultEl.innerHTML =
+                      '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
+                      '<a href="/log">View them →</a></div>';
+                  }
+                });
+            } else if (status === 'error') {
+              var errMsg = job.error || 'Sync failed';
+              window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
+              if (resultEl) {
+                resultEl.innerHTML =
+                  '<div class="strava-sync-error">' + errMsg + '</div>' +
+                  '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
+                var retryBtn = document.getElementById('strava-retry-btn');
+                if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+              }
+            } else {
+              // idle - maybe just finished, poll once more briefly
+              if (attempt < 3) {
+                _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+              }
+            }
+          })
+          .catch(function () {
+            if (attempt < 10) {
+              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
+            }
+          });
+      }
+
+      function stravaReconcile() {
+        if (!_stravaUserId) return;
+        var reconcileBtn = document.getElementById('strava-reconcile-btn');
+        if (reconcileBtn) reconcileBtn.disabled = true;
+        intFeedback('strava-feedback', '', '');
+        fetch('/api/sync/strava/reconcile?user_id=' + encodeURIComponent(_stravaUserId), { method: 'POST' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Reconcile failed'); });
+            return r.json();
+          })
+          .then(function (d) {
+            intFeedback('strava-feedback',
+              'Matched ' + (d.matched_to_existing || 0) + ', created ' + (d.created_new || 0) + '.',
+              'success');
+            loadStravaSyncLatest();
+          })
+          .catch(function (err) {
+            intFeedback('strava-feedback', typeof err === 'string' ? err : (err.message || 'Reconcile failed'), 'error');
+          })
+          .finally(function () {
+            if (reconcileBtn) reconcileBtn.disabled = false;
+          });
+      }
+
+      // ── Sync history (AC B) ───────────────────────────────────────────────────
+
+      function _syncStatusBadge(status) {
+        var cls = 'sync-status-badge sync-status-badge--' + (status || 'pending');
+        return '<span class="' + cls + '">' + (status || 'unknown') + '</span>';
+      }
+
+      function _formatDuration(seconds) {
+        if (seconds == null) return '—';
+        if (seconds < 60) return Math.round(seconds) + 's';
+        return Math.round(seconds / 60) + 'm ' + Math.round(seconds % 60) + 's';
+      }
+
+      function _formatHistoryTimestamp(iso) {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+      }
+
+      function loadStravaHistory() {
+        var panel = document.getElementById('strava-history-panel');
+        if (!panel) return;
+        panel.innerHTML = '<div class="strava-sync-progress">Loading…</div>';
+        fetch('/api/sync/history?source=strava&limit=5')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (jobs) {
+            if (!panel) return;
+            if (!Array.isArray(jobs) || !jobs.length) {
+              panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+              return;
+            }
+            var tbl =
+              '<table class="strava-history-table">' +
+                '<thead><tr>' +
+                  '<th>Time</th><th>Type</th><th>Status</th><th>Duration</th><th>Counters</th>' +
+                '</tr></thead><tbody>';
+            jobs.forEach(function (job) {
+              var counters = '+' + (job.activities_created || 0) +
+                ' updated:' + (job.activities_updated || 0) +
+                ' skip:' + (job.activities_skipped || 0);
+              var errRow = job.status === 'failed' && job.error_message
+                ? '<br><span class="sync-history-error-msg">' + job.error_message + '</span>'
+                : '';
+              tbl +=
+                '<tr>' +
+                  '<td>' + _formatHistoryTimestamp(job.started_at) + '</td>' +
+                  '<td>' + (job.job_type || '—') + '</td>' +
+                  '<td>' + _syncStatusBadge(job.status) + '</td>' +
+                  '<td>' + _formatDuration(job.duration_seconds) + '</td>' +
+                  '<td>' + counters + errRow + '</td>' +
+                '</tr>';
+            });
+            tbl += '</tbody></table>';
+            panel.innerHTML = tbl;
+          })
+          .catch(function () {
+            if (panel) panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+          });
+      }
+
+      (function _initStravaHistoryToggle() {
+        var toggle = document.getElementById('strava-history-toggle');
+        var panel = document.getElementById('strava-history-panel');
+        if (!toggle || !panel) return;
+        toggle.addEventListener('click', function () {
+          _stravaHistoryOpen = !_stravaHistoryOpen;
+          if (!_stravaHistoryOpen) {
+            panel.classList.remove('open');
+            toggle.classList.remove('open');
+            toggle.setAttribute('aria-expanded', 'false');
+          } else {
+            panel.classList.add('open');
+            toggle.classList.add('open');
+            toggle.setAttribute('aria-expanded', 'true');
+            loadStravaHistory();
+          }
+        });
+      })();
+
+      function renderStravaDisconnected() {
+        document.getElementById('strava-badge').textContent = 'Disconnected';
+        document.getElementById('strava-badge').className = 'integration-badge integration-badge--disconnected';
+        document.getElementById('strava-meta').textContent = '';
+        var idRow = document.getElementById('strava-identity');
+        if (idRow) { idRow.innerHTML = ''; idRow.style.display = 'none'; }
+        var lastSynced = document.getElementById('strava-last-synced');
+        if (lastSynced) lastSynced.textContent = '';
+        var panel = document.getElementById('strava-sync-panel');
+        if (panel) panel.innerHTML = '';
+        _stravaSyncPanelOpen = false;
+        var actions = document.getElementById('strava-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.textContent = 'Connect';
+        btn.addEventListener('click', stravaConnect);
+        actions.appendChild(btn);
+      }
+
+      function renderStravaConnected(athleteName, expiresAt, athleteId, profile) {
+        var badgeText = 'Connected' + (athleteName ? ' — ' + athleteName : '');
+        document.getElementById('strava-badge').textContent = badgeText;
+        document.getElementById('strava-badge').className = 'integration-badge integration-badge--connected';
+        var meta = '';
+        if (expiresAt) {
+          var exp = new Date(expiresAt);
+          meta = 'Token expires ' + exp.toLocaleDateString();
+        }
+        document.getElementById('strava-meta').textContent = meta;
+
+        // Identity / debug row: avatar + athlete name + profile id.
+        var idRow = document.getElementById('strava-identity');
+        if (idRow) {
+          if (athleteName || athleteId) {
+            var img = profile ? '<img src="' + profile + '" alt="" referrerpolicy="no-referrer">' : '';
+            idRow.innerHTML = img +
+              '<span>' + (athleteName ? _intLogEsc(athleteName) : 'Unknown athlete') + '</span>' +
+              (athleteId ? ' <code>id: ' + _intLogEsc(athleteId) + '</code>' : '');
+            idRow.style.display = '';
+          } else {
+            idRow.innerHTML = '';
+            idRow.style.display = 'none';
+          }
+        }
+
+        loadStravaSyncLatest();
+        loadStravaDataQuality();
+
+        var actions = document.getElementById('strava-actions');
+        actions.innerHTML = '';
+
+        var syncNewBtn = document.createElement('button');
+        syncNewBtn.className = 'integration-btn integration-btn--primary';
+        syncNewBtn.id = 'strava-sync-new-btn';
+        syncNewBtn.textContent = 'Sync new';
+        syncNewBtn.title = 'Pull activities since your last sync';
+        syncNewBtn.addEventListener('click', function () { stravaQuickSync(false); });
+
+        var syncAllBtn = document.createElement('button');
+        syncAllBtn.className = 'integration-btn integration-btn--secondary';
+        syncAllBtn.id = 'strava-sync-all-btn';
+        syncAllBtn.textContent = 'Sync all';
+        syncAllBtn.title = 'Pull your full Strava history';
+        syncAllBtn.addEventListener('click', function () { stravaQuickSync(true); });
+
+        var syncCustomBtn = document.createElement('button');
+        syncCustomBtn.className = 'integration-btn integration-btn--secondary';
+        syncCustomBtn.id = 'strava-sync-now-btn';
+        syncCustomBtn.textContent = 'Custom range…';
+        syncCustomBtn.addEventListener('click', openStravaSyncPanel);
+
+        var reconcileBtn = document.createElement('button');
+        reconcileBtn.className = 'integration-btn integration-btn--secondary';
+        reconcileBtn.id = 'strava-reconcile-btn';
+        reconcileBtn.textContent = 'Reconcile only';
+        reconcileBtn.addEventListener('click', stravaReconcile);
+
+        var discBtn = document.createElement('button');
+        discBtn.className = 'integration-btn integration-btn--danger';
+        discBtn.id = 'strava-disconnect-btn';
+        discBtn.textContent = 'Disconnect';
+        discBtn.addEventListener('click', stravaDisconnect);
+
+        actions.appendChild(syncNewBtn);
+        actions.appendChild(syncAllBtn);
+        actions.appendChild(syncCustomBtn);
+        actions.appendChild(reconcileBtn);
+        actions.appendChild(discBtn);
+      }
+
+      function loadStravaDataQuality() {
+        if (!_stravaUserId) return;
+        fetch('/api/sync/strava/data-quality?user_id=' + encodeURIComponent(_stravaUserId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (dq) {
+            if (!dq) return;
+            var panel = document.getElementById('strava-data-quality');
+            if (panel) panel.style.display = '';
+            function _set(id, val) {
+              var el = document.getElementById(id);
+              if (!el) return;
+              el.textContent = val;
+              if (id === 'dq-potential-dupes' && val > 0) {
+                el.classList.add('strava-data-quality-val--warn');
+              }
+            }
+            _set('dq-strava-activities', dq.strava_activities_count);
+            _set('dq-workouts-strava', dq.workouts_with_strava_source_count);
+            _set('dq-workouts-no-source', dq.workouts_without_source_count);
+            _set('dq-stryd-synced', dq.is_stryd_synced_count);
+            _set('dq-potential-dupes', dq.potential_dupes_count);
+          })
+          .catch(function () {});
+      }
+
+      function loadStravaStatus() {
+        fetch('/api/strava/configured')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (cfg) {
+            if (cfg && cfg.configured === false) {
+              intFeedback(
+                'strava-feedback',
+                'Strava OAuth is not configured on this server. Set STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, and STRAVA_STATE_SECRET in .env.',
+                'error'
+              );
+            }
+          })
+          .catch(function () {});
+        fetch('/api/strava/status')
+          .then(function (r) {
+            if (!r.ok) { renderComingSoon('strava-card'); return; }
+            return r.json().then(function (st) {
+              if (st.connected) {
+                window.intLog('strava', 'success', 'Connected', {
+                  athlete: st.athlete_name, athlete_id: st.athlete_id, scope: st.scope, expires_at: st.expires_at,
+                });
+                renderStravaConnected(st.athlete_name, st.expires_at, st.athlete_id, st.profile);
+              } else {
+                window.intLog('strava', 'info', 'Not connected');
+                renderStravaDisconnected();
+              }
+            });
+          })
+          .catch(function () {
+            window.intLog('strava', 'error', 'Status check failed');
+            renderComingSoon('strava-card');
+          });
+      }
+
+      function stravaConnect() {
+        intFeedback('strava-feedback', '', '');
+        fetch('/api/strava/connect')
+          .then(function (r) {
+            return r.json().then(function (d) {
+              if (!r.ok) {
+                var detail = d && d.detail;
+                throw new Error(typeof detail === 'string' ? detail : 'Failed to initiate Strava connection');
+              }
+              if (!d.authorize_url) throw new Error('No authorize URL returned');
+              // Same-tab redirect avoids mobile popup blockers (no window.open).
+              window.location.href = d.authorize_url;
+            });
+          })
+          .catch(function (err) {
+            intFeedback('strava-feedback', (err && err.message) || 'Failed to initiate Strava connection', 'error');
+          });
+      }
+
+      function _handleStravaOAuthReturn() {
+        var params = new URLSearchParams(window.location.search);
+        var result = params.get('strava');
+        if (!result) return;
+        if (result === 'connected') {
+          intFeedback('strava-feedback', 'Strava connected!', 'success');
+          loadStravaStatus();
+        } else if (result === 'error') {
+          intFeedback('strava-feedback', 'Strava connection failed or was cancelled. Please try again.', 'error');
+        }
+        params.delete('strava');
+        var clean = window.location.pathname;
+        var remainder = params.toString();
+        if (remainder) clean += '?' + remainder;
+        clean += '#integrations';
+        history.replaceState(null, '', clean);
+        var integrationsNav = document.querySelector('.settings-nav-item[data-section="integrations"]');
+        if (integrationsNav) integrationsNav.click();
+      }
+
+      function stravaDisconnect() {
+        var discBtn = document.getElementById('strava-disconnect-btn');
+        var syncNowBtn = document.getElementById('strava-sync-now-btn');
+        var reconcileBtn = document.getElementById('strava-reconcile-btn');
+        intFeedback('strava-feedback', '', '');
+        _clearStravaSyncPoll();
+        if (discBtn) discBtn.disabled = true;
+        if (syncNowBtn) syncNowBtn.disabled = true;
+        if (reconcileBtn) reconcileBtn.disabled = true;
+        fetch('/api/strava/disconnect', { method: 'DELETE' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
+            return r.json();
+          })
+          .then(function () {
+            window.intLog('strava', 'success', 'Disconnected — token deleted from server');
+            renderStravaDisconnected();
+            intFeedback('strava-feedback', 'Strava disconnected.', 'success');
+          })
+          .catch(function (err) {
+            if (discBtn) discBtn.disabled = false;
+            if (syncNowBtn) syncNowBtn.disabled = false;
+            if (reconcileBtn) reconcileBtn.disabled = false;
+            intFeedback('strava-feedback', typeof err === 'string' ? err : 'Disconnect failed', 'error');
+          });
+      }
+
+      // ── Stryd ──────────────────────────────────────────────────────────────
+
+      function renderStrydDisconnected() {
+        document.getElementById('stryd-badge').textContent = 'Disconnected';
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--disconnected';
+        document.getElementById('stryd-meta').textContent = '';
+        var _ls = document.getElementById('stryd-last-synced'); if (_ls) _ls.textContent = '';
+        var _ht = document.getElementById('stryd-history-toggle'); if (_ht) _ht.style.display = 'none';
+        var _dq = document.getElementById('stryd-data-quality'); if (_dq) _dq.style.display = 'none';
+
+        document.getElementById('stryd-form-wrap').innerHTML =
+          '<div class="stryd-form" id="stryd-cred-form">' +
+          '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username">' +
+          '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password">' +
+          '</div>';
+
+        var actions = document.getElementById('stryd-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.id = 'stryd-connect-btn';
+        btn.textContent = 'Connect';
+        btn.addEventListener('click', strydConnect);
+        actions.appendChild(btn);
+      }
+
+      function loadStrydSyncLatest() {
+        var el = document.getElementById('stryd-last-synced');
+        if (!el) return;
+        fetch('/api/sync/stryd/latest')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d || !d.synced_at) { el.textContent = d ? 'Never synced' : ''; return; }
+            el.textContent = 'Last synced ' + new Date(d.synced_at).toLocaleString() +
+              ': ' + d.activities_synced + ' activities (' + d.new_workouts + ' new)';
+          })
+          .catch(function () { el.textContent = ''; });
+      }
+
+      function loadStrydDataQuality() {
+        if (!_stravaUserId) return;
+        fetch('/api/sync/stryd/data-quality?user_id=' + encodeURIComponent(_stravaUserId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (dq) {
+            if (!dq) return;
+            var panel = document.getElementById('stryd-data-quality');
+            if (panel) panel.style.display = '';
+            function _set(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
+            _set('dq-stryd-activities', dq.stryd_activities_count);
+            _set('dq-workouts-stryd', dq.workouts_with_stryd_source_count);
+            _set('dq-workouts-strava2', dq.workouts_with_strava_source_count);
+            _set('dq-workouts-both', dq.workouts_with_both_count);
+            _set('dq-workouts-tss', dq.workouts_with_tss_count);
+          })
+          .catch(function () {});
+      }
+
+      function loadStrydHistory() {
+        var panel = document.getElementById('stryd-history-panel');
+        if (!panel) return;
+        panel.innerHTML = '<div class="strava-sync-progress">Loading…</div>';
+        fetch('/api/sync/history?source=stryd&limit=5')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (jobs) {
+            if (!Array.isArray(jobs) || !jobs.length) {
+              panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>';
+              return;
+            }
+            var tbl = '<table class="strava-history-table"><thead><tr>' +
+              '<th>Time</th><th>Type</th><th>Status</th><th>Counters</th></tr></thead><tbody>';
+            jobs.forEach(function (job) {
+              var counters = '+' + (job.activities_created || 0) + ' upd:' + (job.activities_updated || 0);
+              var err = job.status === 'failed' && job.error_message
+                ? '<br><span class="sync-history-error-msg">' + job.error_message + '</span>' : '';
+              tbl += '<tr><td>' + (job.started_at ? new Date(job.started_at).toLocaleString() : '—') + '</td>' +
+                '<td>' + (job.job_type || '—') + '</td>' +
+                '<td><span class="sync-status-badge sync-status-badge--' + (job.status || 'pending') + '">' + (job.status || '?') + '</span></td>' +
+                '<td>' + counters + err + '</td></tr>';
+            });
+            panel.innerHTML = tbl + '</tbody></table>';
+          })
+          .catch(function () { panel.innerHTML = '<div class="sync-history-empty">No sync history yet</div>'; });
+      }
+
+      (function _initStrydHistoryToggle() {
+        var toggle = document.getElementById('stryd-history-toggle');
+        var panel = document.getElementById('stryd-history-panel');
+        if (!toggle || !panel) return;
+        var open = false;
+        toggle.addEventListener('click', function () {
+          open = !open;
+          panel.classList.toggle('open', open);
+          toggle.classList.toggle('open', open);
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) loadStrydHistory();
+        });
+      })();
+
+      function _strydErrMsg(err, fallback) {
+        var msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : fallback);
+        if (msg === 'CSRF token missing or invalid') {
+          return 'Session security token expired — reload the page and try again.';
+        }
+        return msg || fallback;
+      }
+
+      function _strydSetSyncBusy(busy, label) {
+        ['stryd-sync-new-btn', 'stryd-sync-all-btn'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.disabled = busy;
+          if (!busy) {
+            el.textContent = id === 'stryd-sync-all-btn' ? 'Sync all' : 'Sync new';
+          } else if (label) {
+            el.textContent = label;
+          }
+        });
+      }
+
+      function _strydSyncProgressLabel(job) {
+        if (!job) return '…';
+        if (job.phase === 'reconciling' && job.total) {
+          return 'reconciling (' + (job.current || 0) + '/' + job.total + ')';
+        }
+        if (job.items_synced) {
+          return (job.phase || '…') + ' (' + job.items_synced + ' synced)';
+        }
+        return job.phase || '…';
+      }
+
+      function _strydStartSync(full) {
+        var payload = full ? { full: true } : {};
+        var label = full ? 'Sync all' : 'Sync new';
+        _strydSetSyncBusy(true, 'Syncing…');
+        window.intLog('stryd', 'info', label + ' started', payload);
+        var startSync = function () {
+          return fetch('/api/stryd/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve())
+          .then(startSync)
+          .then(function (r) {
+            if (r.status === 409) throw new Error('Sync already in progress');
+            if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
+            return r.json();
+          })
+          .then(function () { _pollStrydSync(0); })
+          .catch(function (err) {
+            window.intLog('stryd', 'error', _strydErrMsg(err, 'Sync failed'));
+            _strydSetSyncBusy(false);
+          });
+      }
+
+      function strydSyncNew() { _strydStartSync(false); }
+      function strydSyncAll() { _strydStartSync(true); }
+
+      function _pollStrydSync(attempt) {
+        fetch('/api/sync/status')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (job) {
+            var status = job && job.status || 'idle';
+            if (status === 'running') {
+              window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
+              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            } else if (status === 'success') {
+              window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
+              loadStrydSyncLatest(); loadStrydDataQuality();
+              _strydSetSyncBusy(false);
+            } else if (status === 'error') {
+              window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
+              _strydSetSyncBusy(false);
+            } else if (attempt < 4) {
+              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            } else {
+              _strydSetSyncBusy(false);
+            }
+          })
+          .catch(function () {
+            if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
+            else _strydSetSyncBusy(false);
+          });
+      }
+
+      function renderStrydConnected(email, expiresAt) {
+        var badgeText = 'Connected' + (email ? ' — ' + email : '');
+        document.getElementById('stryd-badge').textContent = badgeText;
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--connected';
+        var meta = '';
+        if (expiresAt) {
+          var exp = new Date(expiresAt);
+          meta = 'Session expires ' + exp.toLocaleDateString();
+        }
+        document.getElementById('stryd-meta').textContent = meta;
+        document.getElementById('stryd-form-wrap').innerHTML = '';
+
+        loadStrydSyncLatest();
+        loadStrydDataQuality();
+        var histToggle = document.getElementById('stryd-history-toggle');
+        if (histToggle) histToggle.style.display = '';
+
+        var actions = document.getElementById('stryd-actions');
+        actions.innerHTML = '';
+
+        var syncNewBtn = document.createElement('button');
+        syncNewBtn.className = 'integration-btn integration-btn--primary';
+        syncNewBtn.id = 'stryd-sync-new-btn';
+        syncNewBtn.textContent = 'Sync new';
+        syncNewBtn.title = 'Pull activities since your last sync';
+        syncNewBtn.addEventListener('click', strydSyncNew);
+
+        var syncAllBtn = document.createElement('button');
+        syncAllBtn.className = 'integration-btn integration-btn--secondary';
+        syncAllBtn.id = 'stryd-sync-all-btn';
+        syncAllBtn.textContent = 'Sync all';
+        syncAllBtn.title = 'Pull your full Stryd history';
+        syncAllBtn.addEventListener('click', strydSyncAll);
+
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--danger';
+        btn.id = 'stryd-disconnect-btn';
+        btn.textContent = 'Disconnect';
+        btn.addEventListener('click', strydDisconnect);
+
+        actions.appendChild(syncNewBtn);
+        actions.appendChild(syncAllBtn);
+        actions.appendChild(btn);
+      }
+
+      function loadStrydStatus() {
+        fetch('/api/stryd/configured')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (cfg) {
+            if (cfg && cfg.configured === false) {
+              intFeedback(
+                'stryd-feedback',
+                'Stryd encryption is not configured on this server. Set STRYD_FERNET_KEY in .env.',
+                'error'
+              );
+            }
+          })
+          .catch(function () {});
+        fetch('/api/stryd/status')
+          .then(function (r) {
+            if (!r.ok) { renderComingSoon('stryd-card'); return; }
+            return r.json().then(function (st) {
+              if (st.connected) {
+                renderStrydConnected(st.stryd_email, st.session_expires_at);
+              } else {
+                renderStrydDisconnected();
+              }
+            });
+          })
+          .catch(function () { renderComingSoon('stryd-card'); });
+      }
+
+      function strydConnect() {
+        var btn = document.getElementById('stryd-connect-btn');
+        var emailEl = document.getElementById('stryd-email');
+        var pwEl = document.getElementById('stryd-password');
+        intFeedback('stryd-feedback', '', '');
+        var email = emailEl ? emailEl.value.trim() : '';
+        var password = pwEl ? pwEl.value : '';
+        if (!email || !password) {
+          intFeedback('stryd-feedback', 'Enter email and password.', 'error');
+          return;
+        }
+        if (btn) btn.disabled = true;
+        if (emailEl) emailEl.disabled = true;
+        if (pwEl) pwEl.disabled = true;
+        window.intLog('stryd', 'info', 'Connect attempt', { email: email });
+        var _status = 0;
+        var connect = function () {
+          return fetch('/api/stryd/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, password: password }),
+          });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(connect)
+          .then(function (r) {
+            _status = r.status;
+            if (!r.ok) {
+              return r.text().then(function (t) {
+                var detail = t;
+                try { detail = JSON.parse(t).detail || t; } catch (e) {}
+                return Promise.reject({ status: r.status, detail: detail });
+              });
+            }
+            return r.json();
+          })
+          .then(function (d) {
+            window.intLog('stryd', 'success', 'Connected (HTTP ' + _status + ')', { athlete_id: d.athlete_id, email: d.stryd_user_email });
+            intFeedback('stryd-feedback', 'Stryd connected!', 'success');
+            renderStrydConnected(d.stryd_user_email, null);
+          })
+          .catch(function (err) {
+            if (btn) btn.disabled = false;
+            if (emailEl) emailEl.disabled = false;
+            if (pwEl) pwEl.disabled = false;
+            var raw = (err && err.detail) ? err.detail : (typeof err === 'string' ? err : 'Connection failed');
+            var msg = _strydErrMsg({ message: raw }, 'Connection failed');
+            var code = (err && err.status) ? err.status : _status;
+            window.intLog('stryd', 'error', 'Connect failed (HTTP ' + (code || '?') + ')', { detail: msg });
+            intFeedback('stryd-feedback', typeof msg === 'string' ? msg : 'Connection failed', 'error');
+          });
+      }
+
+      function strydDisconnect() {
+        var btn = document.getElementById('stryd-disconnect-btn');
+        intFeedback('stryd-feedback', '', '');
+        if (btn) btn.disabled = true;
+        var disconnect = function () {
+          return fetch('/api/stryd/disconnect', { method: 'DELETE' });
+        };
+        (window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve())
+          .then(disconnect)
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d.detail || 'Disconnect failed'); });
+            return r.json();
+          })
+          .then(function () {
+            renderStrydDisconnected();
+            intFeedback('stryd-feedback', 'Stryd disconnected.', 'success');
+          })
+          .catch(function (err) {
+            if (btn) btn.disabled = false;
+            intFeedback('stryd-feedback', _strydErrMsg(typeof err === 'string' ? { message: err } : err, 'Disconnect failed'), 'error');
+          });
+      }
+
+      window.addEventListener('userReady', function (e) {
+        _stravaUserId = e.detail && e.detail.userId;
+        _handleStravaOAuthReturn();
+        loadStravaStatus();
+        loadStrydStatus();
+      });
+    }());
+  </script>
+  <script>
+    (function () {
+      var _prUserId = null;
+      var _prTracks = [];
+      var _prRecords = [];
+      var _prEditMode = false;
+      var _prCurrentTrackType = null;
+
+      function _prFmtTime(secs) {
+        var s = Math.round(secs);
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var ss = s % 60;
+        if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+        return m + ':' + String(ss).padStart(2, '0');
+      }
+
+      function _prFmtValue(numeric, trackType) {
+        if (trackType === 'time') return _prFmtTime(parseFloat(numeric));
+        var v = parseFloat(numeric);
+        var disp = (v === Math.floor(v)) ? Math.floor(v) : v;
+        return disp + ' kg';
+      }
+
+      function _prFmtDate(iso) {
+        if (!iso) return '';
+        var p = iso.split('-');
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(p[1], 10) - 1] + ' ' + parseInt(p[2], 10) + ', ' + p[0];
+      }
+
+      function _prTodayISO() {
+        var d = new Date();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + mm + '-' + dd;
+      }
+
+      function _prParseTimeInput(str) {
+        var s = (str || '').trim();
+        var parts = s.split(':');
+        if (parts.length === 3) {
+          var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10), sec = parseInt(parts[2], 10);
+          if (isNaN(h) || isNaN(m) || isNaN(sec) || m >= 60 || sec >= 60) return null;
+          return h * 3600 + m * 60 + sec;
+        }
+        if (parts.length === 2) {
+          var m2 = parseInt(parts[0], 10), sec2 = parseInt(parts[1], 10);
+          if (isNaN(m2) || isNaN(sec2) || sec2 >= 60) return null;
+          return m2 * 60 + sec2;
+        }
+        return null;
+      }
+
+      function _prTrend(current, prev, trackType) {
+        if (prev == null) return '→';
+        var c = parseFloat(current), p = parseFloat(prev);
+        if (trackType === 'time') {
+          if (c < p) return '↗';
+          if (c > p) return '↘';
+        } else {
+          if (c > p) return '↗';
+          if (c < p) return '↘';
+        }
+        return '→';
+      }
+
+      function _prGroupByTrack(records) {
+        var groups = {}, order = [];
+        records.forEach(function (r) {
+          if (!groups[r.track_key]) { groups[r.track_key] = []; order.push(r.track_key); }
+          groups[r.track_key].push(r);
+        });
+        return { groups: groups, order: order };
+      }
+
+      function _esc(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function _prFeedback(msg, type) {
+        var el = document.getElementById('pr-form-feedback');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'settings-feedback' + (type ? ' ' + type : '');
+      }
+
+      function _prClearErrors() {
+        ['pr-track-error', 'pr-custom-track-error', 'pr-value-error', 'pr-achieved-error'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.textContent = '';
+        });
+        _prFeedback('', '');
+      }
+
+      function _prLoad() {
+        if (!_prUserId) return;
+        fetch('/api/personal-records')
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function (data) { _prRecords = data; _prRender(); })
+          .catch(function () {
+            var empty = document.getElementById('pr-empty-state');
+            var addBtn = document.getElementById('pr-add-btn');
+            if (empty) empty.style.display = 'block';
+            if (addBtn) addBtn.style.display = 'none';
+          });
+      }
+
+      function _prRender() {
+        var result = _prGroupByTrack(_prRecords);
+        var groups = result.groups, order = result.order;
+        var empty = document.getElementById('pr-empty-state');
+        var table = document.getElementById('pr-table');
+        var tbody = document.getElementById('pr-tbody');
+        var addBtn = document.getElementById('pr-add-btn');
+
+        if (order.length === 0) {
+          if (empty) empty.style.display = 'block';
+          if (table) table.style.display = 'none';
+          if (addBtn) addBtn.style.display = 'none';
+        } else {
+          if (empty) empty.style.display = 'none';
+          if (table) table.style.display = 'table';
+          if (addBtn) addBtn.style.display = '';
+        }
+
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        order.forEach(function (key) {
+          var recs = groups[key];
+          var current = recs[0], prev = recs[1] || null;
+          var trend = _prTrend(current.value_numeric, prev ? prev.value_numeric : null, current.track_type);
+          var trendClass = trend === '↗' ? 'pr-trend-up'
+            : trend === '↘' ? 'pr-trend-down' : 'pr-trend-flat';
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td class="pr-td-track">' + _esc(current.track_name) + '</td>' +
+            '<td class="pr-td-best">' + _esc(_prFmtValue(current.value_numeric, current.track_type)) + '</td>' +
+            '<td class="pr-td-date">' + _esc(_prFmtDate(current.achieved_on)) + '</td>' +
+            '<td class="pr-td-trend"><span class="pr-trend ' + trendClass + '">' + trend + '</span></td>' +
+            '<td class="pr-td-actions">' +
+              '<button type="button" class="pr-action-btn pr-edit-btn" data-id="' + _esc(current.id) + '" title="Edit" aria-label="Edit record">' +
+                '<i class="ti ti-pencil"></i></button>' +
+              '<button type="button" class="pr-action-btn pr-history-btn" data-track="' + _esc(key) + '" title="History" aria-label="View history">' +
+                '<i class="ti ti-history"></i></button>' +
+            '</td>';
+          tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('.pr-edit-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-id');
+            var rec = null;
+            for (var i = 0; i < _prRecords.length; i++) {
+              if (_prRecords[i].id === id) { rec = _prRecords[i]; break; }
+            }
+            if (rec) _prOpenEdit(rec);
+          });
+        });
+        tbody.querySelectorAll('.pr-history-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () { _prOpenHistory(btn.getAttribute('data-track')); });
+        });
+      }
+
+      function _prLoadTracks() {
+        fetch('/api/personal-records/tracks')
+          .then(function (r) { return r.json(); })
+          .then(function (data) { _prTracks = data.tracks || []; })
+          .catch(function () { _prTracks = []; });
+      }
+
+      function _prPopulateTrackDropdown(selectedKey) {
+        var sel = document.getElementById('pr-track-select');
+        if (!sel) return;
+        var lastOpt = sel.options[sel.options.length - 1];
+        while (sel.options.length > 1) sel.remove(1);
+        _prTracks.forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t.track_key;
+          opt.textContent = t.track_name;
+          sel.insertBefore(opt, lastOpt);
+        });
+        if (selectedKey) {
+          var found = false;
+          for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === selectedKey) { found = true; break; }
+          }
+          sel.value = found ? selectedKey : '__other__';
+          if (!found) {
+            var ck = document.getElementById('pr-custom-track-key');
+            if (ck) ck.value = selectedKey;
+          }
+        } else {
+          sel.value = '';
+        }
+      }
+
+      function _prAdaptValueInput(trackType) {
+        _prCurrentTrackType = trackType;
+        var inp = document.getElementById('pr-value-input');
+        var suffix = document.getElementById('pr-value-suffix');
+        if (!inp) return;
+        if (trackType === 'time') {
+          inp.type = 'text'; inp.placeholder = 'H:MM:SS or MM:SS';
+          inp.removeAttribute('min'); inp.removeAttribute('step');
+          if (suffix) suffix.style.display = 'none';
+        } else if (trackType === 'weight') {
+          inp.type = 'number'; inp.placeholder = 'e.g. 120'; inp.min = '0.1'; inp.step = '0.5';
+          if (suffix) suffix.style.display = 'inline';
+        } else {
+          inp.type = 'text'; inp.placeholder = 'Value';
+          inp.removeAttribute('min'); inp.removeAttribute('step');
+          if (suffix) suffix.style.display = 'none';
+        }
+      }
+
+      function _prOnTrackChange() {
+        var sel = document.getElementById('pr-track-select');
+        var customGroup = document.getElementById('pr-custom-track-group');
+        var val = sel ? sel.value : '';
+        if (val === '__other__') {
+          if (customGroup) customGroup.style.display = 'block';
+          _prAdaptValueInput('weight');
+        } else {
+          if (customGroup) customGroup.style.display = 'none';
+          var found = null;
+          for (var i = 0; i < _prTracks.length; i++) {
+            if (_prTracks[i].track_key === val) { found = _prTracks[i]; break; }
+          }
+          _prAdaptValueInput(found ? found.track_type : '');
+        }
+      }
+
+      function _prOpenAdd() {
+        _prEditMode = false;
+        _prClearErrors();
+        document.getElementById('pr-form-title').textContent = 'Add a record';
+        document.getElementById('pr-edit-id').value = '';
+        document.getElementById('pr-achieved-on').value = _prTodayISO();
+        document.getElementById('pr-value-input').value = '';
+        document.getElementById('pr-source').value = '';
+        var notesEl = document.getElementById('pr-notes');
+        if (notesEl) notesEl.value = '';
+        var cg = document.getElementById('pr-custom-track-group');
+        if (cg) cg.style.display = 'none';
+        document.getElementById('pr-form-delete').style.display = 'none';
+        document.getElementById('pr-delete-confirm').style.display = 'none';
+        document.getElementById('pr-form-submit').disabled = false;
+        _prPopulateTrackDropdown('');
+        _prAdaptValueInput('');
+        document.getElementById('pr-form-overlay').style.display = 'flex';
+      }
+
+      function _prOpenEdit(rec) {
+        _prEditMode = true;
+        _prClearErrors();
+        document.getElementById('pr-form-title').textContent = 'Edit record';
+        document.getElementById('pr-edit-id').value = rec.id;
+        document.getElementById('pr-achieved-on').value = rec.achieved_on;
+        document.getElementById('pr-source').value = rec.source || '';
+        var notesEl = document.getElementById('pr-notes');
+        if (notesEl) notesEl.value = '';
+        document.getElementById('pr-form-delete').style.display = 'inline-block';
+        document.getElementById('pr-delete-confirm').style.display = 'none';
+        document.getElementById('pr-form-submit').disabled = false;
+        _prPopulateTrackDropdown(rec.track_key);
+        _prAdaptValueInput(rec.track_type);
+        var inp = document.getElementById('pr-value-input');
+        if (inp) inp.value = rec.track_type === 'time' ? _prFmtTime(parseFloat(rec.value_numeric)) : parseFloat(rec.value_numeric);
+        document.getElementById('pr-form-overlay').style.display = 'flex';
+      }
+
+      function _prCloseForm() {
+        document.getElementById('pr-form-overlay').style.display = 'none';
+      }
+
+      function _prSubmit() {
+        _prClearErrors();
+        var sel = document.getElementById('pr-track-select');
+        var trackVal = sel ? sel.value : '';
+        if (!trackVal) { document.getElementById('pr-track-error').textContent = 'Select a track'; return; }
+
+        var trackKey, trackName, trackType;
+        if (trackVal === '__other__') {
+          var ckEl = document.getElementById('pr-custom-track-key');
+          var ck = ckEl ? ckEl.value.trim() : '';
+          if (!ck) { document.getElementById('pr-custom-track-error').textContent = 'Enter a custom track key'; return; }
+          trackKey = ck; trackName = ck; trackType = 'weight';
+        } else {
+          var found = null;
+          for (var i = 0; i < _prTracks.length; i++) {
+            if (_prTracks[i].track_key === trackVal) { found = _prTracks[i]; break; }
+          }
+          trackKey = trackVal;
+          trackName = found ? found.track_name : trackVal;
+          trackType = found ? found.track_type : 'weight';
+        }
+
+        var valueEl = document.getElementById('pr-value-input');
+        var valueRaw = valueEl ? valueEl.value.trim() : '';
+        var valueNumeric;
+        if (trackType === 'time') {
+          valueNumeric = _prParseTimeInput(valueRaw);
+          if (!valueNumeric || valueNumeric <= 0) {
+            document.getElementById('pr-value-error').textContent = 'Enter time as H:MM:SS or MM:SS';
+            return;
+          }
+        } else {
+          valueNumeric = parseFloat(valueRaw);
+          if (isNaN(valueNumeric) || valueNumeric <= 0) {
+            document.getElementById('pr-value-error').textContent = 'Enter a positive number';
+            return;
+          }
+        }
+
+        var achievedOn = document.getElementById('pr-achieved-on').value;
+        if (!achievedOn) { document.getElementById('pr-achieved-error').textContent = 'Date required'; return; }
+        if (achievedOn > _prTodayISO()) {
+          document.getElementById('pr-achieved-error').textContent = 'Date cannot be in the future';
+          return;
+        }
+
+        var source = document.getElementById('pr-source').value || null;
+        var submitBtn = document.getElementById('pr-form-submit');
+        if (submitBtn) submitBtn.disabled = true;
+
+        var url, method, payload;
+        if (_prEditMode) {
+          var editId = document.getElementById('pr-edit-id').value;
+          url = '/api/personal-records/' + editId;
+          method = 'PATCH';
+          payload = { track_key: trackKey, track_name: trackName, track_type: trackType,
+            value_numeric: valueNumeric, achieved_on: achievedOn, source: source };
+        } else {
+          url = '/api/personal-records';
+          method = 'POST';
+          payload = { user_id: _prUserId, track_key: trackKey, track_name: trackName,
+            track_type: trackType, value_numeric: valueNumeric, achieved_on: achievedOn, source: source };
+        }
+
+        fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
+            return r.json();
+          })
+          .then(function () { _prCloseForm(); _prLoad(); })
+          .catch(function (err) {
+            if (submitBtn) submitBtn.disabled = false;
+            _prFeedback((err && err.detail) || 'Save failed.', 'error');
+          });
+      }
+
+      function _prShowDeleteConfirm() {
+        document.getElementById('pr-delete-confirm').style.display = 'block';
+        document.getElementById('pr-form-delete').style.display = 'none';
+      }
+
+      function _prDoDelete() {
+        var id = document.getElementById('pr-edit-id').value;
+        if (!id) return;
+        fetch('/api/personal-records/' + id, { method: 'DELETE' })
+          .then(function (r) {
+            if (r.status === 204 || r.ok) { _prCloseForm(); _prLoad(); }
+            else return r.json().then(function (d) { return Promise.reject(d); });
+          })
+          .catch(function (err) { _prFeedback((err && err.detail) || 'Delete failed.', 'error'); });
+      }
+
+      function _prOpenHistory(trackKey) {
+        var overlay = document.getElementById('pr-history-overlay');
+        var body = document.getElementById('pr-history-body');
+        var title = document.getElementById('pr-history-title');
+        if (!overlay || !body) return;
+        if (title) title.textContent = 'History';
+        body.innerHTML = '<p style="color:#8b95ad">Loading…</p>';
+        overlay.style.display = 'flex';
+
+        fetch('/api/personal-records/history?user_id=' + encodeURIComponent(_prUserId) +
+          '&track_key=' + encodeURIComponent(trackKey))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var hist = data.history || [];
+            var trackName = trackKey;
+            for (var i = 0; i < _prRecords.length; i++) {
+              if (_prRecords[i].track_key === trackKey) { trackName = _prRecords[i].track_name; break; }
+            }
+            if (title) title.textContent = trackName + ' — History';
+            if (!hist.length) { body.innerHTML = '<p style="color:#8b95ad">No history available.</p>'; return; }
+            var sorted = hist.slice().reverse();
+            var html = '<div class="pr-history-list">';
+            sorted.forEach(function (entry) {
+              var impHtml = entry.improvement_from_prev
+                ? '<div class="pr-hist-imp"><span class="pr-hist-improvement">' +
+                  _esc(entry.improvement_from_prev.formatted) + '</span></div>' : '';
+              var srcHtml = entry.source ? '<div class="pr-hist-source">' + _esc(entry.source) + '</div>' : '';
+              html +=
+                '<div class="pr-hist-row">' +
+                  '<div class="pr-hist-date">' + _esc(_prFmtDate(entry.achieved_on)) + '</div>' +
+                  '<div class="pr-hist-val">' + _esc(entry.value_formatted || String(entry.value_numeric)) + '</div>' +
+                  srcHtml + impHtml +
+                '</div>';
+            });
+            html += '</div>';
+            body.innerHTML = html;
+          })
+          .catch(function () { body.innerHTML = '<p style="color:#b91c1c">Failed to load history.</p>'; });
+      }
+
+      function _prCloseHistory() {
+        var overlay = document.getElementById('pr-history-overlay');
+        if (overlay) overlay.style.display = 'none';
+      }
+
+      function _prWireEvents() {
+        var addBtn = document.getElementById('pr-add-btn');
+        if (addBtn) addBtn.addEventListener('click', _prOpenAdd);
+        var emptyAddBtn = document.getElementById('pr-empty-add-btn');
+        if (emptyAddBtn) emptyAddBtn.addEventListener('click', _prOpenAdd);
+        var formClose = document.getElementById('pr-form-close');
+        if (formClose) formClose.addEventListener('click', _prCloseForm);
+        var formOverlay = document.getElementById('pr-form-overlay');
+        if (formOverlay) formOverlay.addEventListener('click', function (e) { if (e.target === formOverlay) _prCloseForm(); });
+        var trackSel = document.getElementById('pr-track-select');
+        if (trackSel) trackSel.addEventListener('change', _prOnTrackChange);
+        var submitBtn = document.getElementById('pr-form-submit');
+        if (submitBtn) submitBtn.addEventListener('click', _prSubmit);
+        var deleteBtn = document.getElementById('pr-form-delete');
+        if (deleteBtn) deleteBtn.addEventListener('click', _prShowDeleteConfirm);
+        var deleteYes = document.getElementById('pr-delete-yes');
+        if (deleteYes) deleteYes.addEventListener('click', _prDoDelete);
+        var deleteNo = document.getElementById('pr-delete-no');
+        if (deleteNo) deleteNo.addEventListener('click', function () {
+          document.getElementById('pr-delete-confirm').style.display = 'none';
+          document.getElementById('pr-form-delete').style.display = 'inline-block';
+        });
+        var histClose = document.getElementById('pr-history-close');
+        if (histClose) histClose.addEventListener('click', _prCloseHistory);
+        var histOverlay = document.getElementById('pr-history-overlay');
+        if (histOverlay) histOverlay.addEventListener('click', function (e) { if (e.target === histOverlay) _prCloseHistory(); });
+      }
+
+      _prWireEvents();
+      _prLoadTracks();
+
+      window.addEventListener('userReady', function (e) {
+        _prUserId = e.detail && e.detail.userId;
+        _prLoad();
+      });
+    }());
+  </script>
+  <script>
+    (function () {
+      function _loadAbout() {
+        fetch('/api/about')
+          .then(function (r) {
+            if (!r.ok) throw new Error('about endpoint unavailable');
+            return r.json();
+          })
+          .then(function (data) {
+            var vEl = document.getElementById('about-version');
+            if (vEl) vEl.textContent = data.app_version || 'v0.0.1-dev';
+
+            var shaEl = document.getElementById('about-sha');
+            if (shaEl) shaEl.textContent = data.git_sha || 'local-dev';
+
+            var envEl = document.getElementById('about-env');
+            if (envEl) envEl.textContent = data.environment || 'local';
+
+            if (data.changelog_available) {
+              var cl = document.getElementById('about-changelog-link');
+              if (cl) cl.style.display = '';
+            }
+          })
+          .catch(function () {
+            var vEl = document.getElementById('about-version');
+            if (vEl) vEl.textContent = 'v0.0.1-dev';
+            var shaEl = document.getElementById('about-sha');
+            if (shaEl) shaEl.textContent = 'local-dev';
+            var envEl = document.getElementById('about-env');
+            if (envEl) envEl.textContent = 'local';
+          });
+      }
+
+      _loadAbout();
+    }());
+  </script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>

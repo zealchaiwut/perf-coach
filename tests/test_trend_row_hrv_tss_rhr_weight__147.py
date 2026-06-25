@@ -149,12 +149,12 @@ def test_trend_row__weight_quick_input_form(home_js):
 
 
 def test_trend_row__weight_save_button_handler(home_js):
-    """AC: Save button POSTs to /api/weight and re-fetches data"""
+    """AC: Save button POSTs to /api/weight-entries and re-fetches data"""
     assert '_wireWeightSave' in home_js or 'wireWeightSave' in home_js
-    
+
     # Verify POST request is made
     assert "method: 'POST'" in home_js or 'method: "POST"' in home_js
-    assert '/api/weight' in home_js
+    assert '/api/weight-entries' in home_js
     assert 'weight_kg' in home_js
 
 
@@ -168,8 +168,8 @@ def test_trend_row__trends_summary_endpoint_fetch(home_js):
 
 
 def test_trend_row__weight_api_endpoint_fetch(home_js):
-    """AC: Weight series is fetched from GET /api/weight?user_id={uid}"""
-    assert '/api/weight' in home_js
+    """AC: Weight series is fetched from GET /api/weight-entries"""
+    assert '/api/weight-entries' in home_js
 
 
 def test_trend_row__error_state_friendly_message(home_js):

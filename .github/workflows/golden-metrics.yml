@@ -1,0 +1,38 @@
+name: Golden metrics — regression gate
+
+# Runs the golden workout fixture test suite on every PR.
+# Fails if any non-placeholder metric assertion regresses against
+# tests/fixtures/golden_run_expected.json.
+#
+# No database required — all golden tests are pure calculation checks
+# against static JSON fixtures.
+
+on:
+  pull_request:
+    paths:
+      - "backend/services/**"
+      - "tests/fixtures/golden_run*.json"
+      - "tests/test_golden_*.py"
+      - "scripts/regen_golden.py"
+      - ".github/workflows/golden-metrics.yml"
+
+jobs:
+  golden-metrics:
+    name: Golden workout fixture — metric regression check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pyyaml
+
+      - name: Run golden metric tests
+        run: |
+          python -m pytest tests/test_golden_metrics__577.py tests/test_golden_workout_fixture__672.py \
+            -v --tb=short

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run Detail View — Redesign v4 Mockup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../frontend/css/run-detail-v4.css">
+  <style>
+    :root {
+      --bg-1: #5a8dee;
+      --bg-2: #1f3b8a;
+      --text-primary: #0b1530;
+      --text-secondary: #5c6886;
+      --text-tertiary: #8b95ad;
+      --card-border: rgba(13, 30, 67, 0.06);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .mock-head {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 28px 20px 12px;
+      color: #fff;
+    }
+    .mock-head h1 {
+      font-size: 1.375rem;
+      font-weight: 600;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+    .mock-head p {
+      margin-top: 6px;
+      font-size: 0.8125rem;
+      opacity: 0.85;
+    }
+    .mock-panel {
+      max-width: 720px;
+      margin: 0 auto 40px;
+      padding: 0 16px 24px;
+    }
+    .mock-note {
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header class="mock-head">
+    <h1>Run detail view — v4</h1>
+    <p>Visual reference for Training &gt; Log run detail. Rendered from sample /api/workouts/{id}/full payload via RunDetailView.</p>
+  </header>
+  <div class="mock-panel">
+    <p class="mock-note">Yamanakako Half · dual Strava + Stryd · 22 × 1 km splits</p>
+    <div id="run-detail-root"></div>
+  </div>
+
+  <script src="../../frontend/js/lib/run-detail-view.js"></script>
+  <script>
+    (function () {
+      function lap(i, hr, pwr, cad, stride, paceSec) {
+        return {
+          split_index: i,
+          distance_km: 1.0,
+          duration_seconds: paceSec,
+          avg_hr: hr,
+          avg_power: pwr,
+          cadence_spm: cad,
+          stride_length_m: stride,
+        };
+      }
+
+      var splits = [];
+      var pace = 342;
+      for (var n = 1; n <= 22; n++) {
+        var hr = n === 1 ? 142 : (n >= 19 ? 148 : 163);
+        var pwr = n === 9 ? 198 : (n <= 3 ? 274 : (n >= 19 ? 234 : 249));
+        var cad = n === 9 ? 125 : 165;
+        var stride = n === 9 ? 0.55 : 0.83;
+        if (n === 3) pace = 342;
+        splits.push(lap(n, hr, pwr, cad, stride, pace + (n % 4) * 2));
+      }
+
+      var full = {
+        workout: {
+          id: "453939de-592f-4a37-8df4-03098954db3e",
+          name: "Yamanakako Half",
+          workout_date: "2025-05-31",
+          workout_type: "run",
+          source: "strava,stryd",
+          distance_km: 21.46,
+          duration_seconds: 8366,
+          avg_hr: 163,
+          zone2_minutes: 6,
+          avg_power: 249,
+          np: 256,
+          avg_stride_m: 0.83,
+          avg_cadence_spm: 165,
+          tss: 238,
+          tss_source: "stryd",
+          strava_activity_url: "https://www.strava.com/activities/123456789",
+        },
+        tss: 238,
+        computed_tss: 197,
+        tss_method: "pace",
+        unified: {
+          elevation_m: 123,
+          max_hr: 193,
+          gps_polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+        },
+        sources: {
+          strava: {
+            strava_activity_id: 123456789,
+            start_time: "2025-05-31T00:15:00+09:00",
+            suffer_score: 112,
+            laps: [
+              { lap_index: 1, distance: 5000, moving_time: 1710, average_heartrate: 158, average_watts: 255, average_cadence: 88 },
+              { lap_index: 2, distance: 5000, moving_time: 1740, average_heartrate: 165, average_watts: 248, average_cadence: 87 },
+              { lap_index: 3, distance: 5000, moving_time: 1770, average_heartrate: 168, average_watts: 242, average_cadence: 86 },
+              { lap_index: 4, distance: 6460, moving_time: 2280, average_heartrate: 162, average_watts: 238, average_cadence: 85 },
+            ],
+          },
+          stryd: {
+            stryd_activity_id: "abc-def-123",
+            tss: 238,
+            start_time: "2025-05-31T00:15:00+09:00",
+            laps: [
+              { index: 1, distance: 5000, moving_time: 1710, average_heart_rate: 158, average_power: 255, average_cadence: 176 },
+              { index: 2, distance: 5000, moving_time: 1740, average_heart_rate: 165, average_power: 248, average_cadence: 174 },
+              { index: 3, distance: 5000, moving_time: 1770, average_heart_rate: 168, average_power: 242, average_cadence: 172 },
+              { index: 4, distance: 6460, moving_time: 2280, average_heart_rate: 162, average_power: 238, average_cadence: 170 },
+            ],
+            power_zones: {
+              ftp: 261,
+              zones: [
+                { name: "Easy", power_low: 0, power_high: 169 },
+                { name: "Moderate", power_low: 170, power_high: 209 },
+                { name: "Threshold", power_low: 210, power_high: 249 },
+                { name: "Interval", power_low: 250, power_high: 289 },
+                { name: "Rep", power_low: 290, power_high: 999 },
+              ],
+              seconds_in_zones: [1320, 2940, 3600, 300, 60],
+            },
+          },
+        },
+        computed: { variability_index: 1.03 },
+        detected_profile: {
+          confident: true,
+          basis: "power",
+          reps_detected: 0,
+          phases: [
+            { label: "Threshold", band: "threshold", lap_indexes: [0, 1, 2] },
+            { label: "Steady", band: "steady", lap_indexes: [3, 4, 5, 6, 7] },
+            { label: "Tempo", band: "tempo", lap_indexes: [8, 9, 10, 11, 12, 13, 14, 15, 16] },
+            { label: "Cool-down", band: "steady", lap_indexes: [17, 18, 19, 20, 21] },
+          ],
+        },
+        splits: splits,
+        field_coverage: { strava: true, stryd: true },
+      };
+
+      window.RunDetailView.render(
+        document.getElementById("run-detail-root"),
+        full,
+        { row: { zone2_hr_min: 130, zone2_hr_max: 155 } },
+        {
+          stravaLatest: { synced_at: "2025-06-01T08:00:00Z" },
+          strydLatest: { synced_at: "2025-06-01T08:05:00Z" },
+        },
+      );
+    })();
+  </script>
+</body>
+</html>

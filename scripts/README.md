@@ -43,6 +43,40 @@ gunzip -c snapshots/<file>.sql.gz | psql $DATABASE_URL
 
 ---
 
+## set_user_password.py — Set password for an existing user
+
+Sets (or resets) the password for an existing user by username. Hashes via
+`backend.auth` and targets the database selected by `ENVIRONMENT`.
+
+### Usage
+
+```bash
+ENVIRONMENT=uat python scripts/set_user_password.py <username>
+ENVIRONMENT=prd python scripts/set_user_password.py <username>
+```
+
+Password is prompted with no echo (`getpass`). Plaintext is never printed or logged.
+
+### Validation
+
+- Empty password → exits with code `1`
+- Password shorter than `MIN_PASSWORD_LENGTH` (defined in `backend/auth.py`) → exits with code `1`
+- Username not found in the target database → exits with code `1`
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Success — prints `Password updated for user '<username>'.` |
+| `1`  | Failure — descriptive message written to stderr |
+
+### Idempotent
+
+Running the script twice with the same credentials is safe; the user's
+`password_hash` is updated each time (new salt), but login continues to work.
+
+---
+
 ## backfill_readiness.py — Historical readiness score backfill
 
 One-shot backfill for historical readiness scores.

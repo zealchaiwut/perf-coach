@@ -9,7 +9,7 @@
   const fromInput = document.getElementById('range-from');
   const toInput = document.getElementById('range-to');
   const confirmBtn = document.getElementById('range-confirm');
-  const cancelBtn = document.getElementById('range-cancel');
+  const rangeCancelBtn = document.getElementById('range-cancel');
   const emptyBanner = document.getElementById('trends-empty-banner');
 
   // Track the last non-custom state so Cancel can revert to it
@@ -170,15 +170,15 @@
 
   // ── Summary API ───────────────────────────────────────────────────────────────
 
-  async function fetchSummary(state, userId) {
-    let url = '/trends/summary?user_id=' + encodeURIComponent(userId);
+  async function fetchSummary(state) {
+    const params = new URLSearchParams();
     if (state.type === 'custom') {
-      if (state.from) url += '&from=' + state.from;
-      if (state.to) url += '&to=' + state.to;
+      if (state.from) params.set('from', state.from);
+      if (state.to) params.set('to', state.to);
     } else {
-      url += '&range=' + state.preset;
+      params.set('range', state.preset);
     }
-    const res = await fetch(url);
+    const res = await fetch('/trends/summary?' + params.toString());
     if (!res.ok) throw new Error('server error');
     return res.json();
   }
@@ -902,7 +902,7 @@
       return;
     }
 
-    fetchSummary(state, _userId)
+    fetchSummary(state)
       .then(summary => {
         const today = toLocalDateStr(new Date());
         renderReadinessFromSummary(readinessBodyEl, summary);

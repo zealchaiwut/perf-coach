@@ -250,12 +250,12 @@ def test_training_log_js_has_no_bar_charts(client):
 
 
 def test_log_page_has_no_bar_chart_elements(client):
-    """log.html must not contain bar chart canvas or per-km split elements."""
+    """training-log.html must not contain bar chart canvas or per-km split elements."""
     res = client.get("/log")
     assert res.status_code == 200
     text = res.text.lower()
     assert "per-km" not in text and "split-bar" not in text, \
-        "log.html must not contain per-km bar chart elements"
+        "training-log.html must not contain per-km bar chart elements"
 
 
 # ── AC: Pace section hidden when distance or duration absent (JS logic) ──
@@ -305,8 +305,8 @@ def test_training_log_js_renders_exercises_section(client):
 
 
 def test_log_page_has_exercises_section_css(client):
-    """log.html must include CSS for the exercises section."""
+    """training-log.html must include CSS for the exercises section."""
     res = client.get("/log")
     assert res.status_code == 200
     assert "exercises-section" in res.text, \
-        "log.html must include CSS for .exercises-section"
+        "training-log.html must include CSS for .exercises-section"

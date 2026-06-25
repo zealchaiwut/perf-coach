@@ -9,3 +9,14 @@ venv/
 .DS_Store
 codedb.snapshot
 snapshots/
+
+# Local sprint-management tooling state (estimates, sprint plans) — not shared
+.commander/
+
+# impeccable skill local state (critique snapshots)
+.impeccable/
+
+# runtime artifacts
+dashboard.db
+uat.pid
+uat.log

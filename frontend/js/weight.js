@@ -1,462 +1,1581 @@
-function todayISO() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
+'use strict';
 
-const MA_COLOR = '#16a34a';
-const DAILY_COLOR = '#9ca3af';
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+function todayISO() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+}
 
 function isoDateStr(date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  return (
+    date.getFullYear() +
+    '-' + String(date.getMonth() + 1).padStart(2, '0') +
+    '-' + String(date.getDate()).padStart(2, '0')
+  );
 }
 
-// Returns ISO week Monday date string for a given YYYY-MM-DD string
-function weekMondayStr(dateStr) {
+function nowHHMM() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
-  const offset = day === 0 ? -6 : 1 - day;
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + offset);
-  return isoDateStr(monday);
+  d.setDate(d.getDate() + n);
+  return isoDateStr(d);
 }
 
-function fmtShortDate(dateStr) {
+// Compute from-date for each named range
+function rangeFromDate(range) {
+  const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
+  return addDays(todayISO(), offsets[range] ?? -29);
+}
+
+// Format a date string for the x-axis, adapting by range
+function fmtDateForRange(dateStr, range) {
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (range === '30d' || range === '90d') {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
-function renderSummaryCards(entries) {
+// Format date for display in entries list
+function fmtDisplayDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// Linear interpolation: weight at atDate between (fromDate, fromWeight) and (toDate, toWeight)
+function interpolateWeight(fromDate, fromWeight, toDate, toWeight, atDate) {
+  const t0 = new Date(fromDate + 'T00:00:00').getTime();
+  const t1 = new Date(toDate + 'T00:00:00').getTime();
+  const ta = new Date(atDate + 'T00:00:00').getTime();
+  if (t1 === t0) return toWeight;
+  if (ta <= t0) return fromWeight;
+  if (ta >= t1) return toWeight;
+  const frac = (ta - t0) / (t1 - t0);
+  return fromWeight + (toWeight - fromWeight) * frac;
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+
+let _userId = null;
+let _currentRange = '30d';
+let _chartData = null;       // last /api/weight-chart response
+let _activeTarget = null;    // last /api/weight-targets/active target object
+let _recentEntries = [];     // entries for last 14 days
+let _historySummary = null;  // last /api/weight-targets/history-summary response
+let _rangeAbortController = null;
+let _rangeFetchSeq = 0;
+
+// ── API helpers ────────────────────────────────────────────────────────────
+
+function showPageError(msg) {
+  const el = document.getElementById('page-error');
+  if (el) el.textContent = msg || '';
+}
+
+async function apiFetch(url, signal) {
+  const opts = signal ? { signal } : {};
+  const res = await fetch(url, opts);
+  if (res.status === 401 || res.status === 403) {
+    window.location.href = '/login';
+    throw new Error('auth');
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchChartData(range, signal) {
+  const from = rangeFromDate(range);
+  const to = todayISO();
+  return apiFetch(
+    `/api/weight-chart?from=${from}&to=${to}&include_target=true`,
+    signal
+  );
+}
+
+async function fetchRecentEntries() {
+  const from = addDays(todayISO(), -13);
+  const to = todayISO();
+  return apiFetch(
+    `/api/weight-entries?from=${from}&to=${to}`
+  );
+}
+
+async function fetchAllEntriesSummary() {
+  const from = addDays(todayISO(), -364);
+  const to = todayISO();
+  return apiFetch(
+    `/api/weight-entries?from=${from}&to=${to}`
+  );
+}
+
+async function fetchActiveTarget() {
+  return apiFetch(`/api/weight-targets/active`);
+}
+
+async function fetchTargetHistorySummary() {
+  return apiFetch(`/api/weight-targets/history-summary`);
+}
+
+async function fetchTargetHistory(status) {
+  let url = `/api/weight-targets/history`;
+  if (status) url += `?status=${encodeURIComponent(status)}`;
+  return apiFetch(url);
+}
+
+// ── Streak & Adherence ────────────────────────────────────────────────────────
+
+function _computeStreak(entries) {
+  if (!entries || !entries.length) return 0;
+  const dates = new Set(entries.map(e => e.entry_date));
   const today = todayISO();
+  if (!dates.has(today)) return 0;
+  let streak = 0;
+  let cursor = today;
+  while (dates.has(cursor)) {
+    streak++;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
 
-  // === Card 1: This week avg ===
-  const thisMonday = weekMondayStr(today);
-  const thisSundayDate = new Date(thisMonday + 'T00:00:00');
-  thisSundayDate.setDate(thisSundayDate.getDate() + 6);
-  const thisSunday = isoDateStr(thisSundayDate);
+function _computeAdherence(entries) {
+  if (!entries || !entries.length) return 0;
+  const today = todayISO();
+  const cutoff = addDays(today, -13); // 14-day window: cutoff to today inclusive
+  const dates = new Set(
+    entries.filter(e => e.entry_date >= cutoff && e.entry_date <= today).map(e => e.entry_date)
+  );
+  return dates.size;
+}
 
-  const prevMondayDate = new Date(thisMonday + 'T00:00:00');
-  prevMondayDate.setDate(prevMondayDate.getDate() - 7);
-  const prevMonday = isoDateStr(prevMondayDate);
-  const prevSundayDate = new Date(prevMondayDate);
-  prevSundayDate.setDate(prevMondayDate.getDate() + 6);
-  const prevSunday = isoDateStr(prevSundayDate);
+function renderStreakAndAdherence(entries) {
+  const streakEl = document.getElementById('streak-value');
+  const adherenceEl = document.getElementById('adherence-value');
+  if (!streakEl && !adherenceEl) return;
 
-  const thisWeekEntries = entries.filter(e => e.recorded_date >= thisMonday && e.recorded_date <= thisSunday);
-  const prevWeekEntries = entries.filter(e => e.recorded_date >= prevMonday && e.recorded_date <= prevSunday);
+  const streak = _computeStreak(entries);
+  const adherence = _computeAdherence(entries);
 
-  const avgVal = document.getElementById('card-week-avg-value');
-  const avgMeta = document.getElementById('card-week-avg-meta');
-  const avgSub = document.getElementById('card-week-avg-sub');
+  if (streakEl) {
+    streakEl.textContent = streak === 1 ? '1-day streak' : `${streak}-day streak`;
+  }
+  if (adherenceEl) {
+    adherenceEl.textContent = `${adherence} / 14 days`;
+  }
+}
 
-  if (thisWeekEntries.length < 2) {
-    avgVal.innerHTML = '<span class="card-need-data">Need more data</span>';
-    avgMeta.textContent = '';
-    avgSub.textContent = '';
-  } else {
-    const thisAvg = thisWeekEntries.reduce((s, e) => s + e.weight_kg, 0) / thisWeekEntries.length;
-    avgVal.textContent = thisAvg.toFixed(1) + ' kg';
-    if (prevWeekEntries.length >= 1) {
-      const prevAvg = prevWeekEntries.reduce((s, e) => s + e.weight_kg, 0) / prevWeekEntries.length;
-      const diff = thisAvg - prevAvg;
-      const isLoss = diff < 0;
-      const color = isLoss ? 'var(--color-text-success)' : 'var(--color-text-danger)';
-      const arrow = isLoss ? '↓' : '↑';
-      avgMeta.innerHTML = `<span style="color:${color}">${arrow} ${Math.abs(diff).toFixed(1)} kg</span>`;
-      avgSub.textContent = `last week: ${prevAvg.toFixed(1)} kg`;
+// ── Subtitle ─────────────────────────────────────────────────────────────
+
+function renderSubtitle(summary, stats) {
+  const el = document.getElementById('page-subtitle');
+  if (!el) return;
+
+  const count = summary ? summary.entries_logged : 0;
+  const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
+
+  let trendStr = '';
+  if (stats && stats.delta_7d_kg != null) {
+    const d = stats.delta_7d_kg;
+    const isFlat = Math.abs(d) < 0.05;
+    const arrow = isFlat ? '→' : (d < 0 ? '↓' : '↑');
+    trendStr = ` · trending ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
+  }
+
+  el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
+}
+
+// ── Hero: Card A (Current Weight) + Coach strip ───────────────────────────
+// Rendering moved to the shared module js/lib/weight-current-card.js
+// (WeightCurrentCard.render) so the weight tab and the home page share one
+// implementation. renderHeroCardA / renderCoachStrip are thin shims kept for
+// the existing call sites below.
+
+function renderHeroCardA(chartData, activeTarget) {
+  WeightCurrentCard.renderStats(chartData, activeTarget);
+}
+
+function renderCoachStrip(chartData, activeTarget) {
+  WeightCurrentCard.renderCoachStrip(chartData, activeTarget);
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────
+
+function renderChart(chartData, range) {
+  _chartData = chartData;
+  WeightChart.render(chartData, range);
+
+  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+  const legendPlan      = document.getElementById('legend-plan');
+  const legendGap       = document.getElementById('legend-gap');
+  const legendMilestone = document.getElementById('legend-milestone');
+  if (legendPlan)      legendPlan.hidden      = !hasTarget;
+  if (legendGap)       legendGap.hidden       = !hasTarget;
+  if (legendMilestone) legendMilestone.hidden = !hasTarget;
+}
+
+// ── Progress card ──────────────────────────────────────────────────────────
+
+// Kept for backward-compat with test_weight_page_frontend__412 / __339
+// (status_label-based pill is superseded by gap_direction pill in #424)
+const STATUS_CLASSES = {
+  on_track: 'on-track',
+  behind:   'behind',
+  ahead:    'ahead',
+};
+
+function _fmtShortDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
+function renderProgress(target) {
+  const card = document.getElementById('progress-card');
+  if (!card) return;
+
+  if (!target) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+
+  const pct       = Math.max(0, Math.min(100, target.progress_pct || 0));
+  const startW    = target.start_weight_kg || 0;
+  const targetW   = target.target_weight_kg || 0;
+  const planTodayKg = target.plan_today_kg;
+  const gapKg     = target.gap_kg;           // null when no_data
+  const gapDir    = target.gap_direction || 'no_data';
+
+  // ── Three-stat row ──────────────────────────────────────────────
+
+  const startValEl  = document.getElementById('pstat-start-val');
+  const startDateEl = document.getElementById('pstat-start-date');
+  if (startValEl)  startValEl.textContent  = `${startW.toFixed(1)} kg`;
+  if (startDateEl) startDateEl.textContent = _fmtShortDate(target.start_date || '');
+
+  // current basis = plan_today + gap  (derived; no extra API field needed)
+  const currentBasisKg = (gapKg != null) ? planTodayKg + gapKg : null;
+  const youValEl  = document.getElementById('pstat-you-val');
+  const planSubEl = document.getElementById('pstat-plan-sub');
+  if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
+  if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan says ${planTodayKg.toFixed(1)}` : 'plan --';
+
+  // Next goal = closest upcoming milestone (earliest date still ahead of today).
+  // Falls back to the final goal when no intermediate milestone remains.
+  const nextValEl  = document.getElementById('pstat-next-val');
+  const nextDateEl = document.getElementById('pstat-next-date');
+  const _today = todayISO();
+  const upcoming = (target.milestones || [])
+    .filter(m => m.kind !== 'today' && m.plan_kg != null && m.date && m.date > _today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nextMs = upcoming[0];
+  if (nextValEl)  nextValEl.textContent  = nextMs ? `${nextMs.plan_kg.toFixed(1)} kg` : '--';
+  if (nextDateEl) nextDateEl.textContent = nextMs ? _fmtShortDate(nextMs.date) : '--';
+
+  const goalValEl  = document.getElementById('pstat-goal-val');
+  const goalDateEl = document.getElementById('pstat-goal-date');
+  if (goalValEl)  goalValEl.textContent  = `${targetW.toFixed(1)} kg`;
+  if (goalDateEl) goalDateEl.textContent = _fmtShortDate(target.target_date || '');
+
+  // ── Bar: gradient fill, you-dot, plan-tick, micro-labels ────────
+
+  // Gradient fill width = progress_pct
+  const fillEl = document.getElementById('pgbar-fill');
+  if (fillEl) fillEl.style.transform = `scaleX(${Math.max(0, Math.min(100, pct)) / 100})`;
+
+  // You-dot position (progress_pct)
+  const youDotEl = document.getElementById('pgbar-you-dot');
+  if (youDotEl) youDotEl.style.left = `${pct}%`;
+
+  // Plan-tick position: (start − plan_today) / (start − target) × 100
+  const totalRange = startW - targetW;
+  const planPct = (totalRange !== 0 && planTodayKg != null)
+    ? Math.max(0, Math.min(100, (startW - planTodayKg) / totalRange * 100))
+    : pct;
+  const planTickEl = document.getElementById('pgbar-plan-tick');
+  if (planTickEl) planTickEl.style.left = `${planPct}%`;
+
+  // Micro-labels positioned under their respective marks
+  const microYouEl  = document.getElementById('pgbar-micro-you');
+  if (microYouEl)  microYouEl.style.left  = `${pct}%`;
+  const microPlanEl = document.getElementById('pgbar-micro-plan');
+  if (microPlanEl) microPlanEl.style.left = `${planPct}%`;
+
+  // ── Summary row ─────────────────────────────────────────────────
+
+  const pctBigEl = document.getElementById('progress-pct-big');
+  if (pctBigEl) pctBigEl.textContent = `${pct.toFixed(0)}%`;
+
+  const detailEl = document.getElementById('progress-detail');
+  if (detailEl) {
+    const kgStr  = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg to go` : '--';
+    const dayStr = target.days_remaining != null ? `${target.days_remaining} days` : '--';
+    detailEl.textContent = `${kgStr} · ${dayStr}`;
+  }
+
+  // Backward-compat hidden kg-to-go span (test_weight_page_frontend__412)
+  const kgToGoEl = document.getElementById('kg-to-go');
+  if (kgToGoEl) kgToGoEl.textContent = target.kg_to_go != null ? `${target.kg_to_go.toFixed(1)} kg` : '--';
+
+  // ── Status pill driven by gap_direction ─────────────────────────
+  // Values: 'behind' | 'ahead' | 'on_plan' | 'no_data'
+  // Raw gap_direction enum strings are never rendered directly to the UI.
+
+  const pillEl = document.getElementById('pgstatus-pill');
+  if (pillEl) {
+    const pace = target.required_pace_kg_per_week;
+    let pillText, pillClass;
+
+    if (gapDir === 'behind') {
+      const absGap  = gapKg   != null ? Math.abs(gapKg).toFixed(1)   : '?';
+      const paceStr = pace    != null ? pace.toFixed(2)               : '?';
+      pillText  = `+${absGap} kg behind plan · need ${paceStr} kg/wk`;
+      pillClass = 'pill-behind';
+    } else if (gapDir === 'ahead') {
+      const absGap = gapKg != null ? Math.abs(gapKg).toFixed(1) : '?';
+      pillText  = `${absGap} kg ahead of plan`;
+      pillClass = 'pill-ahead';
+    } else if (gapDir === 'on_plan') {
+      pillText  = 'On plan';
+      pillClass = 'pill-on-plan';
     } else {
-      avgMeta.textContent = '';
-      avgSub.textContent = 'No previous week data';
+      // no_data
+      pillText  = 'Just started — log daily to see your pace';
+      pillClass = 'pill-no-data';
     }
+
+    pillEl.textContent = pillText;
+    pillEl.className   = `pgstatus-pill ${pillClass}`;
+  }
+}
+
+// ── Milestones panel ───────────────────────────────────────────────────────
+
+function renderMilestones(target) {
+  const layer = document.getElementById('pgbar-ms-layer');
+  if (!layer) return;
+  if (!target || !target.milestones || !target.milestones.length ||
+      target.start_weight_kg == null || target.target_weight_kg == null) {
+    layer.innerHTML = '';
+    return;
+  }
+  const start = target.start_weight_kg;
+  const goal  = target.target_weight_kg;
+  const span  = start - goal;
+  if (span === 0) { layer.innerHTML = ''; return; }
+
+  // Intermediate + goal milestones become markers on the bar (today is the dot).
+  layer.innerHTML = target.milestones
+    .filter(m => m.kind !== 'today' && m.plan_kg != null)
+    .map(m => {
+      const pct = Math.max(0, Math.min(100, (start - m.plan_kg) / span * 100));
+      const dateStr = m.date
+        ? new Date(m.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : '';
+      const isGoal = m.kind === 'goal';
+      const title = `${dateStr ? dateStr + ' · ' : ''}${m.plan_kg.toFixed(1)} kg${isGoal ? ' (goal)' : ''}`;
+      return `<span class="pgbar-ms${isGoal ? ' pgbar-ms-goal' : ''}" style="left:${pct}%" title="${title}" aria-label="${title}"></span>`;
+    })
+    .join('');
+}
+
+// ── Recent entries (last 14 days) ─────────────────────────────────────────
+
+function _nearestWeight(entries, targetDate) {
+  if (!entries.length) return null;
+  const sorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  const before = sorted.filter(e => e.entry_date < targetDate);
+  if (before.length) return before[before.length - 1].weight_kg;
+  const after = sorted.filter(e => e.entry_date > targetDate);
+  if (after.length) return after[0].weight_kg;
+  return null;
+}
+
+function renderRecentEntries(entries, activeTarget, totalEntries) {
+  const container = document.getElementById('recent-entries');
+  const viewAllLink = document.getElementById('view-all-link');
+  if (!container) return;
+
+  // Use total_entries from history-summary for the "View all N" count
+  const displayCount = totalEntries != null ? totalEntries : entries.length;
+  if (viewAllLink) {
+    viewAllLink.textContent = `View all ${displayCount} →`;
   }
 
-  // === Card 2: 30-day trend ===
-  const thirtyAgoDate = new Date(today + 'T00:00:00');
-  thirtyAgoDate.setDate(thirtyAgoDate.getDate() - 29);
-  const thirtyAgo = isoDateStr(thirtyAgoDate);
-
-  const window30 = entries
-    .filter(e => e.recorded_date >= thirtyAgo && e.recorded_date <= today)
-    .sort((a, b) => a.recorded_date.localeCompare(b.recorded_date));
-
-  const trendVal = document.getElementById('card-trend-value');
-  const trendMeta = document.getElementById('card-trend-meta');
-  const trendSub = document.getElementById('card-trend-sub');
-
-  const uniqueDays30 = new Set(window30.map(e => e.recorded_date)).size;
-  if (uniqueDays30 < 14) {
-    trendVal.innerHTML = '<span class="card-need-data">Need more data</span>';
-    trendMeta.textContent = '';
-    trendSub.textContent = '';
-  } else {
-    const first = window30[0];
-    const last = window30[window30.length - 1];
-    const change = last.weight_kg - first.weight_kg;
-    const isLoss = change < 0;
-    const color = isLoss ? 'var(--color-text-success)' : 'var(--color-text-danger)';
-    const arrow = isLoss ? '↘' : '↗';
-    trendVal.innerHTML = `<span style="color:${color}">${arrow} ${Math.abs(change).toFixed(1)} kg</span>`;
-    trendMeta.textContent = `${first.weight_kg} → ${last.weight_kg} kg`;
-    trendSub.textContent = `${fmtShortDate(first.recorded_date)} – ${fmtShortDate(last.recorded_date)}`;
-  }
-
-  // === Card 3: Days logged ===
-  const loggedDays = new Set(
-    entries
-      .filter(e => e.recorded_date >= thisMonday && e.recorded_date <= thisSunday)
-      .map(e => e.recorded_date)
+  // Build a map: date → sorted entries (newest time first)
+  const byDate = {};
+  entries.forEach(e => {
+    if (!byDate[e.entry_date]) byDate[e.entry_date] = [];
+    byDate[e.entry_date].push(e);
+  });
+  Object.values(byDate).forEach(arr =>
+    arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  const daysVal = document.getElementById('card-days-value');
-  const daysDots = document.getElementById('card-days-dots');
-  const daysSub = document.getElementById('card-days-sub');
-
-  daysVal.textContent = `${loggedDays.size} / 7`;
-
-  const CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-  const monday = new Date(thisMonday + 'T00:00:00');
-  const dots = [];
-  for (let i = 0; i < 7; i++) {
-    const dayDate = new Date(monday);
-    dayDate.setDate(monday.getDate() + i);
-    const dayStr = isoDateStr(dayDate);
-    const logged = loggedDays.has(dayStr);
-    const isToday = dayStr === today;
-    const isPast = dayStr < today;
-    let cls, inner;
-    if (logged) {
-      cls = 'day-dot logged';
-      inner = CHECK_SVG;
-    } else if (isToday) {
-      cls = 'day-dot today-pending';
-      inner = '';
-    } else if (isPast) {
-      cls = 'day-dot missed';
-      inner = '';
-    } else {
-      cls = 'day-dot missed';
-      inner = '';
-    }
-    dots.push(`<span class="${cls}" title="${dayStr}">${inner}</span>`);
+  // Build 5-day list: today → today-4 (older dates are reached via the calendar)
+  const today = todayISO();
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    days.push(addDays(today, -i));
   }
-  daysDots.innerHTML = dots.join('');
 
-  daysSub.textContent = loggedDays.has(today) ? 'Mon – Sun' : 'Mon – Sun · today not logged';
-}
-
-let allEntries = [];
-let currentRange = '30d';
-let showAvg = true;
-let weightChart = null;
-
-function readUrlParams() {
-  const params = new URLSearchParams(window.location.search);
-  const r = params.get('range');
-  if (['7d', '30d', '90d', 'all'].includes(r)) currentRange = r;
-  if (params.get('avg') === 'false') showAvg = false;
-}
-
-function updateUrl() {
-  const params = new URLSearchParams(window.location.search);
-  params.set('range', currentRange);
-  params.set('avg', showAvg ? 'true' : 'false');
-  history.replaceState(null, '', '?' + params.toString());
-}
-
-function syncRangeButtons() {
-  document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.range === currentRange);
+  // Compute deltas: compare each entry to the previous logged day (across gaps)
+  const allSorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  const prevWeight = {};
+  allSorted.forEach((e, idx) => {
+    const prev = allSorted.slice(0, idx).filter(x => x.entry_date < e.entry_date).pop();
+    prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
   });
-}
 
-function syncAvgCheckbox() {
-  const cb = document.getElementById('avg-toggle');
-  if (cb) cb.checked = showAvg;
-}
+  // Delta direction: ↓ green when toward target, ↑ red when away from target
+  const losingIsGoal = !activeTarget ||
+    activeTarget.target_weight_kg == null ||
+    activeTarget.start_weight_kg == null ||
+    activeTarget.target_weight_kg < activeTarget.start_weight_kg;
 
-function filterByRange(entries, range) {
-  if (range === 'all') return entries;
-  const days = { '7d': 7, '30d': 30, '90d': 90 }[range];
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - (days - 1));
-  const cutoffStr = isoDateStr(cutoff);
-  return entries.filter(e => e.recorded_date >= cutoffStr);
-}
+  function _esc(s) {
+    return String(s).replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c]));
+  }
 
-function computeMovingAverage(visibleSorted, allSorted) {
-  const dateToWeight = {};
-  for (const e of allSorted) dateToWeight[e.recorded_date] = e.weight_kg;
-
-  return visibleSorted.map(entry => {
-    const base = new Date(entry.recorded_date + 'T00:00:00');
-    const windowWeights = [];
-    for (let d = 6; d >= 0; d--) {
-      const check = new Date(base);
-      check.setDate(check.getDate() - d);
-      const key = isoDateStr(check);
-      if (dateToWeight[key] !== undefined) windowWeights.push(dateToWeight[key]);
-    }
-    if (windowWeights.length < 3) return null;
-    const avg = windowWeights.reduce((a, b) => a + b, 0) / windowWeights.length;
-    return Math.round(avg * 100) / 100;
-  });
-}
-
-function renderChart(entries) {
-  const source = entries.length > 0 ? entries : MOCK_WEIGHT_ENTRIES;
-  const allSorted = source.slice().sort((a, b) => a.recorded_date.localeCompare(b.recorded_date));
-  const visibleSorted = filterByRange(allSorted, currentRange);
-
-  const labels = visibleSorted.map(e => e.recorded_date);
-  const weights = visibleSorted.map(e => e.weight_kg);
-
-  const pointRadii = weights.map((_, i) => i === weights.length - 1 ? 7 : 3);
-  const pointHoverRadii = weights.map((_, i) => i === weights.length - 1 ? 9 : 5);
-
-  const maValues = computeMovingAverage(visibleSorted, allSorted);
-  const effectiveShowAvg = showAvg && visibleSorted.length >= 7;
-
-  const allValues = [...weights, ...maValues.filter(v => v !== null)];
-  const padding = 0.5;
-  const minY = allValues.length ? Math.min(...allValues) - padding : undefined;
-  const maxY = allValues.length ? Math.max(...allValues) + padding : undefined;
-
-  if (weightChart) {
-    weightChart.data.labels = labels;
-    weightChart.data.datasets[0].data = weights;
-    weightChart.data.datasets[0].pointRadius = pointRadii;
-    weightChart.data.datasets[0].pointHoverRadius = pointHoverRadii;
-    weightChart.data.datasets[1].data = maValues;
-    weightChart.data.datasets[1].hidden = !effectiveShowAvg;
-    if (minY !== undefined) weightChart.options.scales.y.min = minY;
-    if (maxY !== undefined) weightChart.options.scales.y.max = maxY;
-    weightChart.update();
+  // empty state: if no entries exist at all, show prompt instead of 14 blank rows
+  if (!entries.length) {
+    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;">
+      No weight entries yet — log your first weigh-in above
+    </div>`;
     return;
   }
 
-  const ctx = document.getElementById('weight-chart').getContext('2d');
-  weightChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Daily',
-          data: weights,
-          showLine: false,
-          pointRadius: pointRadii,
-          pointHoverRadius: pointHoverRadii,
-          pointBackgroundColor: DAILY_COLOR,
-          pointBorderColor: DAILY_COLOR,
-          borderColor: DAILY_COLOR,
-        },
-        {
-          label: '7-day average',
-          data: maValues,
-          borderColor: MA_COLOR,
-          backgroundColor: 'transparent',
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 0,
-          hidden: !effectiveShowAvg,
-          spanGaps: false,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      scales: {
-        x: { title: { display: true, text: 'Date' } },
-        y: {
-          title: { display: true, text: 'Weight (kg)' },
-          min: minY,
-          max: maxY,
-        },
-      },
-    },
+  container.innerHTML = days.map(date => {
+    const isToday = date === today;
+    const todayCls = isToday ? 'entry-row-today' : '';
+    const dayEntries = byDate[date];
+    const d = new Date(date + 'T00:00:00');
+    const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const dayStr  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dateLabel = `${weekday}, ${dayStr}`;
+
+    if (!dayEntries || !dayEntries.length) {
+      return `
+        <div class="re-row ${todayCls} missing-day-row" data-date="${date}">
+          <div class="re-d">${dateLabel}${isToday ? '<span class="re-d-sub">Today</span>' : ''}</div>
+          <div class="re-note">
+            <button class="add-chip backfill-add-btn" data-date="${date}" data-is-today="${isToday}" type="button"
+              aria-label="No entry for ${date} — click to add">＋ Add</button>
+          </div>
+          <div class="re-w"></div>
+          <div class="re-delta"></div>
+          <div class="re-actions"></div>
+        </div>`;
+    }
+
+    // One or more entries on this day — show the first (most recent) entry
+    return dayEntries.map((e, idx) => {
+      const delta = prevWeight[e.id];
+      let deltaCls = 'neu', deltaArrow = '—', deltaVal = '';
+      if (delta != null) {
+        const isFlat = Math.abs(delta) < 0.05;
+        const isLoss = delta < 0;
+        const isTowardTarget = losingIsGoal ? isLoss : !isLoss;
+        if (!isFlat) {
+          deltaCls = isTowardTarget ? 'dn' : 'up';
+          deltaArrow = isLoss ? '↓' : '↑';
+          deltaVal = ' ' + Math.abs(delta).toFixed(1);
+        }
+      }
+      const noteText = e.notes ? _esc(e.notes) : '';
+
+      return `
+        <div class="re-row ${todayCls}" data-entry-id="${e.id}">
+          <div class="re-d">${idx === 0 ? dateLabel : ''}${isToday && idx === 0 ? '<span class="re-d-sub">Today</span>' : ''}</div>
+          <div class="re-note">${noteText}</div>
+          <div class="re-w">${e.weight_kg.toFixed(1)}<span class="re-u"> kg</span></div>
+          <div class="re-delta ${deltaCls}">${deltaArrow}${deltaVal}</div>
+          <div class="re-actions">
+            <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
+              aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
+          </div>
+        </div>`;
+    }).join('');
+  }).join('');
+
+  // Wire ＋ Add chip buttons
+  container.querySelectorAll('.backfill-add-btn').forEach(btn => {
+    const date = btn.dataset.date;
+    const isToday = btn.dataset.isToday === 'true';
+    btn.addEventListener('click', () => _openMiniStepper(btn, date));
+    if (isToday) {
+      _openMiniStepper(btn, date);
+    }
   });
-}
 
-function renderEntries(entries) {
-  const list = document.getElementById('entry-list');
-  if (entries.length === 0) {
-    list.innerHTML = '<li class="empty">No entries yet.</li>';
-    return;
-  }
-  list.innerHTML = entries
-    .slice()
-    .sort((a, b) => b.recorded_date.localeCompare(a.recorded_date))
-    .map(e => `
-      <li>
-        <span class="entry-date">${e.recorded_date}</span>
-        <span class="entry-weight">${e.weight_kg} kg</span>
-        <button class="entry-delete" data-id="${e.id}" type="button">Delete</button>
-      </li>`)
-    .join('');
-
-  list.querySelectorAll('.entry-delete').forEach(btn => {
-    btn.addEventListener('click', () => deleteEntry(btn.dataset.id));
-  });
-}
-
-function showApiError(msg) {
-  const el = document.getElementById('api-error');
-  if (el) el.textContent = msg;
-}
-
-function clearApiError() {
-  showApiError('');
-}
-
-async function loadAndRender() {
-  const userId = document.getElementById('user-select').value;
-  if (!userId) return;
-  clearApiError();
-  try {
-    const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`);
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    allEntries = await res.json();
-    renderSummaryCards(allEntries);
-    renderEntries(allEntries);
-    renderChart(allEntries);
-  } catch (e) {
-    showApiError('Unable to load data: ' + e.message);
-  }
-}
-
-async function deleteEntry(entryId) {
-  clearApiError();
-  try {
-    const res = await fetch(`/api/weight/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
-    if (res.status === 404) throw new Error('Entry not found');
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    await loadAndRender();
-  } catch (e) {
-    showApiError('Delete failed: ' + e.message);
-  }
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-  readUrlParams();
-
-  const userSelect = document.getElementById('user-select');
-  const form = document.getElementById('weight-form');
-  const weightInput = document.getElementById('weight-input');
-  const dateInput = document.getElementById('date-input');
-  const errorMsg = document.getElementById('weight-error');
-
-  dateInput.value = todayISO();
-
-  document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      currentRange = btn.dataset.range;
-      updateUrl();
-      syncRangeButtons();
-      renderChart(allEntries);
+  // Wire entry menu buttons
+  container.querySelectorAll('.entry-menu-btn').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      _toggleEntryMenu(btn);
     });
   });
-  syncRangeButtons();
 
-  const avgToggle = document.getElementById('avg-toggle');
-  avgToggle.addEventListener('change', () => {
-    showAvg = avgToggle.checked;
-    updateUrl();
-    renderChart(allEntries);
-  });
-  syncAvgCheckbox();
+  // Close open menus on outside click
+  document.addEventListener('click', _closeAllMenus);
+}
 
-  // Load users into selector
-  try {
-    const res = await fetch('/api/users');
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    const users = await res.json();
-    userSelect.innerHTML = users
-      .map(u => `<option value="${u.id}">${u.name}</option>`)
-      .join('');
-  } catch (e) {
-    userSelect.innerHTML = '<option value="">Failed to load users</option>';
-    showApiError('Unable to load users: ' + e.message);
+// ── Entry actions menu ─────────────────────────────────────────────────────
+
+function _closeAllMenus() {
+  document.querySelectorAll('.entry-menu').forEach(m => m.remove());
+  document.querySelectorAll('.entry-menu-btn').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+
+function _toggleEntryMenu(btn) {
+  const existing = btn.parentElement.querySelector('.entry-menu');
+  if (existing) {
+    existing.remove();
+    btn.setAttribute('aria-expanded', 'false');
     return;
   }
+  _closeAllMenus();
 
-  const addUserOpt = document.createElement('option');
-  addUserOpt.value = '__add__';
-  addUserOpt.textContent = '+ Add user...';
-  userSelect.appendChild(addUserOpt);
+  const entryId = btn.dataset.entryId;
+  const weight = btn.dataset.weight;
+  const entryDate = btn.dataset.date;
+  const menu = document.createElement('div');
+  menu.className = 'entry-menu';
+  menu.innerHTML = `
+    <button class="entry-edit" data-id="${entryId}" data-weight="${weight}" data-date="${entryDate}" type="button">Edit</button>
+    <button class="menu-delete" data-id="${entryId}" type="button">Delete</button>`;
+  btn.parentElement.appendChild(menu);
+  btn.setAttribute('aria-expanded', 'true');
 
-  let prevUserId = userSelect.value;
-
-  await loadAndRender();
-
-  userSelect.addEventListener('change', () => {
-    if (userSelect.value === '__add__') {
-      userSelect.value = prevUserId;
-      if (typeof window.buildAddUserModal === 'function') {
-        window.buildAddUserModal(function (newUser) {
-          fetch('/api/users')
-            .then(r => r.json())
-            .then(freshUsers => {
-              userSelect.innerHTML = freshUsers
-                .map(u => `<option value="${u.id}"${u.id === newUser.id ? ' selected' : ''}>${u.name}</option>`)
-                .join('') + '<option value="__add__">+ Add user...</option>';
-              prevUserId = newUser.id;
-              loadAndRender();
-            })
-            .catch(() => {});
-        });
-      }
-      return;
-    }
-    prevUserId = userSelect.value;
-    loadAndRender();
+  menu.querySelector('.entry-edit').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    _closeAllMenus();
+    const row = btn.closest('.re-row') || btn.closest('tr');
+    openInlineEdit(row, entryId, parseFloat(weight), entryDate);
   });
 
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    errorMsg.textContent = '';
-    clearApiError();
+  menu.querySelector('.menu-delete').addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const res = await fetch(`/api/weight-entries/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
+      UIStates.showToast('Entry deleted');
+      await _reload();
+    } catch (e) {
+      showPageError('Delete failed: ' + e.message);
+    }
+  });
+}
 
-    const raw = weightInput.value.trim();
-    if (raw === '' || isNaN(Number(raw)) || Number(raw) <= 0) {
-      errorMsg.textContent = 'Please enter a valid weight in kg.';
+// ── Inline edit and patch ──────────────────────────────────────────────────
+
+function openInlineEdit(row, entryId, currentWeight, currentDate) {
+  if (!row) return;
+  // Works for both div-based re-row and legacy tr-based rows
+  const isDiv = row.classList.contains('re-row');
+  const originalHTML = row.innerHTML;
+
+  function cancelEdit() {
+    row.removeEventListener('keydown', onEscape);
+    row.innerHTML = originalHTML;
+    const menuBtn = row.querySelector('.entry-menu-btn');
+    if (menuBtn) {
+      menuBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _toggleEntryMenu(menuBtn);
+      });
+    }
+  }
+
+  if (isDiv) {
+    row.innerHTML = `
+      <div style="grid-column:1/-1;">
+        <form class="inline-edit-form" novalidate>
+          <input type="number" step="0.1" min="20" max="300"
+            class="backfill-input" value="${currentWeight.toFixed(1)}" aria-label="Weight in kg">
+          <button type="submit" class="inline-save-btn">Save</button>
+          <button type="button" class="inline-cancel-btn">Cancel</button>
+          <span class="backfill-error" role="alert"></span>
+        </form>
+      </div>`;
+  } else {
+    row.innerHTML = `
+      <td colspan="4">
+        <form class="inline-edit-form" novalidate>
+          <input type="number" step="0.1" min="20" max="300"
+            class="backfill-input" value="${currentWeight.toFixed(1)}" aria-label="Weight in kg">
+          <button type="submit" class="inline-save-btn">Save</button>
+          <button type="button" class="inline-cancel-btn">Cancel</button>
+          <span class="backfill-error" role="alert"></span>
+        </form>
+      </td>`;
+  }
+
+  const form = row.querySelector('form');
+  const weightInput = form.querySelector('input');
+  const errEl = form.querySelector('.backfill-error');
+
+  weightInput.focus();
+
+  function onEscape(ev) {
+    if (ev.key === 'Escape') {
+      cancelEdit();
+    }
+  }
+  row.addEventListener('keydown', onEscape);
+
+  form.querySelector('.inline-cancel-btn').addEventListener('click', cancelEdit);
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    errEl.textContent = '';
+    const val = parseFloat(weightInput.value);
+    if (isNaN(val) || val <= 0) {
+      errEl.textContent = 'Weight must be a positive number.';
       weightInput.focus();
       return;
     }
+    if (val < 20 || val > 300) {
+      errEl.textContent = 'Weight must be between 20 and 300 kg.';
+      weightInput.focus();
+      return;
+    }
+    try {
+      const updated = await patchEntry(entryId, { weight_kg: val });
+      UIStates.showToast('Entry updated');
+      const idx = _recentEntries.findIndex(e => e.id === entryId);
+      if (idx !== -1) {
+        _recentEntries[idx] = { ..._recentEntries[idx], weight_kg: updated.weight_kg };
+      }
+      renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
+    } catch (e) {
+      if (e.message === 'conflict') {
+        errEl.textContent = 'Date conflict with another entry.';
+      } else {
+        errEl.textContent = 'Save failed: ' + e.message;
+      }
+    }
+  });
+}
 
-    const userId = userSelect.value;
-    if (!userId) {
-      errorMsg.textContent = 'Please select a user.';
+async function patchEntry(entryId, data) {
+  const res = await fetch(`/api/weight-entries/${encodeURIComponent(entryId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (res.status === 409) throw new Error('conflict');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Backfill / mini-stepper ────────────────────────────────────────────────
+
+function _openMiniStepper(btn, date) {
+  const noteCell = btn.closest('.re-note') || btn.closest('td');
+  if (!noteCell) return;
+
+  const prefill = _nearestWeight(_recentEntries, date) || 70.0;
+  const initVal = (Math.round(prefill * 10) / 10).toFixed(1);
+
+  noteCell.innerHTML = `
+    <form class="inline-fill" novalidate>
+      <button type="button" class="mini-step stepper-dec" aria-label="Decrease">&#x2212;</button>
+      <input type="number" step="0.1" min="20" max="300"
+        class="mini-val backfill-input" value="${initVal}" aria-label="Weight in kg">
+      <button type="button" class="mini-step stepper-inc" aria-label="Increase">+</button>
+      <button type="submit" class="mini-save backfill-save-btn">Log</button>
+      <span class="mini-err backfill-error" role="alert"></span>
+    </form>`;
+
+  const form = noteCell.querySelector('form');
+  const input = noteCell.querySelector('.mini-val');
+  const errEl = noteCell.querySelector('.mini-err');
+
+  input.focus();
+  input.select();
+
+  noteCell.querySelector('.stepper-dec').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.max(20, v - 0.1).toFixed(1);
+  });
+
+  noteCell.querySelector('.stepper-inc').addEventListener('click', () => {
+    const v = parseFloat(input.value) || 0;
+    input.value = Math.min(300, v + 0.1).toFixed(1);
+  });
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    errEl.textContent = '';
+    const raw = parseFloat(input.value);
+    if (isNaN(raw) || raw < 20 || raw > 300) {
+      errEl.textContent = 'Enter a valid weight (20–300 kg).';
+      input.focus();
+      return;
+    }
+    if (date > addDays(todayISO(), 1)) {
+      errEl.textContent = 'Cannot log a weight entry for a future date.';
       return;
     }
 
     try {
-      const res = await fetch(`/api/weight?user_id=${encodeURIComponent(userId)}`, {
+      const res = await fetch('/api/weight-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          weight_kg: Number(raw),
-          recorded_date: dateInput.value || todayISO(),
+          entry_date: date,
+          weight_kg: raw,
         }),
       });
 
       if (res.status === 409) {
-        errorMsg.textContent = 'You already have an entry for this date — delete it first.';
+        errEl.textContent = 'Entry already exists for this date.';
         return;
       }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
-
-      form.reset();
-      dateInput.value = todayISO();
-      await loadAndRender();
+      UIStates.showToast('Entry saved');
+      await _reload();
     } catch (e) {
-      showApiError('Failed to save entry: ' + e.message);
+      showPageError('Save failed: ' + e.message);
     }
   });
+}
+
+// ── Backfill calendar (two months on desktop, one on mobile) ───────────────
+
+let _calY = null;          // displayed RIGHT month: year
+let _calM = null;          // displayed RIGHT month: month (0-11)
+let _calSelDate = null;    // currently-open editor date
+
+function _pad2(n) { return String(n).padStart(2, '0'); }
+
+function _initBackfillCalendar() {
+  const now = new Date();
+  _calY = now.getFullYear();
+  _calM = now.getMonth();
+  const prev = document.getElementById('wcal-prev');
+  const next = document.getElementById('wcal-next');
+  if (prev) prev.addEventListener('click', () => _calShift(-1));
+  if (next) next.addEventListener('click', () => _calShift(1));
+}
+
+function _calShift(delta) {
+  _calM += delta;
+  if (_calM < 0) { _calM = 11; _calY -= 1; }
+  else if (_calM > 11) { _calM = 0; _calY += 1; }
+  _calSelDate = null;
+  renderBackfillCalendar();
+}
+
+async function renderBackfillCalendar() {
+  const gridR = document.getElementById('wcal-grid-right');
+  if (!gridR || _userId == null) return;
+  if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
+
+  // Right = displayed month; Left = the month before it.
+  const rY = _calY, rM = _calM;
+  const lDate = new Date(rY, rM - 1, 1);
+  const lY = lDate.getFullYear(), lM = lDate.getMonth();
+
+  const fromStr = `${lY}-${_pad2(lM + 1)}-01`;
+  const rLast = new Date(rY, rM + 1, 0).getDate();
+  const toStr  = `${rY}-${_pad2(rM + 1)}-${_pad2(rLast)}`;
+
+  const now = new Date();
+  const atCurrent = (rY > now.getFullYear()) || (rY === now.getFullYear() && rM >= now.getMonth());
+  const nextBtn = document.getElementById('wcal-next');
+  if (nextBtn) nextBtn.disabled = atCurrent;
+
+  const byDate = {};
+  try {
+    const res = await fetch(`/api/weight-entries?from=${fromStr}&to=${toStr}`);
+    if (res.ok) {
+      const data = await res.json();
+      (Array.isArray(data) ? data : (data.entries || [])).forEach(e => { byDate[e.entry_date] = e; });
+    }
+  } catch (_) { /* leave empty on error */ }
+
+  const today = todayISO();
+  _calRenderMonth(lY, lM, document.getElementById('wcal-grid-left'),  document.getElementById('wcal-mtitle-left'),  byDate, today);
+  _calRenderMonth(rY, rM, gridR, document.getElementById('wcal-mtitle-right'), byDate, today);
+
+  if (_calSelDate) {
+    _calOpenEditor(_calSelDate, byDate[_calSelDate] || null);
+  } else {
+    const ed = document.getElementById('wcal-editor');
+    if (ed) ed.hidden = true;
+  }
+}
+
+function _calRenderMonth(year, month, gridEl, titleEl, byDate, today) {
+  if (!gridEl) return;
+  if (titleEl) titleEl.textContent =
+    new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const lastDay  = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();   // 0=Sun..6=Sat
+  const lead     = (firstDow + 6) % 7;                    // Monday-first
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<div class="wcal-cell empty"></div>';
+  for (let d = 1; d <= lastDay; d++) {
+    const date   = `${year}-${_pad2(month + 1)}-${_pad2(d)}`;
+    const entry  = byDate[date];
+    const future = date > today;
+    const cls = ['wcal-cell'];
+    if (future) cls.push('future');
+    if (entry)  cls.push('has-entry');
+    if (date === today) cls.push('today');
+    if (date === _calSelDate) cls.push('sel');
+    const dot = entry ? '<span class="wcal-dot"></span>' : '';
+    cells += `<button type="button" class="${cls.join(' ')}" data-date="${date}"${future ? ' disabled' : ''}>${d}${dot}</button>`;
+  }
+  gridEl.innerHTML = cells;
+  gridEl.querySelectorAll('.wcal-cell[data-date]:not(.future)').forEach(btn => {
+    btn.addEventListener('click', () => _calOpenEditor(btn.dataset.date, byDate[btn.dataset.date] || null));
+  });
+}
+
+function _calOpenEditor(date, entry) {
+  _calSelDate = date;
+  document.querySelectorAll('#wcal .wcal-cell').forEach(c =>
+    c.classList.toggle('sel', c.dataset.date === date));
+
+  const editor = document.getElementById('wcal-editor');
+  if (!editor) return;
+  const label   = new Date(date + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const prefill = entry ? entry.weight_kg : (_nearestWeight(_recentEntries, date) || 70.0);
+
+  editor.hidden = false;
+  editor.innerHTML = `
+    <span class="wcal-ed-date">${label}</span>
+    <input type="number" step="0.1" min="20" max="300" inputmode="decimal"
+      value="${prefill.toFixed(1)}" aria-label="Weight in kg for ${label}">
+    <button type="button" class="wcal-save">${entry ? 'Update' : 'Add'}</button>
+    ${entry ? '<button type="button" class="wcal-del">Delete</button>' : ''}
+    <span class="wcal-ed-err" role="alert"></span>`;
+
+  const input = editor.querySelector('input');
+  const errEl = editor.querySelector('.wcal-ed-err');
+  input.focus(); input.select();
+
+  editor.querySelector('.wcal-save').addEventListener('click', async () => {
+    errEl.textContent = '';
+    const v = parseFloat(input.value);
+    if (isNaN(v) || v < 20 || v > 300) { errEl.textContent = 'Enter a valid weight (20–300 kg).'; input.focus(); return; }
+    try {
+      if (entry) {
+        await patchEntry(entry.id, { weight_kg: v });
+      } else {
+        const res = await fetch('/api/weight-entries', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entry_date: date, weight_kg: v }),
+        });
+        if (res.status === 409) { errEl.textContent = 'Entry already exists for this date.'; return; }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      UIStates.showToast('Entry saved');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Save failed: ' + e.message; }
+  });
+
+  const delBtn = editor.querySelector('.wcal-del');
+  if (delBtn) delBtn.addEventListener('click', async () => {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const res = await fetch(`/api/weight-entries/${encodeURIComponent(entry.id)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`);
+      UIStates.showToast('Entry deleted');
+      _calSelDate = null;
+      await _reload();
+    } catch (e) { errEl.textContent = 'Delete failed: ' + e.message; }
+  });
+}
+
+// ── Card B: Log Today stepper ─────────────────────────────────────────────
+
+let _cardBEntryId = null; // id of today's existing entry, null if not yet logged
+
+function _updateLogBtnLabel() {
+  const input = document.getElementById('stepper-input');
+  const btn   = document.getElementById('log-submit-btn');
+  if (!input || !btn) return;
+  const v = parseFloat(input.value);
+  btn.textContent = isNaN(v) ? 'Log -- kg' : `Log ${v.toFixed(1)} kg`;
+}
+
+function _clampStepperValue(v) {
+  if (isNaN(v)) return 20;
+  return Math.max(20, Math.min(300, v));
+}
+
+function _prefillStepper(weight) {
+  const input = document.getElementById('stepper-input');
+  if (!input) return;
+  input.value = weight != null ? weight.toFixed(1) : '';
+  _updateLogBtnLabel();
+}
+
+function _showStepperMode() {
+  const wrap   = document.getElementById('stepper-wrap');
+  const logged = document.getElementById('logged-strip');
+  if (wrap)   wrap.hidden   = false;
+  if (logged) logged.hidden = true;
+}
+
+function _showLoggedMode(weightKg) {
+  const wrap      = document.getElementById('stepper-wrap');
+  const logged    = document.getElementById('logged-strip');
+  const loggedTxt = document.getElementById('logged-text');
+  if (wrap)   wrap.hidden   = true;
+  if (logged) logged.hidden = false;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
+}
+
+async function _submitCardB(weightKg) {
+  const errEl = document.getElementById('hcb-error');
+  const btn   = document.getElementById('log-submit-btn');
+  if (errEl) errEl.textContent = '';
+  showPageError('');
+
+  if (isNaN(weightKg) || weightKg < 20 || weightKg > 300) {
+    if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  try {
+    if (_cardBEntryId) {
+      // Edit mode: PATCH the existing entry
+      const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(_cardBEntryId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weight_kg: weightKg }),
+      });
+      if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+    } else {
+      // New log: attempt POST
+      const postRes = await fetch('/api/weight-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entry_date: todayISO(),
+          entry_time: nowHHMM(),
+          weight_kg: weightKg,
+        }),
+      });
+
+      if (postRes.status === 409) {
+        // Race condition: entry already exists — fall back to PATCH using existing_id
+        const conflict = await postRes.json();
+        const existingId = conflict.existing_id;
+        if (!existingId) throw new Error('409 with no existing_id');
+        const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(existingId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: weightKg }),
+        });
+        if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
+        _cardBEntryId = existingId;
+      } else if (!postRes.ok) {
+        throw new Error(`HTTP ${postRes.status}`);
+      } else {
+        const created = await postRes.json();
+        _cardBEntryId = created.id;
+      }
+    }
+
+    UIStates.showToast('Logged!');
+    // Update logged strip weight for future Edit clicks
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = weightKg;
+    _showLoggedMode(weightKg);
+    await _reloadHeroAndCoach();
+    await _reloadEntries();
+  } catch (e) {
+    showPageError('Log failed: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _initCardB() {
+  const decBtn  = document.getElementById('stepper-dec');
+  const incBtn  = document.getElementById('stepper-inc');
+  const input   = document.getElementById('stepper-input');
+  const logBtn  = document.getElementById('log-submit-btn');
+  const editBtn = document.getElementById('edit-link');
+  const dateEl  = document.getElementById('hcb-date');
+
+  if (!input || !logBtn) return;
+
+  // Show today's date in Card B label row
+  if (dateEl) {
+    const d = new Date(todayISO() + 'T00:00:00');
+    dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  // Stepper ± buttons
+  if (decBtn) {
+    decBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) - 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+  if (incBtn) {
+    incBtn.addEventListener('click', () => {
+      const v = _clampStepperValue(parseFloat(input.value) + 0.1);
+      input.value = v.toFixed(1);
+      _updateLogBtnLabel();
+    });
+  }
+
+  // Live-update button label on input change
+  input.addEventListener('input', _updateLogBtnLabel);
+
+  // Submit
+  logBtn.addEventListener('click', async () => {
+    await _submitCardB(parseFloat(input.value));
+  });
+
+  // Edit link: restore stepper with logged value
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const logged = document.getElementById('logged-strip');
+      const weight = logged ? parseFloat(logged.dataset.weight) : NaN;
+      _prefillStepper(!isNaN(weight) ? weight : null);
+      _showStepperMode();
+      input.focus();
+    });
+  }
+}
+
+function _cardBSetLoggedState(entries, fallbackWeight) {
+  const today = todayISO();
+  const todayEntry = entries.find(e => e.entry_date === today);
+  if (todayEntry) {
+    _cardBEntryId = todayEntry.id;
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = todayEntry.weight_kg;
+    _prefillStepper(todayEntry.weight_kg);
+    _showLoggedMode(todayEntry.weight_kg);
+  } else {
+    _cardBEntryId = null;
+    // Prefill stepper with most recent entry (fallback from chart stats)
+    if (fallbackWeight != null) _prefillStepper(fallbackWeight);
+    _showStepperMode();
+  }
+}
+
+// ── Edit-target slide-in panel ────────────────────────────────────────────
+
+function _openEditPanel() {
+  _populateEditPanel(_activeTarget);
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = false;
+  if (panel) panel.hidden = false;
+  const goalWeight = document.getElementById('et-goal-weight');
+  if (goalWeight) goalWeight.focus();
+}
+
+function _closeEditPanel() {
+  const scrim = document.getElementById('edit-scrim');
+  const panel = document.getElementById('edit-panel');
+  if (scrim) scrim.hidden = true;
+  if (panel) panel.hidden = true;
+  const errEl = document.getElementById('et-panel-error');
+  if (errEl) errEl.textContent = '';
+}
+
+function _populateEditPanel(target) {
+  const startWEl   = document.getElementById('et-start-weight');
+  const startHint  = document.getElementById('et-start-date-hint');
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const errEl      = document.getElementById('et-panel-error');
+
+  if (errEl) errEl.textContent = '';
+
+  if (target) {
+    if (startWEl)   startWEl.textContent = `${target.start_weight_kg.toFixed(1)} kg`;
+    if (startHint)  {
+      const d = new Date(target.start_date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      startHint.textContent = `Captured when the target began · ${dateStr}`;
+    }
+    if (goalWInput) goalWInput.value = target.target_weight_kg.toFixed(1);
+    if (goalDInput) goalDInput.value = target.target_date;
+  } else {
+    if (startWEl)   startWEl.textContent = '-- kg';
+    if (startHint)  startHint.textContent = 'No active target';
+    if (goalWInput) goalWInput.value = '';
+    if (goalDInput) goalDInput.value = '';
+  }
+
+  _updatePreview();
+}
+
+function _updatePreview() {
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const paceEl     = document.getElementById('et-preview-pace');
+  const kgEl       = document.getElementById('et-preview-kg');
+  const msEl       = document.getElementById('et-preview-ms');
+  const daysHint   = document.getElementById('et-days-hint');
+
+  const goalW = parseFloat(goalWInput ? goalWInput.value : '');
+  const goalD = goalDInput ? goalDInput.value : '';
+  const today = todayISO();
+
+  // Days from today hint
+  if (daysHint && goalD) {
+    const d = new Date(goalD + 'T00:00:00');
+    const t = new Date(today + 'T00:00:00');
+    const days = Math.round((d - t) / 86400000);
+    daysHint.textContent = days > 0 ? `${days} days from today` : (days === 0 ? 'today' : 'date is in the past');
+  } else if (daysHint) {
+    daysHint.textContent = '';
+  }
+
+  if (!goalD || isNaN(goalW)) {
+    if (paceEl) paceEl.textContent = '--';
+    if (kgEl)   kgEl.textContent   = '--';
+    if (msEl)   msEl.textContent   = '--';
+    return;
+  }
+
+  // Get the current weight basis (use _activeTarget plan + gap, or chart stats)
+  const currentW = _activeTarget && _activeTarget.plan_today_kg != null && _activeTarget.gap_kg != null
+    ? _activeTarget.plan_today_kg + _activeTarget.gap_kg
+    : (_chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null);
+
+  if (currentW == null || isNaN(currentW)) {
+    if (paceEl) paceEl.textContent = '--';
+    if (kgEl)   kgEl.textContent   = '--';
+    if (msEl)   msEl.textContent   = '--';
+    return;
+  }
+
+  const kgToLose = currentW - goalW;
+  const daysLeft = Math.round((new Date(goalD + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+
+  if (kgEl) {
+    kgEl.textContent = kgToLose > 0
+      ? `${kgToLose.toFixed(1)} kg to lose`
+      : `${Math.abs(kgToLose).toFixed(1)} kg to gain`;
+  }
+
+  if (paceEl) {
+    if (daysLeft > 0) {
+      const weeksLeft = daysLeft / 7;
+      const pace = Math.abs(kgToLose) / weeksLeft;
+      paceEl.textContent = `${pace.toFixed(2)} kg/wk`;
+    } else {
+      paceEl.textContent = '--';
+    }
+  }
+
+  if (msEl) {
+    // Milestone months: roughly every 3 months from today to goal date
+    const months = Math.round(daysLeft / 30);
+    if (months <= 1) {
+      msEl.textContent = '< 1 month';
+    } else {
+      const labels = [];
+      const d = new Date(today + 'T00:00:00');
+      for (let m = 3; m < months; m += 3) {
+        const ms = new Date(d);
+        ms.setMonth(ms.getMonth() + m);
+        labels.push(ms.toLocaleDateString('en-US', { month: 'short' }) + ' \'' + String(ms.getFullYear()).slice(2));
+      }
+      msEl.textContent = labels.length ? labels.join(' · ') : (months + ' mo');
+    }
+  }
+}
+
+async function _saveEditPanel() {
+  const goalWInput = document.getElementById('et-goal-weight');
+  const goalDInput = document.getElementById('et-goal-date');
+  const saveBtn    = document.getElementById('et-save-btn');
+  const errEl      = document.getElementById('et-panel-error');
+
+  if (errEl) errEl.textContent = '';
+
+  const goalW = parseFloat(goalWInput ? goalWInput.value : '');
+  const goalD = goalDInput ? goalDInput.value : '';
+
+  if (isNaN(goalW) || goalW < 20 || goalW > 300) {
+    if (errEl) errEl.textContent = 'Goal weight must be between 20 and 300 kg.';
+    return;
+  }
+  if (!goalD) {
+    if (errEl) errEl.textContent = 'Please select a goal date.';
+    return;
+  }
+  const today = todayISO();
+  if (goalD <= today) {
+    if (errEl) errEl.textContent = 'Goal date must be in the future.';
+    return;
+  }
+
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    if (_activeTarget) {
+      const res = await fetch(`/api/weight-targets/${encodeURIComponent(_activeTarget.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_weight_kg: goalW, target_date: goalD }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = data.detail || `Save failed (HTTP ${res.status})`;
+        return;
+      }
+    } else {
+      // No active target — POST a new one using current weight as start
+      const startW = _chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null;
+      if (!startW) {
+        if (errEl) errEl.textContent = 'Log a weight entry before creating a target.';
+        return;
+      }
+      const res = await fetch('/api/weight-targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_weight_kg: startW,
+          start_date: today,
+          target_weight_kg: goalW,
+          target_date: goalD,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = data.detail || `Create failed (HTTP ${res.status})`;
+        return;
+      }
+    }
+    UIStates.showToast('Target saved');
+    _closeEditPanel();
+    await _reload();
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Network error: ' + e.message;
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function _endTargetFromPanel() {
+  if (!_activeTarget) return;
+  if (!confirm('End this target? This action cannot be undone.')) return;
+
+  const endBtn = document.getElementById('et-end-btn');
+  const errEl  = document.getElementById('et-panel-error');
+  if (errEl) errEl.textContent = '';
+  if (endBtn) endBtn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/weight-targets/${encodeURIComponent(_activeTarget.id)}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'abandoned' }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (errEl) errEl.textContent = data.detail || `End failed (HTTP ${res.status})`;
+      return;
+    }
+    UIStates.showToast('Target ended');
+    _closeEditPanel();
+    await _reload();
+  } catch (e) {
+    if (errEl) errEl.textContent = 'Network error: ' + e.message;
+  } finally {
+    if (endBtn) endBtn.disabled = false;
+  }
+}
+
+function _initEditPanel() {
+  const pillBtn       = document.getElementById('edit-target-pill-btn');
+  const headerBtn     = document.getElementById('edit-target-header-btn');
+  const closeBtn      = document.getElementById('edit-panel-close');
+  const scrim         = document.getElementById('edit-scrim');
+  const saveBtn       = document.getElementById('et-save-btn');
+  const endBtn        = document.getElementById('et-end-btn');
+  const goalWInput    = document.getElementById('et-goal-weight');
+  const goalDInput    = document.getElementById('et-goal-date');
+
+  if (pillBtn)    pillBtn.addEventListener('click', _openEditPanel);
+  if (headerBtn)  headerBtn.addEventListener('click', _openEditPanel);
+  if (closeBtn)   closeBtn.addEventListener('click', _closeEditPanel);
+  if (scrim)      scrim.addEventListener('click', _closeEditPanel);
+  if (saveBtn)    saveBtn.addEventListener('click', _saveEditPanel);
+  if (endBtn)     endBtn.addEventListener('click', _endTargetFromPanel);
+  if (goalWInput) goalWInput.addEventListener('input', _updatePreview);
+  if (goalDInput) goalDInput.addEventListener('input', _updatePreview);
+}
+
+// ── Range tabs ─────────────────────────────────────────────────────────────
+
+function _initRangeTabs() {
+  document.querySelectorAll('.range-tab').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      _currentRange = btn.dataset.range;
+      document.querySelectorAll('.range-tab').forEach(b => b.classList.toggle('active', b === btn));
+
+      if (_rangeAbortController) _rangeAbortController.abort();
+      _rangeAbortController = new AbortController();
+      const seq = ++_rangeFetchSeq;
+
+      try {
+        const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
+        if (seq !== _rangeFetchSeq) return;
+        renderChart(data, _currentRange);
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        showPageError('Chart load failed: ' + e.message);
+      }
+    });
+  });
+}
+
+// ── Partial reloads ───────────────────────────────────────────────────────
+
+async function _reloadHeroAndCoach() {
+  try {
+    const chartData = await fetchChartData(_currentRange);
+    _chartData = chartData;
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Refresh failed: ' + e.message);
+  }
+}
+
+async function _reloadEntries() {
+  try {
+    const entriesRes = await fetchRecentEntries();
+    _recentEntries = entriesRes.entries || [];
+    renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
+    renderStreakAndAdherence(_recentEntries);
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
+  }
+}
+
+// ── Target History section ─────────────────────────────────────────────────
+
+let _targetHistoryFilter = 'all';
+let _targetHistoryRows = [];  // all completed target rows from history-summary
+
+function renderTargetHistory(summary) {
+  if (!summary) return;
+  _historySummary = summary;
+  _targetHistoryRows = summary.targets || [];
+
+  const stats = summary.stats || {};
+  const pastAttempts = summary.past_attempts || [];
+
+  // Populate "Your weight journey" stats
+  const setEl   = document.getElementById('journey-targets-set');
+  const achEl   = document.getElementById('journey-achieved');
+  const lostEl  = document.getElementById('journey-total-lost');
+  const paceEl  = document.getElementById('journey-avg-pace');
+  const achSub  = document.getElementById('journey-achieved-sub');
+  const bannerEl = document.getElementById('journey-banner-text');
+
+  if (setEl)  setEl.innerHTML = String(stats.targets_set || 0);
+  if (achEl)  achEl.innerHTML = String(stats.targets_achieved || 0);
+  if (achSub && stats.success_pct != null) {
+    achSub.textContent = stats.success_pct.toFixed(0) + '% success';
+    achSub.className = 'js4-s good';
+  }
+  if (lostEl) {
+    lostEl.innerHTML = stats.total_kg_lost != null
+      ? `${stats.total_kg_lost.toFixed(1)}<span class="js4-u">kg</span>`
+      : `—<span class="js4-u">kg</span>`;
+  }
+  if (paceEl) {
+    paceEl.innerHTML = stats.avg_pace_kg_per_week != null
+      ? `${stats.avg_pace_kg_per_week.toFixed(2)}<span class="js4-u">/wk</span>`
+      : `—<span class="js4-u">/wk</span>`;
+  }
+
+  // Journey banner: current day count vs past attempts
+  if (bannerEl) {
+    const dayCount = stats.current_day_count;
+    if (pastAttempts.length > 0 && dayCount != null) {
+      const best = pastAttempts.reduce((a, b) => (a.pace_kg_per_week || 0) > (b.pace_kg_per_week || 0) ? a : b);
+      const paceStr = best.pace_kg_per_week != null ? best.pace_kg_per_week.toFixed(2) : '—';
+      bannerEl.innerHTML = `Day <strong>${dayCount}</strong> of this target. ` +
+        `Your best attempt was <strong>${best.day_count} days</strong> — you lose <strong>${paceStr} kg/wk</strong> when you finish.`;
+    } else if (dayCount != null) {
+      bannerEl.innerHTML = `Day <strong>${dayCount}</strong> of this target.`;
+    } else {
+      bannerEl.textContent = 'No active target.';
+    }
+  }
+
+  _renderPastTargetsTable(_targetHistoryFilter);
+}
+
+function _renderPastTargetsTable(filter) {
+  const tbody = document.getElementById('past-targets-tbody');
+  if (!tbody) return;
+
+  const filtered = filter === 'all'
+    ? _targetHistoryRows
+    : _targetHistoryRows.filter(t => t.status === filter);
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="th-empty">No ${filter === 'all' ? '' : filter + ' '}targets yet.</td></tr>`;
+    return;
+  }
+
+  const MONTH_FMT = { month: 'short', year: '2-digit' };
+  const DAY_FMT   = { month: 'short', day: 'numeric', year: '2-digit' };
+
+  tbody.innerHTML = filtered.map(t => {
+    const statusLabel = { achieved: 'Done', replaced: 'Repl.', abandoned: 'N/A' }[t.status] || t.status;
+    const statusIcon  = { achieved: '✓', replaced: '↺', abandoned: '○' }[t.status] || '';
+    const badgeCls    = { achieved: 'achieved', replaced: 'replaced', abandoned: 'abandoned' }[t.status] || '';
+
+    const start = t.start_date ? new Date(t.start_date + 'T00:00:00') : null;
+    const end   = t.end_date   ? new Date(t.end_date   + 'T00:00:00') : null;
+    const startFmt = start ? start.toLocaleDateString('en-US', MONTH_FMT) : '—';
+    const endFmt   = end   ? end.toLocaleDateString('en-US', MONTH_FMT)   : '—';
+    const days     = t.days != null ? `${t.days}d` : '—';
+
+    const rangeLabel = `${t.start_weight_kg.toFixed(0)} → ${t.target_weight_kg.toFixed(0)}`;
+    const meta = `${startFmt}–${endFmt} · ${days}`;
+
+    const result = t.result_weight_kg != null ? t.result_weight_kg.toFixed(1) : '—';
+
+    let deltaHtml = '—';
+    if (t.delta_kg != null) {
+      const cls   = t.delta_kg < 0 ? 'th-delta-good' : 'th-delta-bad';
+      const sign  = t.delta_kg < 0 ? '' : '+';
+      deltaHtml = `<span class="${cls}">${sign}${t.delta_kg.toFixed(1)}</span>`;
+    }
+
+    return `<tr data-status="${t.status}">
+      <td><span class="th-badge ${badgeCls}">${statusIcon} ${statusLabel}</span></td>
+      <td><span class="th-nm">${rangeLabel}<span class="th-meta">${meta}</span></span></td>
+      <td class="r">${result}</td>
+      <td class="r">${deltaHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _initTargetHistoryFilters() {
+  const pills = document.querySelectorAll('#target-filter-pills .th-fb');
+  pills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      pills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      _targetHistoryFilter = pill.dataset.filter;
+      _renderPastTargetsTable(_targetHistoryFilter);
+    });
+  });
+
+  const exportBtn = document.getElementById('export-targets-btn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      const status = _targetHistoryFilter === 'all' ? '' : _targetHistoryFilter;
+      let url = `/api/exports/weight-targets`;
+      if (status) url += `?status=${encodeURIComponent(status)}`;
+      window.location.href = url;
+    });
+  }
+}
+
+// ── Full reload (after mutations) ─────────────────────────────────────────
+
+async function _reload() {
+  try {
+    const [chartData, entriesRes, targetRes, summaryRes, histSummary] = await Promise.all([
+      fetchChartData(_currentRange),
+      fetchRecentEntries(),
+      fetchActiveTarget(),
+      fetchAllEntriesSummary(),
+      fetchTargetHistorySummary(),
+    ]);
+
+    _chartData = chartData;
+    _recentEntries = entriesRes.entries || [];
+    _activeTarget = targetRes.target || null;
+
+    renderSubtitle(summaryRes.summary, chartData.stats);
+    renderHeroCardA(chartData, _activeTarget);
+    renderCoachStrip(chartData, _activeTarget);
+    renderChart(chartData, _currentRange);
+    renderProgress(_activeTarget);
+    renderMilestones(_activeTarget, chartData.stats);
+    renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
+    renderStreakAndAdherence(_recentEntries);
+    renderTargetHistory(histSummary);
+    _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
+    await renderBackfillCalendar();
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Load error: ' + e.message);
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+let _chartResizeTimer = null;
+
+function _onChartResize() {
+  if (!_chartData) return;
+  clearTimeout(_chartResizeTimer);
+  _chartResizeTimer = setTimeout(function () {
+    renderChart(_chartData, _currentRange);
+  }, 150);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Identify session user
+  try {
+    const me = await apiFetch('/api/auth/me');
+    _userId = me.id;
+  } catch (e) {
+    if (e.message !== 'auth') showPageError('Could not identify user: ' + e.message);
+    return;
+  }
+
+  _initCardB();
+  _initRangeTabs();
+  _initEditPanel();
+  _initTargetHistoryFilters();
+  _initBackfillCalendar();
+
+  const exportBtn = document.getElementById('export-csv-btn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      let url;
+      if (_currentRange === 'all') {
+        url = `/api/exports/weight-entries`;
+      } else {
+        const from = rangeFromDate(_currentRange);
+        const to = todayISO();
+        url = `/api/exports/weight-entries?from=${from}&to=${to}`;
+      }
+      window.location.href = url;
+    });
+  }
+
+  await _reload();
+  window.addEventListener('resize', _onChartResize);
 });

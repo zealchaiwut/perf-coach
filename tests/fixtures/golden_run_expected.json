@@ -1,0 +1,70 @@
+{
+  "_comment": "Hand-verified expected outputs for the golden_run.json fixture (issue #577). Regenerate ONLY after an intentional formula change using scripts/regen_golden.py. A second engineer must manually verify new values before merging. See docs/REGENERATING_GOLDEN.md for the full regeneration workflow.",
+  "normalized_power": {
+    "value": 268,
+    "formula_version": "30s_rolling_mean_4th_power_v1",
+    "formula_note": "30-second rolling mean of power, raised to the 4th power, averaged, then 4th-root taken. Standard Coggan NP algorithm. Version tag updated when the algorithm changes.",
+    "tolerance": 0.01,
+    "tolerance_note": "Absolute tolerance of \u00b10.01 W on the rounded integer result. Since the result is always an integer, the effective tolerance is exact equality.",
+    "final_value_exact": 268.2544869303,
+    "final_value_tolerance_relative": 0.001,
+    "final_value_tolerance_note": "\u00b10.1% relative tolerance on the unrounded final_value."
+  },
+  "tss": {
+    "value": 69,
+    "method": "power",
+    "fixture_prefs": {
+      "ftp_w": 280,
+      "threshold_pace_seconds_per_km": 300,
+      "threshold_hr": 170
+    },
+    "tolerance_note": "Exact integer equality \u2014 TSS rounds to a whole number.",
+    "verification_note": "Hand-verified against compute_running_tss with ftp_w=280, NP=268 (from streams), duration=2700s. IF=268/280=0.9571, TSS=round(0.75*0.9571^2*100)=69."
+  },
+  "detected_profile": {
+    "phases": [
+      {"label": "Warm-up", "band": "steady", "lap_indexes": [0]},
+      {"label": "Tempo",   "band": "tempo",  "lap_indexes": [1]},
+      {"label": "hard",    "band": "hard",   "lap_indexes": [2]}
+    ],
+    "reps_detected": null,
+    "sets_detected": null,
+    "basis": "power",
+    "confident": true,
+    "fixture_prefs": {
+      "ftp_w": 280,
+      "threshold_pace_seconds_per_km": 300,
+      "threshold_hr": 170
+    },
+    "fixture_lap_type": "manual",
+    "verification_note": "Hand-verified against detect_session_profile (issue #587): 3 manual laps with ftp_w=280. Lap 1 (avg_power=225, ratio=0.80) -> steady -> Warm-up. Lap 2 (avg_power=265, ratio=0.95) -> tempo -> Tempo (900s >= 480s threshold). Lap 3 (avg_power=298, ratio=1.06) -> hard -> generic label 'hard'. No alternating interval cycles found."
+  },
+  "strength_per_set": {
+    "_comment": "Hand-verified strength TSS fixture using per_set method (issue #594). Three sets: 5\u00d7RPE8, 5\u00d7RPE9, 3\u00d7RPE10. raw_sum=10.25, scaled=59.9625, tss=60.",
+    "tss": 60,
+    "method": "per_set",
+    "partial": false,
+    "debug_keys": ["per_set_contributions", "raw_sum", "scaled_sum", "clamped"],
+    "inputs": {
+      "sets": [
+        {"reps": 5, "rpe": 8},
+        {"reps": 5, "rpe": 9},
+        {"reps": 3, "rpe": 10}
+      ],
+      "strength_tss_scale": 5.85,
+      "strength_tss_max": 150
+    }
+  },
+  "strength_session_rpe": {
+    "_comment": "Hand-verified strength TSS fixture using session_rpe method (issue #594). 45 min at session RPE=8. IF=0.8, raw_tss=48.0, tss=48.",
+    "tss": 48,
+    "method": "session_rpe",
+    "partial": false,
+    "debug_keys": ["session_rpe", "intensity_factor", "duration_hours", "raw_tss", "clamped"],
+    "inputs": {
+      "duration_seconds": 2700,
+      "session_rpe": 8,
+      "strength_tss_max": 150
+    }
+  }
+}

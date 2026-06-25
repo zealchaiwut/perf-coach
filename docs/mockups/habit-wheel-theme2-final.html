@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Habit wheel — theme 2 (final)</title>
+<!--
+  Visual + animation reference for the Habits-page weekly wheel re-theme.
+  Self-contained: the CSS/JS here is the prototype that ships in
+  frontend/pages/habits.html + frontend/js/habit-wheel-fx.js (live page reads
+  real data from the habit endpoints; this mock uses demo state + controls).
+
+  States demonstrated:
+    - tinted bordered card + raised white ring plate
+    - chunky rounded 7-segment Mon–Sun wheel (Done/Partial/Today/Upcoming)
+    - center "N more today" countdown → green "all done" check
+    - check-in pop: slice thickens, burst ring, confetti, center tick
+    - all-streak fire: flames behind plate, heat glow, embers, amber tint, badge
+    - prefers-reduced-motion: calm, non-animated variant
+-->
+<style>
+  :root {
+    --hw2-done: #16a34a;
+    --hw2-partial: #d97706;
+    --hw2-today: #3563d4;
+    --hw2-upcoming: #e4e8f0;
+    --hw2-ink: #0b1530;
+    --hw2-sub: #5c6886;
+    --hw2-tertiary: #8b95ad;
+  }
+
+  body {
+    margin: 0;
+    background: #2b4ca8;
+    font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+    color: var(--hw2-ink);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  /* ── Tinted card ─────────────────────────────────────────────────────── */
+  .hw2-card {
+    position: relative;
+    width: min(620px, 100%);
+    box-sizing: border-box;
+    padding: 26px 28px;
+    border-radius: 22px;
+    border: 1.5px solid rgba(53, 99, 212, 0.18);
+    background: linear-gradient(180deg, #eef3ff 0%, #ffffff 62%);
+    box-shadow: 0 18px 50px rgba(20, 40, 90, 0.18);
+    overflow: hidden;
+    transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+  }
+  /* Warm amber tint while the all-streak fire is lit */
+  .hw2-card.is-lit {
+    background: linear-gradient(180deg, #fff1de 0%, #fff9f1 64%);
+    border-color: rgba(217, 119, 6, 0.30);
+    box-shadow: 0 18px 54px rgba(180, 83, 9, 0.28);
+  }
+
+  .hw2-eyebrow {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--hw2-tertiary);
+  }
+
+  .hw2-body {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    margin-top: 14px;
+  }
+  @media (max-width: 520px) {
+    .hw2-body { gap: 16px; }
+    .hw2-card { padding: 20px; }
+  }
+
+  /* ── Raised white ring plate ─────────────────────────────────────────── */
+  .hw2-plate-wrap {
+    position: relative;
+    flex-shrink: 0;
+    width: 188px;
+    height: 188px;
+  }
+  @media (max-width: 520px) {
+    .hw2-plate-wrap { width: 150px; height: 150px; }
+  }
+
+  .hw2-plate {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow:
+      0 10px 26px rgba(20, 40, 90, 0.18),
+      inset 0 0 0 1.5px rgba(13, 30, 67, 0.05);
+    transition: box-shadow 0.5s ease;
+    z-index: 2;
+  }
+  .hw2-card.is-lit .hw2-plate {
+    box-shadow:
+      0 10px 30px rgba(180, 83, 9, 0.34),
+      inset 0 0 0 1.5px rgba(217, 119, 6, 0.10);
+  }
+
+  .hw2-wheel-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+    overflow: visible;
+  }
+
+  .hw2-seg {
+    fill: none;
+    stroke-width: 18;
+    stroke-linecap: round;
+    transition: stroke 0.3s ease;
+  }
+  @media (max-width: 520px) { .hw2-seg { stroke-width: 15; } }
+
+  .hw2-seg-done     { stroke: var(--hw2-done); }
+  .hw2-seg-partial  { stroke: var(--hw2-partial); }
+  .hw2-seg-today    { stroke: var(--hw2-today); }
+  .hw2-seg-upcoming { stroke: var(--hw2-upcoming); }
+
+  /* Center text */
+  .hw2-center {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    pointer-events: none;
+  }
+  .hw2-center-num {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--hw2-today);
+    transition: color 0.4s ease;
+  }
+  .hw2-card.is-lit .hw2-center-num { color: var(--hw2-partial); }
+  .hw2-center.is-done .hw2-center-num { color: var(--hw2-done); font-size: 30px; }
+  .hw2-center-sub {
+    margin-top: 3px;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--hw2-tertiary);
+  }
+  .hw2-center-check {
+    width: 30px; height: 30px;
+    color: var(--hw2-done);
+  }
+
+  /* center scale-tick on check-in */
+  @keyframes hw2-center-tick {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  .hw2-center.tick { animation: hw2-center-tick 0.4s ease; }
+
+  /* ── Right column copy ───────────────────────────────────────────────── */
+  .hw2-copy { min-width: 0; }
+  .hw2-title { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  .hw2-caption { margin-top: 4px; font-size: 13.5px; color: var(--hw2-sub); }
+
+  .hw2-legend {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 18px;
+    font-size: 12.5px;
+    color: var(--hw2-sub);
+  }
+  .hw2-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .hw2-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .hw2-dot-done { background: var(--hw2-done); }
+  .hw2-dot-partial { background: var(--hw2-partial); }
+  .hw2-dot-today { background: var(--hw2-today); }
+  .hw2-dot-upcoming { background: var(--hw2-upcoming); }
+
+  /* ── Fire streak badge ───────────────────────────────────────────────── */
+  .hw2-badge {
+    position: absolute;
+    top: 20px; right: 22px;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1.5px solid rgba(217, 119, 6, 0.35);
+    color: var(--hw2-partial);
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(180, 83, 9, 0.18);
+    z-index: 6;
+  }
+  .hw2-card.is-lit .hw2-badge { display: inline-flex; }
+
+  /* ── Fire layer (behind the plate) ───────────────────────────────────── */
+  .hw2-fire {
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    transform: translateX(-50%);
+    width: 180px;
+    height: 150px;
+    z-index: 1;            /* behind plate (plate z=2) */
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  @media (max-width: 520px) { .hw2-fire { width: 150px; height: 124px; } }
+  .hw2-card.is-lit .hw2-fire { opacity: 1; }
+
+  /* heat glow around the card */
+  .hw2-glow {
+    position: absolute;
+    inset: -4% 22% auto 22%;
+    top: 30%;
+    height: 70%;
+    background: radial-gradient(ellipse at 50% 80%, rgba(249,150,40,0.42), rgba(249,115,22,0) 70%);
+    filter: blur(8px);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .hw2-card.is-lit .hw2-glow { opacity: 1; }
+
+  .hw2-flame {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 64px;
+    height: 110px;
+    margin-left: -32px;
+    background: linear-gradient(to top, #fde047 0%, #fb923c 42%, #ef4444 78%, rgba(239,68,68,0) 100%);
+    border-radius: 50% 50% 50% 50% / 64% 64% 36% 36%;
+    transform-origin: 50% 100%;
+    filter: blur(1px);
+    animation: hw2-flicker 0.9s ease-in-out infinite alternate;
+  }
+  .hw2-flame.f2 { width: 44px; margin-left: -22px; height: 88px; left: 34%; opacity: 0.85; animation-duration: 0.75s; }
+  .hw2-flame.f3 { width: 40px; margin-left: -20px; height: 80px; left: 66%; opacity: 0.8; animation-duration: 1.05s; }
+
+  @keyframes hw2-flicker {
+    0%   { transform: scaleY(0.94) scaleX(1.02) skewX(-2deg); }
+    50%  { transform: scaleY(1.06) scaleX(0.97) skewX(3deg); }
+    100% { transform: scaleY(0.98) scaleX(1.03) skewX(-3deg); }
+  }
+
+  .hw2-ember {
+    position: absolute;
+    bottom: 26px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #fbbf24;
+    box-shadow: 0 0 6px 1px rgba(251,191,36,0.8);
+    opacity: 0;
+  }
+  .hw2-card.is-lit .hw2-ember { animation: hw2-ember-rise var(--dur, 2.4s) ease-in var(--delay, 0s) infinite; }
+  @keyframes hw2-ember-rise {
+    0%   { transform: translate(0, 0) scale(1); opacity: 0; }
+    12%  { opacity: 0.9; }
+    100% { transform: translate(var(--dx, 0), -110px) scale(0.4); opacity: 0; }
+  }
+
+  /* ── Check-in FX (burst ring + confetti) ─────────────────────────────── */
+  .hw2-fx { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: visible; }
+  .hw2-burst {
+    position: absolute;
+    width: 26px; height: 26px;
+    margin: -13px 0 0 -13px;
+    border-radius: 50%;
+    border: 3px solid var(--hw2-today);
+    opacity: 0;
+  }
+  .hw2-burst.go { animation: hw2-burst 0.55s ease-out forwards; }
+  @keyframes hw2-burst {
+    0%   { transform: scale(0.4); opacity: 0.9; }
+    100% { transform: scale(3.4); opacity: 0; }
+  }
+
+  .hw2-confetti {
+    position: absolute;
+    width: 7px; height: 7px;
+    border-radius: 1.5px;
+    opacity: 0;
+  }
+  .hw2-confetti.go { animation: hw2-confetti 0.7s ease-out forwards; }
+  @keyframes hw2-confetti {
+    0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+    100% { transform: translate(var(--cx), var(--cy)) rotate(var(--cr)); opacity: 0; }
+  }
+
+  /* slice pop: stroke thickens then springs back */
+  @keyframes hw2-slice-pop {
+    0%   { stroke-width: 18; }
+    40%  { stroke-width: 27; }
+    70%  { stroke-width: 15; }
+    100% { stroke-width: 18; }
+  }
+  .hw2-seg.pop { animation: hw2-slice-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+  /* ── Controls (mock only) ────────────────────────────────────────────── */
+  .hw2-controls { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  .hw2-btn {
+    border: none; border-radius: 12px; padding: 11px 16px;
+    font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .hw2-btn-primary { background: var(--hw2-today); color: #fff; }
+  .hw2-card.is-lit .hw2-btn-primary { background: var(--hw2-partial); }
+  .hw2-btn-fire { background: #e2562a; color: #fff; }
+  .hw2-btn-ghost { background: #fff; border: 1.5px solid rgba(13,30,67,0.12); color: var(--hw2-ink); }
+
+  /* ── Reduced motion: keep state, drop animation ──────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .hw2-card, .hw2-plate, .hw2-center-num, .hw2-fire, .hw2-glow { transition: none; }
+    .hw2-flame, .hw2-ember, .hw2-burst.go, .hw2-confetti.go,
+    .hw2-seg.pop, .hw2-center.tick { animation: none !important; }
+    .hw2-confetti.go, .hw2-burst.go { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="hw2-card" id="card">
+    <div class="hw2-eyebrow">This week</div>
+
+    <div class="hw2-badge" id="badge">🔥 <span id="badge-streak">12</span>-day streak</div>
+
+    <div class="hw2-body">
+      <div class="hw2-plate-wrap">
+        <div class="hw2-glow"></div>
+        <div class="hw2-fire" id="fire"></div>
+        <div class="hw2-plate"></div>
+        <svg class="hw2-wheel-svg" viewBox="0 0 200 200" id="wheel" aria-hidden="true"></svg>
+        <div class="hw2-fx" id="fx"></div>
+        <div class="hw2-center" id="center"></div>
+      </div>
+
+      <div class="hw2-copy">
+        <div class="hw2-title" id="title">This week</div>
+        <div class="hw2-caption" id="caption">2 of 4 done · 2 to go</div>
+        <div class="hw2-legend">
+          <span><i class="hw2-dot hw2-dot-done"></i>Done</span>
+          <span><i class="hw2-dot hw2-dot-partial"></i>Partial</span>
+          <span><i class="hw2-dot hw2-dot-today"></i>Today</span>
+          <span><i class="hw2-dot hw2-dot-upcoming"></i>Upcoming</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hw2-controls">
+      <button class="hw2-btn hw2-btn-primary" id="btn-check">✓ Check one off today</button>
+      <button class="hw2-btn hw2-btn-fire" id="btn-fire">Toggle fire</button>
+      <button class="hw2-btn hw2-btn-ghost" id="btn-reset">Reset</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var SEGMENTS = 7;
+  var R = 78, CX = 100, CY = 100;
+  var GAP_DEG = 8;                 // gap between day-slices
+  var SLOT = 360 / SEGMENTS;
+  var SPAN = SLOT - GAP_DEG;       // drawn arc span per day
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ── demo state (live page derives these from the habit endpoints) ──
+  var TODAY_TOTAL = 4;             // habits scheduled today
+  var state = {
+    doneToday: 2,
+    weekStates: ["done","done","partial","today","upcoming","upcoming","upcoming"], // Mon..Sun
+    todayIndex: 3,
+    lit: false,
+    weeklyView: false,            // false → countdown center, true → weekly %
+    weeklyPct: 25,
+  };
+
+  function polar(r, deg) {
+    var rad = (deg - 90) * Math.PI / 180;
+    return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
+  }
+  function arc(deg0, deg1) {
+    var s = polar(R, deg0), e = polar(R, deg1);
+    var large = (deg1 - deg0) > 180 ? 1 : 0;
+    return "M " + s.x.toFixed(2) + " " + s.y.toFixed(2) +
+           " A " + R + " " + R + " 0 " + large + " 1 " + e.x.toFixed(2) + " " + e.y.toFixed(2);
+  }
+  var STATE_CLASS = {
+    done: "hw2-seg-done", partial: "hw2-seg-partial",
+    today: "hw2-seg-today", upcoming: "hw2-seg-upcoming",
+  };
+
+  var wheel = document.getElementById("wheel");
+  function renderWheel() {
+    wheel.innerHTML = "";
+    for (var i = 0; i < SEGMENTS; i++) {
+      var start = -90 + i * SLOT + GAP_DEG / 2;
+      var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", arc(start, start + SPAN));
+      p.setAttribute("class", "hw2-seg " + (STATE_CLASS[state.weekStates[i]] || "hw2-seg-upcoming"));
+      p.dataset.index = i;
+      wheel.appendChild(p);
+    }
+  }
+
+  var center = document.getElementById("center");
+  function renderCenter() {
+    var remaining = Math.max(0, TODAY_TOTAL - state.doneToday);
+    center.classList.toggle("is-done", remaining === 0 && !state.weeklyView);
+    if (state.weeklyView) {
+      center.innerHTML =
+        '<div class="hw2-center-num">' + state.weeklyPct + '%</div>' +
+        '<div class="hw2-center-sub">this week</div>';
+    } else if (remaining === 0) {
+      center.innerHTML =
+        '<svg class="hw2-center-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>' +
+        '<div class="hw2-center-sub">all done</div>';
+    } else {
+      center.innerHTML =
+        '<div class="hw2-center-num">' + remaining + '</div>' +
+        '<div class="hw2-center-sub">more today</div>';
+    }
+  }
+
+  function renderCopy() {
+    var remaining = Math.max(0, TODAY_TOTAL - state.doneToday);
+    document.getElementById("title").textContent = state.lit ? "On fire" : "This week";
+    var cap = document.getElementById("caption");
+    if (state.lit && remaining === 0) {
+      cap.textContent = "All " + TODAY_TOTAL + " done today 🎉";
+    } else if (remaining === 0) {
+      cap.textContent = "all done today";
+    } else {
+      cap.textContent = state.doneToday + " of " + TODAY_TOTAL + " done · " + remaining + " to go";
+    }
+  }
+
+  function setLit(on) {
+    state.lit = on;
+    document.getElementById("card").classList.toggle("is-lit", on);
+    renderCopy();
+    renderCenter();
+  }
+
+  // ── Embers (built once, capped) ──
+  function buildFire() {
+    var fire = document.getElementById("fire");
+    fire.innerHTML =
+      '<div class="hw2-flame"></div><div class="hw2-flame f2"></div><div class="hw2-flame f3"></div>';
+    if (reduce) return;                       // calm fire: flames only, no embers
+    var EMBERS = 7;
+    for (var i = 0; i < EMBERS; i++) {
+      var e = document.createElement("div");
+      e.className = "hw2-ember";
+      e.style.left = (24 + Math.random() * 52) + "%";
+      e.style.setProperty("--dx", (Math.random() * 40 - 20).toFixed(0) + "px");
+      e.style.setProperty("--dur", (2 + Math.random() * 1.6).toFixed(2) + "s");
+      e.style.setProperty("--delay", (Math.random() * 2.2).toFixed(2) + "s");
+      fire.appendChild(e);
+    }
+  }
+
+  // ── Check-in animation: slice pop + burst ring + confetti + center tick ──
+  function playCheckFx(segIndex) {
+    if (reduce) return;
+    var seg = wheel.querySelector('[data-index="' + segIndex + '"]');
+    if (seg) {
+      seg.classList.remove("pop"); void seg.getBBox(); seg.classList.add("pop");
+      seg.addEventListener("animationend", function () { seg.classList.remove("pop"); }, { once: true });
+    }
+    center.classList.remove("tick"); void center.offsetWidth; center.classList.add("tick");
+
+    // position of the today slice mid-point, in % of the plate box
+    var mid = -90 + segIndex * SLOT + SLOT / 2;
+    var pt = polar(R, mid);
+    var leftPct = (pt.x / 200) * 100, topPct = (pt.y / 200) * 100;
+
+    var fx = document.getElementById("fx");
+    var burst = document.createElement("div");
+    burst.className = "hw2-burst go";
+    burst.style.left = leftPct + "%"; burst.style.top = topPct + "%";
+    fx.appendChild(burst);
+    burst.addEventListener("animationend", function () { burst.remove(); }, { once: true });
+
+    var COLORS = ["#16a34a", "#3563d4", "#d97706", "#fbbf24"];
+    var N = 7;
+    for (var i = 0; i < N; i++) {
+      var f = document.createElement("div");
+      f.className = "hw2-confetti go";
+      f.style.left = leftPct + "%"; f.style.top = topPct + "%";
+      f.style.background = COLORS[i % COLORS.length];
+      var ang = (i / N) * Math.PI * 2;
+      f.style.setProperty("--cx", (Math.cos(ang) * (26 + Math.random() * 22)).toFixed(0) + "px");
+      f.style.setProperty("--cy", (Math.sin(ang) * (26 + Math.random() * 22) - 10).toFixed(0) + "px");
+      f.style.setProperty("--cr", (Math.random() * 360).toFixed(0) + "deg");
+      fx.appendChild(f);
+      f.addEventListener("animationend", function () { this.remove(); }, { once: true });
+    }
+  }
+
+  function renderAll() { renderWheel(); renderCenter(); renderCopy(); }
+
+  // ── Controls (mock only) ──
+  document.getElementById("btn-check").addEventListener("click", function () {
+    if (state.doneToday >= TODAY_TOTAL) return;
+    var idx = state.todayIndex;
+    state.doneToday += 1;
+    // mark the today slice done once everything for today is complete
+    if (state.doneToday >= TODAY_TOTAL) state.weekStates[idx] = "done";
+    renderAll();
+    playCheckFx(idx);
+    // all-streak fire ignites when the last of today's habits is checked
+    if (state.doneToday >= TODAY_TOTAL) setLit(true);
+  });
+  document.getElementById("btn-fire").addEventListener("click", function () { setLit(!state.lit); });
+  document.getElementById("btn-reset").addEventListener("click", function () {
+    state.doneToday = 2;
+    state.weekStates = ["done","done","partial","today","upcoming","upcoming","upcoming"];
+    setLit(false);
+    renderAll();
+  });
+
+  buildFire();
+  renderAll();
+})();
+</script>
+</body>
+</html>

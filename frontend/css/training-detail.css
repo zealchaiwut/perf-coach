@@ -1,0 +1,384 @@
+/* Training log detail panel — view mode (run + strength) */
+
+.dp-view-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── Run hero metrics ── */
+.dp-run-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dp-run-metric {
+  background: #f7f9fd;
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.dp-run-metric-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary, #0b1530);
+  line-height: 1.1;
+}
+
+.dp-run-metric-unit {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary, #5c6886);
+  margin-left: 2px;
+}
+
+.dp-run-metric-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #9aa3b2);
+  margin-top: 6px;
+}
+
+.dp-run-duration {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+.dp-run-duration-k {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-right: 4px;
+}
+
+/* ── Session profile (effort / RPE) ── */
+.dp-profile-card {
+  background: #fff;
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+}
+
+.dp-profile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dp-profile-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.dp-profile-sub {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dp-profile-chart {
+  position: relative;
+  background: #f7f9fd;
+  border-radius: 10px;
+  padding: 8px 10px 6px;
+}
+
+.dp-profile-axis-y {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.dp-profile-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 72px;
+  margin: 0 0 0 18px;
+}
+
+.dp-profile-bar {
+  border-radius: 4px 4px 2px 2px;
+  min-width: 6px;
+  flex: 1 1 0;
+  position: relative;
+}
+
+.dp-profile-bar-label {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dp-profile-bar.easy,
+.dp-tl-seg--warmup, .dp-tl-seg--easy, .dp-tl-seg--cooldown { background: #16a34a; }
+.dp-profile-bar.tempo,
+.dp-tl-seg--tempo { background: #d97706; }
+.dp-profile-bar.hard,
+.dp-tl-seg--intervals { background: #ea580c; }
+.dp-profile-bar.recovery,
+.dp-tl-seg--rest { background: #64748b; }
+
+.dp-profile-bar.rpe-low { background: #16a34a; }
+.dp-profile-bar.rpe-mid { background: #eab308; }
+.dp-profile-bar.rpe-high { background: #ea580c; }
+.dp-profile-bar.rpe-max { background: #dc2626; }
+
+.dp-profile-axis-x {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 0 18px;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.dp-profile-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+.dp-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dp-leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Segments list (run view) ── */
+.dp-segments-card {
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.dp-segments-head {
+  padding: 10px 14px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--card-border, #e8eaf0);
+  background: #fafbfc;
+}
+
+.dp-seg-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  border-bottom: 1px solid #f0f2f6;
+}
+
+.dp-seg-row:last-child { border-bottom: none; }
+
+.dp-seg-pace {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dp-seg-pace-at {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.dp-seg-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f7f9fd;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--card-border, #e8eaf0);
+}
+
+.dp-seg-footer strong {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ── Strength stats grid ── */
+.dp-lift-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.dp-lift-stat {
+  background: #f7f9fd;
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.dp-lift-stat.highlight {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.dp-lift-stat-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dp-lift-stat-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ── Strength exercises (view) ── */
+.dp-ex-card {
+  border: 1px solid var(--card-border, #e8eaf0);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.dp-ex-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px;
+  background: #fafbfc;
+  border-bottom: 1px solid #f0f2f6;
+}
+
+.dp-ex-card-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dp-ex-card-vol {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.dp-ex-card-body {
+  padding: 10px 14px 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dp-ex-card-sub {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.dp-ex-card-rpe {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6d28d9;
+  white-space: nowrap;
+}
+
+.dp-ex-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Strength exercise table (laps-style) */
+.dp-ex-table-wrap { overflow-x: auto; }
+.dp-ex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.dp-ex-table thead th {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sub);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.dp-ex-table thead th:first-child { text-align: left; }
+.dp-ex-table tbody td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border, #eef2f7);
+}
+.dp-ex-table tbody tr:last-child td { border-bottom: none; }
+.dp-ex-td-name { font-weight: 600; }
+.dp-ex-td-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-ex-rpe-pill {
+  display: inline-block;
+  min-width: 34px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.dp-ex-rpe-pill.rpe-low { background: #16a34a; }
+.dp-ex-rpe-pill.rpe-mid { background: #eab308; }
+.dp-ex-rpe-pill.rpe-high { background: #ea580c; }
+.dp-ex-rpe-pill.rpe-max { background: #dc2626; }
+
+@media (max-width: 400px) {
+  .dp-run-metric-val { font-size: 1.375rem; }
+  .dp-lift-stats { grid-template-columns: repeat(2, 1fr); }
+}

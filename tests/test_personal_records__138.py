@@ -7,8 +7,13 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
+from backend.auth import hash_password
+from backend.db import engine
+from backend.models import User
+from sqlalchemy.orm import Session
 
 BASE = "http://127.0.0.1:9001"
+_TEST_PASSWORD = "pr-tests-138-pw"
 
 
 @pytest.fixture(scope="module")
@@ -19,10 +24,21 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
+    """Resolve Alice, give her a known password, and log `client` in as her.
+
+    GET /api/personal-records is session-scoped (resolve_user), so the shared
+    client must carry Alice's session cookie (httpx persists it). POST/PATCH/
+    DELETE still take user_id in the body, so they work regardless of session.
+    """
     res = client.get("/api/users")
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
+    with Session(engine) as db:
+        db.get(User, uuid.UUID(alice["id"])).password_hash = hash_password(_TEST_PASSWORD)
+        db.commit()
+    login = client.post("/api/auth/login", json={"username": "Alice", "password": _TEST_PASSWORD})
+    assert login.status_code == 200, login.text
     return alice["id"]
 
 
@@ -48,17 +64,17 @@ def _delete_pr(client, record_id):
 # ── GET /api/personal-records ────────────────────────────────────────────────
 
 def test_list_prs_returns_200(client, alice_id):
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     assert res.status_code == 200
 
 
 def test_list_prs_returns_array(client, alice_id):
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     assert isinstance(res.json(), list)
 
 
 def test_list_prs_seeded_records_present(client, alice_id):
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     records = res.json()
     keys = {r["track_key"] for r in records}
     assert "half_marathon" in keys
@@ -67,7 +83,7 @@ def test_list_prs_seeded_records_present(client, alice_id):
 
 
 def test_list_prs_seeded_values(client, alice_id):
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     records = {r["track_key"]: r for r in res.json()}
     assert records["half_marathon"]["value_numeric"] == 6871.0
     assert records["half_marathon"]["achieved_on"] == "2026-01-28"
@@ -79,7 +95,7 @@ def test_list_prs_seeded_values(client, alice_id):
 
 def test_list_prs_response_fields(client, alice_id):
     pr = _create_pr(client, alice_id, track_key="test_fields_check")
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     match = next((r for r in res.json() if r["id"] == pr["id"]), None)
     assert match is not None
     for field in ("id", "user_id", "track_key", "track_name", "track_type",
@@ -88,9 +104,11 @@ def test_list_prs_response_fields(client, alice_id):
     _delete_pr(client, pr["id"])
 
 
-def test_list_prs_invalid_user_id(client):
-    res = client.get("/api/personal-records", params={"user_id": "not-a-uuid"})
-    assert res.status_code == 400
+def test_list_prs_requires_auth():
+    # Session-scoped: an unauthenticated client must be rejected.
+    with httpx.Client(base_url=BASE, timeout=10) as anon:
+        res = anon.get("/api/personal-records")
+    assert res.status_code == 401
 
 
 # ── POST /api/personal-records ───────────────────────────────────────────────
@@ -112,7 +130,7 @@ def test_create_pr_round_trip(client, alice_id):
         value_numeric=100,
         achieved_on="2026-04-01",
     )
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     match = next((r for r in res.json() if r["id"] == pr["id"]), None)
     assert match is not None
     assert match["track_key"] == "bench_1rm"
@@ -260,7 +278,7 @@ def test_delete_pr_returns_204(client, alice_id):
 def test_delete_pr_removed_from_list(client, alice_id):
     pr = _create_pr(client, alice_id, track_key="delete_list_check")
     client.delete(f"/api/personal-records/{pr['id']}")
-    res = client.get("/api/personal-records", params={"user_id": alice_id})
+    res = client.get("/api/personal-records")
     ids = [r["id"] for r in res.json()]
     assert pr["id"] not in ids
 

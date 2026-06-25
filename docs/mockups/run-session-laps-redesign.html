@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run detail — session profile + laps redesign</title>
+<!--
+  Visual reference for two run-view sections (frontend/pages/run-view.html +
+  frontend/js/run-view.js). Self-contained; the live page reads everything from
+  GET /api/workouts/{id}/full. Sample = the 9-lap run in the brief.
+
+  SECTION 1 — Session profile: per-lap effort bars colored by phase band, with a
+  named zone-bracket row below that groups consecutive same-band laps. Bars and
+  brackets share one proportional partition (gap:0 flex, flex-grow = lap weight
+  by distance, inner padding for the visual gap) so brackets align exactly over
+  their bars — including the narrow short final lap. Dotted gridlines behind.
+
+  SECTION 2 — Laps: one chart = bars for the chosen metric (Pace|Power) + HR as a
+  line on its own independent scale. Legend shows each series' real range. Dotted
+  gridlines, lap-number axis, full table below.
+-->
+<style>
+  :root {
+    --rv2-warmup: #3b82f6;
+    --rv2-steady: #22c55e;
+    --rv2-tempo:  #f59e0b;
+    --rv2-threshold: #f97316;
+    --rv2-cooldown:  #a78bfa;
+    --rv2-ink: #0b1530;
+    --rv2-sub: #5c6886;
+    --rv2-tertiary: #8b95ad;
+    --rv2-bar: #2563eb;
+    --rv2-power: #8b5cf6;
+    --rv2-hr: #ef4444;
+    --rv2-z2: #14b8a6;
+    --rv2-grid: rgba(13,30,67,0.10);
+    --rv2-border: #e5e7eb;
+  }
+  body {
+    margin: 0; background: #2b4ca8; padding: 24px;
+    font-family: "Inter Tight", system-ui, -apple-system, sans-serif; color: var(--rv2-ink);
+  }
+  .wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+  .rv2-section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    color: #cdd8ff; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 10px;
+  }
+  .rv2-section-head .meta { color: #9fb2ee; font-family: "JetBrains Mono", monospace; font-size: 11px; }
+  .rv2-card {
+    background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 14px 40px rgba(20,40,90,0.16);
+  }
+  .rv2-card-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--rv2-tertiary); display: flex; justify-content: space-between; margin: 0 0 16px;
+  }
+  .rv2-basis { font-family: "JetBrains Mono", monospace; }
+
+  /* ── Section 1: session profile ─────────────────────────────────────── */
+  .rv2-sp-chart { position: relative; }
+  .rv2-grid {
+    position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .rv2-grid span { border-top: 1px dotted var(--rv2-grid); height: 0; }
+
+  .rv2-row { display: flex; gap: 0; align-items: flex-end; }   /* gap:0 → exact partition */
+  .rv2-sp-bars { position: relative; z-index: 1; height: 96px; }
+  .rv2-cell { min-width: 0; padding: 0 3px; box-sizing: border-box; }  /* 6px visual gap */
+  .rv2-sp-bars .rv2-cell, .rv2-chart-bars .rv2-cell { align-self: stretch; height: 100%; position: relative; }
+  .rv2-sp-bars .rv2-bar, .rv2-chart-bars .rv2-cbar { position: absolute; left: 3px; right: 3px; bottom: 0; width: auto; }
+  .rv2-bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 5px; }
+
+  .rv2-bracket-row { margin-top: 8px; }
+  .rv2-bracket { min-width: 0; padding: 0 3px; box-sizing: border-box; text-align: center; }
+  .rv2-bracket-line {
+    height: 9px; border: 1.5px solid var(--rv2-sub); border-bottom: none;
+    border-radius: 5px 5px 0 0; opacity: 0.5;
+  }
+  .rv2-bracket-name {
+    margin-top: 5px; font-size: 12px; font-weight: 700; line-height: 1.15;
+    overflow-wrap: anywhere;            /* single narrow phase wraps to 2 lines */
+  }
+  .rv2-bracket-range { font-size: 10px; color: var(--rv2-sub); margin-top: 2px; }
+  .nm-warmup { color: var(--rv2-warmup); }
+  .nm-steady { color: var(--rv2-steady); }
+  .nm-tempo { color: var(--rv2-tempo); }
+  .nm-threshold { color: var(--rv2-threshold); }
+  .nm-cooldown { color: var(--rv2-cooldown); }
+
+  .rv2-legend {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px;
+    font-size: 12px; color: var(--rv2-sub);
+  }
+  .rv2-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .rv2-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ── Section 2: laps chart ──────────────────────────────────────────── */
+  .rv2-laps-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .rv2-laps-title { font-size: 15px; font-weight: 700; }
+  .rv2-toggle { display: inline-flex; gap: 4px; background: #eef1f6; padding: 3px; border-radius: 9px; }
+  .rv2-tog {
+    border: none; background: none; font: inherit; font-size: 12px; font-weight: 700;
+    padding: 5px 12px; border-radius: 7px; cursor: pointer; color: var(--rv2-sub);
+  }
+  .rv2-tog.active { background: var(--rv2-ink); color: #fff; }
+
+  .rv2-chart { position: relative; height: 150px; }
+  .rv2-chart .rv2-grid span { border-top-color: var(--rv2-grid); }
+  .rv2-chart-bars { position: relative; z-index: 1; height: 100%; }
+  .rv2-cbar { width: 100%; border-radius: 4px 4px 0 0; min-height: 4px; background: var(--rv2-bar); transition: height 0.25s ease, background 0.25s ease; }
+  .rv2-cbar.z2 { outline: 2px solid var(--rv2-z2); outline-offset: -2px; }
+  .rv2-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .rv2-axis { display: flex; gap: 0; margin-top: 4px; }
+  .rv2-axis .rv2-cell { text-align: center; font-size: 10px; color: var(--rv2-tertiary); }
+
+  .rv2-chart-legend { display: flex; gap: 18px; margin-top: 12px; font-size: 12px; color: var(--rv2-sub); }
+  .rv2-chart-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .rv2-swatch { width: 14px; height: 10px; border-radius: 2px; }
+  .rv2-hr-key { width: 16px; height: 0; border-top: 3px solid var(--rv2-hr); border-radius: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 18px; }
+  th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+       color: var(--rv2-tertiary); padding: 6px 8px; border-bottom: 1px solid var(--rv2-border); }
+  td { padding: 8px; border-bottom: 1px solid var(--rv2-border); font-family: "JetBrains Mono", monospace; }
+  tr.z2 td { background: rgba(20,184,166,0.07); }
+  .z2pill { font-family: inherit; font-size: 9px; font-weight: 800; background: var(--rv2-z2); color: #fff;
+            border-radius: 4px; padding: 1px 5px; margin-left: 5px; }
+
+  @media (max-width: 480px) { .rv2-card { padding: 16px; } .rv2-bracket-name { font-size: 11px; } }
+  @media (prefers-reduced-motion: reduce) { .rv2-cbar { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- SECTION 1 -->
+  <div>
+    <div class="rv2-section-head"><span>◷ SESSION PROFILE</span><span class="meta">option B · bars + zone brackets</span></div>
+    <div class="rv2-card">
+      <div class="rv2-card-title"><span>Session profile · effort</span><span class="rv2-basis">BASIS · <span id="basis">POWER</span></span></div>
+      <div class="rv2-sp-chart">
+        <div class="rv2-grid" id="sp-grid"></div>
+        <div class="rv2-row rv2-sp-bars" id="sp-bars"></div>
+      </div>
+      <div class="rv2-row rv2-bracket-row" id="sp-brackets"></div>
+      <div class="rv2-legend">
+        <span><i class="rv2-dot" style="background:var(--rv2-warmup)"></i>Warm-up</span>
+        <span><i class="rv2-dot" style="background:var(--rv2-steady)"></i>Steady</span>
+        <span><i class="rv2-dot" style="background:var(--rv2-tempo)"></i>Tempo</span>
+        <span><i class="rv2-dot" style="background:var(--rv2-threshold)"></i>Threshold</span>
+        <span><i class="rv2-dot" style="background:var(--rv2-cooldown)"></i>Cool-down</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2 -->
+  <div>
+    <div class="rv2-section-head"><span>◷ LAPS · BAR + HR LINE</span><span class="meta">toggle bar metric</span></div>
+    <div class="rv2-card">
+      <div class="rv2-laps-head">
+        <div class="rv2-laps-title">Laps · 1 km splits (9)</div>
+        <div class="rv2-toggle">
+          <button class="rv2-tog active" data-metric="pace">Pace</button>
+          <button class="rv2-tog" data-metric="power">Power</button>
+        </div>
+      </div>
+      <div class="rv2-chart">
+        <div class="rv2-grid" id="lap-grid"></div>
+        <div class="rv2-row rv2-chart-bars" id="lap-bars"></div>
+        <svg class="rv2-hr-svg" id="lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="rv2-row rv2-axis" id="lap-axis"></div>
+      <div class="rv2-chart-legend" id="lap-legend"></div>
+
+      <table id="lap-table"></table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // Sample laps (the brief's run). phase = named band → color + bracket grouping.
+  var LAPS = [
+    { d:1.00, sec:550, hr:112, pwr:183, cad:142, len:0.68, phase:"warmup",  ratio:0.45, z2:false },
+    { d:1.00, sec:529, hr:136, pwr:215, cad:161, len:0.71, phase:"steady",  ratio:0.66, z2:true },
+    { d:1.00, sec:550, hr:138, pwr:207, cad:155, len:0.70, phase:"steady",  ratio:0.62, z2:true },
+    { d:1.00, sec:559, hr:142, pwr:203, cad:154, len:0.71, phase:"steady",  ratio:0.60, z2:true },
+    { d:1.00, sec:530, hr:144, pwr:215, cad:163, len:0.72, phase:"steady",  ratio:0.66, z2:true },
+    { d:1.00, sec:559, hr:145, pwr:203, cad:156, len:0.71, phase:"steady",  ratio:0.60, z2:true },
+    { d:1.00, sec:530, hr:148, pwr:214, cad:164, len:0.72, phase:"tempo",   ratio:0.86, z2:true },
+    { d:1.00, sec:499, hr:144, pwr:226, cad:156, len:0.73, phase:"tempo",   ratio:1.00, z2:true },
+    { d:0.18, sec:622, hr:136, pwr:184, cad:128, len:0.66, phase:"cooldown",ratio:0.30, z2:true },
+  ];
+  var PHASE_NAME = { warmup:"Warm-up", steady:"Steady", tempo:"Tempo", threshold:"Threshold", cooldown:"Cool-down" };
+  var PHASE_VAR  = { warmup:"--rv2-warmup", steady:"--rv2-steady", tempo:"--rv2-tempo", threshold:"--rv2-threshold", cooldown:"--rv2-cooldown" };
+
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  function fmtPace(sec) { var m = Math.floor(sec/60), s = Math.round(sec%60); return m + ":" + (s<10?"0":"") + s; }
+
+  function gridlines(host, n) {
+    host.innerHTML = ""; for (var i=0;i<n;i++) host.appendChild(el("span"));
+  }
+
+  // ── Section 1 ──
+  function renderProfile() {
+    var bars = document.getElementById("sp-bars");
+    var brackets = document.getElementById("sp-brackets");
+    bars.innerHTML = ""; brackets.innerHTML = "";
+    gridlines(document.getElementById("sp-grid"), 4);
+
+    LAPS.forEach(function (lap) {
+      var cell = el("div", "rv2-cell");
+      cell.style.flex = lap.d + " 0 0";                      // weight = distance
+      var bar = el("div", "rv2-bar");
+      bar.style.height = Math.max(6, Math.round(lap.ratio*100)) + "%";
+      bar.style.background = "var(" + PHASE_VAR[lap.phase] + ")";
+      cell.appendChild(bar); bars.appendChild(cell);
+    });
+
+    // group consecutive same-phase laps
+    var groups = [], cur = null;
+    LAPS.forEach(function (lap, i) {
+      if (!cur || cur.phase !== lap.phase) { cur = { phase: lap.phase, from: i, to: i, w: lap.d }; groups.push(cur); }
+      else { cur.to = i; cur.w += lap.d; }
+    });
+    groups.forEach(function (g) {
+      var cell = el("div", "rv2-cell rv2-bracket");
+      cell.style.flex = g.w + " 0 0";                        // weight = sum of its laps
+      var range = g.from === g.to ? ("lap " + (g.from+1)) : ("lap " + (g.from+1) + "–" + (g.to+1));
+      cell.appendChild(el("div", "rv2-bracket-line"));
+      cell.appendChild(el("div", "rv2-bracket-name nm-" + g.phase, PHASE_NAME[g.phase]));
+      cell.appendChild(el("div", "rv2-bracket-range", range));
+      brackets.appendChild(cell);
+    });
+  }
+
+  // ── Section 2 ──
+  var metric = "pace";
+  function barValue(lap) { return metric === "power" ? lap.pwr : lap.sec; }
+  function renderLaps() {
+    var barsHost = document.getElementById("lap-bars");
+    var axis = document.getElementById("lap-axis");
+    barsHost.innerHTML = ""; axis.innerHTML = "";
+    gridlines(document.getElementById("lap-grid"), 4);
+
+    var vals = LAPS.map(barValue);
+    var vmin = Math.min.apply(null, vals), vmax = Math.max.apply(null, vals), vr = (vmax - vmin) || 1;
+    LAPS.forEach(function (lap, i) {
+      var v = barValue(lap);
+      // Pace: faster (smaller sec) = taller → invert. Power: more = taller.
+      var norm = metric === "pace" ? 1 - (v - vmin)/vr : (v - vmin)/vr;
+      var h = Math.round(10 + norm*86);
+      var cell = el("div", "rv2-cell"); cell.style.flex = "1 0 0";
+      var bar = el("div", "rv2-cbar" + (lap.z2 ? " z2" : ""));
+      bar.style.height = h + "%";
+      bar.style.background = metric === "power" ? "var(--rv2-power)" : "var(--rv2-bar)";
+      cell.appendChild(bar); barsHost.appendChild(cell);
+      var a = el("div", "rv2-cell", String(i+1)); a.style.flex = "1 0 0"; axis.appendChild(a);
+    });
+
+    // HR line on its own scale
+    var hrs = LAPS.map(function (l) { return l.hr; });
+    var hmin = Math.min.apply(null, hrs), hmax = Math.max.apply(null, hrs), hrng = (hmax - hmin) || 1;
+    var n = LAPS.length, svg = document.getElementById("lap-hr");
+    var pts = LAPS.map(function (l, i) {
+      var x = ((i + 0.5) / n) * 100;
+      var y = 100 - (((l.hr - hmin)/hrng) * 80 + 8);   // padded into 8–88% band
+      return x.toFixed(2) + "," + y.toFixed(2);
+    });
+    svg.innerHTML =
+      '<polyline points="' + pts.join(" ") + '" fill="none" stroke="var(--rv2-hr)" stroke-width="2" ' +
+      'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>' +
+      pts.map(function (p) { var xy = p.split(","); return '<circle cx="'+xy[0]+'" cy="'+xy[1]+'" r="2.2" fill="#fff" stroke="var(--rv2-hr)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>'; }).join("");
+
+    // legend with real ranges
+    var barLabel = metric === "power"
+      ? "Power (" + vmin + "–" + vmax + " W)"
+      : "Pace (" + fmtPace(vmin) + "–" + fmtPace(vmax) + "/km)";
+    document.getElementById("lap-legend").innerHTML =
+      '<span><i class="rv2-swatch" style="background:' + (metric==="power"?"var(--rv2-power)":"var(--rv2-bar)") + '"></i>' + barLabel + '</span>' +
+      '<span><i class="rv2-hr-key"></i>HR (' + hmin + '–' + hmax + ' bpm)</span>';
+
+    document.querySelectorAll(".rv2-tog").forEach(function (b) { b.classList.toggle("active", b.dataset.metric === metric); });
+  }
+
+  function renderTable() {
+    var head = "<thead><tr><th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>PWR</th><th>CAD</th><th>LEN</th></tr></thead>";
+    var rows = LAPS.map(function (l, i) {
+      return '<tr' + (l.z2 ? ' class="z2"' : '') + '><td>' + (i+1) + (l.z2 ? '<span class="z2pill">Z2</span>' : '') +
+        '</td><td>' + l.d.toFixed(2) + '</td><td>' + fmtPace(l.sec) + '</td><td>' + l.hr + '</td><td>' + l.pwr +
+        '</td><td>' + l.cad + '</td><td>' + l.len.toFixed(2) + '</td></tr>';
+    }).join("");
+    document.getElementById("lap-table").innerHTML = head + "<tbody>" + rows + "</tbody>";
+  }
+
+  document.querySelectorAll(".rv2-tog").forEach(function (b) {
+    b.addEventListener("click", function () { metric = b.dataset.metric; renderLaps(); });
+  });
+
+  renderProfile(); renderLaps(); renderTable();
+})();
+</script>
+</body>
+</html>

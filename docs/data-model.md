@@ -16,7 +16,32 @@ Identity record for each dashboard user.
 |--------|------|-------------|
 | `id` | `UUID` | PK, `DEFAULT gen_random_uuid()` |
 | `name` | `VARCHAR(100)` | NOT NULL, UNIQUE |
+| `email` | `VARCHAR(255)` | nullable |
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+
+---
+
+### `user_preferences`
+
+Per-user performance and display preferences. One row per user; auto-created on
+first `GET /api/user-preferences` if absent. Defaults: `ftp_w=280`,
+`threshold_hr=170`, `threshold_pace_seconds_per_km=270`, `preferred_units=metric`,
+`timezone=Asia/Bangkok`, `week_start_day=1`, `date_format=YYYY-MM-DD`.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `UUID` | PK, `DEFAULT gen_random_uuid()` |
+| `user_id` | `UUID` | NOT NULL, UNIQUE, FK → `users.id` CASCADE |
+| `ftp_w` | `INTEGER` | nullable; functional threshold power (watts) |
+| `threshold_hr` | `INTEGER` | nullable; threshold heart rate (bpm) |
+| `threshold_pace_seconds_per_km` | `INTEGER` | nullable; threshold pace |
+| `preferred_units` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'metric'` |
+| `timezone` | `VARCHAR(100)` | NOT NULL, `DEFAULT 'Asia/Bangkok'` |
+| `week_start_day` | `INTEGER` | NOT NULL, `DEFAULT 1`; 1=Monday … 7=Sunday |
+| `display_name` | `VARCHAR(100)` | nullable |
+| `date_format` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'YYYY-MM-DD'` |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+| `updated_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
 
 ---
 
@@ -309,6 +334,35 @@ Raw Stryd activity records synced from the Stryd API. `form_metrics`,
 
 ---
 
+### `sync_jobs`
+
+Audit log for each activity sync run (Strava; extensible to other sources). Each
+`POST /api/sync/strava` call creates one row. Status lifecycle:
+`pending → running → completed | failed | cancelled`.
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | `UUID` | PK, `DEFAULT gen_random_uuid()` |
+| `user_id` | `UUID` | NOT NULL, FK → `users.id` CASCADE |
+| `source` | `VARCHAR(50)` | NOT NULL; e.g. `"strava"` |
+| `job_type` | `VARCHAR(50)` | NOT NULL; e.g. `"manual_trigger"`, `"initial_backfill"` |
+| `status` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'pending'`; one of `pending`, `running`, `completed`, `failed`, `cancelled` |
+| `started_at` | `TIMESTAMPTZ` | nullable |
+| `completed_at` | `TIMESTAMPTZ` | nullable |
+| `activities_fetched` | `INTEGER` | NOT NULL, `DEFAULT 0` |
+| `activities_created` | `INTEGER` | NOT NULL, `DEFAULT 0` |
+| `activities_updated` | `INTEGER` | NOT NULL, `DEFAULT 0` |
+| `activities_skipped` | `INTEGER` | NOT NULL, `DEFAULT 0` |
+| `error_message` | `TEXT` | nullable |
+| `since_date` | `DATE` | nullable; lower bound of the sync window |
+| `parameters` | `JSONB` | nullable; extra job parameters |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+| `updated_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
+
+**Index:** `(user_id, source, started_at DESC)` — `ix_sync_jobs_user_source_started_at`.
+
+---
+
 ## Entity-Relationship Diagram
 
 ```mermaid
@@ -437,6 +491,17 @@ erDiagram
         TIMESTAMPTZ start_time
     }
 
+    sync_jobs {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR source
+        VARCHAR job_type
+        VARCHAR status
+        INTEGER activities_fetched
+        INTEGER activities_created
+        TIMESTAMPTZ completed_at
+    }
+
     users ||--o{ weight_entries : "user_id"
     users ||--o{ habits : "user_id"
     users ||--o{ habit_logs : "user_id"
@@ -454,6 +519,7 @@ erDiagram
     workouts }o--o| strava_activities : "strava_activity_pk"
     workouts }o--o| stryd_activities : "stryd_activity_pk"
     daily_readiness }o--o| daily_metrics : "daily_metric_id"
+    users ||--o{ sync_jobs : "user_id"
 ```
 
 ---

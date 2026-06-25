@@ -379,7 +379,7 @@ const MOCK_DAILY_METRICS_TODAY = {
   energy: 4,
 };
 
-// MOCK — training log workouts for log.html (30+ days ending 2026-05-27)
+// MOCK — training log workouts for training-log.html (30+ days ending 2026-05-27)
 // Shape mirrors GET /training_log response workouts array.
 const MOCK_WORKOUTS = [
   // Week May 25–31
@@ -482,13 +482,13 @@ const MOCK_HRV_RHR = [
 
 // MOCK — sample weight entries used when the selected user has no server data
 const MOCK_WEIGHT_ENTRIES = [
-  { recorded_date: '2026-05-18', weight_kg: 74.2 },
-  { recorded_date: '2026-05-19', weight_kg: 73.9 },
-  { recorded_date: '2026-05-20', weight_kg: 74.1 },
-  { recorded_date: '2026-05-21', weight_kg: 73.7 },
-  { recorded_date: '2026-05-22', weight_kg: 73.5 },
-  { recorded_date: '2026-05-23', weight_kg: 73.8 },
-  { recorded_date: '2026-05-24', weight_kg: 73.3 },
+  { entry_date: '2026-05-18', weight_kg: 74.2 },
+  { entry_date: '2026-05-19', weight_kg: 73.9 },
+  { entry_date: '2026-05-20', weight_kg: 74.1 },
+  { entry_date: '2026-05-21', weight_kg: 73.7 },
+  { entry_date: '2026-05-22', weight_kg: 73.5 },
+  { entry_date: '2026-05-23', weight_kg: 73.8 },
+  { entry_date: '2026-05-24', weight_kg: 73.3 },
 ];
 
 // MOCK — training log workouts used when GET /training_log is unavailable.

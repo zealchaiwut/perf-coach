@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Calendar – perf-coach</title>
   <link rel="stylesheet" href="css/styles.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
   <style>
     main { max-width: 840px; }
 
@@ -61,7 +61,12 @@
       color: #374151;
     }
 
-    .cal-today-btn:hover { background: #f3f4f6; }
+    .cal-today-btn:hover:not(:disabled) { background: #f3f4f6; }
+
+    .cal-today-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
 
     .cal-filters {
       display: flex;
@@ -481,6 +486,87 @@
       margin: 0 0 0.4rem;
     }
 
+    /* ── Daily wellness metrics section ── */
+
+    .day-modal-metrics-form {
+      margin-top: 0.25rem;
+    }
+
+    .day-modal-metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.625rem 1rem;
+    }
+
+    .day-modal-metrics-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .day-modal-metrics-field--full {
+      grid-column: 1 / -1;
+    }
+
+    .day-modal-metrics-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #6b7280;
+    }
+
+    .day-modal-metrics-input {
+      padding: 0.3rem 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 0.9375rem;
+      font-family: inherit;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .day-modal-metrics-input:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    .day-modal-metrics-textarea {
+      padding: 0.3rem 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      font-family: inherit;
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+
+    .day-modal-metrics-textarea:focus {
+      outline: none;
+      border-color: #0070f3;
+      box-shadow: 0 0 0 2px rgba(0,112,243,0.15);
+    }
+
+    .day-modal-metrics-field-error {
+      font-size: 0.75rem;
+      color: #c0392b;
+      min-height: 1rem;
+    }
+
+    .day-modal-metrics-footer {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .day-modal-metrics-feedback {
+      font-size: 0.8125rem;
+    }
+
+    .day-modal-metrics-feedback--success { color: #16a34a; }
+    .day-modal-metrics-feedback--error   { color: #c0392b; }
+
     /* ── Recovery dots (sleep, energy, readiness) ── */
 
     .cal-recovery-dots {
@@ -573,10 +659,6 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>Calendar</h1>
-    <span id="env-label" class="env-label"></span>
-  </header>
   <main>
     <div class="cal-toolbar">
       <div class="cal-nav">
@@ -651,6 +733,7 @@
   </main>
 
   <script src="js/nav.js"></script>
+  <script src="js/ui-states.js"></script>
   <script src="js/calendar.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
