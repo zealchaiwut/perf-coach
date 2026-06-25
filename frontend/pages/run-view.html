@@ -228,13 +228,19 @@
       .rv2-row { display: flex; gap: 0; align-items: flex-end; }
       .rv2-sp-bars { position: relative; z-index: 1; height: 90px; }
       .rv2-cell { min-width: 0; padding: 0 3px; box-sizing: border-box; }
-      /* Bar cells fill the row height so the bars' percentage heights resolve. */
+      /* Bar cells fill the row height; bars are absolutely anchored to the cell
+         bottom so their % height resolves regardless of flex %-height quirks. */
       .rv2-sp-bars .rv2-cell,
       .rv2-chart-bars .rv2-cell {
         align-self: stretch;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
+        height: 100%;
+        position: relative;
+      }
+      .rv2-sp-bars .rv2-bar,
+      .rv2-chart-bars .rv2-cbar {
+        position: absolute;
+        left: 3px; right: 3px; bottom: 0;
+        width: auto;
       }
       .rv2-bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 5px; }
       .rv2-bracket-row { margin-top: 8px; }
