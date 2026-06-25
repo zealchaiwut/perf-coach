@@ -814,12 +814,15 @@
           var ph = lapPhase2[m.index];
           var col = m.anomaly ? "#94a3b8" : (ph ? PHASE_COLOR2[ph.key] : bandColor(bandMap[m.index] || "steady"));
           var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
+          // Pixel height of the 84px track — avoids any CSS percentage-height
+          // resolution quirk (bars previously collapsed to min-height).
+          var hpx = Math.max(5, Math.round((h / 100) * 84));
           var w = (m.split && m.split.distance_km) || 0.01;
           var z2ring = m.zone2 ? " rd4-prof2-bar--z2" : "";
           var brk = m.anomaly ? " rd4-prof2-bar--break" : "";
           return (
             '<div class="rd4-cell2" style="flex:' + w + ' 0 0">' +
-            '<div class="rd4-prof2-bar' + z2ring + brk + '" style="height:' + h + "%;background:" + col + '"></div></div>'
+            '<div class="rd4-prof2-bar' + z2ring + brk + '" style="height:' + hpx + "px;background:" + col + '"></div></div>'
           );
         })
         .join("");
@@ -1158,6 +1161,8 @@
       var mx = nums.length ? Math.max.apply(null, nums) : 1;
       var rng = mx - mn || 1;
 
+      // Pixel heights against the chart's measured height — no CSS %-resolution.
+      var CH = chart.clientHeight || 130;
       chart.innerHTML = laps
         .map(function (lap, i) {
           var v = vals[i];
@@ -1165,12 +1170,12 @@
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
           if (v == null) {
-            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:5%;background:#e2e8f0"></div></div>';
+            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
-          var h = 10 + Math.round(norm * 86);
-          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + h + "%;background:" + barColor + '"></div></div>';
+          var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
+          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
