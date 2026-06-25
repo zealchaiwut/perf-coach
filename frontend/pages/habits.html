@@ -2286,6 +2286,193 @@
       padding: 10px 0;
     }
 
+    /* ── Adherence & Nudges section (issue #892) ─────────────────────────── */
+    .adherence-card {
+      margin-bottom: var(--space-2, 10px);
+    }
+
+    .adherence-hdr {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2, 8px);
+      margin-bottom: var(--space-3, 14px);
+      flex-wrap: wrap;
+    }
+
+    .adherence-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+    }
+
+    /* Skeleton shimmer */
+    @keyframes adherence-shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+
+    .adherence-skeleton {
+      background: linear-gradient(
+        90deg,
+        var(--card-border, rgba(13,30,67,0.06)) 25%,
+        rgba(13,30,67,0.03) 50%,
+        var(--card-border, rgba(13,30,67,0.06)) 75%
+      );
+      background-size: 800px 100%;
+      animation: adherence-shimmer 1.4s infinite linear;
+      border-radius: 8px;
+    }
+
+    .adherence-skeleton-row {
+      height: 72px;
+      margin-bottom: var(--space-2, 8px);
+      border-radius: 10px;
+    }
+
+    /* Habit adherence row */
+    .adherence-habit-row {
+      background: #f7f9fc;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: var(--space-2, 8px);
+      transition: background 0.15s;
+    }
+    .adherence-habit-row:last-child { margin-bottom: 0; }
+    .adherence-habit-row:hover { background: #eef0f6; }
+
+    /* Declining accent — soft amber left border */
+    .adherence-habit-row--declining {
+      border-left: 3px solid #d97706;
+    }
+    .adherence-habit-row:not(.adherence-habit-row--declining) {
+      border-left: 3px solid transparent;
+    }
+
+    .adherence-row-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2, 8px);
+      margin-bottom: var(--space-1, 6px);
+    }
+
+    .adherence-habit-name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .adherence-pct-badge {
+      font-size: 12px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .adherence-day-indicators {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1, 6px);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-1, 6px);
+    }
+
+    .adherence-day-chip {
+      font-size: 10.5px;
+      color: var(--text-secondary);
+      background: var(--card-bg, #fff);
+      border: 1px solid var(--card-border, #e8eaf0);
+      border-radius: 999px;
+      padding: 1px 7px;
+      white-space: nowrap;
+    }
+
+    .adherence-day-chip--best {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #15803d;
+    }
+
+    .adherence-day-chip--worst {
+      background: #fef3c7;
+      border-color: #fde68a;
+      color: #92400e;
+    }
+
+    .adherence-nudge {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    /* Progress bar */
+    .adherence-bar-outer {
+      height: 4px;
+      background: var(--card-border, rgba(13,30,67,0.06));
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+
+    .adherence-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    .adherence-bar-fill--high   { background: linear-gradient(90deg, #86efac, #16a34a); }
+    .adherence-bar-fill--mid    { background: linear-gradient(90deg, #93c5fd, #2563eb); }
+    .adherence-bar-fill--low    { background: linear-gradient(90deg, #fde68a, #d97706); }
+
+    /* Building empty state */
+    .adherence-building {
+      text-align: center;
+      padding: 20px 8px;
+    }
+
+    .adherence-building-icon {
+      font-size: 22px;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .adherence-building-msg {
+      margin: 0 0 4px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .adherence-building-sub {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .adherence-habit-row { padding: 10px 12px; }
+      .adherence-habit-name { font-size: 13px; }
+    }
+
+    @media (max-width: 480px) {
+      .adherence-day-indicators { gap: 4px; }
+      .adherence-day-chip { font-size: 10px; padding: 1px 6px; }
+    }
+
     /* ── Responsive ≤820px ─────────────────────────────────────────────────── */
     @media (max-width: 820px) {
       .hero-row { grid-template-columns: 1fr; }
@@ -2472,6 +2659,18 @@
         <ul class="archived-list" id="archived-list" style="display:none"></ul>
       </div>
     </div>
+    <!-- Adherence & Nudges panel (issue #892) -->
+    <div id="adherence-panel" class="card adherence-card">
+      <div class="adherence-hdr">
+        <span class="adherence-title">Adherence &amp; Nudges</span>
+      </div>
+      <div id="adherence-body">
+        <!-- populated by habit-adherence.js -->
+        <div class="adherence-skeleton-row adherence-skeleton"></div>
+        <div class="adherence-skeleton-row adherence-skeleton" style="width:85%"></div>
+      </div>
+    </div>
+
     <!-- Habit insights panel -->
     <div id="insights-panel" class="card insights-card">
       <div class="insights-hdr">
@@ -2686,6 +2885,7 @@
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
   <script src="js/habits.js"></script>
+  <script src="js/habit-adherence.js"></script>
   <script src="js/habit-insights.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
