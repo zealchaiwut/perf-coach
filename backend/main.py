@@ -12448,6 +12448,19 @@ def _build_run_pr_log_entry(meta, records):
     }
 
 
+def _build_run_pr_pre_detection_log_entry(duration_curve_populated, runs_considered):
+    """Assemble the pre-detection structured log dict for the run personal records endpoint.
+
+    Called before fetch_and_detect_records so the inputs are observable even when
+    detection raises.  All field access is guarded — never raises.
+    """
+    return {
+        "event": "pr_detection_input",
+        "duration_curve_populated": bool(duration_curve_populated) if duration_curve_populated is not None else False,
+        "runs_considered": int(runs_considered) if runs_considered is not None else 0,
+    }
+
+
 @app.get("/api/athletes/{athlete_id}/run-personal-records")
 def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     """Return auto-detected personal records from the athlete's run history.
@@ -12461,13 +12474,29 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
     """
     from backend.services.pr_detection import fetch_and_detect_records
+    from backend.models import AthleteDurationCurve as _AthleteDurationCurve
 
     uid = user.id
+
     with Session(engine) as session:
+        run_count = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type.ilike("%run%"))
+            .count()
+        )
+        curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+
+        _run_pr_log.info(
+            "pr_detection_input",
+            extra=_build_run_pr_pre_detection_log_entry(curve_populated, run_count),
+        )
+
         raw = fetch_and_detect_records(uid, session)
 
-    meta = raw.pop("_meta", {})
-    log_entry = _build_run_pr_log_entry(meta, raw)
-    _run_pr_log.info("run_pr_detected", extra=log_entry)
+    raw.pop("_meta", {})
+    _run_pr_log.info(
+        "pr_detection_output",
+        extra={"event": "pr_detection_output", "raw_output": raw},
+    )
 
     return JSONResponse(raw)
