@@ -613,6 +613,22 @@
 /* ── Theme-2: session profile (bars + zone brackets) + combined laps chart ── */
 .rd4-row2 { display: flex; gap: 0; align-items: flex-end; }
 .rd4-cell2 { min-width: 0; padding: 0 3px; box-sizing: border-box; }
+/* Bar cells must fill the row height so the bars' percentage heights resolve
+   (flex items don't stretch under align-items:flex-end); bars sit at bottom. */
+.rd4-prof2-bars .rd4-cell2,
+.rd4-chart2-bars .rd4-cell2 {
+  align-self: stretch;
+  height: 100%;
+  position: relative;   /* containing block for the absolutely-placed bar */
+}
+/* Bars are absolutely anchored to the cell bottom so their % height resolves
+   against the (definite) full-height cell, regardless of flex quirks. */
+.rd4-prof2-bars .rd4-prof2-bar,
+.rd4-chart2-bars .rd4-cbar2 {
+  position: absolute;
+  left: 3px; right: 3px; bottom: 0;
+  width: auto;
+}
 .rd4-grid2 { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
 .rd4-grid2 span { border-top: 1px dotted rgba(13,30,67,0.10); height: 0; }
 
