@@ -402,7 +402,36 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
                 w.tss = tss
                 w.tss_source = src
 
+        # Weeks touched by these runs — collected while attributes are still
+        # loaded (before commit expires them).
+        touched_weeks = {
+            w.workout_date - timedelta(days=w.workout_date.weekday())
+            for w in runs
+            if w.workout_date is not None
+        }
+
         session.commit()
+
+    # Sync writes runs directly via reconcile, bypassing the workout CRUD
+    # endpoints that normally trigger habit autofill. Re-run autofill for the
+    # touched weeks so workout-sourced habits (e.g. Zone-2 minutes) pick up the
+    # freshly-computed zone2_minutes. Runs after the commit above so autofill's
+    # own session sees the persisted values.
+    if touched_weeks:
+        import logging
+        from backend.services.habit_autofill import recompute_autofill_for_week
+
+        _log = logging.getLogger(__name__)
+        for ws in touched_weeks:
+            try:
+                recompute_autofill_for_week(uid, ws)
+            except Exception:
+                _log.warning(
+                    "habit autofill failed after run-metrics for user %s week %s",
+                    uid,
+                    ws,
+                    exc_info=True,
+                )
 
 
 def _update_duration_curves(user_id, workout_ids: set | list | None = None) -> None:
