@@ -3230,6 +3230,13 @@ def _habit_dict(h: Habit) -> dict:
         "is_archived": h.is_archived,
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+        # Focus-habit fields (issue #924)
+        "is_focus": bool(h.is_focus) if h.is_focus is not None else False,
+        "focus_since": (
+            h.focus_since.isoformat()
+            if isinstance(h.focus_since, (_datetime, _date))
+            else None
+        ),
     }
 
 
@@ -3265,6 +3272,13 @@ def _habit_dict_v2(h: Habit) -> dict:
         "auto_fill_source": h.auto_fill_source,
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+        # Focus-habit fields (issue #924)
+        "is_focus": bool(h.is_focus) if h.is_focus is not None else False,
+        "focus_since": (
+            h.focus_since.isoformat()
+            if isinstance(h.focus_since, (_datetime, _date))
+            else None
+        ),
     }
 
 
@@ -4508,6 +4522,160 @@ def get_habit_insights(user: User = Depends(resolve_user)):
         "building": building,
         "reason": reason,
     })
+
+
+# ── Focus-habit endpoints (issue #924) ────────────────────────────────────────
+
+from backend.services import habit_focus as _habit_focus  # noqa: E402
+from backend.services.habit_voice import (  # noqa: E402
+    focus_cap_error_message as _focus_cap_error_message,
+    focus_cooldown_message as _focus_cooldown_message,
+    focus_confirmation_prompt as _focus_confirmation_prompt,
+    focus_subtraction_suggestion as _focus_subtraction_suggestion,
+)
+
+
+@app.post("/api/habits/{habit_id}/focus")
+def set_habit_focus(habit_id: str, user: User = Depends(resolve_user)):
+    """Mark a habit as focus (max 3 per user).
+
+    Returns 422 with a voice-module message when the cap is already reached.
+    Returns 200 with the updated habit dict on success.
+    """
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+
+    uid = user.id
+    with Session(engine) as session:
+        habit = _habits_repo.get_habit(session, hid, uid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+
+        current_focus_count = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_focus.is_(True),
+            )
+            .count()
+        )
+        if habit.is_focus:
+            return JSONResponse(_habit_dict_v2(habit))
+
+        if _habit_focus.check_focus_cap(current_focus_count):
+            raise HTTPException(
+                status_code=422,
+                detail=_focus_cap_error_message(),
+            )
+
+        from datetime import datetime as _dt, timezone as _tz
+        habit.is_focus = True
+        habit.focus_since = _dt.now(_tz.utc)
+        session.commit()
+        session.refresh(habit)
+        return JSONResponse(_habit_dict_v2(habit))
+
+
+@app.delete("/api/habits/{habit_id}/focus")
+def unset_habit_focus(
+    habit_id: str,
+    confirm: bool = Query(default=False),
+    user: User = Depends(resolve_user),
+):
+    """Remove focus from a habit with cooldown enforcement and confirmation.
+
+    Without ``?confirm=true`` returns a 200 JSON body with a confirmation
+    prompt so the UI can show it before committing.
+
+    With ``?confirm=true`` performs the removal, provided the cooldown has
+    passed.  Returns 422 when the cooldown is still active.
+    """
+    try:
+        hid = _uuid.UUID(habit_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid habit_id")
+
+    uid = user.id
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).date()
+
+    with Session(engine) as session:
+        habit = _habits_repo.get_habit(session, hid, uid)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+
+        if not habit.is_focus:
+            return JSONResponse({"detail": "Habit is not a focus habit"}, status_code=400)
+
+        if _habit_focus.is_cooldown_active(habit.focus_since, today):
+            days_left = _habit_focus.days_until_swap_allowed(habit.focus_since, today)
+            raise HTTPException(
+                status_code=422,
+                detail=_focus_cooldown_message(days_left),
+            )
+
+        if not confirm:
+            return JSONResponse({
+                "requires_confirmation": True,
+                "message": _focus_confirmation_prompt(habit.name),
+            })
+
+        habit.is_focus = False
+        habit.focus_since = None
+        session.commit()
+        session.refresh(habit)
+        return JSONResponse(_habit_dict_v2(habit))
+
+
+@app.get("/api/habits/focus-suggestion")
+def get_focus_suggestion(user: User = Depends(resolve_user)):
+    """Return a subtraction suggestion when the user is consistently missing focus habits.
+
+    Response shape: ``{"suggest": bool, "message": str | null}``.
+    The suggestion fires only when the user has focus habits and is missing at
+    least one of them over the rolling SUBTRACTION_MISS_THRESHOLD_DAYS window.
+    """
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    uid = user.id
+    today = _dt.now(_tz.utc).date()
+
+    with Session(engine) as session:
+        focus_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_focus.is_(True),
+                Habit.active.is_(True),
+            )
+            .all()
+        )
+        if not focus_habits:
+            return JSONResponse({"suggest": False, "message": None})
+
+        window_start = today - _td(days=_habit_focus.SUBTRACTION_MISS_THRESHOLD_DAYS - 1)
+        habit_ids = [h.id for h in focus_habits]
+        logs = (
+            session.query(HabitLog)
+            .filter(
+                HabitLog.habit_id.in_(habit_ids),
+                HabitLog.log_date >= window_start,
+                HabitLog.log_date <= today,
+            )
+            .all()
+        )
+        logs_by_habit_id: dict = {}
+        for log in logs:
+            logs_by_habit_id.setdefault(log.habit_id, []).append(log.log_date)
+
+        suggest = _habit_focus.should_suggest_subtraction(
+            focus_habits, logs_by_habit_id, today
+        )
+        return JSONResponse({
+            "suggest": suggest,
+            "message": _focus_subtraction_suggestion() if suggest else None,
+        })
 
 
 # ── Habit v2 CRUD — GET by id, PUT habit-logs upsert, GET habit-logs ──────────
