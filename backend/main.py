@@ -12388,3 +12388,71 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     _performance_log.info("performance score request", extra=log_entry)
 
     return JSONResponse({"endurance": endurance, "speed": speed})
+
+
+# ── Athlete run personal records ───────────────────────────────────────────────
+
+_run_pr_log = _logging.getLogger(__name__)
+
+
+def _build_run_pr_log_entry(meta, records):
+    """Assemble a structured log dict for the run personal records endpoint.
+
+    All field access is guarded — never raises even when meta or records is None
+    or malformed.
+    """
+    duration_curve_populated = bool((meta or {}).get("duration_curve_populated", False))
+    runs_considered = int((meta or {}).get("runs_considered", 0))
+
+    def _count_detected(result_dict):
+        if not isinstance(result_dict, dict):
+            return 0
+        if "reason" in result_dict and len(result_dict) == 1:
+            return 0
+        return sum(
+            1
+            for k, v in result_dict.items()
+            if k not in ("debug", "reason")
+            and isinstance(v, dict)
+            and "value" in v
+        )
+
+    rec = records or {}
+    speed_count = _count_detected(rec.get("speedRecords", {}))
+    power_count = _count_detected(rec.get("powerRecords", {}))
+    volume_count = _count_detected(rec.get("volumeRecords", {}))
+
+    return {
+        "event": "run_pr_detected",
+        "duration_curve_populated": duration_curve_populated,
+        "runs_considered": runs_considered,
+        "records_returned": speed_count + power_count + volume_count,
+        "speed_records_count": speed_count,
+        "power_records_count": power_count,
+        "volume_records_count": volume_count,
+    }
+
+
+@app.get("/api/athletes/{athlete_id}/run-personal-records")
+def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
+    """Return auto-detected personal records from the athlete's run history.
+
+    Reads completed run workouts and the stored best-effort duration curve,
+    then delegates detection to the three pure functions in
+    ``backend.services.pr_detection``.  Each record dict contains ``value``,
+    ``date``, and ``sourceWorkout``; missing records carry a ``reason`` string
+    so the client can display an honest message rather than a blank.
+
+    Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
+    """
+    from backend.services.pr_detection import fetch_and_detect_records
+
+    uid = user.id
+    with Session(engine) as session:
+        raw = fetch_and_detect_records(uid, session)
+
+    meta = raw.pop("_meta", {})
+    log_entry = _build_run_pr_log_entry(meta, raw)
+    _run_pr_log.info("run_pr_detected", extra=log_entry)
+
+    return JSONResponse(raw)

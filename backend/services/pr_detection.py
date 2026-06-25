@@ -635,6 +635,9 @@ def fetch_and_detect_records(user_id, db):
         ``"speedRecords"``  — result of detect_speed_records
         ``"powerRecords"``  — result of detect_power_records
         ``"volumeRecords"`` — result of detect_volume_records
+        ``"_meta"``         — logging metadata: ``duration_curve_populated`` (bool)
+                              and ``runs_considered`` (int); stripped by the
+                              endpoint before returning JSON to the client.
     """
     from backend.models import Workout, AthleteDurationCurve
 
@@ -701,4 +704,8 @@ def fetch_and_detect_records(user_id, db):
         "speedRecords": detect_speed_records(pace_curve, completed_runs),
         "powerRecords": detect_power_records(power_curve),
         "volumeRecords": detect_volume_records(completed_runs),
+        "_meta": {
+            "duration_curve_populated": bool(curve_record),
+            "runs_considered": len(completed_runs),
+        },
     }

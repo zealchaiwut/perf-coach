@@ -486,33 +486,89 @@
 
   // ── Personal Records strip ────────────────────────────────────────────────────
 
+  var _PR_LABELS = {
+    // volume
+    longestByDistance:   'Longest run (km)',
+    longestByDuration:   'Longest run (time)',
+    weeklyDistanceRecord:'Best week (km)',
+    weeklyLoadRecord:    'Best week (TSS)',
+    // speed
+    '1km':          'Best 1 km',
+    '1mile':        'Best 1 mile',
+    '5km':          'Best 5 km',
+    '10km':         'Best 10 km',
+    'half_marathon':'Best half marathon',
+    'marathon':     'Best marathon',
+    // power
+    best1Min:  'Best 1-min power',
+    best5Min:  'Best 5-min power',
+    best20Min: 'Best 20-min power',
+  };
+
   function _loadPR() {
-    fetch('/api/personal-records')
+    if (!_athleteId) return;
+    fetch('/api/athletes/' + _athleteId + '/run-personal-records')
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (records) { _renderPR(records); })
-      .catch(function () { _renderPR([]); });
+      .then(function (data) { _renderRunPR(data); })
+      .catch(function () { _renderRunPR(null); });
   }
 
-  function _renderPR(records) {
+  function _renderRunPR(data) {
     var strip = document.getElementById('perf-pr-strip');
     if (!strip) return;
 
-    if (!records.length) {
+    if (!data) {
       strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>';
       return;
     }
 
-    // Show most recent 6 PRs ordered by achieved_on desc (already ordered by API)
-    var shown = records.slice(0, 6);
-    var html = shown.map(function (r) {
-      var val  = r.value_numeric != null ? _formatPrValue(r) : '—';
-      var date = r.achieved_on   != null ? r.achieved_on      : '—';
-      var src  = r.source && r.source.workout_id
-        ? '<a class="perf-pr-link" href="/log#workout=' + r.source.workout_id + '">View workout</a>'
+    var items = [];
+
+    // Gather all detected records from every category in display order
+    var categories = [
+      { key: 'volumeRecords',  keys: ['longestByDistance','longestByDuration','weeklyDistanceRecord','weeklyLoadRecord'] },
+      { key: 'speedRecords',   keys: ['5km','10km','half_marathon','marathon','1mile','1km'] },
+      { key: 'powerRecords',   keys: ['best20Min','best5Min','best1Min'] },
+    ];
+
+    categories.forEach(function (cat) {
+      var group = data[cat.key];
+      if (!group || typeof group !== 'object') return;
+      if (group.reason) return; // top-level reason means entire category unavailable
+      cat.keys.forEach(function (k) {
+        var rec = group[k];
+        if (!rec || typeof rec !== 'object') return;
+        items.push({ label: k, rec: rec });
+      });
+    });
+
+    if (!items.length) {
+      strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>';
+      return;
+    }
+
+    var html = items.map(function (item) {
+      var label = _PR_LABELS[item.label] || item.label;
+      var rec   = item.rec;
+
+      if (rec.reason) {
+        return (
+          '<div class="perf-pr-item perf-pr-item--unavailable">' +
+            '<div class="perf-pr-name">' + _esc(label) + '</div>' +
+            '<div class="perf-pr-reason">' + _esc(rec.reason) + '</div>' +
+          '</div>'
+        );
+      }
+
+      var val  = _formatRunPrValue(item.label, rec.value);
+      var date = rec.date || '—';
+      var src  = rec.sourceWorkout && rec.sourceWorkout.id
+        ? '<a class="perf-pr-link" href="/log#workout=' + _esc(String(rec.sourceWorkout.id)) + '">View workout</a>'
         : '';
+
       return (
         '<div class="perf-pr-item">' +
-          '<div class="perf-pr-name">' + _esc(r.track_name || r.track_key) + '</div>' +
+          '<div class="perf-pr-name">' + _esc(label) + '</div>' +
           '<div class="perf-pr-val">' + _esc(val) + '</div>' +
           '<div class="perf-pr-date">' + _esc(date) + '</div>' +
           src +
@@ -521,6 +577,33 @@
     }).join('');
 
     strip.innerHTML = html;
+  }
+
+  function _formatRunPrValue(key, value) {
+    if (value == null) return '—';
+    // Speed records and duration-based volume: format as M:SS or H:MM:SS
+    var timeKeys = ['5km','10km','half_marathon','marathon','1km','1mile','longestByDuration'];
+    if (timeKeys.indexOf(key) !== -1) {
+      var s   = Math.round(value);
+      var h   = Math.floor(s / 3600);
+      var m   = Math.floor((s % 3600) / 60);
+      var sec = s % 60;
+      if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+      return m + ':' + String(sec).padStart(2,'0');
+    }
+    // Power: whole watts
+    if (key === 'best1Min' || key === 'best5Min' || key === 'best20Min') {
+      return Math.round(value) + ' W';
+    }
+    // Distance (km): one decimal
+    if (key === 'longestByDistance' || key === 'weeklyDistanceRecord') {
+      return parseFloat(value).toFixed(1) + ' km';
+    }
+    // Weekly TSS: integer
+    if (key === 'weeklyLoadRecord') {
+      return Math.round(value) + ' TSS';
+    }
+    return String(value);
   }
 
   function _formatPrValue(r) {
