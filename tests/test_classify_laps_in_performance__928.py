@@ -33,7 +33,7 @@ def auth_client(client):
                     return client
 
     # If no credentials worked, skip the test
-    pytest.skip(f"Could not login with any test credentials — test users may not be seeded or passwords not set in UAT")
+    pytest.skip("Could not login with any test credentials — test users may not be seeded or passwords not set in UAT")
 
 
 # --- Acceptance Criteria ---
@@ -47,7 +47,6 @@ def test_classify_laps_called_before_scoring__with_thresholds(auth_client):
 
     data = resp.json()
     endurance = data.get("endurance", {})
-    speed = data.get("speed", {})
 
     # If the athlete has qualifying runs and preferences, scores should be numeric (not null or missing)
     # If building baseline or no runs, we expect a state field instead of a score
