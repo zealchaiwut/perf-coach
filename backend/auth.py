@@ -110,13 +110,25 @@ def generate_csrf_token() -> str:
     return secrets.token_hex(32)
 
 
-def set_csrf_cookie(response: Response, token: str) -> None:
+def _cookie_secure() -> bool:
+    """Whether auth cookies should be marked Secure (HTTPS-only).
+
+    Secure cookies are silently dropped by the browser over plain HTTP, which
+    logs users out. Only PRD (Render) is served over HTTPS; UAT and local run
+    over HTTP (e.g. the Tailscale-routed UAT box), so default Secure to on for
+    prd and off elsewhere. Override per-environment with SESSION_COOKIE_SECURE
+    (1/0) — e.g. set it to 1 if UAT is ever fronted by HTTPS.
+    """
     env = os.getenv("ENVIRONMENT", "local")
+    return os.getenv("SESSION_COOKIE_SECURE", "1" if env == "prd" else "0") == "1"
+
+
+def set_csrf_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
         httponly=False,
-        secure=(env != "local"),
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
         max_age=SESSION_MAX_AGE,
@@ -125,12 +137,11 @@ def set_csrf_cookie(response: Response, token: str) -> None:
 
 def set_session(response: Response, user_id: str) -> str:
     token = create_session_cookie(user_id, time.time())
-    env = os.getenv("ENVIRONMENT", "local")
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=(env != "local"),
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
         max_age=SESSION_MAX_AGE,
@@ -180,13 +191,12 @@ def read_admin_cookie(token: str) -> dict:
 
 
 def set_admin_cookie(response: Response) -> None:
-    env = os.getenv("ENVIRONMENT", "local")
     token = create_admin_cookie(time.time())
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=(env != "local"),
+        secure=_cookie_secure(),
         samesite="strict",
         max_age=_ADMIN_COOKIE_MAX_AGE,
     )
