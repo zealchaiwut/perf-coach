@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 83 — Performance observability, needs-thresholds state, auto-detected PRs, and lap-classification backfill
+
+- #910: Add observability to diagnose null performance scores
+- #911: Classify laps before scoring in performance endpoint
+- #912: Surface needs_thresholds state in performance endpoint
+- #913: Fix empty Personal Records for athletes with run history
+- #914: Backfill lap classification and trigger recompute on threshold save
+
 ## Sprint 80 — Weight goal projection and what-if simulation
 
 - #874: Add pure function compute_planned_series(plan, as_of_date)
