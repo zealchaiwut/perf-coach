@@ -4642,6 +4642,204 @@ def get_active_streak(current_user: User = Depends(resolve_user)):
     })
 
 
+# ── Weekly check-in endpoint ──────────────────────────────────────────────────
+
+from backend.services.weekly_check_in import build_weekly_check_in as _build_weekly_check_in  # noqa: E402
+
+
+@app.get("/api/weekly-check-in")
+def get_weekly_check_in(user: User = Depends(resolve_user)):
+    """Return structured weekly check-in data for the standalone check-in view.
+
+    Response shape:
+        building            (bool)     — True when < 7 days of data exist
+        reason              (str|null) — explanation when building
+        correlations_fetched (bool)   — False when building (insights skipped)
+        week_summary        (obj|null) — three voice-formatted lines
+          weight_trend      (str|null)
+          habit_consistency (str|null)
+          training_note     (str|null)
+        bright_spot         (obj|null) — single highlight {text, source}
+        next_lever          (obj|null) — single action {text, metric}
+        focus_habits        (list)     — top 3 habits with cooldown_days
+
+    Reads only existing tables. No new DB fields are accessed.
+    """
+    from datetime import date as _date_cls, timedelta as _td
+    from zoneinfo import ZoneInfo
+
+    uid = user.id
+    _bkk = ZoneInfo("Asia/Bangkok")
+    today = _datetime.now(_bkk).date()
+    week_start = today - _td(days=today.weekday())
+    week_end = week_start + _td(days=6)
+    prev_week_start = week_start - _td(days=7)
+    prev_week_end = week_start - _td(days=1)
+
+    with Session(engine) as session:
+        # Weight entries: this week and previous week
+        weight_this = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= week_start,
+                WeightEntry.entry_date <= week_end,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+        weight_prev = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= prev_week_start,
+                WeightEntry.entry_date <= prev_week_end,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+
+        # Active habits with streak + consistency
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        habit_ids = [h.id for h in active_habits]
+        all_habit_logs = []
+        if habit_ids:
+            all_habit_logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id.in_(habit_ids),
+                    HabitLog.user_id == uid,
+                )
+                .all()
+            )
+
+        # Workouts this week
+        workouts_this_week = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .order_by(Workout.workout_date.asc())
+            .all()
+        )
+
+    # Assemble habits summary with consistency + week counts
+    from backend.services.habit_consistency import compute_consistency
+    from backend.services.habit_streak import compute_streak
+
+    window_start = today - _td(days=29)
+    logs_by_habit: dict = {}
+    for lg in all_habit_logs:
+        logs_by_habit.setdefault(lg.habit_id, []).append(lg)
+
+    habits_summary_list: list[dict] = []
+    for habit in active_habits:
+        habit_logs = logs_by_habit.get(habit.id, [])
+        streak_data = compute_streak(habit, habit_logs, today)
+        consistency_data = compute_consistency(habit, habit_logs, window_start, today)
+        week_dates = {
+            lg.log_date for lg in habit_logs
+            if week_start <= lg.log_date <= week_end
+        }
+        habits_summary_list.append({
+            "id": str(habit.id),
+            "name": habit.name,
+            "consistency_percent": consistency_data["consistency_percent"],
+            "week_done": len(week_dates),
+            "weekly_target": float(habit.weekly_target) if habit.weekly_target is not None else 7,
+            "current_streak": streak_data["current_streak"],
+            "sort_order": habit.sort_order,
+        })
+
+    weight_this_dicts = [
+        {"entry_date": str(e.entry_date), "weight_kg": float(e.weight_kg)}
+        for e in weight_this
+    ]
+    weight_prev_dicts = [
+        {"entry_date": str(e.entry_date), "weight_kg": float(e.weight_kg)}
+        for e in weight_prev
+    ]
+    workouts_dicts = [
+        {
+            "workout_date": str(w.workout_date),
+            "workout_type": w.workout_type or "",
+            "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+            "duration_seconds": int(w.duration_seconds) if w.duration_seconds is not None else None,
+            "tss": float(w.tss) if w.tss is not None else None,
+        }
+        for w in workouts_this_week
+    ]
+
+    # Compute the preliminary check-in to detect building-baseline
+    # before deciding whether to fetch insights (AC10)
+    from backend.services.weekly_check_in import _count_data_days, BASELINE_DAYS_REQUIRED
+    data_days = _count_data_days(weight_this_dicts, weight_prev_dicts, workouts_dicts)
+    building_baseline = data_days < BASELINE_DAYS_REQUIRED
+
+    insights_list: list[dict] = []
+    insights_building = True
+
+    if not building_baseline:
+        # Only fetch insights when we have enough data to show them
+        with Session(engine) as session:
+            outcome_series: dict = {f: {} for f in _INSIGHT_OUTCOME_FIELDS}
+            daily_rows = (
+                session.query(DailyMetric)
+                .filter(DailyMetric.user_id == uid)
+                .all()
+            )
+            for row in daily_rows:
+                date_str = row.metric_date.isoformat()
+                for field in _INSIGHT_OUTCOME_FIELDS:
+                    val = getattr(row, field, None)
+                    if val is not None:
+                        outcome_series[field][date_str] = float(val)
+
+            habit_logs_by_habit: dict = {}
+            for h in active_habits:
+                habit_logs_by_habit[str(h.id)] = {}
+            for lg in all_habit_logs:
+                key = str(lg.habit_id)
+                date_str = lg.log_date.isoformat()
+                habit_logs_by_habit.setdefault(key, {})[date_str] = (
+                    float(lg.value) if lg.value is not None else 0.0
+                )
+
+        raw_insights, insights_building, _ = _build_insights(
+            habits=active_habits,
+            habit_logs_by_habit=habit_logs_by_habit,
+            outcome_series_by_name=outcome_series,
+        )
+        if not insights_building:
+            insights_list = raw_insights
+
+    result = _build_weekly_check_in(
+        weight_entries_this_week=weight_this_dicts,
+        weight_entries_prev_week=weight_prev_dicts,
+        habits_summary=habits_summary_list,
+        workouts_this_week=workouts_dicts,
+        insights=insights_list,
+        insights_building=insights_building,
+        today=today,
+        week_start=week_start,
+    )
+
+    result["correlations_fetched"] = not building_baseline
+    return JSONResponse(result)
+
+
 # ── Page routes ───────────────────────────────────────────────────────────────
 # Every page is served at a clean path (e.g. /home) AND its legacy .html path
 # (/home.html), both backed by the same file. Add new pages here only.
@@ -4658,6 +4856,7 @@ _PAGES = {
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
+    "weekly-check-in": "weekly-check-in.html",
 }
 
 
