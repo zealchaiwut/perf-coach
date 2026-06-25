@@ -12167,9 +12167,7 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 
 _performance_log = _logging.getLogger(__name__)
 
-_NEEDS_THRESHOLDS_REASON = (
-    "Set your FTP, threshold heart rate, or threshold pace to unlock performance scores."
-)
+from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 
 
 def _check_needs_thresholds(preferences) -> bool:
