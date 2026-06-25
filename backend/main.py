@@ -4465,6 +4465,59 @@ def delete_habit_log(log_id: str, user: User = Depends(resolve_user)):
     return Response(status_code=204)
 
 
+# ── Habit adherence and nudges endpoint ───────────────────────────────────────
+
+from backend.services.habit_adherence import (  # noqa: E402
+    build_adherence_payload as _build_adherence_payload,
+)
+
+
+@app.get("/api/habits/adherence")
+def get_habits_adherence(user: User = Depends(resolve_user)):
+    """Return per-habit adherence, trend, best/worst day, and nudge copy.
+
+    Response always has exactly three top-level keys:
+    ``building`` (bool), ``reason`` (str or null), ``habits`` (list).
+    HTTP status is always 200.
+    """
+    uid = user.id
+    today = _date.today()
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        habit_ids = [h.id for h in active_habits]
+
+        logs_by_habit: dict = {}
+        if habit_ids:
+            all_logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id.in_(habit_ids),
+                    HabitLog.user_id == uid,
+                )
+                .all()
+            )
+            for log in all_logs:
+                logs_by_habit.setdefault(str(log.habit_id), []).append(log)
+
+    payload = _build_adherence_payload(
+        habits=active_habits,
+        logs_by_habit=logs_by_habit,
+        today=today,
+    )
+    return JSONResponse(payload)
+
+
 # ── Habit insights endpoint ────────────────────────────────────────────────────
 
 from backend.services.habit_insights import (  # noqa: E402
