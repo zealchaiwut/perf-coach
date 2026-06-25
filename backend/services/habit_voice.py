@@ -158,3 +158,39 @@ def compose_log_feedback(
         "show_identity": False,
         "next_milestone": None,
     }
+
+
+# ── Focus-habit copy (issue #924) ─────────────────────────────────────────────
+
+def focus_cap_error_message() -> str:
+    """Return the message shown when the user tries to add a fourth focus habit."""
+    return (
+        "You already have 3 focus habits. "
+        "Swap one out before adding a new focus."
+    )
+
+
+def focus_cooldown_message(days_remaining: int) -> str:
+    """Return the message shown when a swap is attempted inside the cooldown window."""
+    day_word = "day" if days_remaining == 1 else "days"
+    return (
+        f"This habit needs {days_remaining} more {day_word} as a focus "
+        f"before you can swap it out."
+    )
+
+
+def focus_confirmation_prompt(habit_name: str) -> str:
+    """Return the confirmation prompt text for a valid focus swap."""
+    return (
+        f"Remove '{habit_name}' from your focus habits? "
+        f"This resets its focus timer. Confirm to proceed."
+    )
+
+
+def focus_subtraction_suggestion() -> str:
+    """Return the supportive copy suggesting the user drop one focus habit."""
+    return (
+        "You've been missing one or more focus habits consistently. "
+        "Consider dropping to two focus habits to build momentum — "
+        "you can always add it back later."
+    )
