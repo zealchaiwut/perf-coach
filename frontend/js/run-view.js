@@ -301,10 +301,12 @@
       svg += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="var(--rv2-hr)" ' +
         'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
     }
+    // Round-cap zero-length dots: constant pixel size (non-scaling stroke), so
+    // they stay round instead of stretching with the non-uniform viewBox.
     pts.forEach(function (p) {
       var xy = p.split(",");
-      svg += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.2" fill="#fff" ' +
-        'stroke="var(--rv2-hr)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+      svg += '<path d="M' + xy[0] + " " + xy[1] + 'l0 0" stroke="var(--rv2-hr)" ' +
+        'stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
     });
     svg += "</svg>";
 
