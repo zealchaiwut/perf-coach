@@ -522,6 +522,67 @@
     if (started) ctx.stroke();
   }
 
+  // Readiness zone bar: three named zones + a marker at the current value, so
+  // you can read good/normal/caution at a glance. TSB uses the established form
+  // zones (Fatigued < -10 · Optimal -10..+5 · Fresh >= +5); CTL/ATL are zoned
+  // relative to the athlete's own recent range (low / mid / high third).
+  var RW_AMBER = '#f59e0b', RW_BLUE = '#3b82f6', RW_GREEN = '#22c55e';
+
+  function _zoneBarHtml(metric, val, series) {
+    if (val == null || isNaN(val)) return '';
+    var segs, lo, hi, name, color;
+
+    if (metric === 'tsb') {
+      lo = -30; hi = 25;
+      var b1 = -10, b2 = 5;  // FORM_BURIED_CEILING / FORM_FRESH_FLOOR
+      segs = [
+        { w: b1 - lo, c: RW_AMBER },   // Fatigued
+        { w: b2 - b1, c: RW_GREEN },   // Optimal
+        { w: hi - b2, c: RW_BLUE },    // Fresh
+      ];
+      if (val < b1) { name = 'Fatigued'; color = RW_AMBER; }
+      else if (val < b2) { name = 'Optimal'; color = RW_GREEN; }
+      else { name = 'Fresh'; color = RW_BLUE; }
+    } else {
+      var vals = (series || []).map(function (d) { return d[metric]; })
+        .filter(function (v) { return v != null && !isNaN(v); });
+      lo = vals.length ? Math.min.apply(null, vals) : val;
+      hi = vals.length ? Math.max.apply(null, vals) : val;
+      if (!(hi - lo > 1e-6)) {                    // flat/empty → pad around value
+        var pad = Math.max(5, Math.abs(val) * 0.3);
+        lo = val - pad; hi = val + pad;
+      }
+      var t1 = lo + (hi - lo) / 3, t2 = lo + 2 * (hi - lo) / 3;
+      var third = (hi - lo) / 3;
+      var labels, colors;
+      if (metric === 'ctl') {            // higher = fitter → top third is best
+        labels = ['Low', 'Building', 'Strong'];
+        colors = [RW_AMBER, RW_BLUE, RW_GREEN];
+      } else {                           // atl: lower = more recovered
+        labels = ['Light', 'Moderate', 'High'];
+        colors = [RW_GREEN, RW_BLUE, RW_AMBER];
+      }
+      segs = [
+        { w: third, c: colors[0] },
+        { w: third, c: colors[1] },
+        { w: third, c: colors[2] },
+      ];
+      var idx = val < t1 ? 0 : val < t2 ? 1 : 2;
+      name = labels[idx]; color = colors[idx];
+    }
+
+    var span = (hi - lo) || 1;
+    var markerPct = Math.max(0, Math.min(100, (val - lo) / span * 100));
+    var bar = segs.map(function (s) {
+      return '<span style="width:' + (s.w / span * 100).toFixed(2) + '%;background:' + s.c + '"></span>';
+    }).join('');
+    return '<div class="rw-zone">' +
+             '<div class="rw-zone-bar">' + bar +
+               '<i class="rw-zone-mark" style="left:' + markerPct.toFixed(1) + '%"></i></div>' +
+             '<div class="rw-zone-name" style="color:' + color + '">' + name + '</div>' +
+           '</div>';
+  }
+
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
@@ -535,11 +596,14 @@
       return;
     }
 
-    function tile(val, abbr, label, sparkId) {
+    var series = data.series || [];
+
+    function tile(val, abbr, label, sparkId, metric) {
       return '<div class="rw-tile">' +
                '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
                '<div class="rw-tile-label">' + abbr + '</div>' +
                '<div class="rw-tile-sub">' + label + '</div>' +
+               _zoneBarHtml(metric, val, series) +
                '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
              '</div>';
     }
@@ -555,13 +619,11 @@
         (rlabel ? '<span class="rw-label ' + rlabelClass + '">' + esc(rlabel) + '</span>' : '') +
       '</div>' +
       '<div class="rw-tiles">' +
-        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl') +
-        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl') +
-        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb') +
+        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl', 'ctl') +
+        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl', 'atl') +
+        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb', 'tsb') +
       '</div>';
     el.hidden = false;
-
-    var series = data.series || [];
     _renderSparkline('rw-spark-ctl', series.map(function (d) { return d.ctl; }), '#3b82f6');
     _renderSparkline('rw-spark-atl', series.map(function (d) { return d.atl; }), '#ef4444');
     _renderSparkline('rw-spark-tsb', series.map(function (d) { return d.tsb; }), '#10b981');
