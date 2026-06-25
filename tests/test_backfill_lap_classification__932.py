@@ -25,7 +25,6 @@ import sys
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
