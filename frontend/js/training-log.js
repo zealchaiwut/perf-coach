@@ -238,11 +238,13 @@
     var bar = document.getElementById("filter-bar");
     if (!bar) return;
 
-    // Type pills row — All / Run / Lift / WOD / Bike
+    // Type pills row — All / Run / Lift (WOD and Bike disabled for now)
     var chipsRow = document.createElement('div');
     chipsRow.className = 'fb-chips-row';
-    var TYPE_OPTS   = ['all','run','lift','wod','bike'];
+    var TYPE_OPTS   = ['all','run','lift'];
     var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
+    // A stale ?type=wod/bike URL would filter to a now-hidden pill — fall back to All.
+    if (TYPE_OPTS.indexOf(filters.type) === -1) filters.type = 'all';
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement("button");
       chip.type = "button";
