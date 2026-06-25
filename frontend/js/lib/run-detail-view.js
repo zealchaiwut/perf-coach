@@ -148,6 +148,31 @@
     return "steady";
   }
 
+  // Named-phase palette for the session-profile bars + zone brackets.
+  // (warm-up/cool-down share the "easy" band but get distinct colors here.)
+  var PHASE_NAME2 = { warmup: "Warm-up", steady: "Steady", tempo: "Tempo", threshold: "Threshold", cooldown: "Cool-down" };
+  var PHASE_COLOR2 = { warmup: "#3b82f6", steady: "#22c55e", tempo: "#f59e0b", threshold: "#f97316", cooldown: "#a78bfa" };
+
+  function phaseKey2(label, band) {
+    var s = (label || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (s.indexOf("warm") === 0) return "warmup";
+    if (s.indexOf("cool") === 0) return "cooldown";
+    if (s.indexOf("tempo") === 0) return "tempo";
+    if (s.indexOf("threshold") === 0) return "threshold";
+    if (s.indexOf("steady") === 0 || s.indexOf("easy") === 0) return "steady";
+    var b = (band || "").toLowerCase();
+    if (b === "tempo") return "tempo";
+    if (b === "hard" || b === "race" || b === "threshold") return "threshold";
+    return "steady";
+  }
+
+  function fmtPaceSec2(sec) {
+    if (sec == null) return "—";
+    var mm = Math.floor(sec / 60), ss = Math.round(sec % 60);
+    return mm + ":" + (ss < 10 ? "0" : "") + ss;
+  }
+  function gridSpans2(n) { var s = ""; for (var i = 0; i < n; i++) s += "<span></span>"; return s; }
+
   function normalizeStravaLap(lap, index) {
     var distM = lap.distance;
     var cad = lap.average_cadence;
@@ -770,61 +795,72 @@
           return m.power || 0;
         }),
       );
+      var hasPhases = !!(detected.confident && detected.phases && detected.phases.length);
+
+      // Per-lap phase (1-based lap → {key,name}) from detected.phases' lap_indexes.
+      var lapPhase2 = {};
+      if (hasPhases) {
+        detected.phases.forEach(function (ph) {
+          var key = phaseKey2(ph.label, ph.band);
+          (ph.lap_indexes || []).forEach(function (idx) {
+            lapPhase2[idx + 1] = { key: key, name: PHASE_NAME2[key] };
+          });
+        });
+      }
+
+      // Bars: width ∝ lap distance, height ∝ power, color by phase (or band fallback).
       var bars = distanceLapMeta
         .map(function (m) {
-          var band = m.anomaly
-            ? "break"
-            : bandMap[m.index] ||
-              (detected.confident ? "steady" : "steady");
+          var ph = lapPhase2[m.index];
+          var col = m.anomaly ? "#94a3b8" : (ph ? PHASE_COLOR2[ph.key] : bandColor(bandMap[m.index] || "steady"));
           var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
-          var col = bandColor(band);
-          var z2ring = m.zone2 ? " rd4-prof-bar--z2" : "";
-          var brk = m.anomaly ? " rd4-prof-bar--break" : "";
+          var w = (m.split && m.split.distance_km) || 0.01;
+          var z2ring = m.zone2 ? " rd4-prof2-bar--z2" : "";
+          var brk = m.anomaly ? " rd4-prof2-bar--break" : "";
           return (
-            '<div class="rd4-prof-bar' +
-            z2ring +
-            brk +
-            '" style="height:' +
-            h +
-            "%;background:" +
-            col +
-            '"></div>'
+            '<div class="rd4-cell2" style="flex:' + w + ' 0 0">' +
+            '<div class="rd4-prof2-bar' + z2ring + brk + '" style="height:' + h + "%;background:" + col + '"></div></div>'
           );
         })
         .join("");
 
-      var phaseStrip = "";
-      if (detected.confident && detected.phases && detected.phases.length) {
-        phaseStrip = detected.phases
+      // Named zone brackets: one per phase, width = sum of its laps' distances,
+      // aligned exactly over the bars (gap:0 proportional partition).
+      var brackets = "";
+      if (hasPhases) {
+        brackets = detected.phases
           .map(function (ph) {
-            var col = bandColor(ph.band || labelBand(ph.label));
+            var key = phaseKey2(ph.label, ph.band);
+            var idxs = (ph.lap_indexes || []).slice().sort(function (a, b) { return a - b; });
+            if (!idxs.length) return "";
+            var w = 0;
+            idxs.forEach(function (idx) {
+              var lm = distanceLapMeta[idx];
+              w += (lm && lm.split && lm.split.distance_km) || 0.01;
+            });
+            var lo = idxs[0] + 1, hi = idxs[idxs.length - 1] + 1;
+            var range = lo === hi ? "lap " + lo : "lap " + lo + "–" + hi;
             return (
-              '<span class="rd4-phase-chip" style="border-color:' +
-              col +
-              '">' +
-              esc(ph.label || ph.band || "Phase") +
-              "</span>"
+              '<div class="rd4-cell2 rd4-bracket2" style="flex:' + w + ' 0 0">' +
+              '<div class="rd4-bracket2-line"></div>' +
+              '<div class="rd4-bracket2-name" style="color:' + PHASE_COLOR2[key] + '">' + esc(PHASE_NAME2[key]) + "</div>" +
+              '<div class="rd4-bracket2-range">' + range + "</div></div>"
             );
           })
           .join("");
       }
 
-      var confNote =
-        detected.confident === false
-          ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
-          : '<p class="rd4-muted">Detected profile · basis ' +
-            esc(detected.basis || "power") +
-            (detected.reps_detected != null
-              ? " · reps " + detected.reps_detected
-              : "") +
-            "</p>";
+      var basis = detected.basis && detected.basis !== "none" ? esc(detected.basis) : "—";
+      var confNote = detected.confident === false
+        ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
+        : '<p class="rd4-muted">Detected profile · basis ' + basis +
+          (detected.reps_detected != null ? " · reps " + detected.reps_detected : "") + "</p>";
 
       profileBlock =
         '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>' +
-        '<div class="rd4-prof-track">' +
-        bars +
-        "</div>" +
-        (phaseStrip ? '<div class="rd4-phase-strip">' + phaseStrip + "</div>" : "") +
+        '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
+        '<div class="rd4-row2 rd4-prof2-bars">' + bars + "</div></div>" +
+        (brackets ? '<div class="rd4-row2 rd4-bracket2-row">' + brackets + "</div>" : "") +
         confNote +
         "</section>";
     }
@@ -856,12 +892,16 @@
         "</h2>" +
         '<div class="rd4-laps-controls">' +
         lapModeToggle +
+        // Toggle switches only the BAR metric; HR is always drawn as the line.
         '<div class="rd4-metric-toggle" id="rd4-metric-toggle">' +
-        '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="power">Power</button>' +
-        '<button type="button" class="rd4-mt-btn" data-metric="pace">Pace</button>' +
-        '<button type="button" class="rd4-mt-btn" data-metric="hr">HR</button>' +
+        '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="pace">Pace</button>' +
+        '<button type="button" class="rd4-mt-btn" data-metric="power">Power</button>' +
         "</div></div></div>" +
-        '<div class="rd4-lap-chart" id="rd4-lap-chart"></div>' +
+        '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
+        '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
+        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
+        '<div class="rd4-row2 rd4-axis2" id="rd4-lap-axis"></div>' +
+        '<div class="rd4-chart2-legend" id="rd4-lap-legend"></div>' +
         '<div class="rv-z2-note rd4-z2-note"><span class="rd4-z2-swatch"></span> Zone 2 laps (HR ' +
         z2min +
         "–" +
@@ -1022,7 +1062,7 @@
         : rendered.hasManualLaps
           ? "manual"
           : "distance";
-    var metric = "power";
+    var metric = "pace";
     var tssSource = rendered.defaultTssId;
     var tssOptions = rendered.tssOptions || [];
 
@@ -1100,41 +1140,89 @@
       });
     }
 
+    // One chart: bars for the chosen metric (pace|power) on their own scale +
+    // HR as a line on its own independent scale. Dotted gridlines, lap axis,
+    // and a legend giving each series' real range.
     function drawChart(m) {
       var chart = container.querySelector("#rd4-lap-chart");
       if (!chart) return;
+      var barMetric = m === "power" ? "power" : "pace";
+      var barColor = barMetric === "power" ? "#8b5cf6" : "#2563eb";
       var laps = currentLaps();
+
       var vals = laps.map(function (lap) {
-        if (m === "hr") return lap.split.avg_hr;
-        if (m === "power") return lap.power;
-        return lap.paceSec ? -lap.paceSec : null;
+        return barMetric === "power" ? lap.power : (lap.paceSec || null);
       });
-      var nums = vals.filter(function (v) {
-        return v != null;
-      });
+      var nums = vals.filter(function (v) { return v != null && v > 0; });
       var mn = nums.length ? Math.min.apply(null, nums) : 0;
       var mx = nums.length ? Math.max.apply(null, nums) : 1;
+      var rng = mx - mn || 1;
+
       chart.innerHTML = laps
         .map(function (lap, i) {
           var v = vals[i];
-          var h =
-            v == null || mx === mn
-              ? 22
-              : 18 + Math.round(((v - mn) / (mx - mn)) * 72);
-          var cls = "rd4-lapbar";
-          if (lap.zone2) cls += " rd4-lapbar--z2";
-          if (lap.anomaly) cls += " rd4-lapbar--break";
-          return (
-            '<div class="' +
-            cls +
-            '" style="height:' +
-            h +
-            '%" title="Lap ' +
-            lap.index +
-            '"></div>'
-          );
+          var cls = "rd4-cbar2";
+          if (lap.zone2) cls += " rd4-cbar2--z2";
+          if (lap.anomaly) cls += " rd4-cbar2--break";
+          if (v == null) {
+            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:5%;background:#e2e8f0"></div></div>';
+          }
+          // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
+          var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
+          var h = 10 + Math.round(norm * 86);
+          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + h + "%;background:" + barColor + '"></div></div>';
         })
         .join("");
+
+      // gridlines + axis
+      var gridEl = container.querySelector("#rd4-lap-grid");
+      if (gridEl) gridEl.innerHTML = gridSpans2(4);
+      var axisEl = container.querySelector("#rd4-lap-axis");
+      if (axisEl) {
+        axisEl.innerHTML = laps.map(function (lap) {
+          return '<div class="rd4-cell2">' + lap.index + "</div>";
+        }).join("");
+      }
+
+      // HR line — independent scale; null laps omit a point (no fabrication).
+      var hrs = laps.map(function (lap) { return lap.split.avg_hr; });
+      var hValid = hrs.filter(function (v) { return v != null && v > 0; });
+      var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
+      var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
+      var hrng = hmax - hmin || 1;
+      var n = laps.length;
+      var pts = [];
+      laps.forEach(function (lap, i) {
+        var hv = lap.split.avg_hr;
+        if (hv == null || hv <= 0) return;
+        var x = ((i + 0.5) / n) * 100;
+        var y = 100 - (((hv - hmin) / hrng) * 80 + 8);
+        pts.push(x.toFixed(2) + "," + y.toFixed(2));
+      });
+      var svg = container.querySelector("#rd4-lap-hr");
+      if (svg) {
+        var inner = "";
+        if (pts.length >= 2) {
+          inner += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+        }
+        pts.forEach(function (p) {
+          var xy = p.split(",");
+          inner += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.2" fill="#fff" stroke="#ef4444" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+        });
+        svg.innerHTML = inner;
+      }
+
+      // legend with real ranges
+      var legendEl = container.querySelector("#rd4-lap-legend");
+      if (legendEl) {
+        var barLabel = barMetric === "power"
+          ? "Power (" + (nums.length ? mn + "–" + mx : "—") + " W)"
+          : "Pace (" + (nums.length ? fmtPaceSec2(mn) + "–" + fmtPaceSec2(mx) : "—") + "/km)";
+        var hrLabel = "HR (" + (hValid.length ? hmin + "–" + hmax : "—") + " bpm)";
+        legendEl.innerHTML =
+          '<span><i class="rd4-swatch2" style="background:' + barColor + '"></i>' + barLabel + "</span>" +
+          '<span><i class="rd4-hr-key2"></i>' + hrLabel + "</span>";
+      }
     }
 
     refreshLapsUi();
