@@ -12226,6 +12226,9 @@ def _build_performance_log_entry(
         score = result.get("score")
         if isinstance(score, (int, float)) and not isinstance(score, bool):
             return "numeric"
+        reason = result.get("reason") or ""
+        if isinstance(reason, str) and reason.startswith("missing:"):
+            return "missing-input"
         return "null"
 
     return {
@@ -12375,13 +12378,14 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             "state": "needs_thresholds",
             "reason": _NEEDS_THRESHOLDS_REASON,
         }
-        log_entry = _build_performance_log_entry(
-            preferences=preferences,
-            runs=runs,
-            endurance=_needs_thresholds_obj,
-            speed=_needs_thresholds_obj,
-        )
-        _performance_log.info("performance score request", extra=log_entry)
+        if _performance_log.isEnabledFor(_logging.DEBUG):
+            log_entry = _build_performance_log_entry(
+                preferences=preferences,
+                runs=runs,
+                endurance=_needs_thresholds_obj,
+                speed=_needs_thresholds_obj,
+            )
+            _performance_log.debug("performance score request", extra=log_entry)
         return JSONResponse({
             "endurance": _needs_thresholds_obj,
             "speed": _needs_thresholds_obj,
@@ -12391,13 +12395,14 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     endurance = compute_endurance_score(runs, preferences, zone_constants)
     speed = compute_speed_score(runs, preferences, zone_constants)
 
-    log_entry = _build_performance_log_entry(
-        preferences=preferences,
-        runs=runs,
-        endurance=endurance,
-        speed=speed,
-    )
-    _performance_log.info("performance score request", extra=log_entry)
+    if _performance_log.isEnabledFor(_logging.DEBUG):
+        log_entry = _build_performance_log_entry(
+            preferences=preferences,
+            runs=runs,
+            endurance=endurance,
+            speed=speed,
+        )
+        _performance_log.debug("performance score request", extra=log_entry)
 
     return JSONResponse({"endurance": endurance, "speed": speed})
 
