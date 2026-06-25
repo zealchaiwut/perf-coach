@@ -306,6 +306,26 @@ function renderProgress(target) {
   const microPlanEl = document.getElementById('pgbar-micro-plan');
   if (microPlanEl) microPlanEl.style.left = `${planPct}%`;
 
+  // ── Near-milestone short-horizon copy (AC6) ─────────────────────
+  // When within ~4 weeks of the next milestone at current rate, replace
+  // the milestone date with "About N weeks at this rate".
+  const nearMsEl = document.getElementById('pstat-next-date');
+  if (nearMsEl && nextMs && nextMs.plan_kg != null && _chartData && _chartData.stats) {
+    const weeklyRate = _chartData.stats.delta_7d_kg != null
+      ? Math.abs(_chartData.stats.delta_7d_kg)
+      : 0;
+    if (weeklyRate > 0.001 && currentBasisKg != null) {
+      const kgToNext = Math.abs(currentBasisKg - nextMs.plan_kg);
+      const weeksAway = kgToNext / weeklyRate;
+      const nearCopy = typeof WeightVoice !== 'undefined'
+        ? WeightVoice.nearMilestoneCopy(weeksAway)
+        : null;
+      if (nearCopy) {
+        nearMsEl.textContent = nearCopy;
+      }
+    }
+  }
+
   // ── Summary row ─────────────────────────────────────────────────
 
   const pctBigEl = document.getElementById('progress-pct-big');
@@ -351,6 +371,33 @@ function renderProgress(target) {
 
     pillEl.textContent = pillText;
     pillEl.className   = `pgstatus-pill ${pillClass}`;
+  }
+
+  // ── What-if prompt (AC5): surface when behind plan with winnable framing ──
+  const whatifPrompt    = document.getElementById('whatif-prompt');
+  const whatifHeadline  = document.getElementById('whatif-headline');
+  const whatifOpenBtn   = document.getElementById('whatif-open-btn');
+
+  if (whatifPrompt) {
+    if (gapDir === 'behind') {
+      if (whatifHeadline && typeof WeightVoice !== 'undefined') {
+        whatifHeadline.textContent = WeightVoice.whatIfHeadline(target.target_date || null);
+      }
+      whatifPrompt.hidden = false;
+      if (whatifOpenBtn && !whatifOpenBtn._wired923) {
+        whatifOpenBtn._wired923 = true;
+        whatifOpenBtn.addEventListener('click', () => {
+          const panel = document.getElementById('edit-panel');
+          const scrim = document.getElementById('edit-scrim');
+          if (panel) panel.hidden = false;
+          if (scrim) scrim.hidden = false;
+          const goalInput = document.getElementById('et-goal-weight');
+          if (goalInput) goalInput.focus();
+        });
+      }
+    } else {
+      whatifPrompt.hidden = true;
+    }
   }
 }
 

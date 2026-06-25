@@ -6,6 +6,7 @@
 - #916: Add Snapshot mode to Run detail view
 - #920: Apply coaching copy to habit logging surfaces; `GET /api/habits/summary` now returns `week_done` and `total_logs` per habit
 - #922: Add shared coaching voice module (`backend/services/coaching_voice.py`) for consistent tone across all coaching surfaces
+- #923: Apply coaching copy to weight chart surfaces; verdict banner references 7-day trend with concrete next-lever; projection line framed as forward path; what-if panel headline frames scenario as still-winnable; `frontend/js/lib/weight-voice.js` is the single copy source
 - #925: Add focus-aware coaching: slipping warnings, minimum version, anchoring, keystone; adds `minimum_version` and `anchor_event` columns to `habits`
 - #926: Build standalone weekly check-in view (`/weekly-check-in`); new `GET /api/weekly-check-in` endpoint
 

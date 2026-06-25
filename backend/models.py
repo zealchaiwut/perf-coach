@@ -147,6 +147,9 @@ class Habit(Base):
     # Focus-aware coaching fields (issue #925)
     minimum_version = Column(Text, nullable=True)
     anchor_event = Column(Text, nullable=True)
+    # Three-focus-habit model (issue #924)
+    is_focus = Column(Boolean, nullable=True)
+    focus_since = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
