@@ -199,11 +199,16 @@ def test_ac7_ymax_formula():
         "yMax offset of +1 not found in weight-chart.js"
 
 
-def test_ac7_gridlines_every_2kg():
-    """AC7: Horizontal gridlines drawn every 2 kg."""
+def test_ac7_gridlines_adaptive_step():
+    """AC7: Horizontal gridlines use an adaptive integer step.
+
+    Superseded the fixed 2 kg step: the band now enforces a 3 kg minimum and
+    steps 1 kg for tight windows, coarsening for wide ranges so 1Y / ALL stay
+    readable.
+    """
     src = _chart_js()
-    assert 'kg += 2' in src or '+= 2' in src, \
-        "2kg gridline step not found in weight-chart.js"
+    assert '_tickStep' in src and 'kg += _tickStep' in src, \
+        "adaptive gridline step (_tickStep) not found in weight-chart.js"
 
 
 # ── AC8: Draw order ───────────────────────────────────────────────────────────
