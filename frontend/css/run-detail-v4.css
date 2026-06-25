@@ -618,10 +618,13 @@
 .rd4-prof2-bars .rd4-cell2,
 .rd4-chart2-bars .rd4-cell2 {
   align-self: stretch;
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
 }
+.rd4-prof2-bars .rd4-prof2-bar,
+.rd4-chart2-bars .rd4-cbar2 { flex: 0 0 auto; }
 .rd4-grid2 { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
 .rd4-grid2 span { border-top: 1px dotted rgba(13,30,67,0.10); height: 0; }
 
