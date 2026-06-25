@@ -21,6 +21,7 @@ COOKIE_NAME = "session"
 ADMIN_COOKIE_NAME = "admin_session"
 CSRF_COOKIE_NAME = "csrf-token"
 _ADMIN_COOKIE_MAX_AGE = int(os.getenv("ADMIN_COOKIE_MAX_AGE", str(4 * 3600)))  # 4 hours default
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 3600)))  # 30 days default
 _ADMIN_LOCKOUT_MAX = int(os.getenv("ADMIN_LOCKOUT_MAX", "5"))
 _ADMIN_LOCKOUT_WINDOW = int(os.getenv("ADMIN_LOCKOUT_WINDOW", "300"))  # 5 minutes
 _admin_lockout: dict = {}  # ip -> {"count": int, "window_start": float}
@@ -98,6 +99,10 @@ def read_session_cookie(token: str) -> dict:
     except Exception:
         raise ValueError("invalid token payload")
 
+    issued_at = data.get("issued_at")
+    if not isinstance(issued_at, (int, float)) or time.time() - issued_at > SESSION_MAX_AGE:
+        raise ValueError("session expired")
+
     return data
 
 
@@ -114,16 +119,21 @@ def set_csrf_cookie(response: Response, token: str) -> None:
         secure=(env != "local"),
         samesite="lax",
         path="/",
+        max_age=SESSION_MAX_AGE,
     )
 
 
 def set_session(response: Response, user_id: str) -> str:
     token = create_session_cookie(user_id, time.time())
+    env = os.getenv("ENVIRONMENT", "local")
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
+        secure=(env != "local"),
         samesite="lax",
+        path="/",
+        max_age=SESSION_MAX_AGE,
     )
     csrf_token = generate_csrf_token()
     set_csrf_cookie(response, csrf_token)
