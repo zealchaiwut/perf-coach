@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 82.2 — Habit adherence analytics and nudges
+
+- #886: Add build_nudges pure function for habit adherence coaching
+- #889: Add compute_adherence_breakdown pure function for habit stats
+- #890: Add detect_slipping_habits pure function for trend detection
+- #892: Build Habits page adherence and nudges UI
+
 ## Sprint 80 — Weight goal projection and what-if simulation
 
 - #874: Add pure function compute_planned_series(plan, as_of_date)
