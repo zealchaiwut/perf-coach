@@ -4,6 +4,9 @@ Pure function — no database access, no mutations, no global state.
 All coaching strings for the quick-log, streak-feedback, and milestone
 surfaces are produced here so no surface hard-codes its own copy.
 
+Tone rules are delegated to :mod:`backend.services.coaching_voice` so that
+a single change to a phrase template propagates here automatically.
+
 Public API
 ----------
 compose_log_feedback(habit, week_done, week_target, total_logs, is_miss,
@@ -17,6 +20,8 @@ compose_log_feedback(habit, week_done, week_target, total_logs, is_miss,
 """
 
 from __future__ import annotations
+
+import backend.services.coaching_voice as coaching_voice
 
 # Milestone log-count landmarks (ascending order)
 _MILESTONES = [10, 25, 30, 50, 75, 100, 150, 200, 250, 365, 500, 750, 1000]
@@ -104,7 +109,10 @@ def compose_log_feedback(
     if is_miss:
         wd = int(week_done) if week_done is not None else 0
         wt = int(week_target) if week_target is not None else 7
-        msg = f"Yesterday slipped—{wd} of {wt} this week still puts you ahead of most."
+        context = f"{wd} of {wt} this week still puts you ahead of most"
+        msg = coaching_voice.miss_and_pivot_line_builder(
+            habit_name, None, "under", context
+        )
         return {
             "message": msg,
             "framing": "miss",
