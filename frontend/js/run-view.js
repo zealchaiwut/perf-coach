@@ -130,6 +130,115 @@
       .join("");
   }
 
+  // ── Session profile: per-lap bars + named zone brackets ───────────────────
+
+  var PHASE_NAME = { warmup: "Warm-up", steady: "Steady", tempo: "Tempo", threshold: "Threshold", cooldown: "Cool-down" };
+  var PHASE_H = { warmup: 45, steady: 60, tempo: 85, threshold: 95, cooldown: 30 };
+
+  // Map a phase label (or its band) to one of the five named colors.
+  function phaseKey(label, band) {
+    var s = (label || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (s.indexOf("warm") === 0) return "warmup";
+    if (s.indexOf("cool") === 0) return "cooldown";
+    if (s.indexOf("steady") === 0 || s.indexOf("easy") === 0) return "steady";
+    if (s.indexOf("tempo") === 0) return "tempo";
+    if (s.indexOf("threshold") === 0) return "threshold";
+    var b = (band || "").toLowerCase();
+    if (b === "tempo") return "tempo";
+    if (b === "hard" || b === "race") return "threshold";
+    return "steady";
+  }
+
+  function gridSpans(n) {
+    var s = "";
+    for (var i = 0; i < n; i++) s += "<span></span>";
+    return s;
+  }
+
+  function fmtPaceSec(sec) {
+    if (sec == null) return "—";
+    var m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  var SP_LEGEND =
+    '<div class="rv2-legend">' +
+    '<span><i class="rv2-dot" style="background:var(--rv2-warmup)"></i>Warm-up</span>' +
+    '<span><i class="rv2-dot" style="background:var(--rv2-steady)"></i>Steady</span>' +
+    '<span><i class="rv2-dot" style="background:var(--rv2-tempo)"></i>Tempo</span>' +
+    '<span><i class="rv2-dot" style="background:var(--rv2-threshold)"></i>Threshold</span>' +
+    '<span><i class="rv2-dot" style="background:var(--rv2-cooldown)"></i>Cool-down</span>' +
+    "</div>";
+
+  function renderSessionProfile(data) {
+    var dp = data.detected_profile || {};
+    var phases = dp.phases || [];
+    var splits = data.splits || [];
+
+    // Fallback to the legacy phase-segment bar when no per-lap grouping exists.
+    if (!phases.length || !splits.length) {
+      var totalDist = (data.workout && data.workout.distance_km) || 0;
+      return (
+        renderSegmentBar(phases, totalDist) +
+        '<div class="rv-seg-rows">' + renderSegmentRows(phases) + "</div>"
+      );
+    }
+
+    // Per-lap phase (index → {key,name}) from the detected phases' lap_indexes.
+    var lapPhase = [];
+    phases.forEach(function (ph) {
+      var key = phaseKey(ph.label, ph.band);
+      (ph.lap_indexes || []).forEach(function (idx) {
+        lapPhase[idx] = { key: key, name: PHASE_NAME[key] };
+      });
+    });
+    var dbgLaps = (dp.debug && dp.debug.laps) || [];
+
+    var bars = splits.map(function (s, i) {
+      var ph = lapPhase[i] || { key: phaseKey(null, (dbgLaps[i] || {}).band), name: "Steady" };
+      var w = parseFloat(s.distance_km) || 0.01;
+      var ratio = dbgLaps[i] && dbgLaps[i].ratio != null ? dbgLaps[i].ratio : null;
+      var h = ratio != null ? Math.max(6, Math.min(100, Math.round(ratio * 100))) : PHASE_H[ph.key];
+      return (
+        '<div class="rv2-cell" style="flex:' + w + ' 0 0">' +
+        '<div class="rv2-bar" style="height:' + h + "%;background:var(--rv2-" + ph.key + ')"></div></div>'
+      );
+    }).join("");
+
+    // Group consecutive same-phase laps into bracket spans.
+    var groups = [], cur = null;
+    splits.forEach(function (s, i) {
+      var ph = lapPhase[i] || { key: "steady", name: "Steady" };
+      var w = parseFloat(s.distance_km) || 0.01;
+      if (!cur || cur.key !== ph.key) {
+        cur = { key: ph.key, name: ph.name, from: i, to: i, w: w };
+        groups.push(cur);
+      } else {
+        cur.to = i; cur.w += w;
+      }
+    });
+    var brackets = groups.map(function (g) {
+      var range = g.from === g.to ? "lap " + (g.from + 1) : "lap " + (g.from + 1) + "–" + (g.to + 1);
+      return (
+        '<div class="rv2-cell rv2-bracket" style="flex:' + g.w + ' 0 0">' +
+        '<div class="rv2-bracket-line"></div>' +
+        '<div class="rv2-bracket-name nm-' + g.key + '">' + esc(g.name) + "</div>" +
+        '<div class="rv2-bracket-range">' + range + "</div></div>"
+      );
+    }).join("");
+
+    var basis = dp.basis && dp.basis !== "none" ? dp.basis.toUpperCase() : "—";
+
+    return (
+      '<div class="rv2-card-title"><span>Session profile · effort</span>' +
+      '<span class="rv2-basis">BASIS · ' + basis + "</span></div>" +
+      '<div class="rv2-sp-chart"><div class="rv2-grid">' + gridSpans(4) + "</div>" +
+      '<div class="rv2-row rv2-sp-bars">' + bars + "</div></div>" +
+      '<div class="rv2-row rv2-bracket-row">' + brackets + "</div>" +
+      SP_LEGEND
+    );
+  }
+
   // ── Lap bar chart ─────────────────────────────────────────────────────────
 
   function lapMetricValue(lap, metric) {
@@ -140,49 +249,79 @@
     return lap.duration_seconds / parseFloat(lap.distance_km);
   }
 
+  // One combined chart: bars for the chosen metric (pace|power) on their own
+  // scale + HR drawn as a line on its own independent scale. Dotted gridlines
+  // behind, lap-number axis below, and a legend giving each series' real range.
   function renderLapChart(splits, metric) {
     if (!splits || !splits.length) return "";
-    var values = splits.map(function (s) {
-      return lapMetricValue(s, metric);
-    });
-    var validVals = values.filter(function (v) {
-      return v != null && v > 0;
-    });
-    var maxVal = validVals.length ? Math.max.apply(null, validVals) : 0;
-    var minVal = validVals.length ? Math.min.apply(null, validVals) : 0;
-    var range = maxVal - minVal || 1;
+    var barMetric = metric === "power" ? "power" : "pace";
+    var barColor = barMetric === "power" ? "var(--rv2-power)" : "var(--rv2-bar)";
+
+    var values = splits.map(function (s) { return lapMetricValue(s, barMetric); });
+    var valid = values.filter(function (v) { return v != null && v > 0; });
+    var vmin = valid.length ? Math.min.apply(null, valid) : 0;
+    var vmax = valid.length ? Math.max.apply(null, valid) : 0;
+    var vr = vmax - vmin || 1;
 
     var bars = splits.map(function (s, i) {
       var v = values[i];
-      var pct, color, isZ2;
-      if (v == null || !validVals.length) {
-        pct = 0;
-        color = "#e2e8f0";
-      } else {
-        // For pace: faster (lower secPerKm) = taller bar; invert.
-        var normalized =
-          metric === "pace" ? 1 - (v - minVal) / range : (v - minVal) / range;
-        pct = Math.max(10, Math.round(normalized * 90) + 10);
-        color = pct < 40 ? "#86efac" : pct < 70 ? "#fcd34d" : "#fb923c";
+      var z2 = window.Zone2.isZone2Lap(s.avg_hr) ? " rv-bar--z2" : "";
+      if (v == null || !valid.length) {
+        // null stays a (flat) dash — no fabricated height.
+        return '<div class="rv2-cell" style="flex:1 0 0"><div class="rv2-cbar' + z2 +
+          '" style="height:5%;background:#e2e8f0"></div></div>';
       }
-      isZ2 = window.Zone2.isZone2Lap(s.avg_hr);
-      var ring = isZ2 ? " rv-bar--z2" : "";
-      return (
-        '<div class="rv-bar-col">' +
-        '<div class="rv-bar' +
-        ring +
-        '" style="height:' +
-        pct +
-        "%;background:" +
-        color +
-        '"></div>' +
-        '<div class="rv-bar-label">' +
-        (i + 1) +
-        "</div>" +
-        "</div>"
-      );
+      // Pace: faster (smaller sec/km) = taller, so invert. Power: more W = taller.
+      var norm = barMetric === "pace" ? 1 - (v - vmin) / vr : (v - vmin) / vr;
+      var h = Math.round(10 + norm * 86);
+      return '<div class="rv2-cell" style="flex:1 0 0"><div class="rv2-cbar' + z2 +
+        '" style="height:' + h + "%;background:" + barColor + '"></div></div>';
+    }).join("");
+
+    var axis = splits.map(function (s, i) {
+      return '<div class="rv2-cell" style="flex:1 0 0">' + (i + 1) + "</div>";
+    }).join("");
+
+    // HR line — independent scale; null laps just omit a point (no fabrication).
+    var hrVals = splits.map(function (s) { return s.avg_hr; });
+    var hValid = hrVals.filter(function (v) { return v != null && v > 0; });
+    var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
+    var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
+    var hrng = hmax - hmin || 1;
+    var n = splits.length;
+    var pts = [];
+    splits.forEach(function (s, i) {
+      if (s.avg_hr == null || s.avg_hr <= 0) return;
+      var x = ((i + 0.5) / n) * 100;
+      var y = 100 - (((s.avg_hr - hmin) / hrng) * 80 + 8);
+      pts.push(x.toFixed(2) + "," + y.toFixed(2));
     });
-    return '<div class="rv-lap-chart">' + bars.join("") + "</div>";
+    var svg = '<svg class="rv2-hr-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">';
+    if (pts.length >= 2) {
+      svg += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="var(--rv2-hr)" ' +
+        'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    }
+    pts.forEach(function (p) {
+      var xy = p.split(",");
+      svg += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.2" fill="#fff" ' +
+        'stroke="var(--rv2-hr)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+    });
+    svg += "</svg>";
+
+    var barLabel = barMetric === "power"
+      ? "Power (" + (valid.length ? vmin + "–" + vmax : "—") + " W)"
+      : "Pace (" + (valid.length ? fmtPaceSec(vmin) + "–" + fmtPaceSec(vmax) : "—") + "/km)";
+    var hrLabel = "HR (" + (hValid.length ? hmin + "–" + hmax : "—") + " bpm)";
+    var legend =
+      '<div class="rv2-chart-legend">' +
+      '<span><i class="rv2-swatch" style="background:' + barColor + '"></i>' + barLabel + "</span>" +
+      '<span><i class="rv2-hr-key"></i>' + hrLabel + "</span></div>";
+
+    return (
+      '<div class="rv2-chart"><div class="rv2-grid">' + gridSpans(4) + "</div>" +
+      '<div class="rv2-row rv2-chart-bars">' + bars + "</div>" + svg + "</div>" +
+      '<div class="rv2-row rv2-axis">' + axis + "</div>" + legend
+    );
   }
 
   // ── Lap table ─────────────────────────────────────────────────────────────
@@ -242,19 +381,17 @@
       header +
       "</h3>" +
       "</div>" +
-      '<div class="rv-lap-chart-wrap">' +
-      renderLapChart(splits, _lapMetric) +
-      "</div>" +
-      '<div class="rv-metric-toggle" role="group" aria-label="Lap chart metric">' +
+      // Toggle switches only the BAR metric; HR is always drawn as the line.
+      '<div class="rv-metric-toggle" role="group" aria-label="Lap bar metric">' +
       '<button class="rv-mtog' +
-      (_lapMetric === "pace" ? " rv-mtog--active" : "") +
+      (_lapMetric === "power" ? "" : " rv-mtog--active") +
       '" data-metric="pace">Pace</button>' +
-      '<button class="rv-mtog' +
-      (_lapMetric === "hr" ? " rv-mtog--active" : "") +
-      '" data-metric="hr">HR</button>' +
       '<button class="rv-mtog' +
       (_lapMetric === "power" ? " rv-mtog--active" : "") +
       '" data-metric="power">Power</button>' +
+      "</div>" +
+      '<div class="rv-lap-chart-wrap">' +
+      renderLapChart(splits, _lapMetric) +
       "</div>" +
       '<div class="rv-lap-table-wrap">' +
       '<table class="rv-lap-table">' +
@@ -403,16 +540,10 @@
       '<p class="rv-footnote">NP · stride = avg per step · cadence = steps/min</p>' +
       "</div>";
 
-    // Session Profile
-    var segments = (data.detected_profile && data.detected_profile.phases) || [];
-    var totalDist = w.distance_km || 0;
+    // Session Profile — per-lap bars + named zone brackets from detected_profile.
     var profileSection =
       '<div class="rv-card rv-profile">' +
-      '<h2 class="rv-section-title">Session Profile · Effort</h2>' +
-      renderSegmentBar(segments, totalDist) +
-      '<div class="rv-seg-rows">' +
-      renderSegmentRows(segments) +
-      "</div>" +
+      renderSessionProfile(data) +
       "</div>";
 
     // Laps section
