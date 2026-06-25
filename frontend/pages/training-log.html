@@ -761,6 +761,49 @@
     /* ── Day-grouped list (issue #637) ── */
     .day-group { }
 
+    /* Month separator with monthly rollup */
+    .month-sep {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin: 18px 0 4px;
+      padding: 8px 4px;
+      border-bottom: 2px solid rgba(13, 30, 67, 0.10);
+    }
+    .month-sep:first-child { margin-top: 4px; }
+    .month-sep-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+    .month-sep-stats {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .month-stat {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .month-stat-val {
+      font-family: var(--mono, 'JetBrains Mono', monospace);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .month-stat-lbl {
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+    }
+
     .day-group-header {
       padding: 8px 4px 6px;
       font-size: 10.5px;
