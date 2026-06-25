@@ -863,6 +863,44 @@
   // ── Log list rendering ────────────────────────────────────────────────────
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
+  // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
+  function buildMonthSeparator(dateStr, agg) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var sep = document.createElement('div');
+    sep.className = 'month-sep';
+
+    var title = document.createElement('div');
+    title.className = 'month-sep-title';
+    title.textContent = isNaN(d.getMonth())
+      ? (dateStr || '').slice(0, 7)
+      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    sep.appendChild(title);
+
+    var stats = document.createElement('div');
+    stats.className = 'month-sep-stats';
+    var parts = [
+      ['Run TSS', agg ? Math.round(agg.runTss) : 0],
+      ['Lift TSS', agg ? Math.round(agg.liftTss) : 0],
+      ['Time', (agg && agg.secs) ? fmtDuration(agg.secs) : '0min'],
+      ['KM', agg ? (Math.round(agg.km * 10) / 10) : 0],
+    ];
+    parts.forEach(function (p) {
+      var chip = document.createElement('span');
+      chip.className = 'month-stat';
+      var val = document.createElement('span');
+      val.className = 'month-stat-val';
+      val.textContent = p[1];
+      var lbl = document.createElement('span');
+      lbl.className = 'month-stat-lbl';
+      lbl.textContent = p[0];
+      chip.appendChild(val);
+      chip.appendChild(lbl);
+      stats.appendChild(chip);
+    });
+    sep.appendChild(stats);
+    return sep;
+  }
+
   function renderDayGroupedList(container, weeks) {
     if (!container) return;
     container.innerHTML = "";
@@ -897,7 +935,29 @@
     // Ensure newest-first day order.
     days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
 
+    // Per-month rollups (Run TSS / Lift TSS / Time / KM), keyed by YYYY-MM.
+    var monthAgg = {};
+    entries.forEach(function (e) {
+      var mk = (e.date || '').slice(0, 7);
+      if (!mk) return;
+      if (!monthAgg[mk]) monthAgg[mk] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+      var tk = normalizeTypeKey(e.type);
+      var tss = Number(e.tss) || 0;
+      if (tk === 'run') monthAgg[mk].runTss += tss;
+      else if (tk === 'lift') monthAgg[mk].liftTss += tss;
+      if (e.duration_seconds) monthAgg[mk].secs += Number(e.duration_seconds) || 0;
+      if (e.distance_km) monthAgg[mk].km += Number(e.distance_km) || 0;
+    });
+
+    var lastMonthKey = null;
+
     days.forEach(function (dateStr) {
+      var monthKey = dateStr.slice(0, 7);
+      if (monthKey !== lastMonthKey) {
+        lastMonthKey = monthKey;
+        container.appendChild(buildMonthSeparator(dateStr, monthAgg[monthKey]));
+      }
+
       var d = new Date(dateStr + 'T00:00:00');
       var dayGroup = document.createElement('div');
       dayGroup.className = 'day-group';
