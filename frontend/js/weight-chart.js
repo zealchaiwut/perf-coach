@@ -314,53 +314,30 @@ const WeightChart = (() => {
     }
 
     wrap.hidden = false;
-    const isAhead = dir === "ahead";
-    const isBehind = dir === "behind";
-    const absGap = Math.abs(tm.gap_kg).toFixed(1);
-    const sign = isAhead ? "−" : "+";
+
+    // Delegate all coaching copy to the shared voice module (AC7).
+    const coaching =
+      typeof WeightVoice !== "undefined"
+        ? WeightVoice.verdictCopy(tm, data.actuals, data.stats)
+        : { pillText: null, message: "—", state: dir };
+
+    const state = coaching.state || dir;
 
     pill.className =
       "chart-verdict-pill" +
-      (isAhead
+      (state === "ahead"
         ? " chart-verdict-pill--ahead"
-        : isBehind
+        : state === "behind"
           ? " chart-verdict-pill--behind"
           : " chart-verdict-pill--on-track");
-    pill.textContent = isAhead
-      ? "AHEAD " + sign + absGap + " kg"
-      : isBehind
-        ? "BEHIND " + sign + absGap + " kg"
-        : "ON TRACK";
 
-    const trendStr = tm.trend_kg != null ? tm.trend_kg.toFixed(1) : "—";
-    const planStr = tm.plan_kg != null ? tm.plan_kg.toFixed(1) : "—";
-    const sideWord = isAhead ? "below" : isBehind ? "above" : "on";
-    const fillWord = isAhead ? "green" : "red";
-    let summary =
-      "Trend sits " +
-      sideWord +
-      " the plan line — gap shaded " +
-      fillWord +
-      ". 7-day avg " +
-      trendStr +
-      " vs plan " +
-      planStr;
-
-    const tgt = data.target;
-    if (tgt && tgt.target_date) {
-      const goalD = new Date(tgt.target_date + "T00:00:00");
-      const goalLbl = goalD.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-      summary +=
-        " · goal " +
-        (tgt.target_weight_kg != null ? tgt.target_weight_kg.toFixed(0) : "") +
-        " kg by " +
-        goalLbl;
+    if (coaching.pillText) {
+      pill.textContent = coaching.pillText;
+    } else {
+      pill.textContent = state === "ahead" ? "AHEAD" : state === "behind" ? "BEHIND" : "ON TRACK";
     }
-    text.textContent = summary;
+
+    text.textContent = coaching.message !== "—" ? coaching.message : "";
   }
 
   function _findNearestDot(svgEl, clientX, clientY) {
@@ -989,7 +966,14 @@ const WeightChart = (() => {
         "font-weight": "700",
         "font-family": "JetBrains Mono, monospace",
       });
-      chipT.textContent = goalKg.toFixed(0) + " · goal";
+      // Use forward-looking label from voice module when behind plan (AC4).
+      const gapDirForChip = data.today_marker ? data.today_marker.gap_direction : null;
+      const isBehindForChip = gapDirForChip === "behind";
+      if (isBehindForChip && typeof WeightVoice !== "undefined") {
+        chipT.textContent = WeightVoice.projectionLabel(goalKg, data.target.target_date || null);
+      } else {
+        chipT.textContent = goalKg.toFixed(0) + " · goal";
+      }
       svg.appendChild(chipT);
       _activeDots.push({
         cx: gx - chipW / 2,
@@ -997,6 +981,30 @@ const WeightChart = (() => {
         date: data.target.target_date || "",
         kg: goalKg,
       });
+
+      // ── Recomputed-from-progress projection line (active when behind plan) ──
+      // Draws a blue dashed line from today's 7-day trend position forward to the
+      // goal, representing the realistic path from where the user actually is.
+      // Label uses WeightVoice.projectionLabel for forward-looking framing (AC4).
+      if (
+        isBehindForChip &&
+        hasFutureZone &&
+        data.today_marker &&
+        data.today_marker.trend_kg != null
+      ) {
+        const projStartY = y(data.today_marker.trend_kg);
+        const projPts = [curR + "," + projStartY, gx + "," + gy];
+        svg.appendChild(
+          _el("polyline", {
+            points: projPts.join(" "),
+            fill: "none",
+            stroke: C.trend,
+            "stroke-width": "1.2",
+            "stroke-dasharray": "3 3",
+            opacity: "0.7",
+          }),
+        );
+      }
     }
 
     // ── "milestones ↓" link (shown when future zone is suppressed but target exists) ──
