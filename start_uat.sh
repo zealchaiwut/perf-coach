@@ -93,7 +93,11 @@ echo "Server listening on port $PORT"
 
 source .venv/bin/activate
 
+# Keep using uv to launch (matches the deploy flow). `uv run --active` uses the
+# activated .venv above instead of building an ephemeral env — that ephemeral
+# env has no dependencies (there is no pyproject.toml/uv.lock here), which is
+# what caused the earlier `ModuleNotFoundError: No module named 'cryptography'`.
 echo "Applying database migrations (UAT)..."
-.venv/bin/alembic upgrade head
+uv run --active alembic upgrade head
 
-exec .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
+exec uv run --active uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
