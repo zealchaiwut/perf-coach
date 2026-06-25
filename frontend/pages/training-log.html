@@ -655,6 +655,25 @@
       margin-top: 0.1rem;
     }
 
+    /* Per-metric zone bar (good / normal / caution) with a current-value marker */
+    .rw-zone { margin: 7px 0 2px; }
+    .rw-zone-bar {
+      position: relative; display: flex; height: 6px; border-radius: 999px; gap: 1px;
+    }
+    .rw-zone-bar span { height: 100%; opacity: 0.85; }
+    .rw-zone-bar span:first-child { border-radius: 999px 0 0 999px; }
+    .rw-zone-bar span:last-child { border-radius: 0 999px 999px 0; }
+    .rw-zone-mark {
+      position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+      border-radius: 50%; background: #fff;
+      border: 2px solid var(--text-primary, #0b1530);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .rw-zone-name {
+      margin-top: 4px; font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+      text-transform: uppercase; text-align: center;
+    }
+
     .rw-spark-wrap {
       position: relative;
       width: 100%;
