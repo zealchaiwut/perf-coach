@@ -229,7 +229,7 @@ class TestThresholdsFromDB:
 
         # Mock DB: has 1 run workout, has prefs
         mock_workout = _make_workout(1, workout_date_str="2026-01-01")
-        mock_prefs = _make_prefs(ftp_w=220)
+        _make_prefs(ftp_w=220)
 
         mock_session = mock.MagicMock()
         (mock_session.query.return_value

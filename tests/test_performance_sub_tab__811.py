@@ -318,7 +318,7 @@ def test_performance_panel_styles_use_tokens(training_log_html):
 
     # Find any perf-specific <style> block that follows the panel
     # (inline style blocks near the panel area or a dedicated perf style)
-    perf_js_ref = training_log_html.find("training-performance.js")
+    training_log_html.find("training-performance.js")
 
     # Extract all style blocks after the performance panel div
     tail = training_log_html[perf_start:]
