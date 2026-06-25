@@ -118,7 +118,17 @@ const WeightChart = (() => {
     const hi = Math.max(...vals);
     const spread = hi - lo || 1;
     const buffer = spread * 0.1;
-    return { presentMin: lo - buffer, presentMax: hi + buffer };
+    let presentMin = lo - buffer;
+    let presentMax = hi + buffer;
+    // Enforce a minimum visible window so flat data doesn't collapse to a
+    // single gridline. Expand symmetrically around the midpoint to MIN_SPAN.
+    const MIN_SPAN = 3;
+    if (presentMax - presentMin < MIN_SPAN) {
+      const mid = (presentMin + presentMax) / 2;
+      presentMin = mid - MIN_SPAN / 2;
+      presentMax = mid + MIN_SPAN / 2;
+    }
+    return { presentMin, presentMax };
   }
 
   function _computeGlobalBounds(data, presentMin, presentMax) {
@@ -550,8 +560,16 @@ const WeightChart = (() => {
       });
     }
 
-    // ── 2. Gridlines — integer ticks within the present band (every 2 kg) ─
-    for (let kg = Math.ceil(presentMin / 2) * 2; kg <= presentMax; kg += 2) {
+    // ── 2. Gridlines — integer ticks within the present band ──────────────
+    // Step adapts to band width: 1 kg for tight windows (incl. the enforced
+    // 3 kg minimum), coarser for wide ranges so 1Y / ALL don't clutter.
+    const _bandSpan = presentMax - presentMin;
+    const _tickStep = _bandSpan <= 6 ? 1 : _bandSpan <= 15 ? 2 : 5;
+    for (
+      let kg = Math.ceil(presentMin / _tickStep) * _tickStep;
+      kg <= presentMax;
+      kg += _tickStep
+    ) {
       const gy = y(kg);
       svg.appendChild(
         _el("line", {
