@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 84 — Coaching voice, focus-aware habits, compact run view, and weekly check-in
+
+- #915: Compact run detail view for higher information density
+- #916: Add Snapshot mode to Run detail view
+- #920: Apply coaching copy to habit logging surfaces; `GET /api/habits/summary` now returns `week_done` and `total_logs` per habit
+- #922: Add shared coaching voice module (`backend/services/coaching_voice.py`) for consistent tone across all coaching surfaces
+- #925: Add focus-aware coaching: slipping warnings, minimum version, anchoring, keystone; adds `minimum_version` and `anchor_event` columns to `habits`
+- #926: Build standalone weekly check-in view (`/weekly-check-in`); new `GET /api/weekly-check-in` endpoint
+
 ## Sprint 80 — Weight goal projection and what-if simulation
 
 - #874: Add pure function compute_planned_series(plan, as_of_date)
