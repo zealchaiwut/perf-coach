@@ -76,6 +76,7 @@ from backend.services.lap_recompute import rebuild_athlete_duration_curve as _re
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
+from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -12166,8 +12167,6 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 _performance_log = _logging.getLogger(__name__)
-
-from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 
 
 def _check_needs_thresholds(preferences) -> bool:
