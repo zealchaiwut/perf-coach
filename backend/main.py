@@ -10729,6 +10729,7 @@ def get_user_preferences(user: User = Depends(resolve_user)):
         row = _prefs_row_dict(prefs)
         row["user_name"] = db_user.name
         row["user_email"] = db_user.email
+        row["user_id"] = str(db_user.id)
         return JSONResponse({
             "row": row,
             "defaults": _PREFS_DEFAULTS,

@@ -1051,6 +1051,11 @@
         </div>
 
         <div class="profile-form-group">
+          <label class="profile-label" for="profile-user-id">User ID</label>
+          <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
+        </div>
+
+        <div class="profile-form-group">
           <label class="profile-label" for="profile-timezone">Timezone</label>
           <select id="profile-timezone" class="profile-select">
             <option value="Asia/Bangkok">Asia/Bangkok</option>
@@ -1570,6 +1575,9 @@
 
             var emailEl = document.getElementById('profile-email');
             if (emailEl) emailEl.value = row.user_email || '';
+
+            var uidEl = document.getElementById('profile-user-id');
+            if (uidEl) uidEl.value = row.user_id || '';
 
             var tzEl = document.getElementById('profile-timezone');
             if (tzEl) tzEl.value = _baseline.timezone;
