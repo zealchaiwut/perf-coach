@@ -1345,16 +1345,8 @@
     .dp-nav-btn:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
     .dp-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-    /* icon visibility by viewport — block inside flex btn (inline breaks layout) */
-    .dp-icon-btn > [class*="dp-icon-"],
-    .dp-nav-btn > [class*="dp-icon-"] { display: none; line-height: 1; }
-
-    .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: block; }
-
-    @media (max-width: 879px) {
-      .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: none; }
-      .dp-icon-close-back, .dp-icon-nav-left, .dp-icon-nav-right { display: block; }
-    }
+    /* Top-bar control icons (Tabler webfont) — match the screenshot button */
+    .dp-nav-btn .ti { font-size: 1rem; line-height: 1; }
 
     /* Form mode: simplify top bar (back + title area only) */
     .detail-panel--form .dp-position-group,
@@ -2791,19 +2783,16 @@
       <!-- Top bar: close | prev · position pill · next | overflow -->
       <div class="dp-topbar">
         <button id="dp-close-btn" class="dp-icon-btn" aria-label="Close workout details" type="button">
-          <span class="dp-icon-close-x" aria-hidden="true">&#x2715;</span>
-          <span class="dp-icon-close-back" aria-hidden="true">&#8592;</span>
+          <i class="ti ti-x" aria-hidden="true"></i>
         </button>
 
         <div class="dp-position-group">
           <button id="dp-prev-btn" class="dp-nav-btn" aria-label="Previous workout" type="button">
-            <span class="dp-icon-nav-up"    aria-hidden="true">&#9650;</span>
-            <span class="dp-icon-nav-left"  aria-hidden="true">&#9664;</span>
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
           </button>
           <div id="dp-position-pill" class="dp-position" aria-live="polite"></div>
           <button id="dp-next-btn" class="dp-nav-btn" aria-label="Next workout" type="button">
-            <span class="dp-icon-nav-down"  aria-hidden="true">&#9660;</span>
-            <span class="dp-icon-nav-right" aria-hidden="true">&#9654;</span>
+            <i class="ti ti-chevron-right" aria-hidden="true"></i>
           </button>
         </div>
 
