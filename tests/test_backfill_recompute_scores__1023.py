@@ -20,7 +20,6 @@ import inspect
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
