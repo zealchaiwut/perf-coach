@@ -300,3 +300,99 @@ class TestAC5_CorrectFieldNames:
             f"log_date should be {_TODAY}, got {obj.log_date}"
         assert obj.log_week_start == _WEEK_MONDAY, \
             f"log_week_start should be {_WEEK_MONDAY}, got {obj.log_week_start}"
+
+
+# ── Issue #471: date parsing validation — invalid dates return 400 ────────────
+
+class TestDateParsingValidation:
+    """Issue #471: POST /api/habits/logs returns 400 for invalid date strings.
+
+    Covers the try/except around date.fromisoformat(body.logged_date) at
+    backend/main.py lines 4306-4309.
+    """
+
+    def _setup_session_with_habit(self, habit):
+        sess = MagicMock()
+        sess.__enter__ = MagicMock(return_value=sess)
+        sess.__exit__ = MagicMock(return_value=False)
+        sess.get.return_value = habit
+        return sess
+
+    def test_completely_invalid_date_string_returns_400(self):
+        """'not-a-date' must be rejected with 400, not 500."""
+        client, _ = _make_client()
+        habit = _make_habit()
+        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session", return_value=sess):
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "not-a-date"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for 'not-a-date', got {r.status_code}: {r.text}"
+        body = r.json()
+        assert "detail" in body
+
+    def test_out_of_range_date_returns_400(self):
+        """'2026-13-45' (month 13, day 45) must be rejected with 400."""
+        client, _ = _make_client()
+        habit = _make_habit()
+        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session", return_value=sess):
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "2026-13-45"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for '2026-13-45', got {r.status_code}: {r.text}"
+        body = r.json()
+        assert "detail" in body
+
+    def test_empty_date_string_returns_400(self):
+        """An empty string for logged_date must be rejected with 400."""
+        client, _ = _make_client()
+        habit = _make_habit()
+        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session", return_value=sess):
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": ""},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for empty date, got {r.status_code}: {r.text}"
+
+    def test_wrong_date_format_returns_400(self):
+        """Slash-separated date 'MM/DD/YYYY' must be rejected with 400."""
+        client, _ = _make_client()
+        habit = _make_habit()
+        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session", return_value=sess):
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "06/26/2026"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for 'MM/DD/YYYY' format, got {r.status_code}: {r.text}"
+
+    def test_invalid_date_does_not_return_500(self):
+        """Invalid date must never produce a 500 internal server error."""
+        client, _ = _make_client()
+        habit = _make_habit()
+        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session", return_value=sess):
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "not-a-date"},
+            )
+        _teardown()
+
+        assert r.status_code != 500, f"Got unexpected 500 for invalid date: {r.text}"
