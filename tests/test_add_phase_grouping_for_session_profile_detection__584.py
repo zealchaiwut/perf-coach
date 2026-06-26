@@ -454,10 +454,17 @@ def test_all_required_phase_fields_present():
 # ── Multi-lap phase aggregation ───────────────────────────────────────────────
 
 def test_multi_lap_warmup_aggregated():
-    """AC8: warm-up spanning multiple consecutive easy laps aggregates correctly."""
+    """AC8: a short multi-lap warm-up (<=25% of the run) aggregates + labels.
+
+    The run is long enough that the two easy opening laps stay under the
+    WARMUP_MAX_FRACTION size gate.
+    """
     laps = [
         _lap("easy",  1.0, 300),
         _lap("easy",  1.5, 450),
+        _lap("tempo", 2.0, 480),
+        _lap("tempo", 2.0, 480),
+        _lap("tempo", 2.0, 480),
         _lap("tempo", 2.0, 480),
         _lap("easy",  1.0, 300),
     ]
@@ -468,6 +475,16 @@ def test_multi_lap_warmup_aggregated():
     assert warmup["distance_km"] == pytest.approx(2.5)
     assert warmup["duration_seconds"] == pytest.approx(750)
     assert warmup["avg_pace_seconds_per_km"] == pytest.approx(750 / 2.5)
+
+
+def test_long_opening_block_is_not_warmup():
+    """A long opening low-intensity block (> 25% of the run) keeps its band
+    name instead of being mislabelled as a multi-lap Warm-up."""
+    laps = [_lap("steady", 1.0, 360) for _ in range(7)]  # 7 km steady block
+    laps.append(_lap("tempo", 1.0, 300))                  # one harder lap
+    phases, _ = group_laps_into_phases(laps, CFG)
+    assert phases[0]["lap_indexes"] == [0, 1, 2, 3, 4, 5, 6]
+    assert phases[0]["label"] != "Warm-up"  # 7/8 of the run — it's the main block
 
 
 def test_multi_lap_tempo_summed():

@@ -173,6 +173,16 @@
   }
   function gridSpans2(n) { var s = ""; for (var i = 0; i < n; i++) s += "<span></span>"; return s; }
 
+  // Physiological intensity ranking — drives surge (up) vs dip (down) for
+  // deviations in the variable/race regime; never hardcoded per session.
+  var KEY_RANK2 = { cooldown: 0, warmup: 1, recovery: 0, easy: 1, steady: 2, tempo: 3, threshold: 4, hard: 5, race: 6 };
+  function keyRank2(k) { var r = KEY_RANK2[k]; return r == null ? 2 : r; }
+  function avg2(arr) {
+    var v = arr.filter(function (x) { return x != null && !isNaN(x); });
+    return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null;
+  }
+  function lapRange2(from1, to1) { return from1 === to1 ? "" + from1 : from1 + "–" + to1; }
+
   function normalizeStravaLap(lap, index) {
     var distM = lap.distance;
     var cad = lap.average_cadence;
@@ -789,13 +799,9 @@
     // ── 4 Session profile ──
     var profileBlock = "";
     if (distanceLapMeta.length) {
-      var maxPow = Math.max.apply(
-        null,
-        distanceLapMeta.map(function (m) {
-          return m.power || 0;
-        }),
-      );
+      var maxPow = Math.max.apply(null, distanceLapMeta.map(function (m) { return m.power || 0; }));
       var hasPhases = !!(detected.confident && detected.phases && detected.phases.length);
+      var nLaps = distanceLapMeta.length;
 
       // Per-lap phase (1-based lap → {key,name}) from detected.phases' lap_indexes.
       var lapPhase2 = {};
@@ -808,64 +814,134 @@
         });
       }
 
-      // Bars: width ∝ lap distance, height ∝ power, color by phase (or band fallback).
-      var bars = distanceLapMeta
-        .map(function (m) {
-          var ph = lapPhase2[m.index];
-          var col = m.anomaly ? "#94a3b8" : (ph ? PHASE_COLOR2[ph.key] : bandColor(bandMap[m.index] || "steady"));
-          var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
-          // Pixel height of the 84px track — avoids any CSS percentage-height
-          // resolution quirk (bars previously collapsed to min-height).
-          var hpx = Math.max(5, Math.round((h / 100) * 84));
-          var w = (m.split && m.split.distance_km) || 0.01;
-          var z2ring = m.zone2 ? " rd4-prof2-bar--z2" : "";
-          var brk = m.anomaly ? " rd4-prof2-bar--break" : "";
-          return (
-            '<div class="rd4-cell2" style="flex:' + w + ' 0 0">' +
-            '<div class="rd4-prof2-bar' + z2ring + brk + '" style="height:' + hpx + "px;background:" + col + '"></div></div>'
-          );
-        })
-        .join("");
+      // Per-lap band key (array position i → key).
+      var keyOf = distanceLapMeta.map(function (m) {
+        var ph = lapPhase2[m.index];
+        return ph ? ph.key : phaseKey2(null, bandMap[m.index]);
+      });
 
-      // Named zone brackets: one per phase, width = sum of its laps' distances,
-      // aligned exactly over the bars (gap:0 proportional partition).
-      var brackets = "";
-      if (hasPhases) {
-        brackets = detected.phases
-          .map(function (ph) {
-            var key = phaseKey2(ph.label, ph.band);
-            var idxs = (ph.lap_indexes || []).slice().sort(function (a, b) { return a - b; });
-            if (!idxs.length) return "";
-            var w = 0;
-            idxs.forEach(function (idx) {
-              var lm = distanceLapMeta[idx];
-              w += (lm && lm.split && lm.split.distance_km) || 0.01;
-            });
-            var lo = idxs[0] + 1, hi = idxs[idxs.length - 1] + 1;
-            var range = lo === hi ? "lap " + lo : "lap " + lo + "–" + hi;
-            return (
-              '<div class="rd4-cell2 rd4-bracket2" style="flex:' + w + ' 0 0">' +
-              '<div class="rd4-bracket2-line"></div>' +
-              '<div class="rd4-bracket2-name" style="color:' + PHASE_COLOR2[key] + '">' + esc(PHASE_NAME2[key]) + "</div>" +
-              '<div class="rd4-bracket2-range">' + range + "</div></div>"
-            );
-          })
-          .join("");
+      // STEP 1 — smooth single-lap flickers between two same-band neighbours.
+      for (var sm = 1; sm < nLaps - 1; sm++) {
+        if (keyOf[sm] !== keyOf[sm - 1] && keyOf[sm - 1] === keyOf[sm + 1]) keyOf[sm] = "__dev:" + keyOf[sm];
       }
+      var rawKey = keyOf.map(function (k) { return k.indexOf("__dev:") === 0 ? k.slice(6) : k; });
+      var smoothKey = keyOf.map(function (k, idx) { return k.indexOf("__dev:") === 0 ? rawKey[idx - 1] : k; });
+
+      function runsOf2(seq) {
+        var r = [], cur = null;
+        seq.forEach(function (k, idx) {
+          if (!cur || cur.key !== k) { cur = { key: k, from: idx, to: idx }; r.push(cur); } else cur.to = idx;
+        });
+        return r;
+      }
+      function lapW(i) { var m = distanceLapMeta[i]; return (m && m.split && m.split.distance_km) || 0.01; }
+      function hpxOf(m) {
+        var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
+        return Math.max(5, Math.round((h / 100) * 116));  // track is 120px (see .rd4-prof2-bars)
+      }
+
+      // STEP 2 — regime detection.
+      var counts = {};
+      rawKey.forEach(function (k) { counts[k] = (counts[k] || 0) + 1; });
+      var domKey = null, domN = 0;
+      Object.keys(counts).forEach(function (k) { if (counts[k] > domN) { domN = counts[k]; domKey = k; } });
+      var domShare = nLaps ? domN / nLaps : 0;
+      var devRuns = runsOf2(rawKey).filter(function (r) { return r.key !== domKey; });
+      var shortDev = devRuns.filter(function (r) { return r.to - r.from + 1 <= 2; });
+      // A low-intensity warm-up/cool-down bookend signals a deliberately
+      // structured arc (warm-up → work → cool-down) → keep the bracket view.
+      // Without one, a single dominant band is a *sustained* effort (a tempo
+      // race, a steady block) → the headline reads better than many brackets.
+      var LOW_BOOKEND = { warmup: 1, cooldown: 1, recovery: 1, easy: 1 };
+      var lowBookend = !!(LOW_BOOKEND[smoothKey[0]] || LOW_BOOKEND[smoothKey[nLaps - 1]]);
+      var variable = hasPhases && (
+        detected.reps_detected != null ||
+        domShare >= 0.65 ||
+        (domShare >= 0.5 && !lowBookend) ||
+        (shortDev.length >= 2 && domShare >= 0.45)
+      );
 
       var basis = detected.basis && detected.basis !== "none" ? esc(detected.basis) : "—";
       var confNote = detected.confident === false
         ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
         : '<p class="rd4-muted">Detected profile · basis ' + basis +
           (detected.reps_detected != null ? " · reps " + detected.reps_detected : "") + "</p>";
+      var head = '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>';
 
-      profileBlock =
-        '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>' +
-        '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
-        '<div class="rd4-row2 rd4-prof2-bars">' + bars + "</div></div>" +
-        (brackets ? '<div class="rd4-row2 rd4-bracket2-row">' + brackets + "</div>" : "") +
-        confNote +
-        "</section>";
+      if (!variable) {
+        // ── STRUCTURED: bars + named brackets (grouped by smoothed key) ──
+        var sBars = distanceLapMeta.map(function (m, i) {
+          var k = smoothKey[i];
+          var col = m.anomaly ? "#94a3b8" : PHASE_COLOR2[k] || bandColor(bandMap[m.index] || "steady");
+          var z2 = m.zone2 ? " rd4-prof2-bar--z2" : "", brk = m.anomaly ? " rd4-prof2-bar--break" : "";
+          return '<div class="rd4-cell2" style="flex:' + lapW(i) + ' 0 0">' +
+            '<div class="rd4-prof2-bar' + z2 + brk + '" style="height:' + hpxOf(m) + "px;background:" + col + '"></div></div>';
+        }).join("");
+        var grp = [], cg = null;
+        smoothKey.forEach(function (k, i) {
+          if (!cg || cg.key !== k) { cg = { key: k, from: i, to: i, w: lapW(i) }; grp.push(cg); }
+          else { cg.to = i; cg.w += lapW(i); }
+        });
+        var brackets = grp.map(function (g) {
+          var range = "lap " + lapRange2(g.from + 1, g.to + 1);
+          return '<div class="rd4-cell2 rd4-bracket2" style="flex:' + g.w + ' 0 0">' +
+            '<div class="rd4-bracket2-line"></div>' +
+            '<div class="rd4-bracket2-name" style="color:' + (PHASE_COLOR2[g.key] || "#22c55e") + '">' + esc(PHASE_NAME2[g.key] || g.key) + "</div>" +
+            '<div class="rd4-bracket2-range">' + range + "</div></div>";
+        }).join("");
+        profileBlock = head +
+          '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
+          '<div class="rd4-row2 rd4-prof2-bars">' + sBars + "</div></div>" +
+          '<div class="rd4-row2 rd4-bracket2-row">' + brackets + "</div>" + confNote + "</section>";
+      } else {
+        // ── VARIABLE / RACE: dominant headline + deviation chips ──
+        var devDir = {};
+        devRuns.forEach(function (r) {
+          var dir = keyRank2(r.key) > keyRank2(domKey) ? "up" : "down";
+          for (var i = r.from; i <= r.to; i++) devDir[i] = dir;
+        });
+        var vBars = distanceLapMeta.map(function (m, i) {
+          var k = rawKey[i];
+          var col = m.anomaly ? "#94a3b8" : PHASE_COLOR2[k] || bandColor(bandMap[m.index] || "steady");
+          var mark = devDir[i] ? '<i class="rd4-dev-mark" style="color:' + col + '">' + (devDir[i] === "up" ? "▲" : "▼") + "</i>" : "";
+          return '<div class="rd4-cell2" style="flex:' + lapW(i) + ' 0 0">' + mark +
+            '<div class="rd4-prof2-bar" style="height:' + hpxOf(m) + "px;background:" + col + '"></div></div>';
+        }).join("");
+
+        var domIdx = [];
+        for (var d2 = 0; d2 < nLaps; d2++) if (rawKey[d2] === domKey) domIdx.push(d2);
+        var domPow = avg2(domIdx.map(function (i) { return distanceLapMeta[i].power; }));
+        var hlNum = "";
+        if (domPow != null) hlNum = '<div class="rd4-hl-num">' + Math.round(domPow) + '<span>W avg</span></div>';
+        else {
+          var domPace = avg2(domIdx.map(function (i) { return distanceLapMeta[i].paceSec; }));
+          if (domPace != null) hlNum = '<div class="rd4-hl-num">' + fmtPaceSec2(domPace) + '<span>/km avg</span></div>';
+        }
+        var headline = '<div class="rd4-headline"><span class="rd4-hl-sw" style="background:' + (PHASE_COLOR2[domKey] || "#22c55e") + '"></span>' +
+          '<div class="rd4-hl-t"><div class="rd4-hl-title">Sustained ' + esc(PHASE_NAME2[domKey] || domKey) + "</div>" +
+          '<div class="rd4-hl-sub">' + domN + " of " + nLaps + " laps</div></div>" + hlNum + "</div>";
+
+        var grp2 = {};
+        devRuns.forEach(function (r) {
+          var dir = keyRank2(r.key) > keyRank2(domKey) ? "up" : "down", gk = r.key + "|" + dir;
+          if (!grp2[gk]) grp2[gk] = { key: r.key, dir: dir, runs: [], laps: [] };
+          grp2[gk].runs.push(r);
+          for (var i = r.from; i <= r.to; i++) grp2[gk].laps.push(i);
+        });
+        var chips = Object.keys(grp2).sort(function (a, b) { return (grp2[b].dir === "up") - (grp2[a].dir === "up"); }).map(function (gk) {
+          var g = grp2[gk];
+          var ranges = g.runs.map(function (r) { return lapRange2(r.from + 1, r.to + 1); }).join(", ");
+          var gp = avg2(g.laps.map(function (i) { return distanceLapMeta[i].power; }));
+          var pw = gp != null ? Math.round(gp) + " W · " : "";
+          return '<span class="rd4-chip rd4-chip-' + g.dir + '"><span class="rd4-chip-ar">' + (g.dir === "up" ? "↑" : "↓") + "</span> " +
+            esc(PHASE_NAME2[g.key] || g.key) + " ×" + g.runs.length + " · " + pw + "lap " + ranges + "</span>";
+        }).join("");
+
+        profileBlock = head +
+          '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
+          '<div class="rd4-row2 rd4-prof2-bars">' + vBars + "</div></div>" +
+          headline + (chips ? '<div class="rd4-dev-chips">' + chips + "</div>" : "") + confNote + "</section>";
+      }
     }
 
     // ── 5 Laps ──

@@ -49,6 +49,7 @@ class User(Base):
     is_admin = Column(Boolean, nullable=False, server_default=text("false"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
     password_hash = Column(Text, nullable=True)
     avatar = Column(LargeBinary, nullable=True)
     avatar_mime = Column(Text, nullable=True)
