@@ -1,5 +1,20 @@
 # Changelog
 
+## Sprint 86 — Habits timezone fix, weight validation, range-token clarity, and test coverage
+
+- #450: Memoize autofill computation per source in GET /api/habits/week
+- #451: Fix Bangkok timezone in best_streak() for consistency
+- #452: Extract backfill window validation as reusable FastAPI dependency
+- #453: Extract habits.html inline CSS to frontend/css/habits.css
+- #470: Document habit tracking_type immutability constraint in slide-over PATCH path
+- #471: Add comprehensive date parsing validation tests for habit log endpoint
+- #472: Add type-safe weight computation tests for project_hit_date
+- #473: Replace magic-number timedeltas with RANGE_OFFSETS constant in weight-chart endpoint
+- #474: Verify WeightEntry.entry_date index exists for range=ALL queries
+- #475: Document --accent WCAG contrast and add verification tests for log button
+- #477: Validate goal vs start weight before saving target in _saveEditPanel
+- #503: Remove dead user_id query param from calendar.js weight-entries GETs
+
 ## Sprint 85 — Performance score states, PR reason strings, logging observability, and duration-curve gap fix
 
 - #927: Add observability to diagnose null performance scores
