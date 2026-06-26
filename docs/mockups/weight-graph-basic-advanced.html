@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weight chart — Basic / Advanced (single chart, mode toggle)</title>
+<!--
+  Visual reference for the redesigned weight chart
+  (frontend/js/weight-chart.js + weight.css + weight.html).
+
+  ONE chart, two modes. The Basic layers are a strict SUBSET of Advanced — same
+  colors, line styles, value scale, and X positions — so nothing moves or
+  recolors on toggle. History always occupies the left 80% of the plot; the
+  forecast occupies the right 20% (blank in Basic). Real page reads every value
+  from the existing weight endpoints (weigh-ins, 7-day trend, plan_series,
+  target goal + projected_path); goal-zone height is a real ± tolerance.
+-->
+<style>
+  :root {
+    --blue: #2563eb; --dot: #3b82f6; --stem: rgba(59,130,246,0.30);
+    --green: #16a34a; --green-bold: #15803d;
+    --grid: #e5e7eb; --axis: #9ca3af; --ink: #0b1530; --sub: #5c6886;
+    --ahead: rgba(22,163,74,0.17); --behind: rgba(220,38,38,0.17);
+    --forecast: rgba(37,99,235,0.05); --now: #1e3a8a;
+  }
+  body { margin: 0; background: #2b4ca8; padding: 24px; font-family: "Inter Tight", system-ui, sans-serif; color: var(--ink); }
+  .frames { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; max-width: 1300px; margin: 0 auto; }
+  .frame-label { color: #cdd8ff; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; margin: 0 0 8px 4px; font-family: "JetBrains Mono", monospace; }
+  .card { background: #fff; border-radius: 18px; padding: 18px; box-shadow: 0 16px 44px rgba(20,40,90,0.22); }
+  .desktop { width: 760px; } .mobile { width: 380px; }
+
+  /* Controls */
+  .wc-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .wc-seg { display: inline-flex; background: #eef1f6; border-radius: 10px; padding: 3px; }
+  .wc-seg button { border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--sub); padding: 6px 14px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+  .wc-seg button.on { background: var(--ink); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.18); }
+  .wc-tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .wc-tabs button { border: 1px solid #e5e7eb; background: #fff; font: inherit; font-size: 12px; font-weight: 600; color: var(--sub); padding: 5px 11px; border-radius: 8px; cursor: pointer; font-family: "JetBrains Mono", monospace; }
+  .wc-tabs button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  .wc-svg { display: block; width: 100%; height: auto; }
+
+  /* Legend */
+  .wc-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; font-size: 12px; color: var(--sub); }
+  .wc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .lg-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dot); }
+  .lg-line { width: 16px; height: 0; border-top: 2.5px solid var(--blue); }
+  .lg-zone { width: 14px; height: 10px; border-radius: 2px; background: rgba(22,163,74,0.18); }
+  .lg-plan { width: 16px; height: 0; border-top: 2px dashed var(--green); }
+  .lg-ahead { width: 14px; height: 10px; border-radius: 2px; background: var(--ahead); }
+  .lg-goal { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--green); }
+  .adv-only { display: none; }
+  .is-adv .adv-only { display: inline-flex; }
+</style>
+</head>
+<body>
+<div class="frames">
+  <div>
+    <p class="frame-label">DESKTOP</p>
+    <div class="card desktop" data-frame data-vw="760" data-vh="300"></div>
+  </div>
+  <div>
+    <p class="frame-label">MOBILE</p>
+    <div class="card mobile" data-frame data-vw="380" data-vh="340"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  function el(t, a) { var e = document.createElementNS(NS, t); if (a) for (var k in a) e.setAttribute(k, a[k]); return e; }
+
+  // ── Sample data (the real page reads these from the weight endpoints) ──
+  var GOAL = 87.4, TOL = 0.3, UNIT = "kg";
+  // 30 daily weigh-ins (noisy) + a smooth 7-day trend, mild downward drift.
+  var WEIGH = [88.9,89.5,89.0,89.1,88.4,89.2,88.6,88.7,88.3,89.0,88.5,88.8,88.6,89.1,88.7,89.3,88.6,88.2,88.9,88.4,88.7,88.3,87.9,88.5,88.2,88.0,88.4,88.1,88.6,88.3];
+  var TREND = [88.7,88.9,88.95,88.9,88.8,88.85,88.8,88.78,88.7,88.72,88.68,88.66,88.62,88.66,88.6,88.62,88.55,88.48,88.5,88.44,88.42,88.36,88.3,88.34,88.28,88.22,88.26,88.22,88.3,88.32];
+  var N = WEIGH.length;
+  // Plan: linear from 88.6 (start) to the goal at the target date (past NOW).
+  var PLAN_START = 88.6;
+  function planAt(frac) { return PLAN_START + (GOAL - PLAN_START) * frac; } // frac 0..1 across history→target
+
+  function render(card) {
+    var vw = +card.getAttribute("data-vw"), vh = +card.getAttribute("data-vh");
+    var mode = card.__mode || "basic";
+    var range = card.__range || "30D";
+    card.classList.toggle("is-adv", mode === "advanced");
+
+    // Controls (built once)
+    if (!card.__built) {
+      var controls = document.createElement("div");
+      controls.className = "wc-controls";
+      var seg = document.createElement("div"); seg.className = "wc-seg";
+      [["basic", "◯ Basic"], ["advanced", "⊚ Advanced"]].forEach(function (m) {
+        var b = document.createElement("button"); b.textContent = m[1];
+        b.onclick = function () { card.__mode = m[0]; render(card); };
+        b.setAttribute("data-mode", m[0]); seg.appendChild(b);
+      });
+      var tabs = document.createElement("div"); tabs.className = "wc-tabs";
+      ["7D", "30D", "90D", "1Y", "All"].forEach(function (r) {
+        var b = document.createElement("button"); b.textContent = r;
+        b.onclick = function () { card.__range = r; render(card); };
+        b.setAttribute("data-range", r); tabs.appendChild(b);
+      });
+      controls.appendChild(seg); controls.appendChild(tabs);
+      card.appendChild(controls);
+      var svgWrap = document.createElement("div"); svgWrap.setAttribute("data-svg", ""); card.appendChild(svgWrap);
+      var legend = document.createElement("div"); legend.className = "wc-legend";
+      legend.innerHTML =
+        '<span><i class="lg-dot"></i>Daily weigh-in</span>' +
+        '<span><i class="lg-line"></i>7-day avg</span>' +
+        '<span><i class="lg-zone"></i>Goal zone</span>' +
+        '<span class="adv-only"><i class="lg-plan"></i>Plan</span>' +
+        '<span class="adv-only"><i class="lg-ahead"></i>Ahead/behind</span>' +
+        '<span class="adv-only"><i class="lg-goal"></i>Goal</span>';
+      card.appendChild(legend);
+      card.__built = true;
+    }
+    // Toggle button states
+    card.querySelectorAll(".wc-seg button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-mode") === mode); });
+    card.querySelectorAll(".wc-tabs button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-range") === range); });
+
+    // ── Geometry ──
+    var pad = { top: 22, right: 54, bottom: 30, left: 14 };
+    var plotL = pad.left, plotR = vw - pad.right, plotW = plotR - plotL;
+    var plotT = pad.top, plotB = vh - pad.bottom, plotH = plotB - plotT;
+    var HIST = 0.8, nowX = plotL + plotW * HIST;     // history = left 80%
+
+    // ── Value scale: keep the goal band slim (~1/5 height) by leaving room
+    // below the goal. Min span 3 kg so 0.6 kg band ≈ 20% of height. ──
+    var vals = WEIGH.concat(TREND).concat([GOAL + TOL]);
+    var hi = Math.max.apply(null, vals) + 0.3;
+    var lo = Math.min(GOAL - TOL, Math.min.apply(null, vals)) - 0.5;
+    var span = hi - lo; if (span < 3) { var mid = (hi + lo) / 2; hi = mid + 1.5; lo = mid - 1.5; span = 3; }
+    function X(i) { return plotL + (i / (N - 1)) * (plotW * HIST); }
+    function Y(w) { return plotT + (hi - w) / span * plotH; }
+
+    var svg = el("svg", { class: "wc-svg", viewBox: "0 0 " + vw + " " + vh, preserveAspectRatio: "none" });
+    var adv = mode === "advanced";
+
+    // 1. Forecast tint (advanced) — BEFORE gridlines
+    if (adv) {
+      svg.appendChild(el("rect", { x: nowX, y: plotT, width: plotR - nowX, height: plotH, fill: "var(--forecast)" }));
+      var fl = el("text", { x: nowX + 6, y: plotT + 11, "font-size": "9", "font-weight": "700", "letter-spacing": "0.1em", fill: "#94a3b8" });
+      fl.textContent = "FORECAST"; svg.appendChild(fl);
+    }
+
+    // 2. Goal zone band (shared) — slim tinted green band, full width
+    var bandTop = Y(GOAL + TOL), bandBot = Y(GOAL - TOL), goalY = Y(GOAL);
+    svg.appendChild(el("rect", { x: plotL, y: bandTop, width: plotW, height: bandBot - bandTop, fill: "rgba(22,163,74,0.10)" }));
+    svg.appendChild(el("line", { x1: plotL, y1: bandTop, x2: plotR, y2: bandTop, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
+    svg.appendChild(el("line", { x1: plotL, y1: bandBot, x2: plotR, y2: bandBot, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
+    svg.appendChild(el("line", { x1: plotL, y1: goalY, x2: plotR, y2: goalY, stroke: "var(--green)", "stroke-width": "1.5", "stroke-dasharray": "6 4" }));
+    var gz = el("text", { x: plotL + 4, y: bandTop - 5, "font-size": "10", "font-weight": "700", fill: "var(--green-bold)" });
+    gz.textContent = "Goal zone · " + GOAL + " " + UNIT; svg.appendChild(gz);
+
+    // 3. Gridlines (shared) — dotted horizontal + right-axis value labels
+    var step = 1;
+    for (var kg = Math.ceil(lo); kg <= hi; kg += step) {
+      var gy = Y(kg);
+      svg.appendChild(el("line", { x1: plotL, y1: gy, x2: plotR, y2: gy, stroke: "var(--grid)", "stroke-width": "0.75", "stroke-dasharray": "2 3" }));
+      var t = el("text", { x: plotR + 6, y: gy + 3, "font-size": "11", fill: "var(--axis)" }); t.textContent = kg; svg.appendChild(t);
+    }
+
+    // 4. Ahead/behind shading (advanced) — between trend and plan, per-day sign. BEFORE plan/dots.
+    if (adv) {
+      for (var s = 0; s < N - 1; s++) {
+        var f0 = s / (N - 1), f1 = (s + 1) / (N - 1);
+        var p0 = planAt(f0 * HIST / HIST), p1 = planAt(f1 * HIST / HIST); // plan across history maps 0..HIST of plan span
+        // plan over history covers frac 0..~0.7 of the full plan; approximate with history frac
+        p0 = PLAN_START + (GOAL - PLAN_START) * (f0 * 0.75);
+        p1 = PLAN_START + (GOAL - PLAN_START) * (f1 * 0.75);
+        var ahead = (TREND[s] <= p0);
+        var poly = [X(s) + "," + Y(TREND[s]), X(s + 1) + "," + Y(TREND[s + 1]), X(s + 1) + "," + Y(p1), X(s) + "," + Y(p0)].join(" ");
+        svg.appendChild(el("polygon", { points: poly, fill: ahead ? "var(--ahead)" : "var(--behind)" }));
+      }
+    }
+
+    // 5. Plan line (advanced) — green dash across history, BEFORE dots
+    if (adv) {
+      var planPts = [];
+      for (var pi = 0; pi < N; pi++) planPts.push(X(pi) + "," + Y(PLAN_START + (GOAL - PLAN_START) * ((pi / (N - 1)) * 0.75)));
+      svg.appendChild(el("polyline", { points: planPts.join(" "), fill: "none", stroke: "var(--green)", "stroke-width": "2", "stroke-dasharray": "6 4", "stroke-linecap": "round" }));
+    }
+
+    // 6. Daily lollipops (shared) — faint stem to trend + blue dot
+    for (var d = 0; d < N; d++) {
+      svg.appendChild(el("line", { x1: X(d), y1: Y(WEIGH[d]), x2: X(d), y2: Y(TREND[d]), stroke: "var(--stem)", "stroke-width": "1" }));
+    }
+
+    // 7. Trend line (shared, solid blue) — history only
+    var tp = []; for (var ti = 0; ti < N; ti++) tp.push(X(ti) + "," + Y(TREND[ti]));
+    svg.appendChild(el("polyline", { points: tp.join(" "), fill: "none", stroke: "var(--blue)", "stroke-width": "2.5", "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    // 8. Daily dots (shared) — AFTER trend so they sit on top
+    for (var dd = 0; dd < N; dd++) svg.appendChild(el("circle", { cx: X(dd), cy: Y(WEIGH[dd]), r: "3", fill: "var(--dot)" }));
+
+    // 9. Advanced forecast layers: NOW divider, projection (line only), plan-to-goal, goal dot
+    if (adv) {
+      var nowY = Y(TREND[N - 1]);
+      svg.appendChild(el("line", { x1: nowX, y1: plotT, x2: nowX, y2: plotB, stroke: "var(--now)", "stroke-width": "1", "stroke-dasharray": "2 2", opacity: "0.5" }));
+      var nl = el("text", { x: nowX - 4, y: plotT + 10, "font-size": "9", "font-weight": "800", "letter-spacing": "0.08em", fill: "var(--now)", "text-anchor": "end" }); nl.textContent = "NOW"; svg.appendChild(nl);
+      // plan continues (fainter) to goal at right edge
+      svg.appendChild(el("line", { x1: nowX, y1: Y(PLAN_START + (GOAL - PLAN_START) * 0.75), x2: plotR, y2: goalY, stroke: "var(--green)", "stroke-width": "1.5", "stroke-dasharray": "5 4", opacity: "0.45" }));
+      // projection: blue dashed line from NOW to goal (NO filled cone)
+      svg.appendChild(el("line", { x1: nowX, y1: nowY, x2: plotR, y2: goalY, stroke: "var(--blue)", "stroke-width": "2", "stroke-dasharray": "5 4", opacity: "0.8" }));
+      svg.appendChild(el("circle", { cx: nowX, cy: nowY, r: "3.5", fill: "var(--blue)" }));
+      // goal dot (green ring) where projection meets goal
+      svg.appendChild(el("circle", { cx: plotR, cy: goalY, r: "6", fill: "#fff", stroke: "var(--green)", "stroke-width": "2.5" }));
+    }
+
+    // 10. Goal-zone right-axis markers (shared): exact goal bold, bounds smaller
+    var gv = el("text", { x: plotR + 6, y: goalY + 3, "font-size": "11", "font-weight": "700", fill: "var(--green-bold)" }); gv.textContent = GOAL; svg.appendChild(gv);
+    var ub = el("text", { x: plotR + 6, y: bandTop + 3, "font-size": "9", fill: "var(--green)", opacity: "0.85" }); ub.textContent = (GOAL + TOL).toFixed(1); svg.appendChild(ub);
+    var lb = el("text", { x: plotR + 6, y: bandBot + 3, "font-size": "9", fill: "var(--green)", opacity: "0.85" }); lb.textContent = (GOAL - TOL).toFixed(1); svg.appendChild(lb);
+
+    var wrap = card.querySelector("[data-svg]"); wrap.innerHTML = ""; wrap.appendChild(svg);
+  }
+
+  document.querySelectorAll("[data-frame]").forEach(function (card) { card.__mode = "basic"; render(card); });
+})();
+</script>
+</body>
+</html>
