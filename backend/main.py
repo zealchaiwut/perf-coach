@@ -3639,6 +3639,20 @@ def _validate_backfill_window(log_date: _date) -> None:
         )
 
 
+def _validated_backfill_date(date: str = Query(...)) -> _date:
+    """FastAPI dependency: parse a date query param and validate it against the backfill window.
+
+    Raises 400 for unparseable strings; delegates window checks to _validate_backfill_window.
+    Reusable by any endpoint that receives a date as a query string and needs backfill enforcement.
+    """
+    try:
+        log_date = _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    _validate_backfill_window(log_date)
+    return log_date
+
+
 def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> list:
     """Compute autofill log entries from a pre-loaded workout list (pure, no DB).
 
@@ -3834,18 +3848,13 @@ def post_habit_log_entry(
 @app.delete("/api/habits/{habit_id}/log", status_code=204)
 def delete_habit_log_entry(
     habit_id: str,
-    date: str = Query(...),
+    log_date: _date = Depends(_validated_backfill_date),
     user: User = Depends(resolve_user),
 ):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
-    try:
-        log_date = _date.fromisoformat(date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-    _validate_backfill_window(log_date)
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
