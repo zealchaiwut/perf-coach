@@ -191,7 +191,13 @@ class TestComputePerformanceChart:
         assert MIN_HISTORY_DAYS > 0
 
     def test_ac5_building_baseline_true_when_insufficient_qualifying_runs(self):
-        """AC5: building_baseline=True when fewer than min qualifying runs exist."""
+        """AC5 (corrected by #1024): building_baseline=False when load history is sufficient
+        for CTL/ATL/TSB, even when fewer than MIN_QUALIFYING_RUNS qualifying runs exist.
+
+        The Fitness Fatigue Form chart renders CTL/ATL/TSB independently of endurance/speed
+        score availability. building_baseline only reflects fitness-model load history
+        sufficiency — not qualifying run counts.
+        """
         from backend.services.performance_chart import compute_performance_chart
         from backend.services.zone_constants import MIN_QUALIFYING_RUNS
 
@@ -211,7 +217,9 @@ class TestComputePerformanceChart:
             end_date="2026-02-10",
         )
 
-        assert result["building_baseline"] is True
+        # Load history (50 days with daily_load=50) is sufficient for CTL/ATL/TSB.
+        # Insufficient qualifying runs must NOT cause building_baseline=True.
+        assert result["building_baseline"] is False
 
     def test_ac7_invalid_start_after_end_returns_empty(self):
         """AC7: start_date after end_date returns empty payload with reason."""
