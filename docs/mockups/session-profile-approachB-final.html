@@ -32,12 +32,12 @@
   .title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tertiary); display: flex; justify-content: space-between; margin: 0 0 16px; }
   .basis { font-family: "JetBrains Mono", monospace; }
 
-  .chart { position: relative; height: 110px; }
+  .chart { position: relative; height: 150px; }
   .grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; z-index: 0; }
   .grid span { border-top: 1px dotted var(--grid); }
   .bars { position: relative; z-index: 1; display: flex; gap: 0; align-items: flex-end; height: 100%; }
-  .cell { position: relative; min-width: 0; }
-  .bar { width: auto; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 5px; }
+  .cell { position: relative; min-width: 0; height: 100%; }   /* definite height → bar % resolves */
+  .bar { position: absolute; left: 3px; right: 3px; bottom: 0; border-radius: 4px 4px 0 0; min-height: 5px; }
   .mark { position: absolute; top: -3px; left: 50%; transform: translateX(-50%); font-size: 10px; line-height: 1; z-index: 2; }
 
   .headline { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: #f6f8fc; }
