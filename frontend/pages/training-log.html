@@ -2542,7 +2542,8 @@
           <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
         </div>
         <div class="perf-error" hidden>
-          <span class="perf-error-text">Could not load score — please try again later.</span>
+          <span class="perf-error-text">Could not load score.</span>
+          <button type="button" class="perf-retry-btn">Retry</button>
         </div>
       </div>
 
@@ -2565,7 +2566,8 @@
           <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
         </div>
         <div class="perf-error" hidden>
-          <span class="perf-error-text">Could not load score — please try again later.</span>
+          <span class="perf-error-text">Could not load score.</span>
+          <button type="button" class="perf-retry-btn">Retry</button>
         </div>
       </div>
 
@@ -2697,7 +2699,22 @@
       border-radius: 8px;
       font-size: 11.5px;
       color: var(--red);
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
+    .perf-retry-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      color: var(--red);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 3px 9px;
+    }
+    .perf-retry-btn:hover { opacity: 0.75; }
     .perf-bb-reason {
       margin: 0;
       font-size: 11.5px;
