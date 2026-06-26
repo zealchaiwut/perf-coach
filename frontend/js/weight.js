@@ -207,14 +207,33 @@ function renderCoachStrip(chartData, activeTarget) {
 function renderChart(chartData, range) {
   _chartData = chartData;
   WeightChart.render(chartData, range);
+  _syncLegend(chartData);
+}
 
-  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+// Plan / gap / milestone legend chips are Advanced-only AND require a target.
+function _syncLegend(chartData) {
+  const hasTarget = !!(chartData && chartData.plan_series && chartData.plan_series.length);
+  const advanced  = (WeightChart.getMode ? WeightChart.getMode() : 'basic') === 'advanced';
+  const show = hasTarget && advanced;
   const legendPlan      = document.getElementById('legend-plan');
   const legendGap       = document.getElementById('legend-gap');
   const legendMilestone = document.getElementById('legend-milestone');
-  if (legendPlan)      legendPlan.hidden      = !hasTarget;
-  if (legendGap)       legendGap.hidden       = !hasTarget;
-  if (legendMilestone) legendMilestone.hidden = !hasTarget;
+  if (legendPlan)      legendPlan.hidden      = !show;
+  if (legendGap)       legendGap.hidden       = !show;
+  if (legendMilestone) legendMilestone.hidden = !show;
+}
+
+// Basic / Advanced segmented toggle — persists via WeightChart.setMode.
+function _initModeToggle() {
+  const current = WeightChart.getMode ? WeightChart.getMode() : 'basic';
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === current);
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (WeightChart.setMode) WeightChart.setMode(btn.dataset.mode);
+      if (_chartData) _syncLegend(_chartData);
+    });
+  });
 }
 
 // ── Progress card ──────────────────────────────────────────────────────────
@@ -1557,6 +1576,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   _initCardB();
   _initRangeTabs();
+  _initModeToggle();
   _initEditPanel();
   _initTargetHistoryFilters();
   _initBackfillCalendar();
