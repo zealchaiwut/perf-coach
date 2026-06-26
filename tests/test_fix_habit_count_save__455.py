@@ -11,7 +11,6 @@ import uuid
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
