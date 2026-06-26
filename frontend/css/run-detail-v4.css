@@ -621,10 +621,28 @@
 .rd4-grid2 span { border-top: 1px dotted rgba(13,30,67,0.10); height: 0; }
 
 .rd4-prof2-chart { position: relative; }
-.rd4-prof2-bars { position: relative; z-index: 1; height: 84px; }
+.rd4-prof2-bars { position: relative; z-index: 1; height: 120px; }
+/* Cells are position:relative so the deviation triangle (variable regime) can
+   anchor above its bar; bars stay px-height, bottom-aligned by the flex row. */
+.rd4-prof2-bars .rd4-cell2 { position: relative; }
 .rd4-prof2-bar { display: block; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 5px; }
 .rd4-prof2-bar--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
 .rd4-prof2-bar--break { background: #94a3b8 !important; opacity: 0.85; }
+.rd4-dev-mark { position: absolute; top: -3px; left: 50%; transform: translateX(-50%); font-size: 10px; line-height: 1; z-index: 2; font-style: normal; }
+
+/* Variable / race regime: dominant-effort headline + deviation chips */
+.rd4-headline { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: #f6f8fc; }
+.rd4-hl-sw { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; }
+.rd4-hl-t { flex: 1; min-width: 0; }
+.rd4-hl-title { font-size: 16px; font-weight: 700; color: #0b1530; }
+.rd4-hl-sub { font-size: 12px; color: #5c6886; margin-top: 1px; }
+.rd4-hl-num { font-family: var(--mono, "JetBrains Mono", monospace); font-size: 26px; font-weight: 700; text-align: right; line-height: 1; color: #0b1530; }
+.rd4-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8b95ad; margin-top: 3px; }
+.rd4-dev-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.rd4-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: #fff; color: #5c6886; }
+.rd4-chip-ar { font-weight: 800; }
+.rd4-chip-up { border-color: rgba(239,68,68,0.35); } .rd4-chip-up .rd4-chip-ar { color: #ef4444; }
+.rd4-chip-down { border-color: rgba(34,197,94,0.35); } .rd4-chip-down .rd4-chip-ar { color: #22c55e; }
 
 .rd4-bracket2-row { margin-top: 8px; }
 .rd4-bracket2 { text-align: center; }

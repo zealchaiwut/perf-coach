@@ -134,6 +134,10 @@
 
   var PHASE_NAME = { warmup: "Warm-up", steady: "Steady", tempo: "Tempo", threshold: "Threshold", cooldown: "Cool-down" };
   var PHASE_H = { warmup: 45, steady: 60, tempo: 85, threshold: 95, cooldown: 30 };
+  // Physiological intensity ranking — drives surge (up) vs dip (down) for
+  // deviations; never hardcoded per session.
+  var KEY_RANK = { cooldown: 0, warmup: 1, recovery: 0, easy: 1, steady: 2, tempo: 3, threshold: 4, hard: 5, race: 6 };
+  function keyRank(k) { var r = KEY_RANK[k]; return r == null ? 2 : r; }
 
   // Map a phase label (or its band) to one of the five named colors.
   function phaseKey(label, band) {
@@ -170,6 +174,18 @@
     '<span><i class="rv2-dot" style="background:var(--rv2-cooldown)"></i>Cool-down</span>' +
     "</div>";
 
+  function _avg(arr) {
+    var v = arr.filter(function (x) { return x != null && !isNaN(x); });
+    return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null;
+  }
+  function _lapRange(from, to) { return from === to ? "" + (from + 1) : (from + 1) + "–" + (to + 1); }
+
+  // Session profile. Two regimes chosen automatically from the data:
+  //  - STRUCTURED: a few clean phases → per-lap bars + named zone brackets.
+  //  - VARIABLE/RACE: one dominant band with scattered deviations → bars + a
+  //    "Sustained <band>" headline (avg power of the dominant laps only) and
+  //    deviation chips (band, direction, count, group avg power, lap numbers),
+  //    with up/down triangle markers on the deviating bars.
   function renderSessionProfile(data) {
     var dp = data.detected_profile || {};
     var phases = dp.phases || [];
@@ -184,7 +200,7 @@
       );
     }
 
-    // Per-lap phase (index → {key,name}) from the detected phases' lap_indexes.
+    // Per-lap phase key + name from the detected phases' lap_indexes.
     var lapPhase = [];
     phases.forEach(function (ph) {
       var key = phaseKey(ph.label, ph.band);
@@ -193,50 +209,155 @@
       });
     });
     var dbgLaps = (dp.debug && dp.debug.laps) || [];
+    var n = splits.length;
+    var keyOf = [];
+    for (var i = 0; i < n; i++) {
+      keyOf[i] = (lapPhase[i] && lapPhase[i].key) || phaseKey(null, (dbgLaps[i] || {}).band);
+    }
 
-    var bars = splits.map(function (s, i) {
-      var ph = lapPhase[i] || { key: phaseKey(null, (dbgLaps[i] || {}).band), name: "Steady" };
-      var w = parseFloat(s.distance_km) || 0.01;
-      var ratio = dbgLaps[i] && dbgLaps[i].ratio != null ? dbgLaps[i].ratio : null;
-      var h = ratio != null ? Math.max(6, Math.min(100, Math.round(ratio * 100))) : PHASE_H[ph.key];
-      return (
-        '<div class="rv2-cell" style="flex:' + w + ' 0 0">' +
-        '<div class="rv2-bar" style="height:' + h + "%;background:var(--rv2-" + ph.key + ')"></div></div>'
-      );
-    }).join("");
-
-    // Group consecutive same-phase laps into bracket spans.
-    var groups = [], cur = null;
-    splits.forEach(function (s, i) {
-      var ph = lapPhase[i] || { key: "steady", name: "Steady" };
-      var w = parseFloat(s.distance_km) || 0.01;
-      if (!cur || cur.key !== ph.key) {
-        cur = { key: ph.key, name: ph.name, from: i, to: i, w: w };
-        groups.push(cur);
-      } else {
-        cur.to = i; cur.w += w;
+    // STEP 1 — smooth single-lap flickers between two same-band neighbours,
+    // so they don't fragment the structured view (recorded as deviations).
+    for (var j = 1; j < n - 1; j++) {
+      if (keyOf[j] !== keyOf[j - 1] && keyOf[j - 1] === keyOf[j + 1]) {
+        keyOf[j] = "__dev:" + keyOf[j];  // mark; resolved below per regime
       }
+    }
+    var rawKey = keyOf.map(function (k) { return k.indexOf("__dev:") === 0 ? k.slice(6) : k; });
+    var smoothKey = keyOf.map(function (k, idx) {
+      return k.indexOf("__dev:") === 0 ? rawKey[idx - 1] : k;
     });
-    var brackets = groups.map(function (g) {
-      var range = g.from === g.to ? "lap " + (g.from + 1) : "lap " + (g.from + 1) + "–" + (g.to + 1);
-      return (
-        '<div class="rv2-cell rv2-bracket" style="flex:' + g.w + ' 0 0">' +
-        '<div class="rv2-bracket-line"></div>' +
-        '<div class="rv2-bracket-name nm-' + g.key + '">' + esc(g.name) + "</div>" +
-        '<div class="rv2-bracket-range">' + range + "</div></div>"
-      );
-    }).join("");
+
+    // STEP 2 — regime detection on the smoothed sequence.
+    function runsOf(seq) {
+      var r = [], cur = null;
+      seq.forEach(function (k, idx) {
+        if (!cur || cur.key !== k) { cur = { key: k, from: idx, to: idx }; r.push(cur); }
+        else cur.to = idx;
+      });
+      return r;
+    }
+    var counts = {};
+    rawKey.forEach(function (k) { counts[k] = (counts[k] || 0) + 1; });
+    var domKey = null, domN = 0;
+    Object.keys(counts).forEach(function (k) { if (counts[k] > domN) { domN = counts[k]; domKey = k; } });
+    var domShare = domN / n;
+    var devRuns = runsOf(rawKey).filter(function (run) { return run.key !== domKey; });
+    var shortDev = devRuns.filter(function (run) { return run.to - run.from + 1 <= 2; });
+    // A low-intensity warm-up/cool-down bookend signals a deliberately
+    // structured arc (warm-up → work → cool-down) → keep the bracket view.
+    // Without one, a single dominant band is a *sustained* effort (a tempo
+    // race, a steady block) → the headline reads better than many brackets.
+    var LOW_BOOKEND = { warmup: 1, cooldown: 1, recovery: 1, easy: 1 };
+    var lowBookend = !!(LOW_BOOKEND[smoothKey[0]] || LOW_BOOKEND[smoothKey[n - 1]]);
+    var variable =
+      dp.reps_detected != null ||
+      domShare >= 0.65 ||
+      (domShare >= 0.5 && !lowBookend) ||
+      (shortDev.length >= 2 && domShare >= 0.45);
 
     var basis = dp.basis && dp.basis !== "none" ? dp.basis.toUpperCase() : "—";
-
-    return (
+    var repsTxt = dp.reps_detected != null ? " · REPS " + dp.reps_detected : "";
+    var titleHtml =
       '<div class="rv2-card-title"><span>Session profile · effort</span>' +
-      '<span class="rv2-basis">BASIS · ' + basis + "</span></div>" +
+      '<span class="rv2-basis">BASIS · ' + basis + repsTxt + "</span></div>";
+
+    // ── STRUCTURED ──
+    if (!variable) {
+      var sBars = splits.map(function (s, idx) {
+        var k = smoothKey[idx];
+        var w = parseFloat(s.distance_km) || 0.01;
+        var ratio = dbgLaps[idx] && dbgLaps[idx].ratio != null ? dbgLaps[idx].ratio : null;
+        var h = ratio != null ? Math.max(6, Math.min(100, Math.round(ratio * 100))) : PHASE_H[k];
+        return '<div class="rv2-cell" style="flex:' + w + ' 0 0">' +
+          '<div class="rv2-bar" style="height:' + h + "%;background:var(--rv2-" + k + ')"></div></div>';
+      }).join("");
+      var groups = [], cg = null;
+      splits.forEach(function (s, idx) {
+        var k = smoothKey[idx], w = parseFloat(s.distance_km) || 0.01;
+        if (!cg || cg.key !== k) { cg = { key: k, from: idx, to: idx, w: w }; groups.push(cg); }
+        else { cg.to = idx; cg.w += w; }
+      });
+      var brackets = groups.map(function (g) {
+        var range = "lap " + _lapRange(g.from, g.to);
+        return '<div class="rv2-cell rv2-bracket" style="flex:' + g.w + ' 0 0">' +
+          '<div class="rv2-bracket-line"></div>' +
+          '<div class="rv2-bracket-name nm-' + g.key + '">' + esc(PHASE_NAME[g.key] || g.key) + "</div>" +
+          '<div class="rv2-bracket-range">' + range + "</div></div>";
+      }).join("");
+      return titleHtml +
+        '<div class="rv2-sp-chart"><div class="rv2-grid">' + gridSpans(4) + "</div>" +
+        '<div class="rv2-row rv2-sp-bars">' + sBars + "</div></div>" +
+        '<div class="rv2-row rv2-bracket-row">' + brackets + "</div>" + SP_LEGEND;
+    }
+
+    // ── VARIABLE / RACE ──
+    // Deviation = any maximal run of a non-dominant band; direction by rank.
+    var devDir = {};   // lap index → 'up' | 'down'
+    devRuns.forEach(function (run) {
+      var dir = keyRank(run.key) > keyRank(domKey) ? "up" : "down";
+      for (var k = run.from; k <= run.to; k++) devDir[k] = dir;
+    });
+
+    var vBars = splits.map(function (s, idx) {
+      var k = rawKey[idx];
+      var w = parseFloat(s.distance_km) || 0.01;
+      var ratio = dbgLaps[idx] && dbgLaps[idx].ratio != null ? dbgLaps[idx].ratio : null;
+      var h = ratio != null ? Math.max(6, Math.min(100, Math.round(ratio * 100))) : PHASE_H[k];
+      var mark = devDir[idx]
+        ? '<i class="rv2-dev-mark rv2-dev-' + devDir[idx] + '" style="color:var(--rv2-' + k + ')">' +
+          (devDir[idx] === "up" ? "▲" : "▼") + "</i>"
+        : "";
+      return '<div class="rv2-cell" style="flex:' + w + ' 0 0">' + mark +
+        '<div class="rv2-bar" style="height:' + h + "%;background:var(--rv2-" + k + ')"></div></div>';
+    }).join("");
+
+    // Headline: dominant band + avg power of the dominant laps only.
+    var domIdx = [];
+    for (var di = 0; di < n; di++) if (rawKey[di] === domKey) domIdx.push(di);
+    var domPow = _avg(domIdx.map(function (idx) { return splits[idx].avg_power; }));
+    var hlNum = "";
+    if (domPow != null) {
+      hlNum = '<div class="rv2-hl-num">' + Math.round(domPow) + '<span>W avg</span></div>';
+    } else {
+      var domPace = _avg(domIdx.map(function (idx) {
+        var d = parseFloat(splits[idx].distance_km), du = splits[idx].duration_seconds;
+        return d && du ? du / d : null;
+      }));
+      if (domPace != null) hlNum = '<div class="rv2-hl-num">' + fmtPaceSec(domPace) + '<span>/km avg</span></div>';
+    }
+    var headline =
+      '<div class="rv2-headline">' +
+      '<span class="rv2-hl-swatch" style="background:var(--rv2-' + domKey + ')"></span>' +
+      '<div class="rv2-hl-text"><div class="rv2-hl-title">Sustained ' + esc(PHASE_NAME[domKey] || domKey) + "</div>" +
+      '<div class="rv2-hl-sub">' + domN + " of " + n + " laps</div></div>" + hlNum + "</div>";
+
+    // Deviation chips grouped by (band, direction).
+    var grp = {};
+    devRuns.forEach(function (run) {
+      var dir = keyRank(run.key) > keyRank(domKey) ? "up" : "down";
+      var gk = run.key + "|" + dir;
+      if (!grp[gk]) grp[gk] = { key: run.key, dir: dir, runs: [], laps: [] };
+      grp[gk].runs.push(run);
+      for (var k = run.from; k <= run.to; k++) grp[gk].laps.push(k);
+    });
+    var chips = Object.keys(grp).sort(function (a, b) {
+      return (grp[b].dir === "up") - (grp[a].dir === "up");  // surges first
+    }).map(function (gk) {
+      var g = grp[gk];
+      var ranges = g.runs.map(function (r) { return _lapRange(r.from, r.to); }).join(", ");
+      var gp = _avg(g.laps.map(function (idx) { return splits[idx].avg_power; }));
+      var pw = gp != null ? Math.round(gp) + " W · " : "";
+      var arrow = g.dir === "up" ? "↑" : "↓";
+      return '<span class="rv2-chip rv2-chip-' + g.dir + '">' +
+        '<span class="rv2-chip-arrow">' + arrow + "</span> " +
+        esc(PHASE_NAME[g.key] || g.key) + " ×" + g.runs.length + " · " + pw + "lap " + ranges + "</span>";
+    }).join("");
+
+    return titleHtml +
       '<div class="rv2-sp-chart"><div class="rv2-grid">' + gridSpans(4) + "</div>" +
-      '<div class="rv2-row rv2-sp-bars">' + bars + "</div></div>" +
-      '<div class="rv2-row rv2-bracket-row">' + brackets + "</div>" +
-      SP_LEGEND
-    );
+      '<div class="rv2-row rv2-sp-bars">' + vBars + "</div></div>" +
+      headline +
+      (chips ? '<div class="rv2-dev-chips">' + chips + "</div>" : "");
   }
 
   // ── Lap bar chart ─────────────────────────────────────────────────────────

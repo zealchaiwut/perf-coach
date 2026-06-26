@@ -226,7 +226,7 @@
       }
       .rv2-grid span { border-top: 1px dotted var(--rv2-grid); height: 0; }
       .rv2-row { display: flex; gap: 0; align-items: flex-end; }
-      .rv2-sp-bars { position: relative; z-index: 1; height: 90px; }
+      .rv2-sp-bars { position: relative; z-index: 1; height: 130px; }
       .rv2-cell { min-width: 0; padding: 0 3px; box-sizing: border-box; }
       /* Bar cells fill the row height; bars are absolutely anchored to the cell
          bottom so their % height resolves regardless of flex %-height quirks. */
@@ -259,6 +259,37 @@
       .rv2-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; font-size: 12px; color: var(--text-secondary, #5c6886); }
       .rv2-legend span { display: inline-flex; align-items: center; gap: 6px; }
       .rv2-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+      /* Variable/race regime: deviation markers, dominant headline, chips */
+      .rv2-dev-mark {
+        position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
+        font-size: 10px; line-height: 1; z-index: 2; pointer-events: none;
+      }
+      .rv2-headline {
+        display: flex; align-items: center; gap: 12px; margin-top: 12px;
+        padding: 14px 16px; border-radius: 12px; background: var(--tile, #f6f8fc);
+      }
+      .rv2-hl-swatch { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; }
+      .rv2-hl-text { flex: 1; min-width: 0; }
+      .rv2-hl-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+      .rv2-hl-sub { font-size: 12px; color: var(--text-secondary, #5c6886); margin-top: 1px; }
+      .rv2-hl-num {
+        font-family: var(--mono, "JetBrains Mono", monospace); font-size: 26px; font-weight: 700;
+        color: var(--text-primary); line-height: 1; text-align: right; white-space: nowrap;
+      }
+      .rv2-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        text-transform: uppercase; color: var(--text-tertiary, #8b95ad); margin-top: 3px; }
+      .rv2-dev-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .rv2-chip {
+        display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600;
+        padding: 5px 11px; border-radius: 999px; border: 1.5px solid var(--border, #e5e7eb);
+        color: var(--text-secondary, #5c6886); background: #fff;
+      }
+      .rv2-chip-arrow { font-weight: 800; }
+      .rv2-chip-up { border-color: rgba(239,68,68,0.35); }
+      .rv2-chip-up .rv2-chip-arrow { color: #ef4444; }
+      .rv2-chip-down { border-color: rgba(34,197,94,0.35); }
+      .rv2-chip-down .rv2-chip-arrow { color: #22c55e; }
 
       .rv2-chart { position: relative; height: 140px; margin-bottom: 4px; }
       .rv2-chart-bars { position: relative; z-index: 1; height: 100%; }
