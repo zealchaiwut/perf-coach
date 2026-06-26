@@ -29,7 +29,6 @@ Reference backend (backend/services/weight_plan.py _gap_direction):
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from decimal import Decimal
 

@@ -110,9 +110,9 @@ def test_button_text_exceeds_wcag_aaa():
     # This is informational; if we meet AAA, even better.
     print(f"\nButton text contrast: {ratio:.2f}:1 (#1a2400 on #e4ff52)")
     if ratio >= 7.0:
-        print(f"✓ Exceeds WCAG AAA standard (7:1)")
+        print("✓ Exceeds WCAG AAA standard (7:1)")
     elif ratio >= 4.5:
-        print(f"✓ Meets WCAG AA standard (4.5:1), does not meet AAA (7:1)")
+        print("✓ Meets WCAG AA standard (4.5:1), does not meet AAA (7:1)")
 
 
 def test_button_hover_state_contrast():
@@ -182,8 +182,8 @@ def test_accessibility_audit_certification():
     print(f"Button background (--accent):        {accent}")
     print(f"Button text (--accent-text):         {text}")
     print(f"Contrast ratio:                      {ratio:.2f}:1")
-    print(f"WCAG AA requirement (normal text):   4.5:1")
-    print(f"WCAG AAA requirement (normal text):  7.0:1")
+    print("WCAG AA requirement (normal text):   4.5:1")
+    print("WCAG AAA requirement (normal text):  7.0:1")
     print(f"Status:                              {'PASS ✓' if ratio >= 4.5 else 'FAIL ✗'}")
     print(f"{'=' * 60}\n")
 
