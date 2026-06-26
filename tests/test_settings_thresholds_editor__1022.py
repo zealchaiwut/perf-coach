@@ -19,7 +19,7 @@ import pytest
 
 from backend.auth import hash_password
 from backend.db import engine
-from backend.models import User, UserPreferences
+from backend.models import User
 from sqlalchemy.orm import Session
 
 BASE_URL = "http://127.0.0.1:9001"
