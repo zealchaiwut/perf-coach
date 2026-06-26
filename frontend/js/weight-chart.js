@@ -60,6 +60,12 @@ const WeightChart = (() => {
     return e;
   }
 
+  // Chart text is sized in viewBox units; the viewBox scales up more on desktop
+  // than on mobile, so shrink labels ~0.72x on wide screens (mobile keeps size).
+  function _fs(px) {
+    return (typeof window !== "undefined" && window.innerWidth > 700) ? Math.round(px * 0.72) : px;
+  }
+
   // ── Y coordinate mapping ───────────────────────────────────────────────
 
   function _yCoord(val, yMin, yMax) {
@@ -408,7 +414,7 @@ const WeightChart = (() => {
         x: px,
         y: PAD.top + _CH + 15,
         "text-anchor": "middle",
-        "font-size": "17",
+        "font-size": _fs(17),
         fill: "#6b7280",
         "font-weight": "600",
       });
@@ -418,7 +424,7 @@ const WeightChart = (() => {
         x: px,
         y: PAD.top + _CH + 30,
         "text-anchor": "middle",
-        "font-size": "15",
+        "font-size": _fs(15),
         fill: "#9ca3af",
       });
       t2.textContent = line2;
@@ -494,10 +500,9 @@ const WeightChart = (() => {
 
     _activeDots = [];
 
-    // Verdict banner ("ON TRACK" / "AHEAD" / "BEHIND") is an Advanced-only cue.
+    // Verdict banner removed from the chart UI — keep it hidden in both modes.
     const _verdict = document.getElementById("chart-verdict");
-    if (advanced) _updateVerdictBanner(data);
-    else if (_verdict) _verdict.hidden = true;
+    if (_verdict) _verdict.hidden = true;
 
     // ── Layout: left 80% history, right 20% forecast ──
     const AX = 46;                       // right-axis label gutter
@@ -523,10 +528,16 @@ const WeightChart = (() => {
     // Vertical scale from the present band (recomputed per range tab), lowered
     // so the goal-zone band fits with room below. presentMin/presentMax also
     // bound the gridlines, consistent with the three-zone scale helpers.
+    // Scale to the DATA present band — do NOT stretch the range all the way down
+    // to a far goal (that left the chart mostly empty). A goal below the band is
+    // docked as a slim strip at the bottom instead (see goal section below). When
+    // the goal sits just below the data, extend a little so the band fits inline.
     const _pb = _computePresentBounds(data); // kg
     let presentMin = toU(_pb.presentMin);
     let presentMax = toU(_pb.presentMax);
-    if (goalU != null) presentMin = Math.min(presentMin, goalU - TOL - 0.4);
+    if (goalU != null && goalU >= presentMin - 2) {
+      presentMin = Math.min(presentMin, goalU - TOL - 0.4); // near goal → keep inline + to-scale
+    }
     let span = presentMax - presentMin;
     if (span < 3) { const mid = (presentMin + presentMax) / 2; presentMin = mid - 1.5; presentMax = mid + 1.5; span = 3; }
     const hi = presentMax, lo = presentMin;
@@ -536,7 +547,7 @@ const WeightChart = (() => {
     if (advanced) {
       svg.appendChild(_el("rect", { x: nowX, y: T, width: R - nowX, height: _CH, fill: C.future_bg }));
       const fl = _el("text", {
-        x: nowX + 6, y: T + 12, "font-size": "10", "font-weight": "700",
+        x: nowX + 6, y: T + 12, "font-size": _fs(10), "font-weight": "700",
         "letter-spacing": "0.08em", fill: "#94a3b8",
       });
       fl.textContent = "FORECAST";
@@ -550,6 +561,13 @@ const WeightChart = (() => {
       goalY = y(goalU);
       bandTop = y(goalU + TOL);
       bandBot = y(goalU - TOL);
+      // Far goal (below the data band): dock the zone as a slim strip hugging the
+      // chart bottom instead of letting it fall off-scale.
+      if (goalY > B - 8) {
+        bandBot = B - 4;
+        bandTop = bandBot - 14;
+        goalY = (bandTop + bandBot) / 2;
+      }
       svg.appendChild(_el("rect", { x: L, y: bandTop, width: plotW, height: bandBot - bandTop, fill: "rgba(22,163,74,0.10)" }));
       svg.appendChild(_el("line", { x1: L, y1: bandTop, x2: R, y2: bandTop, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
       svg.appendChild(_el("line", { x1: L, y1: bandBot, x2: R, y2: bandBot, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
@@ -559,7 +577,7 @@ const WeightChart = (() => {
       const labelLeft = isMobile || (L + 90) < R;
       const chipT = _el("text", {
         x: labelLeft ? L + 4 : R - 90, y: bandTop - 5, dy: "0",
-        "font-size": "11", "font-weight": "700", fill: "#15803d",
+        "font-size": _fs(11), "font-weight": "700", fill: "#15803d",
       });
       chipT.textContent = "Goal zone · " + goalU.toFixed(1) + " " + unit;
       svg.appendChild(chipT);
@@ -650,7 +668,7 @@ const WeightChart = (() => {
       // NOW divider — "you are here" on the trend (no axis break; the band is
       // one continuous present zone with the forecast to its right).
       svg.appendChild(_el("line", { x1: nowX, y1: T, x2: nowX, y2: B, stroke: "#1e3a8a", "stroke-width": "1", "stroke-dasharray": "2 2", opacity: "0.5" }));
-      const nl = _el("text", { x: nowX - 4, y: T + 11, "text-anchor": "end", "font-size": "10", "font-weight": "800", "letter-spacing": "0.06em", fill: "#1e3a8a" });
+      const nl = _el("text", { x: nowX - 4, y: T + 11, "text-anchor": "end", "font-size": _fs(10), "font-weight": "800", "letter-spacing": "0.06em", fill: "#1e3a8a" });
       nl.textContent = "NOW";
       svg.appendChild(nl);
 
@@ -670,7 +688,7 @@ const WeightChart = (() => {
       // gap value (today vs plan) available on hover at the NOW point
       if (tm.gap_kg != null) {
         const gapLabel = tm.gap_direction === "behind" ? "+" + Math.abs(tm.gap_kg).toFixed(1) : "−" + Math.abs(tm.gap_kg).toFixed(1);
-        const gchip = _el("text", { x: nowX, y: nowY - 8, "text-anchor": "middle", "font-size": "9", "font-weight": "700",
+        const gchip = _el("text", { x: nowX, y: nowY - 8, "text-anchor": "middle", "font-size": _fs(9), "font-weight": "700",
           fill: tm.gap_direction === "behind" ? "#dc2626" : "#16a34a" });
         gchip.textContent = gapLabel + " " + unit;
         // background pill colors kept for parity: ahead #dcfce7 / behind #fee2e2
@@ -698,13 +716,13 @@ const WeightChart = (() => {
 
     // ════ 9. Goal-zone right-axis markers (shared) ════
     if (goalU != null) {
-      const gv = _el("text", { x: R + 6, y: goalY + 4, "text-anchor": "start", "font-size": "12", "font-weight": "700", fill: "#15803d" });
+      const gv = _el("text", { x: R + 6, y: goalY + 4, "text-anchor": "start", "font-size": _fs(12), "font-weight": "700", fill: "#15803d" });
       gv.textContent = goalU.toFixed(1);
       svg.appendChild(gv);
-      const ub = _el("text", { x: R + 6, y: bandTop + 3, "text-anchor": "start", "font-size": "9", fill: "#16a34a", opacity: "0.85" });
+      const ub = _el("text", { x: R + 6, y: bandTop + 3, "text-anchor": "start", "font-size": _fs(9), fill: "#16a34a", opacity: "0.85" });
       ub.textContent = (goalU + TOL).toFixed(1);
       svg.appendChild(ub);
-      const lb = _el("text", { x: R + 6, y: bandBot + 3, "text-anchor": "start", "font-size": "9", fill: "#16a34a", opacity: "0.85" });
+      const lb = _el("text", { x: R + 6, y: bandBot + 3, "text-anchor": "start", "font-size": _fs(9), fill: "#16a34a", opacity: "0.85" });
       lb.textContent = (goalU - TOL).toFixed(1);
       svg.appendChild(lb);
     }
@@ -713,7 +731,7 @@ const WeightChart = (() => {
     // "milestones ↓" cue (advanced) — points the eye to the milestones list
     // in the progress-card below the chart.
     if (advanced && (data.future_milestones || []).length) {
-      const ml = _el("text", { x: R, y: B + 24, "text-anchor": "end", "font-size": "10", "font-weight": "700", fill: "#16a34a" });
+      const ml = _el("text", { x: R, y: B + 24, "text-anchor": "end", "font-size": _fs(10), "font-weight": "700", fill: "#16a34a" });
       ml.textContent = "milestones ↓";
       svg.appendChild(ml);
     }
