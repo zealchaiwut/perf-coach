@@ -76,6 +76,7 @@ from backend.services.lap_recompute import rebuild_athlete_duration_curve as _re
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
+from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -1208,9 +1209,14 @@ def get_weight_target_history_summary(user: User = Depends(resolve_user)):
                 "delta_kg": delta_kg,
             })
 
+        # "Targets set" is the total ever created — include the active one, else a
+        # user with only a current (unfinished) target sees 0 and it looks broken.
+        # success_pct / achieved stay relative to FINISHED targets only.
+        targets_set = all_count + (1 if active_target else 0)
+
         return JSONResponse({
             "stats": {
-                "targets_set": all_count,
+                "targets_set": targets_set,
                 "targets_achieved": achieved_count,
                 "success_pct": success_pct,
                 "total_kg_lost": total_kg_lost,
@@ -3710,6 +3716,11 @@ def _aggregate_weekly_progress(manual_log_rows: list, computed_logs: list, weekl
     """
     manual_by_date: dict = {}
     for log in manual_log_rows:
+        # workout_autofill rows are persisted only to drive the daily grid; the
+        # live computed_logs already represents those workout values, so counting
+        # the stored rows here too would double-count (issue: zone-2 172 vs ~100).
+        if getattr(log, "source", None) == "workout_autofill":
+            continue
         d = log.log_date.isoformat()
         if d not in manual_by_date:
             manual_by_date[d] = {"value": 0.0, "has_override": False}
@@ -4100,9 +4111,13 @@ def get_habits_week(
                 )
             progress = _aggregate_weekly_progress(habit_logs, computed_logs_w, habit.weekly_target)
 
-            # daily_breakdown: dates with any contribution (manual or autofill)
+            # daily_breakdown: dates with any contribution (manual or autofill).
+            # Skip stored workout_autofill rows — computed_logs_w below is their
+            # live source of truth (counting both double-counts the value).
             breakdown: dict = {}
             for log in habit_logs:
+                if getattr(log, "source", None) == "workout_autofill":
+                    continue
                 d = log.log_date.isoformat()
                 breakdown.setdefault(d, {"date": d, "value": 0.0})
                 breakdown[d]["value"] += float(log.value)
@@ -12213,10 +12228,6 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 
 _performance_log = _logging.getLogger(__name__)
 
-_NEEDS_THRESHOLDS_REASON = (
-    "Set your FTP, threshold heart rate, or threshold pace to unlock performance scores."
-)
-
 
 def _check_needs_thresholds(preferences) -> bool:
     """Return True when none of the three threshold values are set in preferences.
@@ -12272,6 +12283,9 @@ def _build_performance_log_entry(
         score = result.get("score")
         if isinstance(score, (int, float)) and not isinstance(score, bool):
             return "numeric"
+        reason = result.get("reason") or ""
+        if isinstance(reason, str) and reason.startswith("missing:"):
+            return "missing-input"
         return "null"
 
     return {
@@ -12421,13 +12435,14 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             "state": "needs_thresholds",
             "reason": _NEEDS_THRESHOLDS_REASON,
         }
-        log_entry = _build_performance_log_entry(
-            preferences=preferences,
-            runs=runs,
-            endurance=_needs_thresholds_obj,
-            speed=_needs_thresholds_obj,
-        )
-        _performance_log.info("performance score request", extra=log_entry)
+        if _performance_log.isEnabledFor(_logging.DEBUG):
+            log_entry = _build_performance_log_entry(
+                preferences=preferences,
+                runs=runs,
+                endurance=_needs_thresholds_obj,
+                speed=_needs_thresholds_obj,
+            )
+            _performance_log.debug("performance score request", extra=log_entry)
         return JSONResponse({
             "endurance": _needs_thresholds_obj,
             "speed": _needs_thresholds_obj,
@@ -12437,13 +12452,14 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     endurance = compute_endurance_score(runs, preferences, zone_constants)
     speed = compute_speed_score(runs, preferences, zone_constants)
 
-    log_entry = _build_performance_log_entry(
-        preferences=preferences,
-        runs=runs,
-        endurance=endurance,
-        speed=speed,
-    )
-    _performance_log.info("performance score request", extra=log_entry)
+    if _performance_log.isEnabledFor(_logging.DEBUG):
+        log_entry = _build_performance_log_entry(
+            preferences=preferences,
+            runs=runs,
+            endurance=endurance,
+            speed=speed,
+        )
+        _performance_log.debug("performance score request", extra=log_entry)
 
     return JSONResponse({"endurance": endurance, "speed": speed})
 
@@ -12451,6 +12467,60 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
 # ── Athlete run personal records ───────────────────────────────────────────────
 
 _run_pr_log = _logging.getLogger(__name__)
+
+
+_SPEED_DISTANCE_LABELS = ("1km", "1mile", "5km", "10km", "half_marathon", "marathon")
+_POWER_DURATION_LABELS = ("best1Min", "best5Min", "best20Min")
+_VOLUME_LABELS = ("longestByDistance", "longestByDuration", "weeklyDistanceRecord", "weeklyLoadRecord")
+
+_VOLUME_MISSING_REASONS = {
+    "longestByDistance":    "insufficient data: no GPS distance measurements found in run history",
+    "longestByDuration":    "insufficient data: no run duration measurements found in run history",
+    "weeklyDistanceRecord": "insufficient data: no GPS distance measurements found in run history",
+    "weeklyLoadRecord":     "insufficient data: no training load (TSS) values found in run history",
+}
+
+
+def _enrich_run_pr_reasons(raw: dict) -> None:
+    """Add explicit per-slot reason strings for uncomputable record categories.
+
+    Mutates ``raw`` in-place.  When pr_detection returns a top-level reason-only
+    dict for speedRecords or powerRecords the individual expected slots are absent;
+    this function populates each missing slot with a reason string that identifies
+    the specific missing data type (power measurements vs. GPS pace data).  For
+    volumeRecords, sub-category keys that are simply absent from the output dict
+    receive per-key reasons distinguishing distance data from TSS data.
+
+    Computed slots (those that already carry ``value``, ``date``, and
+    ``sourceWorkout``) are never modified.
+    """
+    speed = raw.get("speedRecords")
+    if isinstance(speed, dict):
+        top_level_failure = "reason" in speed and not any(k in speed for k in _SPEED_DISTANCE_LABELS)
+        if top_level_failure:
+            for label in _SPEED_DISTANCE_LABELS:
+                if label not in speed:
+                    speed[label] = {"reason": "insufficient data: no GPS pace data available for this athlete"}
+
+    power = raw.get("powerRecords")
+    if isinstance(power, dict):
+        top_level_failure = "reason" in power and not any(k in power for k in _POWER_DURATION_LABELS)
+        if top_level_failure:
+            for label in _POWER_DURATION_LABELS:
+                if label not in power:
+                    power[label] = {"reason": "insufficient data: no power measurements found for this athlete"}
+
+    volume = raw.get("volumeRecords")
+    if isinstance(volume, dict):
+        top_level_failure = "reason" in volume and not any(k in volume for k in _VOLUME_LABELS)
+        if top_level_failure:
+            for label in _VOLUME_LABELS:
+                if label not in volume:
+                    volume[label] = {"reason": "insufficient data: no completed runs found"}
+        else:
+            for label, reason in _VOLUME_MISSING_REASONS.items():
+                if label not in volume:
+                    volume[label] = {"reason": reason}
 
 
 def _build_run_pr_log_entry(meta, records):
@@ -12491,6 +12561,19 @@ def _build_run_pr_log_entry(meta, records):
     }
 
 
+def _build_run_pr_pre_detection_log_entry(duration_curve_populated, runs_considered):
+    """Assemble the pre-detection structured log dict for the run personal records endpoint.
+
+    Called before fetch_and_detect_records so the inputs are observable even when
+    detection raises.  All field access is guarded — never raises.
+    """
+    return {
+        "event": "pr_detection_input",
+        "duration_curve_populated": bool(duration_curve_populated) if duration_curve_populated is not None else False,
+        "runs_considered": int(runs_considered) if runs_considered is not None else 0,
+    }
+
+
 @app.get("/api/athletes/{athlete_id}/run-personal-records")
 def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     """Return auto-detected personal records from the athlete's run history.
@@ -12504,13 +12587,39 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
     """
     from backend.services.pr_detection import fetch_and_detect_records
+    from backend.models import AthleteDurationCurve as _AthleteDurationCurve
 
     uid = user.id
+
     with Session(engine) as session:
+        run_count = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type.ilike("%run%"))
+            .count()
+        )
+        curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+
+        # If no curve row exists yet the athlete has runs, build it now so that
+        # fetch_and_detect_records can read it.  This is a one-time cost: once the
+        # row exists (even with empty curve_data for non-power athletes) we skip it.
+        # Thresholds are driven by _DEFAULT_DURATION_LADDER from duration_curve.py
+        # via fetch_and_compute_curves — no values are hardcoded here.
+        if not curve_populated:
+            _rebuild_athlete_duration_curve(uid, session)
+            curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+
+        _run_pr_log.info(
+            "pr_detection_input",
+            extra=_build_run_pr_pre_detection_log_entry(curve_populated, run_count),
+        )
+
         raw = fetch_and_detect_records(uid, session)
 
-    meta = raw.pop("_meta", {})
-    log_entry = _build_run_pr_log_entry(meta, raw)
-    _run_pr_log.info("run_pr_detected", extra=log_entry)
+    raw.pop("_meta", {})
+    _enrich_run_pr_reasons(raw)
+    _run_pr_log.info(
+        "pr_detection_output",
+        extra={"event": "pr_detection_output", "raw_output": raw},
+    )
 
     return JSONResponse(raw)

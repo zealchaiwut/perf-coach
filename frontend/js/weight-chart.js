@@ -4,7 +4,7 @@ const WeightChart = (() => {
   const NS = "http://www.w3.org/2000/svg";
   const VW = 900;
   const VH = 280;
-  const PAD = { top: 18, right: 16, bottom: 30, left: 50 };
+  const PAD = { top: 18, right: 16, bottom: 40, left: 50 };
   const CW = VW - PAD.left - PAD.right; // 834
   const CH = VH - PAD.top - PAD.bottom; // 232
 
@@ -406,19 +406,20 @@ const WeightChart = (() => {
         : d.toLocaleDateString("en-US", { month: "short" });
       const t1 = _el("text", {
         x: px,
-        y: PAD.top + _CH + 13,
+        y: PAD.top + _CH + 15,
         "text-anchor": "middle",
-        "font-size": "11",
-        fill: "#9ca3af",
+        "font-size": "17",
+        fill: "#6b7280",
+        "font-weight": "600",
       });
       t1.textContent = line1;
       svg.appendChild(t1);
       const t2 = _el("text", {
         x: px,
-        y: PAD.top + _CH + 25,
+        y: PAD.top + _CH + 30,
         "text-anchor": "middle",
-        "font-size": "10",
-        fill: "#b0b6c0",
+        "font-size": "15",
+        fill: "#9ca3af",
       });
       t2.textContent = line2;
       svg.appendChild(t2);

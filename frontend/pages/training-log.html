@@ -601,6 +601,9 @@
     /* Readiness widget (issue #640) */
     .readiness-widget {
       padding: 16px 18px;
+      /* Respond to the CARD's own width, not the viewport — the list column
+         shrinks when the detail panel opens, which no viewport @media catches. */
+      container-type: inline-size;
     }
 
     .rw-header {
@@ -620,7 +623,7 @@
 
     .rw-tiles {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
       gap: 0.5rem;
     }
 
@@ -730,6 +733,20 @@
       .rw-tile-val {
         font-size: 1.1rem;
       }
+    }
+
+    /* Narrow card (e.g. list column collapsed by the detail panel): shrink the
+       three tiles so they keep fitting side-by-side instead of overflowing. */
+    @container (max-width: 430px) {
+      .rw-tiles { gap: 0.3rem; }
+      .rw-tile { padding: 0.5rem 0.25rem; }
+      .rw-tile-val { font-size: 1.15rem; }
+      .rw-tile-label { white-space: normal; font-size: 0.625rem; }
+      .rw-zone-name { font-size: 8px; }
+    }
+    /* Very narrow: stack them so nothing clips. */
+    @container (max-width: 300px) {
+      .rw-tiles { grid-template-columns: 1fr; }
     }
 
     /* Legacy load-widget (kept for volume chart section; readiness widget moved to #readiness-widget) */
@@ -2512,18 +2529,20 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Endurance score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Endurance trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">📈</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more easy runs to establish your endurance score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score — please try again later.</span>
         </div>
       </div>
 
@@ -2533,18 +2552,20 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Speed score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Speed trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">⚡</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more hard/interval runs to establish your speed score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score — please try again later.</span>
         </div>
       </div>
 
@@ -2662,9 +2683,27 @@
     .perf-threshold-hint {
       margin-top: 8px;
       font-size: 11.5px;
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 10px 12px;
+      line-height: 1.5;
     }
-    .perf-threshold-hint a { color: var(--bg-1); }
+    .perf-threshold-hint a { color: var(--bg-1); font-weight: 600; }
+    .perf-error {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--red-soft);
+      border-radius: 8px;
+      font-size: 11.5px;
+      color: var(--red);
+    }
+    .perf-bb-reason {
+      margin: 0;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
 
     /* Fitness chart */
     .perf-chart-card { padding: 16px 18px; }

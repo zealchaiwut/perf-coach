@@ -64,6 +64,7 @@ def _run(engine, user_id_str: str) -> None:
     from sqlalchemy.orm import Session
     from backend.services.lap_recompute import rebuild_athlete_duration_curve
     from backend.services.lap_classify import classify_laps
+    from backend.services.tss import recompute_user_running_tss
 
     with Session(engine) as session:
         # Verify the user exists
@@ -93,8 +94,9 @@ def _run(engine, user_id_str: str) -> None:
             print(
                 f"No thresholds set for user {user_id_str}. "
                 "Lap classification requires at least one threshold (ftp_w, threshold_hr, "
-                "or threshold_pace_seconds_per_km). Duration curve will still be refreshed."
+                "or threshold_pace_seconds_per_km). Set thresholds in Settings and re-run."
             )
+            return
 
         # Step 1: Report how many run workouts exist for this user
         count_row = session.execute(
@@ -162,7 +164,17 @@ def _run(engine, user_id_str: str) -> None:
             f"({skipped_count} had no splits — skipped)."
         )
 
-        # Step 3: Rebuild the athlete's best-effort duration curve from all run workouts.
+        # Step 3: Recompute running TSS for all run workouts so per-run TSS values
+        # reflect the current thresholds (mirrors what PATCH /api/user-preferences does).
+        print("Recomputing running TSS for all run workouts…")
+        try:
+            recompute_user_running_tss(user_id_str, session)
+            session.commit()
+            print("Running TSS recomputed.")
+        except Exception as _tss_exc:
+            print(f"Warning: TSS recompute failed: {_tss_exc}")
+
+        # Step 4: Rebuild the athlete's best-effort duration curve from all run workouts.
         # This is the persistent step: updates AthleteDurationCurve for this athlete.
         print("Rebuilding best-effort duration curve…")
         curve, reason = rebuild_athlete_duration_curve(user_id_str, session)
