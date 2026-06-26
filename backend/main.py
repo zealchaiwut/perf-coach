@@ -12317,6 +12317,50 @@ def _build_performance_log_entry(
     }
 
 
+def _build_performance_diagnostic(preferences, runs):
+    """Return the 8 flat diagnostic keys required by issue #1018.
+
+    Unconditionally safe — never raises even when preferences is None or runs is empty.
+    Called at INFO level on every request to GET /api/athletes/{id}/performance so
+    the values are always visible in UAT logs without requiring DEBUG log level.
+    """
+    _runs = runs or []
+
+    runs_considered = len(_runs)
+    runs_with_laps = sum(1 for r in _runs if r.get("laps"))
+    laps_total = sum(len(r.get("laps") or []) for r in _runs)
+    laps_with_band = sum(
+        1 for r in _runs
+        for lap in (r.get("laps") or [])
+        if lap.get("band") is not None
+    )
+
+    if preferences is not None:
+        thresholds_present = any(
+            preferences.get(k) is not None
+            for k in ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+        )
+        ftp_present = preferences.get("ftp_w") is not None
+        threshold_hr_present = preferences.get("threshold_hr") is not None
+        threshold_pace_present = preferences.get("threshold_pace_seconds_per_km") is not None
+    else:
+        thresholds_present = False
+        ftp_present = False
+        threshold_hr_present = False
+        threshold_pace_present = False
+
+    return {
+        "runs_considered": runs_considered,
+        "runs_with_laps": runs_with_laps,
+        "laps_total": laps_total,
+        "laps_with_band": laps_with_band,
+        "thresholds_present": thresholds_present,
+        "ftp_present": ftp_present,
+        "threshold_hr_present": threshold_hr_present,
+        "threshold_pace_present": threshold_pace_present,
+    }
+
+
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete.
@@ -12442,6 +12486,13 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             })
 
     # All DB access is finished above.  The pure functions below perform no I/O.
+
+    # AC #1018: unconditional INFO-level diagnostic log — fires on every request so
+    # UAT logs always contain the 8 flat keys needed to diagnose scoring failures.
+    _performance_log.info(
+        "performance diagnostic",
+        extra=_build_performance_diagnostic(preferences=preferences, runs=runs),
+    )
 
     # AC #912: check for missing thresholds before calling score functions so the
     # UI can render a prompt instead of an unexplained dash.
