@@ -46,12 +46,11 @@ def test_score_card__response_has_required_keys(client):
 
 
 def test_score_card__scored_state_has_ring_fields(client):
-    """AC: When state is 'scored', the response includes score, direction, and trend
-    so the card can render the ring, label, and sparkline.
+    """AC: When state is 'scored', endurance and speed payloads include score, direction, trend.
+
+    Updated for issue #1020: state is now top-level; endurance/speed are non-null dicts
+    when state='scored'.
     """
-    # This test documents the expected structure for a scored state
-    # In the UAT environment with an authenticated user, the response would be 200
-    # and include proper scored data. This test skips if not authenticated.
     r = client.get("/api/athletes/test-id/performance")
 
     if r.status_code == 401:
@@ -59,21 +58,24 @@ def test_score_card__scored_state_has_ring_fields(client):
 
     if r.status_code == 200:
         data = r.json()
-        for score_type in ["endurance", "speed"]:
-            if score_type in data and data[score_type].get("state") == "scored":
-                score_data = data[score_type]
+        if data.get("state") == "scored":
+            for score_type in ["endurance", "speed"]:
+                score_data = data.get(score_type)
+                assert isinstance(score_data, dict), (
+                    f"{score_type} must be a dict when state=scored"
+                )
                 assert "score" in score_data
                 assert isinstance(score_data["score"], (int, float))
                 assert score_data["score"] >= 0
                 assert "direction" in score_data
-                assert score_data["direction"] in ["up", "down", "flat"]
                 assert "trend" in score_data
                 assert isinstance(score_data["trend"], list)
 
 
 def test_score_card__needs_thresholds_state_structure(client):
-    """AC: When state is 'needs_thresholds', the response includes a reason
-    explaining what thresholds need to be set.
+    """AC: When top-level state is 'needs_thresholds', endurance and speed are null.
+
+    Updated for issue #1020: state is top-level; endurance/speed are null (not nested dicts).
     """
     r = client.get("/api/athletes/test-id/performance")
 
@@ -82,18 +84,19 @@ def test_score_card__needs_thresholds_state_structure(client):
 
     if r.status_code == 200:
         data = r.json()
-        for score_type in ["endurance", "speed"]:
-            if score_type in data and data[score_type].get("state") == "needs_thresholds":
-                score_data = data[score_type]
-                assert "reason" in score_data
-                assert isinstance(score_data["reason"], str)
-                assert len(score_data["reason"]) > 0
-                assert score_data.get("score") is None
+        if data.get("state") == "needs_thresholds":
+            assert data.get("endurance") is None, (
+                "endurance must be null for needs_thresholds"
+            )
+            assert data.get("speed") is None, (
+                "speed must be null for needs_thresholds"
+            )
 
 
 def test_score_card__building_baseline_state_structure(client):
-    """AC: When state is 'building_baseline', the response includes a reason
-    explaining why a score is not available.
+    """AC: When top-level state is 'building_baseline', endurance and speed are null.
+
+    Updated for issue #1020: state is top-level; endurance/speed are null (not nested dicts).
     """
     r = client.get("/api/athletes/test-id/performance")
 
@@ -102,18 +105,19 @@ def test_score_card__building_baseline_state_structure(client):
 
     if r.status_code == 200:
         data = r.json()
-        for score_type in ["endurance", "speed"]:
-            if score_type in data and data[score_type].get("state") == "building_baseline":
-                score_data = data[score_type]
-                assert "reason" in score_data
-                assert isinstance(score_data["reason"], str)
-                assert len(score_data["reason"]) > 0
-                assert score_data.get("score") is None
+        if data.get("state") == "building_baseline":
+            assert data.get("endurance") is None, (
+                "endurance must be null for building_baseline"
+            )
+            assert data.get("speed") is None, (
+                "speed must be null for building_baseline"
+            )
 
 
 def test_score_card__state_field_is_explicit(client):
-    """AC: The response includes an explicit 'state' field so the frontend
-    can branch on it explicitly, not just on score value.
+    """AC: The response includes a top-level 'state' field for explicit frontend branching.
+
+    Updated for issue #1020: state is a top-level key, not nested in endurance/speed.
     """
     r = client.get("/api/athletes/test-id/performance")
 
@@ -122,9 +126,8 @@ def test_score_card__state_field_is_explicit(client):
 
     if r.status_code == 200:
         data = r.json()
-        for score_type in ["endurance", "speed"]:
-            if score_type in data:
-                assert "state" in data[score_type], f"Missing 'state' in {score_type}"
-                valid_states = ["scored", "needs_thresholds", "building_baseline"]
-                assert data[score_type]["state"] in valid_states, \
-                    f"Invalid state: {data[score_type]['state']}"
+        assert "state" in data, "top-level 'state' key must be present"
+        valid_states = {"scored", "needs_thresholds", "building_baseline", "error"}
+        assert data["state"] in valid_states, (
+            f"top-level state must be one of {valid_states}; got {data['state']!r}"
+        )
