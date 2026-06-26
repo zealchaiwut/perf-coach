@@ -77,6 +77,7 @@ from backend.services.session_profile_caller import get_session_profile_for_work
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
+from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -7420,6 +7421,59 @@ def get_performance_chart(
     return JSONResponse(result)
 
 
+@app.post("/api/performance/backfill")
+def post_performance_backfill(user: User = Depends(resolve_user)):
+    """Trigger the full performance backfill pipeline for the authenticated athlete.
+
+    Recomputes running TSS for all historical run workouts and rebuilds the
+    best-effort duration curve so that performance scores (endurance, speed) and
+    the fitness/fatigue/form chart reflect the current thresholds immediately.
+
+    Idempotent — safe to call more than once.  The response reports what was done
+    so the caller can decide whether to poll for completion or simply proceed.
+
+    Returns 200 with a summary dict:
+        {
+          "thresholds_found": true,
+          "runs_processed": 12,
+          "tss_recomputed": true,
+          "curve_rebuilt": true,
+          "reason": null
+        }
+
+    Returns 200 with ``thresholds_found: false`` when no thresholds have been
+    configured — the caller should direct the athlete to set thresholds first.
+    """
+    uid = user.id
+    with Session(engine) as session:
+        result = _backfill_performance_for_athlete(uid, session)
+    return JSONResponse(result)
+
+
+def _trigger_performance_backfill_background(user_id) -> None:
+    """Fire-and-forget: run the full performance backfill pipeline in a daemon thread.
+
+    Called after threshold saves so TSS and the duration curve are consistent
+    with the new thresholds without blocking the HTTP response.  Errors are
+    logged but do not propagate.
+    """
+    _backfill_log = _logging.getLogger(__name__)
+
+    def _run():
+        try:
+            from sqlalchemy.orm import Session as _Session
+            with _Session(engine) as _db:
+                _backfill_performance_for_athlete(user_id, _db)
+        except Exception as _exc:
+            _backfill_log.warning(
+                "background performance backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
 # ── Training Log endpoint ─────────────────────────────────────────────────────
 
 def _week_key_and_bounds(date_obj):
@@ -10928,9 +10982,10 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 _logging.getLogger(__name__).warning(
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
-            # Rebuild duration curve in background so performance scores and PR
-            # detection use up-to-date curve bests after thresholds change.
-            _trigger_curve_rebuild_background(uid)
+            # Run the full performance backfill (TSS + duration curve) in the
+            # background so scores and the fitness chart reflect new thresholds
+            # without blocking the HTTP response.  Idempotent; safe to re-run.
+            _trigger_performance_backfill_background(uid)
         return JSONResponse(_prefs_row_dict(prefs))
 
 
@@ -12064,9 +12119,10 @@ async def accept_threshold_suggestions(
 
         prefs.updated_at = _now
         session.commit()
-        # Rebuild duration curve in background so performance scores and PR
-        # detection use up-to-date curve bests after thresholds are accepted.
-        _trigger_curve_rebuild_background(user.id)
+        # Run the full performance backfill in background so scores and the
+        # fitness chart reflect the newly accepted thresholds without blocking
+        # the HTTP response.  Idempotent; safe to re-run.
+        _trigger_performance_backfill_background(user.id)
         return JSONResponse({"written": written, "skipped": []})
 
 
