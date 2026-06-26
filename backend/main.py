@@ -1208,9 +1208,14 @@ def get_weight_target_history_summary(user: User = Depends(resolve_user)):
                 "delta_kg": delta_kg,
             })
 
+        # "Targets set" is the total ever created — include the active one, else a
+        # user with only a current (unfinished) target sees 0 and it looks broken.
+        # success_pct / achieved stay relative to FINISHED targets only.
+        targets_set = all_count + (1 if active_target else 0)
+
         return JSONResponse({
             "stats": {
-                "targets_set": all_count,
+                "targets_set": targets_set,
                 "targets_achieved": achieved_count,
                 "success_pct": success_pct,
                 "total_kg_lost": total_kg_lost,
