@@ -2529,18 +2529,20 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Endurance score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Endurance trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">📈</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more easy runs to establish your endurance score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score — please try again later.</span>
         </div>
       </div>
 
@@ -2550,18 +2552,20 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Speed score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Speed trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">⚡</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more hard/interval runs to establish your speed score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score — please try again later.</span>
         </div>
       </div>
 
@@ -2679,9 +2683,27 @@
     .perf-threshold-hint {
       margin-top: 8px;
       font-size: 11.5px;
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 10px 12px;
+      line-height: 1.5;
     }
-    .perf-threshold-hint a { color: var(--bg-1); }
+    .perf-threshold-hint a { color: var(--bg-1); font-weight: 600; }
+    .perf-error {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--red-soft);
+      border-radius: 8px;
+      font-size: 11.5px;
+      color: var(--red);
+    }
+    .perf-bb-reason {
+      margin: 0;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
 
     /* Fitness chart */
     .perf-chart-card { padding: 16px 18px; }

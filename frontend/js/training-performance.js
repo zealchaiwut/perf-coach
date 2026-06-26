@@ -71,12 +71,14 @@
     fetch('/api/athletes/' + _athleteId + '/performance')
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
-        _renderScoreCard('endurance', data.endurance);
-        _renderScoreCard('speed',     data.speed);
+        var endurance = data && typeof data === 'object' ? data.endurance : null;
+        var speed     = data && typeof data === 'object' ? data.speed     : null;
+        _renderScoreCard('endurance', endurance);
+        _renderScoreCard('speed',     speed);
       })
       .catch(function () {
-        _renderScoreCard('endurance', null);
-        _renderScoreCard('speed',     null);
+        _renderScoreError('endurance');
+        _renderScoreError('speed');
       });
   }
 
@@ -84,68 +86,75 @@
     var card = document.getElementById('perf-score-' + type);
     if (!card) return;
 
-    var ringEl      = card.querySelector('.perf-ring');
-    var scoreEl     = card.querySelector('.perf-score-val');
-    var dirEl       = card.querySelector('.perf-dir');
-    var sparkEl     = card.querySelector('.perf-spark');
-    var bbEl        = card.querySelector('.perf-building-baseline');
-    var threshEl    = card.querySelector('.perf-threshold-hint');
+    var ringEl    = card.querySelector('.perf-ring');
+    var bodyEl    = card.querySelector('.perf-card-body');
+    var scoreEl   = card.querySelector('.perf-score-val');
+    var dirEl     = card.querySelector('.perf-dir');
+    var sparkEl   = card.querySelector('.perf-spark');
+    var bbEl      = card.querySelector('.perf-building-baseline');
+    var threshEl  = card.querySelector('.perf-threshold-hint');
+    var errorEl   = card.querySelector('.perf-error');
 
-    // Hide all sub-states first
-    if (ringEl)   ringEl.style.display = '';
-    if (scoreEl)  scoreEl.style.display = '';
-    if (dirEl)    dirEl.style.display = '';
-    if (sparkEl)  sparkEl.style.display = '';
-    if (bbEl)     bbEl.hidden = true;
+    // Reset all states
+    if (bodyEl)   bodyEl.style.display  = 'none';
+    if (bbEl)     bbEl.hidden    = true;
     if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = true;
 
-    if (!data) {
-      _showScoreNull(card);
+    // Unexpected shape — treat as error
+    if (!data || typeof data !== 'object' || !data.state) {
+      _renderScoreError(type);
       return;
     }
 
-    // building_baseline state: no score, no ring fill, no sparkline
-    if (data.state === 'building_baseline') {
-      if (ringEl)   ringEl.style.display = 'none';
-      if (scoreEl)  scoreEl.style.display = 'none';
-      if (dirEl)    dirEl.style.display = 'none';
-      if (sparkEl)  sparkEl.style.display = 'none';
-      if (bbEl)     bbEl.hidden = false;
+    var state = data.state;
+
+    if (state === 'scored') {
+      var score = data.score != null ? data.score : null;
+      var dir   = data.direction || 'flat';
+      var trend = Array.isArray(data.trend) ? data.trend : [];
+
+      if (bodyEl) bodyEl.style.display = '';
+      if (ringEl && score != null) _drawRing(ringEl, score);
+      if (scoreEl) scoreEl.textContent = score != null ? Math.round(score) : '';
+      if (dirEl) {
+        dirEl.textContent = dir;
+        dirEl.className = 'perf-dir perf-dir--' + dir;
+      }
+      if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
       return;
     }
 
-    // Missing preferences — show "Set your threshold in Settings" hint
-    if (data.score === null && data.reason && data.reason.indexOf('preferences') !== -1) {
-      _showScoreNull(card);
+    if (state === 'needs_thresholds') {
+      // Show CTA prompting the athlete to set thresholds in Settings
       if (threshEl) threshEl.hidden = false;
       return;
     }
 
-    var score = data.score != null ? data.score : null;
-    var dir   = data.direction || 'flat';
-    var trend = Array.isArray(data.trend) ? data.trend : [];
-
-    // Draw ring
-    if (ringEl) _drawRing(ringEl, score != null ? score : 0);
-
-    // Score value
-    if (scoreEl) scoreEl.textContent = score != null ? Math.round(score) : '—';
-
-    // Direction
-    if (dirEl) {
-      dirEl.textContent = dir;
-      dirEl.className = 'perf-dir perf-dir--' + dir;
+    if (state === 'building_baseline') {
+      if (bbEl) {
+        bbEl.hidden = false;
+        var reasonEl = bbEl.querySelector('.perf-bb-reason');
+        if (reasonEl) reasonEl.textContent = data.reason || 'Building baseline…';
+      }
+      return;
     }
 
-    // Sparkline
-    if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
+    // Unknown state — show error
+    _renderScoreError(type);
   }
 
-  function _showScoreNull(card) {
-    var scoreEl = card.querySelector('.perf-score-val');
-    var dirEl   = card.querySelector('.perf-dir');
-    if (scoreEl) scoreEl.textContent = '—';
-    if (dirEl)   dirEl.textContent = '';
+  function _renderScoreError(type) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (bbEl)     bbEl.hidden    = true;
+    if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = false;
   }
 
   function _drawRing(container, score) {
