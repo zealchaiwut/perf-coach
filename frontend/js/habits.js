@@ -2044,6 +2044,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const unit = document.getElementById('habit-form-unit').value.trim() || null;
       const payload = _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit);
 
+      // tracking_type is immutable after creation — backend rejects it in PATCH
       if (_sfEditingHabitId) delete payload.tracking_type;
 
       const genErrorEl = document.getElementById('habit-form-error');

@@ -1249,6 +1249,23 @@ async function _saveEditPanel() {
     return;
   }
 
+  // Validate goal vs start weight for loss-direction targets.
+  // The start weight is fixed once a target is created; if the target was
+  // set as a loss target (start > original goal) the new goal must stay below
+  // start weight — otherwise the data has no meaningful direction.
+  const startWVal = _activeTarget
+    ? _activeTarget.start_weight_kg
+    : (_chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null);
+  if (startWVal != null) {
+    const isLossTarget = _activeTarget
+      ? _activeTarget.start_weight_kg > _activeTarget.target_weight_kg
+      : false;
+    if (isLossTarget && goalW >= startWVal) {
+      if (errEl) errEl.textContent = 'Goal must be less than start weight.';
+      return;
+    }
+  }
+
   if (saveBtn) saveBtn.disabled = true;
 
   try {

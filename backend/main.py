@@ -1612,7 +1612,18 @@ def get_weight_chart(
 ):
     uid = user.id
 
-    _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
+    # Day offsets for each range token use (N-1) so that both from_d and to_d
+    # are included in the range (inclusive semantics): e.g. "7D" spans 7 days
+    # from (today - 6) through today inclusive.  "ALL" is omitted because its
+    # from_d is resolved dynamically from the earliest entry date.
+    RANGE_OFFSETS = {
+        "7D": 6,    # 7 days inclusive
+        "30D": 29,  # 30 days inclusive
+        "90D": 89,  # 90 days inclusive
+        "6M": 183,  # ~6 calendar months inclusive
+        "1Y": 364,  # 365 days inclusive
+    }
+    _VALID_RANGE_TOKENS = {*RANGE_OFFSETS, "ALL"}
     today = _today_bkk()
     if range_token is not None:
         if range_token not in _VALID_RANGE_TOKENS:
@@ -1621,16 +1632,8 @@ def get_weight_chart(
                 detail=f"range must be one of: {', '.join(sorted(_VALID_RANGE_TOKENS))}",
             )
         to_d = today
-        if range_token == "7D":
-            from_d = today - _timedelta(days=6)
-        elif range_token == "30D":
-            from_d = today - _timedelta(days=29)
-        elif range_token == "90D":
-            from_d = today - _timedelta(days=89)
-        elif range_token == "6M":
-            from_d = today - _timedelta(days=183)
-        elif range_token == "1Y":
-            from_d = today - _timedelta(days=364)
+        if range_token in RANGE_OFFSETS:
+            from_d = today - _timedelta(days=RANGE_OFFSETS[range_token])
         else:  # ALL — from_d resolved inside session after earliest-entry lookup
             from_d = None
     elif from_date is None and to_date is None:
@@ -3639,6 +3642,20 @@ def _validate_backfill_window(log_date: _date) -> None:
         )
 
 
+def _validated_backfill_date(date: str = Query(...)) -> _date:
+    """FastAPI dependency: parse a date query param and validate it against the backfill window.
+
+    Raises 400 for unparseable strings; delegates window checks to _validate_backfill_window.
+    Reusable by any endpoint that receives a date as a query string and needs backfill enforcement.
+    """
+    try:
+        log_date = _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    _validate_backfill_window(log_date)
+    return log_date
+
+
 def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> list:
     """Compute autofill log entries from a pre-loaded workout list (pure, no DB).
 
@@ -3834,18 +3851,13 @@ def post_habit_log_entry(
 @app.delete("/api/habits/{habit_id}/log", status_code=204)
 def delete_habit_log_entry(
     habit_id: str,
-    date: str = Query(...),
+    log_date: _date = Depends(_validated_backfill_date),
     user: User = Depends(resolve_user),
 ):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
-    try:
-        log_date = _date.fromisoformat(date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-    _validate_backfill_window(log_date)
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
@@ -4101,14 +4113,17 @@ def get_habits_week(
             })
 
         # Build weekly_habits data
+        autofill_cache: dict = {}  # memoize per unique auto_fill_source within this request
         weekly_habits_data = []
         for habit in weekly_habits_list:
             habit_logs = logs_by_habit.get(habit.id, [])
             computed_logs_w: list = []
             if habit.auto_fill_source:
-                computed_logs_w = _get_computed_logs_from_workouts(
-                    week_workouts, habit.auto_fill_source
-                )
+                if habit.auto_fill_source not in autofill_cache:
+                    autofill_cache[habit.auto_fill_source] = _get_computed_logs_from_workouts(
+                        week_workouts, habit.auto_fill_source
+                    )
+                computed_logs_w = autofill_cache[habit.auto_fill_source]
             progress = _aggregate_weekly_progress(habit_logs, computed_logs_w, habit.weekly_target)
 
             # daily_breakdown: dates with any contribution (manual or autofill).

@@ -26,7 +26,6 @@ import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app, resolve_user
@@ -37,6 +36,12 @@ from backend.models import Habit, HabitLog
 _ROOT = pathlib.Path(__file__).parent.parent
 _HTML = (_ROOT / "frontend" / "pages" / "habits.html").read_text()
 _JS   = (_ROOT / "frontend" / "js" / "habits.js").read_text()
+
+# CSS was extracted to habits.css (issue #453). Append it so CSS-pattern checks
+# in _HTML still pass after the extraction.
+_habits_css_path = _ROOT / "frontend" / "css" / "habits.css"
+if _habits_css_path.exists():
+    _HTML = _HTML + "\n" + _habits_css_path.read_text()
 
 # ── API test fixtures ─────────────────────────────────────────────────────────
 
@@ -102,7 +107,6 @@ def _make_session(active_habits, logs=None):
     once for archived-with-logs). We return `active_habits` on the first call
     and `[]` on the second.
     """
-    from datetime import datetime
     logs = logs or []
 
     sess = MagicMock()
