@@ -4101,14 +4101,17 @@ def get_habits_week(
             })
 
         # Build weekly_habits data
+        autofill_cache: dict = {}  # memoize per unique auto_fill_source within this request
         weekly_habits_data = []
         for habit in weekly_habits_list:
             habit_logs = logs_by_habit.get(habit.id, [])
             computed_logs_w: list = []
             if habit.auto_fill_source:
-                computed_logs_w = _get_computed_logs_from_workouts(
-                    week_workouts, habit.auto_fill_source
-                )
+                if habit.auto_fill_source not in autofill_cache:
+                    autofill_cache[habit.auto_fill_source] = _get_computed_logs_from_workouts(
+                        week_workouts, habit.auto_fill_source
+                    )
+                computed_logs_w = autofill_cache[habit.auto_fill_source]
             progress = _aggregate_weekly_progress(habit_logs, computed_logs_w, habit.weekly_target)
 
             # daily_breakdown: dates with any contribution (manual or autofill).
