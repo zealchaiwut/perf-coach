@@ -774,19 +774,12 @@ function _setCellState(btn, state, logId) {
 
 function renderDailyGrid(logSet) {
   const container = document.getElementById('day-grid-content');
-  const weekEl = document.getElementById('day-grid-week');
   if (!container) return;
 
   const dailyHabits = (weekData && weekData.daily_habits) || [];
   const dayScores = (weekData && weekData.day_scores) || [];
   const streaksPerHabit = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
   const todayStr = bangkokTodayStr();
-
-  if (weekEl && weekData) {
-    const from = weekData.week_start.slice(5).replace('-', '/');
-    const to = weekData.week_end.slice(5).replace('-', '/');
-    weekEl.textContent = from + ' – ' + to;
-  }
 
   if (dailyHabits.length === 0) {
     container.innerHTML = '<div class="day-grid-empty">No daily habits yet.</div>';
