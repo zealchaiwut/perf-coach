@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 88 — Performance state field, diagnostic logging, backfill pipeline, and fitness chart fix
+
+- #1018: Add diagnostic INFO logging to performance endpoint (runs_considered, laps_with_band, threshold flags per request)
+- #1020: Return explicit top-level state field from performance endpoint (scored / needs_thresholds / building_baseline / error)
+- #1023: Add POST /api/performance/backfill and full backfill pipeline to recompute historical run TSS and duration curve
+- #1024: Fix Fitness Fatigue Form chart building_baseline propagation from endurance/speed score readiness
+
 ## Sprint 86 — Habits timezone fix, weight validation, range-token clarity, and test coverage
 
 - #450: Memoize autofill computation per source in GET /api/habits/week
