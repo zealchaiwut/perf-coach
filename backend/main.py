@@ -1612,7 +1612,18 @@ def get_weight_chart(
 ):
     uid = user.id
 
-    _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
+    # Day offsets for each range token use (N-1) so that both from_d and to_d
+    # are included in the range (inclusive semantics): e.g. "7D" spans 7 days
+    # from (today - 6) through today inclusive.  "ALL" is omitted because its
+    # from_d is resolved dynamically from the earliest entry date.
+    RANGE_OFFSETS = {
+        "7D": 6,    # 7 days inclusive
+        "30D": 29,  # 30 days inclusive
+        "90D": 89,  # 90 days inclusive
+        "6M": 183,  # ~6 calendar months inclusive
+        "1Y": 364,  # 365 days inclusive
+    }
+    _VALID_RANGE_TOKENS = {*RANGE_OFFSETS, "ALL"}
     today = _today_bkk()
     if range_token is not None:
         if range_token not in _VALID_RANGE_TOKENS:
@@ -1621,16 +1632,8 @@ def get_weight_chart(
                 detail=f"range must be one of: {', '.join(sorted(_VALID_RANGE_TOKENS))}",
             )
         to_d = today
-        if range_token == "7D":
-            from_d = today - _timedelta(days=6)
-        elif range_token == "30D":
-            from_d = today - _timedelta(days=29)
-        elif range_token == "90D":
-            from_d = today - _timedelta(days=89)
-        elif range_token == "6M":
-            from_d = today - _timedelta(days=183)
-        elif range_token == "1Y":
-            from_d = today - _timedelta(days=364)
+        if range_token in RANGE_OFFSETS:
+            from_d = today - _timedelta(days=RANGE_OFFSETS[range_token])
         else:  # ALL — from_d resolved inside session after earliest-entry lookup
             from_d = None
     elif from_date is None and to_date is None:
