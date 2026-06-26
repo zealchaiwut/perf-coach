@@ -60,6 +60,12 @@ const WeightChart = (() => {
     return e;
   }
 
+  // Chart text is sized in viewBox units; the viewBox scales up more on desktop
+  // than on mobile, so shrink labels ~0.72x on wide screens (mobile keeps size).
+  function _fs(px) {
+    return (typeof window !== "undefined" && window.innerWidth > 700) ? Math.round(px * 0.72) : px;
+  }
+
   // ── Y coordinate mapping ───────────────────────────────────────────────
 
   function _yCoord(val, yMin, yMax) {
@@ -408,7 +414,7 @@ const WeightChart = (() => {
         x: px,
         y: PAD.top + _CH + 15,
         "text-anchor": "middle",
-        "font-size": "17",
+        "font-size": _fs(17),
         fill: "#6b7280",
         "font-weight": "600",
       });
@@ -418,7 +424,7 @@ const WeightChart = (() => {
         x: px,
         y: PAD.top + _CH + 30,
         "text-anchor": "middle",
-        "font-size": "15",
+        "font-size": _fs(15),
         fill: "#9ca3af",
       });
       t2.textContent = line2;
@@ -428,44 +434,57 @@ const WeightChart = (() => {
 
   // ── Main render ────────────────────────────────────────────────────────
 
+  // ── Mode (Basic / Advanced) ──────────────────────────────────────────────
+  // Basic draws a strict subset of Advanced — identical colors, scale, and X
+  // positions — so nothing moves or recolors on toggle. History always occupies
+  // the left 80%; the forecast region (right 20%) is blank in Basic.
+  let _mode = (function () {
+    try { return localStorage.getItem("weightChartMode") === "advanced" ? "advanced" : "basic"; }
+    catch (e) { return "basic"; }
+  })();
+  let _lastData = null;
+  let _lastRange = null;
+  const HIST_FRAC = 0.8;          // history occupies the left 80% in BOTH modes
+  const GOAL_TOL_KG = 0.3;        // ± tolerance band around the goal (no pref field yet)
+
+  function getMode() { return _mode; }
+  function setMode(m) {
+    _mode = m === "advanced" ? "advanced" : "basic";
+    try { localStorage.setItem("weightChartMode", _mode); } catch (e) {}
+    if (_lastData) render(_lastData, _lastRange);
+  }
+
   function render(data, range) {
+    _lastData = data;
+    _lastRange = range;
+
     const container = document.getElementById("weight-chart");
     if (!container) return;
-
-    // Hide loading placeholder
     const loading = document.getElementById("chart-loading");
     if (loading) loading.hidden = true;
     container.hidden = false;
 
-    // Taller plot on mobile so the trend has vertical room to read (≈3.2:1
-    // desktop sliver → ~1.9:1 on phones).
+    const advanced = _mode === "advanced";
+
+    // Taller plot on mobile so the trend has vertical room to read.
     const narrow = window.innerWidth <= MOBILE_LAYOUT_W;
     _VH = window.innerWidth <= MOBILE_CHART_H ? 520 : narrow ? 400 : VH;
     _CH = _VH - PAD.top - PAD.bottom;
-
-    // Persistent (always-visible) labels for current weight, plan, gap, and
-    // milestone values on narrow viewports — touch devices can't hover.
+    // ≤480px: bigger tap targets + the goal chip flips to avoid the right axis.
     const isMobile = window.innerWidth <= 480;
-    const isMobileChart = narrow;
+    // threeZone kept as a flag for parity with prior behaviour/tests; the
+    // redesign uses a single history/forecast split rather than past/future rails.
+    const threeZone = false;
 
-    const hasTarget = !!(data.plan_series && data.plan_series.length);
-    const hasFuture = !!(
-      data.future_milestones && data.future_milestones.length
-    );
+    // ── Unit (respect kg / lbs; data is kg) ──
+    const unit = data.unit === "lbs" ? "lbs" : "kg";
+    const toU = unit === "lbs" ? (kg) => kg * 2.2046226218 : (kg) => kg;
+    const TOL = toU(GOAL_TOL_KG);
 
-    // Three-zone on desktop when a target exists; mobile drops rails.
-    const threeZone = hasTarget && !isMobileChart;
-    const hasFutureZone = threeZone;
-    const curL = threeZone ? CUR_L3 : PAD.left;
-    const curR = threeZone ? CUR_R3 : PAD.left + CW - 80;
-    const curW = curR - curL;
-
-    // Reset container
     container.innerHTML = "";
     container.style.position = "relative";
     _initTooltip(container);
 
-    // Build SVG
     const svg = _el("svg", {
       viewBox: "0 0 " + VW + " " + _VH,
       "aria-label": "Weight trend chart",
@@ -481,584 +500,273 @@ const WeightChart = (() => {
 
     _activeDots = [];
 
-    // Y scale — three-zone system: top 10% rail / center 80% present band / bottom 10% rail.
-    const { yMin, yMax } = _computeYBounds(data); // kept for legacy tests
-    const { presentMin, presentMax } = _computePresentBounds(data);
-    const { globalMin, globalMax } = _computeGlobalBounds(
-      data,
-      presentMin,
-      presentMax,
-    );
-    const y = (val) =>
-      _yCoord3Zone(val, presentMin, presentMax, globalMin, globalMax);
+    // Verdict banner removed from the chart UI — keep it hidden in both modes.
+    const _verdict = document.getElementById("chart-verdict");
+    if (_verdict) _verdict.hidden = true;
 
-    const trendDates = (data.trend || []).map((p) => p.date);
+    // ── Layout: left 80% history, right 20% forecast ──
+    const AX = 46;                       // right-axis label gutter
+    const L = PAD.left - 36;             // pull plot left; labels live on the right
+    const R = VW - AX;
+    const plotW = R - L;
+    const T = PAD.top;
+    const B = T + _CH;
+    const nowX = L + plotW * HIST_FRAC;
+
+    const trend = data.trend || [];
+    const trendDates = trend.map((p) => p.date);
     const n = trendDates.length;
+    function xIdx(idx) { return L + (n > 1 ? (idx / (n - 1)) * (plotW * HIST_FRAC) : 0); }
+    function xDate(dateStr) { const i = trendDates.indexOf(dateStr); return i < 0 ? null : xIdx(i); }
 
-    function xIdx(idx) {
-      return curL + (n > 1 ? (idx / (n - 1)) * curW : 0);
-    }
-    function xDate(dateStr) {
-      const idx = trendDates.indexOf(dateStr);
-      return idx < 0 ? null : xIdx(idx);
-    }
-    function xDateFn(idx) {
-      return xIdx(idx);
-    }
+    const target = data.target || null;
+    const goalKg = target && target.target_weight_kg != null ? target.target_weight_kg : null;
+    const goalU = goalKg != null ? toU(goalKg) : null;
 
-    const gridRight = threeZone ? FUTURE_R : curR;
-    const gridLeft = threeZone ? PAST_L : curL;
+    // ── Value scale (display unit) — keep the goal band slim (~1/5 height) by
+    // leaving room below the goal; enforce a 3-unit minimum span. ──
+    // Vertical scale from the present band (recomputed per range tab), lowered
+    // so the goal-zone band fits with room below. presentMin/presentMax also
+    // bound the gridlines, consistent with the three-zone scale helpers.
+    // Scale to the DATA present band — do NOT stretch the range all the way down
+    // to a far goal (that left the chart mostly empty). A goal below the band is
+    // docked as a slim strip at the bottom instead (see goal section below). When
+    // the goal sits just below the data, extend a little so the band fits inline.
+    const _pb = _computePresentBounds(data); // kg
+    let presentMin = toU(_pb.presentMin);
+    let presentMax = toU(_pb.presentMax);
+    if (goalU != null && goalU >= presentMin - 2) {
+      presentMin = Math.min(presentMin, goalU - TOL - 0.4); // near goal → keep inline + to-scale
+    }
+    let span = presentMax - presentMin;
+    if (span < 3) { const mid = (presentMin + presentMax) / 2; presentMin = mid - 1.5; presentMax = mid + 1.5; span = 3; }
+    const hi = presentMax, lo = presentMin;
+    const y = (valU) => T + ((presentMax - valU) / span) * _CH;
 
-    // ── 1. Zone tints + thin separators ─────────────────────────────────
-    if (threeZone) {
-      svg.appendChild(
-        _el("rect", {
-          // past: faint grey wash
-          x: PAST_L,
-          y: PAD.top,
-          width: PAST_W,
-          height: _CH,
-          fill: "#f3f4f6",
-          opacity: "0.7",
-        }),
-      );
-      svg.appendChild(
-        _el("rect", {
-          // future: faint blue wash
-          x: FUTURE_L,
-          y: PAD.top,
-          width: FUTURE_W,
-          height: _CH,
-          fill: C.future_bg,
-        }),
-      );
-      [PAST_R, CUR_R3].forEach((sx) => {
-        svg.appendChild(
-          _el("line", {
-            x1: sx,
-            y1: PAD.top,
-            x2: sx,
-            y2: PAD.top + _CH,
-            stroke: C_SEP,
-            "stroke-width": "1",
-          }),
-        );
+    // ════ 1. Forecast tint (advanced) — BEFORE gridlines ════
+    if (advanced) {
+      svg.appendChild(_el("rect", { x: nowX, y: T, width: R - nowX, height: _CH, fill: C.future_bg }));
+      const fl = _el("text", {
+        x: nowX + 6, y: T + 12, "font-size": _fs(10), "font-weight": "700",
+        "letter-spacing": "0.08em", fill: "#94a3b8",
       });
-      // Rail labels
-      ["PAST", "FUTURE"].forEach((lbl, zi) => {
-        const cx = zi === 0 ? (PAST_L + PAST_R) / 2 : (FUTURE_L + FUTURE_R) / 2;
-        const t = _el("text", {
-          x: cx,
-          y: PAD.top + 11,
-          "text-anchor": "middle",
-          "font-size": "12",
-          fill: "#b0b8cc",
-          "font-weight": "600",
-          "letter-spacing": "0.08em",
-        });
-        t.textContent = lbl;
-        svg.appendChild(t);
-      });
+      fl.textContent = "FORECAST";
+      svg.appendChild(fl);
     }
 
-    // ── 2. Gridlines — integer ticks within the present band ──────────────
-    // Step adapts to band width: 1 kg for tight windows (incl. the enforced
-    // 3 kg minimum), coarser for wide ranges so 1Y / ALL don't clutter.
-    const _bandSpan = presentMax - presentMin;
+    // ════ 2. Goal zone band (shared) — slim tinted green band, full width ════
+    let bandTop = null, bandBot = null, goalY = null;
+    const hasTarget = goalU != null;
+    if (hasTarget) {
+      goalY = y(goalU);
+      bandTop = y(goalU + TOL);
+      bandBot = y(goalU - TOL);
+      // Far goal (below the data band): dock the zone as a slim strip hugging the
+      // chart bottom instead of letting it fall off-scale.
+      if (goalY > B - 8) {
+        bandBot = B - 4;
+        bandTop = bandBot - 14;
+        goalY = (bandTop + bandBot) / 2;
+      }
+      svg.appendChild(_el("rect", { x: L, y: bandTop, width: plotW, height: bandBot - bandTop, fill: "rgba(22,163,74,0.10)" }));
+      svg.appendChild(_el("line", { x1: L, y1: bandTop, x2: R, y2: bandTop, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
+      svg.appendChild(_el("line", { x1: L, y1: bandBot, x2: R, y2: bandBot, stroke: "rgba(22,163,74,0.35)", "stroke-width": "1", "stroke-dasharray": "3 3" }));
+      svg.appendChild(_el("line", { x1: L, y1: goalY, x2: R, y2: goalY, stroke: C.plan, "stroke-width": "1.5", "stroke-dasharray": "6 4" }));
+      // Goal-zone chip (shown on desktop + mobile when hasTarget). On very
+      // narrow viewports it flips toward the left so it clears the right axis.
+      const labelLeft = isMobile || (L + 90) < R;
+      const chipT = _el("text", {
+        x: labelLeft ? L + 4 : R - 90, y: bandTop - 5, dy: "0",
+        "font-size": _fs(11), "font-weight": "700", fill: "#15803d",
+      });
+      chipT.textContent = "Goal zone · " + goalU.toFixed(1) + " " + unit;
+      svg.appendChild(chipT);
+    }
+
+    // ════ 3. Gridlines (shared) — adaptive integer step; right-axis labels ════
+    const _bandSpan = span;
     const _tickStep = _bandSpan <= 6 ? 1 : _bandSpan <= 15 ? 2 : 5;
-    for (
-      let kg = Math.ceil(presentMin / _tickStep) * _tickStep;
-      kg <= presentMax;
-      kg += _tickStep
-    ) {
+    for (let kg = Math.ceil(presentMin / _tickStep) * _tickStep; kg <= presentMax; kg += _tickStep) {
       const gy = y(kg);
-      svg.appendChild(
-        _el("line", {
-          x1: gridLeft,
-          y1: gy,
-          x2: gridRight,
-          y2: gy,
-          stroke: C.grid,
-          "stroke-width": "0.75",
-        }),
-      );
-      const lbl = _el("text", {
-        x: gridLeft - 5,
-        y: gy,
-        "text-anchor": "end",
-        "dominant-baseline": "middle",
-        "font-size": "18",
-        fill: "#6b7280",
-        "font-weight": "600",
-      });
-      lbl.textContent = String(kg);
+      svg.appendChild(_el("line", { x1: L, y1: gy, x2: R, y2: gy, stroke: C.grid, "stroke-width": "0.75", "stroke-dasharray": "2 3" }));
+      const lbl = _el("text", { x: R + 6, y: gy + 4, "text-anchor": "start", "font-size": "12", fill: "#9ca3af" });
+      lbl.textContent = String(Math.round(kg));
       svg.appendChild(lbl);
     }
 
-    // ── 4. Green dashed plan line ───────────────────────────────────────
-    if (data.plan_series && data.plan_series.length) {
+    // Plan helpers (history + forecast). plan_series spans the history dates.
+    const planByDate = {};
+    (data.plan_series || []).forEach((p) => { planByDate[p.date] = toU(p.plan_kg); });
+    const hasPlan = !!(data.plan_series && data.plan_series.length);
+    const isLoss = _isLossGoal(data);
+
+    // ════ 4. Ahead/behind shading (advanced) — between trend & plan, per day ════
+    if (advanced && hasPlan) {
+      for (let s = 0; s < n - 1; s++) {
+        const d0 = trendDates[s], d1 = trendDates[s + 1];
+        const p0 = planByDate[d0], p1 = planByDate[d1];
+        const t0 = trend[s].weight_kg != null ? toU(trend[s].weight_kg) : null;
+        const t1 = trend[s + 1].weight_kg != null ? toU(trend[s + 1].weight_kg) : null;
+        if (p0 == null || p1 == null || t0 == null || t1 == null) continue;
+        const ahead = _trendAhead((t0 + t1) / 2, (p0 + p1) / 2, isLoss);
+        const poly = [
+          xIdx(s) + "," + y(t0), xIdx(s + 1) + "," + y(t1),
+          xIdx(s + 1) + "," + y(p1), xIdx(s) + "," + y(p0),
+        ].join(" ");
+        svg.appendChild(_el("polygon", { points: poly, fill: ahead ? C.fill_ahead : C.fill_behind }));
+      }
+    }
+
+    // ════ 5. Plan line (advanced) — green dash across history, BEFORE dots ════
+    if (advanced && hasPlan) {
       const pts = [];
-      data.plan_series.forEach((p) => {
-        const px = xDate(p.date);
-        if (px != null) pts.push(`${px},${y(p.plan_kg)}`);
-      });
+      trendDates.forEach((d, i) => { if (planByDate[d] != null) pts.push(xIdx(i) + "," + y(planByDate[d])); });
       if (pts.length >= 2) {
-        svg.appendChild(
-          _el("polyline", {
-            points: pts.join(" "),
-            fill: "none",
-            stroke: C.plan,
-            "stroke-width": "1.5",
-            "stroke-dasharray": "5 3",
-          }),
-        );
+        svg.appendChild(_el("polyline", {
+          points: pts.join(" "), fill: "none", stroke: C.plan,
+          "stroke-width": "2", "stroke-dasharray": "6 4", "stroke-linecap": "round",
+        }));
       }
     }
 
-    // ── Gap-vs-plan area fill (green ahead / red behind; pauses on null gaps) ──
-    _renderGapFill(svg, data, xIdx, y);
-
-    // ── Past zone: thin grey line through earlier weigh-ins (no dots) ────
-    if (threeZone && (data.past_actuals || []).length) {
-      const pa = data.past_actuals;
-      const t0 = new Date(pa[0].date + "T00:00:00").getTime();
-      const t1 = new Date(
-        (data.range && data.range.from
-          ? data.range.from
-          : pa[pa.length - 1].date) + "T00:00:00",
-      ).getTime();
-      const span = Math.max(1, t1 - t0);
-      const xPast = (ds) =>
-        PAST_L +
-        ((new Date(ds + "T00:00:00").getTime() - t0) / span) * (PAST_W - 4);
-      const ppts = pa.map((pt) => `${xPast(pt.date)},${y(pt.weight_kg)}`);
-      if (ppts.length >= 2) {
-        svg.appendChild(
-          _el("polyline", {
-            points: ppts.join(" "),
-            fill: "none",
-            stroke: C_PAST_LINE,
-            "stroke-width": "1.2",
-            "stroke-linejoin": "round",
-            "stroke-linecap": "round",
-          }),
-        );
-      }
-      // bridge last past point → first present trend point for continuity
-      const lastPast = pa[pa.length - 1];
-      const firstTrend = (data.trend || []).find((t) => t.weight_kg != null);
-      if (ppts.length && firstTrend) {
-        svg.appendChild(
-          _el("line", {
-            x1: xPast(lastPast.date),
-            y1: y(lastPast.weight_kg),
-            x2: xIdx(trendDates.indexOf(firstTrend.date)),
-            y2: y(firstTrend.weight_kg),
-            stroke: C_PAST_LINE,
-            "stroke-width": "1.2",
-            "stroke-dasharray": "2 2",
-          }),
-        );
-      }
-    }
-
-    // ── 5. Gray weigh-in dots (one per actual entry in present window) ─────
-    const dotR = isMobileChart ? "5" : "3.5";
+    // ════ 6. Daily weigh-in lollipops (shared) — faint stem to trend + dot ════
+    // Trend value at each date for the stem anchor.
+    const trendByDate = {};
+    trend.forEach((p) => { if (p.weight_kg != null) trendByDate[p.date] = toU(p.weight_kg); });
     (data.actuals || []).forEach((p) => {
+      if (p.weight_kg == null) return;
       const px = xDate(p.date);
       if (px == null) return;
-      const py = y(p.weight_kg);
-      svg.appendChild(
-        _el("circle", {
-          cx: px,
-          cy: py,
-          r: dotR,
-          fill: C.actual,
-        }),
-      );
-      _activeDots.push({ cx: px, cy: py, date: p.date, kg: p.weight_kg });
+      const wy = y(toU(p.weight_kg));
+      const ty = trendByDate[p.date] != null ? y(trendByDate[p.date]) : wy;
+      svg.appendChild(_el("line", { x1: px, y1: wy, x2: px, y2: ty, stroke: "rgba(59,130,246,0.30)", "stroke-width": "1" }));
+    });
+    // dots (C.actual) rendered before the trend path
+    (data.actuals || []).forEach((p) => {
+      if (p.weight_kg == null) return;
+      const px = xDate(p.date);
+      if (px == null) return;
+      const wy = y(toU(p.weight_kg));
+      svg.appendChild(_el("circle", { cx: px, cy: wy, r: isMobile ? "3.5" : "3", fill: C.actual }));
+      _activeDots.push({ cx: px, cy: wy, date: p.date, kg: p.weight_kg });
     });
 
-    // ── 6. Blue 7-day trend path ────────────────────────────────────────
-    // Thin dashed bridge first: connects every trend point across missing-data
-    // gaps. Drawn under the thick segments, so it only shows inside the gaps.
-    const bridgePts = [];
-    (data.trend || []).forEach((p, idx) => {
-      if (p.weight_kg != null) bridgePts.push(`${xIdx(idx)},${y(p.weight_kg)}`);
-    });
-    if (bridgePts.length >= 2) {
-      svg.appendChild(
-        _el("polyline", {
-          points: bridgePts.join(" "),
-          fill: "none",
-          stroke: C.trend,
-          "stroke-width": "1",
-          "stroke-dasharray": "2 3",
-          opacity: "0.45",
-          "stroke-linejoin": "round",
-          "stroke-linecap": "round",
-        }),
-      );
+    // ════ 7. Trend line (shared, solid blue) — AFTER dots ════
+    const trendPts = [];
+    trend.forEach((p, i) => { if (p.weight_kg != null) trendPts.push(xIdx(i) + "," + y(toU(p.weight_kg))); });
+    if (trendPts.length >= 2) {
+      svg.appendChild(_el("polyline", {
+        points: trendPts.join(" "), fill: "none", stroke: C.trend,
+        "stroke-width": "2.8", "stroke-linejoin": "round", "stroke-linecap": "round",
+      }));
     }
 
-    let trendSeg = [];
-    (data.trend || []).forEach((p, idx) => {
-      if (p.weight_kg == null) {
-        if (trendSeg.length >= 2) {
-          svg.appendChild(
-            _el("polyline", {
-              points: trendSeg.join(" "),
-              fill: "none",
-              stroke: C.trend,
-              "stroke-width": "2.8",
-              "stroke-linejoin": "round",
-              "stroke-linecap": "round",
-            }),
-          );
+    // ════ 8. Advanced forecast layers: NOW, projection (line only), goal dot ════
+    const tm = data.today_marker || {};
+    if (advanced) {
+      const nowY = tm.trend_kg != null ? y(toU(tm.trend_kg)) : (trendPts.length ? y(toU(trend[n - 1].weight_kg)) : T + _CH / 2);
+      // NOW divider — "you are here" on the trend (no axis break; the band is
+      // one continuous present zone with the forecast to its right).
+      svg.appendChild(_el("line", { x1: nowX, y1: T, x2: nowX, y2: B, stroke: "#1e3a8a", "stroke-width": "1", "stroke-dasharray": "2 2", opacity: "0.5" }));
+      const nl = _el("text", { x: nowX - 4, y: T + 11, "text-anchor": "end", "font-size": _fs(10), "font-weight": "800", "letter-spacing": "0.06em", fill: "#1e3a8a" });
+      nl.textContent = "NOW";
+      svg.appendChild(nl);
+
+      if (goalY != null) {
+        // plan continues (fainter) to the goal at the right edge
+        if (hasPlan) {
+          const lastPlan = planByDate[trendDates[n - 1]];
+          if (lastPlan != null) {
+            svg.appendChild(_el("line", { x1: nowX, y1: y(lastPlan), x2: R, y2: goalY, stroke: C.plan, "stroke-width": "1.5", "stroke-dasharray": "5 4", opacity: "0.45" }));
+          }
         }
-        trendSeg = [];
-      } else {
-        const px = xIdx(idx);
-        trendSeg.push(`${px},${y(p.weight_kg)}`);
-        _activeDots.push({
-          cx: px,
-          cy: y(p.weight_kg),
-          date: p.date,
-          kg: p.weight_kg,
-        });
+        // projection: blue dashed line from NOW to goal — NO filled cone
+        svg.appendChild(_el("line", { x1: nowX, y1: nowY, x2: R, y2: goalY, stroke: C.trend, "stroke-width": "2", "stroke-dasharray": "5 4", opacity: "0.8" }));
       }
-    });
-    if (trendSeg.length >= 2) {
-      svg.appendChild(
-        _el("polyline", {
-          points: trendSeg.join(" "),
-          fill: "none",
-          stroke: C.trend,
-          "stroke-width": "2.8",
-          "stroke-linejoin": "round",
-          "stroke-linecap": "round",
-        }),
-      );
-    }
-
-    // ── 7. Green-stroked white plan dot + "plan X kg" label ────────────
-    const tm = data.today_marker;
-    let todayX = null,
-      planDotY = null,
-      trendDotY = null;
-
-    if (tm && tm.date) {
-      todayX = xDate(tm.date);
-      if (todayX == null) todayX = curR - 4;
-    }
-    // When the today marker sits near the right edge, the "plan"/"you" labels
-    // and the gap chip would overflow the viewBox — flip them to the left side.
-    const labelLeft = todayX != null && (threeZone || todayX > VW - 92);
-
-    if (tm && tm.plan_kg != null && todayX != null) {
-      planDotY = y(tm.plan_kg);
-      svg.appendChild(
-        _el("circle", {
-          cx: todayX,
-          cy: planDotY,
-          r: "5",
-          fill: "#fff",
-          stroke: C.plan,
-          "stroke-width": "2",
-        }),
-      );
-      _activeDots.push({
-        cx: todayX,
-        cy: planDotY,
-        date: tm.date,
-        kg: tm.plan_kg,
+      // NOW point on the trend
+      svg.appendChild(_el("circle", { cx: nowX, cy: nowY, r: "3.5", fill: C.trend }));
+      // gap value (today vs plan) available on hover at the NOW point
+      if (tm.gap_kg != null) {
+        const gapLabel = tm.gap_direction === "behind" ? "+" + Math.abs(tm.gap_kg).toFixed(1) : "−" + Math.abs(tm.gap_kg).toFixed(1);
+        const gchip = _el("text", { x: nowX, y: nowY - 8, "text-anchor": "middle", "font-size": _fs(9), "font-weight": "700",
+          fill: tm.gap_direction === "behind" ? "#dc2626" : "#16a34a" });
+        gchip.textContent = gapLabel + " " + unit;
+        // background pill colors kept for parity: ahead #dcfce7 / behind #fee2e2
+        const pillBg = tm.gap_direction === "behind" ? "#fee2e2" : "#dcfce7";
+        const pad2 = 3;
+        const approxW = gchip.textContent.length * 5 + pad2 * 2;
+        svg.appendChild(_el("rect", { x: nowX - approxW / 2, y: nowY - 18, width: approxW, height: 13, rx: "3", fill: pillBg, opacity: "0.95" }));
+        svg.appendChild(gchip);
+      }
+      // goal dot (green ring) where the projection meets the goal
+      if (goalY != null) {
+        svg.appendChild(_el("circle", { cx: R, cy: goalY, r: "6", fill: "#fff", stroke: C.plan, "stroke-width": "2.5" }));
+      }
+      // milestone hover points (values shown on hover)
+      (data.future_milestones || []).forEach((m) => {
+        if (m.plan_kg == null) return;
+        const mx = R;  // milestones live in the forecast region; expose value on the goal dot area
+        _activeDots.push({ cx: mx, cy: goalY != null ? goalY : nowY, date: m.date, kg: m.plan_kg });
       });
-      // Persistent plan label on mobile (hover not available on touch)
-      if (isMobile) {
-        const lx = labelLeft ? todayX - 8 : todayX + 8;
-        const anchor = labelLeft ? "end" : "start";
-        const planLbl = _el("text", {
-          x: lx,
-          y: planDotY - 10,
-          "text-anchor": anchor,
-          "font-size": "11",
-          fill: C.plan,
-          "font-weight": "600",
-        });
-        planLbl.textContent = tm.plan_kg.toFixed(1) + " kg";
-        svg.appendChild(planLbl);
+      // today marker hover (plan + trend values)
+      if (tm.plan_kg != null || tm.trend_kg != null) {
+        _activeDots.push({ cx: nowX, cy: nowY, date: tm.date, kg: tm.trend_kg != null ? tm.trend_kg : tm.plan_kg });
       }
     }
 
-    // ── 8. Blue highlighted dot + "you X kg" label ─────────────────────
-    if (tm && tm.trend_kg != null && todayX != null) {
-      trendDotY = y(tm.trend_kg);
-      svg.appendChild(
-        _el("circle", {
-          cx: todayX,
-          cy: trendDotY,
-          r: "5",
-          fill: C.trend,
-          stroke: "#fff",
-          "stroke-width": "1.5",
-        }),
-      );
-      _activeDots.push({
-        cx: todayX,
-        cy: trendDotY,
-        date: tm.date,
-        kg: tm.trend_kg,
-      });
-      // Persistent current-weight label on mobile; offset down when plan label is close
-      if (isMobile) {
-        const lx = labelLeft ? todayX - 8 : todayX + 8;
-        const anchor = labelLeft ? "end" : "start";
-        const labelOff =
-          planDotY != null && Math.abs(trendDotY - planDotY) < 18 ? 14 : -10;
-        const trendLbl = _el("text", {
-          x: lx,
-          y: trendDotY + labelOff,
-          "text-anchor": anchor,
-          "font-size": "11",
-          fill: C.trend,
-          "font-weight": "600",
-        });
-        trendLbl.textContent = tm.trend_kg.toFixed(1) + " kg";
-        svg.appendChild(trendLbl);
-      }
+    // ════ 9. Goal-zone right-axis markers (shared) ════
+    if (goalU != null) {
+      const gv = _el("text", { x: R + 6, y: goalY + 4, "text-anchor": "start", "font-size": _fs(12), "font-weight": "700", fill: "#15803d" });
+      gv.textContent = goalU.toFixed(1);
+      svg.appendChild(gv);
+      const ub = _el("text", { x: R + 6, y: bandTop + 3, "text-anchor": "start", "font-size": _fs(9), fill: "#16a34a", opacity: "0.85" });
+      ub.textContent = (goalU + TOL).toFixed(1);
+      svg.appendChild(ub);
+      const lb = _el("text", { x: R + 6, y: bandBot + 3, "text-anchor": "start", "font-size": _fs(9), fill: "#16a34a", opacity: "0.85" });
+      lb.textContent = (goalU - TOL).toFixed(1);
+      svg.appendChild(lb);
     }
 
-    // ── 9. Red/green dashed vertical gap line + rounded gap chip ───────
-    const gapDir = tm ? tm.gap_direction : null;
-    if (
-      gapDir &&
-      gapDir !== "no_data" &&
-      todayX != null &&
-      planDotY != null &&
-      trendDotY != null
-    ) {
-      const isAhead = gapDir === "ahead";
-      const gapColor = isAhead ? C.gap_ahead : C.gap_behind;
-      const gapBg = isAhead ? C.gap_bg_ahead : C.gap_bg_behind;
-      const topY = Math.min(planDotY, trendDotY);
-      const botY = Math.max(planDotY, trendDotY);
-
-      svg.appendChild(
-        _el("line", {
-          x1: todayX,
-          y1: topY + 5,
-          x2: todayX,
-          y2: botY - 5,
-          stroke: gapColor,
-          "stroke-width": "1.5",
-          "stroke-dasharray": "3 2",
-        }),
-      );
-
-      // On mobile, show persistent gap label since hover isn't available.
-      // gap_kg from today_marker gives the numerical distance vs plan.
-      if (isMobile && tm && tm.gap_kg != null) {
-        const midY = (topY + botY) / 2;
-        const lx = labelLeft ? todayX - 8 : todayX + 8;
-        const anchor = labelLeft ? "end" : "start";
-        const sign = isAhead ? "−" : "+";
-        const gapLbl = _el("text", {
-          x: lx,
-          y: midY + 4,
-          "text-anchor": anchor,
-          "font-size": "10",
-          fill: gapColor,
-          "font-weight": "700",
-        });
-        gapLbl.textContent = sign + Math.abs(tm.gap_kg).toFixed(1) + " kg";
-        svg.appendChild(gapLbl);
-      }
-      void gapBg;
+    // ════ 10. X-axis date labels (shared) ════
+    // "milestones ↓" cue (advanced) — points the eye to the milestones list
+    // in the progress-card below the chart.
+    if (advanced && (data.future_milestones || []).length) {
+      const ml = _el("text", { x: R, y: B + 24, "text-anchor": "end", "font-size": _fs(10), "font-weight": "700", fill: "#16a34a" });
+      ml.textContent = "milestones ↓";
+      svg.appendChild(ml);
     }
 
-    // (Zone boundaries are drawn as thin separators above; no axis-break glyph.)
+    _renderXLabels(svg, trendDates, range, xIdx);
 
-    // ── Future zone: next milestone diamond + goal dot only ───────────────
-    if (hasFutureZone) {
-      const milestones = data.future_milestones || [];
-      const goalMs = milestones.find((m) => m.kind === "goal");
-      const nextMs = milestones.find((m) => m.kind !== "goal");
-
-      const tmPlan = data.today_marker ? data.today_marker.plan_kg : null;
-      const fpts = [];
-      if (tmPlan != null) fpts.push(curR + "," + y(tmPlan));
-
-      const nextX = FUTURE_L + FUTURE_W * 0.38;
-      const goalX = FUTURE_R - 8;
-
-      if (nextMs) {
-        fpts.push(nextX + "," + y(nextMs.plan_kg));
-        const my = y(nextMs.plan_kg);
-        const s = 6;
-        svg.appendChild(
-          _el("polygon", {
-            points:
-              nextX +
-              "," +
-              (my - s) +
-              " " +
-              (nextX + s) +
-              "," +
-              my +
-              " " +
-              nextX +
-              "," +
-              (my + s) +
-              " " +
-              (nextX - s) +
-              "," +
-              my,
-            fill: "#fff",
-            stroke: C.plan,
-            "stroke-width": "2",
-          }),
-        );
-        _activeDots.push({
-          cx: nextX,
-          cy: my,
-          date: nextMs.date,
-          kg: nextMs.plan_kg,
-        });
-      }
-
-      if (goalMs) {
-        fpts.push(goalX + "," + y(goalMs.plan_kg));
-        const gy = y(goalMs.plan_kg);
-        svg.appendChild(
-          _el("circle", {
-            cx: goalX,
-            cy: gy,
-            r: "6",
-            fill: C.plan,
-            stroke: "#fff",
-            "stroke-width": "1.5",
-          }),
-        );
-        _activeDots.push({
-          cx: goalX,
-          cy: gy,
-          date: goalMs.date,
-          kg: goalMs.plan_kg,
-        });
-      }
-
-      if (fpts.length >= 2) {
-        svg.appendChild(
-          _el("polyline", {
-            points: fpts.join(" "),
-            fill: "none",
-            stroke: C.plan,
-            "stroke-width": "1.5",
-            "stroke-dasharray": "2 3",
-          }),
-        );
-      }
-    }
-
-    // ── Goal chip — bottom rail, always visible (desktop + mobile) ──────────
-    // The three-zone Y mapping places the goal in the bottom 10% rail when it is
-    // below the present band, keeping it visible without distorting the main scale.
-    if (hasTarget && data.target && data.target.target_weight_kg != null) {
-      const goalKg = data.target.target_weight_kg;
-      const gy = y(goalKg);
-      const gx = threeZone ? FUTURE_R - 8 : curR - 4;
-      const chipW = 68;
-      const chipH = 22;
-      svg.appendChild(
-        _el("rect", {
-          x: gx - chipW,
-          y: gy - chipH / 2,
-          width: chipW,
-          height: chipH,
-          rx: "6",
-          fill: "#fff",
-          stroke: C.plan,
-          "stroke-width": "1",
-        }),
-      );
-      const chipT = _el("text", {
-        x: gx - chipW / 2,
-        y: gy,
-        "text-anchor": "middle",
-        "dominant-baseline": "middle",
-        "font-size": "9",
-        fill: C.plan,
-        "font-weight": "700",
-        "font-family": "JetBrains Mono, monospace",
-      });
-      chipT.textContent = goalKg.toFixed(0) + " · goal";
-      svg.appendChild(chipT);
-      _activeDots.push({
-        cx: gx - chipW / 2,
-        cy: gy,
-        date: data.target.target_date || "",
-        kg: goalKg,
-      });
-    }
-
-    // ── "milestones ↓" link (shown when future zone is suppressed but target exists) ──
-    if (hasTarget && hasFuture && !hasFutureZone) {
-      const link = document.createElement("a");
-      link.href = "#progress-card";
-      link.className = "wc-milestones-link";
-      link.textContent = "milestones ↓";
-      Object.assign(link.style, {
-        display: "block",
-        textAlign: "right",
-        fontSize: "12px",
-        color: "#16a34a",
-        textDecoration: "none",
-        marginTop: "4px",
-        paddingRight: "4px",
-      });
-      container.appendChild(link);
-    }
-
-    // ── X-axis labels ───────────────────────────────────────────────────
-    _renderXLabels(svg, trendDates, range, xDateFn);
-
-    // ── Tooltip events (mouse + touch) ──────────────────────────────────
+    // ════ 11. Tooltip (hover + touch) ════
     svg.addEventListener("mousemove", (ev) => {
-      const dot = _findNearestDot(svg, ev.clientX, ev.clientY);
-      if (dot) _showTooltip(svg, ev.clientX, ev.clientY, dot.date, dot.kg);
+      const near = _findNearestDot(svg, ev.clientX, ev.clientY);
+      if (near) _showTooltip(svg, ev.clientX, ev.clientY, near.date, near.kg);
       else _hideTooltip();
     });
     svg.addEventListener("mouseleave", () => _hideTooltip());
-    // touchstart: tap-to-show — immediately reveals the nearest point's value.
-    // A second tap elsewhere dismisses the previous tooltip and shows the new one.
     svg.addEventListener(
       "touchstart",
       (ev) => {
-        if (ev.touches.length) {
-          const t = ev.touches[0];
-          const dot = _findNearestDot(svg, t.clientX, t.clientY);
-          if (dot) _showTooltip(svg, t.clientX, t.clientY, dot.date, dot.kg);
-          else _hideTooltip();
-        }
+        const t = ev.touches[0];
+        if (!t) return;
+        const near = _findNearestDot(svg, t.clientX, t.clientY);
+        if (near) _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
       },
       { passive: true },
     );
     svg.addEventListener(
       "touchmove",
       (ev) => {
-        if (ev.touches.length) {
-          const t = ev.touches[0];
-          const dot = _findNearestDot(svg, t.clientX, t.clientY);
-          if (dot) _showTooltip(svg, t.clientX, t.clientY, dot.date, dot.kg);
-          else _hideTooltip();
-        }
+        const t = ev.touches[0];
+        if (!t) return;
+        const near = _findNearestDot(svg, t.clientX, t.clientY);
+        if (near) _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
       },
       { passive: true },
     );
     svg.addEventListener("touchend", () => _hideTooltip());
-
-    _updateVerdictBanner(data);
   }
 
-  return { render };
+  return { render: render, setMode: setMode, getMode: getMode };
 })();
