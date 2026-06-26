@@ -566,7 +566,8 @@
       min-width: 36px;
     }
 
-    .day-grid-table th.day-hdr-full { display: table-cell; }
+    /* Always show the 3-char day name (Mon, Tue, …) — no uppercase, no single-letter swap. */
+    .day-grid-table th.day-hdr-full { display: table-cell; text-transform: none; }
     .day-grid-table th.day-hdr-short { display: none; }
 
     .day-grid-table th.habit-name-hdr {
@@ -2455,9 +2456,6 @@
       .week-wheel-svg { width: 128px; height: 128px; }
       .wheel-pct { font-size: 19px; }
       .wheel-sublabel { font-size: 6.5px; }
-
-      .day-grid-table th.day-hdr-full { display: none; }
-      .day-grid-table th.day-hdr-short { display: table-cell; }
 
       .day-cell-btn { width: 40px; height: 40px; }
       .day-grid-table { min-width: 0; }

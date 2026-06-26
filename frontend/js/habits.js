@@ -798,8 +798,7 @@ function renderDailyGrid(logSet) {
     const dateStr = weekDatesArr[i] || '';
     const isToday = dateStr === todayStr;
     const todayCls = isToday ? ' day-hdr-today' : '';
-    html += `<th class="${todayCls}"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span>`;
-    html += `<span class="day-hdr-short">${DAY_LABELS_SHORT[i]}</span></th>`;
+    html += `<th class="${todayCls}"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span></th>`;
   }
   html += '<th class="day-total-hdr">Total</th>';
   html += '<th class="habit-actions-hdr"></th>';
