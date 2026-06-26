@@ -601,8 +601,8 @@
     function tile(val, abbr, label, sparkId, metric) {
       return '<div class="rw-tile">' +
                '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
-               '<div class="rw-tile-label">' + abbr + '</div>' +
-               '<div class="rw-tile-sub">' + label + '</div>' +
+               '<div class="rw-tile-label">' + abbr +
+                 ' <span class="rw-tile-sub">' + label + '</span></div>' +
                _zoneBarHtml(metric, val, series) +
                '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
              '</div>';
