@@ -26,7 +26,6 @@ import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app, resolve_user
@@ -108,7 +107,6 @@ def _make_session(active_habits, logs=None):
     once for archived-with-logs). We return `active_habits` on the first call
     and `[]` on the second.
     """
-    from datetime import datetime
     logs = logs or []
 
     sess = MagicMock()
