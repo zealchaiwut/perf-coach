@@ -1,5 +1,4 @@
 """Tests for issue #470: Document habit tracking_type immutability constraint (code review)"""
-import os
 import pathlib
 
 
@@ -28,9 +27,10 @@ def test_tracking_type_deletion_is_documented():
     for i, line in enumerate(lines):
         if "delete payload.tracking_type" in line and "_sf" not in line:
             # For non-SF version, check if comment is 1-2 lines above
-            found_comment = False
-            for j in range(max(0, i-3), i):
-                if expected_comment in lines[j]:
-                    found_comment = True
-                    break
-            # Allow this location to have comment in broader context
+            found_comment = any(
+                expected_comment in lines[j]
+                for j in range(max(0, i - 3), i)
+            )
+            assert found_comment, (
+                f"Immutability comment missing above 'delete payload.tracking_type' at line {i + 1}"
+            )
