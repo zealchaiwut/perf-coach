@@ -23,7 +23,7 @@ from backend.main import (
     _validate_backfill_window,
     resolve_user,
 )
-from backend.models import Habit, HabitLog
+from backend.models import Habit
 
 _USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000452")
 
