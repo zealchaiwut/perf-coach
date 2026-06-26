@@ -14,6 +14,8 @@
 - #475: Document --accent WCAG contrast and add verification tests for log button
 - #477: Validate goal vs start weight before saving target in _saveEditPanel
 - #503: Remove dead user_id query param from calendar.js weight-entries GETs
+- #504: Remove user_id from calendar.js weight-entries POST body
+- #476: Add visual regression tests for progress card bar positioning
 
 ## Sprint 85 — Performance score states, PR reason strings, logging observability, and duration-curve gap fix
 
