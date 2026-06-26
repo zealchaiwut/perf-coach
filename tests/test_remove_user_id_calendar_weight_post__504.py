@@ -11,12 +11,33 @@ AC anchors:
 import os
 import re
 import uuid
+import pathlib
 import pytest
 import httpx
-from backend.auth import hash_password
-from backend.db import engine
+from backend.auth import hash_password, CSRF_COOKIE_NAME
 from backend.models import User
+from sqlalchemy import create_engine as _create_engine
 from sqlalchemy.orm import Session
+
+# backend.db import triggers load_dotenv which populates DATABASE_URL_UAT from .env
+import backend.db as _bd  # noqa: F401
+
+def _get_pg_url():
+    pg_url = os.environ.get("DATABASE_URL_UAT")
+    if pg_url and pg_url.startswith("postgresql"):
+        return pg_url
+    from dotenv import find_dotenv, dotenv_values
+    # parents[1] works in gate (file lives under tester/tests/)
+    for search_dir in [pathlib.Path(__file__).resolve().parents[1], None]:
+        env_path = (search_dir / ".env") if search_dir else find_dotenv(usecwd=True)
+        if env_path and pathlib.Path(env_path).exists():
+            pg_url = dotenv_values(env_path).get("DATABASE_URL_UAT")
+            if pg_url and pg_url.startswith("postgresql"):
+                return pg_url
+    return None
+
+_pg_url = _get_pg_url()
+_pg_engine = _create_engine(_pg_url, pool_pre_ping=True) if _pg_url else None
 
 BASE = "http://127.0.0.1:9001"
 _RUN = uuid.uuid4().hex[:8]
@@ -101,81 +122,81 @@ class TestCalendarJsStaticChecks:
 
 # ── integration checks ────────────────────────────────────────────────────────
 
-def _make_auth_user(client, suffix):
+def _make_auth_client(suffix):
+    """Create a test user and return (auth_client, user_info).
+
+    Creates user via API, sets password in Postgres, logs in with a bare client,
+    then returns a persistent httpx.Client with session + CSRF headers pre-set.
+    """
+    if _pg_engine is None:
+        pytest.skip("DATABASE_URL_UAT not available — live server tests skipped")
+
     name = f"cal504-{suffix}-{_RUN}"
-    res = client.post("/api/users", json={"name": name})
-    assert res.status_code == 201, res.text
-    user_id = res.json()["id"]
-    pw_hash = hash_password(_TEST_PASSWORD)
-    with Session(engine) as db:
+    with httpx.Client(base_url=BASE, timeout=10) as bare:
+        res = bare.post("/api/users", json={"name": name})
+        assert res.status_code == 201, res.text
+        user_id = res.json()["id"]
+
+    with Session(_pg_engine) as db:
         u = db.get(User, uuid.UUID(user_id))
-        u.password_hash = pw_hash
+        u.password_hash = hash_password(_TEST_PASSWORD)
         db.commit()
-    return {"id": user_id, "name": name}
 
+    with httpx.Client(base_url=BASE, timeout=10) as bare:
+        res = bare.post("/api/auth/login", json={"username": name, "password": _TEST_PASSWORD})
+        assert res.status_code == 200, res.text
+        session_cookie = res.cookies.get("session")
+        csrf_token = res.cookies.get(CSRF_COOKIE_NAME, "")
 
-def _login(client, name):
-    res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PASSWORD})
-    assert res.status_code == 200, res.text
-    return res.cookies.get("session")
-
-
-@pytest.fixture(scope="module")
-def client():
-    with httpx.Client(base_url=BASE, timeout=10) as c:
-        yield c
-
-
-@pytest.fixture(scope="module")
-def auth_user(client):
-    u = _make_auth_user(client, "main")
-    yield u
-    client.delete(f"/api/users/{u['id']}")
+    auth = httpx.Client(
+        base_url=BASE,
+        timeout=10,
+        cookies={"session": session_cookie, CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    return auth, {"id": user_id, "name": name}
 
 
 @pytest.fixture(scope="module")
-def auth_cookie(client, auth_user):
-    return _login(client, auth_user["name"])
+def auth_ctx():
+    """Yield (auth_client, user_info) and clean up after the module."""
+    auth, user = _make_auth_client("main")
+    yield auth, user
+    auth.delete(f"/api/users/{user['id']}")
+    auth.close()
 
 
 class TestCalendarWeightPostIntegration:
     """AC2: POST /api/weight-entries without user_id in body returns 2xx."""
 
-    def test_ac2_post_without_user_id_succeeds(self, client, auth_cookie):
+    def test_ac2_post_without_user_id_succeeds(self, auth_ctx):
         """AC2: POST body with only weight_kg and entry_date succeeds (matches calendar.js after fix)."""
-        res = client.post(
+        auth, _ = auth_ctx
+        res = auth.post(
             "/api/weight-entries",
             json={"weight_kg": 72.5, "entry_date": "2024-05-01"},
-            cookies={"session": auth_cookie},
         )
         assert res.status_code in (201, 409), (
             f"Expected 201 or 409, got {res.status_code}: {res.text}"
         )
         if res.status_code == 201:
             entry_id = res.json()["id"]
-            client.delete(
-                f"/api/weight-entries/{entry_id}",
-                cookies={"session": auth_cookie},
-            )
+            auth.delete(f"/api/weight-entries/{entry_id}")
 
-    def test_ac2_post_with_user_id_field_still_works(self, client, auth_cookie, auth_user):
+    def test_ac2_post_with_user_id_field_still_works(self, auth_ctx):
         """Server silently ignores extra user_id (Pydantic without extra='forbid')."""
-        res = client.post(
+        auth, user = auth_ctx
+        res = auth.post(
             "/api/weight-entries",
             json={
                 "weight_kg": 73.0,
                 "entry_date": "2024-05-02",
-                "user_id": auth_user["id"],
+                "user_id": user["id"],
             },
-            cookies={"session": auth_cookie},
         )
-        # Should still succeed — Pydantic ignores the extra field currently
         assert res.status_code in (201, 409), (
             f"Expected 201 or 409, got {res.status_code}: {res.text}"
         )
         if res.status_code == 201:
             entry_id = res.json()["id"]
-            client.delete(
-                f"/api/weight-entries/{entry_id}",
-                cookies={"session": auth_cookie},
-            )
+            auth.delete(f"/api/weight-entries/{entry_id}")
