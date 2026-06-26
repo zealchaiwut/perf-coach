@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from backend.services.habit_completion import _is_binary_met
+from backend.utils.time import today_bangkok
 
 
 # ── Pure computation helpers ──────────────────────────────────────────────────
@@ -95,7 +96,7 @@ def best_streak(habit_id, *, session) -> dict:
     if habit is None or habit.tracking_type != "daily_checkmark":
         return {"length": 0}
 
-    today = date.today()
+    today = today_bangkok()
     lookback_start = today - timedelta(days=365)
     logs = (
         session.query(HabitLog)
