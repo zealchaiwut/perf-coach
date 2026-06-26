@@ -601,6 +601,9 @@
     /* Readiness widget (issue #640) */
     .readiness-widget {
       padding: 16px 18px;
+      /* Respond to the CARD's own width, not the viewport — the list column
+         shrinks when the detail panel opens, which no viewport @media catches. */
+      container-type: inline-size;
     }
 
     .rw-header {
@@ -620,7 +623,7 @@
 
     .rw-tiles {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
       gap: 0.5rem;
     }
 
@@ -730,6 +733,20 @@
       .rw-tile-val {
         font-size: 1.1rem;
       }
+    }
+
+    /* Narrow card (e.g. list column collapsed by the detail panel): shrink the
+       three tiles so they keep fitting side-by-side instead of overflowing. */
+    @container (max-width: 430px) {
+      .rw-tiles { gap: 0.3rem; }
+      .rw-tile { padding: 0.5rem 0.25rem; }
+      .rw-tile-val { font-size: 1.15rem; }
+      .rw-tile-label { white-space: normal; font-size: 0.625rem; }
+      .rw-zone-name { font-size: 8px; }
+    }
+    /* Very narrow: stack them so nothing clips. */
+    @container (max-width: 300px) {
+      .rw-tiles { grid-template-columns: 1fr; }
     }
 
     /* Legacy load-widget (kept for volume chart section; readiness widget moved to #readiness-widget) */
