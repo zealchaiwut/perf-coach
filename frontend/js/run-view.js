@@ -243,9 +243,16 @@
     var domShare = domN / n;
     var devRuns = runsOf(rawKey).filter(function (run) { return run.key !== domKey; });
     var shortDev = devRuns.filter(function (run) { return run.to - run.from + 1 <= 2; });
+    // A low-intensity warm-up/cool-down bookend signals a deliberately
+    // structured arc (warm-up → work → cool-down) → keep the bracket view.
+    // Without one, a single dominant band is a *sustained* effort (a tempo
+    // race, a steady block) → the headline reads better than many brackets.
+    var LOW_BOOKEND = { warmup: 1, cooldown: 1, recovery: 1, easy: 1 };
+    var lowBookend = !!(LOW_BOOKEND[smoothKey[0]] || LOW_BOOKEND[smoothKey[n - 1]]);
     var variable =
       dp.reps_detected != null ||
       domShare >= 0.65 ||
+      (domShare >= 0.5 && !lowBookend) ||
       (shortDev.length >= 2 && domShare >= 0.45);
 
     var basis = dp.basis && dp.basis !== "none" ? dp.basis.toUpperCase() : "—";
