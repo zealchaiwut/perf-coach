@@ -38,6 +38,12 @@ _ROOT = pathlib.Path(__file__).parent.parent
 _HTML = (_ROOT / "frontend" / "pages" / "habits.html").read_text()
 _JS   = (_ROOT / "frontend" / "js" / "habits.js").read_text()
 
+# CSS was extracted to habits.css (issue #453). Append it so CSS-pattern checks
+# in _HTML still pass after the extraction.
+_habits_css_path = _ROOT / "frontend" / "css" / "habits.css"
+if _habits_css_path.exists():
+    _HTML = _HTML + "\n" + _habits_css_path.read_text()
+
 # ── API test fixtures ─────────────────────────────────────────────────────────
 
 _USER_ID  = uuid.UUID("00000000-0000-0000-0000-000000000433")
