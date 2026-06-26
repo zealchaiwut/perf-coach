@@ -18,7 +18,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 

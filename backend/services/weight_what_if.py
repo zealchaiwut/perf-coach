@@ -11,7 +11,7 @@ imports nothing from the data layer.
 from __future__ import annotations
 
 import datetime
-from typing import Any, Callable, Union
+from typing import Callable, Union
 
 
 def simulate_what_if(

@@ -780,7 +780,7 @@
         const res = await fetch('/api/weight-entries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: currentUserId, weight_kg: +raw, entry_date: dateStr }),
+          body: JSON.stringify({ weight_kg: +raw, entry_date: dateStr }),
         });
         if (res.status === 409) {
           errEl.textContent = 'Already logged for this date.';
