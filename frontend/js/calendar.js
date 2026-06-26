@@ -55,7 +55,7 @@
     const { from, to } = monthRange(year, month);
     try {
       const [wR, hR, lR, tR, mR, rdR] = await Promise.all([
-        fetch(`/api/weight-entries?user_id=${currentUserId}&from=${from}&to=${to}`),
+        fetch(`/api/weight-entries?from=${from}&to=${to}`),
         fetch('/api/habits'),
         fetch(`/api/habits/logs?from=${from}&to=${to}`),
         fetch(`/api/workouts?from=${from}&to=${to}`),
@@ -436,7 +436,7 @@
 
     try {
       const [wR, hR, lR, tR] = await Promise.all([
-        fetch(`/api/weight-entries?user_id=${currentUserId}&from=${dateStr}&to=${dateStr}`),
+        fetch(`/api/weight-entries?from=${dateStr}&to=${dateStr}`),
         fetch('/api/habits'),
         fetch(`/api/habits/logs?from=${dateStr}&to=${dateStr}`),
         fetch(`/api/workouts?from=${dateStr}&to=${dateStr}`),
