@@ -499,6 +499,21 @@ class GoogleOAuthCredentials(Base):
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
+class DriveSleepConnection(Base):
+    """Stores the Google Drive read-only OAuth connection used for Health Sync sleep CSV imports."""
+
+    __tablename__ = "drive_sleep_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    refresh_token_encrypted = Column(Text, nullable=True)
+    folder_id = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, server_default=text("'not_connected'"))
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
 class StrydCredentials(Base):
     __tablename__ = "stryd_credentials"
 

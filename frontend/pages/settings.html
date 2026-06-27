@@ -1442,6 +1442,27 @@
           <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
         </div>
 
+        <!-- Sleep via Health Sync -->
+        <div class="integration-card" id="health-sync-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#f0f4ff"/>
+                  <path d="M12 6C9.79 6 8 7.79 8 10c0 1.3.62 2.46 1.58 3.19L8 17h8l-1.58-3.81A4 4 0 0016 10c0-2.21-1.79-4-4-4z" fill="#4f86f7"/>
+                  <path d="M9.5 17.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5H9.5z" fill="#3b6fd4"/>
+                </svg>
+              </span>
+              <span class="integration-name">Sleep via Health Sync</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="health-sync-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="health-sync-meta"></div>
+          <div class="integration-last-synced" id="health-sync-last-synced"></div>
+          <div class="integration-actions" id="health-sync-actions"></div>
+          <div class="integration-feedback" id="health-sync-feedback" aria-live="polite"></div>
+        </div>
+
         <!-- Google (placeholder) -->
         <div class="integration-card integration-card--placeholder" id="google-card">
           <div class="integration-header">
@@ -3229,11 +3250,169 @@
           });
       }
 
+      // ── Sleep via Health Sync ──────────────────────────────────────────────
+
+      function _healthSyncFmt(ts) {
+        if (!ts) return 'Never';
+        try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+      }
+
+      function _healthSyncRenderNotConnected() {
+        var badge = document.getElementById('health-sync-badge');
+        if (badge) {
+          badge.className = 'integration-badge integration-badge--disconnected';
+          badge.textContent = 'Not connected';
+        }
+        var meta = document.getElementById('health-sync-meta');
+        if (meta) meta.textContent = '';
+        var ls = document.getElementById('health-sync-last-synced');
+        if (ls) ls.textContent = '';
+        var actions = document.getElementById('health-sync-actions');
+        if (!actions) return;
+        actions.innerHTML = '';
+        var hint = document.createElement('p');
+        hint.style.cssText = 'font-size:13px;color:#6b7280;margin:0 0 10px;';
+        hint.textContent = 'Health Sync must be configured to export sleep data to the selected folder.';
+        actions.appendChild(hint);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'health-sync-connect-btn';
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.textContent = 'Connect';
+        btn.addEventListener('click', healthSyncConnect);
+        actions.appendChild(btn);
+      }
+
+      function _healthSyncRenderConnected(data) {
+        var badge = document.getElementById('health-sync-badge');
+        if (badge) {
+          badge.className = 'integration-badge integration-badge--connected';
+          badge.textContent = 'Connected';
+        }
+        var meta = document.getElementById('health-sync-meta');
+        if (meta) {
+          meta.innerHTML = (data.folder_id
+            ? '<span style="font-size:13px;color:#374151;">Folder: <code style="font-size:12px;">' + data.folder_id + '</code></span>'
+            : '<span style="font-size:13px;color:#6b7280;">No folder selected</span>');
+        }
+        var ls = document.getElementById('health-sync-last-synced');
+        if (ls) {
+          ls.textContent = 'Last sync: ' + _healthSyncFmt(data.last_sync_at) +
+            ' · ' + (data.records_total || 0) + ' sleep records';
+        }
+        var actions = document.getElementById('health-sync-actions');
+        if (!actions) return;
+        actions.innerHTML = '';
+        var syncBtn = document.createElement('button');
+        syncBtn.type = 'button';
+        syncBtn.id = 'health-sync-sync-btn';
+        syncBtn.className = 'integration-btn integration-btn--secondary';
+        syncBtn.textContent = 'Sync Now';
+        syncBtn.addEventListener('click', healthSyncNow);
+        actions.appendChild(syncBtn);
+        var discBtn = document.createElement('button');
+        discBtn.type = 'button';
+        discBtn.id = 'health-sync-disconnect-btn';
+        discBtn.className = 'integration-btn integration-btn--danger';
+        discBtn.textContent = 'Disconnect';
+        discBtn.addEventListener('click', healthSyncDisconnect);
+        actions.appendChild(discBtn);
+      }
+
+      function loadHealthSyncStatus() {
+        fetch('/api/integrations/drive-sleep/status')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data) { _healthSyncRenderNotConnected(); return; }
+            if (data.status === 'connected') {
+              _healthSyncRenderConnected(data);
+            } else {
+              _healthSyncRenderNotConnected();
+              if (data.status === 'error') {
+                intFeedback('health-sync-feedback', 'Connection error — please reconnect.', 'error');
+              }
+            }
+          })
+          .catch(function () { _healthSyncRenderNotConnected(); });
+      }
+
+      function healthSyncConnect() {
+        var btn = document.getElementById('health-sync-connect-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
+        intFeedback('health-sync-feedback', '', '');
+        fetch('/api/drive-sleep/connect')
+          .then(function (r) { return r.ok ? r.json() : Promise.reject('connect-failed'); })
+          .then(function (data) {
+            if (data.authorize_url) { window.location.href = data.authorize_url; }
+          })
+          .catch(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+            intFeedback('health-sync-feedback', 'Could not initiate connection. Try again.', 'error');
+          });
+      }
+
+      function healthSyncNow() {
+        var btn = document.getElementById('health-sync-sync-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+        intFeedback('health-sync-feedback', '', '');
+        var csrf = document.cookie.split('; ').reduce(function (v, c) {
+          var p = c.split('='); return p[0] === 'csrf-token' ? decodeURIComponent(p[1]) : v;
+        }, '');
+        fetch('/api/integrations/drive-sleep/sync', { method: 'POST', headers: { 'X-CSRF-Token': csrf } })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            if (res.ok) {
+              intFeedback('health-sync-feedback',
+                'Sync complete: ' + (res.d.rows_imported || 0) + ' imported, ' + (res.d.rows_updated || 0) + ' updated.',
+                'success');
+              loadHealthSyncStatus();
+            } else {
+              intFeedback('health-sync-feedback', (res.d && res.d.detail) || 'Sync failed.', 'error');
+            }
+          })
+          .catch(function () {
+            intFeedback('health-sync-feedback', 'Sync failed. Try again.', 'error');
+          })
+          .finally(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
+          });
+      }
+
+      function healthSyncDisconnect() {
+        var btn = document.getElementById('health-sync-disconnect-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
+        intFeedback('health-sync-feedback', '', '');
+        var csrf = document.cookie.split('; ').reduce(function (v, c) {
+          var p = c.split('='); return p[0] === 'csrf-token' ? decodeURIComponent(p[1]) : v;
+        }, '');
+        fetch('/api/drive-sleep/disconnect', { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject('disconnect-failed'); })
+          .then(function () {
+            intFeedback('health-sync-feedback', 'Disconnected from Google Drive.', 'success');
+            loadHealthSyncStatus();
+          })
+          .catch(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Disconnect'; }
+            intFeedback('health-sync-feedback', 'Disconnect failed. Try again.', 'error');
+          });
+      }
+
+      // Handle Drive Sleep OAuth return for Health Sync card
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('drive_sleep') === 'connected') {
+          intFeedback('health-sync-feedback', 'Google Drive connected!', 'success');
+        } else if (params.get('drive_sleep') === 'error') {
+          intFeedback('health-sync-feedback', 'Connection failed. Please try again.', 'error');
+        }
+      }());
+
       window.addEventListener('userReady', function (e) {
         _stravaUserId = e.detail && e.detail.userId;
         _handleStravaOAuthReturn();
         loadStravaStatus();
         loadStrydStatus();
+        loadHealthSyncStatus();
       });
     }());
   </script>
