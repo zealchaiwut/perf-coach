@@ -116,8 +116,7 @@ def compute_normalized_power(power_samples, sample_interval_seconds, window_dura
         for i in range(window_size - 1, len(power_samples))
     ]
 
-    fourth_powers = [avg ** 4 for avg in rolling_averages]
-    mean_of_fourth_powers = sum(fourth_powers) / len(fourth_powers)
+    mean_of_fourth_powers = sum(avg ** 4 for avg in rolling_averages) / len(rolling_averages)
     final_value = mean_of_fourth_powers ** 0.25
 
     return round(final_value), {

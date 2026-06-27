@@ -12,7 +12,13 @@ database_url = os.getenv("DATABASE_URL") or (
     os.getenv("DATABASE_URL_UAT") if environment == "uat" else os.getenv("DATABASE_URL_PRD")
 )
 
-engine = create_engine(database_url, pool_pre_ping=True)
+engine = create_engine(
+    database_url,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=3600,
+)
 
 
 def check_db() -> str:

@@ -1,11 +1,17 @@
-"""Tests for issue #455: Fix 500 error when saving today's habit count.
+"""Tests for issue #471: Add test coverage for habit log date parsing validation.
+
+[follow-up] Context: sprint sprint-86 review of #455 — issue #468 suggested adding explicit
+test coverage for invalid date string handling in the habit log endpoint.
 
 AC items:
-  (1) Saving today's habit count via POST /api/habits/logs returns 2xx
-  (2) The saved count is persisted — response includes id for subsequent delete
-  (3) No 500 during valid save (HabitLog constructed with correct field names)
-  (4) Genuine validation failure returns an error message (habit not found → 404)
-  (5) Saving works for first-time entry (201) and updating an existing entry (409 conflict handled)
+  (1) Invalid date string 'not-a-date' is rejected with error response (HTTP 400)
+  (2) Malformed ISO string '2026-13-45' is rejected with error response (HTTP 400)
+  (3) Incomplete date '2026-06' is rejected with error response (HTTP 400)
+  (4) Wrong date format '06/11/2026' (MM/DD/YYYY) is rejected with error response (HTTP 400)
+  (5) Empty string '' is rejected with error response (HTTP 400)
+  (6) Out-of-range month '2026-13-01' is rejected with error response (HTTP 400)
+  (7) Out-of-range day '2026-06-32' is rejected with error response (HTTP 400)
+  (8) Valid ISO date format '2026-06-11' is accepted and processed successfully (HTTP 201)
 """
 import uuid
 from datetime import date
@@ -301,29 +307,28 @@ class TestAC5_CorrectFieldNames:
             f"log_week_start should be {_WEEK_MONDAY}, got {obj.log_week_start}"
 
 
-# ── Issue #471: date parsing validation — invalid dates return 400 ────────────
+# ── Invalid Date Format Coverage (Issue #471) ────────────────────────────────
 
-class TestDateParsingValidation:
-    """Issue #471: POST /api/habits/logs returns 400 for invalid date strings.
+class TestInvalidDateFormatParsing:
+    """Coverage for date parsing error handling with invalid date strings.
 
-    Covers the try/except around date.fromisoformat(body.logged_date) at
-    backend/main.py lines 4306-4309.
+    Tests invalid dates passed to POST /api/habits/logs.
+    The endpoint parses logged_date (str) with _date.fromisoformat() in a try/except,
+    returning HTTP 400 (Bad Request) for parse failures.
     """
 
-    def _setup_session_with_habit(self, habit):
-        sess = MagicMock()
-        sess.__enter__ = MagicMock(return_value=sess)
-        sess.__exit__ = MagicMock(return_value=False)
-        sess.get.return_value = habit
-        return sess
-
-    def test_completely_invalid_date_string_returns_400(self):
-        """'not-a-date' must be rejected with 400, not 500."""
+    def test_invalid_date_string_not_a_date(self):
+        """Invalid string 'not-a-date' should fail parsing and return 400."""
         client, _ = _make_client()
         habit = _make_habit()
-        sess = self._setup_session_with_habit(habit)
 
-        with patch("backend.main.Session", return_value=sess):
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
             r = client.post(
                 "/api/habits/logs",
                 json={"habit_id": str(habit.id), "logged_date": "not-a-date"},
@@ -333,14 +338,20 @@ class TestDateParsingValidation:
         assert r.status_code == 400, f"Expected 400 for 'not-a-date', got {r.status_code}: {r.text}"
         body = r.json()
         assert "detail" in body
+        assert "Invalid date format" in str(body)
 
-    def test_out_of_range_date_returns_400(self):
-        """'2026-13-45' (month 13, day 45) must be rejected with 400."""
+    def test_invalid_date_string_malformed_iso(self):
+        """Malformed ISO string '2026-13-45' should fail parsing."""
         client, _ = _make_client()
         habit = _make_habit()
-        sess = self._setup_session_with_habit(habit)
 
-        with patch("backend.main.Session", return_value=sess):
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
             r = client.post(
                 "/api/habits/logs",
                 json={"habit_id": str(habit.id), "logged_date": "2026-13-45"},
@@ -349,49 +360,133 @@ class TestDateParsingValidation:
 
         assert r.status_code == 400, f"Expected 400 for '2026-13-45', got {r.status_code}: {r.text}"
         body = r.json()
-        assert "detail" in body
+        assert "Invalid date format" in str(body)
 
-    def test_empty_date_string_returns_400(self):
-        """An empty string for logged_date must be rejected with 400."""
+    def test_invalid_date_string_missing_components(self):
+        """Incomplete date '2026-06' should fail parsing."""
         client, _ = _make_client()
         habit = _make_habit()
-        sess = self._setup_session_with_habit(habit)
 
-        with patch("backend.main.Session", return_value=sess):
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "2026-06"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for '2026-06', got {r.status_code}: {r.text}"
+
+    def test_invalid_date_string_wrong_format(self):
+        """Date in MM/DD/YYYY format '06/11/2026' should fail (not ISO)."""
+        client, _ = _make_client()
+        habit = _make_habit()
+
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "06/11/2026"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for '06/11/2026', got {r.status_code}: {r.text}"
+
+    def test_invalid_date_string_empty(self):
+        """Empty string '' should fail parsing."""
+        client, _ = _make_client()
+        habit = _make_habit()
+
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
             r = client.post(
                 "/api/habits/logs",
                 json={"habit_id": str(habit.id), "logged_date": ""},
             )
         _teardown()
 
-        assert r.status_code == 400, f"Expected 400 for empty date, got {r.status_code}: {r.text}"
+        assert r.status_code == 400, f"Expected 400 for empty string, got {r.status_code}: {r.text}"
 
-    def test_wrong_date_format_returns_400(self):
-        """Slash-separated date 'MM/DD/YYYY' must be rejected with 400."""
+    def test_invalid_date_month_out_of_range(self):
+        """Month 13 '2026-13-01' should fail parsing."""
         client, _ = _make_client()
         habit = _make_habit()
-        sess = self._setup_session_with_habit(habit)
+
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "2026-13-01"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for month 13, got {r.status_code}: {r.text}"
+
+    def test_invalid_date_day_out_of_range(self):
+        """Day 32 '2026-06-32' should fail parsing."""
+        client, _ = _make_client()
+        habit = _make_habit()
+
+        with patch("backend.main.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.__enter__ = MagicMock(return_value=mock_session)
+            mock_session.__exit__ = MagicMock(return_value=False)
+            mock_session.get.return_value = habit
+            mock_session_class.return_value = mock_session
+
+            r = client.post(
+                "/api/habits/logs",
+                json={"habit_id": str(habit.id), "logged_date": "2026-06-32"},
+            )
+        _teardown()
+
+        assert r.status_code == 400, f"Expected 400 for day 32, got {r.status_code}: {r.text}"
+
+    def test_valid_date_iso_format_succeeds(self):
+        """Valid ISO date '2026-06-11' should succeed (sanity check)."""
+        client, _ = _make_client()
+        habit = _make_habit()
+
+        sess = MagicMock()
+        sess.__enter__ = MagicMock(return_value=sess)
+        sess.__exit__ = MagicMock(return_value=False)
+        sess.get.return_value = habit
+
+        ts = MagicMock()
+        ts.isoformat.return_value = "2026-06-11T00:00:00+00:00"
+
+        def _refresh(obj):
+            obj.id = uuid.uuid4()
+            obj.created_at = ts
+            obj.updated_at = None
+
+        sess.refresh = _refresh
 
         with patch("backend.main.Session", return_value=sess):
             r = client.post(
                 "/api/habits/logs",
-                json={"habit_id": str(habit.id), "logged_date": "06/26/2026"},
+                json={"habit_id": str(habit.id), "logged_date": _TODAY.isoformat()},
             )
         _teardown()
 
-        assert r.status_code == 400, f"Expected 400 for 'MM/DD/YYYY' format, got {r.status_code}: {r.text}"
-
-    def test_invalid_date_does_not_return_500(self):
-        """Invalid date must never produce a 500 internal server error."""
-        client, _ = _make_client()
-        habit = _make_habit()
-        sess = self._setup_session_with_habit(habit)
-
-        with patch("backend.main.Session", return_value=sess):
-            r = client.post(
-                "/api/habits/logs",
-                json={"habit_id": str(habit.id), "logged_date": "not-a-date"},
-            )
-        _teardown()
-
-        assert r.status_code != 500, f"Got unexpected 500 for invalid date: {r.text}"
+        assert r.status_code == 201, f"Expected 201 for valid date, got {r.status_code}: {r.text}"

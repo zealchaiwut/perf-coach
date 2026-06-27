@@ -14,11 +14,11 @@ import json as _json
 import uuid as _uuid
 import urllib.error as _urllib_error
 import urllib.request as _urllib_request
+from concurrent.futures import ThreadPoolExecutor as _TPool
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 _STRYD_API_BASE = "https://www.stryd.com/b/api/v1"
 _DEFAULT_LOOKBACK_DAYS = 90
 # Full-history pulls for Settings "Sync all" (Stryd PowerCenter calendar API).
-_FULL_LOOKBACK_DAYS = 365 * 5
+_FULL_LOOKBACK_DAYS = 365 * 2
 
 
 def _fmt(d: date) -> str:
@@ -219,8 +219,10 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
-# Max streams-less activities to backfill per sync run (Stryd rate-limit guard).
+# Max streams-less activities to backfill per full-sync heal pass (rate-limit guard).
 _STREAM_HEAL_CAP = 60
+# Parallel workers for per-activity stream fetches (each is an independent HTTP call).
+_ENRICH_WORKERS = 4
 
 
 def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
@@ -256,11 +258,19 @@ def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
         return False
 
 
+def _enrich_many(token: str, aids: list, base_form: dict | None = None) -> None:
+    """Enrich a list of activities in parallel using a thread pool."""
+    bf = base_form or {}
+    with _TPool(max_workers=_ENRICH_WORKERS) as pool:
+        list(pool.map(lambda aid: _enrich_one(token, aid, bf.get(aid)), aids))
+
+
 def sync_stryd_activities(
     user_id: str,
     since_date: Optional[date] = None,
     *,
     full: bool = False,
+    heal: bool = True,
 ) -> dict:
     """Pull Stryd activities into stryd_activities (idempotent upsert). Writes a
     SyncJob row (source='stryd') for the history panel. Does NOT reconcile —
@@ -381,37 +391,35 @@ def sync_stryd_activities(
                 and isinstance(st, dict) and st.get("timestamp_list")
             }
             base_form = {m["stryd_activity_id"]: (m.get("form_metrics") or {}) for m in mapped}
-            for aid in ids:
-                if aid in already:
-                    continue
+            to_enrich = [aid for aid in ids if aid not in already]
+            if to_enrich:
                 # Store raw streams (timestamp_list + channel *_list) so manual
                 # laps / interval stats can be computed; also per-km splits + NP.
-                _enrich_one(token, aid, base_form.get(aid))
+                _enrich_many(token, to_enrich, base_form)
 
-        # Self-heal: backfill streams for any of this user's activities still
-        # missing them (e.g. enriched before streams capture), so a normal
-        # "Sync new" also clears the backlog — not just newly-pulled rows.
-        # Bounded per run to respect Stryd rate limits; repeated syncs drain it.
-        with Session(engine) as session:
-            heal_rows = session.execute(
-                select(StrydActivity.stryd_activity_id, StrydActivity.streams_payload)
-                .where(StrydActivity.user_id == uid)
-                .order_by(StrydActivity.start_time.desc())
-            ).all()
-        processed = set(ids)
-        heal_ids = [
-            sid for sid, st in heal_rows
-            if sid not in processed
-            and not (isinstance(st, dict) and st.get("timestamp_list"))
-        ]
-        remaining = len(heal_ids)
-        for aid in heal_ids[:_STREAM_HEAL_CAP]:
-            _enrich_one(token, aid)
-        if remaining > _STREAM_HEAL_CAP:
-            logger.info(
-                "stryd stream heal capped",
-                extra={"healed": _STREAM_HEAL_CAP, "remaining": remaining - _STREAM_HEAL_CAP},
-            )
+        # Self-heal: backfill streams for activities still missing them
+        # (e.g. enriched before streams capture). Only runs on full syncs to
+        # keep incremental "Sync new" fast. Bounded per run to respect rate limits.
+        if heal:
+            with Session(engine) as session:
+                heal_rows = session.execute(
+                    select(StrydActivity.stryd_activity_id, StrydActivity.streams_payload)
+                    .where(StrydActivity.user_id == uid)
+                    .order_by(StrydActivity.start_time.desc())
+                ).all()
+            processed = set(ids)
+            heal_ids = [
+                sid for sid, st in heal_rows
+                if sid not in processed
+                and not (isinstance(st, dict) and st.get("timestamp_list"))
+            ]
+            remaining = len(heal_ids)
+            _enrich_many(token, heal_ids[:_STREAM_HEAL_CAP])
+            if remaining > _STREAM_HEAL_CAP:
+                logger.info(
+                    "stryd stream heal capped",
+                    extra={"healed": _STREAM_HEAL_CAP, "remaining": remaining - _STREAM_HEAL_CAP},
+                )
 
         with Session(engine) as session:
             jr = session.get(SyncJob, job_db_id)

@@ -151,10 +151,12 @@ class TestStateExclusivity:
 def test_performance_endpoint_no_thresholds_returns_needs_thresholds_state(client):
     """AC1: GET /api/athletes/{id}/performance returns needs_thresholds state when no thresholds set.
 
+    Updated for issue #1020: state is now a top-level key; endurance and speed are null.
+
     Test Steps:
       1. Log in as a user with no thresholds configured.
       2. GET /api/athletes/{id}/performance
-      3. Assert response contains state: "needs_thresholds" and a non-empty reason string.
+      3. Assert response contains top-level state: "needs_thresholds" with null scores.
     """
     # Create a session and log in
     r_login = client.post("/api/auth/login", json={"username": "no_thresholds_test_929", "password": "testpass"})
@@ -172,28 +174,32 @@ def test_performance_endpoint_no_thresholds_returns_needs_thresholds_state(clien
     assert r_perf.status_code == 200
     data = r_perf.json()
 
-    # Assert both endurance and speed have needs_thresholds state
-    assert "endurance" in data
-    assert "speed" in data
-    assert data["endurance"].get("state") == "needs_thresholds", (
-        f"endurance should have state=needs_thresholds; got {data['endurance']}"
-    )
-    assert data["speed"].get("state") == "needs_thresholds", (
-        f"speed should have state=needs_thresholds; got {data['speed']}"
+    # AC1 (#1020): state is top-level
+    assert "state" in data, "state must be a top-level key"
+    assert data["state"] == "needs_thresholds", (
+        f"top-level state should be needs_thresholds; got {data.get('state')}"
     )
 
-    # Assert reason field is present and non-empty
-    assert isinstance(data["endurance"].get("reason"), str)
-    assert len(data["endurance"]["reason"]) > 0
+    # AC3 (#1020): endurance and speed are null for needs_thresholds
+    assert "endurance" in data
+    assert "speed" in data
+    assert data["endurance"] is None, (
+        f"endurance must be null for needs_thresholds; got {data['endurance']}"
+    )
+    assert data["speed"] is None, (
+        f"speed must be null for needs_thresholds; got {data['speed']}"
+    )
 
 
 def test_performance_endpoint_no_numeric_score_when_needs_thresholds(client):
-    """AC1: Response contains only state and reason; no numeric score fields.
+    """AC1: Response has null endurance and speed (no numeric score) for needs_thresholds.
+
+    Updated for issue #1020: endurance and speed are null, not nested state objects.
 
     Test Steps:
       1. Log in as user with no thresholds.
       2. GET /api/athletes/{id}/performance
-      3. Assert no 'score', 'trend', or 'direction' fields in endurance/speed.
+      3. Assert endurance and speed are null (not dicts with score fields).
     """
     r_login = client.post("/api/auth/login", json={"username": "no_thresholds_test_929", "password": "testpass"})
     if r_login.status_code == 401:
@@ -208,21 +214,20 @@ def test_performance_endpoint_no_numeric_score_when_needs_thresholds(client):
     assert r_perf.status_code == 200
     data = r_perf.json()
 
-    for key in ("endurance", "speed"):
-        obj = data.get(key, {})
-        if obj.get("state") == "needs_thresholds":
-            assert "score" not in obj, f"{key} should not have 'score' field"
-            assert "trend" not in obj, f"{key} should not have 'trend' field"
-            assert "direction" not in obj, f"{key} should not have 'direction' field"
+    if data.get("state") == "needs_thresholds":
+        assert data["endurance"] is None, "endurance must be null for needs_thresholds"
+        assert data["speed"] is None, "speed must be null for needs_thresholds"
 
 
 def test_performance_endpoint_one_threshold_returns_building_baseline(client):
     """AC2: With at least one threshold but insufficient runs → building_baseline state.
 
+    Updated for issue #1020: state is top-level; endurance and speed are null.
+
     Test Steps:
       1. Log in as user with one threshold configured but no or few runs.
       2. GET /api/athletes/{id}/performance
-      3. Assert state: "building_baseline" is returned (not needs_thresholds).
+      3. Assert top-level state: "building_baseline" is returned (not needs_thresholds).
     """
     r_login = client.post("/api/auth/login", json={"username": "one_threshold_no_runs_929", "password": "testpass"})
     if r_login.status_code == 401:
@@ -237,22 +242,28 @@ def test_performance_endpoint_one_threshold_returns_building_baseline(client):
     assert r_perf.status_code == 200
     data = r_perf.json()
 
-    # Both endurance and speed should be building_baseline, NOT needs_thresholds
-    assert data["endurance"].get("state") == "building_baseline", (
-        f"endurance should be building_baseline with one threshold; got {data['endurance']}"
+    # AC4 (#1020): top-level state is building_baseline
+    assert data.get("state") == "building_baseline", (
+        f"top-level state should be building_baseline with one threshold; got {data.get('state')}"
     )
-    assert data["speed"].get("state") == "building_baseline", (
-        f"speed should be building_baseline with one threshold; got {data['speed']}"
+    # AC4 (#1020): endurance and speed are null
+    assert data["endurance"] is None, (
+        f"endurance must be null for building_baseline; got {data['endurance']}"
+    )
+    assert data["speed"] is None, (
+        f"speed must be null for building_baseline; got {data['speed']}"
     )
 
 
 def test_performance_endpoint_thresholds_and_runs_returns_numeric_scores(client):
-    """AC3: With thresholds and sufficient runs → numeric performance scores.
+    """AC3: With thresholds and sufficient runs → state=scored with populated payloads.
+
+    Updated for issue #1020: top-level state='scored'; endurance and speed are non-null dicts.
 
     Test Steps:
       1. Log in as user with thresholds configured and sufficient qualifying runs.
       2. GET /api/athletes/{id}/performance
-      3. Assert response contains numeric 'score' fields (not state/reason).
+      3. Assert top-level state='scored' and endurance/speed contain numeric scores.
     """
     r_login = client.post("/api/auth/login", json={"username": "complete_athlete_929", "password": "testpass"})
     if r_login.status_code == 401:
@@ -267,24 +278,29 @@ def test_performance_endpoint_thresholds_and_runs_returns_numeric_scores(client)
     assert r_perf.status_code == 200
     data = r_perf.json()
 
-    # Endurance and speed should have numeric scores, not state placeholders
-    for key in ("endurance", "speed"):
-        obj = data.get(key, {})
-        # If building_baseline or needs_thresholds, those are expected fallbacks
-        if "score" in obj:
-            assert isinstance(obj["score"], (int, float)), f"{key} score should be numeric"
-            assert 0 <= obj["score"] <= 100, f"{key} score should be in [0, 100]"
-            # No state field when score is present
-            assert "state" not in obj, f"{key} should not have 'state' when score is present"
+    # AC5 (#1020): top-level state is scored
+    if data.get("state") == "scored":
+        # Endurance and speed are populated dicts
+        assert isinstance(data.get("endurance"), dict), "endurance must be a dict for state=scored"
+        assert isinstance(data.get("speed"), dict), "speed must be a dict for state=scored"
+
+        for key in ("endurance", "speed"):
+            obj = data.get(key, {})
+            if "score" in obj:
+                assert isinstance(obj["score"], (int, float)), f"{key} score should be numeric"
+                assert 0 <= obj["score"] <= 100, f"{key} score should be in [0, 100]"
 
 
-def test_needs_thresholds_reason_is_actionable(client):
-    """AC4, AC7: reason string is human-readable and actionable for UI display.
+def test_needs_thresholds_state_is_top_level(client):
+    """AC4, AC6: top-level state='needs_thresholds' is the signal to the frontend.
+
+    Updated for issue #1020: the state constant sourced from config appears at the
+    top level; the endurance/speed objects are null (not nested reason objects).
 
     Test Steps:
       1. Log in as user with no thresholds.
       2. GET /api/athletes/{id}/performance
-      3. Assert reason field is substantive (not empty, not JSON, not traceback).
+      3. Assert top-level state is 'needs_thresholds' and endurance/speed are null.
     """
     r_login = client.post("/api/auth/login", json={"username": "no_thresholds_test_929", "password": "testpass"})
     if r_login.status_code == 401:
@@ -299,10 +315,15 @@ def test_needs_thresholds_reason_is_actionable(client):
     assert r_perf.status_code == 200
     data = r_perf.json()
 
-    reason = data["endurance"].get("reason", "")
-    assert len(reason) > 10, "reason should be substantive"
-    assert "{" not in reason, "reason should not be raw JSON"
-    assert "Traceback" not in reason, "reason should not be a traceback"
-    assert "threshold" in reason.lower() or "ftp" in reason.lower(), (
-        "reason should mention thresholds or FTP"
+    # AC6 (#929 / #1020): state is always present and correct
+    assert "state" in data, "top-level 'state' key must be present"
+    assert data["state"] == "needs_thresholds", (
+        f"state should be needs_thresholds; got {data.get('state')!r}"
+    )
+    # AC3 (#1020): scores are null, not nested reason objects
+    assert data.get("endurance") is None, (
+        "endurance must be null for needs_thresholds state"
+    )
+    assert data.get("speed") is None, (
+        "speed must be null for needs_thresholds state"
     )

@@ -82,6 +82,16 @@
     return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
   }
 
+  function percentile(nums, p) {
+    var a = nums.filter(function (v) { return v != null && isFinite(v); });
+    if (!a.length) return null;
+    a.sort(function (x, y) { return x - y; });
+    var i = (p / 100) * (a.length - 1);
+    var lo = Math.floor(i), hi = Math.ceil(i);
+    if (lo === hi) return a[lo];
+    return a[lo] + (i - lo) * (a[hi] - a[lo]);
+  }
+
   function decodePolyline(encoded) {
     if (!encoded) return [];
     var coords = [];
@@ -410,15 +420,7 @@
         if (m.zone2) rowCls += " rd4-lap-row--z2";
         if (m.anomaly) rowCls += " rd4-lap-row--break";
         var pills = "";
-        if (m.zone2) pills += '<span class="rd4-z2-pill">Z2</span>';
         if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
-        if (s._lapSource)
-          pills +=
-            '<span class="rd4-lap-src rd4-lap-src--' +
-            s._lapSource +
-            '">' +
-            s._lapSource.toUpperCase() +
-            "</span>";
         var paceCls = m.fastest ? " rd4-fastest" : "";
         return (
           "<tr class=\"" +
@@ -462,6 +464,8 @@
     });
     var medP = median(powers);
     var medC = median(cadences);
+    var q3P = percentile(powers, 75);
+    var q3C = percentile(cadences, 75);
     var paceSecs = splits.map(function (s) {
       var d = parseFloat(s.distance_km);
       return d && s.duration_seconds ? s.duration_seconds / d : null;
@@ -477,13 +481,14 @@
       var pwr = s.avg_power != null ? +s.avg_power : null;
       var cad = s.cadence_spm != null ? +s.cadence_spm : null;
       var stride = s.stride_length_m != null ? +s.stride_length_m : null;
+      // Primary: both clearly below median (handles obvious rest laps).
+      // Secondary OR: catches borderline rest laps in bimodal interval workouts
+      // where the median falls between the two power clusters.
       var anomaly =
-        medP != null &&
-        pwr != null &&
-        pwr < medP * 0.78 &&
-        medC != null &&
-        cad != null &&
-        cad < medC * 0.88;
+        (medP != null && pwr != null && pwr < medP * 0.78 &&
+         medC != null && cad != null && cad < medC * 0.88) ||
+        (q3P != null && pwr != null && pwr < q3P * 0.65 &&
+         q3C != null && cad != null && cad < q3C * 0.86);
       return {
         split: s,
         index: s.split_index != null ? s.split_index : i + 1,
@@ -497,6 +502,75 @@
         stride: stride,
       };
     });
+  }
+
+  function extractIntervalSet(lapMeta) {
+    if (lapMeta.length < 3) return null;
+    var firstRest = -1, lastRest = -1;
+    for (var i = 0; i < lapMeta.length; i++) {
+      if (lapMeta[i].anomaly) {
+        if (firstRest === -1) firstRest = i;
+        lastRest = i;
+      }
+    }
+    if (firstRest === -1 || lastRest === firstRest) return null;
+    // Include the non-anomaly lap immediately before firstRest if it exists
+    // (the first fast interval precedes the first rest lap).
+    var startIdx = (firstRest > 0 && !lapMeta[firstRest - 1].anomaly) ? firstRest - 1 : firstRest;
+    var workLaps = [];
+    for (var j = startIdx; j <= lastRest; j++) {
+      if (!lapMeta[j].anomaly) workLaps.push(lapMeta[j]);
+    }
+    if (workLaps.length < 2) return null;
+    return workLaps;
+  }
+
+  function renderIntervalBlock(workLaps) {
+    if (!workLaps || !workLaps.length) return "";
+    function avg(arr) {
+      var vals = arr.filter(function (v) { return v != null && isFinite(v); });
+      return vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null;
+    }
+    var avgDist = avg(workLaps.map(function (m) { return m.split.distance_km ? +m.split.distance_km : null; }));
+    var avgDur = avg(workLaps.map(function (m) { return m.split.duration_seconds ? +m.split.duration_seconds : null; }));
+    var avgPwr = avg(workLaps.map(function (m) { return m.power; }));
+    var avgHR = avg(workLaps.map(function (m) { return m.split.avg_hr ? +m.split.avg_hr : null; }));
+    var avgPace = avg(workLaps.map(function (m) { return m.paceSec; }));
+
+    var summaryParts = [workLaps.length + " reps"];
+    if (avgDist != null) summaryParts.push("avg " + (avgDist * 1000).toFixed(0) + " m");
+    if (avgDur != null) {
+      var m = Math.floor(avgDur / 60), s = Math.round(avgDur % 60);
+      summaryParts.push(m + ":" + (s < 10 ? "0" : "") + s);
+    }
+    if (avgPwr != null) summaryParts.push(Math.round(avgPwr) + " W avg");
+
+    var rows = workLaps.map(function (m, ri) {
+      var d = m.split.distance_km ? (+(m.split.distance_km) * 1000).toFixed(0) + " m" : "—";
+      var dur = m.split.duration_seconds
+        ? (function () { var mn = Math.floor(m.split.duration_seconds / 60), sc = m.split.duration_seconds % 60; return mn + ":" + (sc < 10 ? "0" : "") + sc; })()
+        : "—";
+      var pace = m.paceSec ? (function () { var mn = Math.floor(m.paceSec / 60), sc = Math.round(m.paceSec % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—";
+      var pwr = m.power != null ? Math.round(m.power) + " W" : "—";
+      var hr = m.split.avg_hr != null ? m.split.avg_hr + " bpm" : "—";
+      return "<tr><td>" + (ri + 1) + "</td><td>" + d + "</td><td>" + dur + "</td><td>" + pace + "</td><td>" + pwr + "</td><td>" + hr + "</td></tr>";
+    });
+
+    var avgRow = "<tr class=\"rd4-int-avg-row\"><td>avg</td>"
+      + "<td>" + (avgDist != null ? (avgDist * 1000).toFixed(0) + " m" : "—") + "</td>"
+      + "<td>" + (avgDur != null ? (function () { var mn = Math.floor(avgDur / 60), sc = Math.round(avgDur % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPace != null ? (function () { var mn = Math.floor(avgPace / 60), sc = Math.round(avgPace % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPwr != null ? Math.round(avgPwr) + " W" : "—") + "</td>"
+      + "<td>" + (avgHR != null ? Math.round(avgHR) + " bpm" : "—") + "</td></tr>";
+
+    return '<section class="rd4-card rd4-int-card">'
+      + '<h2 class="rd4-sec-title">Interval Set</h2>'
+      + '<p class="rd4-int-summary">' + esc(summaryParts.join(" · ")) + '</p>'
+      + '<div class="rd4-lap-scroll"><table class="rd4-lap-table rd4-int-table"><thead><tr>'
+      + '<th>Rep</th><th>Dist</th><th>Time</th><th>Pace</th><th>Pwr</th><th>HR</th>'
+      + '</tr></thead><tbody>'
+      + rows.join("") + avgRow
+      + '</tbody></table></div></section>';
   }
 
   function lapBandMap(detected, lapCount) {
@@ -663,9 +737,12 @@
       '<div class="rd4-srcbadges">' +
       srcBadges +
       "</div></div>" +
-      "<h1 class=\"rd4-title\">" +
+      '<div class="rd4-title-wrap">' +
+      '<h1 class="rd4-title" id="rd4-title">' +
       esc(w.name || "Run") +
       "</h1>" +
+      (w.id ? '<button type="button" class="rd4-name-edit" id="rd4-name-edit" aria-label="Edit workout name" title="Edit name">&#9998;</button>' : "") +
+      "</div>" +
       (w.id
         ? '<div class="rd4-idrow"><code class="rd4-id">' +
           esc(String(w.id).slice(0, 8) + "…" + String(w.id).slice(-6)) +
@@ -963,9 +1040,14 @@
             '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
             "</div>"
           : "";
+      var showDetailCols = typeof localStorage !== "undefined" && localStorage.getItem("rd4_lap_detail_cols") === "1";
+      var lapsCardClass = "rd4-card rd4-laps-card" + (showDetailCols ? "" : " rd4-hide-detail-cols");
+      var colToggleHtml = '<div class="rd4-lapmode-toggle" id="rd4-col-toggle">' +
+        '<button type="button" class="rd4-lm-btn' + (showDetailCols ? " rd4-lm-btn--on" : "") + '" id="rd4-col-toggle-btn">Cad · Len</button>' +
+        "</div>";
 
       lapsBlock =
-        '<section class="rd4-card rd4-laps-card"><div class="rd4-laps-head">' +
+        '<section class="' + lapsCardClass + '"><div class="rd4-laps-head">' +
         '<h2 class="rd4-sec-title" id="rd4-laps-title">' +
         esc(lapTitle) +
         "</h2>" +
@@ -975,7 +1057,9 @@
         '<div class="rd4-metric-toggle" id="rd4-metric-toggle">' +
         '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="pace">Pace</button>' +
         '<button type="button" class="rd4-mt-btn" data-metric="power">Power</button>' +
-        "</div></div></div>" +
+        "</div>" +
+        colToggleHtml +
+        "</div></div>" +
         '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
         '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
         '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
@@ -991,6 +1075,13 @@
         '</tr></thead><tbody id="rd4-lap-tbody">' +
         renderLapTableRows(activeLapMeta) +
         "</tbody></table></div></section>";
+    }
+
+    // ── 5b Interval set ──
+    var intervalsBlock = "";
+    if (activeLapMeta.length) {
+      var intervalWorkLaps = extractIntervalSet(activeLapMeta);
+      intervalsBlock = renderIntervalBlock(intervalWorkLaps);
     }
 
     // ── 6 Aerobic decoupling ──
@@ -1114,6 +1205,7 @@
         pzBlock +
         profileBlock +
         lapsBlock +
+        intervalsBlock +
         decBlock +
         effSnap +
         routeBlock +
@@ -1205,17 +1297,97 @@
       });
     }
 
+    function _copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(function () {
+          _copyTextFallback(text);
+        });
+      }
+      _copyTextFallback(text);
+      return Promise.resolve();
+    }
+
+    function _copyTextFallback(text) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:absolute;left:-9999px;top:0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch (_e) { /* no-op */ }
+    }
+
     var cp = container.querySelector("#rd4-idcopy");
     if (cp && w.id) {
       cp.addEventListener("click", function () {
-        var t = w.id;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(t).catch(function () {});
+        _copyText(w.id).then(function () {
+          cp.classList.add("rd4-idcopy--done");
+          cp.setAttribute("title", "Copied!");
+          cp.innerHTML = "✓";
+          setTimeout(function () {
+            cp.classList.remove("rd4-idcopy--done");
+            cp.setAttribute("title", "Copy workout ID");
+            cp.innerHTML = "&#x2398;";
+          }, 1400);
+        });
+      });
+    }
+
+    // Inline workout name editing
+    var nameEditBtn = container.querySelector("#rd4-name-edit");
+    var titleEl = container.querySelector("#rd4-title");
+    if (nameEditBtn && titleEl && w.id) {
+      nameEditBtn.addEventListener("click", function () {
+        var orig = titleEl.textContent;
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "rd4-title-inp";
+        inp.value = orig;
+        inp.maxLength = 200;
+        titleEl.style.display = "none";
+        nameEditBtn.style.display = "none";
+        titleEl.parentNode.insertBefore(inp, titleEl.nextSibling);
+        inp.focus();
+        inp.select();
+        var done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          var val = inp.value.trim();
+          if (!val || val === orig) { restore(orig); return; }
+          fetch("/api/workouts/" + w.id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ name: val }),
+          }).then(function (r) {
+            if (!r.ok) throw new Error("save failed");
+            w.name = val;
+            restore(val);
+            // Update list row title
+            var listRow = document.querySelector('.entry-row[data-workout-id="' + w.id + '"]');
+            if (listRow) {
+              var listTitle = listRow.querySelector(".entry-title");
+              if (listTitle) listTitle.textContent = val;
+            }
+          }).catch(function () {
+            restore(orig);
+          });
         }
-        cp.classList.add("rd4-idcopy--done");
-        setTimeout(function () {
-          cp.classList.remove("rd4-idcopy--done");
-        }, 1200);
+        function restore(displayName) {
+          if (inp.parentNode) inp.parentNode.removeChild(inp);
+          titleEl.textContent = displayName;
+          titleEl.style.display = "";
+          nameEditBtn.style.display = "";
+        }
+        inp.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { done = true; restore(orig); }
+        });
+        inp.addEventListener("blur", function () { setTimeout(commit, 120); });
       });
     }
 
@@ -1334,6 +1506,16 @@
         });
         btn.classList.add("rd4-mt-btn--on");
         drawChart(metric);
+      });
+    }
+
+    var colToggleBtn = container.querySelector("#rd4-col-toggle-btn");
+    var lapsCardEl = container.querySelector(".rd4-laps-card");
+    if (colToggleBtn && lapsCardEl) {
+      colToggleBtn.addEventListener("click", function () {
+        var hiding = lapsCardEl.classList.toggle("rd4-hide-detail-cols");
+        colToggleBtn.classList.toggle("rd4-lm-btn--on", !hiding);
+        try { localStorage.setItem("rd4_lap_detail_cols", hiding ? "0" : "1"); } catch (e) {}
       });
     }
 

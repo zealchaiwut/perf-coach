@@ -8,6 +8,7 @@ import logging as _logging
 import os
 import secrets as _secrets
 import threading as _threading
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
@@ -77,6 +78,7 @@ from backend.services.session_profile_caller import get_session_profile_for_work
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
+from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -219,7 +221,10 @@ def healthz():
 
 @app.get("/api/env")
 def get_env():
-    return JSONResponse({"environment": environment})
+    from urllib.parse import urlparse as _urlparse
+    from backend.db import engine as _db_engine
+    db_host = _urlparse(str(_db_engine.url)).hostname or "unknown"
+    return JSONResponse({"environment": environment, "db_host": db_host})
 
 
 @app.get("/api/environment")
@@ -1612,7 +1617,18 @@ def get_weight_chart(
 ):
     uid = user.id
 
-    _VALID_RANGE_TOKENS = {"7D", "30D", "90D", "6M", "1Y", "ALL"}
+    # Day offsets for each range token use (N-1) so that both from_d and to_d
+    # are included in the range (inclusive semantics): e.g. "7D" spans 7 days
+    # from (today - 6) through today inclusive.  "ALL" is omitted because its
+    # from_d is resolved dynamically from the earliest entry date.
+    RANGE_OFFSETS = {
+        "7D": 6,    # 7 days inclusive
+        "30D": 29,  # 30 days inclusive
+        "90D": 89,  # 90 days inclusive
+        "6M": 183,  # ~6 calendar months inclusive
+        "1Y": 364,  # 365 days inclusive
+    }
+    _VALID_RANGE_TOKENS = {*RANGE_OFFSETS, "ALL"}
     today = _today_bkk()
     if range_token is not None:
         if range_token not in _VALID_RANGE_TOKENS:
@@ -1621,16 +1637,8 @@ def get_weight_chart(
                 detail=f"range must be one of: {', '.join(sorted(_VALID_RANGE_TOKENS))}",
             )
         to_d = today
-        if range_token == "7D":
-            from_d = today - _timedelta(days=6)
-        elif range_token == "30D":
-            from_d = today - _timedelta(days=29)
-        elif range_token == "90D":
-            from_d = today - _timedelta(days=89)
-        elif range_token == "6M":
-            from_d = today - _timedelta(days=183)
-        elif range_token == "1Y":
-            from_d = today - _timedelta(days=364)
+        if range_token in RANGE_OFFSETS:
+            from_d = today - _timedelta(days=RANGE_OFFSETS[range_token])
         else:  # ALL — from_d resolved inside session after earliest-entry lookup
             from_d = None
     elif from_date is None and to_date is None:
@@ -3639,6 +3647,20 @@ def _validate_backfill_window(log_date: _date) -> None:
         )
 
 
+def _validated_backfill_date(date: str = Query(...)) -> _date:
+    """FastAPI dependency: parse a date query param and validate it against the backfill window.
+
+    Raises 400 for unparseable strings; delegates window checks to _validate_backfill_window.
+    Reusable by any endpoint that receives a date as a query string and needs backfill enforcement.
+    """
+    try:
+        log_date = _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+    _validate_backfill_window(log_date)
+    return log_date
+
+
 def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> list:
     """Compute autofill log entries from a pre-loaded workout list (pure, no DB).
 
@@ -3834,18 +3856,13 @@ def post_habit_log_entry(
 @app.delete("/api/habits/{habit_id}/log", status_code=204)
 def delete_habit_log_entry(
     habit_id: str,
-    date: str = Query(...),
+    log_date: _date = Depends(_validated_backfill_date),
     user: User = Depends(resolve_user),
 ):
     try:
         hid = _uuid.UUID(habit_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
-    try:
-        log_date = _date.fromisoformat(date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-    _validate_backfill_window(log_date)
     with Session(engine) as session:
         habit = session.get(Habit, hid)
         if habit is None:
@@ -4101,14 +4118,17 @@ def get_habits_week(
             })
 
         # Build weekly_habits data
+        autofill_cache: dict = {}  # memoize per unique auto_fill_source within this request
         weekly_habits_data = []
         for habit in weekly_habits_list:
             habit_logs = logs_by_habit.get(habit.id, [])
             computed_logs_w: list = []
             if habit.auto_fill_source:
-                computed_logs_w = _get_computed_logs_from_workouts(
-                    week_workouts, habit.auto_fill_source
-                )
+                if habit.auto_fill_source not in autofill_cache:
+                    autofill_cache[habit.auto_fill_source] = _get_computed_logs_from_workouts(
+                        week_workouts, habit.auto_fill_source
+                    )
+                computed_logs_w = autofill_cache[habit.auto_fill_source]
             progress = _aggregate_weekly_progress(habit_logs, computed_logs_w, habit.weekly_target)
 
             # daily_breakdown: dates with any contribution (manual or autofill).
@@ -7405,6 +7425,59 @@ def get_performance_chart(
     return JSONResponse(result)
 
 
+@app.post("/api/performance/backfill")
+def post_performance_backfill(user: User = Depends(resolve_user)):
+    """Trigger the full performance backfill pipeline for the authenticated athlete.
+
+    Recomputes running TSS for all historical run workouts and rebuilds the
+    best-effort duration curve so that performance scores (endurance, speed) and
+    the fitness/fatigue/form chart reflect the current thresholds immediately.
+
+    Idempotent — safe to call more than once.  The response reports what was done
+    so the caller can decide whether to poll for completion or simply proceed.
+
+    Returns 200 with a summary dict:
+        {
+          "thresholds_found": true,
+          "runs_processed": 12,
+          "tss_recomputed": true,
+          "curve_rebuilt": true,
+          "reason": null
+        }
+
+    Returns 200 with ``thresholds_found: false`` when no thresholds have been
+    configured — the caller should direct the athlete to set thresholds first.
+    """
+    uid = user.id
+    with Session(engine) as session:
+        result = _backfill_performance_for_athlete(uid, session)
+    return JSONResponse(result)
+
+
+def _trigger_performance_backfill_background(user_id) -> None:
+    """Fire-and-forget: run the full performance backfill pipeline in a daemon thread.
+
+    Called after threshold saves so TSS and the duration curve are consistent
+    with the new thresholds without blocking the HTTP response.  Errors are
+    logged but do not propagate.
+    """
+    _backfill_log = _logging.getLogger(__name__)
+
+    def _run():
+        try:
+            from sqlalchemy.orm import Session as _Session
+            with _Session(engine) as _db:
+                _backfill_performance_for_athlete(user_id, _db)
+        except Exception as _exc:
+            _backfill_log.warning(
+                "background performance backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
 # ── Training Log endpoint ─────────────────────────────────────────────────────
 
 def _week_key_and_bounds(date_obj):
@@ -8354,6 +8427,10 @@ def stryd_configured():
 _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
 _STRAVA_DEFAULT_LOOKBACK_DAYS = 90
+_DAILY_RECONCILE_LIMIT = 10  # max activities reconciled per incremental (daily) sync
+# Caps concurrent background syncs — prevents a burst of requests from spawning
+# unlimited threads and exhausting memory.
+_sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
 
 
 def _default_strava_since_date(user_id: _uuid.UUID) -> str:
@@ -8400,6 +8477,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
             return
 
         page = 1
+        synced_strava_ids: list[int] = []
         while True:
             if _sync_jobs.is_cancel_requested(uid):
                 _sync_jobs.mark_error(uid, "cancelled")
@@ -8429,6 +8507,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
+                synced_strava_ids.append(int(act["id"]))
                 rows.append({
                     "user_id": user_id,
                     "strava_activity_id": int(act["id"]),
@@ -8476,7 +8555,14 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 break
             page += 1
 
-        _reconcile.reconcile_workouts(uid, uid)
+        if full:
+            _reconcile.reconcile_workouts(uid, uid)
+        else:
+            _reconcile.reconcile_workouts(
+                uid,
+                uid,
+                strava_activity_ids=synced_strava_ids[-_DAILY_RECONCILE_LIMIT:],
+            )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -8506,13 +8592,7 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    t = _threading.Thread(
-        target=_strava_sync_worker,
-        args=(str(uid), since),
-        kwargs={"full": full},
-        daemon=True,
-    )
-    t.start()
+    _sync_pool.submit(_strava_sync_worker, str(uid), since, full=full)
     return JSONResponse({"started": True}, status_code=202)
 
 
@@ -8529,7 +8609,7 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
             pass
     try:
         _sync_jobs.set_phase(uid, "pulling_stryd")
-        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full)
+        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full, heal=full)
         _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
         if result["upserted"] == 0 and not full:
             _sync_jobs.mark_success(uid)
@@ -8538,10 +8618,11 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
         if full:
             _reconcile.reconcile_workouts(uid, uid)
         else:
+            all_ids = result.get("stryd_activity_ids") or []
             _reconcile.reconcile_workouts(
                 uid,
                 uid,
-                stryd_activity_ids=result.get("stryd_activity_ids") or [],
+                stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
             )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
@@ -8575,13 +8656,7 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
-    t = _threading.Thread(
-        target=_stryd_sync_worker,
-        args=(str(uid), since),
-        kwargs={"full": full},
-        daemon=True,
-    )
-    t.start()
+    _sync_pool.submit(_stryd_sync_worker, str(uid), since, full=full)
     return JSONResponse({"started": True}, status_code=202)
 
 
@@ -10913,9 +10988,10 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 _logging.getLogger(__name__).warning(
                     "recompute_user_running_tss failed for user %s: %s", uid, _tss_exc, exc_info=True
                 )
-            # Rebuild duration curve in background so performance scores and PR
-            # detection use up-to-date curve bests after thresholds change.
-            _trigger_curve_rebuild_background(uid)
+            # Run the full performance backfill (TSS + duration curve) in the
+            # background so scores and the fitness chart reflect new thresholds
+            # without blocking the HTTP response.  Idempotent; safe to re-run.
+            _trigger_performance_backfill_background(uid)
         return JSONResponse(_prefs_row_dict(prefs))
 
 
@@ -12049,9 +12125,10 @@ async def accept_threshold_suggestions(
 
         prefs.updated_at = _now
         session.commit()
-        # Rebuild duration curve in background so performance scores and PR
-        # detection use up-to-date curve bests after thresholds are accepted.
-        _trigger_curve_rebuild_background(user.id)
+        # Run the full performance backfill in background so scores and the
+        # fitness chart reflect the newly accepted thresholds without blocking
+        # the HTTP response.  Idempotent; safe to re-run.
+        _trigger_performance_backfill_background(user.id)
         return JSONResponse({"written": written, "skipped": []})
 
 
@@ -12243,6 +12320,51 @@ def _check_needs_thresholds(preferences) -> bool:
     )
 
 
+def _determine_performance_top_level_state(endurance_result, speed_result) -> str:
+    """Return the top-level state string from both score results (issue #1020).
+
+    Returns 'building_baseline' if either score signals it; returns 'scored'
+    when both carry a numeric score field.  Caller is responsible for the
+    'needs_thresholds' early-return and the 'error' try/except wrapping.
+    """
+    endurance_state = endurance_result.get("state") if isinstance(endurance_result, dict) else None
+    speed_state = speed_result.get("state") if isinstance(speed_result, dict) else None
+
+    if endurance_state == "building_baseline" or speed_state == "building_baseline":
+        return "building_baseline"
+
+    endurance_score = endurance_result.get("score") if isinstance(endurance_result, dict) else None
+    speed_score = speed_result.get("score") if isinstance(speed_result, dict) else None
+    if isinstance(endurance_score, (int, float)) and isinstance(speed_score, (int, float)):
+        return "scored"
+
+    # Unexpected shape (e.g. score: None from missing input) — treat as building_baseline
+    return "building_baseline"
+
+
+def _build_performance_response(
+    state: str,
+    endurance,
+    speed,
+    generated_at: str,
+    reason: str | None = None,
+) -> dict:
+    """Assemble the canonical top-level performance response dict (issue #1020).
+
+    Always includes state, endurance, speed, and generated_at.  The optional
+    reason field is only included for state='error'.
+    """
+    body: dict = {
+        "state": state,
+        "endurance": endurance,
+        "speed": speed,
+        "generated_at": generated_at,
+    }
+    if reason is not None:
+        body["reason"] = reason
+    return body
+
+
 def _build_performance_log_entry(
     preferences,
     runs,
@@ -12302,24 +12424,67 @@ def _build_performance_log_entry(
     }
 
 
+def _build_performance_diagnostic(preferences, runs):
+    """Return the 8 flat diagnostic keys required by issue #1018.
+
+    Unconditionally safe — never raises even when preferences is None or runs is empty.
+    Called at INFO level on every request to GET /api/athletes/{id}/performance so
+    the values are always visible in UAT logs without requiring DEBUG log level.
+    """
+    _runs = runs or []
+
+    runs_considered = len(_runs)
+    runs_with_laps = sum(1 for r in _runs if r.get("laps"))
+    laps_total = sum(len(r.get("laps") or []) for r in _runs)
+    laps_with_band = sum(
+        1 for r in _runs
+        for lap in (r.get("laps") or [])
+        if lap.get("band") is not None
+    )
+
+    if preferences is not None:
+        thresholds_present = any(
+            preferences.get(k) is not None
+            for k in ("ftp_w", "threshold_hr", "threshold_pace_seconds_per_km")
+        )
+        ftp_present = preferences.get("ftp_w") is not None
+        threshold_hr_present = preferences.get("threshold_hr") is not None
+        threshold_pace_present = preferences.get("threshold_pace_seconds_per_km") is not None
+    else:
+        thresholds_present = False
+        ftp_present = False
+        threshold_hr_present = False
+        threshold_pace_present = False
+
+    return {
+        "runs_considered": runs_considered,
+        "runs_with_laps": runs_with_laps,
+        "laps_total": laps_total,
+        "laps_with_band": laps_with_band,
+        "thresholds_present": thresholds_present,
+        "ftp_present": ftp_present,
+        "threshold_hr_present": threshold_hr_present,
+        "threshold_pace_present": threshold_pace_present,
+    }
+
+
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(user: User = Depends(resolve_user)):
-    """Return endurance and speed performance scores for an athlete.
+    """Return endurance and speed performance scores for an athlete (issue #1020).
 
-    Both scores are derived from per-run efficiency and (for endurance) aerobic
-    decoupling, normalised to the athlete's own historical range.  No hardcoded
-    thresholds are used; all zone bands and cutoffs come from user_preferences
-    and the shared zone_constants module.
+    Every response includes exactly these top-level keys: state, endurance, speed,
+    generated_at.  The state field is always one of: scored, needs_thresholds,
+    building_baseline, error.
 
-    Returns 200 with both ``endurance`` and ``speed`` keys.
-    When the athlete has fewer than the minimum qualifying runs, the affected
-    key returns ``{"state": "building_baseline", "reason": "..."}``.
-    When preferences are unavailable, returns ``{"score": null, "reason": "..."}``.
-    Returns 404 when the athlete ID does not exist.
+    HTTP 200 for scored, needs_thresholds, and building_baseline.
+    HTTP 500 for unexpected server-side failures (state='error').
+    HTTP 404 when the athlete ID does not exist.
     """
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
+
+    generated_at = _datetime.now(_timezone.utc).isoformat()
 
     try:
         from backend.services.aerobic_decoupling import compute_decoupling
@@ -12328,140 +12493,185 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
 
     uid = user.id
 
-    with Session(engine) as session:
-        athlete = session.get(User, uid)
-        if athlete is None:
-            raise HTTPException(status_code=404, detail="Athlete not found")
+    try:
+        with Session(engine) as session:
+            athlete = session.get(User, uid)
+            if athlete is None:
+                raise HTTPException(status_code=404, detail="Athlete not found")
 
-        # Load user preferences; None means preferences row absent
-        prefs_row = (
-            session.query(UserPreferences)
-            .filter(UserPreferences.user_id == uid)
-            .first()
-        )
-        if prefs_row is not None:
-            preferences = {
-                "ftp_w": prefs_row.ftp_w,
-                "threshold_hr": prefs_row.threshold_hr,
-                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
-                # aerobic_decoupling_threshold added by migration d915ffcb4c0c
-                "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
-                "duration_curve_bests": None,
-            }
-        else:
-            preferences = None
+            # Load user preferences; None means preferences row absent
+            prefs_row = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == uid)
+                .first()
+            )
+            if prefs_row is not None:
+                preferences = {
+                    "ftp_w": prefs_row.ftp_w,
+                    "threshold_hr": prefs_row.threshold_hr,
+                    "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                    # aerobic_decoupling_threshold added by migration d915ffcb4c0c
+                    "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                    "duration_curve_bests": None,
+                }
+            else:
+                preferences = None
 
-        # Load duration-curve bests so speed score can reference them
-        curve_data = _get_athlete_duration_curve(uid, session)
-        if preferences is not None:
-            preferences["duration_curve_bests"] = curve_data or {}
+            # Load duration-curve bests so speed score can reference them
+            curve_data = _get_athlete_duration_curve(uid, session)
+            if preferences is not None:
+                preferences["duration_curve_bests"] = curve_data or {}
 
-        # Load all run workouts in chronological order (oldest first)
-        run_workouts = (
-            session.query(Workout)
-            .filter(Workout.user_id == uid, Workout.workout_type == "Run")
-            .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
-            .all()
-        )
-
-        prefs_dict = preferences or {}
-
-        runs = []
-        for workout in run_workouts:
-            # Load per-lap splits ordered by split_index
-            splits = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == workout.id)
-                .order_by(WorkoutSplit.split_index)
+            # Load all run workouts in chronological order (oldest first)
+            run_workouts = (
+                session.query(Workout)
+                .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+                .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
 
-            # Classify lap intensity bands using user thresholds
-            classifications = classify_laps(splits, prefs_dict)
+            prefs_dict = preferences or {}
 
-            # Build lap dicts with classification bands
-            laps = []
-            for split, cls in zip(splits, classifications):
-                laps.append({
-                    "band": cls.get("band"),
-                    "avg_power": split.avg_power,
-                    "avg_hr": split.avg_hr,
-                    "distance_km": float(split.distance_km) if split.distance_km is not None else None,
-                    "duration_seconds": split.duration_seconds,
+            runs = []
+            for workout in run_workouts:
+                # Load per-lap splits ordered by split_index
+                splits = (
+                    session.query(WorkoutSplit)
+                    .filter(WorkoutSplit.workout_id == workout.id)
+                    .order_by(WorkoutSplit.split_index)
+                    .all()
+                )
+
+                # Classify lap intensity bands using user thresholds
+                classifications = classify_laps(splits, prefs_dict)
+
+                # Build lap dicts with classification bands
+                laps = []
+                for split, cls in zip(splits, classifications):
+                    laps.append({
+                        "band": cls.get("band"),
+                        "avg_power": split.avg_power,
+                        "avg_hr": split.avg_hr,
+                        "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                        "duration_seconds": split.duration_seconds,
+                    })
+
+                # Compute aerobic decoupling for this run (back-half vs front-half
+                # efficiency) using plain dicts so compute_decoupling stays pure
+                decoupling_pct = None
+                if compute_decoupling is not None:
+                    split_dicts = [
+                        {
+                            "split_index": s.split_index,
+                            "duration_seconds": s.duration_seconds,
+                            "avg_hr": s.avg_hr,
+                            "avg_power": s.avg_power,
+                            "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                        }
+                        for s in splits
+                    ]
+                    decoupling_result, _ = compute_decoupling(
+                        {"workout_type": workout.workout_type},
+                        split_dicts,
+                        prefs_dict.get("aerobic_decoupling_threshold"),
+                    )
+                    decoupling_pct = (
+                        decoupling_result.get("decoupling_pct")
+                        if decoupling_result
+                        else None
+                    )
+
+                runs.append({
+                    "run_id": str(workout.id),
+                    "workout_date": workout.workout_date.isoformat() if workout.workout_date else "",
+                    "laps": laps,
+                    "decoupling_pct": decoupling_pct,
+                    "avg_power": workout.avg_power,
+                    "avg_hr": workout.avg_hr,
+                    "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
+                    "duration_seconds": workout.duration_seconds,
                 })
 
-            # Compute aerobic decoupling for this run (back-half vs front-half
-            # efficiency) using plain dicts so compute_decoupling stays pure
-            decoupling_pct = None
-            if compute_decoupling is not None:
-                split_dicts = [
-                    {
-                        "split_index": s.split_index,
-                        "duration_seconds": s.duration_seconds,
-                        "avg_hr": s.avg_hr,
-                        "avg_power": s.avg_power,
-                        "distance_km": float(s.distance_km) if s.distance_km is not None else None,
-                    }
-                    for s in splits
-                ]
-                decoupling_result, _ = compute_decoupling(
-                    {"workout_type": workout.workout_type},
-                    split_dicts,
-                    prefs_dict.get("aerobic_decoupling_threshold"),
+        # All DB access is finished above.  The pure functions below perform no I/O.
+
+        # AC #1018: unconditional INFO-level diagnostic log — fires on every request so
+        # UAT logs always contain the 8 flat keys needed to diagnose scoring failures.
+        _performance_log.info(
+            "performance diagnostic",
+            extra=_build_performance_diagnostic(preferences=preferences, runs=runs),
+        )
+
+        # AC #912 / #1020: check for missing thresholds; return top-level state field.
+        if _check_needs_thresholds(preferences):
+            _needs_thresholds_obj = {
+                "state": "needs_thresholds",
+                "reason": _NEEDS_THRESHOLDS_REASON,
+            }
+            if _performance_log.isEnabledFor(_logging.DEBUG):
+                log_entry = _build_performance_log_entry(
+                    preferences=preferences,
+                    runs=runs,
+                    endurance=_needs_thresholds_obj,
+                    speed=_needs_thresholds_obj,
                 )
-                decoupling_pct = (
-                    decoupling_result.get("decoupling_pct")
-                    if decoupling_result
-                    else None
+                _performance_log.debug("performance score request", extra=log_entry)
+            return JSONResponse(
+                _build_performance_response(
+                    state="needs_thresholds",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
                 )
+            )
 
-            runs.append({
-                "run_id": str(workout.id),
-                "workout_date": workout.workout_date.isoformat() if workout.workout_date else "",
-                "laps": laps,
-                "decoupling_pct": decoupling_pct,
-                "avg_power": workout.avg_power,
-                "avg_hr": workout.avg_hr,
-                "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
-                "duration_seconds": workout.duration_seconds,
-            })
+        zone_constants = make_zone_constants()
+        endurance = compute_endurance_score(runs, preferences, zone_constants)
+        speed = compute_speed_score(runs, preferences, zone_constants)
 
-    # All DB access is finished above.  The pure functions below perform no I/O.
-
-    # AC #912: check for missing thresholds before calling score functions so the
-    # UI can render a prompt instead of an unexplained dash.
-    if _check_needs_thresholds(preferences):
-        _needs_thresholds_obj = {
-            "state": "needs_thresholds",
-            "reason": _NEEDS_THRESHOLDS_REASON,
-        }
         if _performance_log.isEnabledFor(_logging.DEBUG):
             log_entry = _build_performance_log_entry(
                 preferences=preferences,
                 runs=runs,
-                endurance=_needs_thresholds_obj,
-                speed=_needs_thresholds_obj,
+                endurance=endurance,
+                speed=speed,
             )
             _performance_log.debug("performance score request", extra=log_entry)
-        return JSONResponse({
-            "endurance": _needs_thresholds_obj,
-            "speed": _needs_thresholds_obj,
-        })
 
-    zone_constants = make_zone_constants()
-    endurance = compute_endurance_score(runs, preferences, zone_constants)
-    speed = compute_speed_score(runs, preferences, zone_constants)
+        top_state = _determine_performance_top_level_state(endurance, speed)
 
-    if _performance_log.isEnabledFor(_logging.DEBUG):
-        log_entry = _build_performance_log_entry(
-            preferences=preferences,
-            runs=runs,
-            endurance=endurance,
-            speed=speed,
+        if top_state == "building_baseline":
+            return JSONResponse(
+                _build_performance_response(
+                    state="building_baseline",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
+                )
+            )
+
+        return JSONResponse(
+            _build_performance_response(
+                state="scored",
+                endurance=endurance,
+                speed=speed,
+                generated_at=generated_at,
+            )
         )
-        _performance_log.debug("performance score request", extra=log_entry)
 
-    return JSONResponse({"endurance": endurance, "speed": speed})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _performance_log.exception("unexpected error in performance endpoint")
+        return JSONResponse(
+            status_code=500,
+            content=_build_performance_response(
+                state="error",
+                endurance=None,
+                speed=None,
+                generated_at=generated_at,
+                reason=str(exc) or "unexpected server error",
+            ),
+        )
 
 
 # ── Athlete run personal records ───────────────────────────────────────────────

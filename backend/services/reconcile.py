@@ -5,22 +5,39 @@ import uuid as _uuid
 from datetime import date, timedelta, timezone
 from types import SimpleNamespace
 
-from sqlalchemy.orm import Session as _Session
+from sqlalchemy import and_ as _and, or_ as _or
+from sqlalchemy.orm import Session as _Session, defer as _defer
 
 
 _TOLERANCE = timedelta(minutes=5)
 
 
-def _find_in_memory(start_time, workouts: list, tolerance: timedelta):
-    """In-memory match against pre-loaded workout list — no per-activity DB query."""
+def _build_workout_index(workouts: list) -> dict:
+    """Index workouts by date for O(1) date lookup instead of O(n) full scan."""
+    index: dict = {}
+    for w in workouts:
+        if w.start_time is not None:
+            index.setdefault(w.start_time.date(), []).append(w)
+    return index
+
+
+def _find_in_index(start_time, index: dict, tolerance: timedelta):
+    """Match a workout using the date-bucketed index.
+
+    Checks same date and adjacent dates so activities near midnight are found
+    even when the tolerance window crosses a day boundary.
+    """
     if start_time is None:
         return None
     lower = start_time - tolerance
     upper = start_time + tolerance
-    candidates = [w for w in workouts if w.start_time and lower <= w.start_time <= upper]
-    if not candidates:
+    candidates = []
+    for d in {lower.date(), start_time.date(), upper.date()}:
+        candidates.extend(index.get(d, []))
+    matches = [w for w in candidates if w.start_time and lower <= w.start_time <= upper]
+    if not matches:
         return None
-    return min(candidates, key=lambda w: abs((w.start_time - start_time).total_seconds()))
+    return min(matches, key=lambda w: abs((w.start_time - start_time).total_seconds()))
 
 
 def _make_proxy(
@@ -100,8 +117,8 @@ def _sync_splits(session, workout, act) -> None:
     session.flush()
     # Index by position (1-based) so it is always unique, regardless of the
     # source dict's own index field. Fields read defensively across split shapes.
-    for i, s in enumerate(splits, start=1):
-        session.add(WorkoutSplit(
+    session.add_all([
+        WorkoutSplit(
             workout_id=workout.id,
             split_index=i,
             distance_km=s.get("distance_km") or 0,
@@ -110,7 +127,9 @@ def _sync_splits(session, workout, act) -> None:
             avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
             cadence_spm=s.get("cadence_spm"),
             stride_length_m=s.get("stride_length_m"),
-        ))
+        )
+        for i, s in enumerate(splits, start=1)
+    ])
 
 
 def _ingest_streams(session, all_acts, existing_workouts) -> None:
@@ -217,29 +236,90 @@ def reconcile_workouts(
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     sync_jobs.set_phase(uid, "reconciling")
     incremental = stryd_activity_ids is not None or strava_activity_ids is not None
+    affected_workout_ids: set = set()
 
     with _Session(engine) as session:
-        strava_acts = (
-            session.query(StravaActivity)
-            .filter(StravaActivity.user_id == uid)
-            .all()
-        )
+        # -- Source activity load --
+        # Strategy: load the source with explicit IDs first (incremental), then
+        # derive a time window from those activities to scope the OTHER source.
+        # This prevents a Stryd-only incremental sync from loading the entire
+        # Strava table (and vice-versa).  Full syncs defer heavy JSONB columns.
 
-        try:
-            stryd_acts = (
-                session.query(StrydActivity)
-                .filter(StrydActivity.user_id == uid)
+        def _time_window(acts):
+            times = [a.start_time for a in (acts or []) if a.start_time]
+            if not times:
+                return None, None
+            return min(times) - _TOLERANCE, max(times) + _TOLERANCE
+
+        if strava_activity_ids is not None:
+            strava_acts = (
+                session.query(StravaActivity)
+                .filter(
+                    StravaActivity.user_id == uid,
+                    StravaActivity.strava_activity_id.in_(strava_activity_ids),
+                )
                 .all()
             )
+        else:
+            # Resolved after Stryd load when doing a Stryd-only incremental sync.
+            strava_acts = None if stryd_activity_ids is not None else (
+                session.query(StravaActivity)
+                .filter(StravaActivity.user_id == uid)
+                .options(
+                    _defer(StravaActivity.streams_payload),
+                    _defer(StravaActivity.detail_payload),
+                )
+                .all()
+            )
+
+        try:
+            if stryd_activity_ids is not None:
+                stryd_acts = (
+                    session.query(StrydActivity)
+                    .filter(
+                        StrydActivity.user_id == uid,
+                        StrydActivity.stryd_activity_id.in_(stryd_activity_ids),
+                    )
+                    .all()
+                )
+            else:
+                # Resolved after Strava load when doing a Strava-only incremental sync.
+                stryd_acts = None if strava_activity_ids is not None else (
+                    session.query(StrydActivity)
+                    .filter(StrydActivity.user_id == uid)
+                    .options(_defer(StrydActivity.streams_payload))
+                    .all()
+                )
         except Exception:
             stryd_acts = []
 
-        if stryd_activity_ids is not None:
-            stryd_id_set = set(stryd_activity_ids)
-            stryd_acts = [a for a in stryd_acts if a.stryd_activity_id in stryd_id_set]
-        if strava_activity_ids is not None:
-            strava_id_set = set(strava_activity_ids)
-            strava_acts = [a for a in strava_acts if a.strava_activity_id in strava_id_set]
+        # Resolve deferred sources by scoping to the time window of the loaded source.
+        if strava_acts is None:
+            try:
+                lo, hi = _time_window(stryd_acts)
+                q = session.query(StravaActivity).filter(StravaActivity.user_id == uid)
+                if lo is not None:
+                    q = q.filter(StravaActivity.start_time.between(lo, hi))
+                else:
+                    q = q.options(
+                        _defer(StravaActivity.streams_payload),
+                        _defer(StravaActivity.detail_payload),
+                    )
+                strava_acts = q.all()
+            except Exception:
+                strava_acts = []
+
+        if stryd_acts is None:
+            try:
+                lo, hi = _time_window(strava_acts)
+                q = session.query(StrydActivity).filter(StrydActivity.user_id == uid)
+                if lo is not None:
+                    q = q.filter(StrydActivity.start_time.between(lo, hi))
+                else:
+                    q = q.options(_defer(StrydActivity.streams_payload))
+                stryd_acts = q.all()
+            except Exception:
+                stryd_acts = []
 
         all_acts = [("strava", a) for a in strava_acts] + [("stryd", a) for a in stryd_acts]
 
@@ -261,15 +341,40 @@ def reconcile_workouts(
         strava_by_id = {a.id: a for a in strava_acts}
         stryd_by_id = {a.id: a for a in stryd_acts}
 
-        # Single bulk load of all existing workouts — no per-activity query
-        existing_workouts: list = session.query(Workout).filter(Workout.user_id == uid).all()
+        # -- Existing workout load --
+        # Incremental: scope the query to workouts that are already linked to
+        # these source activities or fall within their time window (±tolerance).
+        # This avoids loading every workout for daily syncs of 10 activities.
+        # Full: load all workouts (no JSONB payloads, so this is manageable).
+        if incremental and all_acts:
+            strava_pks = [a.id for a in strava_acts]
+            stryd_pks = [a.id for a in stryd_acts]
+            start_times = [a.start_time for _, a in all_acts if a.start_time]
+            conditions: list = []
+            if strava_pks:
+                conditions.append(Workout.strava_activity_pk.in_(strava_pks))
+            if stryd_pks:
+                conditions.append(Workout.stryd_activity_pk.in_(stryd_pks))
+            if start_times:
+                lo = min(start_times) - _TOLERANCE
+                hi = max(start_times) + _TOLERANCE
+                conditions.append(_and(Workout.start_time >= lo, Workout.start_time <= hi))
+            existing_workouts: list = (
+                session.query(Workout)
+                .filter(Workout.user_id == uid, _or(*conditions))
+                .all()
+                if conditions else []
+            )
+        else:
+            existing_workouts: list = session.query(Workout).filter(Workout.user_id == uid).all()
 
         sync_jobs.reset_progress(uid, total=len(all_acts))
 
+        workout_index = _build_workout_index(existing_workouts)
         stryd_pairs = []
         touched_workouts: list = []
         for source_type, act in all_acts:
-            matched = _find_in_memory(act.start_time, existing_workouts, _TOLERANCE)
+            matched = _find_in_index(act.start_time, workout_index, _TOLERANCE)
             proxy = _make_proxy(
                 act,
                 source_type,
@@ -315,6 +420,8 @@ def reconcile_workouts(
                 _apply_best(w, best)
                 session.add(w)
                 existing_workouts.append(w)
+                if w.start_time is not None:
+                    workout_index.setdefault(w.start_time.date(), []).append(w)
                 target = w
 
             if source_type == "stryd":
@@ -328,14 +435,16 @@ def reconcile_workouts(
         # Flush so newly-created workouts have ids, then (re)build their splits
         # and ingest activity streams into activity_streams.
         session.flush()
+        # Collect IDs while the session is still open — accessing ORM attributes
+        # after session.commit() raises DetachedInstanceError (SQLAlchemy expires
+        # all instance state on commit).
+        affected_workout_ids = {w.id for w in touched_workouts if w.id is not None}
         for workout, act in stryd_pairs:
             _sync_splits(session, workout, act)
 
         _ingest_streams(session, all_acts, existing_workouts)
 
         session.commit()
-
-    affected_workout_ids = {w.id for w in touched_workouts if w.id is not None}
 
     # Derive TSS (fallback) + Zone-2 minutes for runs from the now-current splits.
     compute_run_metrics(
@@ -367,14 +476,11 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
         z_min = (prefs.zone2_hr_min if prefs and prefs.zone2_hr_min is not None else 130)
         z_max = (prefs.zone2_hr_max if prefs and prefs.zone2_hr_max is not None else 155)
 
-        runs = (
-            session.query(Workout)
-            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
-            .all()
-        )
+        q = session.query(Workout).filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
         if workout_ids is not None:
-            allowed = {wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids}
-            runs = [w for w in runs if w.id in allowed]
+            allowed = [wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids]
+            q = q.filter(Workout.id.in_(allowed))
+        runs = q.all()
         run_ids = [w.id for w in runs]
         splits_by: dict = {}
         if run_ids:
