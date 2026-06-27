@@ -13,10 +13,8 @@ AC coverage:
 import time
 import json
 import urllib.parse
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.auth import create_session_cookie, COOKIE_NAME, generate_csrf_token, CSRF_COOKIE_NAME
