@@ -163,6 +163,8 @@ Each script:
 | `POST /api/habits/{habit_id}/log` | Log a habit entry; body: optional `log_date`, `value`, `notes`, `mode` (`set` replaces / `add` increments existing value; default `set`). Backfill window enforced: only dates within the current Bangkok week are writable. |
 | `GET /api/about` | Returns app version, git SHA, environment, and changelog availability |
 | `POST /api/integrations/drive-sleep/sync` | Trigger an immediate Drive/Health Sync sleep file import for the authenticated user; returns `{files_seen, rows_imported, rows_updated, rows_skipped}`; 422 if no Google Drive integration is connected |
+| `GET /api/integrations/drive-sleep/status` | Return Sleep via Health Sync integration status for the authenticated user; returns `{status, folder_id, last_sync_at, records_total}`; `status` is `not_connected` when no `drive_sleep_connections` row exists |
+| `GET /api/athletes/{athlete_id}/sleep` | Return last night's sleep data plus a 7-night recent trend for the session user; top-level keys: `sleep_date`, `total_sleep_minutes`, `sleep_score`, `deep_minutes`, `rem_minutes`, `light_minutes`, `awake_minutes`; stage keys are null when source omits stage breakdown; `recent_nights` is an array of up to 7 entries oldest-first; returns 200 with null top-level fields and empty `recent_nights` when the athlete has no sleep records |
 | `POST /api/sync/strava` | Trigger a Strava activity sync; returns 202 with `job_id` and `polling_url`; 409 if already running |
 | `GET /api/sync/strava/status` | Poll status of a sync job by `job_id`; returns full SyncJob record |
 | `GET /api/sync/strava/latest` | Return info about the most recent completed Strava sync |

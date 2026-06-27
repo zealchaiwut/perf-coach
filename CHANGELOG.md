@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 89.1 — Sleep Settings card and Training Log sleep readout
+
+- #1036: Add Sleep via Health Sync card to Settings Integrations
+- #1037: Add sleep readout card to Training Log tab
+
 ## Sprint 89 — Google Drive / Health Sync sleep file import
 
 - #1032: Add sleep_records table and idempotent Alembic migration

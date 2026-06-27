@@ -456,6 +456,24 @@ Unique: `(user_id, source, source_identifier)`.
 
 ---
 
+## drive_sleep_connections _(added Sprint 89)_
+
+Tracks the Google Drive read-only OAuth connection used for Health Sync sleep CSV imports. One row per user (unique on `user_id`).
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE, unique |
+| refresh_token_encrypted | text | nullable — encrypted Drive refresh token |
+| folder_id | text | nullable — Drive folder ID to scan for sleep CSVs |
+| status | varchar(20) | NOT NULL; default `not_connected` |
+| last_sync_at | timestamptz | nullable — stamped after each successful sync run |
+| created_at / updated_at | timestamptz | |
+
+Migration: `8a2b1c9d4e` (initial table).
+
+---
+
 ## sleep_records _(added Sprint 89)_
 
 Structured nightly sleep records imported from external sources (e.g. Health Sync CSV exported from Google Drive). One row per night per user. Idempotent upsert on `(user_id, external_id)`.
