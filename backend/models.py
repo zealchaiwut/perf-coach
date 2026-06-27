@@ -248,6 +248,11 @@ class Workout(Base):
     np = Column(Integer, nullable=True)
     avg_cadence_spm = Column(Integer, nullable=True)
     avg_stride_m = Column(Numeric(4, 2), nullable=True)
+    # Computed speed signal (issue #1048): best short-effort ratio vs threshold.
+    speed_signal = Column(Float, nullable=True)
+    speed_signal_basis = Column(String(20), nullable=True)
+    speed_signal_window_seconds = Column(Integer, nullable=True)
+    speed_signal_source = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
