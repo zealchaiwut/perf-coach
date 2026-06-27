@@ -1200,17 +1200,42 @@
       });
     }
 
+    function _copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(function () {
+          _copyTextFallback(text);
+        });
+      }
+      _copyTextFallback(text);
+      return Promise.resolve();
+    }
+
+    function _copyTextFallback(text) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:absolute;left:-9999px;top:0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch (_e) { /* no-op */ }
+    }
+
     var cp = container.querySelector("#rd4-idcopy");
     if (cp && w.id) {
       cp.addEventListener("click", function () {
-        var t = w.id;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(t).catch(function () {});
-        }
-        cp.classList.add("rd4-idcopy--done");
-        setTimeout(function () {
-          cp.classList.remove("rd4-idcopy--done");
-        }, 1200);
+        _copyText(w.id).then(function () {
+          cp.classList.add("rd4-idcopy--done");
+          cp.setAttribute("title", "Copied!");
+          cp.innerHTML = "✓";
+          setTimeout(function () {
+            cp.classList.remove("rd4-idcopy--done");
+            cp.setAttribute("title", "Copy workout ID");
+            cp.innerHTML = "&#x2398;";
+          }, 1400);
+        });
       });
     }
 
