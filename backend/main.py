@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, SleepRecord, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -12892,6 +12892,92 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Athletes: sleep readout ────────────────────────────────────────────────────
+
+
+def _query_athlete_sleep(uid):
+    """Return (latest_record, last_7_records) for the athlete.
+
+    ``latest_record`` is the most recent SleepRecord row (or None).
+    ``last_7_records`` is a list of up to 7 rows ordered oldest-first for the
+    mini trend (the latest record may overlap with the last element).
+    """
+    with Session(engine) as session:
+        latest = (
+            session.query(SleepRecord)
+            .filter(SleepRecord.user_id == uid)
+            .order_by(SleepRecord.sleep_date.desc())
+            .first()
+        )
+        last_7 = (
+            session.query(SleepRecord)
+            .filter(SleepRecord.user_id == uid)
+            .order_by(SleepRecord.sleep_date.desc())
+            .limit(7)
+            .all()
+        )
+        # Detach from session before returning
+        if latest is not None:
+            session.expunge(latest)
+        for r in last_7:
+            session.expunge(r)
+    return latest, list(reversed(last_7))
+
+
+def _sleep_record_to_dict(r):
+    """Serialise a SleepRecord row to the flat response dict."""
+    d = {
+        "sleep_date": str(r.sleep_date),
+        "total_sleep_minutes": r.total_sleep_minutes,
+        "sleep_score": r.sleep_score,
+        "deep_minutes": r.deep_minutes,
+        "rem_minutes": r.rem_minutes,
+        "light_minutes": r.light_minutes,
+        "awake_minutes": r.awake_minutes,
+    }
+    return d
+
+
+@app.get("/api/athletes/{athlete_id}/sleep")
+def get_athlete_sleep(user: User = Depends(resolve_user)):
+    """Return last night's sleep data plus a 7-night recent trend (issue #1037).
+
+    Top-level keys: sleep_date, total_sleep_minutes, sleep_score,
+    deep_minutes, rem_minutes, light_minutes, awake_minutes.
+    Stage keys are null when the source did not record stage breakdown.
+    ``recent_nights`` is an array of up to 7 entries (oldest first) with
+    sleep_date, total_sleep_minutes, sleep_score.
+
+    Returns 200 with all-null top-level fields and empty recent_nights when
+    the athlete has no sleep records.
+    """
+    uid = user.id
+    latest, last_7 = _query_athlete_sleep(uid)
+
+    if latest is None:
+        return JSONResponse({
+            "sleep_date": None,
+            "total_sleep_minutes": None,
+            "sleep_score": None,
+            "deep_minutes": None,
+            "rem_minutes": None,
+            "light_minutes": None,
+            "awake_minutes": None,
+            "recent_nights": [],
+        })
+
+    body = _sleep_record_to_dict(latest)
+    body["recent_nights"] = [
+        {
+            "sleep_date": str(r.sleep_date),
+            "total_sleep_minutes": r.total_sleep_minutes,
+            "sleep_score": r.sleep_score,
+        }
+        for r in last_7
+    ]
+    return JSONResponse(body)
 
 
 # ── Sleep sync scheduler ──────────────────────────────────────────────────────

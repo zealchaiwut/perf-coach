@@ -749,6 +749,122 @@
       .rw-tiles { grid-template-columns: 1fr; }
     }
 
+    /* ── Sleep readout card (issue #1037) ─────────────────────────────────── */
+    .log-sleep-card {
+      padding: 16px 18px;
+    }
+    .lsc-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      margin-bottom: 12px;
+    }
+    .lsc-header i { font-size: 14px; }
+    .lsc-main {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .lsc-duration {
+      font-size: 1.55rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+    .lsc-score {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .lsc-stages {
+      display: flex;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 10px 0 6px;
+      gap: 1px;
+    }
+    .lsc-stage-deep  { background: #3b82f6; }
+    .lsc-stage-rem   { background: #8b5cf6; }
+    .lsc-stage-light { background: #60a5fa; }
+    .lsc-stage-awake { background: #d1d5db; }
+    .lsc-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      margin-bottom: 10px;
+    }
+    .lsc-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .lsc-legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .lsc-trend {
+      margin-top: 10px;
+    }
+    .lsc-trend-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin-bottom: 6px;
+    }
+    .lsc-trend-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 36px;
+    }
+    .lsc-trend-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      flex: 1;
+    }
+    .lsc-trend-bar {
+      width: 100%;
+      min-height: 3px;
+      border-radius: 3px;
+      background: var(--shell-2);
+    }
+    .lsc-trend-bar--filled { background: #3b82f6; }
+    .lsc-trend-date {
+      font-size: 9px;
+      color: var(--text-tertiary);
+    }
+    .lsc-disclaimer {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+    .lsc-empty {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 4px 0;
+    }
+    .lsc-empty a {
+      color: var(--blue-text, #3b82f6);
+      text-decoration: none;
+    }
+    .lsc-empty a:hover { text-decoration: underline; }
+
     /* Legacy load-widget (kept for volume chart section; readiness widget moved to #readiness-widget) */
     .load-widget { padding: 16px 18px; }
     .lw-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.7rem; }
@@ -2857,6 +2973,8 @@
       <section id="load-surfaces" aria-label="Training load">
         <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
         <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
+        <!-- Sleep readout card (issue #1037): last night's sleep + 7-night trend -->
+        <div id="log-sleep-card" class="log-sleep-card log-card" hidden></div>
         <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
         <div id="load-widget" class="load-widget log-card" hidden></div>
         <!-- Weekly volume chart (Chart.js) -->
