@@ -89,7 +89,7 @@
         }
 
         if (state === 'building_baseline') {
-          var reason = data.reason || 'Keep training — your baseline is building.';
+          var reason = data.reason || 'Keep training: your baseline is building.';
           _renderBuildingBaseline('endurance', reason);
           _renderBuildingBaseline('speed',     reason);
           return;

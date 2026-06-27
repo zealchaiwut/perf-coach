@@ -2431,7 +2431,7 @@
               </div>
               <div id="plan-building-baseline" class="plan-building-baseline" style="display: none">
                 <span class="plan-bb-icon">📈</span>
-                <span>Building baseline — projection unavailable until sufficient training history is established.</span>
+                <span>Building baseline: projection unavailable until sufficient training history is established.</span>
               </div>
               <div id="plan-curve-wrap" style="display: none">
                 <canvas id="plan-form-curve" height="200" role="img" aria-label="Performance form curve: historical and projected form"></canvas>
@@ -2469,9 +2469,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-volume-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-volume-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-volume-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-volume-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-volume-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2481,9 +2481,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-pace-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-pace-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-pace-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-pace-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-pace-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2493,9 +2493,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-slower-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-slower-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-slower-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-slower-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-slower-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2587,7 +2587,7 @@
       <p class="perf-chart-caption">CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed line = today.</p>
       <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
         <span class="perf-bb-icon">📈</span>
-        <span>Building baseline — keep training to see the fitness chart.</span>
+        <span>Building baseline: keep training to see the fitness chart.</span>
       </div>
       <div id="perf-chart-wrap">
         <canvas id="perf-fitness-canvas" height="220"
@@ -2601,14 +2601,14 @@
       <div class="perf-acwr-body">
         <div class="perf-acwr-ratio-wrap">
           <span class="perf-acwr-label">Ratio</span>
-          <span id="perf-acwr-ratio" class="perf-acwr-ratio">—</span>
-          <span id="perf-acwr-band" class="perf-acwr-band-badge">—</span>
+          <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
+          <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
         </div>
-        <p id="perf-acwr-guidance" class="perf-acwr-guidance">—</p>
+        <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
       </div>
       <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
         <span class="perf-bb-icon">⏳</span>
-        <span>Baseline forming — log at least 28 days of training to see your ACWR.</span>
+        <span>Baseline forming: log at least 28 days of training to see your ACWR.</span>
       </div>
     </div>
 
@@ -3029,28 +3029,28 @@
                 </div>
                 <div class="run-field run-pace-field">
                   <label>Avg pace <span class="rl-badge auto">auto</span></label>
-                  <output id="run-pace" class="run-pace">—</output>
+                  <output id="run-pace" class="run-pace">–</output>
                 </div>
               </div>
               <div class="run-secondary">
                 <div class="run-field">
                   <label for="run-avg-hr">Avg HR <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="0">
                     <span class="affix">bpm</span>
                   </div>
                 </div>
                 <div class="run-field">
                   <label for="run-max-hr">Max HR <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="0">
                     <span class="affix">bpm</span>
                   </div>
                 </div>
                 <div class="run-field">
                   <label for="run-elevation">Elevation <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
+                    <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
                     <span class="affix">m</span>
                   </div>
                 </div>
@@ -3084,7 +3084,7 @@
                 </div>
                 <div class="str-tile">
                   <div class="str-l">Est. e1RM <span class="rl-badge auto">auto</span></div>
-                  <div class="str-v" id="str-e1rm">—</div>
+                  <div class="str-v" id="str-e1rm">–</div>
                 </div>
               </div>
             </div>
