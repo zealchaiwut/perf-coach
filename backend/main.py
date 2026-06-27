@@ -7460,6 +7460,11 @@ def _trigger_performance_backfill_background(user_id) -> None:
     Called after threshold saves so TSS and the duration curve are consistent
     with the new thresholds without blocking the HTTP response.  Errors are
     logged but do not propagate.
+
+    Pipeline order:
+      1. M0: TSS recompute + duration curve rebuild (backfill_performance_for_athlete)
+      2. Speed + endurance signal backfill (backfill_signals_for_athlete) — chains
+         after M0 so signals are computed against up-to-date thresholds and curves.
     """
     _backfill_log = _logging.getLogger(__name__)
 
@@ -7471,6 +7476,16 @@ def _trigger_performance_backfill_background(user_id) -> None:
         except Exception as _exc:
             _backfill_log.warning(
                 "background performance backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+        try:
+            from sqlalchemy.orm import Session as _Session
+            from backend.services.backfill_signals import backfill_signals_for_athlete as _backfill_signals
+            with _Session(engine) as _db:
+                _backfill_signals(user_id, _db)
+        except Exception as _exc:
+            _backfill_log.warning(
+                "background signal backfill failed for user %s: %s",
                 user_id, _exc, exc_info=True,
             )
 

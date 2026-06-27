@@ -253,6 +253,12 @@ class Workout(Base):
     speed_signal_basis = Column(String(20), nullable=True)
     speed_signal_window_seconds = Column(Integer, nullable=True)
     speed_signal_source = Column(Text, nullable=True)
+    # Computed endurance signal (issue #1049): aerobic durability metric; runs ≥ 40 min only.
+    endurance_signal = Column(Float, nullable=True)
+    decoupling_percent = Column(Float, nullable=True)
+    efficiency_first_half = Column(Float, nullable=True)
+    efficiency_second_half = Column(Float, nullable=True)
+    endurance_signal_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
