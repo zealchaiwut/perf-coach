@@ -107,8 +107,6 @@ def test_drive_sleep_sync__idempotent_on_rerun(auth_user):
         pytest.skip("Test user has no Google Drive integration configured")
 
     assert r1.status_code == 200
-    body1 = r1.json()
-    rows_imported_1 = body1["rows_imported"]
 
     # Second sync (no new files added)
     r2 = auth_user.post("/api/integrations/drive-sleep/sync")
