@@ -410,15 +410,7 @@
         if (m.zone2) rowCls += " rd4-lap-row--z2";
         if (m.anomaly) rowCls += " rd4-lap-row--break";
         var pills = "";
-        if (m.zone2) pills += '<span class="rd4-z2-pill">Z2</span>';
         if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
-        if (s._lapSource)
-          pills +=
-            '<span class="rd4-lap-src rd4-lap-src--' +
-            s._lapSource +
-            '">' +
-            s._lapSource.toUpperCase() +
-            "</span>";
         var paceCls = m.fastest ? " rd4-fastest" : "";
         return (
           "<tr class=\"" +
@@ -663,9 +655,12 @@
       '<div class="rd4-srcbadges">' +
       srcBadges +
       "</div></div>" +
-      "<h1 class=\"rd4-title\">" +
+      '<div class="rd4-title-wrap">' +
+      '<h1 class="rd4-title" id="rd4-title">' +
       esc(w.name || "Run") +
       "</h1>" +
+      (w.id ? '<button type="button" class="rd4-name-edit" id="rd4-name-edit" aria-label="Edit workout name" title="Edit name">&#9998;</button>' : "") +
+      "</div>" +
       (w.id
         ? '<div class="rd4-idrow"><code class="rd4-id">' +
           esc(String(w.id).slice(0, 8) + "…" + String(w.id).slice(-6)) +
@@ -1216,6 +1211,61 @@
         setTimeout(function () {
           cp.classList.remove("rd4-idcopy--done");
         }, 1200);
+      });
+    }
+
+    // Inline workout name editing
+    var nameEditBtn = container.querySelector("#rd4-name-edit");
+    var titleEl = container.querySelector("#rd4-title");
+    if (nameEditBtn && titleEl && w.id) {
+      nameEditBtn.addEventListener("click", function () {
+        var orig = titleEl.textContent;
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "rd4-title-inp";
+        inp.value = orig;
+        inp.maxLength = 200;
+        titleEl.style.display = "none";
+        nameEditBtn.style.display = "none";
+        titleEl.parentNode.insertBefore(inp, titleEl.nextSibling);
+        inp.focus();
+        inp.select();
+        var done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          var val = inp.value.trim();
+          if (!val || val === orig) { restore(orig); return; }
+          fetch("/api/workouts/" + w.id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ name: val }),
+          }).then(function (r) {
+            if (!r.ok) throw new Error("save failed");
+            w.name = val;
+            restore(val);
+            // Update list row title
+            var listRow = document.querySelector('.entry-row[data-workout-id="' + w.id + '"]');
+            if (listRow) {
+              var listTitle = listRow.querySelector(".entry-title");
+              if (listTitle) listTitle.textContent = val;
+            }
+          }).catch(function () {
+            restore(orig);
+          });
+        }
+        function restore(displayName) {
+          if (inp.parentNode) inp.parentNode.removeChild(inp);
+          titleEl.textContent = displayName;
+          titleEl.style.display = "";
+          nameEditBtn.style.display = "";
+        }
+        inp.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { done = true; restore(orig); }
+        });
+        inp.addEventListener("blur", function () { setTimeout(commit, 120); });
       });
     }
 
