@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from helpers import table_exists, column_exists, index_exists
+from helpers import table_exists
 
 revision: str = "3f8a2b1c9d4e"
 down_revision: Union[str, Sequence[str], None] = "53b033936666"

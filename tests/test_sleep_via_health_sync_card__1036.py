@@ -118,7 +118,6 @@ def test_drive_sleep_status_connected_values():
             call_count = [0]
 
             def _query_side_effect(model):
-                from backend.models import SleepRecord
                 call_count[0] += 1
                 mock_q = MagicMock()
                 if hasattr(model, "__tablename__") and model.__tablename__ == "sleep_records":
