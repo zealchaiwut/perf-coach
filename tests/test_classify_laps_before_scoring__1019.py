@@ -17,7 +17,6 @@ Acceptance Criteria covered:
 import datetime
 from types import SimpleNamespace
 
-import pytest
 
 from backend.services.running_performance import compute_endurance_score, compute_speed_score
 from backend.services.zone_constants import make_zone_constants, MIN_QUALIFYING_RUNS
