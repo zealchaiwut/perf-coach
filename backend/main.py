@@ -4967,6 +4967,47 @@ def _best_values_dict(w: Workout) -> dict:
     }
 
 
+def _compute_session_signals(w: Workout) -> dict:
+    """Derive display-ready signal fields for a workout.
+
+    Returns the 5 flat keys required by issue #1052:
+    endurance_signal, endurance_signal_note, speed_signal, speed_signal_note,
+    contributes_to.
+    """
+    es = w.endurance_signal
+    ss = w.speed_signal
+
+    dur = w.duration_seconds or 0
+    if es is None:
+        if dur < 40 * 60:
+            endurance_note = "— run under 40 min"
+        else:
+            endurance_note = "— insufficient data"
+    else:
+        endurance_note = None
+
+    speed_note = "— no hard effort" if ss is None else None
+
+    has_endurance = es is not None
+    has_speed = ss is not None
+    if has_endurance and has_speed:
+        hint = "feeds both endurance and speed training signals."
+    elif has_endurance:
+        hint = "feeds endurance through low drift, nothing to speed — expected for an easy run."
+    elif has_speed:
+        hint = "feeds speed, not endurance — short or high-intensity effort."
+    else:
+        hint = "No signal recorded for this session."
+
+    return {
+        "endurance_signal": float(es) if es is not None else None,
+        "endurance_signal_note": endurance_note,
+        "speed_signal": float(ss) if ss is not None else None,
+        "speed_signal_note": speed_note,
+        "contributes_to": hint,
+    }
+
+
 def _workout_dict(w: Workout, exercises: list) -> dict:
     strava_act = getattr(w, "strava_activity", None)
     return {
@@ -4999,6 +5040,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
+        **_compute_session_signals(w),
     }
 
 
