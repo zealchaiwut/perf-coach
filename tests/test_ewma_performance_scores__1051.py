@@ -391,7 +391,6 @@ class TestBoundaryBehavior:
 
     def test_trailing_window_excludes_old_sessions(self):
         """Sessions older than trailing_window_days must be excluded from EWMA."""
-        window_days = PERFORMANCE_CONFIG["trailing_window_days"]
         # Three very old runs (well outside window) + exactly MIN runs that are recent
         old_runs = [
             _easy_run(f"old{i}", workout_date="2020-01-01", efficiency_hint=2.5)
