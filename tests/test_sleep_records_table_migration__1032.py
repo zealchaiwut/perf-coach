@@ -9,21 +9,34 @@ Acceptance criteria verified:
 - AC5: Index exists on (user_id, sleep_date).
 - AC6: Migration is idempotent (table already exists — no error on re-run).
 - AC7: SQLAlchemy SleepRecord model is defined and reflects the schema.
+
+Runs against the UAT Postgres database via DATABASE_URL_UAT from .env.
 """
 import hashlib
+import pathlib
 
 import pytest
-from sqlalchemy import text
+from dotenv import dotenv_values
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.db import engine
 from backend.models import SleepRecord
 
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_env_vals = dotenv_values(_ROOT / ".env")
+_uat_url = _env_vals.get("DATABASE_URL_UAT")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
+
+
+def _require_engine():
+    if engine is None:
+        pytest.skip("DATABASE_URL_UAT not set — skipping Postgres-specific test")
+
 
 def _alice_id():
+    _require_engine()
     with engine.connect() as conn:
         row = conn.execute(
             text("SELECT id FROM users WHERE name = 'Alice'")
@@ -33,25 +46,19 @@ def _alice_id():
 
 
 def _get_columns():
-    with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT column_name, is_nullable, data_type "
-            "FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = 'sleep_records'"
-        )).fetchall()
-    return {r[0]: {"nullable": r[1], "type": r[2]} for r in rows}
+    _require_engine()
+    inspector = inspect(engine)
+    cols = inspector.get_columns("sleep_records")
+    return {c["name"]: c for c in cols}
 
 
 # ── AC1: All required columns present ─────────────────────────────────────────
 
 def test_sleep_records_table_exists():
     """sleep_records table exists after migration (AC1/UAT1)."""
-    with engine.connect() as conn:
-        count = conn.execute(text(
-            "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'public' AND table_name = 'sleep_records'"
-        )).scalar()
-    assert count == 1, "sleep_records table not found"
+    _require_engine()
+    inspector = inspect(engine)
+    assert inspector.has_table("sleep_records"), "sleep_records table not found"
 
 
 def test_sleep_records_required_columns():
@@ -73,35 +80,35 @@ def test_sleep_score_nullable():
     """sleep_score is nullable (AC1)."""
     cols = _get_columns()
     assert "sleep_score" in cols
-    assert cols["sleep_score"]["nullable"] == "YES", "sleep_score should be nullable"
+    assert cols["sleep_score"]["nullable"] is True, "sleep_score should be nullable"
 
 
 def test_sleep_efficiency_nullable():
     """sleep_efficiency is nullable (AC1)."""
     cols = _get_columns()
     assert "sleep_efficiency" in cols
-    assert cols["sleep_efficiency"]["nullable"] == "YES", "sleep_efficiency should be nullable"
+    assert cols["sleep_efficiency"]["nullable"] is True, "sleep_efficiency should be nullable"
 
 
 def test_device_nullable():
     """device is nullable (AC1)."""
     cols = _get_columns()
     assert "device" in cols
-    assert cols["device"]["nullable"] == "YES", "device should be nullable"
+    assert cols["device"]["nullable"] is True, "device should be nullable"
 
 
 def test_source_not_nullable():
     """source is NOT nullable (AC1)."""
     cols = _get_columns()
     assert "source" in cols
-    assert cols["source"]["nullable"] == "NO", "source should not be nullable"
+    assert cols["source"]["nullable"] is False, "source should not be nullable"
 
 
 def test_external_id_not_nullable():
     """external_id is NOT nullable (AC1)."""
     cols = _get_columns()
     assert "external_id" in cols
-    assert cols["external_id"]["nullable"] == "NO", "external_id should not be nullable"
+    assert cols["external_id"]["nullable"] is False, "external_id should not be nullable"
 
 
 # ── AC4: Unique constraint on (user_id, external_id) ──────────────────────────
@@ -195,32 +202,15 @@ def test_different_external_id_same_user_allowed():
 
 def test_index_user_id_sleep_date_exists():
     """Index on (user_id, sleep_date) exists (AC5/UAT6)."""
-    with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT indexname FROM pg_indexes "
-            "WHERE tablename = 'sleep_records' "
-            "AND schemaname = 'public'"
-        )).fetchall()
-    index_names = {r[0] for r in rows}
-    # There must be at least one index covering (user_id, sleep_date)
-    # We verify via pg_index / pg_attribute columns
-    with engine.connect() as conn:
-        row = conn.execute(text("""
-            SELECT i.relname
-            FROM pg_class t
-            JOIN pg_index ix ON t.oid = ix.indrelid
-            JOIN pg_class i ON i.oid = ix.indexrelid
-            JOIN pg_attribute a1 ON a1.attrelid = t.oid AND a1.attnum = ANY(ix.indkey)
-            JOIN pg_attribute a2 ON a2.attrelid = t.oid AND a2.attnum = ANY(ix.indkey)
-            WHERE t.relname = 'sleep_records'
-              AND a1.attname = 'user_id'
-              AND a2.attname = 'sleep_date'
-              AND t.relkind = 'r'
-            LIMIT 1
-        """)).fetchone()
-    assert row is not None, (
-        "No index found covering (user_id, sleep_date) on sleep_records. "
-        f"Existing indexes: {index_names}"
+    _require_engine()
+    inspector = inspect(engine)
+    indexes = inspector.get_indexes("sleep_records")
+    index_columns = [
+        frozenset(idx["column_names"])
+        for idx in indexes
+    ]
+    assert frozenset(["user_id", "sleep_date"]) in index_columns, (
+        f"No index covering (user_id, sleep_date) found. Existing indexes: {indexes}"
     )
 
 
@@ -228,12 +218,9 @@ def test_index_user_id_sleep_date_exists():
 
 def test_migration_idempotent_table_still_exists():
     """sleep_records table is present (migration ran — or would be idempotent) (AC6/UAT2)."""
-    with engine.connect() as conn:
-        count = conn.execute(text(
-            "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_schema = 'public' AND table_name = 'sleep_records'"
-        )).scalar()
-    assert count == 1, "sleep_records table missing after migration"
+    _require_engine()
+    inspector = inspect(engine)
+    assert inspector.has_table("sleep_records"), "sleep_records table missing after migration"
 
 
 # ── AC2: source = 'health_sync_csv' ───────────────────────────────────────────
