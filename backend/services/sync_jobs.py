@@ -1,19 +1,30 @@
 """Thread-safe in-memory registry for background sync jobs."""
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 import uuid
 
 _registry: dict[uuid.UUID, dict] = {}
 _lock = threading.Lock()
+_TTL = timedelta(hours=24)
 
 
 class SyncInProgress(Exception):
     pass
 
 
+def _prune() -> None:
+    """Evict finished jobs older than _TTL. Must be called under _lock."""
+    cutoff = datetime.now(timezone.utc) - _TTL
+    stale = [uid for uid, j in _registry.items()
+             if j["finished_at"] is not None and j["finished_at"] < cutoff]
+    for uid in stale:
+        del _registry[uid]
+
+
 def start(user_id: uuid.UUID, provider: Literal["strava", "stryd"]) -> dict:
     with _lock:
+        _prune()
         existing = _registry.get(user_id)
         if existing and existing["status"] == "running":
             raise SyncInProgress(f"Sync already running for user {user_id}")

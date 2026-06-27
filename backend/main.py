@@ -8,6 +8,7 @@ import logging as _logging
 import os
 import secrets as _secrets
 import threading as _threading
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
@@ -8424,6 +8425,9 @@ _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
 _STRAVA_DEFAULT_LOOKBACK_DAYS = 90
 _DAILY_RECONCILE_LIMIT = 10  # max activities reconciled per incremental (daily) sync
+# Caps concurrent background syncs — prevents a burst of requests from spawning
+# unlimited threads and exhausting memory.
+_sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
 
 
 def _default_strava_since_date(user_id: _uuid.UUID) -> str:
@@ -8585,13 +8589,7 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
-    t = _threading.Thread(
-        target=_strava_sync_worker,
-        args=(str(uid), since),
-        kwargs={"full": full},
-        daemon=True,
-    )
-    t.start()
+    _sync_pool.submit(_strava_sync_worker, str(uid), since, full=full)
     return JSONResponse({"started": True}, status_code=202)
 
 
@@ -8655,13 +8653,7 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
         raise HTTPException(status_code=409, detail="Sync already in progress")
-    t = _threading.Thread(
-        target=_stryd_sync_worker,
-        args=(str(uid), since),
-        kwargs={"full": full},
-        daemon=True,
-    )
-    t.start()
+    _sync_pool.submit(_stryd_sync_worker, str(uid), since, full=full)
     return JSONResponse({"started": True}, status_code=202)
 
 
