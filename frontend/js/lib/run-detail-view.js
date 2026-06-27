@@ -1142,6 +1142,44 @@
     }
     effSnap += "</section>";
 
+    // ── 7b Session signal ──
+    var signalBlock = "";
+    var es = w.endurance_signal;
+    var ss = w.speed_signal;
+    var esNote = w.endurance_signal_note;
+    var ssNote = w.speed_signal_note;
+    var hint = w.contributes_to;
+    var hasES = es != null;
+    var hasSS = ss != null;
+    if (!hasES && !hasSS) {
+      signalBlock =
+        '<section class="rd4-card rd4-signal">' +
+        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
+        "</section>";
+    } else {
+      var esRow =
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">Endurance</span>' +
+        (hasES
+          ? '<span class="rd4-signal-val">' + parseFloat(es.toFixed(3)) + "</span>"
+          : '<em class="rd4-signal-note">' + esc(esNote || "—") + "</em>") +
+        "</div>";
+      var ssRow =
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">Speed</span>' +
+        (hasSS
+          ? '<span class="rd4-signal-val">' + parseFloat(ss.toFixed(3)) + "</span>"
+          : '<em class="rd4-signal-note">' + esc(ssNote || "—") + "</em>") +
+        "</div>";
+      signalBlock =
+        '<section class="rd4-card rd4-signal">' +
+        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        '<div class="rd4-signal-rows">' + esRow + ssRow + "</div>" +
+        (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
+        "</section>";
+    }
+
     // ── 8 Route ──
     var routeBlock = "";
     var poly =
@@ -1208,6 +1246,7 @@
         intervalsBlock +
         decBlock +
         effSnap +
+        signalBlock +
         routeBlock +
         srcBlock +
         "</div>",

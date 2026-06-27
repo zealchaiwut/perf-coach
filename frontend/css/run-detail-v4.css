@@ -734,3 +734,57 @@
   .rd4-int-table { font-size: 0.6875rem; }
   .rd4-int-table th, .rd4-int-table td { padding: 5px 4px; }
 }
+
+/* Session signal block (#1052) */
+.rd4-signal-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.rd4-signal-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.rd4-signal-lbl {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #3d4a6a);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.rd4-signal-val {
+  font-family: var(--mono, "JetBrains Mono", monospace);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0b1530);
+}
+
+.rd4-signal-note {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary, #9aa3b2);
+  font-style: normal;
+}
+
+.rd4-signal-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #3d4a6a);
+  line-height: 1.45;
+  border-top: 1px solid var(--card-border, #e8eaf0);
+  padding-top: 10px;
+}
+
+.rd4-signal-none {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-tertiary, #9aa3b2);
+}
+
+@media (max-width: 599px) {
+  .rd4-signal-lbl { min-width: 68px; }
+}
