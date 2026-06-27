@@ -201,6 +201,33 @@
     );
   }
 
+  // ── Deep-link helpers ─────────────────────────────────────────────────────
+  // Set/clear ?workout=<id> in the URL without disturbing other params.
+  function setWorkoutURLParam(workoutId) {
+    var p = new URLSearchParams(window.location.search);
+    p.set("workout", workoutId);
+    history.replaceState(null, "", window.location.pathname + "?" + p.toString());
+  }
+
+  function clearWorkoutURLParam() {
+    var p = new URLSearchParams(window.location.search);
+    p.delete("workout");
+    var qs = p.toString();
+    history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+  }
+
+  // Called once after the first successful fetchAndRender — opens the panel
+  // for ?workout=<id> if present.  The flag prevents re-triggering on
+  // subsequent list refreshes (sync, edit, etc.).
+  var _deepLinkHandled = false;
+  function handleDeepLink() {
+    if (_deepLinkHandled) return;
+    var wid = new URLSearchParams(window.location.search).get("workout");
+    if (!wid) return;
+    _deepLinkHandled = true;
+    openDetailPanel(wid, null);
+  }
+
   // ── Date-range chip label ─────────────────────────────────────────────────
   function drLabel() {
     if (filters.from && filters.to) return filters.from + " – " + filters.to;
@@ -426,6 +453,8 @@
           syncActiveRow();
           updatePositionPill();
         }
+        // Open ?workout=<id> deep link on first load
+        handleDeepLink();
       })
       .catch(function (_) {
         renderListError();
@@ -1537,6 +1566,7 @@
     openPanelShell(triggerEl);
     updatePositionPill();
     fetchAndRenderDetail(workoutId);
+    setWorkoutURLParam(workoutId);
   }
 
   function createPresetDate() {
@@ -1658,6 +1688,7 @@
     if (formActions) formActions.style.display = "none";
 
     setHistoryTab("history");
+    clearWorkoutURLParam();
 
     if (trigger) trigger.focus();
   }
