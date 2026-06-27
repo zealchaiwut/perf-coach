@@ -68,13 +68,36 @@
 
   function _loadScores() {
     if (!_athleteId) return;
+    // Always parse the JSON body — the error state (HTTP 500) also returns JSON with state='error'
     fetch('/api/athletes/' + _athleteId + '/performance')
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (r) {
+        return r.json().then(function (data) { return data; }).catch(function () { return null; });
+      })
       .then(function (data) {
-        var endurance = data && typeof data === 'object' ? data.endurance : null;
-        var speed     = data && typeof data === 'object' ? data.speed     : null;
-        _renderScoreCard('endurance', endurance);
-        _renderScoreCard('speed',     speed);
+        var state = data && typeof data === 'object' ? data.state : null;
+
+        if (state === 'scored') {
+          _renderScoreCard('endurance', data.endurance);
+          _renderScoreCard('speed',     data.speed);
+          return;
+        }
+
+        if (state === 'needs_thresholds') {
+          _renderThresholdHint('endurance');
+          _renderThresholdHint('speed');
+          return;
+        }
+
+        if (state === 'building_baseline') {
+          var reason = data.reason || 'Keep training: your baseline is building.';
+          _renderBuildingBaseline('endurance', reason);
+          _renderBuildingBaseline('speed',     reason);
+          return;
+        }
+
+        // state === 'error' or unexpected/null response
+        _renderScoreError('endurance');
+        _renderScoreError('speed');
       })
       .catch(function () {
         _renderScoreError('endurance');
@@ -82,68 +105,79 @@
       });
   }
 
+  // Render the scored state: ring + numeric score + direction + sparkline
   function _renderScoreCard(type, data) {
     var card = document.getElementById('perf-score-' + type);
     if (!card) return;
 
-    var ringEl    = card.querySelector('.perf-ring');
-    var bodyEl    = card.querySelector('.perf-card-body');
-    var scoreEl   = card.querySelector('.perf-score-val');
-    var dirEl     = card.querySelector('.perf-dir');
-    var sparkEl   = card.querySelector('.perf-spark');
-    var bbEl      = card.querySelector('.perf-building-baseline');
-    var threshEl  = card.querySelector('.perf-threshold-hint');
-    var errorEl   = card.querySelector('.perf-error');
+    var ringEl   = card.querySelector('.perf-ring');
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var scoreEl  = card.querySelector('.perf-score-val');
+    var dirEl    = card.querySelector('.perf-dir');
+    var sparkEl  = card.querySelector('.perf-spark');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
 
     // Reset all states
-    if (bodyEl)   bodyEl.style.display  = 'none';
+    if (bodyEl)   bodyEl.style.display = 'none';
     if (bbEl)     bbEl.hidden    = true;
     if (threshEl) threshEl.hidden = true;
     if (errorEl)  errorEl.hidden  = true;
 
-    // Unexpected shape — treat as error
-    if (!data || typeof data !== 'object' || !data.state) {
+    // Only called for state='scored'; treat missing/invalid sub-object as error
+    if (!data || typeof data !== 'object' || data.score == null) {
       _renderScoreError(type);
       return;
     }
 
-    var state = data.state;
+    var score = data.score;
+    var dir   = data.direction || 'flat';
+    var trend = Array.isArray(data.trend) ? data.trend : [];
 
-    if (state === 'scored') {
-      var score = data.score != null ? data.score : null;
-      var dir   = data.direction || 'flat';
-      var trend = Array.isArray(data.trend) ? data.trend : [];
-
-      if (bodyEl) bodyEl.style.display = '';
-      if (ringEl && score != null) _drawRing(ringEl, score);
-      if (scoreEl) scoreEl.textContent = score != null ? Math.round(score) : '';
-      if (dirEl) {
-        dirEl.textContent = dir;
-        dirEl.className = 'perf-dir perf-dir--' + dir;
-      }
-      if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
-      return;
+    if (bodyEl) bodyEl.style.display = '';
+    if (ringEl) _drawRing(ringEl, score);
+    if (scoreEl) scoreEl.textContent = Math.round(score);
+    if (dirEl) {
+      dirEl.textContent = dir;
+      dirEl.className = 'perf-dir perf-dir--' + dir;
     }
-
-    if (state === 'needs_thresholds') {
-      // Show CTA prompting the athlete to set thresholds in Settings
-      if (threshEl) threshEl.hidden = false;
-      return;
-    }
-
-    if (state === 'building_baseline') {
-      if (bbEl) {
-        bbEl.hidden = false;
-        var reasonEl = bbEl.querySelector('.perf-bb-reason');
-        if (reasonEl) reasonEl.textContent = data.reason || 'Building baseline…';
-      }
-      return;
-    }
-
-    // Unknown state — show error
-    _renderScoreError(type);
+    if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
   }
 
+  // Render the needs_thresholds state: show CTA prompting athlete to set thresholds in Settings
+  function _renderThresholdHint(type) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (bbEl)     bbEl.hidden    = true;
+    if (errorEl)  errorEl.hidden  = true;
+    if (threshEl) threshEl.hidden = false;
+  }
+
+  // Render the building_baseline state: show reason, hide score card body
+  function _renderBuildingBaseline(type, reason) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = true;
+    if (bbEl) {
+      bbEl.hidden = false;
+      var reasonEl = bbEl.querySelector('.perf-bb-reason');
+      if (reasonEl) reasonEl.textContent = reason;
+    }
+  }
+
+  // Render the error state: show error message + retry button, hide score card body
   function _renderScoreError(type) {
     var card = document.getElementById('perf-score-' + type);
     if (!card) return;
@@ -633,12 +667,18 @@
       .replace(/"/g, '&quot;');
   }
 
-  // ── Wire date-range buttons ─────────────────────────────────────────────────
+  // ── Wire date-range buttons and retry actions ───────────────────────────────
 
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.perf-range-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         _loadFitnessChart(btn.dataset.range);
+      });
+    });
+
+    document.querySelectorAll('.perf-retry-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _loadScores();
       });
     });
   });
