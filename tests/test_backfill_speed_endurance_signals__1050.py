@@ -179,7 +179,7 @@ class TestSpeedSignalBackfillAC1:
                 "endurance_signal_source": None,
             },
         ):
-            result = backfill_signals_for_athlete("user-1", mock_db)
+            backfill_signals_for_athlete("user-1", mock_db)
 
         speed_calls = [c for c in call_log if c[0] == "speed"]
         assert len(speed_calls) == 2, (
