@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, SleepRecord, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -9442,6 +9442,41 @@ def post_drive_sleep_sync(user: User = Depends(resolve_user)):
         "rows_imported": result["rows_imported"],
         "rows_updated": result["rows_updated"],
         "rows_skipped": result["rows_skipped"],
+    })
+
+
+# ── Sleep via Health Sync integration status ──────────────────────────────────
+
+@app.get("/api/integrations/drive-sleep/status")
+def get_drive_sleep_integration_status(user: User = Depends(resolve_user)):
+    """Return Sleep via Health Sync integration status for the settings card.
+
+    Returns a flat JSON object with exactly: status, folder_id, last_sync_at, records_total.
+    """
+    user_id = str(user.id)
+    with Session(engine) as session:
+        conn = (
+            session.query(DriveSleepConnection)
+            .filter(DriveSleepConnection.user_id == user_id)
+            .one_or_none()
+        )
+        records_total = (
+            session.query(SleepRecord)
+            .filter(SleepRecord.user_id == user_id)
+            .count()
+        )
+    if conn is None:
+        return JSONResponse({
+            "status": "not_connected",
+            "folder_id": None,
+            "last_sync_at": None,
+            "records_total": records_total,
+        })
+    return JSONResponse({
+        "status": conn.status,
+        "folder_id": conn.folder_id,
+        "last_sync_at": conn.last_sync_at.isoformat() if conn.last_sync_at else None,
+        "records_total": records_total,
     })
 
 
