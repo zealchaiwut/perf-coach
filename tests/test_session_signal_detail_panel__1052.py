@@ -6,13 +6,24 @@ AC7: Endpoint returns HTTP 200 with all five keys present for every run,
      even when values are null.
 """
 import os
+import pathlib
 import uuid
 import pytest
 import httpx
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 from backend.auth import hash_password as _hash_pw
-from backend.db import engine as _engine
 from backend.models import User as _UserModel, Workout as _WorkoutModel
+
+_root = pathlib.Path(__file__).resolve().parents[1]
+_env_file = _root / ".env"
+if _env_file.exists():
+    from dotenv import dotenv_values
+    _env = dotenv_values(_env_file)
+    _uat_url = _env.get("DATABASE_URL_UAT")
+else:
+    _uat_url = os.environ.get("DATABASE_URL_UAT")
+_engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "signal1052-test-pw"
@@ -28,6 +39,8 @@ def client():
 
 @pytest.fixture(scope="module")
 def user_id(client):
+    if _engine is None:
+        pytest.skip("DATABASE_URL_UAT not set")
     name = f"tester1052_{uuid.uuid4().hex[:8]}"
     r = client.post("/api/users", json={"name": name})
     assert r.status_code == 201, r.text
