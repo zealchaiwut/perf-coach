@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 90 — Per-run speed and endurance signals, EWMA scoring, and session signal panel
+
+- #1048: Compute and store speed signal per run (best 1–6 min effort ratio vs threshold; power/pace/HR basis; persisted to `workouts.speed_signal`)
+- #1049: Compute and store endurance signal per run (aerobic decoupling metric for runs ≥ 40 min; persisted to `workouts.endurance_signal`)
+- #1050: Backfill speed and endurance signals across run history (idempotent `backfill_signals_for_athlete`; auto-triggered after threshold save; `scripts/backfill_signals.py` for manual runs)
+- #1051: Aggregate per-run signals into endurance and speed scores via duration-weighted EWMA (90-day trailing window; `qualifying_session_count` added to response)
+- #1052: Show session signal in run detail panel ("This session signal" card with endurance/speed values and contributes-to hint)
+
 ## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
 
 - #1019: Classify laps before scoring in performance endpoint (fixes classification order so band is assigned before score computation)
