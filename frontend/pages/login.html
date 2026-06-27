@@ -260,6 +260,37 @@
     @media (max-width: 440px) {
       .login-card { padding: 32px 22px; }
     }
+
+    .env-badge {
+      margin-top: 20px;
+      padding: 8px 12px;
+      background: #f0f4ff;
+      border: 1px solid #d4ddf0;
+      border-radius: 10px;
+      font-size: 11.5px;
+      color: #5c6886;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .env-badge .env-pill {
+      background: #2b4ca8;
+      color: #fff;
+      border-radius: 5px;
+      padding: 1px 7px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex-shrink: 0;
+    }
+    .env-badge .env-pill.prd { background: #c0392b; }
+    .env-badge .env-pill.local { background: #27ae60; }
+    .env-badge .db-host {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -302,6 +333,11 @@
       <span id="btn-label">Log in</span>
     </button>
   </form>
+  <div id="env-badge" class="env-badge" hidden>
+    <span id="env-pill" class="env-pill"></span>
+    <span class="db-host" id="env-db-host"></span>
+  </div>
+
   <div id="google-section" hidden>
     <div class="divider">or</div>
     <a href="/auth/google" class="google-btn" id="google-btn">
@@ -417,6 +453,20 @@
         showError('Network error. Please check your connection.');
       });
   });
+
+  fetch('/api/env')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var badge = document.getElementById('env-badge');
+      var pill = document.getElementById('env-pill');
+      var dbHost = document.getElementById('env-db-host');
+      var env = (data.environment || 'local').toLowerCase();
+      pill.textContent = env;
+      pill.className = 'env-pill ' + env;
+      dbHost.textContent = data.db_host || '';
+      badge.hidden = false;
+    })
+    .catch(function () {});
 }());
 </script>
 </body>
