@@ -102,12 +102,13 @@ def test_build_performance_thresholds__threshold_hr_input_attributes(settings_ht
     assert '(default: 170 bpm)' in settings_html, "HR default placeholder missing"
 
 
-# ── AC 4: Threshold pace input (text, M:SS/km, default hint) ────────────────
+# ── AC 4: Threshold pace input (numeric seconds/km — updated by issue #1022) ─
 
 def test_build_performance_thresholds__threshold_pace_input_placeholder(settings_html):
-    # AC: pace input is text type with placeholder "(default: 4:30/km)"
+    # AC (updated by issue #1022): pace input is numeric (seconds/km), not M:SS/km text
     assert 'id="thresholds-pace"' in settings_html, "thresholds-pace input missing"
-    assert '(default: 4:30/km)' in settings_html, "Pace default placeholder missing"
+    assert 'sec/km' in settings_html, \
+        "Pace input should describe seconds/km format (issue #1022 changed from M:SS/km text to numeric)"
 
 
 # ── AC 5: "Use default" buttons present ─────────────────────────────────────

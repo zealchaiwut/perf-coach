@@ -1094,7 +1094,7 @@
           <label class="profile-label" for="thresholds-ftp">FTP (Functional Threshold Power)</label>
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
-              min="50" max="600" placeholder="(default: 280)">
+              min="50" max="600" placeholder="(default: 280W)">
             <span class="thresholds-unit-label">W</span>
             <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
           </div>
@@ -1109,7 +1109,7 @@
           <label class="profile-label" for="thresholds-hr">Threshold Heart Rate</label>
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
-              min="100" max="220" placeholder="(default: 170)">
+              min="100" max="220" placeholder="(default: 170 bpm)">
             <span class="thresholds-unit-label">bpm</span>
             <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
           </div>
@@ -1136,13 +1136,14 @@
         <div class="profile-form-group">
           <label class="profile-label" for="thresholds-pace">Threshold Pace</label>
           <div class="thresholds-input-row">
-            <input type="text" id="thresholds-pace" class="profile-input thresholds-input"
-              placeholder="(default: 4:30/km)">
+            <input type="number" id="thresholds-pace" class="profile-input thresholds-input"
+              min="180" max="540" placeholder="sec/km (e.g. 240)">
+            <span class="thresholds-unit-label">sec/km</span>
             <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
           </div>
           <div class="thresholds-suggestion-banner" id="thresholds-pace-suggestion" aria-live="polite"></div>
           <p class="thresholds-last-set" id="thresholds-pace-last-set"></p>
-          <p class="thresholds-desc">Running pace you can sustain for ~1 hour (M:SS/km). Used to compute running TSS. Enter as <code>4:30</code>, <code>4:30/km</code>, or <code>4:30 /km</code>.</p>
+          <p class="thresholds-desc">Running pace you can sustain for ~1 hour, in seconds per kilometre (e.g. 240 = 4:00/km, 270 = 4:30/km). Used to compute running TSS.</p>
           <div class="profile-field-error" id="thresholds-pace-error"></div>
         </div>
 
@@ -1690,7 +1691,8 @@
       }
 
       function _parsePace(str) {
-        // Accepts "4:30", "4:30/km", "4:30 /km" — returns integer seconds or null on failure
+        // Kept for backwards compatibility; threshold pace now uses a numeric seconds input.
+        // Accepts "4:30", "4:30/km" — returns integer seconds or null on failure
         if (!str || !str.trim()) return null;
         var clean = str.trim().replace(/\s*\/\s*km\s*$/i, '').trim();
         var match = clean.match(/^(\d{1,2}):(\d{2})$/);
@@ -1724,15 +1726,14 @@
             var row = data.row || {};
             var defs = data.defaults || _tDefaults;
 
-            // Prefill each input with row value when present, otherwise system default (AC3).
-            // Baseline is the displayed value so the dirty-check in _tValidateAndBuildPatch
-            // only includes fields the user actually changed (AC4).
-            var displayFtp   = row.ftp_w != null ? row.ftp_w : (defs.ftp_w != null ? defs.ftp_w : _tDefaults.ftp_w);
-            var displayHr    = row.threshold_hr != null ? row.threshold_hr : (defs.threshold_hr != null ? defs.threshold_hr : _tDefaults.threshold_hr);
+            // For the three AC-required fields (FTP, HR, Pace): show blank when not stored
+            // so that reloading the page leaves the input empty when no value is saved (AC4).
+            // Other fields (Max HR, Zone 2) continue to show system defaults.
+            var displayFtp   = row.ftp_w != null ? row.ftp_w : null;
+            var displayHr    = row.threshold_hr != null ? row.threshold_hr : null;
             var displayMaxHr = row.max_hr != null ? row.max_hr : (defs.max_hr != null ? defs.max_hr : _tDefaults.max_hr);
             var displayPace  = row.threshold_pace_seconds_per_km != null
-              ? row.threshold_pace_seconds_per_km
-              : (defs.threshold_pace_seconds_per_km != null ? defs.threshold_pace_seconds_per_km : _tDefaults.threshold_pace_seconds_per_km);
+              ? row.threshold_pace_seconds_per_km : null;
             var displayZ2Min = row.zone2_hr_min != null ? row.zone2_hr_min : (defs.zone2_hr_min != null ? defs.zone2_hr_min : _tDefaults.zone2_hr_min);
             var displayZ2Max = row.zone2_hr_max != null ? row.zone2_hr_max : (defs.zone2_hr_max != null ? defs.zone2_hr_max : _tDefaults.zone2_hr_max);
             var displayWeeklyZ2 = row.weekly_zone2_target_min != null ? row.weekly_zone2_target_min : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : _tDefaults.weekly_zone2_target_min);
@@ -1748,16 +1749,16 @@
             };
 
             var ftpEl = document.getElementById('thresholds-ftp');
-            if (ftpEl) ftpEl.value = String(displayFtp);
+            if (ftpEl) ftpEl.value = displayFtp != null ? String(displayFtp) : '';
 
             var hrEl = document.getElementById('thresholds-hr');
-            if (hrEl) hrEl.value = String(displayHr);
+            if (hrEl) hrEl.value = displayHr != null ? String(displayHr) : '';
 
             var maxHrEl = document.getElementById('thresholds-max-hr');
             if (maxHrEl) maxHrEl.value = String(displayMaxHr);
 
             var paceEl = document.getElementById('thresholds-pace');
-            if (paceEl) paceEl.value = _secsToMMSS(displayPace) + '/km';
+            if (paceEl) paceEl.value = displayPace != null ? String(displayPace) : '';
 
             var z2MinEl = document.getElementById('thresholds-zone2-hr-min');
             if (z2MinEl) z2MinEl.value = String(displayZ2Min);
@@ -1845,16 +1846,16 @@
           }
         }
 
-        // Threshold Pace
+        // Threshold Pace (numeric seconds/km — AC1/AC6 of issue #1022)
         var paceEl = document.getElementById('thresholds-pace');
         var paceVal = paceEl ? paceEl.value.trim() : '';
         if (paceVal === '') {
           if (_tBaseline.threshold_pace_seconds_per_km !== null) patch.threshold_pace_seconds_per_km = null;
         } else {
-          var paceSecs = _parsePace(paceVal);
-          if (paceSecs === null || paceSecs < 180 || paceSecs > 540) {
+          var paceSecs = parseInt(paceVal, 10);
+          if (isNaN(paceSecs) || paceSecs < 180 || paceSecs > 540) {
             var paceErrEl = document.getElementById('thresholds-pace-error');
-            if (paceErrEl) paceErrEl.textContent = 'Enter pace as M:SS/km (e.g. 4:30/km), range 3:00–9:00/km';
+            if (paceErrEl) paceErrEl.textContent = 'Threshold Pace must be a number between 180 and 540 (sec/km)';
             hasError = true;
           } else if (paceSecs !== _tBaseline.threshold_pace_seconds_per_km) {
             patch.threshold_pace_seconds_per_km = paceSecs;
@@ -1933,19 +1934,20 @@
           })
           .then(function (saved) {
             var defs = _tDefaults;
+            // Three AC-required fields keep null when cleared (AC3/AC4 — issue #1022)
             _tBaseline = {
-              ftp_w: saved.ftp_w != null ? saved.ftp_w : defs.ftp_w,
-              threshold_hr: saved.threshold_hr != null ? saved.threshold_hr : defs.threshold_hr,
+              ftp_w: saved.ftp_w,
+              threshold_hr: saved.threshold_hr,
               max_hr: saved.max_hr != null ? saved.max_hr : defs.max_hr,
-              threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km != null
-                ? saved.threshold_pace_seconds_per_km : defs.threshold_pace_seconds_per_km,
+              threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km,
               zone2_hr_min: saved.zone2_hr_min != null ? saved.zone2_hr_min : defs.zone2_hr_min,
               zone2_hr_max: saved.zone2_hr_max != null ? saved.zone2_hr_max : defs.zone2_hr_max,
               weekly_zone2_target_min: saved.weekly_zone2_target_min != null ? saved.weekly_zone2_target_min : defs.weekly_zone2_target_min,
             };
-            // Normalise pace display to M:SS/km after save
+            // Update pace display as numeric seconds (input is type=number — issue #1022)
             var paceEl = document.getElementById('thresholds-pace');
-            if (paceEl) paceEl.value = _secsToMMSS(_tBaseline.threshold_pace_seconds_per_km) + '/km';
+            if (paceEl) paceEl.value = _tBaseline.threshold_pace_seconds_per_km != null
+              ? String(_tBaseline.threshold_pace_seconds_per_km) : '';
             // Refresh timestamps from the saved row (AC2)
             _tSetLastSet('thresholds-ftp-last-set', saved.ftp_w_updated_at);
             _tSetLastSet('thresholds-hr-last-set', saved.threshold_hr_updated_at);
@@ -2068,12 +2070,11 @@
             .then(function (result) {
               var written = result.written || {};
               if (prefKey in written) {
-                // Update the input field with the accepted value (AC6)
+                // Update the input field with the accepted value.
+                // Pace input is numeric (seconds) since issue #1022 — use raw value.
                 var inputEl = document.getElementById(inputId);
                 if (inputEl) {
-                  inputEl.value = isPace
-                    ? (_secsToMMSS(written[prefKey]) + '/km')
-                    : String(written[prefKey]);
+                  inputEl.value = String(written[prefKey]);
                 }
                 // Update baseline so dirty-check recognises the new value as saved
                 if (prefKey in _tBaseline) _tBaseline[prefKey] = written[prefKey];
