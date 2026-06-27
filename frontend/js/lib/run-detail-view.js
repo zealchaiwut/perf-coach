@@ -82,6 +82,16 @@
     return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
   }
 
+  function percentile(nums, p) {
+    var a = nums.filter(function (v) { return v != null && isFinite(v); });
+    if (!a.length) return null;
+    a.sort(function (x, y) { return x - y; });
+    var i = (p / 100) * (a.length - 1);
+    var lo = Math.floor(i), hi = Math.ceil(i);
+    if (lo === hi) return a[lo];
+    return a[lo] + (i - lo) * (a[hi] - a[lo]);
+  }
+
   function decodePolyline(encoded) {
     if (!encoded) return [];
     var coords = [];
@@ -454,6 +464,8 @@
     });
     var medP = median(powers);
     var medC = median(cadences);
+    var q3P = percentile(powers, 75);
+    var q3C = percentile(cadences, 75);
     var paceSecs = splits.map(function (s) {
       var d = parseFloat(s.distance_km);
       return d && s.duration_seconds ? s.duration_seconds / d : null;
@@ -469,13 +481,14 @@
       var pwr = s.avg_power != null ? +s.avg_power : null;
       var cad = s.cadence_spm != null ? +s.cadence_spm : null;
       var stride = s.stride_length_m != null ? +s.stride_length_m : null;
+      // Primary: both clearly below median (handles obvious rest laps).
+      // Secondary OR: catches borderline rest laps in bimodal interval workouts
+      // where the median falls between the two power clusters.
       var anomaly =
-        medP != null &&
-        pwr != null &&
-        pwr < medP * 0.78 &&
-        medC != null &&
-        cad != null &&
-        cad < medC * 0.88;
+        (medP != null && pwr != null && pwr < medP * 0.78 &&
+         medC != null && cad != null && cad < medC * 0.88) ||
+        (q3P != null && pwr != null && pwr < q3P * 0.65 &&
+         q3C != null && cad != null && cad < q3C * 0.86);
       return {
         split: s,
         index: s.split_index != null ? s.split_index : i + 1,
@@ -489,6 +502,75 @@
         stride: stride,
       };
     });
+  }
+
+  function extractIntervalSet(lapMeta) {
+    if (lapMeta.length < 3) return null;
+    var firstRest = -1, lastRest = -1;
+    for (var i = 0; i < lapMeta.length; i++) {
+      if (lapMeta[i].anomaly) {
+        if (firstRest === -1) firstRest = i;
+        lastRest = i;
+      }
+    }
+    if (firstRest === -1 || lastRest === firstRest) return null;
+    // Include the non-anomaly lap immediately before firstRest if it exists
+    // (the first fast interval precedes the first rest lap).
+    var startIdx = (firstRest > 0 && !lapMeta[firstRest - 1].anomaly) ? firstRest - 1 : firstRest;
+    var workLaps = [];
+    for (var j = startIdx; j <= lastRest; j++) {
+      if (!lapMeta[j].anomaly) workLaps.push(lapMeta[j]);
+    }
+    if (workLaps.length < 2) return null;
+    return workLaps;
+  }
+
+  function renderIntervalBlock(workLaps) {
+    if (!workLaps || !workLaps.length) return "";
+    function avg(arr) {
+      var vals = arr.filter(function (v) { return v != null && isFinite(v); });
+      return vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null;
+    }
+    var avgDist = avg(workLaps.map(function (m) { return m.split.distance_km ? +m.split.distance_km : null; }));
+    var avgDur = avg(workLaps.map(function (m) { return m.split.duration_seconds ? +m.split.duration_seconds : null; }));
+    var avgPwr = avg(workLaps.map(function (m) { return m.power; }));
+    var avgHR = avg(workLaps.map(function (m) { return m.split.avg_hr ? +m.split.avg_hr : null; }));
+    var avgPace = avg(workLaps.map(function (m) { return m.paceSec; }));
+
+    var summaryParts = [workLaps.length + " reps"];
+    if (avgDist != null) summaryParts.push("avg " + (avgDist * 1000).toFixed(0) + " m");
+    if (avgDur != null) {
+      var m = Math.floor(avgDur / 60), s = Math.round(avgDur % 60);
+      summaryParts.push(m + ":" + (s < 10 ? "0" : "") + s);
+    }
+    if (avgPwr != null) summaryParts.push(Math.round(avgPwr) + " W avg");
+
+    var rows = workLaps.map(function (m, ri) {
+      var d = m.split.distance_km ? (+(m.split.distance_km) * 1000).toFixed(0) + " m" : "—";
+      var dur = m.split.duration_seconds
+        ? (function () { var mn = Math.floor(m.split.duration_seconds / 60), sc = m.split.duration_seconds % 60; return mn + ":" + (sc < 10 ? "0" : "") + sc; })()
+        : "—";
+      var pace = m.paceSec ? (function () { var mn = Math.floor(m.paceSec / 60), sc = Math.round(m.paceSec % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—";
+      var pwr = m.power != null ? Math.round(m.power) + " W" : "—";
+      var hr = m.split.avg_hr != null ? m.split.avg_hr + " bpm" : "—";
+      return "<tr><td>" + (ri + 1) + "</td><td>" + d + "</td><td>" + dur + "</td><td>" + pace + "</td><td>" + pwr + "</td><td>" + hr + "</td></tr>";
+    });
+
+    var avgRow = "<tr class=\"rd4-int-avg-row\"><td>avg</td>"
+      + "<td>" + (avgDist != null ? (avgDist * 1000).toFixed(0) + " m" : "—") + "</td>"
+      + "<td>" + (avgDur != null ? (function () { var mn = Math.floor(avgDur / 60), sc = Math.round(avgDur % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPace != null ? (function () { var mn = Math.floor(avgPace / 60), sc = Math.round(avgPace % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPwr != null ? Math.round(avgPwr) + " W" : "—") + "</td>"
+      + "<td>" + (avgHR != null ? Math.round(avgHR) + " bpm" : "—") + "</td></tr>";
+
+    return '<section class="rd4-card rd4-int-card">'
+      + '<h2 class="rd4-sec-title">Interval Set</h2>'
+      + '<p class="rd4-int-summary">' + esc(summaryParts.join(" · ")) + '</p>'
+      + '<div class="rd4-lap-scroll"><table class="rd4-lap-table rd4-int-table"><thead><tr>'
+      + '<th>Rep</th><th>Dist</th><th>Time</th><th>Pace</th><th>Pwr</th><th>HR</th>'
+      + '</tr></thead><tbody>'
+      + rows.join("") + avgRow
+      + '</tbody></table></div></section>';
   }
 
   function lapBandMap(detected, lapCount) {
@@ -988,6 +1070,13 @@
         "</tbody></table></div></section>";
     }
 
+    // ── 5b Interval set ──
+    var intervalsBlock = "";
+    if (activeLapMeta.length) {
+      var intervalWorkLaps = extractIntervalSet(activeLapMeta);
+      intervalsBlock = renderIntervalBlock(intervalWorkLaps);
+    }
+
     // ── 6 Aerobic decoupling ──
     var decBlock = "";
     if (halves && halves.decPct > 0) {
@@ -1109,6 +1198,7 @@
         pzBlock +
         profileBlock +
         lapsBlock +
+        intervalsBlock +
         decBlock +
         effSnap +
         routeBlock +
