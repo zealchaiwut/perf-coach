@@ -12,16 +12,32 @@ from sqlalchemy.orm import Session as _Session, defer as _defer
 _TOLERANCE = timedelta(minutes=5)
 
 
-def _find_in_memory(start_time, workouts: list, tolerance: timedelta):
-    """In-memory match against pre-loaded workout list — no per-activity DB query."""
+def _build_workout_index(workouts: list) -> dict:
+    """Index workouts by date for O(1) date lookup instead of O(n) full scan."""
+    index: dict = {}
+    for w in workouts:
+        if w.start_time is not None:
+            index.setdefault(w.start_time.date(), []).append(w)
+    return index
+
+
+def _find_in_index(start_time, index: dict, tolerance: timedelta):
+    """Match a workout using the date-bucketed index.
+
+    Checks same date and adjacent dates so activities near midnight are found
+    even when the tolerance window crosses a day boundary.
+    """
     if start_time is None:
         return None
     lower = start_time - tolerance
     upper = start_time + tolerance
-    candidates = [w for w in workouts if w.start_time and lower <= w.start_time <= upper]
-    if not candidates:
+    candidates = []
+    for d in {lower.date(), start_time.date(), upper.date()}:
+        candidates.extend(index.get(d, []))
+    matches = [w for w in candidates if w.start_time and lower <= w.start_time <= upper]
+    if not matches:
         return None
-    return min(candidates, key=lambda w: abs((w.start_time - start_time).total_seconds()))
+    return min(matches, key=lambda w: abs((w.start_time - start_time).total_seconds()))
 
 
 def _make_proxy(
@@ -314,10 +330,11 @@ def reconcile_workouts(
 
         sync_jobs.reset_progress(uid, total=len(all_acts))
 
+        workout_index = _build_workout_index(existing_workouts)
         stryd_pairs = []
         touched_workouts: list = []
         for source_type, act in all_acts:
-            matched = _find_in_memory(act.start_time, existing_workouts, _TOLERANCE)
+            matched = _find_in_index(act.start_time, workout_index, _TOLERANCE)
             proxy = _make_proxy(
                 act,
                 source_type,
@@ -363,6 +380,8 @@ def reconcile_workouts(
                 _apply_best(w, best)
                 session.add(w)
                 existing_workouts.append(w)
+                if w.start_time is not None:
+                    workout_index.setdefault(w.start_time.date(), []).append(w)
                 target = w
 
             if source_type == "stryd":
