@@ -481,8 +481,13 @@ class TestScoreNormalization:
         result = compute_endurance_score(runs, _minimal_prefs(), _make_zone_constants())
         assert result.get("score") == 50.0
 
-    def test_highest_efficiency_run_scores_100(self):
-        """The most recent run with the best efficiency should score 100."""
+    def test_improving_series_yields_score_in_range_and_improving_direction(self):
+        """An improving efficiency series yields a valid score and 'improving' direction.
+
+        Issue #1051 replaced min-max normalization with EWMA smoothing, so the
+        most-recent run no longer necessarily scores 100 — the EWMA damps the
+        latest point. The contract is: score ∈ [0, 100] and direction = 'improving'.
+        """
         runs = [
             _make_easy_run("r1", efficiency_hint=1.50, decoupling_pct=5.0, workout_date="2026-01-01"),
             _make_easy_run("r2", efficiency_hint=1.55, decoupling_pct=5.0, workout_date="2026-01-08"),
@@ -491,8 +496,8 @@ class TestScoreNormalization:
             _make_easy_run("r5", efficiency_hint=1.70, decoupling_pct=5.0, workout_date="2026-01-29"),
         ]
         result = compute_endurance_score(runs, _minimal_prefs(), _make_zone_constants())
-        # Most recent run has highest efficiency, so it should score 100
-        assert result.get("score") == 100.0
+        assert 0 <= result.get("score") <= 100
+        assert result.get("direction") == "improving"
 
 
 # ---------------------------------------------------------------------------

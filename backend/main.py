@@ -12605,6 +12605,10 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                     "avg_hr": workout.avg_hr,
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
+                    # Pre-computed speed signal from issue #1048 (may be None for easy runs).
+                    # When non-None, compute_speed_score uses this directly instead of
+                    # recomputing efficiency from laps.
+                    "speed_signal": workout.speed_signal,
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
