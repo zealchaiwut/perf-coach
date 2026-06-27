@@ -15,17 +15,18 @@ Acceptance Criteria covered:
 """
 
 import os
-import re
 
 import pytest
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-
-# ── Pure-function unit tests ─────────────────────────────────────────────────
-
+from backend.main import (
+    _build_session_dicts_from_contributors,
+    _format_pace,
+    _map_source_badge,
+)
 from backend.services.running_performance import get_contributing_run_ids
 from backend.services.zone_constants import make_zone_constants
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _make_run(run_id, band, workout_date="2026-01-01", decoupling_pct=None,
@@ -160,8 +161,6 @@ class TestGetContributingRunIdsSpeed:
 
 
 # ── Helper function tests ────────────────────────────────────────────────────
-
-from backend.main import _format_pace, _map_source_badge, _build_session_dicts_from_contributors
 
 
 class TestFormatPace:
