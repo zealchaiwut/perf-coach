@@ -420,6 +420,7 @@
         // Apply current type/search client filter after rendering
         applyClientFilter();
         fetchReadinessWidget();
+        fetchLogSleepCard();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -646,6 +647,155 @@
       })
       .catch(function () {
         if (el) el.hidden = true;
+      });
+  }
+
+  // ── Sleep readout card (issue #1037) ─────────────────────────────────────
+
+  function _fmtSleepDuration(minutes) {
+    if (minutes == null) return '—';
+    var h = Math.floor(minutes / 60);
+    var m = minutes % 60;
+    return h + ' h' + (m > 0 ? ' ' + m + ' m' : '');
+  }
+
+  function _fmtShortDate(dateStr) {
+    if (!dateStr) return '';
+    var parts = dateStr.split('-');
+    if (parts.length < 3) return dateStr;
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function renderLogSleepCard(el, data) {
+    if (!el) return;
+
+    var header =
+      '<div class="lsc-header"><i class="ti ti-moon-stars"></i>Sleep &middot; last night</div>';
+
+    if (!data || data.total_sleep_minutes == null) {
+      el.innerHTML =
+        header +
+        '<div class="lsc-empty">' +
+          'No sleep data connected. ' +
+          '<a href="/settings">Connect a sleep source in Settings &rarr;</a>' +
+        '</div>' +
+        '<p class="lsc-disclaimer">Sleep is shown for awareness and does not yet affect your scores.</p>';
+      el.hidden = false;
+      return;
+    }
+
+    var durationStr = _fmtSleepDuration(data.total_sleep_minutes);
+    var scoreHtml = data.sleep_score != null
+      ? '<span class="lsc-score">Score ' + data.sleep_score + '</span>'
+      : '';
+
+    var hasStages = (
+      data.deep_minutes != null ||
+      data.rem_minutes != null ||
+      data.light_minutes != null ||
+      data.awake_minutes != null
+    );
+
+    var stagesHtml = '';
+    if (hasStages) {
+      var total = (data.deep_minutes || 0) + (data.rem_minutes || 0) +
+                  (data.light_minutes || 0) + (data.awake_minutes || 0);
+      if (total > 0) {
+        var deepPct  = ((data.deep_minutes  || 0) / total * 100).toFixed(1);
+        var remPct   = ((data.rem_minutes   || 0) / total * 100).toFixed(1);
+        var lightPct = ((data.light_minutes || 0) / total * 100).toFixed(1);
+        var awakePct = ((data.awake_minutes || 0) / total * 100).toFixed(1);
+        stagesHtml =
+          '<div class="lsc-stages" aria-label="Sleep stage breakdown">' +
+            '<div class="lsc-stage-deep"  style="width:' + deepPct  + '%"></div>' +
+            '<div class="lsc-stage-rem"   style="width:' + remPct   + '%"></div>' +
+            '<div class="lsc-stage-light" style="width:' + lightPct + '%"></div>' +
+            '<div class="lsc-stage-awake" style="width:' + awakePct + '%"></div>' +
+          '</div>' +
+          '<div class="lsc-legend">' +
+            _sleepLegendItem('#3b82f6', 'Deep', data.deep_minutes) +
+            _sleepLegendItem('#8b5cf6', 'REM',  data.rem_minutes) +
+            _sleepLegendItem('#60a5fa', 'Light', data.light_minutes) +
+            _sleepLegendItem('#d1d5db', 'Awake', data.awake_minutes) +
+          '</div>';
+      }
+    }
+
+    var trendHtml = _renderSleepTrend(data.recent_nights || []);
+
+    el.innerHTML =
+      header +
+      '<div class="lsc-main">' +
+        '<span class="lsc-duration">' + esc(durationStr) + '</span>' +
+        scoreHtml +
+      '</div>' +
+      stagesHtml +
+      trendHtml +
+      '<p class="lsc-disclaimer">Sleep is shown for awareness and does not yet affect your scores.</p>';
+    el.hidden = false;
+  }
+
+  function _sleepLegendItem(color, label, minutes) {
+    var minStr = minutes != null ? ' (' + _fmtSleepDuration(minutes) + ')' : '';
+    return (
+      '<span class="lsc-legend-item">' +
+        '<span class="lsc-legend-dot" style="background:' + color + '"></span>' +
+        esc(label) + esc(minStr) +
+      '</span>'
+    );
+  }
+
+  function _renderSleepTrend(nights) {
+    if (!nights || nights.length === 0) return '';
+    var maxMin = 0;
+    nights.forEach(function (n) {
+      if ((n.total_sleep_minutes || 0) > maxMin) maxMin = n.total_sleep_minutes;
+    });
+    if (maxMin === 0) return '';
+    var bars = nights.map(function (n) {
+      var pct = maxMin > 0 ? Math.round((n.total_sleep_minutes || 0) / maxMin * 100) : 0;
+      var dateLabel = _fmtShortDate(n.sleep_date);
+      return (
+        '<div class="lsc-trend-bar-wrap" title="' + esc(dateLabel) + ': ' +
+          _fmtSleepDuration(n.total_sleep_minutes) + '">' +
+          '<div class="lsc-trend-bar lsc-trend-bar--filled" style="height:' + pct + '%"></div>' +
+          '<div class="lsc-trend-date">' + esc(dateLabel.split(' ')[1] || dateLabel) + '</div>' +
+        '</div>'
+      );
+    }).join('');
+    return (
+      '<div class="lsc-trend">' +
+        '<div class="lsc-trend-label">7-night trend</div>' +
+        '<div class="lsc-trend-bars">' + bars + '</div>' +
+      '</div>'
+    );
+  }
+
+  var _sleepCardAthleteId = null;
+
+  function fetchLogSleepCard() {
+    var el = document.getElementById('log-sleep-card');
+    if (!el) return;
+    var uid = _sleepCardAthleteId || (window.getCurrentUserId ? window.getCurrentUserId() : null);
+    if (!uid) {
+      window.addEventListener('userReady', function (e) {
+        _sleepCardAthleteId = e.detail.userId;
+        fetchLogSleepCard();
+      }, { once: true });
+      return;
+    }
+    fetch('/api/athletes/' + encodeURIComponent(uid) + '/sleep')
+      .then(function (res) {
+        if (!res.ok) { el.hidden = true; return null; }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        renderLogSleepCard(el, data);
+      })
+      .catch(function () {
+        el.hidden = true;
       });
   }
 
@@ -4334,11 +4484,13 @@
     loadAndRender(currentMonday);
   });
 
-  window.addEventListener("userReady", function () {
+  window.addEventListener("userReady", function (e) {
+    _sleepCardAthleteId = e && e.detail && e.detail.userId ? e.detail.userId : _sleepCardAthleteId;
     loadAndRender(currentMonday);
   });
 
   window.addEventListener("userChanged", function () {
+    _sleepCardAthleteId = null;
     loadAndRender(currentMonday);
   });
 
