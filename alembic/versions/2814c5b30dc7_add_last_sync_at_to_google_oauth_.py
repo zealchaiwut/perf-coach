@@ -23,7 +23,9 @@ def upgrade() -> None:
     if not column_exists("google_oauth_credentials", "last_sync_at"):
         op.add_column(
             "google_oauth_credentials",
-            sa.Column("last_sync_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column(
+                "last_sync_at", sa.DateTime(timezone=True), nullable=True
+            ),
         )
 
 

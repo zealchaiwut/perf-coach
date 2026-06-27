@@ -71,7 +71,7 @@ class TestManualSyncEndpointShape:
         }
         client = _authed_client()
         with (
-            patch("backend.services.drive_sleep_sync.sync_drive_sleep_for_user", return_value=fake_result) as mock_sync,
+            patch("backend.services.drive_sleep_sync.sync_drive_sleep_for_user", return_value=fake_result),
             patch("backend.main._get_google_creds_for_user", return_value=_make_creds()),
         ):
             resp = client.post(
