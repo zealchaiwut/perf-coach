@@ -465,7 +465,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.rd4-lap-table th:first-child { text-align: left; }
+.rd4-lap-table th:first-child { text-align: left; width: 1px; white-space: nowrap; }
 
 .rd4-lap-table td {
   text-align: right;
@@ -475,7 +475,15 @@
   white-space: nowrap;
 }
 
-.rd4-lap-table td:first-child { text-align: left; font-weight: 700; }
+.rd4-lap-table td:first-child { text-align: left; font-weight: 700; width: 1px; white-space: nowrap; }
+
+/* Hide Cad (col 6) + Stride/Len (col 7) when detail cols are off */
+.rd4-hide-detail-cols .rd4-lap-table th:nth-child(6),
+.rd4-hide-detail-cols .rd4-lap-table td:nth-child(6),
+.rd4-hide-detail-cols .rd4-lap-table th:nth-child(7),
+.rd4-hide-detail-cols .rd4-lap-table td:nth-child(7) {
+  display: none;
+}
 
 .rd4-lap-row--z2 td { background: #ecfdf5; }
 .rd4-lap-row--break td { background: #f1f5f9; color: #64748b; }
