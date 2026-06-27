@@ -235,7 +235,7 @@ def test_drive_sleep_callback_encrypts_token():
         with patch.dict("os.environ", env, clear=False), \
              patch("backend.main._exchange_google_code", return_value=fake_token_resp), \
              patch("backend.main._upsert_drive_sleep_connection", side_effect=_fake_upsert):
-            res = client.get(f"/api/drive-sleep/callback?code=fake-code&state={state}")
+            client.get(f"/api/drive-sleep/callback?code=fake-code&state={state}")
 
         # The upsert must have been called with an encrypted token (not plaintext)
         assert "refresh_token_encrypted" in captured
