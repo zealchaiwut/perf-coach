@@ -8608,7 +8608,7 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
             pass
     try:
         _sync_jobs.set_phase(uid, "pulling_stryd")
-        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full)
+        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full, heal=full)
         _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
         if result["upserted"] == 0 and not full:
             _sync_jobs.mark_success(uid)
