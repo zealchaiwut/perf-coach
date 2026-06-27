@@ -5,7 +5,8 @@ import uuid as _uuid
 from datetime import date, timedelta, timezone
 from types import SimpleNamespace
 
-from sqlalchemy.orm import Session as _Session
+from sqlalchemy import and_ as _and, or_ as _or
+from sqlalchemy.orm import Session as _Session, defer as _defer
 
 
 _TOLERANCE = timedelta(minutes=5)
@@ -219,27 +220,50 @@ def reconcile_workouts(
     incremental = stryd_activity_ids is not None or strava_activity_ids is not None
 
     with _Session(engine) as session:
-        strava_acts = (
-            session.query(StravaActivity)
-            .filter(StravaActivity.user_id == uid)
-            .all()
-        )
-
-        try:
-            stryd_acts = (
-                session.query(StrydActivity)
-                .filter(StrydActivity.user_id == uid)
+        # -- Source activity load --
+        # Incremental: query only the specified rows by external ID — skips the
+        # full table scan and the in-Python filter step entirely.
+        # Full: defer heavy JSONB columns so the initial load only pulls scalar
+        # fields; streams_payload is accessed lazily in _ingest_streams.
+        if strava_activity_ids is not None:
+            strava_acts = (
+                session.query(StravaActivity)
+                .filter(
+                    StravaActivity.user_id == uid,
+                    StravaActivity.strava_activity_id.in_(strava_activity_ids),
+                )
                 .all()
             )
+        else:
+            strava_acts = (
+                session.query(StravaActivity)
+                .filter(StravaActivity.user_id == uid)
+                .options(
+                    _defer(StravaActivity.streams_payload),
+                    _defer(StravaActivity.detail_payload),
+                )
+                .all()
+            )
+
+        try:
+            if stryd_activity_ids is not None:
+                stryd_acts = (
+                    session.query(StrydActivity)
+                    .filter(
+                        StrydActivity.user_id == uid,
+                        StrydActivity.stryd_activity_id.in_(stryd_activity_ids),
+                    )
+                    .all()
+                )
+            else:
+                stryd_acts = (
+                    session.query(StrydActivity)
+                    .filter(StrydActivity.user_id == uid)
+                    .options(_defer(StrydActivity.streams_payload))
+                    .all()
+                )
         except Exception:
             stryd_acts = []
-
-        if stryd_activity_ids is not None:
-            stryd_id_set = set(stryd_activity_ids)
-            stryd_acts = [a for a in stryd_acts if a.stryd_activity_id in stryd_id_set]
-        if strava_activity_ids is not None:
-            strava_id_set = set(strava_activity_ids)
-            strava_acts = [a for a in strava_acts if a.strava_activity_id in strava_id_set]
 
         all_acts = [("strava", a) for a in strava_acts] + [("stryd", a) for a in stryd_acts]
 
@@ -261,8 +285,32 @@ def reconcile_workouts(
         strava_by_id = {a.id: a for a in strava_acts}
         stryd_by_id = {a.id: a for a in stryd_acts}
 
-        # Single bulk load of all existing workouts — no per-activity query
-        existing_workouts: list = session.query(Workout).filter(Workout.user_id == uid).all()
+        # -- Existing workout load --
+        # Incremental: scope the query to workouts that are already linked to
+        # these source activities or fall within their time window (±tolerance).
+        # This avoids loading every workout for daily syncs of 10 activities.
+        # Full: load all workouts (no JSONB payloads, so this is manageable).
+        if incremental and all_acts:
+            strava_pks = [a.id for a in strava_acts]
+            stryd_pks = [a.id for a in stryd_acts]
+            start_times = [a.start_time for _, a in all_acts if a.start_time]
+            conditions: list = []
+            if strava_pks:
+                conditions.append(Workout.strava_activity_pk.in_(strava_pks))
+            if stryd_pks:
+                conditions.append(Workout.stryd_activity_pk.in_(stryd_pks))
+            if start_times:
+                lo = min(start_times) - _TOLERANCE
+                hi = max(start_times) + _TOLERANCE
+                conditions.append(_and(Workout.start_time >= lo, Workout.start_time <= hi))
+            existing_workouts: list = (
+                session.query(Workout)
+                .filter(Workout.user_id == uid, _or(*conditions))
+                .all()
+                if conditions else []
+            )
+        else:
+            existing_workouts: list = session.query(Workout).filter(Workout.user_id == uid).all()
 
         sync_jobs.reset_progress(uid, total=len(all_acts))
 
@@ -367,14 +415,11 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
         z_min = (prefs.zone2_hr_min if prefs and prefs.zone2_hr_min is not None else 130)
         z_max = (prefs.zone2_hr_max if prefs and prefs.zone2_hr_max is not None else 155)
 
-        runs = (
-            session.query(Workout)
-            .filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
-            .all()
-        )
+        q = session.query(Workout).filter(Workout.user_id == uid, Workout.workout_type.ilike("run"))
         if workout_ids is not None:
-            allowed = {wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids}
-            runs = [w for w in runs if w.id in allowed]
+            allowed = [wid if isinstance(wid, _uuid.UUID) else _uuid.UUID(str(wid)) for wid in workout_ids]
+            q = q.filter(Workout.id.in_(allowed))
+        runs = q.all()
         run_ids = [w.id for w in runs]
         splits_by: dict = {}
         if run_ids:
