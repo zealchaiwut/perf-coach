@@ -8423,6 +8423,7 @@ def stryd_configured():
 _STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
 _STRAVA_SYNC_PER_PAGE = 100
 _STRAVA_DEFAULT_LOOKBACK_DAYS = 90
+_DAILY_RECONCILE_LIMIT = 10  # max activities reconciled per incremental (daily) sync
 
 
 def _default_strava_since_date(user_id: _uuid.UUID) -> str:
@@ -8469,6 +8470,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
             return
 
         page = 1
+        synced_strava_ids: list[int] = []
         while True:
             if _sync_jobs.is_cancel_requested(uid):
                 _sync_jobs.mark_error(uid, "cancelled")
@@ -8498,6 +8500,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
+                synced_strava_ids.append(int(act["id"]))
                 rows.append({
                     "user_id": user_id,
                     "strava_activity_id": int(act["id"]),
@@ -8545,7 +8548,14 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 break
             page += 1
 
-        _reconcile.reconcile_workouts(uid, uid)
+        if full:
+            _reconcile.reconcile_workouts(uid, uid)
+        else:
+            _reconcile.reconcile_workouts(
+                uid,
+                uid,
+                strava_activity_ids=synced_strava_ids[-_DAILY_RECONCILE_LIMIT:],
+            )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -8607,10 +8617,11 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
         if full:
             _reconcile.reconcile_workouts(uid, uid)
         else:
+            all_ids = result.get("stryd_activity_ids") or []
             _reconcile.reconcile_workouts(
                 uid,
                 uid,
-                stryd_activity_ids=result.get("stryd_activity_ids") or [],
+                stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
             )
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
