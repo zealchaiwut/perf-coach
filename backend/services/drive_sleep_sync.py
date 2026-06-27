@@ -263,6 +263,52 @@ def sync_drive_sleep_for_user(user_id: str) -> dict:
     }
 
 
+def backfill_drive_sleep_for_user(user_id: str) -> dict:
+    """Process ALL sleep files in Drive for user_id, regardless of last_sync_at.
+
+    Called once on first connect to import the full historical archive.
+    Per-file errors are logged and skipped; processing continues for remaining files.
+
+    Returns {"files_seen": int, "rows_imported": int, "rows_updated": int, "rows_skipped": int}.
+    """
+    with _get_session() as session:
+        creds = (
+            session.query(GoogleOAuthCredentials)
+            .filter(GoogleOAuthCredentials.user_id == user_id)
+            .one_or_none()
+        )
+        if creds is None:
+            raise ValueError(f"No Google credentials for user {user_id}")
+
+        access_token = refresh_token_if_needed(user_id)
+
+        # No modified_after filter — enumerate every file in the folder.
+        files = list_drive_sleep_files(access_token, modified_after=None)
+        files_seen = len(files)
+
+        all_records = []
+        for f in files:
+            try:
+                content = _download_drive_file(f["id"], access_token)
+                parsed = parse_sleep_file_content(content)
+                all_records.extend(parsed)
+            except Exception as exc:
+                _log.error(
+                    "drive_sleep_sync backfill: file error",
+                    extra={"user_id": user_id, "file_id": f.get("id"), "error": str(exc)},
+                )
+
+        counts = upsert_sleep_records(user_id, all_records, session)
+        session.commit()
+
+    return {
+        "files_seen": files_seen,
+        "rows_imported": counts["imported"],
+        "rows_updated": counts["updated"],
+        "rows_skipped": counts["skipped"],
+    }
+
+
 def run_scheduled_sleep_sync() -> None:
     """Scheduled runner: sync Drive sleep files for every user with Google credentials.
 
