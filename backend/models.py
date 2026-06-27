@@ -1050,3 +1050,33 @@ class WeightPlan(Base):
     __table_args__ = (
         Index("ix_weight_plans_user_id", "user_id"),
     )
+
+
+class SleepRecord(Base):
+    """One night of sleep data from an external source (e.g. health_sync_csv)."""
+
+    __tablename__ = "sleep_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    sleep_date = Column(Date, nullable=False)
+    start_at = Column(DateTime(timezone=True), nullable=False)
+    end_at = Column(DateTime(timezone=True), nullable=False)
+    total_sleep_minutes = Column(Integer, nullable=False)
+    time_in_bed_minutes = Column(Integer, nullable=False)
+    awake_minutes = Column(Integer, nullable=False)
+    light_minutes = Column(Integer, nullable=False)
+    deep_minutes = Column(Integer, nullable=False)
+    rem_minutes = Column(Integer, nullable=False)
+    sleep_score = Column(Integer, nullable=True)
+    sleep_efficiency = Column(Numeric(5, 2), nullable=True)
+    source = Column(Text, nullable=False)
+    device = Column(Text, nullable=True)
+    external_id = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "external_id", name="uq_sleep_records_user_external_id"),
+        Index("ix_sleep_records_user_sleep_date", "user_id", "sleep_date"),
+    )
