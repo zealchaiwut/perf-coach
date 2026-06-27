@@ -127,7 +127,7 @@ def upsert_sleep_records(user_id: str, records: list, session: Session) -> dict:
     if not records:
         return {"imported": 0, "updated": 0, "skipped": 0}
 
-    from sqlalchemy import select, text as _text
+    from sqlalchemy import select
 
     external_ids = [rec["external_id"] for rec in records]
 
