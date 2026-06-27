@@ -494,6 +494,7 @@ class GoogleOAuthCredentials(Base):
     refresh_token = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     id_token_payload = Column(JSONB, nullable=True)
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 

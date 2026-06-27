@@ -9380,6 +9380,43 @@ def google_callback(
     return Response(content=_GOOGLE_CALLBACK_HTML, media_type="text/html")
 
 
+def _get_google_creds_for_user(user_id) -> Optional[GoogleOAuthCredentials]:
+    """Return the GoogleOAuthCredentials row for user_id, or None if not connected."""
+    with Session(engine) as session:
+        return (
+            session.query(GoogleOAuthCredentials)
+            .filter(GoogleOAuthCredentials.user_id == user_id)
+            .one_or_none()
+        )
+
+
+# ── Drive sleep sync ──────────────────────────────────────────────────────────
+
+@app.post("/api/integrations/drive-sleep/sync")
+def post_drive_sleep_sync(user: User = Depends(resolve_user)):
+    """Trigger an immediate Drive/Health Sync sleep file import for the authenticated user.
+
+    Returns 200 JSON with flat keys: files_seen, rows_imported, rows_updated, rows_skipped.
+    Returns 422 if the user has no connected Google Drive / Health Sync integration.
+    """
+    from backend.services import drive_sleep_sync as _dss
+
+    creds = _get_google_creds_for_user(user.id)
+    if creds is None:
+        raise HTTPException(
+            status_code=422,
+            detail="No Google Drive / Health Sync integration connected. Connect Google first.",
+        )
+
+    result = _dss.sync_drive_sleep_for_user(str(user.id))
+    return JSONResponse({
+        "files_seen": result["files_seen"],
+        "rows_imported": result["rows_imported"],
+        "rows_updated": result["rows_updated"],
+        "rows_skipped": result["rows_skipped"],
+    })
+
+
 # ── Imports ───────────────────────────────────────────────────────────────────
 
 class _SleepImportBody(BaseModel):
@@ -12827,3 +12864,29 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Sleep sync scheduler ──────────────────────────────────────────────────────
+
+def _sleep_sync_scheduler_loop() -> None:
+    """Background daemon thread: run Drive sleep sync for all users every hour."""
+    import logging as _sched_log
+    from backend.services import drive_sleep_sync as _dss
+
+    _log = _sched_log.getLogger("backend.sleep_sync_scheduler")
+    _log.info("Sleep sync scheduler started (interval=%ds)", _dss.SLEEP_SYNC_INTERVAL_SECONDS)
+
+    while True:
+        time.sleep(_dss.SLEEP_SYNC_INTERVAL_SECONDS)
+        try:
+            _dss.run_scheduled_sleep_sync()
+        except Exception as exc:
+            _log.error("Sleep sync scheduler: unhandled error: %s", exc, exc_info=True)
+
+
+_sleep_sync_thread = _threading.Thread(
+    target=_sleep_sync_scheduler_loop,
+    daemon=True,
+    name="sleep-sync-scheduler",
+)
+_sleep_sync_thread.start()
