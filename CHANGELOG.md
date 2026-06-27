@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
+
+- #1019: Classify laps before scoring in performance endpoint (fixes classification order so band is assigned before score computation)
+- #1021: Render four explicit performance states in frontend (scored / needs_thresholds / building_baseline / error driven by top-level state field)
+- #1022: Settings thresholds editor writes FTP, threshold heart rate, threshold pace (pace input now accepts numeric sec/km; blank inputs when no value stored)
+
 ## Sprint 88 — Performance state field, diagnostic logging, backfill pipeline, and fitness chart fix
 
 - #1018: Add diagnostic INFO logging to performance endpoint (runs_considered, laps_with_band, threshold flags per request)
