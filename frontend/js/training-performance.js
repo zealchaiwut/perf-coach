@@ -110,20 +110,22 @@
     var card = document.getElementById('perf-score-' + type);
     if (!card) return;
 
-    var ringEl   = card.querySelector('.perf-ring');
-    var bodyEl   = card.querySelector('.perf-card-body');
-    var scoreEl  = card.querySelector('.perf-score-val');
-    var dirEl    = card.querySelector('.perf-dir');
-    var sparkEl  = card.querySelector('.perf-spark');
-    var bbEl     = card.querySelector('.perf-building-baseline');
-    var threshEl = card.querySelector('.perf-threshold-hint');
-    var errorEl  = card.querySelector('.perf-error');
+    var ringEl      = card.querySelector('.perf-ring');
+    var bodyEl      = card.querySelector('.perf-card-body');
+    var scoreEl     = card.querySelector('.perf-score-val');
+    var dirEl       = card.querySelector('.perf-dir');
+    var sparkEl     = card.querySelector('.perf-spark');
+    var bbEl        = card.querySelector('.perf-building-baseline');
+    var threshEl    = card.querySelector('.perf-threshold-hint');
+    var errorEl     = card.querySelector('.perf-error');
+    var sessionsEl  = card.querySelector('.perf-contributing-sessions');
 
     // Reset all states
-    if (bodyEl)   bodyEl.style.display = 'none';
-    if (bbEl)     bbEl.hidden    = true;
-    if (threshEl) threshEl.hidden = true;
-    if (errorEl)  errorEl.hidden  = true;
+    if (bodyEl)     bodyEl.style.display = 'none';
+    if (bbEl)       bbEl.hidden    = true;
+    if (threshEl)   threshEl.hidden = true;
+    if (errorEl)    errorEl.hidden  = true;
+    if (sessionsEl) sessionsEl.hidden = true;
 
     // Only called for state='scored'; treat missing/invalid sub-object as error
     if (!data || typeof data !== 'object' || data.score == null) {
@@ -143,6 +145,80 @@
       dirEl.className = 'perf-dir perf-dir--' + dir;
     }
     if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
+
+    // Render contributing sessions (AC: issue #1053)
+    var sessions = Array.isArray(data.contributing_sessions) ? data.contributing_sessions : [];
+    if (sessionsEl && sessions.length > 0) {
+      _renderContributingSessions(sessionsEl, sessions);
+      sessionsEl.hidden = false;
+    }
+  }
+
+  // Build and insert the contributing session rows
+  function _renderContributingSessions(container, sessions) {
+    var listEl = container.querySelector('.perf-sessions-list');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    sessions.forEach(function (s) {
+      var li = document.createElement('li');
+      li.className = 'perf-session-row';
+
+      // Source badge — reuse existing .source-badge classes (defined in training-log.html)
+      var sourceBadge = '';
+      if (s.source === 'Strava' || s.source === 'Stryd') {
+        sourceBadge = '<span class="source-badge source-badge--' +
+          s.source.toLowerCase() + '">' + s.source + '</span>';
+      }
+
+      // Pace / distance display
+      var distStr = s.distance_km != null ? s.distance_km.toFixed(1) + ' km' : '–';
+      var paceStr = s.pace || '–';
+      var hrStr   = s.avg_hr != null ? s.avg_hr + ' bpm' : '–';
+      var contrib = s.contribution != null ? Math.round(s.contribution) : '–';
+      var dateStr = s.date || '';
+      var title   = s.title || 'Run';
+
+      li.innerHTML =
+        '<span class="perf-sess-date">' + _escHtml(dateStr) + '</span>' +
+        '<span class="perf-sess-title">' + _escHtml(title) + '</span>' +
+        '<span class="perf-sess-meta">' +
+          _escHtml(distStr) + ' · ' + _escHtml(paceStr) + ' · ' + _escHtml(hrStr) +
+        '</span>' +
+        '<span class="perf-sess-contrib">' + contrib + '</span>' +
+        sourceBadge;
+
+      // Open workout detail panel in-place on click (AC4)
+      li.setAttribute('role', 'button');
+      li.setAttribute('tabindex', '0');
+      li.style.cursor = 'pointer';
+      (function (workoutId) {
+        li.addEventListener('click', function () {
+          if (typeof window.openWorkoutDetail === 'function') {
+            window.openWorkoutDetail(workoutId);
+          }
+        });
+        li.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (typeof window.openWorkoutDetail === 'function') {
+              window.openWorkoutDetail(workoutId);
+            }
+          }
+        });
+      }(s.workout_id));
+
+      listEl.appendChild(li);
+    });
+  }
+
+  function _escHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   // Render the needs_thresholds state: show CTA prompting athlete to set thresholds in Settings

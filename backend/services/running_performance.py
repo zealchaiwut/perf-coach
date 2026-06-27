@@ -617,6 +617,90 @@ def _normalise_to_trend(qualifying: list[tuple[str, float]]) -> list[float]:
     return [(v - min_v) / (max_v - min_v) * 100.0 for v in values]
 
 
+def get_contributing_run_ids(
+    runs: list[dict] | None,
+    preferences: dict[str, Any] | None,
+    zone_constants: dict[str, Any] | None,
+    mode: str = "endurance",
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Return up to `limit` most recent qualifying run IDs with contribution values.
+
+    Runs are assumed to be in chronological order (oldest first).  The function
+    applies the same qualifying logic as compute_endurance_score / compute_speed_score
+    so the contribution values match the normalised trend values in those results.
+
+    Parameters
+    ----------
+    runs : list[dict] or None
+        Same structure as accepted by compute_endurance_score.
+    preferences : dict or None
+        User preferences.  None → empty list returned.
+    zone_constants : dict or None
+        Zone band config from make_zone_constants().
+    mode : "endurance" | "speed"
+        Selects which band set to use for qualifying-lap filtering.
+    limit : int
+        Maximum number of sessions to return (most recent first).
+
+    Returns
+    -------
+    list[dict]
+        Each dict has exactly two keys: run_id (str) and contribution (float 0-100).
+        Empty list when no qualifying sessions exist or prerequisites are missing.
+    """
+    zc = _resolve_zone_constants(zone_constants)
+    if not runs or preferences is None:
+        return []
+
+    bands = zc["endurance_bands"] if mode == "endurance" else zc["speed_bands"]
+
+    qualifying: list[tuple[str, float]] = []
+
+    for run in runs:
+        run_id = run.get("run_id", "")
+        laps = _qualifying_laps(run.get("laps") or [], bands)
+        if not laps:
+            continue
+
+        eff, _ = _efficiency_from_laps(laps)
+        if eff is None:
+            continue
+
+        if mode == "endurance":
+            decoupling_pct = run.get("decoupling_pct")
+            if isinstance(decoupling_pct, (int, float)) and not isinstance(decoupling_pct, bool):
+                clamped = max(0.0, min(float(decoupling_pct), 50.0))
+                adjusted = eff * (1.0 - clamped / 50.0)
+            else:
+                adjusted = eff
+        else:
+            adjusted = eff
+
+        qualifying.append((run_id, adjusted))
+
+    if not qualifying:
+        return []
+
+    # Normalise to 0-100 (same formula as _normalise_to_trend)
+    values = [v for _, v in qualifying]
+    min_v = min(values)
+    max_v = max(values)
+    if max_v == min_v:
+        contributions = [50.0] * len(values)
+    else:
+        contributions = [(v - min_v) / (max_v - min_v) * 100.0 for v in values]
+
+    # Take the `limit` most recent (qualifying is already chronological)
+    recent_qualifying = qualifying[-limit:]
+    recent_contributions = contributions[-limit:]
+
+    return [
+        {"run_id": run_id, "contribution": round(contrib, 2)}
+        for (run_id, _), contrib in zip(recent_qualifying, recent_contributions)
+    ]
+
+
 def _compute_direction(trend: list[float], threshold: float) -> str:
     """Derive direction from the slope of the last three trend values.
 

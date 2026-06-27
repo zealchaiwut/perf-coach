@@ -4423,6 +4423,11 @@
     loadAndRender(currentMonday);
   });
 
+  // Expose for the Performance tab so it can open the workout detail panel in-place
+  window.openWorkoutDetail = function (workoutId) {
+    openDetailPanel(workoutId, null);
+  };
+
   window.addEventListener("userReady", function () {
     loadAndRender(currentMonday);
   });

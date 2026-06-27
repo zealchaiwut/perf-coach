@@ -2545,6 +2545,10 @@
           <span class="perf-error-text">Could not load score.</span>
           <button type="button" class="perf-retry-btn">Retry</button>
         </div>
+        <div class="perf-contributing-sessions" hidden>
+          <ul class="perf-sessions-list"></ul>
+          <p class="perf-sessions-footnote">Contribution values are estimates until the model is fully calibrated.</p>
+        </div>
       </div>
 
       <!-- Speed score card -->
@@ -2568,6 +2572,10 @@
         <div class="perf-error" hidden>
           <span class="perf-error-text">Could not load score.</span>
           <button type="button" class="perf-retry-btn">Retry</button>
+        </div>
+        <div class="perf-contributing-sessions" hidden>
+          <ul class="perf-sessions-list"></ul>
+          <p class="perf-sessions-footnote">Contribution values are estimates until the model is fully calibrated.</p>
         </div>
       </div>
 
@@ -2720,6 +2728,60 @@
       font-size: 11.5px;
       color: var(--text-secondary);
       line-height: 1.45;
+    }
+
+    /* Contributing sessions list (issue #1053) */
+    .perf-contributing-sessions {
+      margin-top: 10px;
+      border-top: 1px solid var(--shell-2);
+      padding-top: 8px;
+    }
+    .perf-sessions-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .perf-session-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto auto;
+      gap: 6px;
+      align-items: center;
+      padding: 5px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      transition: background 0.12s;
+    }
+    .perf-session-row:hover { background: var(--shell-2); }
+    .perf-sess-date {
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .perf-sess-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .perf-sess-meta {
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .perf-sess-contrib {
+      font-weight: 700;
+      color: var(--bg-1);
+      white-space: nowrap;
+      min-width: 24px;
+      text-align: right;
+    }
+    .perf-sessions-footnote {
+      margin: 6px 0 0;
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-style: italic;
     }
 
     /* Fitness chart */
