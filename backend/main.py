@@ -9352,6 +9352,9 @@ def google_callback(
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:9001/api/google/callback")
 
+    # Check before upsert so we know whether this is the very first connect.
+    is_first_connect = _get_google_creds_for_user(user_id) is None
+
     token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
 
     access_token = token_resp["access_token"]
@@ -9377,6 +9380,9 @@ def google_callback(
         id_token_payload=id_token_payload,
     )
 
+    if is_first_connect:
+        _trigger_drive_sleep_backfill_background(user_id)
+
     return Response(content=_GOOGLE_CALLBACK_HTML, media_type="text/html")
 
 
@@ -9388,6 +9394,28 @@ def _get_google_creds_for_user(user_id) -> Optional[GoogleOAuthCredentials]:
             .filter(GoogleOAuthCredentials.user_id == user_id)
             .one_or_none()
         )
+
+
+def _trigger_drive_sleep_backfill_background(user_id: str) -> None:
+    """Fire-and-forget: run the Drive sleep backfill in a daemon thread.
+
+    Called once after first Google connect so all pre-existing sleep files
+    are imported without blocking the callback response.  Errors are logged.
+    """
+    _bg_log = _logging.getLogger(__name__)
+
+    def _run():
+        try:
+            from backend.services import drive_sleep_sync as _dss
+            _dss.backfill_drive_sleep_for_user(user_id)
+        except Exception as _exc:
+            _bg_log.warning(
+                "drive_sleep_sync backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
 
 
 # ── Drive sleep sync ──────────────────────────────────────────────────────────
