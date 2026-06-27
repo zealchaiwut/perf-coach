@@ -24,7 +24,6 @@ import hashlib
 import io
 import logging
 import os
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
