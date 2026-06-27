@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 _STRYD_API_BASE = "https://www.stryd.com/b/api/v1"
 _DEFAULT_LOOKBACK_DAYS = 90
 # Full-history pulls for Settings "Sync all" (Stryd PowerCenter calendar API).
-_FULL_LOOKBACK_DAYS = 365 * 5
+_FULL_LOOKBACK_DAYS = 365 * 2
 
 
 def _fmt(d: date) -> str:
