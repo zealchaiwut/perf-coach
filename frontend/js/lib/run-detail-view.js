@@ -1040,9 +1040,14 @@
             '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
             "</div>"
           : "";
+      var showDetailCols = typeof localStorage !== "undefined" && localStorage.getItem("rd4_lap_detail_cols") === "1";
+      var lapsCardClass = "rd4-card rd4-laps-card" + (showDetailCols ? "" : " rd4-hide-detail-cols");
+      var colToggleHtml = '<div class="rd4-lapmode-toggle" id="rd4-col-toggle">' +
+        '<button type="button" class="rd4-lm-btn' + (showDetailCols ? " rd4-lm-btn--on" : "") + '" id="rd4-col-toggle-btn">Cad · Len</button>' +
+        "</div>";
 
       lapsBlock =
-        '<section class="rd4-card rd4-laps-card"><div class="rd4-laps-head">' +
+        '<section class="' + lapsCardClass + '"><div class="rd4-laps-head">' +
         '<h2 class="rd4-sec-title" id="rd4-laps-title">' +
         esc(lapTitle) +
         "</h2>" +
@@ -1052,7 +1057,9 @@
         '<div class="rd4-metric-toggle" id="rd4-metric-toggle">' +
         '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="pace">Pace</button>' +
         '<button type="button" class="rd4-mt-btn" data-metric="power">Power</button>' +
-        "</div></div></div>" +
+        "</div>" +
+        colToggleHtml +
+        "</div></div>" +
         '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
         '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
         '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
@@ -1499,6 +1506,16 @@
         });
         btn.classList.add("rd4-mt-btn--on");
         drawChart(metric);
+      });
+    }
+
+    var colToggleBtn = container.querySelector("#rd4-col-toggle-btn");
+    var lapsCardEl = container.querySelector(".rd4-laps-card");
+    if (colToggleBtn && lapsCardEl) {
+      colToggleBtn.addEventListener("click", function () {
+        var hiding = lapsCardEl.classList.toggle("rd4-hide-detail-cols");
+        colToggleBtn.classList.toggle("rd4-lm-btn--on", !hiding);
+        try { localStorage.setItem("rd4_lap_detail_cols", hiding ? "0" : "1"); } catch (e) {}
       });
     }
 
