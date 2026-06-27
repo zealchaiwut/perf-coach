@@ -1811,6 +1811,62 @@
     return out.childElementCount ? out : contentEl.cloneNode(true);
   }
 
+  // Show a lightweight picker when a run has both km and manual lap types.
+  // Returns a Promise that resolves once the user picks (or immediately if no
+  // choice is needed).  As a side-effect it clicks the appropriate lap toggle
+  // button so the DOM is in the chosen state before the caller clones it.
+  function _promptLapModeIfNeeded(contentEl) {
+    return new Promise(function (resolve) {
+      var toggle = contentEl.querySelector("#rd4-lapmode-toggle");
+      if (!toggle || toggle.querySelectorAll(".rd4-lm-btn").length < 2) {
+        resolve();
+        return;
+      }
+      var activeBtn = toggle.querySelector(".rd4-lm-btn--on") || toggle.querySelector(".rd4-lm-btn");
+      var activeMode = activeBtn ? activeBtn.getAttribute("data-lap-mode") : "distance";
+
+      var overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9999;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      var box = document.createElement("div");
+      box.style.cssText =
+        "background:#fff;border-radius:14px;padding:22px 24px;max-width:260px;" +
+        "width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18);";
+      box.innerHTML =
+        '<p style="margin:0 0 14px;font-size:13px;font-weight:800;letter-spacing:.05em;' +
+        'text-transform:uppercase;color:#9aa3b2;">Screenshot — lap view</p>';
+
+      function makeBtn(label, mode) {
+        var b = document.createElement("button");
+        b.textContent = label;
+        var isActive = mode === activeMode;
+        b.style.cssText =
+          "display:block;width:100%;padding:11px;margin-bottom:8px;cursor:pointer;" +
+          "border-radius:9px;font-size:14px;font-weight:600;" +
+          "border:1.5px solid " + (isActive ? "#2563eb" : "#e0e4f0") + ";" +
+          "background:" + (isActive ? "#2563eb" : "#fff") + ";" +
+          "color:" + (isActive ? "#fff" : "#374151") + ";";
+        b.addEventListener("click", function () {
+          document.body.removeChild(overlay);
+          var target = toggle.querySelector('.rd4-lm-btn[data-lap-mode="' + mode + '"]');
+          if (target && !target.classList.contains("rd4-lm-btn--on")) target.click();
+          resolve();
+        });
+        return b;
+      }
+
+      box.appendChild(makeBtn("1 km splits", "distance"));
+      box.appendChild(makeBtn("Manual laps", "manual"));
+      overlay.appendChild(box);
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) { document.body.removeChild(overlay); resolve(); }
+      });
+      document.body.appendChild(overlay);
+    });
+  }
+
   function saveDetailScreenshot() {
     if (_detailScreenshotBusy) return;
     if (panelMode !== "view") return;
@@ -1837,73 +1893,75 @@
     closeOverflowMenu();
     _detailScreenshotBusy = true;
 
-    var shotBtn = document.getElementById("dp-screenshot-btn");
-    if (shotBtn) shotBtn.disabled = true;
+    _promptLapModeIfNeeded(contentEl).then(function () {
+      var shotBtn = document.getElementById("dp-screenshot-btn");
+      if (shotBtn) shotBtn.disabled = true;
 
-    var scrollEl = document.getElementById("dp-scroll");
-    var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-    if (scrollEl) scrollEl.scrollTop = 0;
+      var scrollEl = document.getElementById("dp-scroll");
+      var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+      if (scrollEl) scrollEl.scrollTop = 0;
 
-    var panel = document.getElementById("detail-panel");
-    var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
-    var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+      var panel = document.getElementById("detail-panel");
+      var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
+      var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
 
-    var host = document.createElement("div");
-    host.className = "dp-screenshot-capture";
-    host.setAttribute("aria-hidden", "true");
-    host.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:" +
-      captureWidth +
-      "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;z-index:-1;";
+      var host = document.createElement("div");
+      host.className = "dp-screenshot-capture";
+      host.setAttribute("aria-hidden", "true");
+      host.style.cssText =
+        "position:fixed;left:-10000px;top:0;width:" +
+        captureWidth +
+        "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;";
 
-    var clone = buildScreenshotClone(contentEl);
-    host.appendChild(clone);
-    document.body.appendChild(host);
+      var clone = buildScreenshotClone(contentEl);
+      host.appendChild(clone);
+      document.body.appendChild(host);
 
-    var overflowPatches = expandScreenshotOverflow(clone);
+      var overflowPatches = expandScreenshotOverflow(clone);
 
-    window
-      .html2canvas(host, {
-        backgroundColor: "#ffffff",
-        scale: window.devicePixelRatio > 1 ? 2 : 1.5,
-        logging: false,
-        useCORS: true,
-        width: captureWidth,
-        windowWidth: captureWidth,
-      })
-      .then(function (canvas) {
-        return new Promise(function (resolve, reject) {
-          canvas.toBlob(function (blob) {
-            if (!blob) {
-              reject(new Error("empty blob"));
-              return;
-            }
-            resolve(blob);
-          }, "image/png");
+      window
+        .html2canvas(host, {
+          backgroundColor: "#ffffff",
+          scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+          logging: false,
+          useCORS: true,
+          width: captureWidth,
+          windowWidth: captureWidth,
+        })
+        .then(function (canvas) {
+          return new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+              if (!blob) {
+                reject(new Error("empty blob"));
+                return;
+              }
+              resolve(blob);
+            }, "image/png");
+          });
+        })
+        .then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          var link = document.createElement("a");
+          link.href = url;
+          link.download = buildDetailScreenshotFilename();
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          UIStates.showToast("Workout saved as image");
+        })
+        .catch(function (err) {
+          console.error("detail screenshot failed", err);
+          UIStates.showToast("Could not save image. Try again.", true);
+        })
+        .finally(function () {
+          restoreScreenshotOverflow(overflowPatches);
+          if (host.parentNode) host.parentNode.removeChild(host);
+          if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+          _detailScreenshotBusy = false;
+          if (shotBtn) shotBtn.disabled = false;
         });
-      })
-      .then(function (blob) {
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = buildDetailScreenshotFilename();
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        UIStates.showToast("Workout saved as image");
-      })
-      .catch(function (err) {
-        console.error("detail screenshot failed", err);
-        UIStates.showToast("Could not save image. Try again.", true);
-      })
-      .finally(function () {
-        restoreScreenshotOverflow(overflowPatches);
-        if (host.parentNode) host.parentNode.removeChild(host);
-        if (scrollEl) scrollEl.scrollTop = savedScrollTop;
-        _detailScreenshotBusy = false;
-        if (shotBtn) shotBtn.disabled = false;
-      });
+    });
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────

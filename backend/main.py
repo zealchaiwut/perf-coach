@@ -221,7 +221,10 @@ def healthz():
 
 @app.get("/api/env")
 def get_env():
-    return JSONResponse({"environment": environment})
+    from urllib.parse import urlparse as _urlparse
+    from backend.db import engine as _db_engine
+    db_host = _urlparse(str(_db_engine.url)).hostname or "unknown"
+    return JSONResponse({"environment": environment, "db_host": db_host})
 
 
 @app.get("/api/environment")
