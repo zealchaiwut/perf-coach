@@ -117,8 +117,8 @@ def _sync_splits(session, workout, act) -> None:
     session.flush()
     # Index by position (1-based) so it is always unique, regardless of the
     # source dict's own index field. Fields read defensively across split shapes.
-    for i, s in enumerate(splits, start=1):
-        session.add(WorkoutSplit(
+    session.add_all([
+        WorkoutSplit(
             workout_id=workout.id,
             split_index=i,
             distance_km=s.get("distance_km") or 0,
@@ -127,7 +127,9 @@ def _sync_splits(session, workout, act) -> None:
             avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
             cadence_spm=s.get("cadence_spm"),
             stride_length_m=s.get("stride_length_m"),
-        ))
+        )
+        for i, s in enumerate(splits, start=1)
+    ])
 
 
 def _ingest_streams(session, all_acts, existing_workouts) -> None:
