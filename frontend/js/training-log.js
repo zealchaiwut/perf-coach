@@ -1932,9 +1932,8 @@
       var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
       if (scrollEl) scrollEl.scrollTop = 0;
 
-      var panel = document.getElementById("detail-panel");
-      var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
-      var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+      // Fixed 540px × scale 2 → 1080px PNG (Instagram post width).
+      var captureWidth = 540;
 
       var host = document.createElement("div");
       host.className = "dp-screenshot-capture";
@@ -1953,7 +1952,7 @@
       window
         .html2canvas(host, {
           backgroundColor: "#ffffff",
-          scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+          scale: 2,
           logging: false,
           useCORS: true,
           width: captureWidth,
@@ -3600,11 +3599,12 @@
   }
 
   function _syncSetBusy(busy) {
-    var allBtn = document.getElementById("sync-all-btn");
-    if (allBtn) allBtn.disabled = busy;
-    // Legacy: also disable old Strava-only button if it exists
-    var stravaBtn = document.getElementById("sync-strava-btn");
-    if (stravaBtn) stravaBtn.disabled = busy;
+    ["sync-btn-strava", "sync-btn-stryd", "sync-all-btn", "sync-strava-btn"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.disabled = busy;
+    });
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    if (toggleBtn) toggleBtn.disabled = busy;
   }
 
   function _syncToast(msg, isError) {
@@ -3832,6 +3832,104 @@
 
   function _onSyncStravaClick() {
     _onSyncAllClick();
+  }
+
+  function _onSyncProviderClick(label, url) {
+    _syncClearFeedback();
+    _syncSetBusy(true);
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    ready
+      .then(function () {
+        return _syncProvider(label, url, { full: false });
+      })
+      .then(function () {
+        if (window.syncBarRefresh) window.syncBarRefresh();
+        return fetch("/api/sync/status")
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.status === "error") {
+              throw new Error(data.error || "Sync failed");
+            }
+            _syncLastTerminalStatus = _syncTerminalKey(
+              data && data.status === "success" ? data : { status: "success", finished_at: "manual" }
+            );
+            _loadSyncChip();
+            fetchAndRender();
+            _syncToast(label + " sync complete");
+          });
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : "Sync failed";
+        _syncToast(msg, true);
+      })
+      .finally(function () {
+        _syncSetBusy(false);
+      });
+  }
+
+  function _initSyncWidget() {
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    var panel = document.getElementById("sync-panel");
+    if (!toggleBtn || !panel) return;
+
+    toggleBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = !panel.hidden;
+      panel.hidden = isOpen;
+      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!panel.hidden && !panel.contains(e.target) && e.target !== toggleBtn) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    Promise.all([
+      fetch("/api/strava/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch("/api/stryd/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+    ]).then(function (results) {
+      var stravaConnected = results[0] && results[0].connected;
+      var strydConnected = results[1] && results[1].connected;
+      var stravaBtn = document.getElementById("sync-btn-strava");
+      var strydBtn = document.getElementById("sync-btn-stryd");
+      var stravaTimeEl = document.getElementById("sync-time-strava");
+      var strydTimeEl = document.getElementById("sync-time-stryd");
+      if (!stravaConnected) {
+        if (stravaBtn) stravaBtn.disabled = true;
+        if (stravaTimeEl) stravaTimeEl.textContent = "Not connected";
+      }
+      if (!strydConnected) {
+        if (strydBtn) strydBtn.disabled = true;
+        if (strydTimeEl) strydTimeEl.textContent = "Not connected";
+      }
+    });
+
+    var stravaBtn = document.getElementById("sync-btn-strava");
+    if (stravaBtn) {
+      stravaBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Strava", "/api/strava/sync");
+      });
+    }
+
+    var strydBtn = document.getElementById("sync-btn-stryd");
+    if (strydBtn) {
+      strydBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Stryd", "/api/stryd/sync");
+      });
+    }
   }
 
   function handleEditorSaved(result) {
@@ -4077,13 +4175,7 @@
       if (e.key === "Escape" && dupModalIsOpen()) closeDuplicateModal();
     });
 
-    var syncStravaBtn = document.getElementById("sync-strava-btn");
-    if (syncStravaBtn)
-      syncStravaBtn.addEventListener("click", _onSyncStravaClick);
-
-    var syncAllBtn = document.getElementById("sync-all-btn");
-    if (syncAllBtn) syncAllBtn.addEventListener("click", _onSyncAllClick);
-
+    _initSyncWidget();
     _loadSyncChip();
 
     var exportBtn = document.getElementById("log-export-btn");
