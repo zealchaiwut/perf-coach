@@ -178,40 +178,84 @@
       color: #bbf7d0;
     }
 
-    /* ── Sync chip (issue #602; ported from sprint-66) ── */
+    /* ── Sync widget (expandable panel per-integration) ── */
+    .sync-widget { position: relative; }
     .sync-chip {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      padding: 4px 8px 4px 11px;
+      padding: 5px 10px;
       background: rgba(255,255,255,0.10);
       border: 1px solid rgba(255,255,255,0.18);
       border-radius: 20px;
       backdrop-filter: blur(8px);
       font-size: 11.5px;
-      color: rgba(255,255,255,0.8);
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
       white-space: nowrap;
       line-height: 1;
-    }
-    .sync-chip-label { font-weight: 500; }
-    .sync-chip-time { font-family: "JetBrains Mono", monospace; font-size: 11px; }
-    .sync-chip-sep { opacity: 0.35; font-size: 10px; }
-    .sync-chip-btn {
-      margin-left: 3px;
-      padding: 3px 9px;
-      background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.22);
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #fff;
       cursor: pointer;
       font-family: inherit;
-      line-height: 1;
-      transition: background 0.1s;
+      transition: background 0.12s;
     }
-    .sync-chip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
-    .sync-chip-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .sync-chip:hover { background: rgba(255,255,255,0.18); }
+    .sync-chip[aria-expanded="true"] { background: rgba(255,255,255,0.22); }
+    .sync-chevron { font-size: 9px; opacity: 0.6; transition: transform 0.15s; line-height: 1; }
+    .sync-chip[aria-expanded="true"] .sync-chevron { transform: rotate(180deg); }
+    .sync-panel {
+      position: absolute;
+      top: calc(100% + 7px);
+      right: 0;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 13px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.06);
+      min-width: 224px;
+      padding: 6px;
+      z-index: 200;
+    }
+    .sync-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 6px;
+      border-radius: 8px;
+    }
+    .sync-row + .sync-row { border-top: 1px solid #f1f5f9; }
+    .sync-row--soon { opacity: 0.45; }
+    .sync-row-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .sync-row-logo {
+      width: 26px; height: 26px; border-radius: 7px;
+      font-size: 9.5px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; flex: none; letter-spacing: -0.02em;
+    }
+    .sync-row-logo--strava { background: #fc4c02; }
+    .sync-row-logo--stryd  { background: #f97316; }
+    .sync-row-logo--garmin { background: #007dba; }
+    .sync-row-logo--suunto { background: #e31837; }
+    .sync-row-text { display: flex; flex-direction: column; min-width: 0; }
+    .sync-row-name { font-size: 12.5px; font-weight: 700; color: #1e293b; line-height: 1.25; }
+    .sync-row-time {
+      font-size: 10px; color: #94a3b8;
+      font-family: "JetBrains Mono", monospace; line-height: 1.3;
+    }
+    .sync-row-soon {
+      font-size: 9.5px; color: #94a3b8; background: #f1f5f9;
+      border-radius: 4px; padding: 1px 5px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      line-height: 1.4;
+    }
+    .sync-row-btn {
+      flex: none; padding: 4px 10px;
+      border: 1.5px solid #e2e8f0; border-radius: 8px;
+      background: #f8fafc; font-size: 11px; font-weight: 700;
+      color: #475569; cursor: pointer; font-family: inherit;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+    .sync-row-btn:hover:not(:disabled) { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+    .sync-row-btn:disabled { opacity: 0.38; cursor: not-allowed; }
 
     /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
     .training-sub-tabs {
@@ -2360,14 +2404,56 @@
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
-      <div id="sync-chip" class="sync-chip" aria-label="Sync status">
-        <span class="sync-chip-label">Strava</span>
-        <span id="sync-time-strava" class="sync-chip-time">…</span>
-        <span class="sync-chip-sep">·</span>
-        <span class="sync-chip-label">Stryd</span>
-        <span id="sync-time-stryd" class="sync-chip-time">…</span>
-        <button id="sync-all-btn" class="sync-chip-btn" type="button"
-                title="Pull new activities from Strava and Stryd since your last sync">Sync new</button>
+      <div id="sync-widget" class="sync-widget">
+        <button id="sync-toggle-btn" class="sync-chip" type="button"
+                aria-expanded="false" aria-controls="sync-panel"
+                title="Show sync options">
+          <i class="ti ti-refresh" aria-hidden="true" style="font-size:12px;"></i>
+          Sync
+          <span class="sync-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div id="sync-panel" class="sync-panel" hidden>
+          <div class="sync-row" data-provider="strava">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--strava">St</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Strava</span>
+                <span class="sync-row-time" id="sync-time-strava">…</span>
+              </div>
+            </div>
+            <button id="sync-btn-strava" class="sync-row-btn" type="button">Sync</button>
+          </div>
+          <div class="sync-row" data-provider="stryd">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--stryd">S</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Stryd</span>
+                <span class="sync-row-time" id="sync-time-stryd">…</span>
+              </div>
+            </div>
+            <button id="sync-btn-stryd" class="sync-row-btn" type="button">Sync</button>
+          </div>
+          <div class="sync-row sync-row--soon">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--garmin">G</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Garmin</span>
+                <span class="sync-row-soon">soon</span>
+              </div>
+            </div>
+            <button class="sync-row-btn" type="button" disabled>Sync</button>
+          </div>
+          <div class="sync-row sync-row--soon">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--suunto">Su</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Suunto</span>
+                <span class="sync-row-soon">soon</span>
+              </div>
+            </div>
+            <button class="sync-row-btn" type="button" disabled>Sync</button>
+          </div>
+        </div>
       </div>
       <button id="log-removed-btn" class="btn-secondary" type="button"
               title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> Removed</button>
