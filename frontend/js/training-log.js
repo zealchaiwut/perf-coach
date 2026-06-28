@@ -3855,7 +3855,7 @@
             );
             _loadSyncChip();
             fetchAndRender();
-            _syncToast(label + " sync complete");
+            _syncToast(label + ": synced new activities");
           });
       })
       .catch(function (err) {
