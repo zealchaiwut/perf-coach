@@ -79,6 +79,14 @@ from backend.services.aerobic_decoupling import compute_decoupling as _compute_d
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
+from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
+from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
+from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
+from backend.routers.plan import router as _plan_router
+
+# Ceiling TSB used when computing expressible scores from historical/projected TSB.
+# 20.0 matches the representative value established in issue #1107.
+_TIME_CURVE_CEILING_TSB: float = 20.0
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -90,15 +98,7 @@ def _derive_goal_pace(goal_time_seconds, distance_km):
 _start_time = time.monotonic()
 
 app = FastAPI()
-
-from backend.routers.plan import router as _plan_router
 app.include_router(_plan_router)
-
-
-def _derive_goal_pace(goal_time_seconds, distance_km):
-    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
-    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
-    return pace
 
 
 def _today_bkk() -> _date:
@@ -12405,9 +12405,10 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     on_track_status = on_track_result.get("status")
     on_track_bool = on_track_status in ("on track", "ahead") if on_track_status else None
 
-    # ── 9. specificity_progress and timeline_markers ─────────────────────────
-    # Fetch recent runs (last 90 days) and B/C-race + checkpoint markers in one
-    # DB session so the route handler owns all data access.
+    # ── 9. specificity_progress, timeline_markers, and user thresholds ──────────
+    # Fetch recent runs (last 90 days), B/C-race + checkpoint markers, and user
+    # preferences (for threshold_pace) in one DB session so the route handler
+    # owns all data access.
     run_window_start = today - _timedelta(days=90)
     with Session(engine) as db:
         from sqlalchemy import text as _text
@@ -12451,6 +12452,14 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             },
         ).fetchall()
 
+        user_prefs_row = db.query(UserPreferences).filter(
+            UserPreferences.user_id == user.id
+        ).first()
+        threshold_pace = (
+            user_prefs_row.threshold_pace_seconds_per_km
+            if user_prefs_row else None
+        )
+
     import types as _types
 
     recent_runs = [
@@ -12474,7 +12483,70 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             "label": r_name,
         })
 
-    # ── 10. Assemble response ─────────────────────────────────────────────────
+    # ── 10. Compute time_curve (historical + projected estimated finish times) ───
+    # The time curve maps TSB-derived expressible scores to estimated race finish
+    # times, giving a view of how the projected race performance evolves over time.
+    # Confidence bands (from projection.py) are included for projected entries.
+    _tc_thresholds = {"threshold_pace_seconds_per_km": threshold_pace}
+    _tc_distance = float(race.distance_km) if race.distance_km else None
+
+    # History: last 90 days of load_curves → expressible score → estimated finish time
+    _tc_history_cutoff = today - _timedelta(days=90)
+    time_curve_history = []
+    for _row in load_curves:
+        if _row["date"] < _tc_history_cutoff:
+            continue
+        _base = _projected_ctl_to_score_ceiling(_row["ctl"])["endurance_ceiling"]
+        _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
+        _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
+        if _est["estimated_finish_seconds"] is not None:
+            time_curve_history.append({
+                "date": _row["date"].isoformat(),
+                "estimated_finish_seconds": _est["estimated_finish_seconds"],
+                "estimated_finish_time": _est["estimated_finish_time"],
+            })
+
+    # Projection: from today to race_date with zero load (taper assumption) + confidence band
+    time_curve_projection = []
+    if not building_baseline:
+        _days_to_race = (race.race_date - today).days
+        if _days_to_race > 0:
+            _planned = [0.0] * _days_to_race
+            _proj_series = _project_fitness(
+                planned_load=_planned,
+                start_ctl=last_row["ctl"],
+                start_atl=last_row["atl"],
+                start_date=today,
+            )
+            for _day, _day_data in sorted(_proj_series.items()):
+                _base = _projected_ctl_to_score_ceiling(_day_data["ctl"])["endurance_ceiling"]
+                _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
+                _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
+                if _est["estimated_finish_seconds"] is None:
+                    continue
+                # Treat confidence_band_days as a percentage of estimated finish time.
+                # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
+                _cb_pct = _day_data["confidence_band"]
+                _band_sec = int(_est["estimated_finish_seconds"] * _cb_pct / 100.0)
+                time_curve_projection.append({
+                    "date": _day.isoformat(),
+                    "estimated_finish_seconds": _est["estimated_finish_seconds"],
+                    "estimated_finish_time": _est["estimated_finish_time"],
+                    "confidence_band_seconds": _band_sec,
+                    "upper_seconds": _est["estimated_finish_seconds"] + _band_sec,
+                    "lower_seconds": max(0, _est["estimated_finish_seconds"] - _band_sec),
+                })
+
+    # Goal finish time
+    _goal_secs = race.goal_time_seconds if race.goal_time_seconds else None
+    _goal_str: Optional[str] = None
+    if _goal_secs:
+        _gh = _goal_secs // 3600
+        _gm = (_goal_secs % 3600) // 60
+        _gs = _goal_secs % 60
+        _goal_str = f"{_gh}:{_gm:02d}:{_gs:02d}"
+
+    # ── 11. Assemble response ─────────────────────────────────────────────────
     response: dict = {
         "race_id": str(race.id),
         "building_baseline": building_baseline,
@@ -12486,6 +12558,12 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
         },
         "specificity_progress": spec_result,
         "timeline_markers": timeline_markers,
+        "time_curve": {
+            "history": time_curve_history,
+            "projection": time_curve_projection,
+            "goal_finish_seconds": _goal_secs,
+            "goal_finish_time": _goal_str,
+        },
     }
 
     if not building_baseline:

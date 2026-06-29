@@ -7,13 +7,16 @@
   var _primaryRace = null;
   var _readiness = null;
   var _formCurveChart = null;
+  var _timeCurveChart = null;
   var _editingRaceId = null;
   var _editingRaceType = "race";
   var _confirmCallback = null;
   var _planId = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function pad(n) { return String(n).padStart(2, "0"); }
+  function pad(n) {
+    return String(n).padStart(2, "0");
+  }
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -25,13 +28,28 @@
 
   function todayISO() {
     var d = new Date();
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    return (
+      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+    );
   }
 
   function formatDate(iso) {
     if (!iso) return "—";
     var d = new Date(iso + "T00:00:00");
-    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
   }
 
@@ -86,13 +104,28 @@
 
   // ── Plan ID ───────────────────────────────────────────────────────────────
   function _ensurePlanId(cb) {
-    if (_planId) { cb(); return; }
+    if (_planId) {
+      cb();
+      return;
+    }
     var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    if (uid) { _planId = uid; cb(); return; }
+    if (uid) {
+      _planId = uid;
+      cb();
+      return;
+    }
     fetch("/api/auth/me", { credentials: "same-origin" })
-      .then(function (r) { if (!r.ok) return null; return r.json(); })
-      .then(function (u) { if (u) _planId = u.id; cb(); })
-      .catch(function () { cb(); });
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (u) {
+        if (u) _planId = u.id;
+        cb();
+      })
+      .catch(function () {
+        cb();
+      });
   }
 
   function _planRaceUrl(raceId) {
@@ -107,7 +140,10 @@
         return r.json();
       })
       .then(cb)
-      .catch(function (e) { console.warn("[plan] GET", url, e); cb(null); });
+      .catch(function (e) {
+        console.warn("[plan] GET", url, e);
+        cb(null);
+      });
   }
 
   function apiPost(url, body, cb) {
@@ -118,10 +154,14 @@
       body: JSON.stringify(body),
     })
       .then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+        return r.json().then(function (d) {
+          return { ok: r.ok, status: r.status, data: d };
+        });
       })
       .then(cb)
-      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
+      .catch(function (e) {
+        cb({ ok: false, status: 0, data: { detail: e.message } });
+      });
   }
 
   function apiPatch(url, body, cb) {
@@ -132,16 +172,24 @@
       body: JSON.stringify(body),
     })
       .then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+        return r.json().then(function (d) {
+          return { ok: r.ok, status: r.status, data: d };
+        });
       })
       .then(cb)
-      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
+      .catch(function (e) {
+        cb({ ok: false, status: 0, data: { detail: e.message } });
+      });
   }
 
   function apiDelete(url, cb) {
     fetch(url, { method: "DELETE", credentials: "same-origin" })
-      .then(function (r) { cb({ ok: r.ok, status: r.status }); })
-      .catch(function (e) { cb({ ok: false, status: 0 }); });
+      .then(function (r) {
+        cb({ ok: r.ok, status: r.status });
+      })
+      .catch(function (e) {
+        cb({ ok: false, status: 0 });
+      });
   }
 
   // ── Race header ───────────────────────────────────────────────────────────
@@ -152,24 +200,33 @@
     if (!_primaryRace) {
       el.innerHTML =
         '<div class="plan-no-race">' +
-        '<span>No A-priority race set. Add your main race to start planning.</span>' +
+        "<span>No A-priority race set. Add your main race to start planning.</span>" +
         '<button id="plan-header-add-btn" class="plan-add-btn" type="button">+ Add Race</button>' +
-        '</div>';
+        "</div>";
       var addBtn = document.getElementById("plan-header-add-btn");
-      if (addBtn) addBtn.addEventListener("click", function () { openModal(null, "race"); });
+      if (addBtn)
+        addBtn.addEventListener("click", function () {
+          openModal(null, "race");
+        });
       return;
     }
 
     var r = _primaryRace;
     var weeks = weeksUntil(r.date);
-    var weeksHtml = weeks !== null && weeks > 0
-      ? '<span class="plan-weeks-chip">⏱ ' + weeks + ' week' + (weeks === 1 ? "" : "s") + ' to go</span>'
-      : "";
+    var weeksHtml =
+      weeks !== null && weeks > 0
+        ? '<span class="plan-weeks-chip">⏱ ' +
+          weeks +
+          " week" +
+          (weeks === 1 ? "" : "s") +
+          " to go</span>"
+        : "";
 
     var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : null;
-    var goalPaceSecPerKm = r.goal_time_seconds && r.distance
-      ? r.goal_time_seconds / parseFloat(r.distance)
-      : null;
+    var goalPaceSecPerKm =
+      r.goal_time_seconds && r.distance
+        ? r.goal_time_seconds / parseFloat(r.distance)
+        : null;
     var goalPace = goalPaceSecPerKm ? fmtPace(goalPaceSecPerKm) : null;
 
     el.innerHTML =
@@ -177,16 +234,30 @@
       '<div class="plan-race-hd-info">' +
       '<h2 class="plan-race-hd-name">' +
       esc(r.name) +
-      '</h2>' +
+      "</h2>" +
       '<div class="plan-race-meta">' +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Date</span><span class="plan-meta-value">' + esc(formatDate(r.date)) + '</span></div>' +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Distance</span><span class="plan-meta-value">' + parseFloat(r.distance).toFixed(3).replace(/\.?0+$/, "") + ' km</span></div>' +
-      (goalTime ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal time</span><span class="plan-meta-value">' + esc(goalTime) + '</span></div>' : '') +
-      (goalPace ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal pace</span><span class="plan-meta-value">' + esc(goalPace) + '</span></div>' : '') +
-      '</div>' +
+      '<div class="plan-race-meta-item"><span class="plan-meta-label">Date</span><span class="plan-meta-value">' +
+      esc(formatDate(r.date)) +
+      "</span></div>" +
+      '<div class="plan-race-meta-item"><span class="plan-meta-label">Distance</span><span class="plan-meta-value">' +
+      parseFloat(r.distance)
+        .toFixed(3)
+        .replace(/\.?0+$/, "") +
+      " km</span></div>" +
+      (goalTime
+        ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal time</span><span class="plan-meta-value">' +
+          esc(goalTime) +
+          "</span></div>"
+        : "") +
+      (goalPace
+        ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal pace</span><span class="plan-meta-value">' +
+          esc(goalPace) +
+          "</span></div>"
+        : "") +
+      "</div>" +
       weeksHtml +
-      '</div>' +
-      '</div>';
+      "</div>" +
+      "</div>";
   }
 
   // ── Verdict banner ────────────────────────────────────────────────────────
@@ -269,24 +340,36 @@
     });
 
     if (projectedForm) {
-      Object.keys(projectedForm).sort().forEach(function (d) {
-        projectedDates.push(d);
-        projectedValues.push(parseFloat(projectedForm[d].toFixed(2)));
-      });
+      Object.keys(projectedForm)
+        .sort()
+        .forEach(function (d) {
+          projectedDates.push(d);
+          projectedValues.push(parseFloat(projectedForm[d].toFixed(2)));
+        });
     }
 
     var allDates = historicalDates.concat(projectedDates);
-    var allValues = historicalValues.concat(projectedValues.map(function () { return null; }));
-    var projOnlyValues = historicalDates.map(function () { return null; }).concat(projectedValues);
+    var allValues = historicalValues.concat(
+      projectedValues.map(function () {
+        return null;
+      }),
+    );
+    var projOnlyValues = historicalDates
+      .map(function () {
+        return null;
+      })
+      .concat(projectedValues);
 
     if (_formCurveChart) {
       _formCurveChart.destroy();
       _formCurveChart = null;
     }
 
-    var taperDate = _readiness.taper_recommendation && _readiness.taper_recommendation.taper_start_date
-      ? _readiness.taper_recommendation.taper_start_date
-      : null;
+    var taperDate =
+      _readiness.taper_recommendation &&
+      _readiness.taper_recommendation.taper_start_date
+        ? _readiness.taper_recommendation.taper_start_date
+        : null;
 
     var annotations = {};
     if (taperDate) {
@@ -297,7 +380,14 @@
         borderColor: "rgba(180, 83, 9, 0.7)",
         borderWidth: 1.5,
         borderDash: [4, 4],
-        label: { content: "Taper", enabled: true, position: "start", backgroundColor: "rgba(180,83,9,0.8)", color: "#fff", font: { size: 10 } },
+        label: {
+          content: "Taper",
+          enabled: true,
+          position: "start",
+          backgroundColor: "rgba(180,83,9,0.8)",
+          color: "#fff",
+          font: { size: 10 },
+        },
       };
     }
 
@@ -308,12 +398,22 @@
         xMax: _primaryRace.date,
         borderColor: "rgba(21, 128, 61, 0.8)",
         borderWidth: 2,
-        label: { content: "Race day", enabled: true, position: "start", backgroundColor: "rgba(21,128,61,0.8)", color: "#fff", font: { size: 10 } },
+        label: {
+          content: "Race day",
+          enabled: true,
+          position: "start",
+          backgroundColor: "rgba(21,128,61,0.8)",
+          color: "#fff",
+          font: { size: 10 },
+        },
       };
     }
 
     _races.forEach(function (race) {
-      if (race.type === "race" && race.id !== (_primaryRace && _primaryRace.id)) {
+      if (
+        race.type === "race" &&
+        race.id !== (_primaryRace && _primaryRace.id)
+      ) {
         annotations["brace_" + race.id] = {
           type: "line",
           xMin: race.date,
@@ -363,7 +463,9 @@
           },
           {
             label: "Fresh zone",
-            data: allDates.map(function () { return 5; }),
+            data: allDates.map(function () {
+              return 5;
+            }),
             borderWidth: 0,
             backgroundColor: "rgba(34, 197, 94, 0.1)",
             fill: { target: { value: 100 } },
@@ -372,7 +474,9 @@
           },
           {
             label: "Buried zone",
-            data: allDates.map(function () { return -30; }),
+            data: allDates.map(function () {
+              return -30;
+            }),
             borderWidth: 0,
             backgroundColor: "rgba(239, 68, 68, 0.1)",
             fill: { target: { value: -100 } },
@@ -388,7 +492,13 @@
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: function (ctx) { return ctx.dataset.label + ": " + (ctx.raw != null ? ctx.raw.toFixed(1) : "—"); },
+              label: function (ctx) {
+                return (
+                  ctx.dataset.label +
+                  ": " +
+                  (ctx.raw != null ? ctx.raw.toFixed(1) : "—")
+                );
+              },
             },
           },
         },
@@ -400,6 +510,251 @@
           },
           y: {
             ticks: { font: { size: 10 }, color: "#9aa3b2" },
+            grid: { color: "#f0f2f8" },
+          },
+        },
+        animation: { duration: 300 },
+      },
+    });
+  }
+
+  // ── Projected time-curve chart (issue #1113) ──────────────────────────────
+  function _fmtSeconds(sec) {
+    if (sec == null) return "—";
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    if (h > 0) return h + ":" + pad(m) + ":" + pad(s);
+    return m + ":" + pad(s);
+  }
+
+  function renderTimeCurve() {
+    var emptyEl = document.getElementById("plan-time-curve-empty");
+    var wrapEl = document.getElementById("plan-time-curve-wrap");
+    var errorEl = document.getElementById("plan-time-curve-error");
+
+    function _showEmpty() {
+      if (emptyEl) emptyEl.style.display = "";
+      if (wrapEl) wrapEl.style.display = "none";
+      if (errorEl) errorEl.style.display = "none";
+    }
+    function _showError() {
+      if (emptyEl) emptyEl.style.display = "none";
+      if (wrapEl) wrapEl.style.display = "none";
+      if (errorEl) errorEl.style.display = "";
+    }
+    function _showChart() {
+      if (emptyEl) emptyEl.style.display = "none";
+      if (wrapEl) wrapEl.style.display = "";
+      if (errorEl) errorEl.style.display = "none";
+    }
+
+    if (!_readiness || !_primaryRace) {
+      _showEmpty();
+      return;
+    }
+
+    var tc = _readiness.time_curve;
+    if (!tc) {
+      _showEmpty();
+      return;
+    }
+
+    var history = tc.history || [];
+    var projection = tc.projection || [];
+    var goalSec = tc.goal_finish_seconds || null;
+
+    if (history.length === 0 && projection.length === 0) {
+      _showEmpty();
+      return;
+    }
+
+    var canvas = document.getElementById("plan-time-curve");
+    if (!canvas || typeof Chart === "undefined") {
+      _showError();
+      return;
+    }
+
+    _showChart();
+
+    if (_timeCurveChart) {
+      _timeCurveChart.destroy();
+      _timeCurveChart = null;
+    }
+
+    var today = todayISO();
+
+    var histDates = history.map(function (e) {
+      return e.date;
+    });
+    var projDates = projection.map(function (e) {
+      return e.date;
+    });
+    var allDates = histDates.concat(projDates);
+
+    var histValues = history.map(function (e) {
+      return e.estimated_finish_seconds != null
+        ? e.estimated_finish_seconds
+        : null;
+    });
+    var histData = histValues.concat(
+      projDates.map(function () {
+        return null;
+      }),
+    );
+
+    var projCenter = histDates
+      .map(function () {
+        return null;
+      })
+      .concat(
+        projection.map(function (e) {
+          return e.estimated_finish_seconds != null
+            ? e.estimated_finish_seconds
+            : null;
+        }),
+      );
+
+    var projUpper = histDates
+      .map(function () {
+        return null;
+      })
+      .concat(
+        projection.map(function (e) {
+          return e.upper_seconds != null ? e.upper_seconds : null;
+        }),
+      );
+
+    var projLower = histDates
+      .map(function () {
+        return null;
+      })
+      .concat(
+        projection.map(function (e) {
+          return e.lower_seconds != null ? e.lower_seconds : null;
+        }),
+      );
+
+    var goalLine =
+      goalSec != null
+        ? allDates.map(function () {
+            return goalSec;
+          })
+        : null;
+
+    var annotations = {};
+    if (today && allDates.indexOf(today) >= 0) {
+      annotations.nowLine = {
+        type: "line",
+        xMin: today,
+        xMax: today,
+        borderColor: "rgba(100, 116, 139, 0.75)",
+        borderWidth: 1.5,
+        borderDash: [4, 4],
+        label: {
+          content: "NOW",
+          enabled: true,
+          position: "start",
+          backgroundColor: "rgba(100,116,139,0.8)",
+          color: "#fff",
+          font: { size: 10 },
+        },
+      };
+    }
+
+    var datasets = [
+      {
+        label: "Historical",
+        data: histData,
+        borderColor: "#3563d4",
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3,
+        pointRadius: 0,
+        spanGaps: false,
+      },
+      {
+        label: "Projected",
+        data: projCenter,
+        borderColor: "#3563d4",
+        borderWidth: 2,
+        borderDash: [6, 3],
+        fill: false,
+        tension: 0.3,
+        pointRadius: 0,
+        spanGaps: false,
+      },
+      {
+        label: "Band upper",
+        data: projUpper,
+        borderColor: "transparent",
+        backgroundColor: "rgba(53, 99, 212, 0.12)",
+        fill: "+1",
+        tension: 0.3,
+        pointRadius: 0,
+        spanGaps: false,
+      },
+      {
+        label: "Band lower",
+        data: projLower,
+        borderColor: "transparent",
+        backgroundColor: "rgba(53, 99, 212, 0.12)",
+        fill: false,
+        tension: 0.3,
+        pointRadius: 0,
+        spanGaps: false,
+      },
+    ];
+
+    if (goalLine) {
+      datasets.push({
+        label: "Goal",
+        data: goalLine,
+        borderColor: "rgba(21, 128, 61, 0.7)",
+        borderWidth: 1.5,
+        borderDash: [5, 3],
+        fill: false,
+        tension: 0,
+        pointRadius: 0,
+      });
+    }
+
+    _timeCurveChart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: allDates,
+        datasets: datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          annotation: { annotations: annotations },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                if (ctx.raw == null) return null;
+                return ctx.dataset.label + ": " + _fmtSeconds(ctx.raw);
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "category",
+            ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b2" },
+            grid: { display: false },
+          },
+          y: {
+            reverse: false,
+            ticks: {
+              font: { size: 10 },
+              color: "#9aa3b2",
+              callback: function (val) {
+                return _fmtSeconds(val);
+              },
+            },
             grid: { color: "#f0f2f8" },
           },
         },
@@ -421,17 +776,29 @@
       return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
     });
 
-    var races = sorted.filter(function (r) { return r.type !== "checkpoint"; });
-    var checkpoints = sorted.filter(function (r) { return r.type === "checkpoint"; });
+    var races = sorted.filter(function (r) {
+      return r.type !== "checkpoint";
+    });
+    var checkpoints = sorted.filter(function (r) {
+      return r.type === "checkpoint";
+    });
 
     if (sorted.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
-      Array.from(container.querySelectorAll(".plan-editor-section")).forEach(function (el) { el.remove(); });
+      Array.from(container.querySelectorAll(".plan-editor-section")).forEach(
+        function (el) {
+          el.remove();
+        },
+      );
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
 
-    Array.from(container.querySelectorAll(".plan-editor-section")).forEach(function (el) { el.remove(); });
+    Array.from(container.querySelectorAll(".plan-editor-section")).forEach(
+      function (el) {
+        el.remove();
+      },
+    );
 
     function buildSection(label, items) {
       var sec = document.createElement("div");
@@ -466,9 +833,15 @@
         var meta = document.createElement("div");
         meta.className = "plan-race-row-meta";
         meta.innerHTML =
-          '<span>' + esc(formatDate(r.date)) + '</span>' +
-          ' <span>' + parseFloat(r.distance || 0).toFixed(2) + ' km</span>' +
-          (r.goal_time_seconds ? ' <span>' + esc(fmtTime(r.goal_time_seconds)) + '</span>' : '');
+          "<span>" +
+          esc(formatDate(r.date)) +
+          "</span>" +
+          " <span>" +
+          parseFloat(r.distance || 0).toFixed(2) +
+          " km</span>" +
+          (r.goal_time_seconds
+            ? " <span>" + esc(fmtTime(r.goal_time_seconds)) + "</span>"
+            : "");
         info.appendChild(meta);
         row.appendChild(info);
 
@@ -536,22 +909,38 @@
       if (cEl) cEl.textContent = fmtKm(current);
       if (tEl) tEl.textContent = fmtKm(target);
       if (fEl) {
-        var pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
+        var pct =
+          target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+        fEl.style.transform = "scaleX(" + pct / 100 + ")";
       }
     }
 
     if (sp.volume_at_pace) {
-      updateBar("plan-spec-volume-current", "plan-spec-volume-target", "plan-spec-volume-fill",
-        sp.volume_at_pace.current, sp.volume_at_pace.target);
+      updateBar(
+        "plan-spec-volume-current",
+        "plan-spec-volume-target",
+        "plan-spec-volume-fill",
+        sp.volume_at_pace.current,
+        sp.volume_at_pace.target,
+      );
     }
     if (sp.longest_pace_effort) {
-      updateBar("plan-spec-pace-current", "plan-spec-pace-target", "plan-spec-pace-fill",
-        sp.longest_pace_effort.current, sp.longest_pace_effort.target);
+      updateBar(
+        "plan-spec-pace-current",
+        "plan-spec-pace-target",
+        "plan-spec-pace-fill",
+        sp.longest_pace_effort.current,
+        sp.longest_pace_effort.target,
+      );
     }
     if (sp.longest_run_by_distance) {
-      updateBar("plan-spec-slower-current", "plan-spec-slower-target", "plan-spec-slower-fill",
-        sp.longest_run_by_distance.current, sp.longest_run_by_distance.target);
+      updateBar(
+        "plan-spec-slower-current",
+        "plan-spec-slower-target",
+        "plan-spec-slower-fill",
+        sp.longest_run_by_distance.current,
+        sp.longest_run_by_distance.target,
+      );
     }
     if (sp.longest_run_by_duration) {
       var durCurrent = sp.longest_run_by_duration.current || 0;
@@ -562,18 +951,29 @@
       if (cEl) cEl.textContent = fmtTime(durCurrent) || "—";
       if (tEl) tEl.textContent = fmtTime(durTarget) || "—";
       if (fEl) {
-        var pct = durTarget > 0 ? Math.min(100, Math.round((durCurrent / durTarget) * 100)) : 0;
-        fEl.style.transform = "scaleX(" + (pct / 100) + ")";
+        var pct =
+          durTarget > 0
+            ? Math.min(100, Math.round((durCurrent / durTarget) * 100))
+            : 0;
+        fEl.style.transform = "scaleX(" + pct / 100 + ")";
       }
     }
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────
   function loadRaces(done) {
-    if (!_planId) { _races = []; _primaryRace = null; if (done) done(); return; }
+    if (!_planId) {
+      _races = [];
+      _primaryRace = null;
+      if (done) done();
+      return;
+    }
     apiGet(_planRaceUrl(), function (data) {
       _races = Array.isArray(data) ? data : [];
-      _primaryRace = _races.find(function (r) { return r.type === "race"; }) || null;
+      _primaryRace =
+        _races.find(function (r) {
+          return r.type === "race";
+        }) || null;
       if (done) done();
     });
   }
@@ -594,6 +994,7 @@
     renderRaceHeader();
     renderVerdict();
     renderCurve();
+    renderTimeCurve();
     renderRacesList();
     renderSpecBars();
   }
@@ -627,9 +1028,14 @@
 
     var isCheckpoint = _editingRaceType === "checkpoint";
 
-    if (title) title.textContent = race
-      ? (isCheckpoint ? "Edit Checkpoint" : "Edit Race")
-      : (isCheckpoint ? "Add Checkpoint" : "Add Race");
+    if (title)
+      title.textContent = race
+        ? isCheckpoint
+          ? "Edit Checkpoint"
+          : "Edit Race"
+        : isCheckpoint
+          ? "Add Checkpoint"
+          : "Add Race";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
     if (errEl) errEl.textContent = "";
 
@@ -670,9 +1076,18 @@
     var type = typeIn ? typeIn.value : _editingRaceType;
     var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
-    if (!name) { if (errEl) errEl.textContent = "Name is required."; return; }
-    if (!date) { if (errEl) errEl.textContent = "Date is required."; return; }
-    if (isNaN(dist) || dist <= 0) { if (errEl) errEl.textContent = "Distance must be a positive number."; return; }
+    if (!name) {
+      if (errEl) errEl.textContent = "Name is required.";
+      return;
+    }
+    if (!date) {
+      if (errEl) errEl.textContent = "Date is required.";
+      return;
+    }
+    if (isNaN(dist) || dist <= 0) {
+      if (errEl) errEl.textContent = "Distance must be a positive number.";
+      return;
+    }
 
     var body = {
       name: name,
@@ -687,7 +1102,11 @@
     if (_editingRaceId) {
       apiPatch(_planRaceUrl(_editingRaceId), body, function (res) {
         if (!res.ok) {
-          if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
+          if (errEl)
+            errEl.textContent =
+              res.data && res.data.detail
+                ? JSON.stringify(res.data.detail)
+                : "Save failed.";
           return;
         }
         closeModal();
@@ -696,7 +1115,11 @@
     } else {
       apiPost(_planRaceUrl(), body, function (res) {
         if (!res.ok) {
-          if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
+          if (errEl)
+            errEl.textContent =
+              res.data && res.data.detail
+                ? JSON.stringify(res.data.detail)
+                : "Save failed.";
           return;
         }
         closeModal();
@@ -726,8 +1149,14 @@
   function deleteEditing() {
     if (!_editingRaceId) return;
     var rid = _editingRaceId;
-    var race = _races.find(function (r) { return r.id === rid; });
-    var label = race ? (race.type === "checkpoint" ? "checkpoint" : "race") : "entry";
+    var race = _races.find(function (r) {
+      return r.id === rid;
+    });
+    var label = race
+      ? race.type === "checkpoint"
+        ? "checkpoint"
+        : "race"
+      : "entry";
     closeModal();
     showConfirm(
       "Delete this " + label + "?",
@@ -736,13 +1165,19 @@
         apiDelete(_planRaceUrl(rid), function (res) {
           if (res.ok) refresh();
         });
-      }
+      },
     );
   }
 
   function _deleteRow(raceId, raceName) {
-    var race = _races.find(function (r) { return r.id === raceId; });
-    var label = race ? (race.type === "checkpoint" ? "checkpoint" : "race") : "entry";
+    var race = _races.find(function (r) {
+      return r.id === raceId;
+    });
+    var label = race
+      ? race.type === "checkpoint"
+        ? "checkpoint"
+        : "race"
+      : "entry";
     showConfirm(
       "Delete this " + label + "?",
       "This action cannot be undone.",
@@ -750,17 +1185,23 @@
         apiDelete(_planRaceUrl(raceId), function (res) {
           if (res.ok) refresh();
         });
-      }
+      },
     );
   }
 
   // ── Event wiring ──────────────────────────────────────────────────────────
   function wireEvents() {
     var addRaceBtn = document.getElementById("plan-add-race-btn");
-    if (addRaceBtn) addRaceBtn.addEventListener("click", function () { openModal(null, "race"); });
+    if (addRaceBtn)
+      addRaceBtn.addEventListener("click", function () {
+        openModal(null, "race");
+      });
 
     var addCpBtn = document.getElementById("plan-add-checkpoint-btn");
-    if (addCpBtn) addCpBtn.addEventListener("click", function () { openModal(null, "checkpoint"); });
+    if (addCpBtn)
+      addCpBtn.addEventListener("click", function () {
+        openModal(null, "checkpoint");
+      });
 
     var modalClose = document.getElementById("plan-modal-close");
     if (modalClose) modalClose.addEventListener("click", closeModal);
@@ -778,11 +1219,12 @@
     if (confirmCancel) confirmCancel.addEventListener("click", closeConfirm);
 
     var confirmDelete = document.getElementById("plan-confirm-delete");
-    if (confirmDelete) confirmDelete.addEventListener("click", function () {
-      var cb = _confirmCallback;
-      closeConfirm();
-      if (cb) cb();
-    });
+    if (confirmDelete)
+      confirmDelete.addEventListener("click", function () {
+        var cb = _confirmCallback;
+        closeConfirm();
+        if (cb) cb();
+      });
 
     var planModal = document.getElementById("plan-race-modal");
     if (planModal) {
@@ -808,5 +1250,4 @@
   }
 
   window.TrainingPlan = { init: init };
-
 })();
