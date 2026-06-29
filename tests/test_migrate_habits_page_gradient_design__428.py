@@ -35,6 +35,12 @@ HABITS_HTML = (PAGES_DIR / "habits.html").read_text()
 HABITS_JS = (JS_DIR / "habits.js").read_text()
 SHARED_CSS = (CSS_DIR / "styles.css").read_text()
 
+# CSS was extracted to habits.css (issue #453). Append it with style tags so
+# tests that regex-search for <style> blocks still find CSS pattern content.
+_habits_css_path = CSS_DIR / "habits.css"
+if _habits_css_path.exists():
+    HABITS_HTML = HABITS_HTML + "\n<style>\n" + _habits_css_path.read_text() + "\n</style>"
+
 
 # ── AC1: Layout order ─────────────────────────────────────────────────────────
 

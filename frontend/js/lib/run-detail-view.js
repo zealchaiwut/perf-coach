@@ -82,6 +82,16 @@
     return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
   }
 
+  function percentile(nums, p) {
+    var a = nums.filter(function (v) { return v != null && isFinite(v); });
+    if (!a.length) return null;
+    a.sort(function (x, y) { return x - y; });
+    var i = (p / 100) * (a.length - 1);
+    var lo = Math.floor(i), hi = Math.ceil(i);
+    if (lo === hi) return a[lo];
+    return a[lo] + (i - lo) * (a[hi] - a[lo]);
+  }
+
   function decodePolyline(encoded) {
     if (!encoded) return [];
     var coords = [];
@@ -147,6 +157,41 @@
     if (l.indexOf("threshold") >= 0) return "threshold";
     return "steady";
   }
+
+  // Named-phase palette for the session-profile bars + zone brackets.
+  // (warm-up/cool-down share the "easy" band but get distinct colors here.)
+  var PHASE_NAME2 = { warmup: "Warm-up", steady: "Steady", tempo: "Tempo", threshold: "Threshold", cooldown: "Cool-down" };
+  var PHASE_COLOR2 = { warmup: "#3b82f6", steady: "#22c55e", tempo: "#f59e0b", threshold: "#f97316", cooldown: "#a78bfa" };
+
+  function phaseKey2(label, band) {
+    var s = (label || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (s.indexOf("warm") === 0) return "warmup";
+    if (s.indexOf("cool") === 0) return "cooldown";
+    if (s.indexOf("tempo") === 0) return "tempo";
+    if (s.indexOf("threshold") === 0) return "threshold";
+    if (s.indexOf("steady") === 0 || s.indexOf("easy") === 0) return "steady";
+    var b = (band || "").toLowerCase();
+    if (b === "tempo") return "tempo";
+    if (b === "hard" || b === "race" || b === "threshold") return "threshold";
+    return "steady";
+  }
+
+  function fmtPaceSec2(sec) {
+    if (sec == null) return "—";
+    var mm = Math.floor(sec / 60), ss = Math.round(sec % 60);
+    return mm + ":" + (ss < 10 ? "0" : "") + ss;
+  }
+  function gridSpans2(n) { var s = ""; for (var i = 0; i < n; i++) s += "<span></span>"; return s; }
+
+  // Physiological intensity ranking — drives surge (up) vs dip (down) for
+  // deviations in the variable/race regime; never hardcoded per session.
+  var KEY_RANK2 = { cooldown: 0, warmup: 1, recovery: 0, easy: 1, steady: 2, tempo: 3, threshold: 4, hard: 5, race: 6 };
+  function keyRank2(k) { var r = KEY_RANK2[k]; return r == null ? 2 : r; }
+  function avg2(arr) {
+    var v = arr.filter(function (x) { return x != null && !isNaN(x); });
+    return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null;
+  }
+  function lapRange2(from1, to1) { return from1 === to1 ? "" + from1 : from1 + "–" + to1; }
 
   function normalizeStravaLap(lap, index) {
     var distM = lap.distance;
@@ -375,15 +420,7 @@
         if (m.zone2) rowCls += " rd4-lap-row--z2";
         if (m.anomaly) rowCls += " rd4-lap-row--break";
         var pills = "";
-        if (m.zone2) pills += '<span class="rd4-z2-pill">Z2</span>';
         if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
-        if (s._lapSource)
-          pills +=
-            '<span class="rd4-lap-src rd4-lap-src--' +
-            s._lapSource +
-            '">' +
-            s._lapSource.toUpperCase() +
-            "</span>";
         var paceCls = m.fastest ? " rd4-fastest" : "";
         return (
           "<tr class=\"" +
@@ -427,6 +464,8 @@
     });
     var medP = median(powers);
     var medC = median(cadences);
+    var q3P = percentile(powers, 75);
+    var q3C = percentile(cadences, 75);
     var paceSecs = splits.map(function (s) {
       var d = parseFloat(s.distance_km);
       return d && s.duration_seconds ? s.duration_seconds / d : null;
@@ -442,13 +481,14 @@
       var pwr = s.avg_power != null ? +s.avg_power : null;
       var cad = s.cadence_spm != null ? +s.cadence_spm : null;
       var stride = s.stride_length_m != null ? +s.stride_length_m : null;
+      // Primary: both clearly below median (handles obvious rest laps).
+      // Secondary OR: catches borderline rest laps in bimodal interval workouts
+      // where the median falls between the two power clusters.
       var anomaly =
-        medP != null &&
-        pwr != null &&
-        pwr < medP * 0.78 &&
-        medC != null &&
-        cad != null &&
-        cad < medC * 0.88;
+        (medP != null && pwr != null && pwr < medP * 0.78 &&
+         medC != null && cad != null && cad < medC * 0.88) ||
+        (q3P != null && pwr != null && pwr < q3P * 0.65 &&
+         q3C != null && cad != null && cad < q3C * 0.86);
       return {
         split: s,
         index: s.split_index != null ? s.split_index : i + 1,
@@ -462,6 +502,75 @@
         stride: stride,
       };
     });
+  }
+
+  function extractIntervalSet(lapMeta) {
+    if (lapMeta.length < 3) return null;
+    var firstRest = -1, lastRest = -1;
+    for (var i = 0; i < lapMeta.length; i++) {
+      if (lapMeta[i].anomaly) {
+        if (firstRest === -1) firstRest = i;
+        lastRest = i;
+      }
+    }
+    if (firstRest === -1 || lastRest === firstRest) return null;
+    // Include the non-anomaly lap immediately before firstRest if it exists
+    // (the first fast interval precedes the first rest lap).
+    var startIdx = (firstRest > 0 && !lapMeta[firstRest - 1].anomaly) ? firstRest - 1 : firstRest;
+    var workLaps = [];
+    for (var j = startIdx; j <= lastRest; j++) {
+      if (!lapMeta[j].anomaly) workLaps.push(lapMeta[j]);
+    }
+    if (workLaps.length < 2) return null;
+    return workLaps;
+  }
+
+  function renderIntervalBlock(workLaps) {
+    if (!workLaps || !workLaps.length) return "";
+    function avg(arr) {
+      var vals = arr.filter(function (v) { return v != null && isFinite(v); });
+      return vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null;
+    }
+    var avgDist = avg(workLaps.map(function (m) { return m.split.distance_km ? +m.split.distance_km : null; }));
+    var avgDur = avg(workLaps.map(function (m) { return m.split.duration_seconds ? +m.split.duration_seconds : null; }));
+    var avgPwr = avg(workLaps.map(function (m) { return m.power; }));
+    var avgHR = avg(workLaps.map(function (m) { return m.split.avg_hr ? +m.split.avg_hr : null; }));
+    var avgPace = avg(workLaps.map(function (m) { return m.paceSec; }));
+
+    var summaryParts = [workLaps.length + " reps"];
+    if (avgDist != null) summaryParts.push("avg " + (avgDist * 1000).toFixed(0) + " m");
+    if (avgDur != null) {
+      var m = Math.floor(avgDur / 60), s = Math.round(avgDur % 60);
+      summaryParts.push(m + ":" + (s < 10 ? "0" : "") + s);
+    }
+    if (avgPwr != null) summaryParts.push(Math.round(avgPwr) + " W avg");
+
+    var rows = workLaps.map(function (m, ri) {
+      var d = m.split.distance_km ? (+(m.split.distance_km) * 1000).toFixed(0) + " m" : "—";
+      var dur = m.split.duration_seconds
+        ? (function () { var mn = Math.floor(m.split.duration_seconds / 60), sc = m.split.duration_seconds % 60; return mn + ":" + (sc < 10 ? "0" : "") + sc; })()
+        : "—";
+      var pace = m.paceSec ? (function () { var mn = Math.floor(m.paceSec / 60), sc = Math.round(m.paceSec % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—";
+      var pwr = m.power != null ? Math.round(m.power) + " W" : "—";
+      var hr = m.split.avg_hr != null ? m.split.avg_hr + " bpm" : "—";
+      return "<tr><td>" + (ri + 1) + "</td><td>" + d + "</td><td>" + dur + "</td><td>" + pace + "</td><td>" + pwr + "</td><td>" + hr + "</td></tr>";
+    });
+
+    var avgRow = "<tr class=\"rd4-int-avg-row\"><td>avg</td>"
+      + "<td>" + (avgDist != null ? (avgDist * 1000).toFixed(0) + " m" : "—") + "</td>"
+      + "<td>" + (avgDur != null ? (function () { var mn = Math.floor(avgDur / 60), sc = Math.round(avgDur % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPace != null ? (function () { var mn = Math.floor(avgPace / 60), sc = Math.round(avgPace % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—") + "</td>"
+      + "<td>" + (avgPwr != null ? Math.round(avgPwr) + " W" : "—") + "</td>"
+      + "<td>" + (avgHR != null ? Math.round(avgHR) + " bpm" : "—") + "</td></tr>";
+
+    return '<section class="rd4-card rd4-int-card">'
+      + '<h2 class="rd4-sec-title">Interval Set</h2>'
+      + '<p class="rd4-int-summary">' + esc(summaryParts.join(" · ")) + '</p>'
+      + '<div class="rd4-lap-scroll"><table class="rd4-lap-table rd4-int-table"><thead><tr>'
+      + '<th>Rep</th><th>Dist</th><th>Time</th><th>Pace</th><th>Pwr</th><th>HR</th>'
+      + '</tr></thead><tbody>'
+      + rows.join("") + avgRow
+      + '</tbody></table></div></section>';
   }
 
   function lapBandMap(detected, lapCount) {
@@ -628,9 +737,12 @@
       '<div class="rd4-srcbadges">' +
       srcBadges +
       "</div></div>" +
-      "<h1 class=\"rd4-title\">" +
+      '<div class="rd4-title-wrap">' +
+      '<h1 class="rd4-title" id="rd4-title">' +
       esc(w.name || "Run") +
       "</h1>" +
+      (w.id ? '<button type="button" class="rd4-name-edit" id="rd4-name-edit" aria-label="Edit workout name" title="Edit name">&#9998;</button>' : "") +
+      "</div>" +
       (w.id
         ? '<div class="rd4-idrow"><code class="rd4-id">' +
           esc(String(w.id).slice(0, 8) + "…" + String(w.id).slice(-6)) +
@@ -764,69 +876,149 @@
     // ── 4 Session profile ──
     var profileBlock = "";
     if (distanceLapMeta.length) {
-      var maxPow = Math.max.apply(
-        null,
-        distanceLapMeta.map(function (m) {
-          return m.power || 0;
-        }),
-      );
-      var bars = distanceLapMeta
-        .map(function (m) {
-          var band = m.anomaly
-            ? "break"
-            : bandMap[m.index] ||
-              (detected.confident ? "steady" : "steady");
-          var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
-          var col = bandColor(band);
-          var z2ring = m.zone2 ? " rd4-prof-bar--z2" : "";
-          var brk = m.anomaly ? " rd4-prof-bar--break" : "";
-          return (
-            '<div class="rd4-prof-bar' +
-            z2ring +
-            brk +
-            '" style="height:' +
-            h +
-            "%;background:" +
-            col +
-            '"></div>'
-          );
-        })
-        .join("");
+      var maxPow = Math.max.apply(null, distanceLapMeta.map(function (m) { return m.power || 0; }));
+      var hasPhases = !!(detected.confident && detected.phases && detected.phases.length);
+      var nLaps = distanceLapMeta.length;
 
-      var phaseStrip = "";
-      if (detected.confident && detected.phases && detected.phases.length) {
-        phaseStrip = detected.phases
-          .map(function (ph) {
-            var col = bandColor(ph.band || labelBand(ph.label));
-            return (
-              '<span class="rd4-phase-chip" style="border-color:' +
-              col +
-              '">' +
-              esc(ph.label || ph.band || "Phase") +
-              "</span>"
-            );
-          })
-          .join("");
+      // Per-lap phase (1-based lap → {key,name}) from detected.phases' lap_indexes.
+      var lapPhase2 = {};
+      if (hasPhases) {
+        detected.phases.forEach(function (ph) {
+          var key = phaseKey2(ph.label, ph.band);
+          (ph.lap_indexes || []).forEach(function (idx) {
+            lapPhase2[idx + 1] = { key: key, name: PHASE_NAME2[key] };
+          });
+        });
       }
 
-      var confNote =
-        detected.confident === false
-          ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
-          : '<p class="rd4-muted">Detected profile · basis ' +
-            esc(detected.basis || "power") +
-            (detected.reps_detected != null
-              ? " · reps " + detected.reps_detected
-              : "") +
-            "</p>";
+      // Per-lap band key (array position i → key).
+      var keyOf = distanceLapMeta.map(function (m) {
+        var ph = lapPhase2[m.index];
+        return ph ? ph.key : phaseKey2(null, bandMap[m.index]);
+      });
 
-      profileBlock =
-        '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>' +
-        '<div class="rd4-prof-track">' +
-        bars +
-        "</div>" +
-        (phaseStrip ? '<div class="rd4-phase-strip">' + phaseStrip + "</div>" : "") +
-        confNote +
-        "</section>";
+      // STEP 1 — smooth single-lap flickers between two same-band neighbours.
+      for (var sm = 1; sm < nLaps - 1; sm++) {
+        if (keyOf[sm] !== keyOf[sm - 1] && keyOf[sm - 1] === keyOf[sm + 1]) keyOf[sm] = "__dev:" + keyOf[sm];
+      }
+      var rawKey = keyOf.map(function (k) { return k.indexOf("__dev:") === 0 ? k.slice(6) : k; });
+      var smoothKey = keyOf.map(function (k, idx) { return k.indexOf("__dev:") === 0 ? rawKey[idx - 1] : k; });
+
+      function runsOf2(seq) {
+        var r = [], cur = null;
+        seq.forEach(function (k, idx) {
+          if (!cur || cur.key !== k) { cur = { key: k, from: idx, to: idx }; r.push(cur); } else cur.to = idx;
+        });
+        return r;
+      }
+      function lapW(i) { var m = distanceLapMeta[i]; return (m && m.split && m.split.distance_km) || 0.01; }
+      function hpxOf(m) {
+        var h = m.power && maxPow ? 25 + Math.round((m.power / maxPow) * 70) : 20;
+        return Math.max(5, Math.round((h / 100) * 116));  // track is 120px (see .rd4-prof2-bars)
+      }
+
+      // STEP 2 — regime detection.
+      var counts = {};
+      rawKey.forEach(function (k) { counts[k] = (counts[k] || 0) + 1; });
+      var domKey = null, domN = 0;
+      Object.keys(counts).forEach(function (k) { if (counts[k] > domN) { domN = counts[k]; domKey = k; } });
+      var domShare = nLaps ? domN / nLaps : 0;
+      var devRuns = runsOf2(rawKey).filter(function (r) { return r.key !== domKey; });
+      var shortDev = devRuns.filter(function (r) { return r.to - r.from + 1 <= 2; });
+      // A low-intensity warm-up/cool-down bookend signals a deliberately
+      // structured arc (warm-up → work → cool-down) → keep the bracket view.
+      // Without one, a single dominant band is a *sustained* effort (a tempo
+      // race, a steady block) → the headline reads better than many brackets.
+      var LOW_BOOKEND = { warmup: 1, cooldown: 1, recovery: 1, easy: 1 };
+      var lowBookend = !!(LOW_BOOKEND[smoothKey[0]] || LOW_BOOKEND[smoothKey[nLaps - 1]]);
+      var variable = hasPhases && (
+        detected.reps_detected != null ||
+        domShare >= 0.65 ||
+        (domShare >= 0.5 && !lowBookend) ||
+        (shortDev.length >= 2 && domShare >= 0.45)
+      );
+
+      var basis = detected.basis && detected.basis !== "none" ? esc(detected.basis) : "—";
+      var confNote = detected.confident === false
+        ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
+        : '<p class="rd4-muted">Detected profile · basis ' + basis +
+          (detected.reps_detected != null ? " · reps " + detected.reps_detected : "") + "</p>";
+      var head = '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>';
+
+      if (!variable) {
+        // ── STRUCTURED: bars + named brackets (grouped by smoothed key) ──
+        var sBars = distanceLapMeta.map(function (m, i) {
+          var k = smoothKey[i];
+          var col = m.anomaly ? "#94a3b8" : PHASE_COLOR2[k] || bandColor(bandMap[m.index] || "steady");
+          var z2 = m.zone2 ? " rd4-prof2-bar--z2" : "", brk = m.anomaly ? " rd4-prof2-bar--break" : "";
+          return '<div class="rd4-cell2" style="flex:' + lapW(i) + ' 0 0">' +
+            '<div class="rd4-prof2-bar' + z2 + brk + '" style="height:' + hpxOf(m) + "px;background:" + col + '"></div></div>';
+        }).join("");
+        var grp = [], cg = null;
+        smoothKey.forEach(function (k, i) {
+          if (!cg || cg.key !== k) { cg = { key: k, from: i, to: i, w: lapW(i) }; grp.push(cg); }
+          else { cg.to = i; cg.w += lapW(i); }
+        });
+        var brackets = grp.map(function (g) {
+          var range = "lap " + lapRange2(g.from + 1, g.to + 1);
+          return '<div class="rd4-cell2 rd4-bracket2" style="flex:' + g.w + ' 0 0">' +
+            '<div class="rd4-bracket2-line"></div>' +
+            '<div class="rd4-bracket2-name" style="color:' + (PHASE_COLOR2[g.key] || "#22c55e") + '">' + esc(PHASE_NAME2[g.key] || g.key) + "</div>" +
+            '<div class="rd4-bracket2-range">' + range + "</div></div>";
+        }).join("");
+        profileBlock = head +
+          '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
+          '<div class="rd4-row2 rd4-prof2-bars">' + sBars + "</div></div>" +
+          '<div class="rd4-row2 rd4-bracket2-row">' + brackets + "</div>" + confNote + "</section>";
+      } else {
+        // ── VARIABLE / RACE: dominant headline + deviation chips ──
+        var devDir = {};
+        devRuns.forEach(function (r) {
+          var dir = keyRank2(r.key) > keyRank2(domKey) ? "up" : "down";
+          for (var i = r.from; i <= r.to; i++) devDir[i] = dir;
+        });
+        var vBars = distanceLapMeta.map(function (m, i) {
+          var k = rawKey[i];
+          var col = m.anomaly ? "#94a3b8" : PHASE_COLOR2[k] || bandColor(bandMap[m.index] || "steady");
+          var mark = devDir[i] ? '<i class="rd4-dev-mark" style="color:' + col + '">' + (devDir[i] === "up" ? "▲" : "▼") + "</i>" : "";
+          return '<div class="rd4-cell2" style="flex:' + lapW(i) + ' 0 0">' + mark +
+            '<div class="rd4-prof2-bar" style="height:' + hpxOf(m) + "px;background:" + col + '"></div></div>';
+        }).join("");
+
+        var domIdx = [];
+        for (var d2 = 0; d2 < nLaps; d2++) if (rawKey[d2] === domKey) domIdx.push(d2);
+        var domPow = avg2(domIdx.map(function (i) { return distanceLapMeta[i].power; }));
+        var hlNum = "";
+        if (domPow != null) hlNum = '<div class="rd4-hl-num">' + Math.round(domPow) + '<span>W avg</span></div>';
+        else {
+          var domPace = avg2(domIdx.map(function (i) { return distanceLapMeta[i].paceSec; }));
+          if (domPace != null) hlNum = '<div class="rd4-hl-num">' + fmtPaceSec2(domPace) + '<span>/km avg</span></div>';
+        }
+        var headline = '<div class="rd4-headline"><span class="rd4-hl-sw" style="background:' + (PHASE_COLOR2[domKey] || "#22c55e") + '"></span>' +
+          '<div class="rd4-hl-t"><div class="rd4-hl-title">Sustained ' + esc(PHASE_NAME2[domKey] || domKey) + "</div>" +
+          '<div class="rd4-hl-sub">' + domN + " of " + nLaps + " laps</div></div>" + hlNum + "</div>";
+
+        var grp2 = {};
+        devRuns.forEach(function (r) {
+          var dir = keyRank2(r.key) > keyRank2(domKey) ? "up" : "down", gk = r.key + "|" + dir;
+          if (!grp2[gk]) grp2[gk] = { key: r.key, dir: dir, runs: [], laps: [] };
+          grp2[gk].runs.push(r);
+          for (var i = r.from; i <= r.to; i++) grp2[gk].laps.push(i);
+        });
+        var chips = Object.keys(grp2).sort(function (a, b) { return (grp2[b].dir === "up") - (grp2[a].dir === "up"); }).map(function (gk) {
+          var g = grp2[gk];
+          var ranges = g.runs.map(function (r) { return lapRange2(r.from + 1, r.to + 1); }).join(", ");
+          var gp = avg2(g.laps.map(function (i) { return distanceLapMeta[i].power; }));
+          var pw = gp != null ? Math.round(gp) + " W · " : "";
+          return '<span class="rd4-chip rd4-chip-' + g.dir + '"><span class="rd4-chip-ar">' + (g.dir === "up" ? "↑" : "↓") + "</span> " +
+            esc(PHASE_NAME2[g.key] || g.key) + " ×" + g.runs.length + " · " + pw + "lap " + ranges + "</span>";
+        }).join("");
+
+        profileBlock = head +
+          '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
+          '<div class="rd4-row2 rd4-prof2-bars">' + vBars + "</div></div>" +
+          headline + (chips ? '<div class="rd4-dev-chips">' + chips + "</div>" : "") + confNote + "</section>";
+      }
     }
 
     // ── 5 Laps ──
@@ -848,20 +1040,31 @@
             '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
             "</div>"
           : "";
+      var showDetailCols = typeof localStorage !== "undefined" && localStorage.getItem("rd4_lap_detail_cols") === "1";
+      var lapsCardClass = "rd4-card rd4-laps-card" + (showDetailCols ? "" : " rd4-hide-detail-cols");
+      var colToggleHtml = '<div class="rd4-lapmode-toggle" id="rd4-col-toggle">' +
+        '<button type="button" class="rd4-lm-btn' + (showDetailCols ? " rd4-lm-btn--on" : "") + '" id="rd4-col-toggle-btn">Cad · Len</button>' +
+        "</div>";
 
       lapsBlock =
-        '<section class="rd4-card rd4-laps-card"><div class="rd4-laps-head">' +
+        '<section class="' + lapsCardClass + '"><div class="rd4-laps-head">' +
         '<h2 class="rd4-sec-title" id="rd4-laps-title">' +
         esc(lapTitle) +
         "</h2>" +
         '<div class="rd4-laps-controls">' +
         lapModeToggle +
+        // Toggle switches only the BAR metric; HR is always drawn as the line.
         '<div class="rd4-metric-toggle" id="rd4-metric-toggle">' +
-        '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="power">Power</button>' +
-        '<button type="button" class="rd4-mt-btn" data-metric="pace">Pace</button>' +
-        '<button type="button" class="rd4-mt-btn" data-metric="hr">HR</button>' +
-        "</div></div></div>" +
-        '<div class="rd4-lap-chart" id="rd4-lap-chart"></div>' +
+        '<button type="button" class="rd4-mt-btn rd4-mt-btn--on" data-metric="pace">Pace</button>' +
+        '<button type="button" class="rd4-mt-btn" data-metric="power">Power</button>' +
+        "</div>" +
+        colToggleHtml +
+        "</div></div>" +
+        '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
+        '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
+        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
+        '<div class="rd4-row2 rd4-axis2" id="rd4-lap-axis"></div>' +
+        '<div class="rd4-chart2-legend" id="rd4-lap-legend"></div>' +
         '<div class="rv-z2-note rd4-z2-note"><span class="rd4-z2-swatch"></span> Zone 2 laps (HR ' +
         z2min +
         "–" +
@@ -872,6 +1075,13 @@
         '</tr></thead><tbody id="rd4-lap-tbody">' +
         renderLapTableRows(activeLapMeta) +
         "</tbody></table></div></section>";
+    }
+
+    // ── 5b Interval set ──
+    var intervalsBlock = "";
+    if (activeLapMeta.length) {
+      var intervalWorkLaps = extractIntervalSet(activeLapMeta);
+      intervalsBlock = renderIntervalBlock(intervalWorkLaps);
     }
 
     // ── 6 Aerobic decoupling ──
@@ -931,6 +1141,44 @@
         '<p class="rd4-muted">Form dynamics (vertical oscillation, ground contact, leg-spring) came through as 0 from Stryd on this activity — hidden until populated.</p>';
     }
     effSnap += "</section>";
+
+    // ── 7b Session signal ──
+    var signalBlock = "";
+    var es = w.endurance_signal;
+    var ss = w.speed_signal;
+    var esNote = w.endurance_signal_note;
+    var ssNote = w.speed_signal_note;
+    var hint = w.contributes_to;
+    var hasES = es != null;
+    var hasSS = ss != null;
+    if (!hasES && !hasSS) {
+      signalBlock =
+        '<section class="rd4-card rd4-signal">' +
+        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
+        "</section>";
+    } else {
+      var esRow =
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">Endurance</span>' +
+        (hasES
+          ? '<span class="rd4-signal-val">' + parseFloat(es.toFixed(3)) + "</span>"
+          : '<em class="rd4-signal-note">' + esc(esNote || "—") + "</em>") +
+        "</div>";
+      var ssRow =
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">Speed</span>' +
+        (hasSS
+          ? '<span class="rd4-signal-val">' + parseFloat(ss.toFixed(3)) + "</span>"
+          : '<em class="rd4-signal-note">' + esc(ssNote || "—") + "</em>") +
+        "</div>";
+      signalBlock =
+        '<section class="rd4-card rd4-signal">' +
+        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        '<div class="rd4-signal-rows">' + esRow + ssRow + "</div>" +
+        (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
+        "</section>";
+    }
 
     // ── 8 Route ──
     var routeBlock = "";
@@ -995,8 +1243,10 @@
         pzBlock +
         profileBlock +
         lapsBlock +
+        intervalsBlock +
         decBlock +
         effSnap +
+        signalBlock +
         routeBlock +
         srcBlock +
         "</div>",
@@ -1022,7 +1272,7 @@
         : rendered.hasManualLaps
           ? "manual"
           : "distance";
-    var metric = "power";
+    var metric = "pace";
     var tssSource = rendered.defaultTssId;
     var tssOptions = rendered.tssOptions || [];
 
@@ -1086,55 +1336,187 @@
       });
     }
 
+    function _copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(function () {
+          _copyTextFallback(text);
+        });
+      }
+      _copyTextFallback(text);
+      return Promise.resolve();
+    }
+
+    function _copyTextFallback(text) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:absolute;left:-9999px;top:0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch (_e) { /* no-op */ }
+    }
+
     var cp = container.querySelector("#rd4-idcopy");
     if (cp && w.id) {
       cp.addEventListener("click", function () {
-        var t = w.id;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(t).catch(function () {});
-        }
-        cp.classList.add("rd4-idcopy--done");
-        setTimeout(function () {
-          cp.classList.remove("rd4-idcopy--done");
-        }, 1200);
+        _copyText(w.id).then(function () {
+          cp.classList.add("rd4-idcopy--done");
+          cp.setAttribute("title", "Copied!");
+          cp.innerHTML = "✓";
+          setTimeout(function () {
+            cp.classList.remove("rd4-idcopy--done");
+            cp.setAttribute("title", "Copy workout ID");
+            cp.innerHTML = "&#x2398;";
+          }, 1400);
+        });
       });
     }
 
+    // Inline workout name editing
+    var nameEditBtn = container.querySelector("#rd4-name-edit");
+    var titleEl = container.querySelector("#rd4-title");
+    if (nameEditBtn && titleEl && w.id) {
+      nameEditBtn.addEventListener("click", function () {
+        var orig = titleEl.textContent;
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "rd4-title-inp";
+        inp.value = orig;
+        inp.maxLength = 200;
+        titleEl.style.display = "none";
+        nameEditBtn.style.display = "none";
+        titleEl.parentNode.insertBefore(inp, titleEl.nextSibling);
+        inp.focus();
+        inp.select();
+        var done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          var val = inp.value.trim();
+          if (!val || val === orig) { restore(orig); return; }
+          fetch("/api/workouts/" + w.id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ name: val }),
+          }).then(function (r) {
+            if (!r.ok) throw new Error("save failed");
+            w.name = val;
+            restore(val);
+            // Update list row title
+            var listRow = document.querySelector('.entry-row[data-workout-id="' + w.id + '"]');
+            if (listRow) {
+              var listTitle = listRow.querySelector(".entry-title");
+              if (listTitle) listTitle.textContent = val;
+            }
+          }).catch(function () {
+            restore(orig);
+          });
+        }
+        function restore(displayName) {
+          if (inp.parentNode) inp.parentNode.removeChild(inp);
+          titleEl.textContent = displayName;
+          titleEl.style.display = "";
+          nameEditBtn.style.display = "";
+        }
+        inp.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { done = true; restore(orig); }
+        });
+        inp.addEventListener("blur", function () { setTimeout(commit, 120); });
+      });
+    }
+
+    // One chart: bars for the chosen metric (pace|power) on their own scale +
+    // HR as a line on its own independent scale. Dotted gridlines, lap axis,
+    // and a legend giving each series' real range.
     function drawChart(m) {
       var chart = container.querySelector("#rd4-lap-chart");
       if (!chart) return;
+      var barMetric = m === "power" ? "power" : "pace";
+      var barColor = barMetric === "power" ? "#8b5cf6" : "#2563eb";
       var laps = currentLaps();
+
       var vals = laps.map(function (lap) {
-        if (m === "hr") return lap.split.avg_hr;
-        if (m === "power") return lap.power;
-        return lap.paceSec ? -lap.paceSec : null;
+        return barMetric === "power" ? lap.power : (lap.paceSec || null);
       });
-      var nums = vals.filter(function (v) {
-        return v != null;
-      });
+      var nums = vals.filter(function (v) { return v != null && v > 0; });
       var mn = nums.length ? Math.min.apply(null, nums) : 0;
       var mx = nums.length ? Math.max.apply(null, nums) : 1;
+      var rng = mx - mn || 1;
+
+      // Pixel heights against the chart's measured height — no CSS %-resolution.
+      var CH = chart.clientHeight || 130;
       chart.innerHTML = laps
         .map(function (lap, i) {
           var v = vals[i];
-          var h =
-            v == null || mx === mn
-              ? 22
-              : 18 + Math.round(((v - mn) / (mx - mn)) * 72);
-          var cls = "rd4-lapbar";
-          if (lap.zone2) cls += " rd4-lapbar--z2";
-          if (lap.anomaly) cls += " rd4-lapbar--break";
-          return (
-            '<div class="' +
-            cls +
-            '" style="height:' +
-            h +
-            '%" title="Lap ' +
-            lap.index +
-            '"></div>'
-          );
+          var cls = "rd4-cbar2";
+          if (lap.zone2) cls += " rd4-cbar2--z2";
+          if (lap.anomaly) cls += " rd4-cbar2--break";
+          if (v == null) {
+            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+          }
+          // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
+          var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
+          var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
+          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
+
+      // gridlines + axis
+      var gridEl = container.querySelector("#rd4-lap-grid");
+      if (gridEl) gridEl.innerHTML = gridSpans2(4);
+      var axisEl = container.querySelector("#rd4-lap-axis");
+      if (axisEl) {
+        axisEl.innerHTML = laps.map(function (lap) {
+          return '<div class="rd4-cell2">' + lap.index + "</div>";
+        }).join("");
+      }
+
+      // HR line — independent scale; null laps omit a point (no fabrication).
+      var hrs = laps.map(function (lap) { return lap.split.avg_hr; });
+      var hValid = hrs.filter(function (v) { return v != null && v > 0; });
+      var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
+      var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
+      var hrng = hmax - hmin || 1;
+      var n = laps.length;
+      var pts = [];
+      laps.forEach(function (lap, i) {
+        var hv = lap.split.avg_hr;
+        if (hv == null || hv <= 0) return;
+        var x = ((i + 0.5) / n) * 100;
+        var y = 100 - (((hv - hmin) / hrng) * 80 + 8);
+        pts.push(x.toFixed(2) + "," + y.toFixed(2));
+      });
+      var svg = container.querySelector("#rd4-lap-hr");
+      if (svg) {
+        var inner = "";
+        if (pts.length >= 2) {
+          inner += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+        }
+        // Round-cap zero-length dots: constant pixel size (non-scaling stroke),
+        // so they stay round instead of stretching with the non-uniform viewBox.
+        pts.forEach(function (p) {
+          var xy = p.split(",");
+          inner += '<path d="M' + xy[0] + " " + xy[1] + 'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+        });
+        svg.innerHTML = inner;
+      }
+
+      // legend with real ranges
+      var legendEl = container.querySelector("#rd4-lap-legend");
+      if (legendEl) {
+        var barLabel = barMetric === "power"
+          ? "Power (" + (nums.length ? mn + "–" + mx : "—") + " W)"
+          : "Pace (" + (nums.length ? fmtPaceSec2(mn) + "–" + fmtPaceSec2(mx) : "—") + "/km)";
+        var hrLabel = "HR (" + (hValid.length ? hmin + "–" + hmax : "—") + " bpm)";
+        legendEl.innerHTML =
+          '<span><i class="rd4-swatch2" style="background:' + barColor + '"></i>' + barLabel + "</span>" +
+          '<span><i class="rd4-hr-key2"></i>' + hrLabel + "</span>";
+      }
     }
 
     refreshLapsUi();
@@ -1163,6 +1545,16 @@
         });
         btn.classList.add("rd4-mt-btn--on");
         drawChart(metric);
+      });
+    }
+
+    var colToggleBtn = container.querySelector("#rd4-col-toggle-btn");
+    var lapsCardEl = container.querySelector(".rd4-laps-card");
+    if (colToggleBtn && lapsCardEl) {
+      colToggleBtn.addEventListener("click", function () {
+        var hiding = lapsCardEl.classList.toggle("rd4-hide-detail-cols");
+        colToggleBtn.classList.toggle("rd4-lm-btn--on", !hiding);
+        try { localStorage.setItem("rd4_lap_detail_cols", hiding ? "0" : "1"); } catch (e) {}
       });
     }
 

@@ -154,9 +154,20 @@ def compute_performance_chart(
             atl_arr.append(row["atl"])
             tsb_arr.append(row["tsb"])
 
-    # Check building_baseline from fitness model
+    # Check building_baseline for the CTL/ATL/TSB series only.
+    # building_baseline is True when:
+    #   (a) the fitness model has fewer than MIN_HISTORY_DAYS of history, OR
+    #   (b) the load series contains no non-zero load (brand-new athlete).
+    # Endurance/speed score availability does NOT affect this flag — the Fitness
+    # Fatigue Form chart (CTL/ATL/TSB) can render independently of scoring readiness.
     n_history = len(fitness_result.get("days", []))
-    building_baseline = fitness_result.get("building_baseline", True) or n_history < MIN_HISTORY_DAYS
+    fitness_model_baseline = fitness_result.get("building_baseline", True) or n_history < MIN_HISTORY_DAYS
+    has_any_load = any(
+        float(row.get("daily_load") or 0) > 0
+        for row in (daily_load_series or [])
+        if isinstance(row, dict)
+    )
+    building_baseline = fitness_model_baseline or not has_any_load
 
     # Filter runs to the requested date range
     range_runs = [
@@ -167,16 +178,6 @@ def compute_performance_chart(
     # Compute endurance and speed scores via the existing pure functions
     endurance_result = compute_endurance_score(range_runs, preferences, zc)
     speed_result = compute_speed_score(range_runs, preferences, zc)
-
-    # If either score function signals building_baseline, propagate the flag
-    if (
-        isinstance(endurance_result, dict)
-        and endurance_result.get("state") == "building_baseline"
-    ) or (
-        isinstance(speed_result, dict)
-        and speed_result.get("state") == "building_baseline"
-    ):
-        building_baseline = True
 
     # Map per-run trend values back to calendar dates.
     # The trend array is ordered by qualifying-run order (same as input runs).

@@ -68,84 +68,127 @@
 
   function _loadScores() {
     if (!_athleteId) return;
+    // Always parse the JSON body — the error state (HTTP 500) also returns JSON with state='error'
     fetch('/api/athletes/' + _athleteId + '/performance')
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (r) {
+        return r.json().then(function (data) { return data; }).catch(function () { return null; });
+      })
       .then(function (data) {
-        _renderScoreCard('endurance', data.endurance);
-        _renderScoreCard('speed',     data.speed);
+        var state = data && typeof data === 'object' ? data.state : null;
+
+        if (state === 'scored') {
+          _renderScoreCard('endurance', data.endurance);
+          _renderScoreCard('speed',     data.speed);
+          return;
+        }
+
+        if (state === 'needs_thresholds') {
+          _renderThresholdHint('endurance');
+          _renderThresholdHint('speed');
+          return;
+        }
+
+        if (state === 'building_baseline') {
+          var reason = data.reason || 'Keep training: your baseline is building.';
+          _renderBuildingBaseline('endurance', reason);
+          _renderBuildingBaseline('speed',     reason);
+          return;
+        }
+
+        // state === 'error' or unexpected/null response
+        _renderScoreError('endurance');
+        _renderScoreError('speed');
       })
       .catch(function () {
-        _renderScoreCard('endurance', null);
-        _renderScoreCard('speed',     null);
+        _renderScoreError('endurance');
+        _renderScoreError('speed');
       });
   }
 
+  // Render the scored state: ring + numeric score + direction + sparkline
   function _renderScoreCard(type, data) {
     var card = document.getElementById('perf-score-' + type);
     if (!card) return;
 
-    var ringEl      = card.querySelector('.perf-ring');
-    var scoreEl     = card.querySelector('.perf-score-val');
-    var dirEl       = card.querySelector('.perf-dir');
-    var sparkEl     = card.querySelector('.perf-spark');
-    var bbEl        = card.querySelector('.perf-building-baseline');
-    var threshEl    = card.querySelector('.perf-threshold-hint');
+    var ringEl   = card.querySelector('.perf-ring');
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var scoreEl  = card.querySelector('.perf-score-val');
+    var dirEl    = card.querySelector('.perf-dir');
+    var sparkEl  = card.querySelector('.perf-spark');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
 
-    // Hide all sub-states first
-    if (ringEl)   ringEl.style.display = '';
-    if (scoreEl)  scoreEl.style.display = '';
-    if (dirEl)    dirEl.style.display = '';
-    if (sparkEl)  sparkEl.style.display = '';
-    if (bbEl)     bbEl.hidden = true;
+    // Reset all states
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (bbEl)     bbEl.hidden    = true;
     if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = true;
 
-    if (!data) {
-      _showScoreNull(card);
+    // Only called for state='scored'; treat missing/invalid sub-object as error
+    if (!data || typeof data !== 'object' || data.score == null) {
+      _renderScoreError(type);
       return;
     }
 
-    // building_baseline state: no score, no ring fill, no sparkline
-    if (data.state === 'building_baseline') {
-      if (ringEl)   ringEl.style.display = 'none';
-      if (scoreEl)  scoreEl.style.display = 'none';
-      if (dirEl)    dirEl.style.display = 'none';
-      if (sparkEl)  sparkEl.style.display = 'none';
-      if (bbEl)     bbEl.hidden = false;
-      return;
-    }
-
-    // Missing preferences — show "Set your threshold in Settings" hint
-    if (data.score === null && data.reason && data.reason.indexOf('preferences') !== -1) {
-      _showScoreNull(card);
-      if (threshEl) threshEl.hidden = false;
-      return;
-    }
-
-    var score = data.score != null ? data.score : null;
+    var score = data.score;
     var dir   = data.direction || 'flat';
     var trend = Array.isArray(data.trend) ? data.trend : [];
 
-    // Draw ring
-    if (ringEl) _drawRing(ringEl, score != null ? score : 0);
-
-    // Score value
-    if (scoreEl) scoreEl.textContent = score != null ? Math.round(score) : '—';
-
-    // Direction
+    if (bodyEl) bodyEl.style.display = '';
+    if (ringEl) _drawRing(ringEl, score);
+    if (scoreEl) scoreEl.textContent = Math.round(score);
     if (dirEl) {
       dirEl.textContent = dir;
       dirEl.className = 'perf-dir perf-dir--' + dir;
     }
-
-    // Sparkline
     if (sparkEl && trend.length) _drawSparkline(sparkEl, trend);
   }
 
-  function _showScoreNull(card) {
-    var scoreEl = card.querySelector('.perf-score-val');
-    var dirEl   = card.querySelector('.perf-dir');
-    if (scoreEl) scoreEl.textContent = '—';
-    if (dirEl)   dirEl.textContent = '';
+  // Render the needs_thresholds state: show CTA prompting athlete to set thresholds in Settings
+  function _renderThresholdHint(type) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (bbEl)     bbEl.hidden    = true;
+    if (errorEl)  errorEl.hidden  = true;
+    if (threshEl) threshEl.hidden = false;
+  }
+
+  // Render the building_baseline state: show reason, hide score card body
+  function _renderBuildingBaseline(type, reason) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = true;
+    if (bbEl) {
+      bbEl.hidden = false;
+      var reasonEl = bbEl.querySelector('.perf-bb-reason');
+      if (reasonEl) reasonEl.textContent = reason;
+    }
+  }
+
+  // Render the error state: show error message + retry button, hide score card body
+  function _renderScoreError(type) {
+    var card = document.getElementById('perf-score-' + type);
+    if (!card) return;
+    var bodyEl   = card.querySelector('.perf-card-body');
+    var bbEl     = card.querySelector('.perf-building-baseline');
+    var threshEl = card.querySelector('.perf-threshold-hint');
+    var errorEl  = card.querySelector('.perf-error');
+    if (bodyEl)   bodyEl.style.display = 'none';
+    if (bbEl)     bbEl.hidden    = true;
+    if (threshEl) threshEl.hidden = true;
+    if (errorEl)  errorEl.hidden  = false;
   }
 
   function _drawRing(container, score) {
@@ -486,33 +529,89 @@
 
   // ── Personal Records strip ────────────────────────────────────────────────────
 
+  var _PR_LABELS = {
+    // volume
+    longestByDistance:   'Longest run (km)',
+    longestByDuration:   'Longest run (time)',
+    weeklyDistanceRecord:'Best week (km)',
+    weeklyLoadRecord:    'Best week (TSS)',
+    // speed
+    '1km':          'Best 1 km',
+    '1mile':        'Best 1 mile',
+    '5km':          'Best 5 km',
+    '10km':         'Best 10 km',
+    'half_marathon':'Best half marathon',
+    'marathon':     'Best marathon',
+    // power
+    best1Min:  'Best 1-min power',
+    best5Min:  'Best 5-min power',
+    best20Min: 'Best 20-min power',
+  };
+
   function _loadPR() {
-    fetch('/api/personal-records')
+    if (!_athleteId) return;
+    fetch('/api/athletes/' + _athleteId + '/run-personal-records')
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (records) { _renderPR(records); })
-      .catch(function () { _renderPR([]); });
+      .then(function (data) { _renderRunPR(data); })
+      .catch(function () { _renderRunPR(null); });
   }
 
-  function _renderPR(records) {
+  function _renderRunPR(data) {
     var strip = document.getElementById('perf-pr-strip');
     if (!strip) return;
 
-    if (!records.length) {
+    if (!data) {
       strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>';
       return;
     }
 
-    // Show most recent 6 PRs ordered by achieved_on desc (already ordered by API)
-    var shown = records.slice(0, 6);
-    var html = shown.map(function (r) {
-      var val  = r.value_numeric != null ? _formatPrValue(r) : '—';
-      var date = r.achieved_on   != null ? r.achieved_on      : '—';
-      var src  = r.source && r.source.workout_id
-        ? '<a class="perf-pr-link" href="/log#workout=' + r.source.workout_id + '">View workout</a>'
+    var items = [];
+
+    // Gather all detected records from every category in display order
+    var categories = [
+      { key: 'volumeRecords',  keys: ['longestByDistance','longestByDuration','weeklyDistanceRecord','weeklyLoadRecord'] },
+      { key: 'speedRecords',   keys: ['5km','10km','half_marathon','marathon','1mile','1km'] },
+      { key: 'powerRecords',   keys: ['best20Min','best5Min','best1Min'] },
+    ];
+
+    categories.forEach(function (cat) {
+      var group = data[cat.key];
+      if (!group || typeof group !== 'object') return;
+      if (group.reason) return; // top-level reason means entire category unavailable
+      cat.keys.forEach(function (k) {
+        var rec = group[k];
+        if (!rec || typeof rec !== 'object') return;
+        items.push({ label: k, rec: rec });
+      });
+    });
+
+    if (!items.length) {
+      strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>';
+      return;
+    }
+
+    var html = items.map(function (item) {
+      var label = _PR_LABELS[item.label] || item.label;
+      var rec   = item.rec;
+
+      if (rec.reason) {
+        return (
+          '<div class="perf-pr-item perf-pr-item--unavailable">' +
+            '<div class="perf-pr-name">' + _esc(label) + '</div>' +
+            '<div class="perf-pr-reason">' + _esc(rec.reason) + '</div>' +
+          '</div>'
+        );
+      }
+
+      var val  = _formatRunPrValue(item.label, rec.value);
+      var date = rec.date || '—';
+      var src  = rec.sourceWorkout && rec.sourceWorkout.id
+        ? '<a class="perf-pr-link" href="/log#workout=' + _esc(String(rec.sourceWorkout.id)) + '">View workout</a>'
         : '';
+
       return (
         '<div class="perf-pr-item">' +
-          '<div class="perf-pr-name">' + _esc(r.track_name || r.track_key) + '</div>' +
+          '<div class="perf-pr-name">' + _esc(label) + '</div>' +
           '<div class="perf-pr-val">' + _esc(val) + '</div>' +
           '<div class="perf-pr-date">' + _esc(date) + '</div>' +
           src +
@@ -521,6 +620,33 @@
     }).join('');
 
     strip.innerHTML = html;
+  }
+
+  function _formatRunPrValue(key, value) {
+    if (value == null) return '—';
+    // Speed records and duration-based volume: format as M:SS or H:MM:SS
+    var timeKeys = ['5km','10km','half_marathon','marathon','1km','1mile','longestByDuration'];
+    if (timeKeys.indexOf(key) !== -1) {
+      var s   = Math.round(value);
+      var h   = Math.floor(s / 3600);
+      var m   = Math.floor((s % 3600) / 60);
+      var sec = s % 60;
+      if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+      return m + ':' + String(sec).padStart(2,'0');
+    }
+    // Power: whole watts
+    if (key === 'best1Min' || key === 'best5Min' || key === 'best20Min') {
+      return Math.round(value) + ' W';
+    }
+    // Distance (km): one decimal
+    if (key === 'longestByDistance' || key === 'weeklyDistanceRecord') {
+      return parseFloat(value).toFixed(1) + ' km';
+    }
+    // Weekly TSS: integer
+    if (key === 'weeklyLoadRecord') {
+      return Math.round(value) + ' TSS';
+    }
+    return String(value);
   }
 
   function _formatPrValue(r) {
@@ -541,12 +667,18 @@
       .replace(/"/g, '&quot;');
   }
 
-  // ── Wire date-range buttons ─────────────────────────────────────────────────
+  // ── Wire date-range buttons and retry actions ───────────────────────────────
 
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.perf-range-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         _loadFitnessChart(btn.dataset.range);
+      });
+    });
+
+    document.querySelectorAll('.perf-retry-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _loadScores();
       });
     });
   });

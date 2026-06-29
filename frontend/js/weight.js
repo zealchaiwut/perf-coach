@@ -207,14 +207,33 @@ function renderCoachStrip(chartData, activeTarget) {
 function renderChart(chartData, range) {
   _chartData = chartData;
   WeightChart.render(chartData, range);
+  _syncLegend(chartData);
+}
 
-  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+// Plan / gap / milestone legend chips are Advanced-only AND require a target.
+function _syncLegend(chartData) {
+  const hasTarget = !!(chartData && chartData.plan_series && chartData.plan_series.length);
+  const advanced  = (WeightChart.getMode ? WeightChart.getMode() : 'basic') === 'advanced';
+  const show = hasTarget && advanced;
   const legendPlan      = document.getElementById('legend-plan');
   const legendGap       = document.getElementById('legend-gap');
   const legendMilestone = document.getElementById('legend-milestone');
-  if (legendPlan)      legendPlan.hidden      = !hasTarget;
-  if (legendGap)       legendGap.hidden       = !hasTarget;
-  if (legendMilestone) legendMilestone.hidden = !hasTarget;
+  if (legendPlan)      legendPlan.hidden      = !show;
+  if (legendGap)       legendGap.hidden       = !show;
+  if (legendMilestone) legendMilestone.hidden = !show;
+}
+
+// Basic / Advanced segmented toggle — persists via WeightChart.setMode.
+function _initModeToggle() {
+  const current = WeightChart.getMode ? WeightChart.getMode() : 'basic';
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === current);
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (WeightChart.setMode) WeightChart.setMode(btn.dataset.mode);
+      if (_chartData) _syncLegend(_chartData);
+    });
+  });
 }
 
 // ── Progress card ──────────────────────────────────────────────────────────
@@ -1277,6 +1296,23 @@ async function _saveEditPanel() {
     return;
   }
 
+  // Validate goal vs start weight for loss-direction targets.
+  // The start weight is fixed once a target is created; if the target was
+  // set as a loss target (start > original goal) the new goal must stay below
+  // start weight — otherwise the data has no meaningful direction.
+  const startWVal = _activeTarget
+    ? _activeTarget.start_weight_kg
+    : (_chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null);
+  if (startWVal != null) {
+    const isLossTarget = _activeTarget
+      ? _activeTarget.start_weight_kg > _activeTarget.target_weight_kg
+      : false;
+    if (isLossTarget && goalW >= startWVal) {
+      if (errEl) errEl.textContent = 'Goal must be less than start weight.';
+      return;
+    }
+  }
+
   if (saveBtn) saveBtn.disabled = true;
 
   try {
@@ -1604,6 +1640,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   _initCardB();
   _initRangeTabs();
+  _initModeToggle();
   _initEditPanel();
   _initTargetHistoryFilters();
   _initBackfillCalendar();
