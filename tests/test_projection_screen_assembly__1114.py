@@ -15,7 +15,6 @@ Acceptance criteria verified:
 
 import os
 import py_compile
-import re
 
 import pytest
 
