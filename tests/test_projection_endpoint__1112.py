@@ -13,7 +13,6 @@ Acceptance criteria verified:
 """
 from __future__ import annotations
 
-import inspect
 import os
 import pathlib
 import py_compile
@@ -46,11 +45,10 @@ BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "plan1112proj!"
 
 if _uat_url:
-    import httpx
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session as _OrmSess
     from backend.auth import hash_password as _hash_pw, CSRF_COOKIE_NAME
-    from backend.models import User as _UserModel, Race as _RaceModel
+    from backend.models import User as _UserModel
     _db_engine = create_engine(_uat_url, pool_pre_ping=True)
 else:
     _db_engine = None

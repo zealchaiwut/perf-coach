@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session as _Session
 from backend.auth import COOKIE_NAME, get_current_user
 from backend.db import engine as _engine
 from backend.models import (
-    Race as _Race,
     TrainingPlan as _TrainingPlan,
     User,
     UserPreferences as _UserPreferences,
