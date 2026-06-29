@@ -18,11 +18,9 @@ import ast
 import math
 import py_compile
 import inspect
-import os
 import textwrap
 from datetime import date, timedelta
 
-import pytest
 
 from backend.services.projection import (
     CTL_DECAY,
