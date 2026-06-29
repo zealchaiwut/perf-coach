@@ -12363,6 +12363,94 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 _performance_log = _logging.getLogger(__name__)
 
 
+def _format_pace(duration_seconds, distance_km):
+    """Return pace string 'M:SS/km' or None when inputs are missing/invalid."""
+    if duration_seconds is None or distance_km is None:
+        return None
+    try:
+        dist = float(distance_km)
+        dur = float(duration_seconds)
+    except (TypeError, ValueError):
+        return None
+    if dist <= 0 or dur <= 0:
+        return None
+    pace_sec = dur / dist
+    mins = int(pace_sec // 60)
+    secs = int(pace_sec % 60)
+    return f"{mins}:{secs:02d}/km"
+
+
+def _map_source_badge(source):
+    """Map workout source string to display badge ('Strava', 'Stryd', or None)."""
+    if not source:
+        return None
+    if "strava" in source.lower():
+        return "Strava"
+    if "stryd" in source.lower():
+        return "Stryd"
+    return None
+
+
+def _build_session_dicts_from_contributors(contributors, run_workouts_map):
+    """Build the 8-key flat session dicts from contributor entries and workout lookup.
+
+    Parameters
+    ----------
+    contributors : list[dict]
+        Each dict has 'run_id' and 'contribution' keys (from get_contributing_run_ids).
+    run_workouts_map : dict
+        Mapping of run_id (str) → workout dict or ORM object with fields:
+        id, name, source, distance_km, duration_seconds, avg_hr, workout_date.
+
+    Returns
+    -------
+    list[dict]  Each dict has exactly: workout_id, date, title, distance_km,
+                pace, avg_hr, contribution, source.
+    """
+    sessions = []
+    for entry in contributors:
+        run_id = entry["run_id"]
+        workout = run_workouts_map.get(run_id)
+        if workout is None:
+            continue
+
+        # Support both ORM objects and plain dicts
+        def _get(obj, key):
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+
+        dist = _get(workout, "distance_km")
+        if dist is not None:
+            try:
+                dist = float(dist)
+            except (TypeError, ValueError):
+                dist = None
+
+        dur = _get(workout, "duration_seconds")
+        avg_hr = _get(workout, "avg_hr")
+        source_raw = _get(workout, "source")
+        name = _get(workout, "name") or ""
+        workout_date = _get(workout, "workout_date")
+
+        if hasattr(workout_date, "isoformat"):
+            date_str = workout_date.isoformat()
+        else:
+            date_str = str(workout_date) if workout_date is not None else ""
+
+        sessions.append({
+            "workout_id": str(_get(workout, "id") or run_id),
+            "date": date_str,
+            "title": name,
+            "distance_km": dist,
+            "pace": _format_pace(dur, dist),
+            "avg_hr": avg_hr,
+            "contribution": entry["contribution"],
+            "source": _map_source_badge(source_raw),
+        })
+    return sessions
+
+
 def _check_needs_thresholds(preferences) -> bool:
     """Return True when none of the three threshold values are set in preferences.
 
@@ -12651,6 +12739,10 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                     # When non-None, compute_speed_score uses this directly instead of
                     # recomputing efficiency from laps.
                     "speed_signal": workout.speed_signal,
+                    # For contributing sessions metadata (issue #1053)
+                    "name": workout.name,
+                    "source": workout.source,
+                    "workout_date_str": workout.workout_date.isoformat() if workout.workout_date else "",
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -12708,6 +12800,20 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                     speed=None,
                     generated_at=generated_at,
                 )
+            )
+
+        # Attach contributing sessions to each score object (issue #1053)
+        from backend.services.running_performance import get_contributing_run_ids
+        run_map = {r["run_id"]: r for r in runs}
+        if isinstance(endurance, dict) and isinstance(endurance.get("score"), (int, float)):
+            e_contributors = get_contributing_run_ids(runs, preferences, zone_constants, mode="endurance")
+            endurance["contributing_sessions"] = _build_session_dicts_from_contributors(
+                e_contributors, run_map
+            )
+        if isinstance(speed, dict) and isinstance(speed.get("score"), (int, float)):
+            s_contributors = get_contributing_run_ids(runs, preferences, zone_constants, mode="speed")
+            speed["contributing_sessions"] = _build_session_dicts_from_contributors(
+                s_contributors, run_map
             )
 
         return JSONResponse(
