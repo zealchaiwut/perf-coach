@@ -91,6 +91,9 @@ _start_time = time.monotonic()
 
 app = FastAPI()
 
+from backend.routers.plan import router as _plan_router
+app.include_router(_plan_router)
+
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
     """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
