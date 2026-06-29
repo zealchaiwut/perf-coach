@@ -91,7 +91,41 @@ Curve best at 300s: best_value=300W.  Run avg_powers: [270, 285, 300].
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# EWMA scoring configuration (issue #1051)
+# ---------------------------------------------------------------------------
+# All smoothing parameters live here so they can be tuned without touching
+# business logic. Inline comments explain each parameter's effect.
+#
+# endurance_ewma_alpha: base decay factor for the endurance EWMA.
+#   Higher value = faster response to recent sessions; lower = more historical
+#   inertia. Effective alpha per step is scaled by the run's duration weight.
+#
+# speed_ewma_alpha: base decay factor for the speed EWMA.
+#   Speed signals are noisier (short hard efforts), so a slightly higher alpha
+#   lets recent quality efforts update the score faster.
+#
+# endurance_reference_duration_seconds: run length that earns full EWMA weight.
+#   Shorter runs receive proportionally less weight; longer are capped at 1.0.
+#   Default: 3600 s (1 hour).
+#
+# speed_reference_signal: speed-signal ratio that earns full EWMA weight.
+#   Signals above this value are capped at 1.0. Default: 1.30 (a solid hard
+#   effort well above threshold).
+#
+# trailing_window_days: only sessions within this many days of the most recent
+#   run in the input list contribute to the EWMA. Older sessions are ignored.
+PERFORMANCE_CONFIG: dict = {
+    "endurance_ewma_alpha": 0.2,
+    "speed_ewma_alpha": 0.3,
+    "endurance_reference_duration_seconds": 3600,
+    "speed_reference_signal": 1.30,
+    "trailing_window_days": 90,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +166,9 @@ def compute_endurance_score(
     runs = runs or []
     bands = zc["endurance_bands"]
 
-    # Filter to qualifying runs and compute per-run efficiency with durability
-    qualifying: list[tuple[str, float]] = []  # (run_id, adjusted_efficiency)
+    # Collect per-run adjusted efficiency and metadata for each qualifying run.
+    # A run qualifies when it contains at least one easy/steady lap with usable data.
+    qualifying_meta: list[dict] = []  # {run_id, adjusted, duration_seconds, workout_date}
     per_run_efficiency: dict[str, float] = {}
 
     for run in runs:
@@ -146,23 +181,32 @@ def compute_endurance_score(
         if eff is None:
             continue  # insufficient data for this run
 
-        # Durability adjustment: multiply efficiency by durability_factor
-        # A run with low decoupling is more durable and earns a higher score
+        # Durability adjustment: multiply efficiency by durability_factor.
+        # A run with low decoupling is more durable and earns a higher signal.
         decoupling_pct = run.get("decoupling_pct")
         if isinstance(decoupling_pct, (int, float)) and not isinstance(decoupling_pct, bool):
-            # Clamp to [0, 50]: 0% decoupling → factor 1.0; 50%+ → factor 0.0
             clamped = max(0.0, min(float(decoupling_pct), 50.0))
             durability_factor = 1.0 - clamped / 50.0
         else:
-            durability_factor = 1.0  # no decoupling data; assume fully durable
+            durability_factor = 1.0
 
         adjusted = eff * durability_factor
         per_run_efficiency[run_id] = round(eff, 6)
-        qualifying.append((run_id, adjusted))
+        qualifying_meta.append({
+            "run_id": run_id,
+            "adjusted": adjusted,
+            "duration_seconds": run.get("duration_seconds") or 0,
+            "workout_date": run.get("workout_date") or "",
+        })
+
+    # Restrict to the trailing window (sessions outside are ignored; forward-carry
+    # is implicit: the EWMA holds its last value until a new qualifying session arrives).
+    window_days = PERFORMANCE_CONFIG["trailing_window_days"]
+    qualifying_meta = _filter_trailing_window(qualifying_meta, window_days)
 
     min_runs = zc["min_qualifying_runs"]
-    if len(qualifying) < min_runs:
-        found = len(qualifying)
+    if len(qualifying_meta) < min_runs:
+        found = len(qualifying_meta)
         return {
             "state": "building_baseline",
             "reason": (
@@ -171,14 +215,32 @@ def compute_endurance_score(
             ),
         }
 
-    trend = _normalise_to_trend(qualifying)
-    direction = _compute_direction(trend, zc["direction_slope_threshold"])
-    score = trend[-1]
+    # Normalize adjusted efficiency values to [0, 100] within the window.
+    raw_values = [m["adjusted"] for m in qualifying_meta]
+    normalised = _normalise_values(raw_values)
+
+    # Build duration weights: longer runs earn proportionally more influence.
+    ref_dur = PERFORMANCE_CONFIG["endurance_reference_duration_seconds"]
+    duration_weights = [
+        min(1.0, (m["duration_seconds"] or 0) / ref_dur) if ref_dur > 0 else 1.0
+        for m in qualifying_meta
+    ]
+    # Guard: if all weights are 0 (all durations unknown), default to equal weight.
+    if all(w == 0.0 for w in duration_weights):
+        duration_weights = [1.0] * len(duration_weights)
+
+    # Apply the duration-weighted EWMA over the normalised signals.
+    base_alpha = PERFORMANCE_CONFIG["endurance_ewma_alpha"]
+    ewma_series = _compute_ewma_series(normalised, duration_weights, base_alpha)
+
+    score = ewma_series[-1]
+    direction = _compute_direction(ewma_series, zc["direction_slope_threshold"])
 
     return {
         "score": round(score, 2),
         "direction": direction,
-        "trend": [round(v, 2) for v in trend],
+        "trend": [round(v, 2) for v in ewma_series],
+        "qualifying_session_count": len(qualifying_meta),
         "debug": {
             "perRunEfficiency": per_run_efficiency,
         },
@@ -220,48 +282,81 @@ def compute_speed_score(
     bands = zc["speed_bands"]
     curve_bests = preferences.get("duration_curve_bests") or {}
 
-    qualifying: list[tuple[str, float]] = []  # (run_id, adjusted_efficiency)
+    # Determine scoring path. When runs carry pre-computed speed_signal values
+    # (persisted by issue #1048), use them directly as per-run signals. When no
+    # run has a speed_signal, fall back to the lap-based efficiency path so that
+    # existing test suites (which construct run dicts without speed_signal) keep
+    # passing and athletes without a backfill still get scores.
+    has_any_speed_signal = any(
+        run.get("speed_signal") is not None for run in runs
+    )
+
+    qualifying_meta: list[dict] = []  # {run_id, signal, effort_weight, workout_date}
     per_run_efficiency: dict[str, float] = {}
     curve_best_used: dict | None = None
 
-    for run in runs:
-        run_id = run.get("run_id", "")
-        laps = _qualifying_laps(run.get("laps") or [], bands)
-        if not laps:
-            continue
+    if has_any_speed_signal:
+        # Signal-based path: use the stored speed_signal as the per-run signal.
+        # Weight each update by effort quality (how far above threshold the effort was).
+        ref_signal = PERFORMANCE_CONFIG["speed_reference_signal"]
+        for run in runs:
+            run_id = run.get("run_id", "")
+            sig = run.get("speed_signal")
+            if sig is None:
+                continue  # no qualifying effort on this run; carries forward implicitly
+            effort_weight = min(1.0, float(sig) / ref_signal) if ref_signal > 0 else 1.0
+            per_run_efficiency[run_id] = round(float(sig), 6)
+            qualifying_meta.append({
+                "run_id": run_id,
+                "signal": float(sig),
+                "effort_weight": effort_weight,
+                "workout_date": run.get("workout_date") or "",
+            })
+    else:
+        # Lap-based fallback: compute per-run efficiency from hard/interval laps.
+        # Preserves full backward compatibility including duration-curve adjustment.
+        for run in runs:
+            run_id = run.get("run_id", "")
+            laps = _qualifying_laps(run.get("laps") or [], bands)
+            if not laps:
+                continue
 
-        eff, reason = _efficiency_from_laps(laps)
-        if eff is None:
-            continue
+            eff, reason = _efficiency_from_laps(laps)
+            if eff is None:
+                continue
 
-        # Duration-curve best adjustment: compare run's average power against
-        # the athlete's all-time best power at the same duration window.
-        adjusted = eff
-        if curve_bests:
-            avg_duration = _avg_lap_duration(laps)
-            best_entry, best_duration = _find_closest_curve_entry(curve_bests, avg_duration)
-            if best_entry is not None:
-                best_value = best_entry.get("best_value")
-                avg_power = _avg_lap_power(laps)
-                if best_value and best_value > 0 and avg_power and avg_power > 0:
-                    # proximity = fraction of best power achieved; capped at 1.0
-                    proximity = min(1.0, avg_power / best_value)
-                    # Scale efficiency up as athlete approaches curve best:
-                    # factor = 0.5 + 0.5 × proximity
-                    # (ranges from 0.5 when power is zero to 1.0 when at best)
-                    adjusted = eff * (0.5 + 0.5 * proximity)
-                    if curve_best_used is None:
-                        curve_best_used = {
-                            "duration_seconds": best_duration,
-                            "best_value": best_value,
-                        }
+            adjusted = eff
+            if curve_bests:
+                avg_duration = _avg_lap_duration(laps)
+                best_entry, best_duration = _find_closest_curve_entry(curve_bests, avg_duration)
+                if best_entry is not None:
+                    best_value = best_entry.get("best_value")
+                    avg_power = _avg_lap_power(laps)
+                    if best_value and best_value > 0 and avg_power and avg_power > 0:
+                        proximity = min(1.0, avg_power / best_value)
+                        adjusted = eff * (0.5 + 0.5 * proximity)
+                        if curve_best_used is None:
+                            curve_best_used = {
+                                "duration_seconds": best_duration,
+                                "best_value": best_value,
+                            }
 
-        per_run_efficiency[run_id] = round(eff, 6)
-        qualifying.append((run_id, adjusted))
+            per_run_efficiency[run_id] = round(eff, 6)
+            # In the fallback path all runs receive equal effort weight.
+            qualifying_meta.append({
+                "run_id": run_id,
+                "signal": adjusted,
+                "effort_weight": 1.0,
+                "workout_date": run.get("workout_date") or "",
+            })
+
+    # Restrict to the trailing window.
+    window_days = PERFORMANCE_CONFIG["trailing_window_days"]
+    qualifying_meta = _filter_trailing_window(qualifying_meta, window_days)
 
     min_runs = zc["min_qualifying_runs"]
-    if len(qualifying) < min_runs:
-        found = len(qualifying)
+    if len(qualifying_meta) < min_runs:
+        found = len(qualifying_meta)
         return {
             "state": "building_baseline",
             "reason": (
@@ -270,14 +365,25 @@ def compute_speed_score(
             ),
         }
 
-    trend = _normalise_to_trend(qualifying)
-    direction = _compute_direction(trend, zc["direction_slope_threshold"])
-    score = trend[-1]
+    # Normalize signals to [0, 100] within the trailing window.
+    raw_signals = [m["signal"] for m in qualifying_meta]
+    normalised = _normalise_values(raw_signals)
+
+    effort_weights = [m["effort_weight"] for m in qualifying_meta]
+    if all(w == 0.0 for w in effort_weights):
+        effort_weights = [1.0] * len(effort_weights)
+
+    base_alpha = PERFORMANCE_CONFIG["speed_ewma_alpha"]
+    ewma_series = _compute_ewma_series(normalised, effort_weights, base_alpha)
+
+    score = ewma_series[-1]
+    direction = _compute_direction(ewma_series, zc["direction_slope_threshold"])
 
     return {
         "score": round(score, 2),
         "direction": direction,
-        "trend": [round(v, 2) for v in trend],
+        "trend": [round(v, 2) for v in ewma_series],
+        "qualifying_session_count": len(qualifying_meta),
         "debug": {
             "perRunEfficiency": per_run_efficiency,
             "durationCurveBestUsed": curve_best_used,
@@ -288,6 +394,72 @@ def compute_speed_score(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _date_from_str(date_str: str) -> date | None:
+    """Parse YYYY-MM-DD string to a date object; return None on failure."""
+    try:
+        return date.fromisoformat(date_str[:10]) if date_str else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _filter_trailing_window(items: list[dict], window_days: int) -> list[dict]:
+    """Return only items whose workout_date is within window_days of the most recent.
+
+    Items without a parseable date are excluded to avoid stale data skewing the
+    window boundary. If no items have parseable dates, all items are returned.
+    """
+    dated = [(item, _date_from_str(item.get("workout_date", ""))) for item in items]
+    valid_dates = [d for _, d in dated if d is not None]
+    if not valid_dates:
+        return items
+
+    latest = max(valid_dates)
+    cutoff = latest - timedelta(days=window_days)
+    return [item for item, d in dated if d is not None and d >= cutoff]
+
+
+def _normalise_values(values: list[float]) -> list[float]:
+    """Normalise a list of floats to [0, 100].
+
+    When all values are equal (or there is only one value), every entry maps
+    to 50.0 (midpoint of the range).
+    """
+    if not values:
+        return []
+    min_v = min(values)
+    max_v = max(values)
+    if max_v == min_v:
+        return [50.0] * len(values)
+    return [(v - min_v) / (max_v - min_v) * 100.0 for v in values]
+
+
+def _compute_ewma_series(
+    signals: list[float],
+    weights: list[float],
+    base_alpha: float,
+) -> list[float]:
+    """Apply a weighted EWMA to a sequence of normalised signal values (0–100).
+
+    For each step:
+        effective_alpha = base_alpha * weight   (weight clamped to [0, 1])
+        ewma_new = effective_alpha * signal + (1 - effective_alpha) * ewma_prev
+
+    The first signal bootstraps the series (no prior value to blend against).
+    Returns an EWMA value for every input signal in the same order.
+    """
+    ewma_history: list[float] = []
+    ewma: float | None = None
+    for signal, weight in zip(signals, weights):
+        clamped_weight = max(0.0, min(1.0, weight))
+        effective_alpha = base_alpha * clamped_weight
+        if ewma is None:
+            ewma = signal  # bootstrap: first qualifying session initialises the series
+        else:
+            ewma = effective_alpha * signal + (1.0 - effective_alpha) * ewma
+        ewma_history.append(ewma)
+    return ewma_history
+
 
 def _resolve_zone_constants(zone_constants: dict | None) -> dict:
     """Return zone_constants or the module-level defaults when None is passed."""

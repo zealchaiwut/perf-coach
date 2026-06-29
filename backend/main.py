@@ -4967,6 +4967,47 @@ def _best_values_dict(w: Workout) -> dict:
     }
 
 
+def _compute_session_signals(w: Workout) -> dict:
+    """Derive display-ready signal fields for a workout.
+
+    Returns the 5 flat keys required by issue #1052:
+    endurance_signal, endurance_signal_note, speed_signal, speed_signal_note,
+    contributes_to.
+    """
+    es = w.endurance_signal
+    ss = w.speed_signal
+
+    dur = w.duration_seconds or 0
+    if es is None:
+        if dur < 40 * 60:
+            endurance_note = "— run under 40 min"
+        else:
+            endurance_note = "— insufficient data"
+    else:
+        endurance_note = None
+
+    speed_note = "— no hard effort" if ss is None else None
+
+    has_endurance = es is not None
+    has_speed = ss is not None
+    if has_endurance and has_speed:
+        hint = "feeds both endurance and speed training signals."
+    elif has_endurance:
+        hint = "feeds endurance through low drift, nothing to speed — expected for an easy run."
+    elif has_speed:
+        hint = "feeds speed, not endurance — short or high-intensity effort."
+    else:
+        hint = "No signal recorded for this session."
+
+    return {
+        "endurance_signal": float(es) if es is not None else None,
+        "endurance_signal_note": endurance_note,
+        "speed_signal": float(ss) if ss is not None else None,
+        "speed_signal_note": speed_note,
+        "contributes_to": hint,
+    }
+
+
 def _workout_dict(w: Workout, exercises: list) -> dict:
     strava_act = getattr(w, "strava_activity", None)
     return {
@@ -4999,6 +5040,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
+        **_compute_session_signals(w),
     }
 
 
@@ -7460,6 +7502,11 @@ def _trigger_performance_backfill_background(user_id) -> None:
     Called after threshold saves so TSS and the duration curve are consistent
     with the new thresholds without blocking the HTTP response.  Errors are
     logged but do not propagate.
+
+    Pipeline order:
+      1. M0: TSS recompute + duration curve rebuild (backfill_performance_for_athlete)
+      2. Speed + endurance signal backfill (backfill_signals_for_athlete) — chains
+         after M0 so signals are computed against up-to-date thresholds and curves.
     """
     _backfill_log = _logging.getLogger(__name__)
 
@@ -7471,6 +7518,16 @@ def _trigger_performance_backfill_background(user_id) -> None:
         except Exception as _exc:
             _backfill_log.warning(
                 "background performance backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+        try:
+            from sqlalchemy.orm import Session as _Session
+            from backend.services.backfill_signals import backfill_signals_for_athlete as _backfill_signals
+            with _Session(engine) as _db:
+                _backfill_signals(user_id, _db)
+        except Exception as _exc:
+            _backfill_log.warning(
+                "background signal backfill failed for user %s: %s",
                 user_id, _exc, exc_info=True,
             )
 
@@ -12861,6 +12918,10 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                     "avg_hr": workout.avg_hr,
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
+                    # Pre-computed speed signal from issue #1048 (may be None for easy runs).
+                    # When non-None, compute_speed_score uses this directly instead of
+                    # recomputing efficiency from laps.
+                    "speed_signal": workout.speed_signal,
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.

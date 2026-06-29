@@ -110,7 +110,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -139,6 +139,15 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | np | int | nullable — normalized power (watts), computed at ingest |
 | avg_cadence_spm | int | nullable — average cadence (steps per minute) |
 | avg_stride_m | numeric(4,2) | nullable — average stride length (metres) |
+| speed_signal | float | nullable — best 1–6 min effort ratio vs threshold (Sprint 90 / #1048) |
+| speed_signal_basis | varchar(20) | nullable — `power` / `pace` / `heart_rate` |
+| speed_signal_window_seconds | int | nullable — duration of the best window used |
+| speed_signal_source | text | nullable — descriptive computation path string |
+| endurance_signal | float | nullable — aerobic durability score (0–100+); runs ≥ 40 min only (Sprint 90 / #1049) |
+| decoupling_percent | float | nullable — `((e1 - e2) / e1) * 100`; positive = fade |
+| efficiency_first_half | float | nullable — power/HR or speed/HR for first half of run |
+| efficiency_second_half | float | nullable — same metric for second half |
+| endurance_signal_source | varchar(20) | nullable — `power_hr` / `speed_hr` |
 | created_at | timestamptz | |
 
 Child tables: `workout_exercises`, `workout_splits`.
