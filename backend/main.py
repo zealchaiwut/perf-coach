@@ -79,6 +79,7 @@ from backend.services.aerobic_decoupling import compute_decoupling as _compute_d
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
+from backend.services.guardrail import get_guardrail_result
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -13272,6 +13273,8 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
         workout_types=workout_types,
     )
 
+    guardrail = get_guardrail_result(uid)
+
     return JSONResponse({
         "week_start": ws.isoformat(),
         "week_end": we.isoformat(),
@@ -13284,6 +13287,8 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
         "form_tsb_change": form_tsb_change,
         "note": note,
         "readiness_next_week": readiness_next_week,
+        "guardrail_state": guardrail["guardrail_state"],
+        "guardrail_message": guardrail["guardrail_message"],
     })
 
 
@@ -13714,6 +13719,8 @@ def get_athlete_monthly_summary(
             "date": nearest.race_date.isoformat(),
         }
 
+    guardrail = get_guardrail_result(uid)
+
     return JSONResponse({
         "month_start": month_start.isoformat(),
         "month_end": month_end.isoformat(),
@@ -13729,6 +13736,8 @@ def get_athlete_monthly_summary(
         "supercompensation_state": supercompensation_state,
         "call_to_action": call_to_action,
         "next_checkpoint": next_checkpoint,
+        "guardrail_state": guardrail["guardrail_state"],
+        "guardrail_message": guardrail["guardrail_message"],
     })
 
 

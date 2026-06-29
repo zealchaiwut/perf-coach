@@ -4869,6 +4869,19 @@
     );
   }
 
+  // ── Guardrail warning ────────────────────────────────────────────────────────
+
+  function _renderGuardrailWarn(data) {
+    if (data.guardrail_state !== 'warn') return '';
+    var msg = data.guardrail_message || 'Training load caution — review your workload this week.';
+    return (
+      '<div class="sd-guardrail-warn">' +
+        '<span class="sd-guardrail-warn-icon" aria-hidden="true">&#9888;</span>' +
+        '<span>' + _esc(msg) + '</span>' +
+      '</div>'
+    );
+  }
+
   // ── Render weekly view ───────────────────────────────────────────────────────
 
   function _renderWeek(data) {
@@ -4925,7 +4938,7 @@
 
     var noteHtml = data.note ? '<div class="sd-note">' + _esc(data.note) + '</div>' : '';
 
-    return tiles + chipsHtml + noteHtml;
+    return tiles + chipsHtml + noteHtml + _renderGuardrailWarn(data);
   }
 
   // ── Render monthly view ──────────────────────────────────────────────────────
@@ -4998,7 +5011,7 @@
         '</div>' +
       '</div>';
 
-    return tiles + chipsHtml + supercompHtml;
+    return tiles + chipsHtml + supercompHtml + _renderGuardrailWarn(data);
   }
 
   // ── Fetch & render ───────────────────────────────────────────────────────────

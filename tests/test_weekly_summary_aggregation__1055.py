@@ -58,6 +58,9 @@ _REQUIRED_KEYS = {
     "form_tsb_change",
     "note",
     "readiness_next_week",
+    # Added in issue #1060: guardrail warning surfaced on summary cards
+    "guardrail_state",
+    "guardrail_message",
 }
 
 

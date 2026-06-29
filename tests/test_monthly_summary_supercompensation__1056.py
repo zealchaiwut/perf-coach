@@ -49,6 +49,9 @@ EXPECTED_KEYS = {
     "supercompensation_state",
     "call_to_action",
     "next_checkpoint",
+    # Added in issue #1060: guardrail warning surfaced on summary cards
+    "guardrail_state",
+    "guardrail_message",
 }
 
 VALID_SUPER_STATES = {"working", "flat", "digging"}
@@ -165,10 +168,13 @@ def _call_endpoint(
 
     config_fn = app_config_fn or (lambda key, default="": default)
 
+    _default_guardrail = {"guardrail_state": "ok", "guardrail_message": ""}
+
     with (
         patch("backend.main.Session") as MockSession,
         patch("backend.main.compute_fitness_series", return_value=fitness_series),
         patch("backend.main._get_app_config", side_effect=config_fn),
+        patch("backend.main.get_guardrail_result", return_value=_default_guardrail),
     ):
         MockSession.return_value = mock_db
         result = get_athlete_monthly_summary(str(user.id), user, month)
@@ -176,10 +182,10 @@ def _call_endpoint(
     return json.loads(result.body)
 
 
-# ── AC11: strict schema — exactly 14 keys ─────────────────────────────────────
+# ── AC11: strict schema — exactly 16 keys (14 original + 2 guardrail from #1060) ─
 
-def test_response_has_exactly_14_keys():
-    """AC1 & AC11: Response contains exactly the 14 expected keys, no extras."""
+def test_response_has_exactly_16_keys():
+    """AC1 & AC11: Response contains exactly the 16 expected keys, no extras."""
     user = _make_user()
     workouts = [
         _make_workout(user.id, MONTH_START + timedelta(days=i), tss=60.0, distance_km=10.0)
