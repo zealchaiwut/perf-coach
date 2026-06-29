@@ -17,12 +17,10 @@ Acceptance criteria verified:
 """
 import inspect
 import py_compile
-from datetime import date, timedelta
+from datetime import date
 
-import pytest
 
 from backend.services.projection import (
-    ATL_DECAY,
     CTL_DECAY,
     confidence_band_days,
     project_fitness,
