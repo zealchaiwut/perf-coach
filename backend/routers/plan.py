@@ -1,20 +1,34 @@
-"""plan.py — routes for /plans/{plan_id}/races and nested checkpoints (issue #1100).
+"""plan.py — routes for /plans/{plan_id}/races, checkpoints, and projection.
 
-All business logic and DB interaction is delegated to plan_service.
+All business logic and DB interaction is delegated to plan_service or the
+projection module; no domain logic lives in this router.
 """
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import date as _date
+from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy.orm import Session as _Session
 
 from backend.auth import COOKIE_NAME, get_current_user
-from backend.models import User, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
+from backend.db import engine as _engine
+from backend.models import (
+    Race as _Race,
+    TrainingPlan as _TrainingPlan,
+    User,
+    UserPreferences as _UserPreferences,
+    RACE_TYPE_VALUES as _RACE_TYPE_VALUES,
+)
 from backend.services import plan_service as _svc
+from backend.services import projection as _proj
+from backend.services.training_load import (
+    current_load as _current_load,
+    daily_tss_series as _daily_tss_series,
+)
 
 router = APIRouter()
 
@@ -310,3 +324,79 @@ async def delete_checkpoint(
     if not deleted:
         raise HTTPException(status_code=404, detail="checkpoint not found")
     return Response(status_code=204)
+
+
+# ── Projection endpoint ───────────────────────────────────────────────────────
+
+_DEFAULT_PROJECTION_DAYS = 90
+
+
+@router.get("/plans/{plan_id}/projection")
+async def get_plan_projection(
+    plan_id: str,
+    user: User = Depends(_resolve_user),
+):
+    """Return CTL/ATL/TSB projection, per-race estimates, and fitness band for a plan."""
+    try:
+        pid = _uuid.UUID(plan_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid plan_id")
+
+    with _Session(_engine) as db:
+        plan = db.get(_TrainingPlan, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        prefs = (
+            db.query(_UserPreferences)
+            .filter(_UserPreferences.user_id == plan.user_id)
+            .first()
+        )
+        thresholds = (
+            {"threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km}
+            if prefs and prefs.threshold_pace_seconds_per_km is not None
+            else None
+        )
+
+    races = _svc.list_races(plan.user_id)
+
+    load_state = _current_load(str(plan.user_id))
+    start_date: _date = load_state["date"]
+    start_ctl: float = load_state["ctl"]
+    start_atl: float = load_state["atl"]
+
+    if races:
+        race_dates = [_date.fromisoformat(r["date"]) for r in races]
+        last_race_date = max(race_dates)
+        n_days = max((last_race_date - start_date).days, 1)
+    else:
+        n_days = _DEFAULT_PROJECTION_DAYS
+
+    window_start = start_date - _timedelta(days=27)
+    recent_series = _daily_tss_series(str(plan.user_id), window_start, start_date)
+    avg_load = (
+        sum(tss for _, tss in recent_series) / len(recent_series)
+        if recent_series else 0.0
+    )
+    planned_load = [avg_load] * n_days
+
+    race_inputs = [
+        {
+            "date": r["date"],
+            "distance_km": r.get("distance"),
+            "name": r.get("name") or "",
+        }
+        for r in races
+    ]
+
+    payload = _proj.build_plan_projection_payload(
+        start_ctl=start_ctl,
+        start_atl=start_atl,
+        start_date=start_date,
+        planned_load=planned_load,
+        races=race_inputs,
+        thresholds=thresholds,
+    )
+    return JSONResponse(payload)

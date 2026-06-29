@@ -40,8 +40,14 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
+from typing import Optional
 
-from backend.services.fitness_model import ATL_TIME_CONSTANT, CTL_TIME_CONSTANT
+from backend.services.fitness_model import (
+    ATL_TIME_CONSTANT,
+    CTL_TIME_CONSTANT,
+    TSB_FRESH_MIN,
+    TSB_OPTIMAL_MIN,
+)
 
 # ── Decay factors derived from Layer-1 time constants ────────────────────────
 # These are the per-day persistence fractions: how much of yesterday's load
@@ -229,3 +235,173 @@ def apply_expressible_scores(
         expressible = compute_expressible_score(base_score, data["tsb"], ceiling_tsb)
         result[day] = {**data, "expressible_score": round(expressible, 2)}
     return result
+
+
+# ── Riegel race-equivalence ───────────────────────────────────────────────────
+
+# Riegel exponent used for cross-distance time prediction.
+# t2 = t1 * (d2/d1)^RIEGEL_EXPONENT
+RIEGEL_EXPONENT: float = 1.06
+
+
+def compute_half_equivalent(
+    estimated_finish_seconds: "Optional[int]",
+    distance_km: "Optional[float]",
+) -> "Optional[int]":
+    """Predict finish time for half the race distance using the Riegel formula.
+
+    Applies the Riegel race-equivalence exponent so that longer distances are
+    proportionally harder:
+
+        half_time = finish_time * 0.5^RIEGEL_EXPONENT
+
+    Parameters
+    ----------
+    estimated_finish_seconds:
+        Predicted full-race finish time in seconds.  None returns None.
+    distance_km:
+        Race distance in kilometres.  Must be positive; None or ≤0 returns None.
+
+    Returns
+    -------
+    Rounded integer seconds for half the race distance, or None on invalid input.
+    """
+    if estimated_finish_seconds is None or distance_km is None:
+        return None
+    if distance_km <= 0:
+        return None
+    return int(round(estimated_finish_seconds * (0.5 ** RIEGEL_EXPONENT)))
+
+
+# ── Fitness band ──────────────────────────────────────────────────────────────
+
+def fitness_band_from_tsb(tsb: float) -> str:
+    """Classify TSB into a fitness band label using the standard readiness thresholds.
+
+    Uses the same TSB band constants as ``fitness_model._readiness_label`` so
+    the projection and fitness-model layers agree on band boundaries.
+
+    Parameters
+    ----------
+    tsb:
+        Training Stress Balance (CTL − ATL) value.
+
+    Returns
+    -------
+    One of "Fresh", "Optimal", or "Fatigued".
+    """
+    if tsb >= TSB_FRESH_MIN:
+        return "Fresh"
+    if tsb >= TSB_OPTIMAL_MIN:
+        return "Optimal"
+    return "Fatigued"
+
+
+# ── Plan projection payload assembly ─────────────────────────────────────────
+
+def _format_hhmmss(total_seconds: int) -> str:
+    """Format non-negative integer seconds as 'HH:MM:SS'."""
+    seconds = abs(total_seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def build_plan_projection_payload(
+    start_ctl: float,
+    start_atl: float,
+    start_date: date,
+    planned_load: "list[float]",
+    races: "list[dict]",
+    thresholds: "Optional[dict]",
+) -> dict:
+    """Assemble the full projection payload for GET /plans/{plan_id}/projection.
+
+    Pure function — no database access.  All data must be pre-fetched by the
+    calling layer (router or service).
+
+    Parameters
+    ----------
+    start_ctl:
+        Athlete's CTL on start_date (the day before the first projected day).
+    start_atl:
+        Athlete's ATL on start_date.
+    start_date:
+        Anchor date.  The projection runs from start_date+1 for len(planned_load) days.
+    planned_load:
+        Ordered list of TSS values, one per projected day.
+    races:
+        List of race dicts, each containing at minimum:
+        ``"date"`` (date object or ISO string), ``"distance_km"`` (float or None),
+        ``"name"`` (str, optional).
+    thresholds:
+        User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
+        to compute non-null estimated times.  None yields null estimates.
+
+    Returns
+    -------
+    dict with keys:
+        ``ctl``   — list of floats (one per projected day)
+        ``atl``   — list of floats
+        ``tsb``   — list of floats
+        ``races`` — list of dicts, one per race, each with ``estimated_time``,
+                    ``estimated_finish_seconds``, ``half_equivalent``,
+                    ``half_equivalent_seconds``, ``date``, ``distance_km``, ``name``
+        ``band``  — fitness band string derived from the current TSB (start_ctl − start_atl)
+    """
+    from backend.services.score_ceiling import projected_ctl_to_score_ceiling
+    from backend.services.race_finish_estimator import score_to_estimated_finish_time
+
+    series = project_fitness(planned_load, start_ctl, start_atl, start_date)
+
+    sorted_dates = sorted(series.keys())
+    ctl_list = [round(series[d]["ctl"], 2) for d in sorted_dates]
+    atl_list = [round(series[d]["atl"], 2) for d in sorted_dates]
+    tsb_list = [round(series[d]["tsb"], 2) for d in sorted_dates]
+
+    last_proj_date = sorted_dates[-1] if sorted_dates else start_date
+
+    race_projections = []
+    for race in races:
+        race_date = race["date"]
+        if isinstance(race_date, str):
+            race_date = date.fromisoformat(race_date)
+        dist = race.get("distance_km")
+
+        if race_date in series:
+            projected_ctl = series[race_date]["ctl"]
+        elif sorted_dates:
+            projected_ctl = series[last_proj_date]["ctl"]
+        else:
+            projected_ctl = start_ctl
+
+        ceiling = projected_ctl_to_score_ceiling(projected_ctl)
+        score = ceiling["endurance_ceiling"]
+
+        est = score_to_estimated_finish_time(score, thresholds, dist)
+        est_seconds = est["estimated_finish_seconds"]
+        est_time = est["estimated_finish_time"]
+
+        half_seconds = compute_half_equivalent(est_seconds, dist)
+        half_time = _format_hhmmss(half_seconds) if half_seconds is not None else None
+
+        race_projections.append({
+            "date": str(race_date),
+            "name": race.get("name") or "",
+            "distance_km": dist,
+            "estimated_time": est_time,
+            "estimated_finish_seconds": est_seconds,
+            "half_equivalent": half_time,
+            "half_equivalent_seconds": half_seconds,
+        })
+
+    current_tsb = start_ctl - start_atl
+    band = fitness_band_from_tsb(current_tsb)
+
+    return {
+        "ctl": ctl_list,
+        "atl": atl_list,
+        "tsb": tsb_list,
+        "races": race_projections,
+        "band": band,
+    }
