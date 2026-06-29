@@ -1111,3 +1111,30 @@ class SleepRecord(Base):
         UniqueConstraint("user_id", "external_id", name="uq_sleep_records_user_external_id"),
         Index("ix_sleep_records_user_sleep_date", "user_id", "sleep_date"),
     )
+
+
+TAPER_SHAPE_VALUES = ("linear", "step", "exponential")
+
+
+class TrainingPlan(Base):
+    """Training plan with ramp-up and taper-down configuration parameters."""
+
+    __tablename__ = "training_plans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    ramp_rate = Column(Numeric(6, 2), nullable=True)
+    taper_start = Column(Numeric(6, 2), nullable=True)
+    taper_length = Column(Numeric(6, 2), nullable=True)
+    taper_shape = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    __table_args__ = (
+        Index("ix_training_plans_user_id", "user_id"),
+        CheckConstraint(
+            "taper_shape IS NULL OR taper_shape IN ('linear', 'step', 'exponential')",
+            name="ck_training_plans_taper_shape",
+        ),
+    )
