@@ -4818,3 +4818,298 @@
     renderCalendar();
   }
 }());
+
+// ── Summary Digest Card (issue #1058) ─────────────────────────────────────────
+(function () {
+  'use strict';
+
+  var _athleteId   = null;
+  var _activePeriod = 'week';
+
+  // Cache: keyed by 'week' or 'month', value = fetched data object
+  var _summaryCache = {};
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function _fmtDelta(val, unit) {
+    if (val == null) return null;
+    var n = Number(val);
+    if (!isFinite(n)) return null;
+    var sign = n > 0 ? '+' : '';
+    return sign + n.toFixed(unit === 'kg' ? 1 : 1) + (unit ? ' ' + unit : '');
+  }
+
+  function _chipClass(val) {
+    if (val == null) return 'sd-chip--neu';
+    var n = Number(val);
+    if (n > 0) return 'sd-chip--pos';
+    if (n < 0) return 'sd-chip--neg';
+    return 'sd-chip--neu';
+  }
+
+  // ── Skeleton ─────────────────────────────────────────────────────────────────
+
+  function _renderSkeleton() {
+    return (
+      '<div class="sd-skeleton-tiles">' +
+        '<div class="sd-skeleton-tile"></div>' +
+        '<div class="sd-skeleton-tile"></div>' +
+        '<div class="sd-skeleton-tile"></div>' +
+      '</div>' +
+      '<div class="sd-skeleton-chips">' +
+        '<div class="sd-skeleton-chip"></div>' +
+        '<div class="sd-skeleton-chip"></div>' +
+        '<div class="sd-skeleton-chip"></div>' +
+      '</div>'
+    );
+  }
+
+  // ── Render weekly view ───────────────────────────────────────────────────────
+
+  function _renderWeek(data) {
+    var tiles =
+      '<div class="sd-tiles">' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc((data.distance_km || 0).toFixed(1)) + '</div>' +
+          '<div class="sd-tile-label">km</div>' +
+        '</div>' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc(Math.round(data.total_tss || 0)) + '</div>' +
+          '<div class="sd-tile-label">TSS</div>' +
+        '</div>' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc(data.session_count || 0) + '</div>' +
+          '<div class="sd-tile-label">Sessions</div>' +
+        '</div>' +
+      '</div>';
+
+    var chips = '';
+    var hasAnyChip = false;
+
+    // Score chip: show only when endurance_score_change or speed_score_change is non-zero
+    var scoreVal = data.endurance_score_change != null && data.endurance_score_change !== 0
+      ? data.endurance_score_change
+      : (data.speed_score_change != null && data.speed_score_change !== 0 ? data.speed_score_change : null);
+    if (scoreVal != null) {
+      var scoreStr = _fmtDelta(scoreVal, '');
+      if (scoreStr) {
+        chips += '<span class="sd-chip ' + _chipClass(scoreVal) + '">Score ' + _esc(scoreStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    // Weight chip: hidden when weight_change_kg is null
+    if (data.weight_change_kg != null) {
+      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
+      if (wStr) {
+        chips += '<span class="sd-chip ' + _chipClass(data.weight_change_kg) + '">Weight ' + _esc(wStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    // Form chip: show only when form_tsb_change is non-zero
+    if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
+      var fStr = _fmtDelta(data.form_tsb_change, '');
+      if (fStr) {
+        chips += '<span class="sd-chip ' + _chipClass(data.form_tsb_change) + '">Form ' + _esc(fStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    var chipsHtml = hasAnyChip ? '<div class="sd-chips">' + chips + '</div>' : '';
+
+    var noteHtml = data.note ? '<div class="sd-note">' + _esc(data.note) + '</div>' : '';
+
+    return tiles + chipsHtml + noteHtml;
+  }
+
+  // ── Render monthly view ──────────────────────────────────────────────────────
+
+  function _renderMonth(data) {
+    var tiles =
+      '<div class="sd-tiles">' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc((data.distance_km || 0).toFixed(1)) + '</div>' +
+          '<div class="sd-tile-label">km</div>' +
+        '</div>' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc(Math.round(data.total_tss || 0)) + '</div>' +
+          '<div class="sd-tile-label">TSS</div>' +
+        '</div>' +
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-val">' + _esc(data.session_count || 0) + '</div>' +
+          '<div class="sd-tile-label">Sessions</div>' +
+        '</div>' +
+      '</div>';
+
+    var chips = '';
+    var hasAnyChip = false;
+
+    var scoreVal = data.endurance_score_change != null && data.endurance_score_change !== 0
+      ? data.endurance_score_change
+      : (data.speed_score_change != null && data.speed_score_change !== 0 ? data.speed_score_change : null);
+    if (scoreVal != null) {
+      var scoreStr = _fmtDelta(scoreVal, '');
+      if (scoreStr) {
+        chips += '<span class="sd-chip ' + _chipClass(scoreVal) + '">Score ' + _esc(scoreStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    if (data.weight_change_kg != null) {
+      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
+      if (wStr) {
+        chips += '<span class="sd-chip ' + _chipClass(data.weight_change_kg) + '">Weight ' + _esc(wStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
+      var fStr = _fmtDelta(data.form_tsb_change, '');
+      if (fStr) {
+        chips += '<span class="sd-chip ' + _chipClass(data.form_tsb_change) + '">Form ' + _esc(fStr) + '</span>';
+        hasAnyChip = true;
+      }
+    }
+
+    var chipsHtml = hasAnyChip ? '<div class="sd-chips">' + chips + '</div>' : '';
+
+    // Supercompensation section
+    var state = data.supercompensation_state || 'flat';
+    var badgeClass = state === 'working' ? 'sd-supercomp-badge--working'
+                   : state === 'digging' ? 'sd-supercomp-badge--digging'
+                   : 'sd-supercomp-badge--flat';
+    var badgeLabel = state === 'working' ? 'Primed' : state === 'digging' ? 'Digging' : 'Maintaining';
+
+    var supercompHtml =
+      '<div class="sd-supercomp">' +
+        '<div class="sd-supercomp-row">' +
+          '<span class="sd-supercomp-badge ' + badgeClass + '">' + _esc(badgeLabel) + '</span>' +
+          (data.call_to_action ? '<span class="sd-supercomp-cta">' + _esc(data.call_to_action) + '</span>' : '') +
+        '</div>' +
+        '<div class="sd-supercomp-links">' +
+          '<a class="sd-supercomp-link" href="training-log.html#plan">&#8594; Plan</a>' +
+          '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
+        '</div>' +
+      '</div>';
+
+    return tiles + chipsHtml + supercompHtml;
+  }
+
+  // ── Fetch & render ───────────────────────────────────────────────────────────
+
+  function _renderError() {
+    var body = document.getElementById('sd-body');
+    if (!body) return;
+    body.innerHTML = '<div class="sd-error">Could not load summary.</div>';
+  }
+
+  function _applyData(period, data) {
+    var body = document.getElementById('sd-body');
+    if (!body) return;
+    var card = document.getElementById('summary-digest-card');
+
+    if (period === 'week') {
+      body.innerHTML = _renderWeek(data);
+    } else {
+      body.innerHTML = _renderMonth(data);
+    }
+
+    if (card) card.hidden = false;
+  }
+
+  function _fetchSummary(period) {
+    if (!_athleteId) return;
+
+    // AC6: use cache if already loaded
+    if (_summaryCache[period]) {
+      _applyData(period, _summaryCache[period]);
+      return;
+    }
+
+    var body = document.getElementById('sd-body');
+    if (body) body.innerHTML = _renderSkeleton();
+
+    var card = document.getElementById('summary-digest-card');
+    if (card) card.hidden = false;
+
+    var endpoint = period === 'week'
+      ? '/api/athletes/' + _athleteId + '/summary/weekly'
+      : '/api/athletes/' + _athleteId + '/summary/monthly';
+
+    fetch(endpoint)
+      .then(function (res) {
+        if (!res.ok) {
+          // Monthly returns 424 when no training data; treat as empty rather than crash
+          if (period === 'month' && res.status === 424) {
+            _summaryCache[period] = {
+              distance_km: 0, total_tss: 0, session_count: 0,
+              supercompensation_state: 'flat', call_to_action: null,
+              weight_change_kg: null, endurance_score_change: 0,
+              speed_score_change: 0
+            };
+            _applyData(period, _summaryCache[period]);
+            return null;
+          }
+          throw new Error('HTTP ' + res.status);
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        _summaryCache[period] = data;
+        if (_activePeriod === period) _applyData(period, data);
+      })
+      .catch(function () {
+        if (_activePeriod === period) _renderError();
+      });
+  }
+
+  // ── Toggle ───────────────────────────────────────────────────────────────────
+
+  function _setActivePeriod(period) {
+    _activePeriod = period;
+    document.querySelectorAll('.sd-toggle-btn').forEach(function (btn) {
+      var active = btn.getAttribute('data-period') === period;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    _fetchSummary(period);
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+
+  function _init(athleteId) {
+    _athleteId = athleteId;
+
+    var toggleContainer = document.querySelector('.sd-toggle');
+    if (toggleContainer) {
+      toggleContainer.addEventListener('click', function (e) {
+        var btn = e.target.closest('.sd-toggle-btn');
+        if (!btn) return;
+        var period = btn.getAttribute('data-period');
+        if (period && period !== _activePeriod) _setActivePeriod(period);
+      });
+    }
+
+    // Fetch weekly summary immediately (default tab)
+    _fetchSummary('week');
+  }
+
+  // Grab the user ID — user.js fires userReady once auth/me resolves
+  window.addEventListener('userReady', function (e) {
+    var uid = e.detail && e.detail.userId;
+    if (uid && !_athleteId) _init(uid);
+  });
+
+  // Fallback: if user.js already ran before this listener registered
+  document.addEventListener('DOMContentLoaded', function () {
+    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (uid && !_athleteId) _init(uid);
+  });
+}());
