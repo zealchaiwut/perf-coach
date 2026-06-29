@@ -40,6 +40,8 @@
 
     .log-card--week,
     .log-card--filters { padding: 10px 12px; }
+    /* Type/search filter retired for now — hidden on every width. */
+    .log-card--filters { display: none; }
 
     .log-card--history { overflow: hidden; }
 
@@ -127,6 +129,20 @@
     .log-page-header .btn-accent:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    /* ── Mobile: keep the action buttons on the title row (icon-only), and
+       hide the week-strip calendar (revisit later). ─────────────────────── */
+    @media (max-width: 599px) {
+      .log-page-header { flex-wrap: nowrap; align-items: center; gap: 8px; }
+      .log-page-title { font-size: 20px; margin-bottom: 2px; }
+      .log-subtitle { font-size: 12px; }
+      .log-page-header-actions { flex-wrap: nowrap; gap: 6px; }
+      .log-page-header-actions .btn-label { display: none; }
+      .log-page-header .btn-secondary,
+      .log-page-header .btn-accent { padding: 0 10px; }
+      .log-page-header .sync-chip { padding: 0 8px; }
+      .log-card--week { display: none; }
     }
 
     /* Removed-workouts modal */
@@ -851,11 +867,26 @@
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px 14px;
-      margin: 18px 0 4px;
-      padding: 8px 4px;
-      border-bottom: 2px solid rgba(13, 30, 67, 0.10);
+      margin: 18px 0 6px;
+      padding: 10px 12px;
+      background: #eaf1ff;            /* light blue month band */
+      border-radius: 10px;
     }
     .month-sep:first-child { margin-top: 4px; }
+    /* Weekly sub-separator — same stats, lighter so months stay dominant. */
+    .month-sep.week-sep {
+      background: transparent;
+      border-radius: 0;
+      padding: 6px 4px;
+      margin: 10px 0 2px;
+      border-bottom: 1px dashed rgba(13, 30, 67, 0.12);
+    }
+    .month-sep.week-sep .month-sep-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .month-sep.week-sep .month-stat-val { font-size: 12px; }
+    /* Lazy-load sentinel / fallback button */
+    .log-load-more-sentinel { height: 1px; }
+    .log-load-more { text-align: center; padding: 12px; color: var(--text-secondary); cursor: pointer; font-size: 13px; }
+    .log-load-more:hover { color: var(--text-primary); }
     .month-sep-title {
       font-size: 13px;
       font-weight: 700;
@@ -1279,10 +1310,15 @@
 
     /* ── Responsive: list ≤ 880px ── */
     @media (max-width: 880px) {
+      /* Keep the action buttons on the title row, pushed to the right. */
       .log-page-header {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 8px;
       }
+      .log-page-header-info { flex: 1; min-width: 0; }
+      .log-page-header-actions { margin-left: auto; flex-shrink: 0; }
 
       .fb-chips-row {
         flex-wrap: nowrap;
@@ -2409,7 +2445,7 @@
                 aria-expanded="false" aria-controls="sync-panel"
                 title="Show sync options">
           <i class="ti ti-refresh" aria-hidden="true" style="font-size:12px;"></i>
-          Sync
+          <span class="btn-label">Sync</span>
           <span class="sync-chevron" aria-hidden="true">▾</span>
         </button>
         <div id="sync-panel" class="sync-panel" hidden>
@@ -2456,8 +2492,8 @@
         </div>
       </div>
       <button id="log-removed-btn" class="btn-secondary" type="button"
-              title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> Removed</button>
-      <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
+              title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> <span class="btn-label">Removed</span></button>
+      <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> <span class="btn-label">Log workout</span></button>
       <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>
   </header>
@@ -2487,8 +2523,8 @@
     <div id="week-strip"></div>
   </div>
 
-  <!-- Filter bar (JS renders into this) — Log tab content -->
-  <div class="log-card log-card--filters">
+  <!-- Filter bar (JS renders into this) — hidden for now (filter/search not needed) -->
+  <div class="log-card log-card--filters" hidden>
     <div id="filter-bar"></div>
   </div>
 
@@ -2950,7 +2986,6 @@
           <div class="vc-header">
             <span class="vc-title">Weekly volume</span>
           </div>
-          <p class="vc-caption">Stacked bars = weekly TSS (Run + Lift). Brighter bar = current week. Amber line = run distance (right axis).</p>
           <div class="vc-body">
             <canvas id="volume-chart" height="220" role="img"
                     aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>

@@ -140,67 +140,46 @@
     "border-bottom:1px solid rgba(13,30,67,0.06);padding:0 24px;height:60px;",
     "display:flex;align-items:center;gap:20px;position:sticky;top:0;z-index:100;",
     "font-family:inherit;}",
-    ".global-nav .gn-brand{display:flex;align-items:center;gap:10px;font-weight:700;",
-    "font-size:16px;letter-spacing:-0.02em;color:#0b1530;text-decoration:none;flex-shrink:0;}",
-    ".global-nav .gn-mark{width:30px;height:30px;border-radius:9px;",
-    "background:linear-gradient(135deg,#6e90f0,#2b4ca8);color:#fff;display:flex;",
-    "align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}",
     ".global-nav .gn-links{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;}",
     ".global-nav .gn-links::-webkit-scrollbar{display:none;}",
-    ".global-nav .gn-menu-toggle{display:none;align-items:center;justify-content:center;",
-    "width:40px;height:40px;padding:0;border-radius:10px;border:1.5px solid rgba(13,30,67,0.12);",
-    "background:rgba(255,255,255,0.65);cursor:pointer;flex-shrink:0;color:#0b1530;}",
-    ".global-nav .gn-menu-toggle:hover{background:rgba(255,255,255,0.92);}",
-    '.global-nav .gn-menu-toggle[aria-expanded="true"]{background:#0b1530;border-color:#0b1530;}',
-    '.global-nav .gn-menu-toggle[aria-expanded="true"] .gn-menu-bar{background:#fff;}',
-    ".global-nav .gn-menu-bars{display:flex;flex-direction:column;gap:5px;width:18px;}",
-    ".global-nav .gn-menu-bar{display:block;height:2.5px;border-radius:2px;background:#0b1530;}",
     ".global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:500;",
     "color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}",
     ".global-nav .gn-link i{font-size:15px;line-height:1;}",
-    ".global-nav .gn-mark i{font-size:16px;line-height:1;}",
     ".global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}",
     ".global-nav .gn-link.active{background:#0b1530;color:#fff;}",
     ".global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}",
-    ".global-nav .gn-avatar{width:34px;height:34px;border-radius:50%;overflow:hidden;",
+    // Profile: avatar button on the LEFT opens a dropdown (Settings + Log out).
+    ".global-nav .gn-profile{position:relative;flex-shrink:0;}",
+    ".global-nav .gn-avatar{width:36px;height:36px;border-radius:50%;overflow:hidden;",
     "background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;",
-    "align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;}",
+    "align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0;",
+    "border:none;padding:0;cursor:pointer;transition:box-shadow 0.12s ease;}",
+    ".global-nav .gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}",
+    ".global-nav .gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}",
+    ".global-nav .gn-profile-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;",
+    "min-width:180px;background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:12px;",
+    "box-shadow:0 12px 36px rgba(8,18,48,0.16);padding:6px;z-index:200;}",
+    ".global-nav .gn-profile-menu.is-open{display:block;}",
+    ".global-nav .gn-profile-menu a,.global-nav .gn-profile-menu button{display:flex;",
+    "align-items:center;gap:9px;width:100%;box-sizing:border-box;min-height:44px;padding:10px 12px;border:none;",
+    "background:none;border-radius:8px;font:inherit;font-size:14px;color:#0b1530;",
+    "text-decoration:none;cursor:pointer;text-align:left;}",
+    ".global-nav .gn-profile-menu a:hover,.global-nav .gn-profile-menu button:hover{background:rgba(13,30,67,0.05);}",
+    ".global-nav .gn-profile-menu .gn-logout{min-height:44px;color:#c92a2a;}",
+    ".global-nav .gn-profile-menu .gn-logout:disabled{opacity:0.55;cursor:default;}",
+    ".global-nav .gn-profile-menu i{font-size:17px;line-height:1;}",
     // Environment badge (UAT/LOCAL). Hidden on PRD and while empty (pre-load).
     ".global-nav .gn-env{font-size:11px;font-weight:700;letter-spacing:0.04em;color:#8a5a00;",
     "background:#ffe6b0;border:1px solid #f0c97a;padding:2px 8px;border-radius:999px;",
     "text-transform:uppercase;flex-shrink:0;line-height:1.5;}",
     ".global-nav .gn-env:empty{display:none;}",
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
-    ".global-nav a.gn-avatar{cursor:pointer;text-decoration:none;transition:box-shadow 0.12s ease;}",
-    ".global-nav a.gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}",
-    ".global-nav a.gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}",
-    ".global-nav .gn-logout{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;",
-    "color:#5c6886;background:none;border:1.5px solid rgba(13,30,67,0.12);cursor:pointer;",
-    "font-family:inherit;",
-    "display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}",
-    ".global-nav .gn-logout:hover{background:rgba(13,30,67,0.05);color:#0b1530;border-color:rgba(13,30,67,0.2);}",
-    ".global-nav .gn-logout:disabled{opacity:0.55;cursor:default;}",
-    "@media (max-width:880px){.global-nav{padding:0 14px;height:56px;gap:12px;}",
-    ".global-nav .gn-brand-text{display:none;}",
-    ".global-nav .gn-logout .gn-logout-label{display:none;}}",
     ".global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}",
     ".global-nav .gn-link-disabled i{opacity:0.7;}",
-    // Narrow widths: collapse inline tabs into a menu toggle with labeled dropdown.
-    "@media (max-width:760px){",
-    ".global-nav{padding:0 12px;gap:8px;}",
-    ".global-nav .gn-brand-text{display:none;}",
-    ".global-nav .gn-logout .gn-logout-label{display:none;}",
-    ".global-nav .gn-menu-toggle{display:inline-flex;}",
-    ".global-nav .gn-links{",
-    "display:none;position:absolute;top:calc(100% + 6px);left:12px;right:12px;",
-    "flex-direction:column;align-items:stretch;gap:2px;overflow:visible;",
-    "background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:14px;",
-    "box-shadow:0 12px 36px rgba(8,18,48,0.14);padding:8px;z-index:200;}",
-    ".global-nav .gn-links.is-open{display:flex;}",
-    ".global-nav .gn-link span{display:inline !important;}",
-    ".global-nav .gn-link{width:100%;padding:12px 14px;border-radius:10px;font-size:14px;}",
-    ".global-nav .gn-link i{font-size:18px;}",
-    "}",
+    // Mobile: keep tabs inline (horizontally scrollable); hide disabled tabs to fit.
+    "@media (max-width:760px){.global-nav{padding:0 12px;height:56px;gap:10px;}",
+    ".global-nav .gn-link-disabled{display:none;}",
+    ".global-nav .gn-link{padding:8px 12px;}}",
   ].join("");
 
   var SYNC_BAR_CSS = [
@@ -289,36 +268,27 @@
     nav.className = "global-nav";
     nav.setAttribute("aria-label", "Primary navigation");
     nav.innerHTML =
-      '<a class="gn-brand" href="/home">' +
-      '<span class="gn-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>' +
-      '<span class="gn-brand-text">perf-coach</span>' +
-      "</a>" +
-      '<button class="gn-menu-toggle" id="gn-menu-toggle" type="button" ' +
-      'aria-expanded="false" aria-controls="gn-links" aria-label="Open navigation menu">' +
-      '<span class="gn-menu-bars" aria-hidden="true">' +
-      '<span class="gn-menu-bar"></span><span class="gn-menu-bar"></span>' +
-      "</span>" +
-      "</button>" +
+      '<div class="gn-profile" id="gn-profile">' +
+      '<button class="gn-avatar' +
+      (path === "/settings" ? " active" : "") +
+      '" id="nav-avatar" type="button" aria-haspopup="true" aria-expanded="false"' +
+      ' title="Profile" aria-label="Profile menu">U</button>' +
+      '<div class="gn-profile-menu" id="gn-profile-menu" role="menu">' +
+      '<a class="gn-settings" href="/settings" role="menuitem"><i class="ti ti-settings" aria-hidden="true"></i>Settings</a>' +
+      '<button type="button" class="gn-logout" id="nav-logout" role="menuitem">' +
+      '<i class="ti ti-logout" aria-hidden="true"></i>Log out</button>' +
+      "</div>" +
+      "</div>" +
       '<div class="gn-links" id="gn-links">' +
       linksHtml +
       "</div>" +
       '<div class="gn-right">' +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
-      '<a class="gn-avatar' +
-      (path === "/settings" ? " active" : "") +
-      '" id="nav-avatar" href="/settings"' +
-      ' title="Profile and settings" aria-label="Profile and settings"' +
-      (path === "/settings" ? ' aria-current="page"' : "") +
-      ">U</a>" +
-      '<button class="gn-logout" id="nav-logout" type="button" aria-label="Log out">' +
-      '<i class="ti ti-logout" aria-hidden="true"></i>' +
-      '<span class="gn-logout-label">Log out</span>' +
-      "</button>" +
       "</div>";
 
     document.body.insertBefore(nav, document.body.firstChild);
 
-    _wireMobileMenu(nav);
+    _wireProfileMenu(nav);
 
     document
       .getElementById("nav-logout")
@@ -335,40 +305,28 @@
       });
   }
 
-  function _closeMobileMenu() {
-    var links = document.getElementById("gn-links");
-    var toggle = document.getElementById("gn-menu-toggle");
-    if (!links || !toggle) return;
-    links.classList.remove("is-open");
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-label", "Open navigation menu");
-  }
+  function _wireProfileMenu(nav) {
+    var avatar = document.getElementById("nav-avatar");
+    var menu = document.getElementById("gn-profile-menu");
+    if (!avatar || !menu) return;
 
-  function _wireMobileMenu(nav) {
-    var toggle = document.getElementById("gn-menu-toggle");
-    var links = document.getElementById("gn-links");
-    if (!toggle || !links) return;
+    function close() {
+      menu.classList.remove("is-open");
+      avatar.setAttribute("aria-expanded", "false");
+    }
 
-    toggle.addEventListener("click", function (e) {
+    avatar.addEventListener("click", function (e) {
       e.stopPropagation();
-      var open = links.classList.toggle("is-open");
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      toggle.setAttribute(
-        "aria-label",
-        open ? "Close navigation menu" : "Open navigation menu",
-      );
-    });
-
-    links.querySelectorAll("a.gn-link").forEach(function (a) {
-      a.addEventListener("click", _closeMobileMenu);
+      var open = menu.classList.toggle("is-open");
+      avatar.setAttribute("aria-expanded", open ? "true" : "false");
     });
 
     document.addEventListener("click", function (e) {
-      if (!nav.contains(e.target)) _closeMobileMenu();
+      if (!nav.contains(e.target)) close();
     });
 
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") _closeMobileMenu();
+      if (e.key === "Escape") close();
     });
   }
 
@@ -390,7 +348,7 @@
     if (!_navUserId) return;
     var img = new Image();
     img.style.cssText =
-      "width:34px;height:34px;object-fit:cover;display:block;";
+      "width:36px;height:36px;object-fit:cover;display:block;";
     img.alt = initial;
     img.onload = function () {
       el.innerHTML = "";
