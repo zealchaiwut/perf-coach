@@ -56,6 +56,44 @@ ATL_DECAY: float = math.exp(-1 / ATL_TIME_CONSTANT)
 EXPRESSIBLE_FORM_FACTOR_SCALE: float = 1.0
 
 
+def confidence_band_days(horizon: int) -> float:
+    """Compute the ± confidence band width (in days) for a projected entry.
+
+    The band models compounding forecast uncertainty that grows with the
+    projection horizon.  A square-root growth model is used:
+
+        band = CONFIDENCE_BAND_RATE * sqrt(max(horizon, 0))
+
+    where ``CONFIDENCE_BAND_RATE`` is a scale factor (default 0.5) tuned so
+    that a 7-day horizon yields ≈ 1.3 days and a 90-day horizon yields ≈ 4.7
+    days of uncertainty.  The square-root function ensures:
+
+    - horizon = 0  → band = 0 exactly (zero uncertainty at the anchor day)
+    - band is monotonically non-decreasing for all non-negative horizons
+    - growth is concave (uncertainty accumulates rapidly early, then slows)
+      which matches the intuition that a 90-day forecast is not 90× worse
+      than a 1-day forecast
+
+    Parameters
+    ----------
+    horizon:
+        Number of days into the future from the anchor (start_date).  Values
+        ≤ 0 return 0.
+
+    Returns
+    -------
+    float — the ± band width in days (always ≥ 0).
+    """
+    if horizon <= 0:
+        return 0
+    return CONFIDENCE_BAND_RATE * math.sqrt(horizon)
+
+
+# Scale factor for the square-root confidence band model.  Tune this to
+# control the overall magnitude: band(7) ≈ 1.3 days, band(90) ≈ 4.7 days.
+CONFIDENCE_BAND_RATE: float = 0.5
+
+
 def project_fitness(
     planned_load: list[float],
     start_ctl: float,
@@ -91,10 +129,12 @@ def project_fitness(
         ctl = ctl * CTL_DECAY + load * (1 - CTL_DECAY)
         atl = atl * ATL_DECAY + load * (1 - ATL_DECAY)
         tsb = ctl - atl
-        series[start_date + timedelta(days=i + 1)] = {
+        horizon = i + 1
+        series[start_date + timedelta(days=horizon)] = {
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
+            "confidence_band": confidence_band_days(horizon),
         }
     return series
 
