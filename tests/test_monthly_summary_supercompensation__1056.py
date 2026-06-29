@@ -23,7 +23,7 @@ AC coverage:
 import json
 import uuid
 import calendar
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
