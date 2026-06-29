@@ -2367,11 +2367,16 @@
       /* Races list */
       .plan-races-list { display: flex; flex-direction: column; gap: 8px; }
       .plan-list-loading, .plan-list-empty { color: var(--text-tertiary); font-size: 13px; padding: 8px 0; }
-      .plan-race-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--card-border); border-radius: 10px; cursor: pointer; background: #f8fafd; transition: background 0.12s, border-color 0.12s; }
-      .plan-race-row:hover { background: #f0f4fd; border-color: #b3c0f0; }
+      .plan-editor-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+      .plan-editor-section-hdr { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-tertiary); padding: 4px 0 2px; }
+      .plan-race-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--card-border); border-radius: 10px; background: #f8fafd; }
       .plan-race-row-info { flex: 1; min-width: 0; }
       .plan-race-row-name { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin: 0 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .plan-race-row-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-secondary); }
+      .plan-race-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .plan-row-action-btn { padding: 5px 11px; border-radius: 7px; border: 1.5px solid var(--card-border); background: #fff; font-family: inherit; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+      .plan-row-action-btn:hover { border-color: #3563d4; color: #3563d4; }
+      .plan-row-action-btn--delete:hover { border-color: var(--red, #b91c1c); color: var(--red, #b91c1c); }
       .plan-race-type-badge { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; }
       .plan-race-type-badge.type-race { background: #dde6f8; color: #1e3a8a; }
       .plan-race-type-badge.type-checkpoint { background: #f0f0f0; color: #555; }
@@ -3284,25 +3289,16 @@
           <label class="plan-modal-label" for="plan-modal-distance">Distance (km)</label>
           <input id="plan-modal-distance" class="plan-modal-input" type="number" min="0.01" step="0.001" placeholder="e.g. 42.195">
         </div>
-        <div class="plan-modal-field" id="plan-modal-priority-field">
-          <label class="plan-modal-label" for="plan-modal-priority">Priority</label>
-          <select id="plan-modal-priority" class="plan-modal-input">
-            <option value="A">A – Primary race</option>
-            <option value="B">B – Secondary race</option>
-            <option value="C">C – Low priority</option>
+        <div class="plan-modal-field">
+          <label class="plan-modal-label" for="plan-modal-type">Type</label>
+          <select id="plan-modal-type" class="plan-modal-input">
+            <option value="race">Race</option>
+            <option value="checkpoint">Checkpoint</option>
           </select>
         </div>
         <div class="plan-modal-field">
           <label class="plan-modal-label" for="plan-modal-goal-time">Goal time (optional)</label>
           <input id="plan-modal-goal-time" class="plan-modal-input" type="text" placeholder="HH:MM:SS or MM:SS">
-        </div>
-        <div class="plan-modal-field">
-          <label class="plan-modal-label" for="plan-modal-status">Status</label>
-          <select id="plan-modal-status" class="plan-modal-input">
-            <option value="planned">Planned</option>
-            <option value="done">Done</option>
-            <option value="abandoned">Abandoned</option>
-          </select>
         </div>
         <div id="plan-modal-error" style="color: var(--red, #7a1a1a); font-size: 12px; min-height: 1.2em;"></div>
         <div class="plan-modal-actions">
