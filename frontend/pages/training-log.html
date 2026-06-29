@@ -2420,12 +2420,34 @@
       .plan-confirm-cancel { padding: 8px 16px; border-radius: 8px; border: 1.5px solid var(--card-border); background: none; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
       .plan-confirm-delete { padding: 8px 18px; border-radius: 8px; border: none; background: var(--red); color: #fff; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 
+      /* ── Monthly review panel (issue #1059) ─────────────────────────────── */
+      #plan-monthly-review[hidden] { display: none; }
+      .plan-month-heading { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+      .plan-month-checkpoint-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin: 0 0 12px; letter-spacing: -0.01em; }
+      .plan-month-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+      .plan-month-chip { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: #f3f6fb; border: 1px solid var(--card-border); border-radius: 10px; padding: 7px 12px; min-width: 64px; }
+      .plan-month-chip-val { font-family: var(--mono, 'JetBrains Mono', monospace); font-size: 13px; font-weight: 700; color: var(--text-primary); }
+      .plan-month-chip-val.positive { color: var(--green, #16a34a); }
+      .plan-month-chip-val.negative { color: var(--red, #dc2626); }
+      .plan-month-chip-lbl { font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-tertiary); }
+      .plan-month-supercomp { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-radius: 9px; background: #f3f6fb; border: 1px solid var(--card-border); font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; }
+      .plan-month-supercomp-dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa3b2; flex-shrink: 0; }
+      .plan-month-supercomp-dot.supercomp-peak { background: #16a34a; }
+      .plan-month-supercomp-dot.supercomp-building { background: #3563d4; }
+      .plan-month-supercomp-dot.supercomp-recovering { background: #f59e0b; }
+      .plan-month-cta { background: #edf3ff; border: 1px solid #c7d9f8; border-radius: 9px; padding: 10px 13px; font-size: 13px; font-weight: 600; color: #2b4ca8; margin-bottom: 10px; }
+      .plan-month-note { font-size: 11.5px; color: var(--text-tertiary); margin-top: 4px; }
+      .plan-month-log-link { color: #3563d4; cursor: pointer; text-decoration: underline; background: none; border: none; font: inherit; font-size: 11.5px; padding: 0; }
+      .plan-month-log-link:hover { color: #2b4ca8; }
+
       /* Responsive */
       @media (max-width: 600px) {
         #plan-tab-panel { padding: 12px; gap: 12px; }
         .plan-race-meta { gap: 10px; }
         .plan-spec-bars { gap: 12px; }
         .plan-race-actions { gap: 6px; }
+        .plan-month-chips { gap: 6px; }
+        .plan-month-chip { min-width: 56px; padding: 6px 10px; }
       }
   </style>
 </head>
@@ -2633,6 +2655,22 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- Monthly review panel (issue #1059) -->
+            <div id="plan-monthly-review" class="plan-section" hidden>
+              <div class="plan-section-label plan-month-heading">This Month</div>
+              <p id="plan-month-checkpoint-name" class="plan-month-checkpoint-name"></p>
+              <div id="plan-month-chips" class="plan-month-chips"></div>
+              <div id="plan-month-supercomp" class="plan-month-supercomp">
+                <span class="plan-month-supercomp-dot"></span>
+                <span id="plan-month-supercomp-label"></span>
+              </div>
+              <div id="plan-month-cta" class="plan-month-cta"></div>
+              <p class="plan-month-note">
+                Same review shown in the Log digest —
+                <button type="button" id="plan-month-log-link" class="plan-month-log-link">view in Log tab</button>
+              </p>
             </div>
 
           </div>
