@@ -13006,6 +13006,287 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
         )
 
 
+# ── Athlete weekly summary (issue #1055) ─────────────────────────────────────────
+
+
+def _generate_weekly_note(
+    session_count: int,
+    distance_km,
+    total_tss,
+    form_tsb_change,
+    workout_types: list,
+) -> str:
+    """Generate a short human-readable summary string for the week."""
+    if session_count == 0:
+        return ""
+
+    parts = []
+
+    type_counts: dict = {}
+    for wt in workout_types:
+        key = (wt or "").lower()
+        type_counts[key] = type_counts.get(key, 0) + 1
+
+    if type_counts.get("run", 0) > 0:
+        run_count = type_counts["run"]
+        parts.append(f"{run_count} run{'s' if run_count > 1 else ''}")
+
+    if type_counts.get("strength", 0) > 0 or type_counts.get("lift", 0) > 0:
+        parts.append("strength work")
+
+    if distance_km and distance_km > 0:
+        parts.append(f"{distance_km:.1f} km covered")
+
+    if total_tss and total_tss > 0:
+        parts.append(f"{total_tss:.0f} TSS")
+
+    if isinstance(form_tsb_change, (int, float)):
+        if form_tsb_change > 1:
+            parts.append("form improving")
+        elif form_tsb_change < -1:
+            parts.append("building load")
+
+    return ", ".join(parts) if parts else f"{session_count} session{'s' if session_count > 1 else ''} logged"
+
+
+@app.get("/api/athletes/{athlete_id}/summary/weekly")
+def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
+    """Return a flat weekly summary for the current ISO week.
+
+    Aggregates volume (distance_km, total_tss, session_count), fitness signal
+    changes (endurance_score_change, speed_score_change), load form
+    (form_tsb_change, readiness_next_week), and weight trend (weight_change_kg)
+    into a single response keyed to the current Monday–Sunday ISO week.
+
+    Returns 200 for any valid authenticated athlete.  Returns zeros for
+    numeric fields and null for weight when no data exists.  Returns 404
+    when the session user does not exist in the database.
+    """
+    from backend.services.running_performance import compute_endurance_score, compute_speed_score
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    uid = user.id
+
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        from zoneinfo import ZoneInfo as _ZI
+        _bkk = _ZI("Asia/Bangkok")
+        today = _datetime.now(_bkk).date()
+        ws = today - _timedelta(days=today.weekday())   # Monday
+        we = ws + _timedelta(days=6)                     # Sunday
+        # Cap the load series end at today — daily_tss_series rejects future dates.
+        load_end = min(we, today)
+
+        # ── Weekly volume (AC8) ───────────────────────────────────────────────
+        current_week_workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= ws,
+                Workout.workout_date <= we,
+            )
+            .all()
+        )
+        session_count = len(current_week_workouts)
+
+        def _sf(v):
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
+
+        def _sum_attr(workouts, attr):
+            vals = [_sf(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+            return round(sum(vals), 3) if vals else None
+
+        distance_km = _sum_attr(current_week_workouts, "distance_km")
+        raw_tss = _sum_attr(current_week_workouts, "tss")
+        total_tss = round(raw_tss, 2) if raw_tss is not None else 0.0
+        if distance_km is None:
+            distance_km = 0.0
+
+        workout_types = [w.workout_type for w in current_week_workouts]
+
+        # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
+        warmup_start = ws - _timedelta(days=180)
+        load_series = compute_fitness_series(str(uid), warmup_start, load_end)
+
+        def _tsb_at(target_date):
+            for row in reversed(load_series):
+                if row["date"] <= target_date:
+                    return row["tsb"]
+            return 0.0
+
+        tsb_start = _tsb_at(ws)
+        tsb_end = _tsb_at(load_end)
+        form_tsb_change = round(tsb_end - tsb_start, 2)
+        readiness_next_week = training_readiness_label(tsb_end) if load_series else None
+
+        # ── Endurance / speed score change (AC4) ──────────────────────────────
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        if prefs_row is not None:
+            preferences = {
+                "ftp_w": prefs_row.ftp_w,
+                "threshold_hr": prefs_row.threshold_hr,
+                "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                "duration_curve_bests": None,
+            }
+        else:
+            preferences = None
+
+        run_workouts = (
+            session.query(Workout)
+            .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+            .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+            .all()
+        )
+
+        prefs_dict = preferences or {}
+        zone_constants = make_zone_constants()
+
+        try:
+            compute_decoupling = _compute_decoupling
+        except Exception:
+            compute_decoupling = None
+
+        def _build_run_list(max_date):
+            runs = []
+            for workout in run_workouts:
+                if workout.workout_date > max_date:
+                    continue
+                splits = (
+                    session.query(WorkoutSplit)
+                    .filter(WorkoutSplit.workout_id == workout.id)
+                    .order_by(WorkoutSplit.split_index)
+                    .all()
+                )
+                classifications = classify_laps(splits, prefs_dict)
+                laps = []
+                for split, cls in zip(splits, classifications):
+                    laps.append({
+                        "band": cls.get("band"),
+                        "avg_power": split.avg_power,
+                        "avg_hr": split.avg_hr,
+                        "distance_km": float(split.distance_km) if split.distance_km is not None else None,
+                        "duration_seconds": split.duration_seconds,
+                    })
+
+                decoupling_pct = None
+                if compute_decoupling is not None:
+                    split_dicts = [
+                        {
+                            "split_index": s.split_index,
+                            "duration_seconds": s.duration_seconds,
+                            "avg_hr": s.avg_hr,
+                            "avg_power": s.avg_power,
+                            "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                        }
+                        for s in splits
+                    ]
+                    try:
+                        decoupling_result, _ = compute_decoupling(
+                            {"workout_type": workout.workout_type},
+                            split_dicts,
+                            prefs_dict.get("aerobic_decoupling_threshold"),
+                        )
+                        decoupling_pct = (
+                            decoupling_result.get("decoupling_pct")
+                            if decoupling_result
+                            else None
+                        )
+                    except Exception:
+                        decoupling_pct = None
+
+                runs.append({
+                    "run_id": str(workout.id),
+                    "workout_date": workout.workout_date.isoformat() if workout.workout_date else "",
+                    "laps": laps,
+                    "decoupling_pct": decoupling_pct,
+                    "avg_power": workout.avg_power,
+                    "avg_hr": workout.avg_hr,
+                    "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
+                    "duration_seconds": workout.duration_seconds,
+                    "speed_signal": workout.speed_signal,
+                })
+            return runs
+
+        def _extract_score(result):
+            if not isinstance(result, dict):
+                return None
+            score = result.get("score")
+            if isinstance(score, (int, float)) and not isinstance(score, bool):
+                return score
+            return None
+
+        runs_at_start = _build_run_list(ws)
+        endurance_start = _extract_score(compute_endurance_score(runs_at_start, preferences, zone_constants))
+        speed_start = _extract_score(compute_speed_score(runs_at_start, preferences, zone_constants))
+
+        runs_at_end = _build_run_list(load_end)
+        endurance_end = _extract_score(compute_endurance_score(runs_at_end, preferences, zone_constants))
+        speed_end = _extract_score(compute_speed_score(runs_at_end, preferences, zone_constants))
+
+        if endurance_start is not None and endurance_end is not None:
+            endurance_score_change = round(endurance_end - endurance_start, 2)
+        else:
+            endurance_score_change = 0.0
+
+        if speed_start is not None and speed_end is not None:
+            speed_score_change = round(speed_end - speed_start, 2)
+        else:
+            speed_score_change = 0.0
+
+        # ── Weight change (AC6) ────────────────────────────────────────────────
+        weight_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= ws,
+                WeightEntry.entry_date <= we,
+            )
+            .order_by(WeightEntry.entry_date.asc())
+            .all()
+        )
+
+        if len(weight_entries) >= 2:
+            earliest_kg = float(weight_entries[0].weight_kg)
+            latest_kg = float(weight_entries[-1].weight_kg)
+            weight_change_kg = round(latest_kg - earliest_kg, 2)
+        else:
+            weight_change_kg = None
+
+    note = _generate_weekly_note(
+        session_count=session_count,
+        distance_km=distance_km,
+        total_tss=total_tss,
+        form_tsb_change=form_tsb_change,
+        workout_types=workout_types,
+    )
+
+    return JSONResponse({
+        "week_start": ws.isoformat(),
+        "week_end": we.isoformat(),
+        "distance_km": distance_km,
+        "total_tss": total_tss,
+        "session_count": session_count,
+        "endurance_score_change": endurance_score_change,
+        "speed_score_change": speed_score_change,
+        "weight_change_kg": weight_change_kg,
+        "form_tsb_change": form_tsb_change,
+        "note": note,
+        "readiness_next_week": readiness_next_week,
+    })
+
+
 # ── Athlete run personal records ───────────────────────────────────────────────
 
 _run_pr_log = _logging.getLogger(__name__)
