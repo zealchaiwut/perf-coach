@@ -116,8 +116,6 @@ def _call_weekly_endpoint(user, guardrail_result=None):
         guardrail_result = _WARN_GUARDRAIL
 
     uid = user.id
-    today = date.today()
-    ws = today - timedelta(days=today.weekday())
 
     mock_db = MagicMock()
     mock_db.__enter__ = MagicMock(return_value=mock_db)
@@ -157,9 +155,6 @@ def _call_monthly_endpoint(user, workouts, guardrail_result=None):
 
     if guardrail_result is None:
         guardrail_result = _WARN_GUARDRAIL
-
-    today = date.today()
-    month_start = today.replace(day=1)
 
     fitness_series = _make_fitness_series()
 
