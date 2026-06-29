@@ -6,9 +6,8 @@ realistic training data scenarios that simulate different athlete conditions.
 
 from __future__ import annotations
 
-import pytest
-from backend.services.guardrail import compute_guardrail, get_guardrail_result, STRESSOR_RAMP_THRESHOLD_PCT
-from backend.services.acwr import compute_acwr, HIGH_BOUND, LOWER_BOUND
+from backend.services.guardrail import compute_guardrail, STRESSOR_RAMP_THRESHOLD_PCT
+from backend.services.acwr import HIGH_BOUND
 
 
 # ── Series builders for realistic scenarios ────────────────────────────────────
