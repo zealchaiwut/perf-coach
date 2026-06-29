@@ -4461,6 +4461,59 @@ def delete_habit_log(log_id: str, user: User = Depends(resolve_user)):
     return Response(status_code=204)
 
 
+# ── Habit adherence and nudges endpoint ───────────────────────────────────────
+
+from backend.services.habit_adherence import (  # noqa: E402
+    build_adherence_payload as _build_adherence_payload,
+)
+
+
+@app.get("/api/habits/adherence")
+def get_habits_adherence(user: User = Depends(resolve_user)):
+    """Return per-habit adherence, trend, best/worst day, and nudge copy.
+
+    Response always has exactly three top-level keys:
+    ``building`` (bool), ``reason`` (str or null), ``habits`` (list).
+    HTTP status is always 200.
+    """
+    uid = user.id
+    today = _date.today()
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        habit_ids = [h.id for h in active_habits]
+
+        logs_by_habit: dict = {}
+        if habit_ids:
+            all_logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id.in_(habit_ids),
+                    HabitLog.user_id == uid,
+                )
+                .all()
+            )
+            for log in all_logs:
+                logs_by_habit.setdefault(str(log.habit_id), []).append(log)
+
+    payload = _build_adherence_payload(
+        habits=active_habits,
+        logs_by_habit=logs_by_habit,
+        today=today,
+    )
+    return JSONResponse(payload)
+
+
 # ── Habit insights endpoint ────────────────────────────────────────────────────
 
 from backend.services.habit_insights import (  # noqa: E402
@@ -4535,6 +4588,100 @@ def get_habit_insights(user: User = Depends(resolve_user)):
         "insights": insights,
         "building": building,
         "reason": reason,
+    })
+
+
+# ── Adherence & nudges endpoint ───────────────────────────────────────────────
+
+from backend.services.habit_adherence import (  # noqa: E402
+    compute_adherence_breakdown as _compute_adherence_breakdown,
+    detect_slipping_habits as _detect_slipping_habits,
+)
+from backend.services.habit_nudges import build_nudges as _build_nudges  # noqa: E402
+
+
+@app.get("/api/adherence-nudges")
+def get_adherence_nudges(user: User = Depends(resolve_user)):
+    """Return per-habit adherence breakdowns, slipping-habit flags, and coaching nudges.
+
+    Response always has four top-level keys:
+    ``per_habit`` (list), ``slipping_habits`` (list), ``nudges`` (list),
+    ``building_state`` ({active, reason}).  HTTP status is always 200.
+    All computation is delegated to compute_adherence_breakdown,
+    detect_slipping_habits, and build_nudges.
+    """
+    from datetime import date as _date_cls, timedelta as _td
+
+    uid = user.id
+    today = _date_cls.today()
+    current_start = today - _td(days=29)
+    prev_start = today - _td(days=59)
+    prev_end = today - _td(days=30)
+
+    with Session(engine) as session:
+        active_habits = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == uid,
+                Habit.is_archived.is_(False),
+                Habit.active.is_(True),
+            )
+            .order_by(Habit.sort_order)
+            .all()
+        )
+
+        habit_ids = [h.id for h in active_habits]
+
+        logs_by_habit: dict = {}
+        if habit_ids:
+            all_logs = (
+                session.query(HabitLog)
+                .filter(
+                    HabitLog.habit_id.in_(habit_ids),
+                    HabitLog.user_id == uid,
+                )
+                .all()
+            )
+            for log in all_logs:
+                logs_by_habit.setdefault(str(log.habit_id), []).append(log)
+
+    current_result = _compute_adherence_breakdown(
+        active_habits, logs_by_habit, current_start, today
+    )
+
+    building_state = current_result["building_state"]
+
+    if building_state["active"]:
+        return JSONResponse({
+            "per_habit": [],
+            "slipping_habits": [],
+            "nudges": [],
+            "building_state": building_state,
+        })
+
+    current_per_habit = current_result["per_habit"]
+
+    prev_result = _compute_adherence_breakdown(
+        active_habits, logs_by_habit, prev_start, prev_end
+    )
+    prev_per_habit = prev_result["per_habit"]
+
+    slipping_habits = _detect_slipping_habits(current_per_habit, prev_per_habit)
+
+    adherence_breakdowns_by_name = {
+        entry["name"]: {
+            "weekday_pct": entry["weekday_pct"],
+            "overall_avg": entry["overall_avg"],
+        }
+        for entry in current_per_habit
+    }
+    nudge_result = _build_nudges(adherence_breakdowns_by_name, slipping_habits)
+
+    return JSONResponse({
+        "per_habit": current_per_habit,
+        "slipping_habits": slipping_habits,
+        "nudges": nudge_result["nudges"],
+        "building_state": building_state,
     })
 
 
