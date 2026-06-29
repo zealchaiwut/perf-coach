@@ -843,7 +843,7 @@
                 yAxisID: "y",
               },
               {
-                label: 'km',
+                label: 'Distance',
                 type: 'line',
                 data: distVals,
                 borderColor: "#f59e0b",
@@ -931,7 +931,7 @@
                 ticks: { font: tickFont, color: tickColor },
                 title: {
                   display: true,
-                  text: "km",
+                  text: "Distance",
                   color: tickColor,
                   font: { size: 10 },
                 },
@@ -950,16 +950,13 @@
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
   // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
-  function buildMonthSeparator(dateStr, agg) {
-    var d = new Date(dateStr + 'T00:00:00');
+  function buildSeparator(titleText, agg, variant) {
     var sep = document.createElement('div');
-    sep.className = 'month-sep';
+    sep.className = 'month-sep' + (variant ? ' ' + variant : '');
 
     var title = document.createElement('div');
     title.className = 'month-sep-title';
-    title.textContent = isNaN(d.getMonth())
-      ? (dateStr || '').slice(0, 7)
-      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    title.textContent = titleText;
     sep.appendChild(title);
 
     var stats = document.createElement('div');
@@ -987,8 +984,38 @@
     return sep;
   }
 
+  function _monthTitle(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    return isNaN(d.getMonth()) ? (dateStr || '').slice(0, 7)
+      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
+  function _mondayOf(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var dow = d.getDay(), diff = dow === 0 ? -6 : 1 - dow;
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  function _weekKey(dateStr) {
+    var m = _mondayOf(dateStr);
+    return m.getFullYear() + '-' + pad(m.getMonth() + 1) + '-' + pad(m.getDate());
+  }
+  function _weekTitle(dateStr) {
+    var mon = _mondayOf(dateStr), sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    var a = MONTHS[mon.getMonth()] + ' ' + mon.getDate();
+    var b = mon.getMonth() === sun.getMonth() ? ('' + sun.getDate())
+      : (MONTHS[sun.getMonth()] + ' ' + sun.getDate());
+    return 'Week of ' + a + ' – ' + b;
+  }
+
+  // Incremental render state — the full history can be hundreds of workouts, so
+  // render in batches and reveal more as the user scrolls (issue: lazy load).
+  var _listState = null;
+  var _LIST_BATCH = 30; // target workouts per batch; whole days are kept intact
+
   function renderDayGroupedList(container, weeks) {
     if (!container) return;
+    if (_listState && _listState.observer) _listState.observer.disconnect();
     container.innerHTML = "";
 
     // Flatten all workout entries from all weeks, newest-first (API already orders by date desc).
@@ -1002,6 +1029,7 @@
     if (!entries.length) {
       var emptyEl = document.getElementById('log-empty-msg');
       if (emptyEl) emptyEl.style.display = '';
+      _listState = null;
       return;
     }
 
@@ -1018,30 +1046,52 @@
       }
       dayMap[date].push(entry);
     });
-    // Ensure newest-first day order.
     days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
 
-    // Per-month rollups (Run TSS / Lift TSS / Time / KM), keyed by YYYY-MM.
-    var monthAgg = {};
+    // Full month + week rollups up front, so each separator shows correct totals
+    // even before the whole period has been rendered.
+    function addAgg(map, key, e) {
+      if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+      var tk = normalizeTypeKey(e.type), tss = Number(e.tss) || 0;
+      if (tk === 'run') map[key].runTss += tss;
+      else if (tk === 'lift') map[key].liftTss += tss;
+      if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
+      if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
+    }
+    var monthAgg = {}, weekAgg = {};
     entries.forEach(function (e) {
       var mk = (e.date || '').slice(0, 7);
-      if (!mk) return;
-      if (!monthAgg[mk]) monthAgg[mk] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
-      var tk = normalizeTypeKey(e.type);
-      var tss = Number(e.tss) || 0;
-      if (tk === 'run') monthAgg[mk].runTss += tss;
-      else if (tk === 'lift') monthAgg[mk].liftTss += tss;
-      if (e.duration_seconds) monthAgg[mk].secs += Number(e.duration_seconds) || 0;
-      if (e.distance_km) monthAgg[mk].km += Number(e.distance_km) || 0;
+      if (mk) addAgg(monthAgg, mk, e);
+      if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
     });
 
-    var lastMonthKey = null;
+    _listState = {
+      container: container, days: days, dayMap: dayMap,
+      monthAgg: monthAgg, weekAgg: weekAgg,
+      cursor: 0, lastMonthKey: null, lastWeekKey: null,
+      sentinel: null, observer: null,
+    };
+    renderNextBatch();
+  }
 
-    days.forEach(function (dateStr) {
+  function renderNextBatch() {
+    var st = _listState;
+    if (!st) return;
+    if (st.sentinel && st.sentinel.parentNode) st.sentinel.parentNode.removeChild(st.sentinel);
+
+    var rendered = 0;
+    while (st.cursor < st.days.length && rendered < _LIST_BATCH) {
+      var dateStr = st.days[st.cursor++];
       var monthKey = dateStr.slice(0, 7);
-      if (monthKey !== lastMonthKey) {
-        lastMonthKey = monthKey;
-        container.appendChild(buildMonthSeparator(dateStr, monthAgg[monthKey]));
+      if (monthKey !== st.lastMonthKey) {
+        st.lastMonthKey = monthKey;
+        st.lastWeekKey = null;
+        st.container.appendChild(buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ''));
+      }
+      var wk = _weekKey(dateStr);
+      if (wk !== st.lastWeekKey) {
+        st.lastWeekKey = wk;
+        st.container.appendChild(buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], 'week-sep'));
       }
 
       var d = new Date(dateStr + 'T00:00:00');
@@ -1051,20 +1101,42 @@
 
       var header = document.createElement('div');
       header.className = 'day-group-header';
-      var dayLabel = isNaN(d.getDay()) ? dateStr :
+      header.textContent = isNaN(d.getDay()) ? dateStr :
         DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
-      header.textContent = dayLabel;
       dayGroup.appendChild(header);
 
       var rowsEl = document.createElement('div');
       rowsEl.className = 'day-group-rows';
-      dayMap[dateStr].forEach(function (entry) {
+      st.dayMap[dateStr].forEach(function (entry) {
         rowsEl.appendChild(buildEntryRow(entry));
+        rendered++;
       });
       dayGroup.appendChild(rowsEl);
+      st.container.appendChild(dayGroup);
+    }
 
-      container.appendChild(dayGroup);
-    });
+    if (st.cursor < st.days.length) {
+      var sentinel = document.createElement('div');
+      sentinel.className = 'log-load-more-sentinel';
+      sentinel.setAttribute('aria-hidden', 'true');
+      st.container.appendChild(sentinel);
+      st.sentinel = sentinel;
+      if ('IntersectionObserver' in window) {
+        if (!st.observer) {
+          st.observer = new IntersectionObserver(function (ents) {
+            if (ents.some(function (en) { return en.isIntersecting; })) renderNextBatch();
+          }, { rootMargin: '600px 0px' });
+        }
+        st.observer.observe(sentinel);
+      } else {
+        sentinel.className = 'log-load-more';
+        sentinel.textContent = 'Load more';
+        sentinel.addEventListener('click', renderNextBatch);
+      }
+    } else {
+      st.sentinel = null;
+      if (st.observer) st.observer.disconnect();
+    }
   }
 
   function renderList(container, weeks) {

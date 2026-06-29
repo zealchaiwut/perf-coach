@@ -867,11 +867,26 @@
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px 14px;
-      margin: 18px 0 4px;
-      padding: 8px 4px;
-      border-bottom: 2px solid rgba(13, 30, 67, 0.10);
+      margin: 18px 0 6px;
+      padding: 10px 12px;
+      background: #eaf1ff;            /* light blue month band */
+      border-radius: 10px;
     }
     .month-sep:first-child { margin-top: 4px; }
+    /* Weekly sub-separator — same stats, lighter so months stay dominant. */
+    .month-sep.week-sep {
+      background: transparent;
+      border-radius: 0;
+      padding: 6px 4px;
+      margin: 10px 0 2px;
+      border-bottom: 1px dashed rgba(13, 30, 67, 0.12);
+    }
+    .month-sep.week-sep .month-sep-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .month-sep.week-sep .month-stat-val { font-size: 12px; }
+    /* Lazy-load sentinel / fallback button */
+    .log-load-more-sentinel { height: 1px; }
+    .log-load-more { text-align: center; padding: 12px; color: var(--text-secondary); cursor: pointer; font-size: 13px; }
+    .log-load-more:hover { color: var(--text-primary); }
     .month-sep-title {
       font-size: 13px;
       font-weight: 700;
@@ -2971,7 +2986,6 @@
           <div class="vc-header">
             <span class="vc-title">Weekly volume</span>
           </div>
-          <p class="vc-caption">Stacked bars = weekly TSS (Run + Lift). Brighter bar = current week. Amber line = run distance (right axis).</p>
           <div class="vc-body">
             <canvas id="volume-chart" height="220" role="img"
                     aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
