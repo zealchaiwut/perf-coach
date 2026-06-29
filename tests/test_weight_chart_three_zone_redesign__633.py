@@ -195,10 +195,10 @@ def test_ac7_gridlines_within_present_band():
 
 
 def test_ac7_ticks_are_integers():
-    """AC7: Tick computation uses integer stepping (kg += 2 or similar)."""
+    """AC7: Tick computation uses integer stepping via an adaptive step."""
     src = _src()
-    assert 'kg += 2' in src or '+= 2' in src, (
-        "Integer-step tick loop (kg += 2) not found in weight-chart.js"
+    assert 'kg += _tickStep' in src and 'Math.ceil(presentMin' in src, (
+        "Integer adaptive-step tick loop (kg += _tickStep) not found in weight-chart.js"
     )
 
 

@@ -88,6 +88,11 @@ class LapPhaseConfig:
 
     TEMPO_MIN_DURATION_SECONDS = 480  # about 8 minutes
     TEMPO_MIN_DISTANCE_KM = 2.0       # about 2 km
+    # A first/last low-intensity block is only a Warm-up/Cool-down when it is at
+    # most this fraction of the whole run's distance (and there are >=2 phases).
+    # Otherwise it's the main effort and keeps its band name (e.g. Steady) — so a
+    # long opening block isn't mislabelled as a 7-lap "Warm-up".
+    WARMUP_MAX_FRACTION = 0.25
 
 
 def _get(lap, key):
@@ -153,22 +158,35 @@ def _aggregate(laps, indexes):
     return total_distance, total_duration, avg_pace, avg_hr, avg_power
 
 
-def _label_group(band, indexes, total_distance, total_duration, group_idx, n_groups, config):
+def _label_group(band, indexes, total_distance, total_duration, group_idx, n_groups, config, run_distance=0.0):
     """Determine the display label for a single group.
 
     Priority:
-    1. Low-intensity block at position 0 → Warm-up
-    2. Low-intensity block at last position → Cool-down
+    1. Short low-intensity block at position 0 → Warm-up
+    2. Short low-intensity block at last position → Cool-down
     3. Tempo/threshold block meeting either size threshold → Tempo
     4. Anything else → band name
+
+    "Short" = at most config.WARMUP_MAX_FRACTION of the whole run's distance,
+    with >=2 phases — so a long opening/closing block keeps its band name (e.g.
+    Steady) rather than being mislabelled as a multi-lap Warm-up/Cool-down.
     """
     is_first = group_idx == 0
     is_last = group_idx == n_groups - 1
+    max_frac = getattr(config, "WARMUP_MAX_FRACTION", 0.25)
+    # A single-lap opener/closer is always short enough; a multi-lap block only
+    # qualifies when it's <= WARMUP_MAX_FRACTION of the run (and there are >=2
+    # phases) — so a long block keeps its band name instead of "Warm-up".
+    is_short = n_groups >= 2 and (
+        len(indexes) <= 1
+        or (run_distance > 0 and total_distance is not None
+            and total_distance <= run_distance * max_frac)
+    )
 
-    if is_first and band in _LOW_INTENSITY_BANDS:
+    if is_first and band in _LOW_INTENSITY_BANDS and is_short:
         return "Warm-up"
 
-    if is_last and band in _LOW_INTENSITY_BANDS:
+    if is_last and band in _LOW_INTENSITY_BANDS and is_short:
         return "Cool-down"
 
     if band in _TEMPO_BANDS:
@@ -210,14 +228,14 @@ def group_laps_into_phases(classified_laps, config):
 
     groups = _group_consecutive(classified_laps)
     n_groups = len(groups)
+    group_aggs = [_aggregate(classified_laps, indexes) for _, indexes in groups]
+    run_distance = sum((agg[0] or 0) for agg in group_aggs)
     phases = []
 
-    for group_idx, (band, indexes) in enumerate(groups):
-        total_distance, total_duration, avg_pace, avg_hr, avg_power = _aggregate(
-            classified_laps, indexes
-        )
+    for group_idx, ((band, indexes), agg) in enumerate(zip(groups, group_aggs)):
+        total_distance, total_duration, avg_pace, avg_hr, avg_power = agg
         label = _label_group(
-            band, indexes, total_distance, total_duration, group_idx, n_groups, config
+            band, indexes, total_distance, total_duration, group_idx, n_groups, config, run_distance
         )
         phases.append(
             {

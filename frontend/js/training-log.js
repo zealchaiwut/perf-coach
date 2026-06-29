@@ -201,6 +201,33 @@
     );
   }
 
+  // ── Deep-link helpers ─────────────────────────────────────────────────────
+  // Set/clear ?workout=<id> in the URL without disturbing other params.
+  function setWorkoutURLParam(workoutId) {
+    var p = new URLSearchParams(window.location.search);
+    p.set("workout", workoutId);
+    history.replaceState(null, "", window.location.pathname + "?" + p.toString());
+  }
+
+  function clearWorkoutURLParam() {
+    var p = new URLSearchParams(window.location.search);
+    p.delete("workout");
+    var qs = p.toString();
+    history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+  }
+
+  // Called once after the first successful fetchAndRender — opens the panel
+  // for ?workout=<id> if present.  The flag prevents re-triggering on
+  // subsequent list refreshes (sync, edit, etc.).
+  var _deepLinkHandled = false;
+  function handleDeepLink() {
+    if (_deepLinkHandled) return;
+    var wid = new URLSearchParams(window.location.search).get("workout");
+    if (!wid) return;
+    _deepLinkHandled = true;
+    openDetailPanel(wid, null);
+  }
+
   // ── Date-range chip label ─────────────────────────────────────────────────
   function drLabel() {
     if (filters.from && filters.to) return filters.from + " – " + filters.to;
@@ -223,13 +250,8 @@
       totalTSS += s.total_tss || 0;
       totalMinutes += s.total_time_minutes || 0;
     });
+    // Total TSS / total hours intentionally hidden — keep just the count.
     var parts = [totalCount + " workout" + (totalCount !== 1 ? "s" : "")];
-    if (totalTSS > 0) parts.push("TSS " + Math.round(totalTSS));
-    if (totalMinutes > 0) {
-      var h = Math.floor(totalMinutes / 60);
-      var m = Math.round(totalMinutes % 60);
-      parts.push(h > 0 ? h + "h " + m + "m" : m + "m");
-    }
     subtitleEl.textContent = parts.join(" · ");
   }
 
@@ -238,11 +260,13 @@
     var bar = document.getElementById("filter-bar");
     if (!bar) return;
 
-    // Type pills row — All / Run / Lift / WOD / Bike
+    // Type pills row — All / Run / Lift (WOD and Bike disabled for now)
     var chipsRow = document.createElement('div');
     chipsRow.className = 'fb-chips-row';
-    var TYPE_OPTS   = ['all','run','lift','wod','bike'];
+    var TYPE_OPTS   = ['all','run','lift'];
     var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
+    // A stale ?type=wod/bike URL would filter to a now-hidden pill — fall back to All.
+    if (TYPE_OPTS.indexOf(filters.type) === -1) filters.type = 'all';
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -424,6 +448,8 @@
           syncActiveRow();
           updatePositionPill();
         }
+        // Open ?workout=<id> deep link on first load
+        handleDeepLink();
       })
       .catch(function (_) {
         renderListError();
@@ -435,6 +461,20 @@
 
   // ── Training-load surfaces (issue #528) ─────────────────────────────────────
   var volumeChart = null;
+  var _lastReadinessData = null;
+
+  // The readiness sparklines are <canvas> elements sized to their container's
+  // pixel width at render time, and the volume chart is a Chart.js canvas.
+  // When the detail panel opens/closes on desktop it resizes the left column,
+  // so re-draw both at the new width (after the grid has settled).
+  function reflowPanelCharts() {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (_lastReadinessData) renderReadinessWidget(_lastReadinessData);
+        if (volumeChart && typeof volumeChart.resize === "function") volumeChart.resize();
+      });
+    });
+  }
 
   function fmtLoadNum(v) {
     if (v === null || v === undefined || isNaN(v)) return "—";
@@ -506,9 +546,71 @@
     if (started) ctx.stroke();
   }
 
+  // Readiness zone bar: three named zones + a marker at the current value, so
+  // you can read good/normal/caution at a glance. TSB uses the established form
+  // zones (Fatigued < -10 · Optimal -10..+5 · Fresh >= +5); CTL/ATL are zoned
+  // relative to the athlete's own recent range (low / mid / high third).
+  var RW_AMBER = '#f59e0b', RW_BLUE = '#3b82f6', RW_GREEN = '#22c55e';
+
+  function _zoneBarHtml(metric, val, series) {
+    if (val == null || isNaN(val)) return '';
+    var segs, lo, hi, name, color;
+
+    if (metric === 'tsb') {
+      lo = -30; hi = 25;
+      var b1 = -10, b2 = 5;  // FORM_BURIED_CEILING / FORM_FRESH_FLOOR
+      segs = [
+        { w: b1 - lo, c: RW_AMBER },   // Fatigued
+        { w: b2 - b1, c: RW_GREEN },   // Optimal
+        { w: hi - b2, c: RW_BLUE },    // Fresh
+      ];
+      if (val < b1) { name = 'Fatigued'; color = RW_AMBER; }
+      else if (val < b2) { name = 'Optimal'; color = RW_GREEN; }
+      else { name = 'Fresh'; color = RW_BLUE; }
+    } else {
+      var vals = (series || []).map(function (d) { return d[metric]; })
+        .filter(function (v) { return v != null && !isNaN(v); });
+      lo = vals.length ? Math.min.apply(null, vals) : val;
+      hi = vals.length ? Math.max.apply(null, vals) : val;
+      if (!(hi - lo > 1e-6)) {                    // flat/empty → pad around value
+        var pad = Math.max(5, Math.abs(val) * 0.3);
+        lo = val - pad; hi = val + pad;
+      }
+      var t1 = lo + (hi - lo) / 3, t2 = lo + 2 * (hi - lo) / 3;
+      var third = (hi - lo) / 3;
+      var labels, colors;
+      if (metric === 'ctl') {            // higher = fitter → top third is best
+        labels = ['Low', 'Building', 'Strong'];
+        colors = [RW_AMBER, RW_BLUE, RW_GREEN];
+      } else {                           // atl: lower = more recovered
+        labels = ['Light', 'Moderate', 'High'];
+        colors = [RW_GREEN, RW_BLUE, RW_AMBER];
+      }
+      segs = [
+        { w: third, c: colors[0] },
+        { w: third, c: colors[1] },
+        { w: third, c: colors[2] },
+      ];
+      var idx = val < t1 ? 0 : val < t2 ? 1 : 2;
+      name = labels[idx]; color = colors[idx];
+    }
+
+    var span = (hi - lo) || 1;
+    var markerPct = Math.max(0, Math.min(100, (val - lo) / span * 100));
+    var bar = segs.map(function (s) {
+      return '<span style="width:' + (s.w / span * 100).toFixed(2) + '%;background:' + s.c + '"></span>';
+    }).join('');
+    return '<div class="rw-zone">' +
+             '<div class="rw-zone-bar">' + bar +
+               '<i class="rw-zone-mark" style="left:' + markerPct.toFixed(1) + '%"></i></div>' +
+             '<div class="rw-zone-name" style="color:' + color + '">' + name + '</div>' +
+           '</div>';
+  }
+
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
+    _lastReadinessData = data;
 
     if (data.building_baseline) {
       el.innerHTML =
@@ -518,11 +620,14 @@
       return;
     }
 
-    function tile(val, abbr, label, sparkId) {
+    var series = data.series || [];
+
+    function tile(val, abbr, label, sparkId, metric) {
       return '<div class="rw-tile">' +
                '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
-               '<div class="rw-tile-label">' + abbr + '</div>' +
-               '<div class="rw-tile-sub">' + label + '</div>' +
+               '<div class="rw-tile-label">' + abbr +
+                 ' <span class="rw-tile-sub">' + label + '</span></div>' +
+               _zoneBarHtml(metric, val, series) +
                '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
              '</div>';
     }
@@ -538,13 +643,11 @@
         (rlabel ? '<span class="rw-label ' + rlabelClass + '">' + esc(rlabel) + '</span>' : '') +
       '</div>' +
       '<div class="rw-tiles">' +
-        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl') +
-        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl') +
-        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb') +
+        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl', 'ctl') +
+        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl', 'atl') +
+        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb', 'tsb') +
       '</div>';
     el.hidden = false;
-
-    var series = data.series || [];
     _renderSparkline('rw-spark-ctl', series.map(function (d) { return d.ctl; }), '#3b82f6');
     _renderSparkline('rw-spark-atl', series.map(function (d) { return d.atl; }), '#ef4444');
     _renderSparkline('rw-spark-tsb', series.map(function (d) { return d.tsb; }), '#10b981');
@@ -740,7 +843,7 @@
                 yAxisID: "y",
               },
               {
-                label: 'km',
+                label: 'Distance',
                 type: 'line',
                 data: distVals,
                 borderColor: "#f59e0b",
@@ -828,7 +931,7 @@
                 ticks: { font: tickFont, color: tickColor },
                 title: {
                   display: true,
-                  text: "km",
+                  text: "Distance",
                   color: tickColor,
                   font: { size: 10 },
                 },
@@ -846,8 +949,73 @@
   // ── Log list rendering ────────────────────────────────────────────────────
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
+  // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
+  function buildSeparator(titleText, agg, variant) {
+    var sep = document.createElement('div');
+    sep.className = 'month-sep' + (variant ? ' ' + variant : '');
+
+    var title = document.createElement('div');
+    title.className = 'month-sep-title';
+    title.textContent = titleText;
+    sep.appendChild(title);
+
+    var stats = document.createElement('div');
+    stats.className = 'month-sep-stats';
+    var parts = [
+      ['Run TSS', agg ? Math.round(agg.runTss) : 0],
+      ['Lift TSS', agg ? Math.round(agg.liftTss) : 0],
+      ['Time', (agg && agg.secs) ? fmtDuration(agg.secs) : '0min'],
+      ['KM', agg ? (Math.round(agg.km * 10) / 10) : 0],
+    ];
+    parts.forEach(function (p) {
+      var chip = document.createElement('span');
+      chip.className = 'month-stat';
+      var val = document.createElement('span');
+      val.className = 'month-stat-val';
+      val.textContent = p[1];
+      var lbl = document.createElement('span');
+      lbl.className = 'month-stat-lbl';
+      lbl.textContent = p[0];
+      chip.appendChild(val);
+      chip.appendChild(lbl);
+      stats.appendChild(chip);
+    });
+    sep.appendChild(stats);
+    return sep;
+  }
+
+  function _monthTitle(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    return isNaN(d.getMonth()) ? (dateStr || '').slice(0, 7)
+      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
+  function _mondayOf(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var dow = d.getDay(), diff = dow === 0 ? -6 : 1 - dow;
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  function _weekKey(dateStr) {
+    var m = _mondayOf(dateStr);
+    return m.getFullYear() + '-' + pad(m.getMonth() + 1) + '-' + pad(m.getDate());
+  }
+  function _weekTitle(dateStr) {
+    var mon = _mondayOf(dateStr), sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    var a = MONTHS[mon.getMonth()] + ' ' + mon.getDate();
+    var b = mon.getMonth() === sun.getMonth() ? ('' + sun.getDate())
+      : (MONTHS[sun.getMonth()] + ' ' + sun.getDate());
+    return 'Week of ' + a + ' – ' + b;
+  }
+
+  // Incremental render state — the full history can be hundreds of workouts, so
+  // render in batches and reveal more as the user scrolls (issue: lazy load).
+  var _listState = null;
+  var _LIST_BATCH = 30; // target workouts per batch; whole days are kept intact
+
   function renderDayGroupedList(container, weeks) {
     if (!container) return;
+    if (_listState && _listState.observer) _listState.observer.disconnect();
     container.innerHTML = "";
 
     // Flatten all workout entries from all weeks, newest-first (API already orders by date desc).
@@ -861,6 +1029,7 @@
     if (!entries.length) {
       var emptyEl = document.getElementById('log-empty-msg');
       if (emptyEl) emptyEl.style.display = '';
+      _listState = null;
       return;
     }
 
@@ -877,10 +1046,54 @@
       }
       dayMap[date].push(entry);
     });
-    // Ensure newest-first day order.
     days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
 
-    days.forEach(function (dateStr) {
+    // Full month + week rollups up front, so each separator shows correct totals
+    // even before the whole period has been rendered.
+    function addAgg(map, key, e) {
+      if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+      var tk = normalizeTypeKey(e.type), tss = Number(e.tss) || 0;
+      if (tk === 'run') map[key].runTss += tss;
+      else if (tk === 'lift') map[key].liftTss += tss;
+      if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
+      if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
+    }
+    var monthAgg = {}, weekAgg = {};
+    entries.forEach(function (e) {
+      var mk = (e.date || '').slice(0, 7);
+      if (mk) addAgg(monthAgg, mk, e);
+      if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
+    });
+
+    _listState = {
+      container: container, days: days, dayMap: dayMap,
+      monthAgg: monthAgg, weekAgg: weekAgg,
+      cursor: 0, lastMonthKey: null, lastWeekKey: null,
+      sentinel: null, observer: null,
+    };
+    renderNextBatch();
+  }
+
+  function renderNextBatch() {
+    var st = _listState;
+    if (!st) return;
+    if (st.sentinel && st.sentinel.parentNode) st.sentinel.parentNode.removeChild(st.sentinel);
+
+    var rendered = 0;
+    while (st.cursor < st.days.length && rendered < _LIST_BATCH) {
+      var dateStr = st.days[st.cursor++];
+      var monthKey = dateStr.slice(0, 7);
+      if (monthKey !== st.lastMonthKey) {
+        st.lastMonthKey = monthKey;
+        st.lastWeekKey = null;
+        st.container.appendChild(buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ''));
+      }
+      var wk = _weekKey(dateStr);
+      if (wk !== st.lastWeekKey) {
+        st.lastWeekKey = wk;
+        st.container.appendChild(buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], 'week-sep'));
+      }
+
       var d = new Date(dateStr + 'T00:00:00');
       var dayGroup = document.createElement('div');
       dayGroup.className = 'day-group';
@@ -888,20 +1101,42 @@
 
       var header = document.createElement('div');
       header.className = 'day-group-header';
-      var dayLabel = isNaN(d.getDay()) ? dateStr :
+      header.textContent = isNaN(d.getDay()) ? dateStr :
         DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
-      header.textContent = dayLabel;
       dayGroup.appendChild(header);
 
       var rowsEl = document.createElement('div');
       rowsEl.className = 'day-group-rows';
-      dayMap[dateStr].forEach(function (entry) {
+      st.dayMap[dateStr].forEach(function (entry) {
         rowsEl.appendChild(buildEntryRow(entry));
+        rendered++;
       });
       dayGroup.appendChild(rowsEl);
+      st.container.appendChild(dayGroup);
+    }
 
-      container.appendChild(dayGroup);
-    });
+    if (st.cursor < st.days.length) {
+      var sentinel = document.createElement('div');
+      sentinel.className = 'log-load-more-sentinel';
+      sentinel.setAttribute('aria-hidden', 'true');
+      st.container.appendChild(sentinel);
+      st.sentinel = sentinel;
+      if ('IntersectionObserver' in window) {
+        if (!st.observer) {
+          st.observer = new IntersectionObserver(function (ents) {
+            if (ents.some(function (en) { return en.isIntersecting; })) renderNextBatch();
+          }, { rootMargin: '600px 0px' });
+        }
+        st.observer.observe(sentinel);
+      } else {
+        sentinel.className = 'log-load-more';
+        sentinel.textContent = 'Load more';
+        sentinel.addEventListener('click', renderNextBatch);
+      }
+    } else {
+      st.sentinel = null;
+      if (st.observer) st.observer.disconnect();
+    }
   }
 
   function renderList(container, weeks) {
@@ -1312,6 +1547,7 @@
 
     if (isDesktop()) {
       if (wrapper) wrapper.classList.add("has-panel");
+      reflowPanelCharts();
     } else {
       if (overlay) {
         overlay.classList.add("is-open");
@@ -1397,6 +1633,7 @@
     openPanelShell(triggerEl);
     updatePositionPill();
     fetchAndRenderDetail(workoutId);
+    setWorkoutURLParam(workoutId);
   }
 
   function createPresetDate() {
@@ -1510,6 +1747,7 @@
     }
     if (wrapper) wrapper.classList.remove("has-panel");
     document.body.style.overflow = "";
+    if (isDesktop()) reflowPanelCharts();
 
     var formWrap = document.getElementById("dp-form-wrap");
     var formActions = document.getElementById("dp-actions-form");
@@ -1517,6 +1755,7 @@
     if (formActions) formActions.style.display = "none";
 
     setHistoryTab("history");
+    clearWorkoutURLParam();
 
     if (trigger) trigger.focus();
   }
@@ -1670,6 +1909,62 @@
     return out.childElementCount ? out : contentEl.cloneNode(true);
   }
 
+  // Show a lightweight picker when a run has both km and manual lap types.
+  // Returns a Promise that resolves once the user picks (or immediately if no
+  // choice is needed).  As a side-effect it clicks the appropriate lap toggle
+  // button so the DOM is in the chosen state before the caller clones it.
+  function _promptLapModeIfNeeded(contentEl) {
+    return new Promise(function (resolve) {
+      var toggle = contentEl.querySelector("#rd4-lapmode-toggle");
+      if (!toggle || toggle.querySelectorAll(".rd4-lm-btn").length < 2) {
+        resolve();
+        return;
+      }
+      var activeBtn = toggle.querySelector(".rd4-lm-btn--on") || toggle.querySelector(".rd4-lm-btn");
+      var activeMode = activeBtn ? activeBtn.getAttribute("data-lap-mode") : "distance";
+
+      var overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9999;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      var box = document.createElement("div");
+      box.style.cssText =
+        "background:#fff;border-radius:14px;padding:22px 24px;max-width:260px;" +
+        "width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18);";
+      box.innerHTML =
+        '<p style="margin:0 0 14px;font-size:13px;font-weight:800;letter-spacing:.05em;' +
+        'text-transform:uppercase;color:#9aa3b2;">Screenshot — lap view</p>';
+
+      function makeBtn(label, mode) {
+        var b = document.createElement("button");
+        b.textContent = label;
+        var isActive = mode === activeMode;
+        b.style.cssText =
+          "display:block;width:100%;padding:11px;margin-bottom:8px;cursor:pointer;" +
+          "border-radius:9px;font-size:14px;font-weight:600;" +
+          "border:1.5px solid " + (isActive ? "#2563eb" : "#e0e4f0") + ";" +
+          "background:" + (isActive ? "#2563eb" : "#fff") + ";" +
+          "color:" + (isActive ? "#fff" : "#374151") + ";";
+        b.addEventListener("click", function () {
+          document.body.removeChild(overlay);
+          var target = toggle.querySelector('.rd4-lm-btn[data-lap-mode="' + mode + '"]');
+          if (target && !target.classList.contains("rd4-lm-btn--on")) target.click();
+          resolve();
+        });
+        return b;
+      }
+
+      box.appendChild(makeBtn("1 km splits", "distance"));
+      box.appendChild(makeBtn("Manual laps", "manual"));
+      overlay.appendChild(box);
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) { document.body.removeChild(overlay); resolve(); }
+      });
+      document.body.appendChild(overlay);
+    });
+  }
+
   function saveDetailScreenshot() {
     if (_detailScreenshotBusy) return;
     if (panelMode !== "view") return;
@@ -1696,73 +1991,74 @@
     closeOverflowMenu();
     _detailScreenshotBusy = true;
 
-    var shotBtn = document.getElementById("dp-screenshot-btn");
-    if (shotBtn) shotBtn.disabled = true;
+    _promptLapModeIfNeeded(contentEl).then(function () {
+      var shotBtn = document.getElementById("dp-screenshot-btn");
+      if (shotBtn) shotBtn.disabled = true;
 
-    var scrollEl = document.getElementById("dp-scroll");
-    var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-    if (scrollEl) scrollEl.scrollTop = 0;
+      var scrollEl = document.getElementById("dp-scroll");
+      var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+      if (scrollEl) scrollEl.scrollTop = 0;
 
-    var panel = document.getElementById("detail-panel");
-    var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
-    var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+      // Fixed 540px × scale 2 → 1080px PNG (Instagram post width).
+      var captureWidth = 540;
 
-    var host = document.createElement("div");
-    host.className = "dp-screenshot-capture";
-    host.setAttribute("aria-hidden", "true");
-    host.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:" +
-      captureWidth +
-      "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;z-index:-1;";
+      var host = document.createElement("div");
+      host.className = "dp-screenshot-capture";
+      host.setAttribute("aria-hidden", "true");
+      host.style.cssText =
+        "position:fixed;left:-10000px;top:0;width:" +
+        captureWidth +
+        "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;";
 
-    var clone = buildScreenshotClone(contentEl);
-    host.appendChild(clone);
-    document.body.appendChild(host);
+      var clone = buildScreenshotClone(contentEl);
+      host.appendChild(clone);
+      document.body.appendChild(host);
 
-    var overflowPatches = expandScreenshotOverflow(clone);
+      var overflowPatches = expandScreenshotOverflow(clone);
 
-    window
-      .html2canvas(host, {
-        backgroundColor: "#ffffff",
-        scale: window.devicePixelRatio > 1 ? 2 : 1.5,
-        logging: false,
-        useCORS: true,
-        width: captureWidth,
-        windowWidth: captureWidth,
-      })
-      .then(function (canvas) {
-        return new Promise(function (resolve, reject) {
-          canvas.toBlob(function (blob) {
-            if (!blob) {
-              reject(new Error("empty blob"));
-              return;
-            }
-            resolve(blob);
-          }, "image/png");
+      window
+        .html2canvas(host, {
+          backgroundColor: "#ffffff",
+          scale: 2,
+          logging: false,
+          useCORS: true,
+          width: captureWidth,
+          windowWidth: captureWidth,
+        })
+        .then(function (canvas) {
+          return new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+              if (!blob) {
+                reject(new Error("empty blob"));
+                return;
+              }
+              resolve(blob);
+            }, "image/png");
+          });
+        })
+        .then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          var link = document.createElement("a");
+          link.href = url;
+          link.download = buildDetailScreenshotFilename();
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          UIStates.showToast("Workout saved as image");
+        })
+        .catch(function (err) {
+          console.error("detail screenshot failed", err);
+          UIStates.showToast("Could not save image. Try again.", true);
+        })
+        .finally(function () {
+          restoreScreenshotOverflow(overflowPatches);
+          if (host.parentNode) host.parentNode.removeChild(host);
+          if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+          _detailScreenshotBusy = false;
+          if (shotBtn) shotBtn.disabled = false;
         });
-      })
-      .then(function (blob) {
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = buildDetailScreenshotFilename();
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        UIStates.showToast("Workout saved as image");
-      })
-      .catch(function (err) {
-        console.error("detail screenshot failed", err);
-        UIStates.showToast("Could not save image. Try again.", true);
-      })
-      .finally(function () {
-        restoreScreenshotOverflow(overflowPatches);
-        if (host.parentNode) host.parentNode.removeChild(host);
-        if (scrollEl) scrollEl.scrollTop = savedScrollTop;
-        _detailScreenshotBusy = false;
-        if (shotBtn) shotBtn.disabled = false;
-      });
+    });
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────
@@ -3370,11 +3666,12 @@
   }
 
   function _syncSetBusy(busy) {
-    var allBtn = document.getElementById("sync-all-btn");
-    if (allBtn) allBtn.disabled = busy;
-    // Legacy: also disable old Strava-only button if it exists
-    var stravaBtn = document.getElementById("sync-strava-btn");
-    if (stravaBtn) stravaBtn.disabled = busy;
+    ["sync-btn-strava", "sync-btn-stryd", "sync-all-btn", "sync-strava-btn"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.disabled = busy;
+    });
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    if (toggleBtn) toggleBtn.disabled = busy;
   }
 
   function _syncToast(msg, isError) {
@@ -3602,6 +3899,104 @@
 
   function _onSyncStravaClick() {
     _onSyncAllClick();
+  }
+
+  function _onSyncProviderClick(label, url) {
+    _syncClearFeedback();
+    _syncSetBusy(true);
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    ready
+      .then(function () {
+        return _syncProvider(label, url, { full: false });
+      })
+      .then(function () {
+        if (window.syncBarRefresh) window.syncBarRefresh();
+        return fetch("/api/sync/status")
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.status === "error") {
+              throw new Error(data.error || "Sync failed");
+            }
+            _syncLastTerminalStatus = _syncTerminalKey(
+              data && data.status === "success" ? data : { status: "success", finished_at: "manual" }
+            );
+            _loadSyncChip();
+            fetchAndRender();
+            _syncToast(label + ": synced new activities");
+          });
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : "Sync failed";
+        _syncToast(msg, true);
+      })
+      .finally(function () {
+        _syncSetBusy(false);
+      });
+  }
+
+  function _initSyncWidget() {
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    var panel = document.getElementById("sync-panel");
+    if (!toggleBtn || !panel) return;
+
+    toggleBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = !panel.hidden;
+      panel.hidden = isOpen;
+      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!panel.hidden && !panel.contains(e.target) && e.target !== toggleBtn) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    Promise.all([
+      fetch("/api/strava/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch("/api/stryd/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+    ]).then(function (results) {
+      var stravaConnected = results[0] && results[0].connected;
+      var strydConnected = results[1] && results[1].connected;
+      var stravaBtn = document.getElementById("sync-btn-strava");
+      var strydBtn = document.getElementById("sync-btn-stryd");
+      var stravaTimeEl = document.getElementById("sync-time-strava");
+      var strydTimeEl = document.getElementById("sync-time-stryd");
+      if (!stravaConnected) {
+        if (stravaBtn) stravaBtn.disabled = true;
+        if (stravaTimeEl) stravaTimeEl.textContent = "Not connected";
+      }
+      if (!strydConnected) {
+        if (strydBtn) strydBtn.disabled = true;
+        if (strydTimeEl) strydTimeEl.textContent = "Not connected";
+      }
+    });
+
+    var stravaBtn = document.getElementById("sync-btn-strava");
+    if (stravaBtn) {
+      stravaBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Strava", "/api/strava/sync");
+      });
+    }
+
+    var strydBtn = document.getElementById("sync-btn-stryd");
+    if (strydBtn) {
+      strydBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Stryd", "/api/stryd/sync");
+      });
+    }
   }
 
   function handleEditorSaved(result) {
@@ -3847,13 +4242,7 @@
       if (e.key === "Escape" && dupModalIsOpen()) closeDuplicateModal();
     });
 
-    var syncStravaBtn = document.getElementById("sync-strava-btn");
-    if (syncStravaBtn)
-      syncStravaBtn.addEventListener("click", _onSyncStravaClick);
-
-    var syncAllBtn = document.getElementById("sync-all-btn");
-    if (syncAllBtn) syncAllBtn.addEventListener("click", _onSyncAllClick);
-
+    _initSyncWidget();
     _loadSyncChip();
 
     var exportBtn = document.getElementById("log-export-btn");

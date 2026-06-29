@@ -1,11 +1,60 @@
 # Changelog
 
-## Sprint 82.2 — Habit adherence analytics and nudges
+## Sprint 89 — Google Drive / Health Sync sleep file import
 
-- #886: Add build_nudges pure function for habit adherence coaching
-- #889: Add compute_adherence_breakdown pure function for habit stats
-- #890: Add detect_slipping_habits pure function for trend detection
-- #892: Build Habits page adherence and nudges UI
+- #1032: Add sleep_records table and idempotent Alembic migration
+- #1034: Parse Health Sync sleep CSV into sleep_records
+- #1035: Add scheduled and on-demand sleep file sync from Google Drive
+- #1038: Backfill historical sleep data on first Google Drive connect
+
+## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
+
+- #1019: Classify laps before scoring in performance endpoint (fixes classification order so band is assigned before score computation)
+- #1021: Render four explicit performance states in frontend (scored / needs_thresholds / building_baseline / error driven by top-level state field)
+- #1022: Settings thresholds editor writes FTP, threshold heart rate, threshold pace (pace input now accepts numeric sec/km; blank inputs when no value stored)
+
+## Sprint 88 — Performance state field, diagnostic logging, backfill pipeline, and fitness chart fix
+
+- #1018: Add diagnostic INFO logging to performance endpoint (runs_considered, laps_with_band, threshold flags per request)
+- #1020: Return explicit top-level state field from performance endpoint (scored / needs_thresholds / building_baseline / error)
+- #1023: Add POST /api/performance/backfill and full backfill pipeline to recompute historical run TSS and duration curve
+- #1024: Fix Fitness Fatigue Form chart building_baseline propagation from endurance/speed score readiness
+
+## Sprint 86 — Habits timezone fix, weight validation, range-token clarity, and test coverage
+
+- #450: Memoize autofill computation per source in GET /api/habits/week
+- #451: Fix Bangkok timezone in best_streak() for consistency
+- #452: Extract backfill window validation as reusable FastAPI dependency
+- #453: Extract habits.html inline CSS to frontend/css/habits.css
+- #470: Document habit tracking_type immutability constraint in slide-over PATCH path
+- #471: Add comprehensive date parsing validation tests for habit log endpoint
+- #472: Add type-safe weight computation tests for project_hit_date
+- #473: Replace magic-number timedeltas with RANGE_OFFSETS constant in weight-chart endpoint
+- #474: Verify WeightEntry.entry_date index exists for range=ALL queries
+- #475: Document --accent WCAG contrast and add verification tests for log button
+- #477: Validate goal vs start weight before saving target in _saveEditPanel
+- #503: Remove dead user_id query param from calendar.js weight-entries GETs
+- #504: Remove user_id from calendar.js weight-entries POST body
+- #476: Add visual regression tests for progress card bar positioning
+
+## Sprint 85 — Performance score states, PR reason strings, logging observability, and duration-curve gap fix
+
+- #927: Add observability to diagnose null performance scores
+- #928: Classify laps before scoring in performance endpoint
+- #929: Surface needs_thresholds state when athlete has no thresholds set
+- #930: Render four distinct score-card states on Performance tab
+- #984: Add structured INFO logging to PR endpoint caller
+- #985: Fix duration curve data gap: lap classification and threshold population
+- #986: Return explicit reason string for uncomputable personal records
+- #987: Add unit tests for PR endpoint caller: logging and empty-curve branch
+
+## Sprint 83 — Performance observability, needs-thresholds state, auto-detected PRs, and lap-classification backfill
+
+- #910: Add observability to diagnose null performance scores
+- #911: Classify laps before scoring in performance endpoint
+- #912: Surface needs_thresholds state in performance endpoint
+- #913: Fix empty Personal Records for athletes with run history
+- #914: Backfill lap classification and trigger recompute on threshold save
 
 ## Sprint 80 — Weight goal projection and what-if simulation
 
@@ -425,3 +474,104 @@ Features included in this sprint:
 - #72: Add weekly digest summary card to home dashboard
 - #73: Add HRV and RHR trend chart with baseline band
 - #74: Add Sleep, Energy, and Mood Trend Chart
+
+## Sprint 82.2 — Habit adherence analytics and nudges
+
+- #886: Add build_nudges pure function for habit adherence coaching
+- #889: Add compute_adherence_breakdown pure function for habit stats
+- #890: Add detect_slipping_habits pure function for trend detection
+- #892: Build Habits page adherence and nudges UI
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

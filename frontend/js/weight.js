@@ -207,14 +207,33 @@ function renderCoachStrip(chartData, activeTarget) {
 function renderChart(chartData, range) {
   _chartData = chartData;
   WeightChart.render(chartData, range);
+  _syncLegend(chartData);
+}
 
-  const hasTarget = !!(chartData.plan_series && chartData.plan_series.length);
+// Plan / gap / milestone legend chips are Advanced-only AND require a target.
+function _syncLegend(chartData) {
+  const hasTarget = !!(chartData && chartData.plan_series && chartData.plan_series.length);
+  const advanced  = (WeightChart.getMode ? WeightChart.getMode() : 'basic') === 'advanced';
+  const show = hasTarget && advanced;
   const legendPlan      = document.getElementById('legend-plan');
   const legendGap       = document.getElementById('legend-gap');
   const legendMilestone = document.getElementById('legend-milestone');
-  if (legendPlan)      legendPlan.hidden      = !hasTarget;
-  if (legendGap)       legendGap.hidden       = !hasTarget;
-  if (legendMilestone) legendMilestone.hidden = !hasTarget;
+  if (legendPlan)      legendPlan.hidden      = !show;
+  if (legendGap)       legendGap.hidden       = !show;
+  if (legendMilestone) legendMilestone.hidden = !show;
+}
+
+// Basic / Advanced segmented toggle — persists via WeightChart.setMode.
+function _initModeToggle() {
+  const current = WeightChart.getMode ? WeightChart.getMode() : 'basic';
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === current);
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (WeightChart.setMode) WeightChart.setMode(btn.dataset.mode);
+      if (_chartData) _syncLegend(_chartData);
+    });
+  });
 }
 
 // ── Progress card ──────────────────────────────────────────────────────────
@@ -264,6 +283,18 @@ function renderProgress(target) {
   const planSubEl = document.getElementById('pstat-plan-sub');
   if (youValEl)  youValEl.textContent  = currentBasisKg != null ? `${currentBasisKg.toFixed(1)} kg` : '--';
   if (planSubEl) planSubEl.textContent = planTodayKg != null ? `plan says ${planTodayKg.toFixed(1)}` : 'plan --';
+
+  // Next goal = closest upcoming milestone (earliest date still ahead of today).
+  // Falls back to the final goal when no intermediate milestone remains.
+  const nextValEl  = document.getElementById('pstat-next-val');
+  const nextDateEl = document.getElementById('pstat-next-date');
+  const _today = todayISO();
+  const upcoming = (target.milestones || [])
+    .filter(m => m.kind !== 'today' && m.plan_kg != null && m.date && m.date > _today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nextMs = upcoming[0];
+  if (nextValEl)  nextValEl.textContent  = nextMs ? `${nextMs.plan_kg.toFixed(1)} kg` : '--';
+  if (nextDateEl) nextDateEl.textContent = nextMs ? _fmtShortDate(nextMs.date) : '--';
 
   const goalValEl  = document.getElementById('pstat-goal-val');
   const goalDateEl = document.getElementById('pstat-goal-date');
@@ -1218,6 +1249,23 @@ async function _saveEditPanel() {
     return;
   }
 
+  // Validate goal vs start weight for loss-direction targets.
+  // The start weight is fixed once a target is created; if the target was
+  // set as a loss target (start > original goal) the new goal must stay below
+  // start weight — otherwise the data has no meaningful direction.
+  const startWVal = _activeTarget
+    ? _activeTarget.start_weight_kg
+    : (_chartData && _chartData.stats ? _chartData.stats.current_weight_kg : null);
+  if (startWVal != null) {
+    const isLossTarget = _activeTarget
+      ? _activeTarget.start_weight_kg > _activeTarget.target_weight_kg
+      : false;
+    if (isLossTarget && goalW >= startWVal) {
+      if (errEl) errEl.textContent = 'Goal must be less than start weight.';
+      return;
+    }
+  }
+
   if (saveBtn) saveBtn.disabled = true;
 
   try {
@@ -1545,6 +1593,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   _initCardB();
   _initRangeTabs();
+  _initModeToggle();
   _initEditPanel();
   _initTargetHistoryFilters();
   _initBackfillCalendar();

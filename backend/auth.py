@@ -21,6 +21,7 @@ COOKIE_NAME = "session"
 ADMIN_COOKIE_NAME = "admin_session"
 CSRF_COOKIE_NAME = "csrf-token"
 _ADMIN_COOKIE_MAX_AGE = int(os.getenv("ADMIN_COOKIE_MAX_AGE", str(4 * 3600)))  # 4 hours default
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(30 * 24 * 3600)))  # 30 days default
 _ADMIN_LOCKOUT_MAX = int(os.getenv("ADMIN_LOCKOUT_MAX", "5"))
 _ADMIN_LOCKOUT_WINDOW = int(os.getenv("ADMIN_LOCKOUT_WINDOW", "300"))  # 5 minutes
 _admin_lockout: dict = {}  # ip -> {"count": int, "window_start": float}
@@ -98,6 +99,10 @@ def read_session_cookie(token: str) -> dict:
     except Exception:
         raise ValueError("invalid token payload")
 
+    issued_at = data.get("issued_at")
+    if not isinstance(issued_at, (int, float)) or time.time() - issued_at > SESSION_MAX_AGE:
+        raise ValueError("session expired")
+
     return data
 
 
@@ -105,15 +110,28 @@ def generate_csrf_token() -> str:
     return secrets.token_hex(32)
 
 
-def set_csrf_cookie(response: Response, token: str) -> None:
+def _cookie_secure() -> bool:
+    """Whether auth cookies should be marked Secure (HTTPS-only).
+
+    Secure cookies are silently dropped by the browser over plain HTTP, which
+    logs users out. Only PRD (Render) is served over HTTPS; UAT and local run
+    over HTTP (e.g. the Tailscale-routed UAT box), so default Secure to on for
+    prd and off elsewhere. Override per-environment with SESSION_COOKIE_SECURE
+    (1/0) — e.g. set it to 1 if UAT is ever fronted by HTTPS.
+    """
     env = os.getenv("ENVIRONMENT", "local")
+    return os.getenv("SESSION_COOKIE_SECURE", "1" if env == "prd" else "0") == "1"
+
+
+def set_csrf_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
         httponly=False,
-        secure=(env != "local"),
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
+        max_age=SESSION_MAX_AGE,
     )
 
 
@@ -123,7 +141,10 @@ def set_session(response: Response, user_id: str) -> str:
         key=COOKIE_NAME,
         value=token,
         httponly=True,
+        secure=_cookie_secure(),
         samesite="lax",
+        path="/",
+        max_age=SESSION_MAX_AGE,
     )
     csrf_token = generate_csrf_token()
     set_csrf_cookie(response, csrf_token)
@@ -170,13 +191,12 @@ def read_admin_cookie(token: str) -> dict:
 
 
 def set_admin_cookie(response: Response) -> None:
-    env = os.getenv("ENVIRONMENT", "local")
     token = create_admin_cookie(time.time())
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=(env != "local"),
+        secure=_cookie_secure(),
         samesite="strict",
         max_age=_ADMIN_COOKIE_MAX_AGE,
     )

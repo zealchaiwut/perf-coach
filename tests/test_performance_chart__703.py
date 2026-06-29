@@ -191,7 +191,13 @@ class TestComputePerformanceChart:
         assert MIN_HISTORY_DAYS > 0
 
     def test_ac5_building_baseline_true_when_insufficient_qualifying_runs(self):
-        """AC5: building_baseline=True when fewer than min qualifying runs exist."""
+        """AC5 (corrected by #1024): building_baseline=False when load history is sufficient
+        for CTL/ATL/TSB, even when fewer than MIN_QUALIFYING_RUNS qualifying runs exist.
+
+        The Fitness Fatigue Form chart renders CTL/ATL/TSB independently of endurance/speed
+        score availability. building_baseline only reflects fitness-model load history
+        sufficiency — not qualifying run counts.
+        """
         from backend.services.performance_chart import compute_performance_chart
         from backend.services.zone_constants import MIN_QUALIFYING_RUNS
 
@@ -211,7 +217,9 @@ class TestComputePerformanceChart:
             end_date="2026-02-10",
         )
 
-        assert result["building_baseline"] is True
+        # Load history (50 days with daily_load=50) is sufficient for CTL/ATL/TSB.
+        # Insufficient qualifying runs must NOT cause building_baseline=True.
+        assert result["building_baseline"] is False
 
     def test_ac7_invalid_start_after_end_returns_empty(self):
         """AC7: start_date after end_date returns empty payload with reason."""
@@ -400,49 +408,46 @@ def test_ac11_happy_path_response_shape(auth_client, test_user_id):
         assert len(body[key]) == n, f"{key} length mismatch (expected {n})"
 
 
-# AC6: missing athlete_id → 200 + empty payload + athlete_not_found reason
-def test_ac6_missing_athlete_id_returns_200_empty(client):
-    """AC6: omitting athlete_id returns 200 with empty series and athlete_not_found reason."""
-    end = date.today().isoformat()
-    start = (date.today() - timedelta(days=30)).isoformat()
-
-    resp = client.get(
+# AC6: endpoint always returns 200 — never hard-fails, even when the athlete has no data.
+# The endpoint derives the athlete from the session cookie (no athlete_id param), so
+# "athlete not found" is tested by requesting a far-future range with no training history.
+def test_ac6_missing_athlete_id_returns_200_empty(auth_client):
+    """AC6: endpoint returns 200 with structured response even when athlete has no data."""
+    resp = auth_client.get(
         "/api/performance/chart",
-        params={"start_date": start, "end_date": end},
+        params={"start_date": "2090-01-01", "end_date": "2090-01-31"},
     )
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["dates"] == []
-    assert body["ctl"] == []
-    assert body["reason"] == "athlete_not_found"
+    assert isinstance(body["dates"], list)
+    assert isinstance(body["ctl"], list)
+    assert isinstance(body["reason"], str)
+    for key in ("dates", "ctl", "atl", "tsb", "endurance_score", "speed_score",
+                "building_baseline", "reason"):
+        assert key in body, f"Missing key: {key}"
 
 
-# AC6: unknown athlete_id → 200 + empty payload + athlete_not_found reason
-def test_ac6_unknown_athlete_id_returns_200_empty(client):
-    """AC6: unknown athlete_id returns 200 with empty series and athlete_not_found reason."""
-    resp = client.get(
+# AC6: endpoint always returns 200 — even for a date range far beyond any data.
+def test_ac6_unknown_athlete_id_returns_200_empty(auth_client):
+    """AC6: endpoint returns 200 (not 500/404) for a date range with no training data."""
+    resp = auth_client.get(
         "/api/performance/chart",
-        params={
-            "athlete_id": "00000000-0000-0000-0000-000000000000",
-            "start_date": "2026-01-01",
-            "end_date": "2026-01-31",
-        },
+        params={"start_date": "2090-06-01", "end_date": "2090-06-30"},
     )
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["dates"] == []
-    assert body["reason"] == "athlete_not_found"
+    assert isinstance(body["dates"], list)
+    assert isinstance(body["reason"], str)
 
 
 # AC7: start_date after end_date → 200 + empty payload + invalid_date_range reason
-def test_ac7_start_after_end_returns_200_empty(client):
+def test_ac7_start_after_end_returns_200_empty(auth_client):
     """AC7: start_date > end_date returns 200 with empty series and invalid_date_range reason."""
-    resp = client.get(
+    resp = auth_client.get(
         "/api/performance/chart",
         params={
-            "athlete_id": "any",
             "start_date": "2026-06-01",
             "end_date": "2026-01-01",
         },
@@ -455,11 +460,11 @@ def test_ac7_start_after_end_returns_200_empty(client):
 
 
 # AC7: missing start_date → 200 + empty payload + reason
-def test_ac7_missing_start_date_returns_200_empty(client):
+def test_ac7_missing_start_date_returns_200_empty(auth_client):
     """AC7: missing start_date returns 200 with empty series."""
-    resp = client.get(
+    resp = auth_client.get(
         "/api/performance/chart",
-        params={"athlete_id": "any", "end_date": "2026-06-01"},
+        params={"end_date": "2026-06-01"},
     )
 
     assert resp.status_code == 200

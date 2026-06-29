@@ -323,12 +323,44 @@
       }
 
       /* ── Chart card ───────────────────────────────────────────────────────── */
+      /* Controls row: Basic/Advanced toggle (left) + range tabs (right) */
+      .chart-controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .mode-seg {
+        display: inline-flex;
+        background: #eef1f6;
+        border-radius: 8px;
+        padding: 3px;
+      }
+      .mode-btn {
+        border: none;
+        background: none;
+        font-family: "Inter Tight", sans-serif;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        padding: 5px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        line-height: 1.5;
+      }
+      .mode-btn.active {
+        background: #0b1530;
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+      }
+
       .range-tabs {
         display: inline-flex;
         border: 1px solid #e8eaf0;
         border-radius: 8px;
         overflow: hidden;
-        margin-bottom: 12px;
       }
 
       .range-tab {
@@ -515,10 +547,16 @@
       /* Three-stat row */
       .progress-stat-row {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
         gap: 6px;
         margin-bottom: 14px;
         text-align: center;
+      }
+      .pstat-val-amber {
+        color: #d97706;
+      }
+      .pstat-date-amber {
+        color: #d97706;
       }
       .pstat-lbl {
         font-size: 10px;
@@ -2093,10 +2131,19 @@
                   </div>
                 </div>
                 <div>
+                  <div class="pstat-val pstat-val-amber" id="pstat-next-val">
+                    -- kg
+                  </div>
+                  <div class="pstat-lbl">Next goal</div>
+                  <div class="pstat-date pstat-date-amber" id="pstat-next-date">
+                    --
+                  </div>
+                </div>
+                <div>
                   <div class="pstat-val pstat-val-green" id="pstat-goal-val">
                     -- kg
                   </div>
-                  <div class="pstat-lbl">Goal</div>
+                  <div class="pstat-lbl">Final goal</div>
                   <div class="pstat-date pstat-date-green" id="pstat-goal-date">
                     --
                   </div>
@@ -2215,15 +2262,21 @@
           <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
           <span id="chart-verdict-text" class="chart-verdict-text"></span>
         </div>
-        <div class="range-tabs" role="group" aria-label="Chart date range">
-          <button class="range-tab" data-range="7d" type="button">7D</button>
-          <button class="range-tab active" data-range="30d" type="button">
-            30D
-          </button>
-          <button class="range-tab" data-range="90d" type="button">90D</button>
-          <button class="range-tab" data-range="6m" type="button">6M</button>
-          <button class="range-tab" data-range="1y" type="button">1Y</button>
-          <button class="range-tab" data-range="all" type="button">ALL</button>
+        <div class="chart-controls">
+          <div class="mode-seg" role="group" aria-label="Chart detail level">
+            <button class="mode-btn active" data-mode="basic" type="button">Basic</button>
+            <button class="mode-btn" data-mode="advanced" type="button">Advanced</button>
+          </div>
+          <div class="range-tabs" role="group" aria-label="Chart date range">
+            <button class="range-tab" data-range="7d" type="button">7D</button>
+            <button class="range-tab active" data-range="30d" type="button">
+              30D
+            </button>
+            <button class="range-tab" data-range="90d" type="button">90D</button>
+            <button class="range-tab" data-range="6m" type="button">6M</button>
+            <button class="range-tab" data-range="1y" type="button">1Y</button>
+            <button class="range-tab" data-range="all" type="button">ALL</button>
+          </div>
         </div>
         <div class="chart-container">
           <div

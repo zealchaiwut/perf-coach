@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="css/training-form.css">
   <link rel="stylesheet" href="css/training-detail.css">
   <link rel="stylesheet" href="css/run-detail-v4.css">
-  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/tabler-icons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     /* ── Page shell (gradient + cards, matches weight/home) ─────────────── */
@@ -40,6 +40,8 @@
 
     .log-card--week,
     .log-card--filters { padding: 10px 12px; }
+    /* Type/search filter retired for now — hidden on every width. */
+    .log-card--filters { display: none; }
 
     .log-card--history { overflow: hidden; }
 
@@ -129,6 +131,20 @@
       cursor: not-allowed;
     }
 
+    /* ── Mobile: keep the action buttons on the title row (icon-only), and
+       hide the week-strip calendar (revisit later). ─────────────────────── */
+    @media (max-width: 599px) {
+      .log-page-header { flex-wrap: nowrap; align-items: center; gap: 8px; }
+      .log-page-title { font-size: 20px; margin-bottom: 2px; }
+      .log-subtitle { font-size: 12px; }
+      .log-page-header-actions { flex-wrap: nowrap; gap: 6px; }
+      .log-page-header-actions .btn-label { display: none; }
+      .log-page-header .btn-secondary,
+      .log-page-header .btn-accent { padding: 0 10px; }
+      .log-page-header .sync-chip { padding: 0 8px; }
+      .log-card--week { display: none; }
+    }
+
     /* Removed-workouts modal */
     .removed-modal[hidden] { display: none; }
     .removed-modal {
@@ -178,40 +194,84 @@
       color: #bbf7d0;
     }
 
-    /* ── Sync chip (issue #602; ported from sprint-66) ── */
+    /* ── Sync widget (expandable panel per-integration) ── */
+    .sync-widget { position: relative; }
     .sync-chip {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      padding: 4px 8px 4px 11px;
+      padding: 5px 10px;
       background: rgba(255,255,255,0.10);
       border: 1px solid rgba(255,255,255,0.18);
       border-radius: 20px;
       backdrop-filter: blur(8px);
       font-size: 11.5px;
-      color: rgba(255,255,255,0.8);
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
       white-space: nowrap;
       line-height: 1;
-    }
-    .sync-chip-label { font-weight: 500; }
-    .sync-chip-time { font-family: "JetBrains Mono", monospace; font-size: 11px; }
-    .sync-chip-sep { opacity: 0.35; font-size: 10px; }
-    .sync-chip-btn {
-      margin-left: 3px;
-      padding: 3px 9px;
-      background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.22);
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #fff;
       cursor: pointer;
       font-family: inherit;
-      line-height: 1;
-      transition: background 0.1s;
+      transition: background 0.12s;
     }
-    .sync-chip-btn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
-    .sync-chip-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .sync-chip:hover { background: rgba(255,255,255,0.18); }
+    .sync-chip[aria-expanded="true"] { background: rgba(255,255,255,0.22); }
+    .sync-chevron { font-size: 9px; opacity: 0.6; transition: transform 0.15s; line-height: 1; }
+    .sync-chip[aria-expanded="true"] .sync-chevron { transform: rotate(180deg); }
+    .sync-panel {
+      position: absolute;
+      top: calc(100% + 7px);
+      right: 0;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 13px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.06);
+      min-width: 224px;
+      padding: 6px;
+      z-index: 200;
+    }
+    .sync-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 6px;
+      border-radius: 8px;
+    }
+    .sync-row + .sync-row { border-top: 1px solid #f1f5f9; }
+    .sync-row--soon { opacity: 0.45; }
+    .sync-row-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .sync-row-logo {
+      width: 26px; height: 26px; border-radius: 7px;
+      font-size: 9.5px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; flex: none; letter-spacing: -0.02em;
+    }
+    .sync-row-logo--strava { background: #fc4c02; }
+    .sync-row-logo--stryd  { background: #f97316; }
+    .sync-row-logo--garmin { background: #007dba; }
+    .sync-row-logo--suunto { background: #e31837; }
+    .sync-row-text { display: flex; flex-direction: column; min-width: 0; }
+    .sync-row-name { font-size: 12.5px; font-weight: 700; color: #1e293b; line-height: 1.25; }
+    .sync-row-time {
+      font-size: 10px; color: #94a3b8;
+      font-family: "JetBrains Mono", monospace; line-height: 1.3;
+    }
+    .sync-row-soon {
+      font-size: 9.5px; color: #94a3b8; background: #f1f5f9;
+      border-radius: 4px; padding: 1px 5px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      line-height: 1.4;
+    }
+    .sync-row-btn {
+      flex: none; padding: 4px 10px;
+      border: 1.5px solid #e2e8f0; border-radius: 8px;
+      background: #f8fafc; font-size: 11px; font-weight: 700;
+      color: #475569; cursor: pointer; font-family: inherit;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+    .sync-row-btn:hover:not(:disabled) { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+    .sync-row-btn:disabled { opacity: 0.38; cursor: not-allowed; }
 
     /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
     .training-sub-tabs {
@@ -601,6 +661,9 @@
     /* Readiness widget (issue #640) */
     .readiness-widget {
       padding: 16px 18px;
+      /* Respond to the CARD's own width, not the viewport — the list column
+         shrinks when the detail panel opens, which no viewport @media catches. */
+      container-type: inline-size;
     }
 
     .rw-header {
@@ -620,7 +683,7 @@
 
     .rw-tiles {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
       gap: 0.5rem;
     }
 
@@ -633,26 +696,48 @@
 
     .rw-tile-val {
       font-family: var(--mono, 'JetBrains Mono', monospace);
-      font-size: 1.35rem;
+      font-size: 1.7rem;
       font-weight: 600;
       color: var(--ink, var(--text-primary));
       line-height: 1.05;
       letter-spacing: -0.02em;
     }
 
+    /* Abbr + word on one line, e.g. "CTL Fitness" */
     .rw-tile-label {
-      font-size: 0.625rem;
+      font-size: 0.75rem;
       font-weight: 700;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       color: var(--text-secondary);
-      margin-top: 0.25rem;
+      margin-top: 0.3rem;
+      white-space: nowrap;
     }
 
     .rw-tile-sub {
-      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
       color: var(--text-tertiary);
-      margin-top: 0.1rem;
+    }
+
+    /* Per-metric zone bar (good / normal / caution) with a current-value marker */
+    .rw-zone { margin: 7px 0 2px; }
+    .rw-zone-bar {
+      position: relative; display: flex; height: 6px; border-radius: 999px; gap: 1px;
+    }
+    .rw-zone-bar span { height: 100%; opacity: 0.85; }
+    .rw-zone-bar span:first-child { border-radius: 999px 0 0 999px; }
+    .rw-zone-bar span:last-child { border-radius: 0 999px 999px 0; }
+    .rw-zone-mark {
+      position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+      border-radius: 50%; background: #fff;
+      border: 2px solid var(--text-primary, #0b1530);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .rw-zone-name {
+      margin-top: 4px; font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+      text-transform: uppercase; text-align: center;
     }
 
     .rw-spark-wrap {
@@ -710,6 +795,20 @@
       }
     }
 
+    /* Narrow card (e.g. list column collapsed by the detail panel): shrink the
+       three tiles so they keep fitting side-by-side instead of overflowing. */
+    @container (max-width: 430px) {
+      .rw-tiles { gap: 0.3rem; }
+      .rw-tile { padding: 0.5rem 0.25rem; }
+      .rw-tile-val { font-size: 1.15rem; }
+      .rw-tile-label { white-space: normal; font-size: 0.625rem; }
+      .rw-zone-name { font-size: 8px; }
+    }
+    /* Very narrow: stack them so nothing clips. */
+    @container (max-width: 300px) {
+      .rw-tiles { grid-template-columns: 1fr; }
+    }
+
     /* Legacy load-widget (kept for volume chart section; readiness widget moved to #readiness-widget) */
     .load-widget { padding: 16px 18px; }
     .lw-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.7rem; }
@@ -760,6 +859,64 @@
 
     /* ── Day-grouped list (issue #637) ── */
     .day-group { }
+
+    /* Month separator with monthly rollup */
+    .month-sep {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin: 18px 0 6px;
+      padding: 10px 12px;
+      background: #eaf1ff;            /* light blue month band */
+      border-radius: 10px;
+    }
+    .month-sep:first-child { margin-top: 4px; }
+    /* Weekly sub-separator — same stats, lighter so months stay dominant. */
+    .month-sep.week-sep {
+      background: transparent;
+      border-radius: 0;
+      padding: 6px 4px;
+      margin: 10px 0 2px;
+      border-bottom: 1px dashed rgba(13, 30, 67, 0.12);
+    }
+    .month-sep.week-sep .month-sep-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .month-sep.week-sep .month-stat-val { font-size: 12px; }
+    /* Lazy-load sentinel / fallback button */
+    .log-load-more-sentinel { height: 1px; }
+    .log-load-more { text-align: center; padding: 12px; color: var(--text-secondary); cursor: pointer; font-size: 13px; }
+    .log-load-more:hover { color: var(--text-primary); }
+    .month-sep-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+    .month-sep-stats {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .month-stat {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .month-stat-val {
+      font-family: var(--mono, 'JetBrains Mono', monospace);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .month-stat-lbl {
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+    }
 
     .day-group-header {
       padding: 8px 4px 6px;
@@ -1153,10 +1310,15 @@
 
     /* ── Responsive: list ≤ 880px ── */
     @media (max-width: 880px) {
+      /* Keep the action buttons on the title row, pushed to the right. */
       .log-page-header {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 8px;
       }
+      .log-page-header-info { flex: 1; min-width: 0; }
+      .log-page-header-actions { margin-left: auto; flex-shrink: 0; }
 
       .fb-chips-row {
         flex-wrap: nowrap;
@@ -1309,7 +1471,7 @@
       width: 34px; height: 34px;
       border: none; background: none; border-radius: 6px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
-      color: #5c6886; font-size: 1.125rem; flex-shrink: 0;
+      color: #0b1530; font-size: 1.125rem; flex-shrink: 0;
       transition: background 0.1s, color 0.1s;
       font-family: inherit;
     }
@@ -1345,15 +1507,8 @@
     .dp-nav-btn:hover:not(:disabled) { background: #f5f5f5; color: var(--text); }
     .dp-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-    /* icon visibility by viewport — block inside flex btn (inline breaks layout) */
-    .dp-icon-btn > [class*="dp-icon-"] { display: none; line-height: 1; }
-
-    .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: block; }
-
-    @media (max-width: 879px) {
-      .dp-icon-close-x, .dp-icon-nav-up, .dp-icon-nav-down { display: none; }
-      .dp-icon-close-back, .dp-icon-nav-left, .dp-icon-nav-right { display: block; }
-    }
+    /* Top-bar control icons (Tabler webfont) — match the screenshot button */
+    .dp-nav-btn .ti { font-size: 1rem; line-height: 1; }
 
     /* Form mode: simplify top bar (back + title area only) */
     .detail-panel--form .dp-position-group,
@@ -2285,18 +2440,60 @@
       <p class="log-subtitle" id="log-subtitle">Loading…</p>
     </div>
     <div class="log-page-header-actions">
-      <div id="sync-chip" class="sync-chip" aria-label="Sync status">
-        <span class="sync-chip-label">Strava</span>
-        <span id="sync-time-strava" class="sync-chip-time">…</span>
-        <span class="sync-chip-sep">·</span>
-        <span class="sync-chip-label">Stryd</span>
-        <span id="sync-time-stryd" class="sync-chip-time">…</span>
-        <button id="sync-all-btn" class="sync-chip-btn" type="button"
-                title="Pull new activities from Strava and Stryd since your last sync">Sync new</button>
+      <div id="sync-widget" class="sync-widget">
+        <button id="sync-toggle-btn" class="sync-chip" type="button"
+                aria-expanded="false" aria-controls="sync-panel"
+                title="Show sync options">
+          <i class="ti ti-refresh" aria-hidden="true" style="font-size:12px;"></i>
+          <span class="btn-label">Sync</span>
+          <span class="sync-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div id="sync-panel" class="sync-panel" hidden>
+          <div class="sync-row" data-provider="strava">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--strava">St</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Strava</span>
+                <span class="sync-row-time" id="sync-time-strava">…</span>
+              </div>
+            </div>
+            <button id="sync-btn-strava" class="sync-row-btn" type="button">Sync new</button>
+          </div>
+          <div class="sync-row" data-provider="stryd">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--stryd">S</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Stryd</span>
+                <span class="sync-row-time" id="sync-time-stryd">…</span>
+              </div>
+            </div>
+            <button id="sync-btn-stryd" class="sync-row-btn" type="button">Sync new</button>
+          </div>
+          <div class="sync-row sync-row--soon">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--garmin">G</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Garmin</span>
+                <span class="sync-row-soon">soon</span>
+              </div>
+            </div>
+            <button class="sync-row-btn" type="button" disabled>Sync</button>
+          </div>
+          <div class="sync-row sync-row--soon">
+            <div class="sync-row-info">
+              <span class="sync-row-logo sync-row-logo--suunto">Su</span>
+              <div class="sync-row-text">
+                <span class="sync-row-name">Suunto</span>
+                <span class="sync-row-soon">soon</span>
+              </div>
+            </div>
+            <button class="sync-row-btn" type="button" disabled>Sync</button>
+          </div>
+        </div>
       </div>
       <button id="log-removed-btn" class="btn-secondary" type="button"
-              title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> Removed</button>
-      <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> Log workout</button>
+              title="View and restore workouts you removed from your log"><i class="ti ti-trash-off" aria-hidden="true"></i> <span class="btn-label">Removed</span></button>
+      <button id="log-new-btn" class="btn-accent" type="button"><i class="ti ti-plus" aria-hidden="true"></i> <span class="btn-label">Log workout</span></button>
       <span id="log-sync-feedback" role="status" aria-live="polite"></span>
     </div>
   </header>
@@ -2326,8 +2523,8 @@
     <div id="week-strip"></div>
   </div>
 
-  <!-- Filter bar (JS renders into this) — Log tab content -->
-  <div class="log-card log-card--filters">
+  <!-- Filter bar (JS renders into this) — hidden for now (filter/search not needed) -->
+  <div class="log-card log-card--filters" hidden>
     <div id="filter-bar"></div>
   </div>
 
@@ -2356,7 +2553,7 @@
               </div>
               <div id="plan-building-baseline" class="plan-building-baseline" style="display: none">
                 <span class="plan-bb-icon">📈</span>
-                <span>Building baseline — projection unavailable until sufficient training history is established.</span>
+                <span>Building baseline: projection unavailable until sufficient training history is established.</span>
               </div>
               <div id="plan-curve-wrap" style="display: none">
                 <canvas id="plan-form-curve" height="200" role="img" aria-label="Performance form curve: historical and projected form"></canvas>
@@ -2394,9 +2591,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-volume-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-volume-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-volume-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-volume-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-volume-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2406,9 +2603,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-pace-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-pace-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-pace-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-pace-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-pace-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2418,9 +2615,9 @@
                     <div class="plan-spec-bar-fill" id="plan-spec-slower-fill"></div>
                   </div>
                   <div class="plan-spec-bar-values">
-                    <span id="plan-spec-slower-current" class="plan-spec-val">—</span>
+                    <span id="plan-spec-slower-current" class="plan-spec-val">–</span>
                     <span class="plan-spec-sep">/</span>
-                    <span id="plan-spec-slower-target" class="plan-spec-target">—</span>
+                    <span id="plan-spec-slower-target" class="plan-spec-target">–</span>
                     <span class="plan-spec-unit">km</span>
                   </div>
                 </div>
@@ -2454,18 +2651,21 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Endurance score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Endurance trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">📈</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more easy runs to establish your endurance score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score.</span>
+          <button type="button" class="perf-retry-btn">Retry</button>
         </div>
       </div>
 
@@ -2475,18 +2675,21 @@
         <div class="perf-card-body">
           <div class="perf-ring" aria-label="Speed score ring"></div>
           <div class="perf-card-info">
-            <div class="perf-score-val">—</div>
+            <div class="perf-score-val"></div>
             <div class="perf-dir"></div>
             <div class="perf-spark" aria-label="Speed trend sparkline"></div>
           </div>
         </div>
         <div class="perf-building-baseline" hidden>
           <span class="perf-bb-icon">⚡</span>
-          <span class="perf-bb-text">Building baseline</span>
-          <p class="perf-bb-sub">Log more hard/interval runs to establish your speed score.</p>
+          <p class="perf-bb-reason"></p>
         </div>
         <div class="perf-threshold-hint" hidden>
-          <span class="perf-hint-text">Set your threshold in <a href="/settings#thresholds">Settings</a> to compute this score.</span>
+          <p class="perf-hint-text">To compute your score, set your <strong>FTP</strong>, <strong>threshold HR</strong>, and <strong>threshold pace</strong> in <a href="/settings#thresholds">Settings → Thresholds</a>.</p>
+        </div>
+        <div class="perf-error" hidden>
+          <span class="perf-error-text">Could not load score.</span>
+          <button type="button" class="perf-retry-btn">Retry</button>
         </div>
       </div>
 
@@ -2506,7 +2709,7 @@
       <p class="perf-chart-caption">CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed line = today.</p>
       <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
         <span class="perf-bb-icon">📈</span>
-        <span>Building baseline — keep training to see the fitness chart.</span>
+        <span>Building baseline: keep training to see the fitness chart.</span>
       </div>
       <div id="perf-chart-wrap">
         <canvas id="perf-fitness-canvas" height="220"
@@ -2520,14 +2723,14 @@
       <div class="perf-acwr-body">
         <div class="perf-acwr-ratio-wrap">
           <span class="perf-acwr-label">Ratio</span>
-          <span id="perf-acwr-ratio" class="perf-acwr-ratio">—</span>
-          <span id="perf-acwr-band" class="perf-acwr-band-badge">—</span>
+          <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
+          <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
         </div>
-        <p id="perf-acwr-guidance" class="perf-acwr-guidance">—</p>
+        <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
       </div>
       <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
         <span class="perf-bb-icon">⏳</span>
-        <span>Baseline forming — log at least 28 days of training to see your ACWR.</span>
+        <span>Baseline forming: log at least 28 days of training to see your ACWR.</span>
       </div>
     </div>
 
@@ -2604,9 +2807,42 @@
     .perf-threshold-hint {
       margin-top: 8px;
       font-size: 11.5px;
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 10px 12px;
+      line-height: 1.5;
     }
-    .perf-threshold-hint a { color: var(--bg-1); }
+    .perf-threshold-hint a { color: var(--bg-1); font-weight: 600; }
+    .perf-error {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--red-soft);
+      border-radius: 8px;
+      font-size: 11.5px;
+      color: var(--red);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .perf-retry-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      color: var(--red);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 3px 9px;
+    }
+    .perf-retry-btn:hover { opacity: 0.75; }
+    .perf-bb-reason {
+      margin: 0;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
 
     /* Fitness chart */
     .perf-chart-card { padding: 16px 18px; }
@@ -2726,6 +2962,8 @@
     .perf-pr-link  { font-size: 10.5px; color: var(--bg-1); text-decoration: none; margin-top: 2px; }
     .perf-pr-link:hover { text-decoration: underline; }
     .perf-pr-empty, .perf-pr-loading { font-size: 12.5px; color: var(--text-tertiary); margin: 0; }
+    .perf-pr-item--unavailable { opacity: 0.55; }
+    .perf-pr-reason { font-size: 10px; color: var(--text-tertiary); line-height: 1.35; margin-top: 2px; }
 
     /* ── Mobile: single column at 480px ─────────────────────────────────── */
     @media (max-width: 480px) {
@@ -2748,7 +2986,6 @@
           <div class="vc-header">
             <span class="vc-title">Weekly volume</span>
           </div>
-          <p class="vc-caption">Stacked bars = weekly TSS (Run + Lift). Brighter bar = current week. Amber line = run distance (right axis).</p>
           <div class="vc-body">
             <canvas id="volume-chart" height="220" role="img"
                     aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
@@ -2790,19 +3027,16 @@
       <!-- Top bar: close | prev · position pill · next | overflow -->
       <div class="dp-topbar">
         <button id="dp-close-btn" class="dp-icon-btn" aria-label="Close workout details" type="button">
-          <span class="dp-icon-close-x" aria-hidden="true">&#x2715;</span>
-          <span class="dp-icon-close-back" aria-hidden="true">&#8592;</span>
+          <i class="ti ti-x" aria-hidden="true"></i>
         </button>
 
         <div class="dp-position-group">
           <button id="dp-prev-btn" class="dp-nav-btn" aria-label="Previous workout" type="button">
-            <span class="dp-icon-nav-up"    aria-hidden="true">&#9650;</span>
-            <span class="dp-icon-nav-left"  aria-hidden="true">&#9664;</span>
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
           </button>
           <div id="dp-position-pill" class="dp-position" aria-live="polite"></div>
           <button id="dp-next-btn" class="dp-nav-btn" aria-label="Next workout" type="button">
-            <span class="dp-icon-nav-down"  aria-hidden="true">&#9660;</span>
-            <span class="dp-icon-nav-right" aria-hidden="true">&#9654;</span>
+            <i class="ti ti-chevron-right" aria-hidden="true"></i>
           </button>
         </div>
 
@@ -2916,28 +3150,28 @@
                 </div>
                 <div class="run-field run-pace-field">
                   <label>Avg pace <span class="rl-badge auto">auto</span></label>
-                  <output id="run-pace" class="run-pace">—</output>
+                  <output id="run-pace" class="run-pace">–</output>
                 </div>
               </div>
               <div class="run-secondary">
                 <div class="run-field">
                   <label for="run-avg-hr">Avg HR <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <input id="run-avg-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="0">
                     <span class="affix">bpm</span>
                   </div>
                 </div>
                 <div class="run-field">
                   <label for="run-max-hr">Max HR <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="—">
+                    <input id="run-max-hr" type="number" inputmode="numeric" min="20" max="250" placeholder="0">
                     <span class="affix">bpm</span>
                   </div>
                 </div>
                 <div class="run-field">
                   <label for="run-elevation">Elevation <span class="rl-badge sync">sync</span></label>
                   <div class="run-input-affix">
-                    <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="—">
+                    <input id="run-elevation" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
                     <span class="affix">m</span>
                   </div>
                 </div>
@@ -2971,7 +3205,7 @@
                 </div>
                 <div class="str-tile">
                   <div class="str-l">Est. e1RM <span class="rl-badge auto">auto</span></div>
-                  <div class="str-v" id="str-e1rm">—</div>
+                  <div class="str-v" id="str-e1rm">–</div>
                 </div>
               </div>
             </div>
@@ -3094,7 +3328,7 @@
     </div>
 
   <script src="js/nav.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="js/lib/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="js/ui-states.js"></script>
   <script src="js/lib/training-format.js"></script>
