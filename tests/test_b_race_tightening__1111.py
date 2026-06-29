@@ -18,7 +18,6 @@ import inspect
 import py_compile
 from datetime import date, timedelta
 
-import pytest
 
 from backend.services.projection import (
     _recalibrate_from_race,
