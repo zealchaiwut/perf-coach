@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
+from typing import Optional
 
 from backend.services.fitness_model import ATL_TIME_CONSTANT, CTL_TIME_CONSTANT
 
@@ -55,8 +56,34 @@ ATL_DECAY: float = math.exp(-1 / ATL_TIME_CONSTANT)
 # (TSB = −ceiling) through 1.0 (TSB = 0) to 2.0 (TSB = ceiling).
 EXPRESSIBLE_FORM_FACTOR_SCALE: float = 1.0
 
+# ── B-race tightening constants ───────────────────────────────────────────────
+# After crossing a B-race date, the athlete has a real race result to anchor
+# the projection, so the confidence band is multiplied by this factor (<1.0)
+# to reflect the increased certainty.  Full recalibration math is deferred to
+# the calibration milestone; see _recalibrate_from_race.
+B_RACE_TIGHTENING_FACTOR: float = 0.6
 
-def confidence_band_days(horizon: int) -> float:
+
+def _recalibrate_from_race() -> None:
+    """Stub for full race-result recalibration of the projection model.
+
+    When a B-race result is available the band should be recalibrated using
+    the actual performance delta to update the underlying fitness estimates.
+    That calculation is intentionally left for a dedicated milestone.
+
+    # TODO: calibration milestone — implement race-result recalibration
+    """
+    # TODO: calibration milestone — compute delta between predicted and actual
+    # race performance and propagate corrections into CTL/ATL estimates.
+    raise NotImplementedError("_recalibrate_from_race is reserved for the calibration milestone")
+
+
+# Scale factor for the square-root confidence band model.  Tune this to
+# control the overall magnitude: band(7) ≈ 1.3 days, band(90) ≈ 4.7 days.
+CONFIDENCE_BAND_RATE: float = 0.5
+
+
+def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
     """Compute the ± confidence band width (in days) for a projected entry.
 
     The band models compounding forecast uncertainty that grows with the
@@ -74,11 +101,22 @@ def confidence_band_days(horizon: int) -> float:
       which matches the intuition that a 90-day forecast is not 90× worse
       than a 1-day forecast
 
+    B-race tightening
+    -----------------
+    When *b_race_passed* is ``True`` the raw band is multiplied by
+    ``B_RACE_TIGHTENING_FACTOR`` (< 1.0).  Crossing the B-race date gives the
+    athlete a real race anchor that reduces forecast uncertainty — the narrower
+    band reflects that increased certainty.  Full recalibration from the race
+    result is deferred to a dedicated milestone; see ``_recalibrate_from_race``.
+
     Parameters
     ----------
     horizon:
         Number of days into the future from the anchor (start_date).  Values
         ≤ 0 return 0.
+    b_race_passed:
+        When ``True`` the band is tightened by ``B_RACE_TIGHTENING_FACTOR``
+        to reflect reduced uncertainty after a B-race result is available.
 
     Returns
     -------
@@ -86,12 +124,10 @@ def confidence_band_days(horizon: int) -> float:
     """
     if horizon <= 0:
         return 0
-    return CONFIDENCE_BAND_RATE * math.sqrt(horizon)
-
-
-# Scale factor for the square-root confidence band model.  Tune this to
-# control the overall magnitude: band(7) ≈ 1.3 days, band(90) ≈ 4.7 days.
-CONFIDENCE_BAND_RATE: float = 0.5
+    band = CONFIDENCE_BAND_RATE * math.sqrt(horizon)
+    if b_race_passed:
+        band *= B_RACE_TIGHTENING_FACTOR
+    return band
 
 
 def project_fitness(
@@ -99,6 +135,7 @@ def project_fitness(
     start_ctl: float,
     start_atl: float,
     start_date: date,
+    b_race_date: Optional[date] = None,
 ) -> dict[date, dict[str, float]]:
     """Roll CTL/ATL/TSB forward day by day from *start_date* using *planned_load*.
 
@@ -115,10 +152,16 @@ def project_fitness(
     start_date:
         Anchor date.  The first entry in the returned series is
         ``start_date + 1 day``; the last is ``start_date + len(planned_load) days``.
+    b_race_date:
+        Optional date of a B-race.  For projected days that fall strictly after
+        this date the confidence band is tightened via ``B_RACE_TIGHTENING_FACTOR``
+        to reflect the reduced uncertainty from having a real race anchor.
+        Pass ``None`` (the default) to leave the band unchanged.
 
     Returns
     -------
-    dict mapping ``date`` → ``{"ctl": float, "atl": float, "tsb": float}``.
+    dict mapping ``date`` → ``{"ctl": float, "atl": float, "tsb": float,
+    "confidence_band": float}``.
     The dict contains exactly ``len(planned_load)`` entries, one per day, with
     no gaps.  An empty *planned_load* returns an empty dict.
     """
@@ -130,11 +173,15 @@ def project_fitness(
         atl = atl * ATL_DECAY + load * (1 - ATL_DECAY)
         tsb = ctl - atl
         horizon = i + 1
-        series[start_date + timedelta(days=horizon)] = {
+        day = start_date + timedelta(days=horizon)
+        # Tighten the band on days that fall strictly after the B-race; the
+        # race result provides an anchor that reduces forecast uncertainty.
+        b_race_passed = b_race_date is not None and day > b_race_date
+        series[day] = {
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
-            "confidence_band": confidence_band_days(horizon),
+            "confidence_band": confidence_band_days(horizon, b_race_passed=b_race_passed),
         }
     return series
 
