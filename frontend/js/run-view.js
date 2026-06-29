@@ -47,12 +47,168 @@
   var _workoutId = null;
   var _fullData = null;
   var _lapMetric = "pace"; // 'pace' | 'hr' | 'power'
+  var _snapshotMode = false;
 
   // ── URL param parsing ─────────────────────────────────────────────────────
 
   function getWorkoutId() {
     var params = new URLSearchParams(window.location.search);
     return params.get("id");
+  }
+
+  // ── Snapshot: full card ───────────────────────────────────────────────────
+
+  function renderSnapshotCard(data) {
+    var w = data.workout;
+    var splits = data.splits || [];
+    var strydPresent = !!(data.field_coverage && data.field_coverage.stryd);
+    var stravaSrc = !!(data.field_coverage && data.field_coverage.strava);
+
+    var srcBadges = "";
+    if (stravaSrc) srcBadges += '<span class="rv-src-badge rv-src-badge--strava">Strava</span>';
+    if (strydPresent) srcBadges += '<span class="rv-src-badge rv-src-badge--stryd">Stryd</span>';
+
+    // Card header: RUN badge + name + date + source badges
+    var cardHeader =
+      '<div class="rv-snap-hd-top">' +
+      '<span class="rv-badge">RUN</span>' +
+      '<span class="rv-snap-src-wrap">' + srcBadges + "</span>" +
+      "</div>" +
+      '<h1 class="rv-snap-title">' + esc(w.name || "Untitled Run") + "</h1>" +
+      '<div class="rv-snap-meta">' + esc(w.workout_date || "—") + "</div>";
+
+    // Hero strip: Distance · Avg Pace · Duration · TSS
+    var dist = w.distance_km ? w.distance_km.toFixed(2) + " km" : "—";
+    var pace = fmtPace(w.distance_km, w.duration_seconds);
+    var dur = fmtDuration(w.duration_seconds);
+    var tssVal = w.tss != null ? Math.round(w.tss) : "—";
+    var heroStrip =
+      '<div class="rv-hero-strip" style="margin-top:10px;">' +
+      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + dist + '</div><div class="rv-hero-cell-lbl">Distance</div></div>' +
+      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + (pace !== "—" ? pace : "—") + '</div><div class="rv-hero-cell-lbl">Avg Pace</div></div>' +
+      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + (dur !== "—" ? dur : "—") + '</div><div class="rv-hero-cell-lbl">Duration</div></div>' +
+      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono" style="color:#2563eb;">' + tssVal + '</div><div class="rv-hero-cell-lbl">TSS</div></div>' +
+      "</div>";
+
+    // Compact metric row — only cells with real values (no dashes)
+    var snapCells = [];
+    if (w.avg_hr != null) snapCells.push('<div class="rv-snap-metric-cell"><div class="rv-tile-label">Avg HR</div><div class="rv-tile-val rv-mono">' + w.avg_hr + " bpm</div></div>");
+    if (strydPresent && w.avg_power != null) snapCells.push('<div class="rv-snap-metric-cell"><div class="rv-tile-label">Avg Power</div><div class="rv-tile-val rv-mono">' + w.avg_power + " W</div></div>");
+    if (strydPresent && w.np != null) snapCells.push('<div class="rv-snap-metric-cell"><div class="rv-tile-label">NP</div><div class="rv-tile-val rv-mono">' + w.np + " W</div></div>");
+    if (strydPresent && w.avg_cadence_spm != null) snapCells.push('<div class="rv-snap-metric-cell"><div class="rv-tile-label">Cadence</div><div class="rv-tile-val rv-mono">' + w.avg_cadence_spm + " spm</div></div>");
+    if (strydPresent && w.avg_stride_m != null) snapCells.push('<div class="rv-snap-metric-cell"><div class="rv-tile-label">Stride</div><div class="rv-tile-val rv-mono">' + w.avg_stride_m + " m</div></div>");
+    var metricRow = snapCells.length ? '<div class="rv-snap-metric-row">' + snapCells.join("") + "</div>" : "";
+
+    var lapChart = renderSnapLapChart(splits);
+    var table = renderSnapTable(splits);
+    var lapCount = splits.length;
+
+    var chartSection = lapCount
+      ? '<div style="margin-top:13px;"><div class="rv-section-title">Pace per km · ' + lapCount + ' laps</div>' + lapChart + "</div>"
+      : "";
+    var tableSection = table
+      ? '<div style="margin-top:11px;"><div class="rv-section-title">Splits</div>' + table + "</div>"
+      : "";
+    var watermark =
+      '<div class="rv-snap-watermark"><span>perf-coach snapshot</span><span><b>perf-coach</b></span></div>';
+    var returnBtn = '<button class="rv-snap-return-btn" id="rv-snap-return">&#8592; Return</button>';
+
+    return (
+      '<div class="rv-snap-card">' +
+      cardHeader + heroStrip + metricRow + chartSection + tableSection +
+      watermark + returnBtn +
+      "</div>"
+    );
+  }
+
+  // ── Snapshot: compact pace-bar chart (bars only, no HR line) ─────────────
+
+  function renderSnapLapChart(splits) {
+    if (!splits || !splits.length) return "";
+    var values = splits.map(function (s) {
+      if (!s.distance_km || !s.duration_seconds) return null;
+      return s.duration_seconds / parseFloat(s.distance_km);
+    });
+    var valid = values.filter(function (v) { return v != null && v > 0; });
+    if (!valid.length) return "";
+    var vmin = Math.min.apply(null, valid);
+    var vmax = Math.max.apply(null, valid);
+    var vr = vmax - vmin || 1;
+
+    var bars = splits.map(function (s, i) {
+      var v = values[i];
+      var z2 = window.Zone2.isZone2Lap(s.avg_hr);
+      var h = v != null ? Math.round(10 + (1 - (v - vmin) / vr) * 86) : 10;
+      var col = h > 70 ? "#16a34a" : h > 40 ? "#f59e0b" : "#fb923c";
+      var outline = z2 ? " outline:2px solid #14b8a6;outline-offset:-2px;" : "";
+      return (
+        '<div class="rv-snap-bar" title="Lap ' + (i + 1) + " · " + fmtPace(s.distance_km, s.duration_seconds) + '" ' +
+        'style="height:' + h + "%;background:" + col + ";" + outline + '"></div>'
+      );
+    }).join("");
+    return '<div class="rv-snap-chart">' + bars + "</div>";
+  }
+
+  // ── Snapshot: ultra-dense splits table ────────────────────────────────────
+
+  function renderSnapTable(splits) {
+    if (!splits || !splits.length) return "";
+    var rows = splits.map(function (s, i) {
+      var isZ2 = window.Zone2.isZone2Lap(s.avg_hr);
+      var rowCls = isZ2 ? ' class="rv-snap-z2"' : "";
+      var dist = parseFloat(s.distance_km);
+      var lapNum = (i + 1) + (isZ2 ? '<span class="rv-z2-pill">Z2</span>' : "");
+      return (
+        "<tr" + rowCls + ">" +
+        "<td>" + lapNum + "</td>" +
+        "<td>" + (isNaN(dist) ? "—" : dist.toFixed(2)) + "</td>" +
+        "<td>" + fmtPace(dist, s.duration_seconds) + "</td>" +
+        "<td>" + (s.avg_hr != null ? s.avg_hr : "—") + "</td>" +
+        "<td>" + (s.stride_length_m != null ? s.stride_length_m : "—") + "</td>" +
+        "<td>" + (s.cadence_spm != null ? s.cadence_spm : "—") + "</td>" +
+        "<td>" + (s.avg_power != null ? s.avg_power : "—") + "</td>" +
+        "</tr>"
+      );
+    }).join("");
+    return (
+      '<table class="rv-snap-lap-table">' +
+      "<thead><tr>" +
+      "<th>Lap</th><th>Distance</th><th>Pace</th><th>HR</th><th>Stride</th><th>Cadence</th><th>Power</th>" +
+      "</tr></thead>" +
+      "<tbody>" + rows + "</tbody>" +
+      "</table>"
+    );
+  }
+
+  // ── Snapshot: compact metric row (only populated cells) ───────────────────
+
+  function renderSnapMetricRow(w, strydPresent) {
+    var cells = [];
+    if (w.avg_hr != null) {
+      cells.push({ label: "Avg HR", value: w.avg_hr + " bpm" });
+    }
+    if (strydPresent && w.avg_power != null) {
+      cells.push({ label: "Avg Power", value: w.avg_power + " W" });
+    }
+    if (strydPresent && w.np != null) {
+      cells.push({ label: "NP", value: w.np + " W" });
+    }
+    if (strydPresent && w.avg_cadence_spm != null) {
+      cells.push({ label: "Cadence", value: w.avg_cadence_spm + " spm" });
+    }
+    if (strydPresent && w.avg_stride_m != null) {
+      cells.push({ label: "Stride", value: w.avg_stride_m + " m" });
+    }
+    if (!cells.length) return "";
+    var inner = cells.map(function (c) {
+      return (
+        '<div class="rv-snap-metric-cell">' +
+        '<div class="rv-tile-label">' + esc(c.label) + "</div>" +
+        '<div class="rv-tile-val rv-mono">' + esc(c.value) + "</div>" +
+        "</div>"
+      );
+    }).join("");
+    return '<div class="rv-snap-metric-row">' + inner + "</div>";
   }
 
   // ── Segment-effort profile ─────────────────────────────────────────────────
@@ -537,16 +693,19 @@
 
   // ── Tile helpers ──────────────────────────────────────────────────────────
 
-  function tile(label, value, extra) {
+  function tile(label, value, extra, pillHtml) {
+    var labelContent = pillHtml
+      ? label + '<span class="rv-pill ' + pillHtml + '"></span>'
+      : label;
     return (
       '<div class="rv-tile' +
       (extra || "") +
       '">' +
+      '<div class="rv-tile-label">' +
+      labelContent +
+      "</div>" +
       '<div class="rv-tile-val rv-mono">' +
       dash(value) +
-      "</div>" +
-      '<div class="rv-tile-label">' +
-      label +
       "</div>" +
       "</div>"
     );
@@ -554,6 +713,34 @@
 
   function heroTile(label, value) {
     return tile(label, value, " rv-tile--hero");
+  }
+
+  function strydTile(label, value) {
+    return (
+      '<div class="rv-tile">' +
+      '<div class="rv-tile-label">' +
+      label +
+      ' <span class="rv-pill rv-pill--stryd">STRYD</span>' +
+      "</div>" +
+      '<div class="rv-tile-val rv-mono">' +
+      dash(value) +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function stravaTile(label, value) {
+    return (
+      '<div class="rv-tile">' +
+      '<div class="rv-tile-label">' +
+      label +
+      ' <span class="rv-pill rv-pill--strava">STRAVA</span>' +
+      "</div>" +
+      '<div class="rv-tile-val rv-mono">' +
+      dash(value) +
+      "</div>" +
+      "</div>"
+    );
   }
 
   // ── Source strip ──────────────────────────────────────────────────────────
@@ -616,27 +803,41 @@
       "</div>" +
       '<div class="rv-header-right">' +
       badges +
+      '<button class="rv-snap-btn" id="rv-snapshot-btn" title="Enter Snapshot mode">&#x1F4F8; Snapshot</button>' +
       "</div>" +
       "</div>";
 
-    // Basic tiles: Distance, Avg Pace, Duration
+    // Hero strip: Distance, Avg Pace, Duration side-by-side
     var dist = w.distance_km ? w.distance_km.toFixed(2) + " km" : null;
     var pace = fmtPace(w.distance_km, w.duration_seconds);
     var dur = fmtDuration(w.duration_seconds);
     var heroSection =
-      '<div class="rv-card rv-hero-row">' +
-      tile("Distance", dist, " rv-tile--lg") +
-      tile("Avg Pace", pace !== "—" ? pace : null, " rv-tile--lg") +
-      tile("Duration", dur, " rv-tile--lg") +
+      '<div class="rv-card">' +
+      '<div class="rv-hero-strip">' +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(dist) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Distance</div>' +
+      "</div>" +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(pace !== "—" ? pace : null) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Avg Pace</div>' +
+      "</div>" +
+      '<div class="rv-hero-cell">' +
+      '<div class="rv-hero-cell-val rv-mono">' + dash(dur !== "—" ? dur : null) + "</div>" +
+      '<div class="rv-hero-cell-lbl">Duration</div>' +
+      "</div>" +
+      "</div>" +
       "</div>";
 
-    // Load & Intensity tiles
+    // Load & Intensity tiles — 4-column compact grid
     var z2min = w.zone2_minutes != null ? w.zone2_minutes + " min" : null;
     var elev = w.elevation_m != null ? w.elevation_m + " m" : null;
     var avgHr = w.avg_hr != null ? w.avg_hr + " bpm" : null;
     var maxHr = w.max_hr != null ? w.max_hr + " bpm" : null;
     var avgPwr =
       strydPresent && w.avg_power != null ? w.avg_power + " W" : null;
+    var npVal =
+      strydPresent && w.np != null ? w.np + " W" : null;
     var maxPwr =
       strydPresent && w.max_power != null ? w.max_power + " W" : null;
     var stride =
@@ -646,19 +847,42 @@
         ? w.avg_cadence_spm + " spm"
         : null;
 
+    // Variability Index = np / avg_power, rounded to 2 decimal places
+    var varIndex = null;
+    if (w.np != null && w.avg_power != null && w.avg_power !== 0) {
+      varIndex = (w.np / w.avg_power).toFixed(2);
+    }
+
+    // Decoupling from aerobic_decoupling.decoupling_pct
+    var aerDecoupling = data.aerobic_decoupling;
+    var decouplingPct = (aerDecoupling && aerDecoupling.decoupling_pct != null)
+      ? aerDecoupling.decoupling_pct.toFixed(1) + "%"
+      : null;
+
+    var elevTile = stravaSrc ? stravaTile("Elevation", elev) : tile("Elevation", elev);
+    var maxHrTile = stravaSrc ? stravaTile("Max HR", maxHr) : tile("Max HR", maxHr);
+    var avgPwrTile = strydPresent ? strydTile("Avg Power", avgPwr) : tile("Avg Power", avgPwr);
+    var npTile = strydPresent ? strydTile("NP", npVal) : tile("NP", npVal);
+    var maxPwrTile = strydPresent ? strydTile("Max Power", maxPwr) : tile("Max Power", maxPwr);
+    var strideTile = strydPresent ? strydTile("Stride", stride) : tile("Stride", stride);
+    var cadTile = strydPresent ? strydTile("Cadence", cad) : tile("Cadence", cad);
+
     var intensitySection =
       '<div class="rv-card rv-intensity">' +
       '<h2 class="rv-section-title">Load &amp; Intensity</h2>' +
       '<div class="rv-tile-grid">' +
       heroTile("TSS", w.tss != null ? Math.round(w.tss) : null) +
       tile("Zone 2", z2min) +
-      tile("Elevation", elev) +
+      elevTile +
       tile("Avg HR", avgHr) +
-      tile("Max HR", maxHr) +
-      tile("Avg Power", avgPwr) +
-      tile("Max Power", maxPwr) +
-      tile("Stride Length", stride) +
-      tile("Cadence", cad) +
+      maxHrTile +
+      avgPwrTile +
+      npTile +
+      maxPwrTile +
+      strideTile +
+      cadTile +
+      tile("Var. Index", varIndex) +
+      tile("Decoupling", decouplingPct) +
       "</div>" +
       '<p class="rv-footnote">NP · stride = avg per step · cadence = steps/min</p>' +
       "</div>";
@@ -696,6 +920,12 @@
       lapsSection +
       routeSection +
       sourceSection;
+
+    // Snapshot button
+    var snapBtn = document.getElementById("rv-snapshot-btn");
+    if (snapBtn) {
+      snapBtn.addEventListener("click", enterSnapshot);
+    }
 
     // Copy-to-clipboard with user feedback
     var copyBtn = document.querySelector(".rv-copy-btn");
@@ -739,6 +969,23 @@
         attachToggleListeners(splits, strydPresent);
       });
     });
+  }
+
+  // ── Snapshot: enter / exit ────────────────────────────────────────────────
+
+  function enterSnapshot() {
+    if (!_fullData) return;
+    _snapshotMode = true;
+    document.getElementById("rv-root").innerHTML = renderSnapshotCard(_fullData);
+    var returnBtn = document.getElementById("rv-snap-return");
+    if (returnBtn) {
+      returnBtn.addEventListener("click", exitSnapshot);
+    }
+  }
+
+  function exitSnapshot() {
+    _snapshotMode = false;
+    if (_fullData) renderView(_fullData);
   }
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────

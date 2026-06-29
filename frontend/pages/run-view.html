@@ -41,7 +41,7 @@
         border-radius: 14px;
         border: 1px solid var(--card-border);
         box-shadow: 0 6px 20px rgba(8, 18, 48, 0.16);
-        padding: 20px;
+        padding: 14px 15px;
       }
 
       /* ── Accent vars used across both run screens ─────────────────────── */
@@ -56,12 +56,12 @@
         font-family: "JetBrains Mono", monospace;
       }
       .rv-section-title {
-        margin: 0 0 14px;
-        font-size: 13px;
-        font-weight: 600;
+        margin: 0 0 10px;
+        font-size: 10px;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--text-secondary);
+        letter-spacing: 0.08em;
+        color: var(--text-tertiary);
       }
       .rv-footnote {
         margin: 10px 0 0;
@@ -160,50 +160,96 @@
         color: #fff;
       }
 
-      /* ── Hero row ───────────────────────────────────────────────────────── */
-      .rv-hero-row {
+      /* ── Hero strip (replaces 3 stacked hero tiles) ───────────────────── */
+      .rv-hero-strip {
         display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-      }
-
-      /* ── Tiles ──────────────────────────────────────────────────────────── */
-      .rv-tile-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-        gap: 10px;
-      }
-      .rv-tile {
-        background: var(--tile, #f7f9fd);
+        align-items: stretch;
+        background: var(--tile, #f6f8fc);
         border-radius: 10px;
-        padding: 12px 10px;
-        text-align: center;
+        overflow: hidden;
+        margin-top: 10px;
       }
-      .rv-tile--hero {
-        grid-column: span 2;
-        background: linear-gradient(135deg, var(--rv-lime) 0%, #c8f018 100%);
+      .rv-hero-cell {
+        flex: 1;
+        padding: 10px 12px;
+        border-right: 1px solid var(--card-border, rgba(13, 30, 67, 0.07));
       }
-      .rv-tile--lg {
-        min-width: 140px;
+      .rv-hero-cell:last-child {
+        border-right: none;
       }
-      .rv-tile-val {
-        font-size: 20px;
+      .rv-hero-cell-val {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
         font-weight: 700;
-        color: var(--ink, #0b1530);
-        line-height: 1.2;
+        line-height: 1;
+        color: var(--text-primary);
       }
-      .rv-tile--hero .rv-tile-val {
-        font-size: 28px;
-      }
-      .rv-tile-label {
-        font-size: 11px;
-        font-weight: 600;
+      .rv-hero-cell-lbl {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--ink-2, #5c6886);
+        color: var(--text-tertiary);
         margin-top: 4px;
       }
+
+      /* ── Tiles (Load & Intensity 4-col compact grid) ────────────────────── */
+      .rv-tile-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: #eef1f6;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .rv-tile {
+        background: #fff;
+        padding: 9px 10px;
+        text-align: left;
+        min-height: 0;
+      }
+      .rv-tile--hero {
+        background: linear-gradient(135deg, #eef3ff, #f6f9ff);
+      }
+      .rv-tile--lg {
+        min-width: 0;
+      }
+      .rv-tile-val {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text-primary, #0b1530);
+        line-height: 1;
+        margin-top: 4px;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .rv-tile--hero .rv-tile-val {
+        font-size: 17px;
+        color: #2563eb;
+      }
+      .rv-tile-label {
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-tertiary, #8b95ad);
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        flex-wrap: wrap;
+        line-height: 1.3;
+      }
+      /* ── Source pills on stat tiles ─────────────────────────────────────── */
+      .rv-pill {
+        font-size: 7px;
+        font-weight: 800;
+        padding: 1px 4px;
+        border-radius: 3px;
+        letter-spacing: 0.03em;
+        vertical-align: middle;
+        line-height: 1.4;
+      }
+      .rv-pill--stryd { background: #7c5cff; color: #fff; }
+      .rv-pill--strava { background: #fc4c02; color: #fff; }
 
       /* ── Theme 2: session profile (bars + zone brackets) + laps chart ──── */
       .rv2-warmup-c { color: #3b82f6; }
@@ -410,24 +456,34 @@
       .rv-lap-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 13px;
-        min-width: 500px;
+        font-size: 11px;
+        table-layout: fixed;
       }
       .rv-th {
-        padding: 6px 8px;
-        text-align: left;
-        font-size: 11px;
-        font-weight: 600;
+        padding: 5px 4px;
+        text-align: right;
+        font-size: 8px;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.03em;
         color: var(--text-tertiary);
-        border-bottom: 1px solid var(--border, #e5e7eb);
+        border-bottom: 1px solid var(--card-border, #e5e7eb);
         white-space: nowrap;
       }
+      .rv-th:first-child {
+        text-align: left;
+      }
       .rv-td {
-        padding: 8px;
-        border-bottom: 1px solid var(--border, #e5e7eb);
+        padding: 5px 4px;
+        border-bottom: 1px solid #f3f5f9;
         color: var(--text-primary);
+        text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rv-td:first-child {
+        text-align: left;
       }
       .rv-lap-row--z2 {
         background: rgba(20, 184, 166, 0.08);
@@ -465,6 +521,149 @@
         border-radius: 10px;
         color: var(--text-secondary);
         font-size: 14px;
+      }
+
+      /* ── Snapshot mode ─────────────────────────────────────────────────── */
+      .rv-snap-btn {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 11px;
+        border-radius: 6px;
+        border: 1.5px solid #16a34a;
+        background: none;
+        color: #16a34a;
+        cursor: pointer;
+        font-family: "JetBrains Mono", monospace;
+        letter-spacing: 0.02em;
+      }
+      .rv-snap-btn:hover {
+        background: #dcfce7;
+      }
+      .rv-snap-card {
+        background: #fff;
+        border-radius: 14px;
+        padding: 16px;
+        max-width: 560px;
+        margin: 0 auto;
+        box-shadow: 0 8px 30px rgba(8, 18, 48, 0.24);
+      }
+      .rv-snap-hd-top {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 6px;
+      }
+      .rv-snap-src-wrap {
+        margin-left: auto;
+        display: flex;
+        gap: 5px;
+      }
+      .rv-snap-title {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        color: var(--text-primary);
+      }
+      .rv-snap-meta {
+        font-size: 11px;
+        color: var(--text-secondary, #5c6886);
+        margin-top: 3px;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .rv-snap-metric-row {
+        display: flex;
+        gap: 1px;
+        background: #eef1f6;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 10px;
+      }
+      .rv-snap-metric-cell {
+        flex: 1;
+        background: #fff;
+        padding: 9px 10px;
+        min-height: 0;
+      }
+      .rv-snap-chart {
+        display: flex;
+        align-items: flex-end;
+        height: 54px;
+        gap: 2px;
+        margin: 6px 0 4px;
+      }
+      .rv-snap-bar {
+        flex: 1;
+        border-radius: 3px 3px 0 0;
+        min-height: 4px;
+      }
+      .rv-snap-watermark {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(13, 30, 67, 0.07);
+        font-size: 10px;
+        color: var(--text-tertiary, #8b95ad);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .rv-snap-watermark b {
+        color: #2563eb;
+        font-family: "Inter Tight", system-ui, sans-serif;
+      }
+      .rv-snap-return-btn {
+        display: block;
+        margin: 10px auto 0;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 5px 14px;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+        background: none;
+        color: #5c6886;
+        cursor: pointer;
+      }
+      .rv-snap-return-btn:hover {
+        background: #f3f4f6;
+      }
+      .rv-snap-lap-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        table-layout: fixed;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .rv-snap-lap-table th {
+        text-align: right;
+        font-family: "Inter Tight", system-ui, sans-serif;
+        font-size: 7.5px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--text-tertiary, #8b95ad);
+        padding: 4px 3px;
+        border-bottom: 1px solid rgba(13, 30, 67, 0.07);
+        white-space: nowrap;
+      }
+      .rv-snap-lap-table th:first-child {
+        text-align: left;
+      }
+      .rv-snap-lap-table td {
+        text-align: right;
+        padding: 4px 3px;
+        border-bottom: 1px solid #f3f5f9;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rv-snap-lap-table td:first-child {
+        text-align: left;
+        font-weight: 700;
+      }
+      .rv-snap-lap-table tr.rv-snap-z2 td {
+        background: rgba(20, 184, 166, 0.08);
       }
 
       /* ── Source strip ───────────────────────────────────────────────────── */
