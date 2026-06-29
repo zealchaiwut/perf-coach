@@ -1295,10 +1295,15 @@
 
     /* ── Responsive: list ≤ 880px ── */
     @media (max-width: 880px) {
+      /* Keep the action buttons on the title row, pushed to the right. */
       .log-page-header {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 8px;
       }
+      .log-page-header-info { flex: 1; min-width: 0; }
+      .log-page-header-actions { margin-left: auto; flex-shrink: 0; }
 
       .fb-chips-row {
         flex-wrap: nowrap;
