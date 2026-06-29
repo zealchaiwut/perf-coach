@@ -1633,9 +1633,28 @@ def _validate_taper_shape(taper_shape: Optional[str]) -> None:
         )
 
 
+def _validate_ramp_rate(ramp_rate: Optional[float]) -> None:
+    if ramp_rate is not None and ramp_rate < 0:
+        raise HTTPException(status_code=422, detail="ramp_rate must be >= 0")
+
+
+def _validate_taper_length(taper_length: Optional[float]) -> None:
+    if taper_length is not None and taper_length < 0:
+        raise HTTPException(status_code=422, detail="taper_length must be >= 0")
+
+
+@app.get("/api/plans")
+def list_training_plans(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        plans = session.query(TrainingPlan).filter(TrainingPlan.user_id == user.id).all()
+        return JSONResponse([_training_plan_dict(p) for p in plans])
+
+
 @app.post("/api/plans", status_code=201)
 def create_training_plan(body: TrainingPlanCreateIn, user: User = Depends(resolve_user)):
     _validate_taper_shape(body.taper_shape)
+    _validate_ramp_rate(body.ramp_rate)
+    _validate_taper_length(body.taper_length)
     with Session(engine) as session:
         plan = TrainingPlan(
             user_id=user.id,
@@ -1673,6 +1692,8 @@ def patch_training_plan(plan_id: str, body: TrainingPlanPatchIn, user: User = De
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid plan_id")
     _validate_taper_shape(body.taper_shape)
+    _validate_ramp_rate(body.ramp_rate)
+    _validate_taper_length(body.taper_length)
     with Session(engine) as session:
         plan = session.get(TrainingPlan, pid)
         if plan is None:

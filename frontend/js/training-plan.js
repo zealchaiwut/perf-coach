@@ -12,6 +12,7 @@
   var _editingRaceType = "race";
   var _confirmCallback = null;
   var _planId = null;
+  var _scheduleChart = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
@@ -180,6 +181,20 @@
       .catch(function (e) {
         cb({ ok: false, status: 0, data: { detail: e.message } });
       });
+  }
+
+  function apiPatch(url, body, cb) {
+    fetch(url, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+      })
+      .then(cb)
+      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
   }
 
   function apiDelete(url, cb) {
@@ -990,6 +1005,164 @@
     });
   }
 
+  // ── Plan settings: ramp/taper controls + schedule preview (issue #1104) ──────
+
+  function _computeScheduleSeries(rampRate, taperWindow) {
+    var WEEKS = 20;
+    var BASE_TSS = 100;
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), WEEKS - 1));
+    var buildWeeks = WEEKS - taper;
+    var series = [];
+    for (var i = 0; i < buildWeeks; i++) {
+      series.push(Math.round(BASE_TSS + rampRate * i));
+    }
+    var peak = series.length > 0 ? series[series.length - 1] : BASE_TSS;
+    for (var j = 0; j < taper; j++) {
+      var frac = (taper - j - 1) / Math.max(taper, 1);
+      series.push(Math.round(BASE_TSS * 0.6 + (peak - BASE_TSS * 0.6) * frac));
+    }
+    return series;
+  }
+
+  function renderSchedulePreview() {
+    var canvas = document.getElementById("plan-schedule-canvas");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    var rampIn = document.getElementById("plan-ramp-rate-input");
+    var taperIn = document.getElementById("plan-taper-window-input");
+    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
+    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
+
+    var series = _computeScheduleSeries(rampRate, taperWindow);
+    var labels = series.map(function (_, i) { return "Wk " + (i + 1); });
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
+    var colors = series.map(function (_, i) {
+      return i >= series.length - taper ? "rgba(239,68,68,0.7)" : "rgba(53,99,212,0.75)";
+    });
+
+    if (_scheduleChart) {
+      _scheduleChart.destroy();
+      _scheduleChart = null;
+    }
+
+    _scheduleChart = new Chart(canvas.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: "Planned Load (TSS)",
+          data: series,
+          backgroundColor: colors,
+          borderRadius: 3,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) { return "TSS: " + ctx.raw; },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { maxTicksLimit: 10, font: { size: 9 }, color: "#9aa3b2" },
+            grid: { display: false },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { font: { size: 9 }, color: "#9aa3b2" },
+            grid: { color: "#f0f2f8" },
+          },
+        },
+        animation: { duration: 200 },
+      },
+    });
+  }
+
+  function _validateSettingsInputs() {
+    var rampIn = document.getElementById("plan-ramp-rate-input");
+    var taperIn = document.getElementById("plan-taper-window-input");
+    var rampErr = document.getElementById("plan-ramp-rate-error");
+    var taperErr = document.getElementById("plan-taper-window-error");
+    var valid = true;
+
+    if (rampErr) rampErr.textContent = "";
+    if (taperErr) taperErr.textContent = "";
+    if (rampIn) rampIn.classList.remove("is-invalid");
+    if (taperIn) taperIn.classList.remove("is-invalid");
+
+    var rampVal = rampIn ? rampIn.value.trim() : "";
+    var taperVal = taperIn ? taperIn.value.trim() : "";
+
+    if (rampVal === "" || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
+      if (rampErr) rampErr.textContent = "Enter a number ≥ 0.";
+      if (rampIn) rampIn.classList.add("is-invalid");
+      valid = false;
+    }
+    if (taperVal === "" || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
+      if (taperErr) taperErr.textContent = "Enter a number ≥ 0.";
+      if (taperIn) taperIn.classList.add("is-invalid");
+      valid = false;
+    }
+    return valid;
+  }
+
+  function loadPlanSettings() {
+    apiGet("/api/plans", function (data) {
+      var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
+      var rampIn = document.getElementById("plan-ramp-rate-input");
+      var taperIn = document.getElementById("plan-taper-window-input");
+
+      if (plan) {
+        _planId = plan.id;
+        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
+        if (taperIn) taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
+      } else {
+        _planId = null;
+        if (rampIn) rampIn.value = 0;
+        if (taperIn) taperIn.value = 0;
+      }
+      renderSchedulePreview();
+    });
+  }
+
+  function savePlanSettings() {
+    if (!_validateSettingsInputs()) return;
+
+    var rampIn = document.getElementById("plan-ramp-rate-input");
+    var taperIn = document.getElementById("plan-taper-window-input");
+    var savedEl = document.getElementById("plan-settings-saved");
+
+    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
+    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
+
+    function onSaved(res) {
+      if (!res.ok) {
+        var rampErr = document.getElementById("plan-ramp-rate-error");
+        if (rampErr) rampErr.textContent = (res.data && res.data.detail) ? res.data.detail : "Save failed.";
+        return;
+      }
+      _planId = res.data.id;
+      if (savedEl) {
+        savedEl.style.display = "";
+        setTimeout(function () { savedEl.style.display = "none"; }, 2000);
+      }
+    }
+
+    if (_planId) {
+      apiPatch("/api/plans/" + _planId, { ramp_rate: rampRate, taper_length: taperLength }, onSaved);
+    } else {
+      apiPost("/api/plans", { name: "Training Plan", ramp_rate: rampRate, taper_length: taperLength }, function (res) {
+        onSaved(res);
+      });
+    }
+  }
+
   function renderAll() {
     renderRaceHeader();
     renderVerdict();
@@ -1226,6 +1399,16 @@
         if (cb) cb();
       });
 
+    // Plan settings: ramp/taper live preview and save
+    var rampIn = document.getElementById("plan-ramp-rate-input");
+    var taperIn = document.getElementById("plan-taper-window-input");
+    var saveSettingsBtn = document.getElementById("plan-save-settings-btn");
+
+    if (rampIn) rampIn.addEventListener("input", renderSchedulePreview);
+    if (taperIn) taperIn.addEventListener("input", renderSchedulePreview);
+    if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", savePlanSettings);
+
+    // Close modals on overlay click
     var planModal = document.getElementById("plan-race-modal");
     if (planModal) {
       planModal.addEventListener("click", function (e) {
@@ -1246,6 +1429,7 @@
       _initialized = true;
       wireEvents();
     }
+    loadPlanSettings();
     refresh();
   }
 
