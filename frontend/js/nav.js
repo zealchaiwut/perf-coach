@@ -128,8 +128,9 @@
     { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
-    { href: '/trends',   label: 'Trends',       icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
-    { href: '/calendar', label: 'Calendar',     icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
+    { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
+    { href: '/projection',  label: 'Projection',  icon: 'ti-chart-dots',   match: ['/projection', '/projection.html'] },
+    { href: '/calendar',    label: 'Calendar',    icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 
