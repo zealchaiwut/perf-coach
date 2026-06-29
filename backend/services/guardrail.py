@@ -37,7 +37,7 @@ Otherwise ``guardrail_state`` is ``"ok"``.
 
 from __future__ import annotations
 
-from backend.services.acwr import compute_acwr, HIGH_BOUND
+from backend.services.acwr import compute_acwr
 
 # ── Configurable threshold ────────────────────────────────────────────────────
 # Week-over-week percentage increase in a stressor that is considered a sharp

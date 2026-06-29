@@ -16,7 +16,6 @@ Acceptance criteria covered:
 
 from __future__ import annotations
 
-import pytest
 
 from backend.services.guardrail import compute_guardrail, STRESSOR_RAMP_THRESHOLD_PCT
 from backend.services.acwr import compute_acwr, HIGH_BOUND, LOWER_BOUND
