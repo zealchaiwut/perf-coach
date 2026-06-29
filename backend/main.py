@@ -4937,6 +4937,7 @@ _PAGES = {
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
+    "projection": "projection.html",
 }
 
 
@@ -13501,6 +13502,193 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Projection screen endpoint ────────────────────────────────────────────────
+
+@app.get("/api/projection")
+def get_projection(user: User = Depends(resolve_user)):
+    """Return aggregated projection data for the projection screen (issue #1114).
+
+    Combines:
+    - Form curve (historical TSB) and projected form toward the A-race
+    - Race markers for A, B, and C priority races, with recalibrates_here
+      flag on the earliest upcoming B-race
+    - Endurance and Speed scores from the running performance module
+
+    Returns:
+        200 with projection dict.
+        401 for unauthenticated requests (via resolve_user).
+    """
+    from backend.services.running_performance import compute_endurance_score, compute_speed_score
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+
+    with Session(engine) as db:
+        # Load all user races, sorted by date
+        races = (
+            db.query(Race)
+            .filter(Race.user_id == user.id, Race.race_type == "race")
+            .order_by(Race.race_date)
+            .all()
+        )
+
+        # Build race markers for A, B, C priority races
+        race_markers = []
+        a_race = None
+        b_race_recalibration_date = None
+
+        for race in races:
+            marker = {
+                "id": str(race.id),
+                "date": str(race.race_date),
+                "priority": race.priority,
+                "name": race.name,
+                "distance_km": float(race.distance_km),
+                "recalibrates_here": False,
+            }
+            race_markers.append(marker)
+
+            if race.priority == "A" and a_race is None:
+                a_race = race
+            # The earliest upcoming B-race is the recalibration anchor
+            if (race.priority == "B" and b_race_recalibration_date is None
+                    and race.race_date >= today):
+                b_race_recalibration_date = str(race.race_date)
+                marker["recalibrates_here"] = True
+
+        # Compute form curve from training load history
+        tss_series = daily_tss_series(str(user.id), warmup_start, today)
+        load_curves = compute_load_curves(tss_series)
+
+        buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
+        fresh_floor = _rdns_cfg_float(_RDNS_CFG_FRESH_FLOOR, FORM_FRESH_FLOOR)
+        min_history_weeks = _rdns_cfg_int(_RDNS_CFG_MIN_HISTORY_WEEKS, 8)
+
+        form_curve = [
+            {
+                "date": row["date"].isoformat(),
+                "form": row["tsb"],
+                "zone": _rdns_classify_zone(row["tsb"], buried_ceiling, fresh_floor),
+            }
+            for row in load_curves
+        ]
+
+        # Determine building_baseline
+        history_window_start = today - _timedelta(days=min_history_weeks * 7)
+        workout_days_in_window = sum(
+            1 for d, tss in tss_series
+            if tss > 0 and d >= history_window_start
+        )
+        required_workout_days = min_history_weeks * _RDNS_MIN_WORKOUT_DAYS_PER_WEEK
+        building_baseline = workout_days_in_window < required_workout_days
+
+        # Projected form toward A-race
+        projected_form = None
+        if not building_baseline and a_race is not None:
+            last_row = load_curves[-1]
+            fitness_state = {
+                "ctl": last_row["ctl"],
+                "atl": last_row["atl"],
+                "date": last_row["date"],
+            }
+            proj = project_form(fitness_state, 0.0, a_race.race_date)
+            if not proj["reason"]:
+                projected_form = {
+                    day["date"].isoformat(): day["form"]
+                    for day in proj["days"]
+                }
+
+        # Load endurance and speed scores
+        endurance_score = None
+        speed_score = None
+        score_state = "building_baseline"
+
+        try:
+            prefs_row = (
+                db.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .first()
+            )
+            if prefs_row is None:
+                score_state = "needs_thresholds"
+            else:
+                preferences = {
+                    "ftp_w": prefs_row.ftp_w,
+                    "threshold_hr": prefs_row.threshold_hr,
+                    "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                    "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                    "duration_curve_bests": None,
+                }
+                if _check_needs_thresholds(preferences):
+                    score_state = "needs_thresholds"
+                else:
+                    curve_data = _get_athlete_duration_curve(user.id, db)
+                    preferences["duration_curve_bests"] = curve_data or {}
+
+                    zone_constants = make_zone_constants(preferences)
+
+                    run_workouts = (
+                        db.query(Workout)
+                        .filter(Workout.user_id == user.id, Workout.workout_type == "Run")
+                        .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+                        .all()
+                    )
+
+                    runs = []
+                    for workout in run_workouts:
+                        splits = (
+                            db.query(WorkoutSplit)
+                            .filter(WorkoutSplit.workout_id == workout.id)
+                            .order_by(WorkoutSplit.split_index)
+                            .all()
+                        )
+                        classifications = classify_laps(splits, preferences)
+                        laps = []
+                        for split, cls in zip(splits, classifications):
+                            laps.append({
+                                "band": cls.get("band"),
+                                "avg_power": split.avg_power,
+                                "avg_hr": split.avg_hr,
+                                "duration_seconds": split.duration_seconds,
+                                "distance_km": split.distance_km,
+                                "avg_pace_seconds_per_km": split.avg_pace_seconds_per_km,
+                            })
+                        runs.append({
+                            "workout_date": str(workout.workout_date),
+                            "distance_km": float(workout.distance_km) if workout.distance_km else None,
+                            "duration_seconds": workout.duration_seconds,
+                            "avg_hr": workout.avg_hr,
+                            "laps": laps,
+                        })
+
+                    endurance_result = compute_endurance_score(runs, preferences, zone_constants)
+                    speed_result = compute_speed_score(runs, preferences, zone_constants)
+
+                    if isinstance(endurance_result, dict):
+                        endurance_score = endurance_result.get("score")
+                    if isinstance(speed_result, dict):
+                        speed_score = speed_result.get("score")
+
+                    score_state = _determine_performance_top_level_state(
+                        endurance_result, speed_result
+                    )
+        except Exception:
+            score_state = "error"
+
+    return JSONResponse({
+        "building_baseline": building_baseline,
+        "form_curve": form_curve,
+        "projected_form": projected_form,
+        "race_markers": race_markers,
+        "b_race_recalibration_date": b_race_recalibration_date,
+        "endurance_score": endurance_score,
+        "speed_score": speed_score,
+        "score_state": score_state,
+    })
 
 
 # ── Sleep sync scheduler ──────────────────────────────────────────────────────
