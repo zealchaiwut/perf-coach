@@ -1138,3 +1138,12 @@ class TrainingPlan(Base):
             name="ck_training_plans_taper_shape",
         ),
     )
+
+
+class PlannedLoad(Base):
+    """One planned-TSS value per calendar date (issue #1102)."""
+
+    __tablename__ = "planned_load"
+
+    date = Column(Date, primary_key=True)
+    planned_tss = Column(Numeric(8, 2), nullable=False)
