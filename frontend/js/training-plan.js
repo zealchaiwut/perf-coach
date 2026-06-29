@@ -10,6 +10,7 @@
   var _editingRaceId = null;
   var _editingRaceType = "race";
   var _confirmCallback = null;
+  var _planId = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) { return String(n).padStart(2, "0"); }
@@ -83,6 +84,21 @@
     return parseFloat(v).toFixed(2);
   }
 
+  // ── Plan ID ───────────────────────────────────────────────────────────────
+  function _ensurePlanId(cb) {
+    if (_planId) { cb(); return; }
+    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (uid) { _planId = uid; cb(); return; }
+    fetch("/api/auth/me", { credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .then(function (u) { if (u) _planId = u.id; cb(); })
+      .catch(function () { cb(); });
+  }
+
+  function _planRaceUrl(raceId) {
+    return "/plans/" + _planId + "/races" + (raceId ? "/" + raceId : "");
+  }
+
   // ── API calls ─────────────────────────────────────────────────────────────
   function apiGet(url, cb) {
     fetch(url, { credentials: "same-origin" })
@@ -108,9 +124,9 @@
       .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
   }
 
-  function apiPut(url, body, cb) {
+  function apiPatch(url, body, cb) {
     fetch(url, {
-      method: "PUT",
+      method: "PATCH",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -145,29 +161,26 @@
     }
 
     var r = _primaryRace;
-    var weeks = weeksUntil(r.race_date);
+    var weeks = weeksUntil(r.date);
     var weeksHtml = weeks !== null && weeks > 0
       ? '<span class="plan-weeks-chip">⏱ ' + weeks + ' week' + (weeks === 1 ? "" : "s") + ' to go</span>'
       : "";
 
     var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : null;
-    // AC9: compute goal pace client-side when server field is absent
-    var goalPaceSecPerKm = r.goal_pace_seconds_per_km ||
-      (r.goal_time_seconds && r.distance_km
-        ? r.goal_time_seconds / parseFloat(r.distance_km)
-        : null);
+    var goalPaceSecPerKm = r.goal_time_seconds && r.distance
+      ? r.goal_time_seconds / parseFloat(r.distance)
+      : null;
     var goalPace = goalPaceSecPerKm ? fmtPace(goalPaceSecPerKm) : null;
 
     el.innerHTML =
       '<div class="plan-race-hd">' +
       '<div class="plan-race-hd-info">' +
       '<h2 class="plan-race-hd-name">' +
-      '<span class="plan-priority-badge pri-' + esc(r.priority.toLowerCase()) + '">' + esc(r.priority) + '</span>' +
       esc(r.name) +
       '</h2>' +
       '<div class="plan-race-meta">' +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Date</span><span class="plan-meta-value">' + esc(formatDate(r.race_date)) + '</span></div>' +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Distance</span><span class="plan-meta-value">' + parseFloat(r.distance_km).toFixed(3).replace(/\.?0+$/, "") + ' km</span></div>' +
+      '<div class="plan-race-meta-item"><span class="plan-meta-label">Date</span><span class="plan-meta-value">' + esc(formatDate(r.date)) + '</span></div>' +
+      '<div class="plan-race-meta-item"><span class="plan-meta-label">Distance</span><span class="plan-meta-value">' + parseFloat(r.distance).toFixed(3).replace(/\.?0+$/, "") + ' km</span></div>' +
       (goalTime ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal time</span><span class="plan-meta-value">' + esc(goalTime) + '</span></div>' : '') +
       (goalPace ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal pace</span><span class="plan-meta-value">' + esc(goalPace) + '</span></div>' : '') +
       '</div>' +
@@ -190,7 +203,6 @@
     var status = onTrack && onTrack.status_summary;
     var cls, label;
 
-    // AC2: show raw status text from the endpoint; hide for other statuses
     if (status === "on track" || status === "ahead") {
       cls = "verdict-on-track";
       label = status;
@@ -250,8 +262,6 @@
     var historicalValues = [];
     var projectedDates = [];
     var projectedValues = [];
-    var buriedData = [];
-    var freshData = [];
 
     formCurve.forEach(function (pt) {
       historicalDates.push(pt.date);
@@ -269,20 +279,11 @@
     var allValues = historicalValues.concat(projectedValues.map(function () { return null; }));
     var projOnlyValues = historicalDates.map(function () { return null; }).concat(projectedValues);
 
-    var buriedCeiling = -30;
-    var freshFloor = 5;
-
-    allDates.forEach(function (d) {
-      buriedData.push(buriedCeiling);
-      freshData.push(freshFloor);
-    });
-
     if (_formCurveChart) {
       _formCurveChart.destroy();
       _formCurveChart = null;
     }
 
-    // Taper marker: taper_recommendation.taper_start_date
     var taperDate = _readiness.taper_recommendation && _readiness.taper_recommendation.taper_start_date
       ? _readiness.taper_recommendation.taper_start_date
       : null;
@@ -300,35 +301,33 @@
       };
     }
 
-    // Race day marker
-    if (_primaryRace && _primaryRace.race_date) {
+    if (_primaryRace && _primaryRace.date) {
       annotations.raceLine = {
         type: "line",
-        xMin: _primaryRace.race_date,
-        xMax: _primaryRace.race_date,
+        xMin: _primaryRace.date,
+        xMax: _primaryRace.date,
         borderColor: "rgba(21, 128, 61, 0.8)",
         borderWidth: 2,
         label: { content: "Race day", enabled: true, position: "start", backgroundColor: "rgba(21,128,61,0.8)", color: "#fff", font: { size: 10 } },
       };
     }
 
-    // B-race and checkpoint markers from the races list
     _races.forEach(function (race) {
-      if (race.priority === "B" && race.id !== (_primaryRace && _primaryRace.id)) {
+      if (race.type === "race" && race.id !== (_primaryRace && _primaryRace.id)) {
         annotations["brace_" + race.id] = {
           type: "line",
-          xMin: race.race_date,
-          xMax: race.race_date,
+          xMin: race.date,
+          xMax: race.date,
           borderColor: "rgba(3, 105, 161, 0.6)",
           borderWidth: 1,
           borderDash: [3, 3],
         };
       }
-      if (race.race_type === "checkpoint") {
+      if (race.type === "checkpoint") {
         annotations["cp_" + race.id] = {
           type: "line",
-          xMin: race.race_date,
-          xMax: race.race_date,
+          xMin: race.date,
+          xMax: race.date,
           borderColor: "rgba(100, 116, 139, 0.5)",
           borderWidth: 1,
           borderDash: [2, 4],
@@ -364,7 +363,7 @@
           },
           {
             label: "Fresh zone",
-            data: allDates.map(function () { return freshFloor; }),
+            data: allDates.map(function () { return 5; }),
             borderWidth: 0,
             backgroundColor: "rgba(34, 197, 94, 0.1)",
             fill: { target: { value: 100 } },
@@ -373,7 +372,7 @@
           },
           {
             label: "Buried zone",
-            data: allDates.map(function () { return buriedCeiling; }),
+            data: allDates.map(function () { return -30; }),
             borderWidth: 0,
             backgroundColor: "rgba(239, 68, 68, 0.1)",
             fill: { target: { value: -100 } },
@@ -418,57 +417,94 @@
 
     if (loadingEl) loadingEl.style.display = "none";
 
-    var filtered = _races.slice().sort(function (a, b) {
-      return a.race_date < b.race_date ? -1 : a.race_date > b.race_date ? 1 : 0;
+    var sorted = _races.slice().sort(function (a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
     });
 
-    if (filtered.length === 0) {
+    var races = sorted.filter(function (r) { return r.type !== "checkpoint"; });
+    var checkpoints = sorted.filter(function (r) { return r.type === "checkpoint"; });
+
+    if (sorted.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
+      Array.from(container.querySelectorAll(".plan-editor-section")).forEach(function (el) { el.remove(); });
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
 
-    var html = "";
-    filtered.forEach(function (r) {
-      var typeBadge = '<span class="plan-race-type-badge type-' + esc(r.race_type || "race") + '">' + esc(r.race_type === "checkpoint" ? "Checkpoint" : "Race") + '</span>';
-      var metBadge = '<span class="plan-met-badge met-' + esc(r.met_status || "upcoming") + '">' + esc(metLabel(r.met_status)) + '</span>';
-      var priLabel = r.priority ? '<span class="plan-priority-badge pri-' + esc(r.priority.toLowerCase()) + '" style="width:auto;height:auto;padding:1px 6px;font-size:10px;">' + esc(r.priority) + '</span>' : "";
+    Array.from(container.querySelectorAll(".plan-editor-section")).forEach(function (el) { el.remove(); });
 
-      html +=
-        '<div class="plan-race-row" data-race-id="' + esc(r.id) + '" tabindex="0" role="button" aria-label="Edit ' + esc(r.name) + '">' +
-        '<div class="plan-race-row-info">' +
-        '<p class="plan-race-row-name">' + esc(r.name || "(unnamed)") + '</p>' +
-        '<div class="plan-race-row-meta">' +
-        typeBadge +
-        ' ' + priLabel +
-        ' <span>' + esc(formatDate(r.race_date)) + '</span>' +
-        ' <span>' + parseFloat(r.distance_km || 0).toFixed(2) + ' km</span>' +
-        ' ' + metBadge +
-        '</div>' +
-        '</div>' +
-        '<span style="color:#ccc;font-size:16px;">›</span>' +
-        '</div>';
-    });
+    function buildSection(label, items) {
+      var sec = document.createElement("div");
+      sec.className = "plan-editor-section";
 
-    // Remove existing race rows
-    Array.from(container.querySelectorAll(".plan-race-row")).forEach(function (el) { el.remove(); });
-    container.insertAdjacentHTML("beforeend", html);
+      var hdr = document.createElement("div");
+      hdr.className = "plan-editor-section-hdr";
+      hdr.textContent = label;
+      sec.appendChild(hdr);
 
-    container.querySelectorAll(".plan-race-row").forEach(function (row) {
-      function handler() {
-        var raceId = row.dataset.raceId;
-        var race = _races.find(function (r) { return r.id === raceId; });
-        if (race) openModal(race, race.race_type || "race");
+      if (items.length === 0) {
+        var emp = document.createElement("p");
+        emp.className = "plan-list-empty";
+        emp.textContent = "No " + label.toLowerCase() + " added yet.";
+        sec.appendChild(emp);
+        return sec;
       }
-      row.addEventListener("click", handler);
-      row.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") handler(); });
-    });
-  }
 
-  function metLabel(status) {
-    if (status === "met") return "Met";
-    if (status === "missed") return "Missed";
-    return "Upcoming";
+      items.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "plan-race-row";
+        row.dataset.raceId = r.id;
+
+        var info = document.createElement("div");
+        info.className = "plan-race-row-info";
+
+        var name = document.createElement("p");
+        name.className = "plan-race-row-name";
+        name.textContent = r.name || "(unnamed)";
+        info.appendChild(name);
+
+        var meta = document.createElement("div");
+        meta.className = "plan-race-row-meta";
+        meta.innerHTML =
+          '<span>' + esc(formatDate(r.date)) + '</span>' +
+          ' <span>' + parseFloat(r.distance || 0).toFixed(2) + ' km</span>' +
+          (r.goal_time_seconds ? ' <span>' + esc(fmtTime(r.goal_time_seconds)) + '</span>' : '');
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        var actions = document.createElement("div");
+        actions.className = "plan-race-row-actions";
+
+        var editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "plan-row-action-btn";
+        editBtn.textContent = "Edit";
+        editBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          openModal(r, r.type || "race");
+        });
+
+        var delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "plan-row-action-btn plan-row-action-btn--delete";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          _deleteRow(r.id, r.name || "entry");
+        });
+
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+
+        sec.appendChild(row);
+      });
+
+      return sec;
+    }
+
+    container.appendChild(buildSection("Races", races));
+    container.appendChild(buildSection("Checkpoints", checkpoints));
   }
 
   // ── Specificity bars ──────────────────────────────────────────────────────
@@ -534,9 +570,10 @@
 
   // ── Data loading ──────────────────────────────────────────────────────────
   function loadRaces(done) {
-    apiGet("/api/races", function (data) {
+    if (!_planId) { _races = []; _primaryRace = null; if (done) done(); return; }
+    apiGet(_planRaceUrl(), function (data) {
       _races = Array.isArray(data) ? data : [];
-      _primaryRace = _races.find(function (r) { return r.priority === "A" && r.race_type !== "checkpoint" && r.status !== "abandoned"; }) || null;
+      _primaryRace = _races.find(function (r) { return r.type === "race"; }) || null;
       if (done) done();
     });
   }
@@ -562,9 +599,11 @@
   }
 
   function refresh() {
-    loadRaces(function () {
-      loadReadiness(function () {
-        renderAll();
+    _ensurePlanId(function () {
+      loadRaces(function () {
+        loadReadiness(function () {
+          renderAll();
+        });
       });
     });
   }
@@ -579,12 +618,10 @@
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var priIn = document.getElementById("plan-modal-priority");
+    var typeIn = document.getElementById("plan-modal-type");
     var goalIn = document.getElementById("plan-modal-goal-time");
-    var statusIn = document.getElementById("plan-modal-status");
     var deleteBtn = document.getElementById("plan-modal-delete-btn");
     var errEl = document.getElementById("plan-modal-error");
-    var priField = document.getElementById("plan-modal-priority-field");
 
     if (!modal) return;
 
@@ -593,24 +630,21 @@
     if (title) title.textContent = race
       ? (isCheckpoint ? "Edit Checkpoint" : "Edit Race")
       : (isCheckpoint ? "Add Checkpoint" : "Add Race");
-    if (priField) priField.style.display = isCheckpoint ? "none" : "";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
     if (errEl) errEl.textContent = "";
 
     if (race) {
       if (nameIn) nameIn.value = race.name || "";
-      if (dateIn) dateIn.value = race.race_date || "";
-      if (distIn) distIn.value = race.distance_km || "";
-      if (priIn) priIn.value = race.priority || "A";
+      if (dateIn) dateIn.value = race.date || "";
+      if (distIn) distIn.value = race.distance || "";
+      if (typeIn) typeIn.value = race.type || "race";
       if (goalIn) goalIn.value = goalTimeToStr(race.goal_time_seconds);
-      if (statusIn) statusIn.value = race.status || "planned";
     } else {
       if (nameIn) nameIn.value = "";
       if (dateIn) dateIn.value = "";
       if (distIn) distIn.value = "";
-      if (priIn) priIn.value = isCheckpoint ? "C" : "A";
+      if (typeIn) typeIn.value = isCheckpoint ? "checkpoint" : "race";
       if (goalIn) goalIn.value = "";
-      if (statusIn) statusIn.value = "planned";
     }
 
     modal.style.display = "";
@@ -626,35 +660,32 @@
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var priIn = document.getElementById("plan-modal-priority");
+    var typeIn = document.getElementById("plan-modal-type");
     var goalIn = document.getElementById("plan-modal-goal-time");
-    var statusIn = document.getElementById("plan-modal-status");
     var errEl = document.getElementById("plan-modal-error");
 
     var name = nameIn ? nameIn.value.trim() : "";
     var date = dateIn ? dateIn.value : "";
     var dist = distIn ? parseFloat(distIn.value) : NaN;
-    var pri = priIn ? priIn.value : (_editingRaceType === "checkpoint" ? "C" : "A");
+    var type = typeIn ? typeIn.value : _editingRaceType;
     var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
-    var status = statusIn ? statusIn.value : "planned";
 
+    if (!name) { if (errEl) errEl.textContent = "Name is required."; return; }
     if (!date) { if (errEl) errEl.textContent = "Date is required."; return; }
     if (isNaN(dist) || dist <= 0) { if (errEl) errEl.textContent = "Distance must be a positive number."; return; }
 
     var body = {
       name: name,
-      race_date: date,
-      distance_km: dist,
-      priority: pri,
-      status: status,
-      race_type: _editingRaceType,
+      date: date,
+      distance: dist,
+      type: type,
     };
     if (goalSec !== null) body.goal_time_seconds = goalSec;
 
     if (errEl) errEl.textContent = "";
 
     if (_editingRaceId) {
-      apiPut("/api/races/" + _editingRaceId, body, function (res) {
+      apiPatch(_planRaceUrl(_editingRaceId), body, function (res) {
         if (!res.ok) {
           if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
           return;
@@ -663,7 +694,7 @@
         refresh();
       });
     } else {
-      apiPost("/api/races", body, function (res) {
+      apiPost(_planRaceUrl(), body, function (res) {
         if (!res.ok) {
           if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
           return;
@@ -696,13 +727,27 @@
     if (!_editingRaceId) return;
     var rid = _editingRaceId;
     var race = _races.find(function (r) { return r.id === rid; });
-    var label = race ? (race.race_type === "checkpoint" ? "checkpoint" : "race") : "entry";
+    var label = race ? (race.type === "checkpoint" ? "checkpoint" : "race") : "entry";
     closeModal();
     showConfirm(
       "Delete this " + label + "?",
       "This action cannot be undone.",
       function () {
-        apiDelete("/api/races/" + rid, function (res) {
+        apiDelete(_planRaceUrl(rid), function (res) {
+          if (res.ok) refresh();
+        });
+      }
+    );
+  }
+
+  function _deleteRow(raceId, raceName) {
+    var race = _races.find(function (r) { return r.id === raceId; });
+    var label = race ? (race.type === "checkpoint" ? "checkpoint" : "race") : "entry";
+    showConfirm(
+      "Delete this " + label + "?",
+      "This action cannot be undone.",
+      function () {
+        apiDelete(_planRaceUrl(raceId), function (res) {
           if (res.ok) refresh();
         });
       }
@@ -739,7 +784,6 @@
       if (cb) cb();
     });
 
-    // Close modals on overlay click
     var planModal = document.getElementById("plan-race-modal");
     if (planModal) {
       planModal.addEventListener("click", function (e) {
