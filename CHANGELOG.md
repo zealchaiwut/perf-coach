@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 89 — Google Drive / Health Sync sleep file import
+
+- #1032: Add sleep_records table and idempotent Alembic migration
+- #1034: Parse Health Sync sleep CSV into sleep_records
+- #1035: Add scheduled and on-demand sleep file sync from Google Drive
+- #1038: Backfill historical sleep data on first Google Drive connect
+
 ## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
 
 - #1019: Classify laps before scoring in performance endpoint (fixes classification order so band is assigned before score computation)

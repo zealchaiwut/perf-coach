@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -9358,6 +9358,9 @@ def google_callback(
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:9001/api/google/callback")
 
+    # Check before upsert so we know whether this is the very first connect.
+    is_first_connect = _get_google_creds_for_user(user_id) is None
+
     token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
 
     access_token = token_resp["access_token"]
@@ -9383,7 +9386,275 @@ def google_callback(
         id_token_payload=id_token_payload,
     )
 
+    if is_first_connect:
+        _trigger_drive_sleep_backfill_background(user_id)
+
     return Response(content=_GOOGLE_CALLBACK_HTML, media_type="text/html")
+
+
+def _get_google_creds_for_user(user_id) -> Optional[GoogleOAuthCredentials]:
+    """Return the GoogleOAuthCredentials row for user_id, or None if not connected."""
+    with Session(engine) as session:
+        return (
+            session.query(GoogleOAuthCredentials)
+            .filter(GoogleOAuthCredentials.user_id == user_id)
+            .one_or_none()
+        )
+
+
+def _trigger_drive_sleep_backfill_background(user_id: str) -> None:
+    """Fire-and-forget: run the Drive sleep backfill in a daemon thread.
+
+    Called once after first Google connect so all pre-existing sleep files
+    are imported without blocking the callback response.  Errors are logged.
+    """
+    _bg_log = _logging.getLogger(__name__)
+
+    def _run():
+        try:
+            from backend.services import drive_sleep_sync as _dss
+            _dss.backfill_drive_sleep_for_user(user_id)
+        except Exception as _exc:
+            _bg_log.warning(
+                "drive_sleep_sync backfill failed for user %s: %s",
+                user_id, _exc, exc_info=True,
+            )
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+# ── Drive sleep sync ──────────────────────────────────────────────────────────
+
+@app.post("/api/integrations/drive-sleep/sync")
+def post_drive_sleep_sync(user: User = Depends(resolve_user)):
+    """Trigger an immediate Drive/Health Sync sleep file import for the authenticated user.
+
+    Returns 200 JSON with flat keys: files_seen, rows_imported, rows_updated, rows_skipped.
+    Returns 422 if the user has no connected Google Drive / Health Sync integration.
+    """
+    from backend.services import drive_sleep_sync as _dss
+
+    creds = _get_google_creds_for_user(user.id)
+    if creds is None:
+        raise HTTPException(
+            status_code=422,
+            detail="No Google Drive / Health Sync integration connected. Connect Google first.",
+        )
+
+    result = _dss.sync_drive_sleep_for_user(str(user.id))
+    return JSONResponse({
+        "files_seen": result["files_seen"],
+        "rows_imported": result["rows_imported"],
+        "rows_updated": result["rows_updated"],
+        "rows_skipped": result["rows_skipped"],
+    })
+
+
+# ── Google Drive Sleep Connection ─────────────────────────────────────────────
+
+_DRIVE_SLEEP_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+
+_DRIVE_SLEEP_CALLBACK_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Google Drive connected</title></head>
+<body>
+<script>
+window.location.replace('/settings?drive_sleep=connected#integrations');
+</script>
+<p>Google Drive connected — <a href="/settings?drive_sleep=connected#integrations">return to Settings</a>.</p>
+</body>
+</html>"""
+
+_DRIVE_SLEEP_CALLBACK_ERROR_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Google Drive connection failed</title></head>
+<body>
+<script>
+window.location.replace('/settings?drive_sleep=error#integrations');
+</script>
+<p>Connection failed — <a href="/settings?drive_sleep=error#integrations">return to Settings</a>.</p>
+</body>
+</html>"""
+
+
+def _upsert_drive_sleep_connection(
+    *,
+    user_id: str,
+    refresh_token_encrypted: Optional[str] = None,
+    status: str,
+    folder_id: Optional[str] = None,
+) -> None:
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        row = session.query(DriveSleepConnection).filter(
+            DriveSleepConnection.user_id == user_id
+        ).first()
+        if row is None:
+            row = DriveSleepConnection(
+                user_id=user_id,
+                status=status,
+                refresh_token_encrypted=refresh_token_encrypted,
+                folder_id=folder_id,
+                updated_at=now,
+            )
+            session.add(row)
+        else:
+            row.status = status
+            row.updated_at = now
+            if refresh_token_encrypted is not None:
+                row.refresh_token_encrypted = refresh_token_encrypted
+            if folder_id is not None:
+                row.folder_id = folder_id
+        session.commit()
+
+
+@app.get("/api/drive-sleep/connect")
+def drive_sleep_connect(user: User = Depends(resolve_user)):
+    """Initiate Google OAuth for read-only Drive access (sleep CSV folder)."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID is not configured")
+
+    if not os.getenv("GOOGLE_CLIENT_SECRET"):
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_SECRET is not configured")
+
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+
+    redirect_uri = os.getenv(
+        "GOOGLE_DRIVE_REDIRECT_URI",
+        "http://localhost:9001/api/drive-sleep/callback",
+    )
+    user_id = str(user.id)
+    state = _make_google_state_token(user_id, state_secret)
+    authorize_url = _GOOGLE_AUTH_URL + "?" + _urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": _DRIVE_SLEEP_SCOPE,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return JSONResponse({"authorize_url": authorize_url})
+
+
+@app.get("/api/drive-sleep/callback")
+def drive_sleep_callback(
+    state: str = Query(...),
+    code: str = Query(default=""),
+    error: str = Query(default=""),
+):
+    """Handle Google OAuth callback for Drive sleep connection."""
+    state_secret = os.getenv("GOOGLE_STATE_SECRET")
+    if not state_secret:
+        raise HTTPException(status_code=500, detail="GOOGLE_STATE_SECRET is not configured")
+
+    try:
+        state_payload = _verify_google_state_token(state, state_secret)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization state expired or invalid, please reconnect",
+        )
+
+    user_id = state_payload["user_id"]
+
+    if error:
+        _logging.getLogger(__name__).error(
+            "Drive sleep OAuth error for user %s: %s", user_id, error
+        )
+        _upsert_drive_sleep_connection(user_id=user_id, status="error")
+        return Response(content=_DRIVE_SLEEP_CALLBACK_ERROR_HTML, media_type="text/html")
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv(
+        "GOOGLE_DRIVE_REDIRECT_URI",
+        "http://localhost:9001/api/drive-sleep/callback",
+    )
+
+    token_resp = _exchange_google_code(code, client_id, client_secret, redirect_uri)
+    refresh_token = token_resp.get("refresh_token")
+
+    if not refresh_token:
+        _logging.getLogger(__name__).error(
+            "Drive sleep OAuth: no refresh_token returned for user %s", user_id
+        )
+        _upsert_drive_sleep_connection(user_id=user_id, status="error")
+        return Response(content=_DRIVE_SLEEP_CALLBACK_ERROR_HTML, media_type="text/html")
+
+    refresh_token_encrypted = _encrypt_value(refresh_token)
+    _upsert_drive_sleep_connection(
+        user_id=user_id,
+        refresh_token_encrypted=refresh_token_encrypted,
+        status="connected",
+    )
+    return Response(content=_DRIVE_SLEEP_CALLBACK_HTML, media_type="text/html")
+
+
+@app.get("/api/drive-sleep/status")
+def drive_sleep_status(user: User = Depends(resolve_user)):
+    """Return Drive sleep connection status — never exposes the refresh token."""
+    _null = {"status": "not_connected", "folder_id": None, "last_sync_at": None}
+    user_id = str(user.id)
+    with Session(engine) as session:
+        row = session.query(DriveSleepConnection).filter(
+            DriveSleepConnection.user_id == user_id
+        ).first()
+        if row is None:
+            return JSONResponse(_null)
+        return JSONResponse({
+            "status": row.status,
+            "folder_id": row.folder_id,
+            "last_sync_at": row.last_sync_at.isoformat() if row.last_sync_at else None,
+        })
+
+
+class _DriveSleepFolderBody(BaseModel):
+    folder_id: str
+
+
+@app.post("/api/drive-sleep/folder")
+def drive_sleep_set_folder(
+    body: _DriveSleepFolderBody,
+    user: User = Depends(resolve_user),
+):
+    """Persist the folder ID for the Drive sleep connection."""
+    user_id = str(user.id)
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        row = session.query(DriveSleepConnection).filter(
+            DriveSleepConnection.user_id == user_id
+        ).first()
+        if row is None or row.status == "not_connected":
+            raise HTTPException(
+                status_code=400,
+                detail="Not connected to Google Drive — connect first",
+            )
+        row.folder_id = body.folder_id
+        row.updated_at = now
+        session.commit()
+        return JSONResponse({"status": row.status, "folder_id": row.folder_id})
+
+
+@app.delete("/api/drive-sleep/disconnect")
+def drive_sleep_disconnect(user: User = Depends(resolve_user)):
+    """Clear the Drive sleep connection: wipe encrypted token, set status to not_connected."""
+    user_id = str(user.id)
+    now = _datetime.now(tz=_timezone.utc)
+    with Session(engine) as session:
+        row = session.query(DriveSleepConnection).filter(
+            DriveSleepConnection.user_id == user_id
+        ).first()
+        if row is not None:
+            row.refresh_token_encrypted = None
+            row.status = "not_connected"
+            row.updated_at = now
+            session.commit()
+    return JSONResponse({"disconnected": True})
 
 
 # ── Imports ───────────────────────────────────────────────────────────────────
@@ -12833,3 +13104,29 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Sleep sync scheduler ──────────────────────────────────────────────────────
+
+def _sleep_sync_scheduler_loop() -> None:
+    """Background daemon thread: run Drive sleep sync for all users every hour."""
+    import logging as _sched_log
+    from backend.services import drive_sleep_sync as _dss
+
+    _log = _sched_log.getLogger("backend.sleep_sync_scheduler")
+    _log.info("Sleep sync scheduler started (interval=%ds)", _dss.SLEEP_SYNC_INTERVAL_SECONDS)
+
+    while True:
+        time.sleep(_dss.SLEEP_SYNC_INTERVAL_SECONDS)
+        try:
+            _dss.run_scheduled_sleep_sync()
+        except Exception as exc:
+            _log.error("Sleep sync scheduler: unhandled error: %s", exc, exc_info=True)
+
+
+_sleep_sync_thread = _threading.Thread(
+    target=_sleep_sync_scheduler_loop,
+    daemon=True,
+    name="sleep-sync-scheduler",
+)
+_sleep_sync_thread.start()
