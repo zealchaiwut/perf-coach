@@ -13,7 +13,6 @@ Each test is anchored to a specific acceptance criterion:
 from __future__ import annotations
 
 import datetime
-import math
 import os
 import pathlib
 import py_compile

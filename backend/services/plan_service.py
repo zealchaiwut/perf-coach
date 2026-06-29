@@ -5,7 +5,6 @@ lives here; the router itself contains no business logic.
 """
 from __future__ import annotations
 
-import math as _math
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
 from typing import Any, Optional
