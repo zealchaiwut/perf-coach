@@ -192,7 +192,6 @@ def test_py_compile_main():
 def test_race_dict_has_half_equivalent():
     """_race_dict must include half_marathon_equivalent_seconds."""
     import importlib
-    import types
     import datetime
 
     main = importlib.import_module("backend.main")
@@ -248,7 +247,6 @@ def test_race_dict_no_actual_time_equivalent_is_none():
 def test_checkpoint_dict_has_half_equivalent():
     """_checkpoint_dict must include half_marathon_equivalent_seconds when both fields set."""
     import importlib
-    import datetime
 
     main = importlib.import_module("backend.main")
 
