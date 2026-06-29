@@ -55,7 +55,7 @@
     /* ── Content area ── */
     .settings-content {
       flex: 1;
-      padding: 32px 40px;
+      padding: 28px 32px 36px;
       max-width: 720px;
     }
 
@@ -115,7 +115,7 @@
       }
 
       .settings-content {
-        padding: 20px 16px;
+        padding: 22px 20px 28px;
       }
     }
 
@@ -216,6 +216,24 @@
       color: #8b95ad;
       cursor: default;
     }
+
+    /* Copyable User ID row */
+    .profile-id-row { display: flex; gap: 8px; align-items: stretch; }
+    .profile-id-row .profile-input { flex: 1; min-width: 0; }
+    .profile-id-copy {
+      flex-shrink: 0;
+      padding: 0 14px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 8px;
+      background: #fff;
+      color: #5c6886;
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .profile-id-copy:hover { background: #f4f7fc; color: #0b1530; }
+    .profile-id-copy.copied { color: #15803d; border-color: #15803d; }
 
     .profile-field-error {
       font-size: 12px;
@@ -1020,9 +1038,10 @@
     <aside class="settings-sidebar">
       <nav>
         <button class="settings-nav-item" data-section="profile">Profile</button>
-        <button class="settings-nav-item" data-section="thresholds">Performance Thresholds</button>
-        <button class="settings-nav-item" data-section="device-zones">Zones</button>
-        <button class="settings-nav-item" data-section="personal-records">Personal Records</button>
+        <button class="settings-nav-item" data-section="thresholds">Thresholds</button>
+        <!-- Zones / Personal Records retired from the nav (unused) — kept hidden so deep links/sections still resolve. -->
+        <button class="settings-nav-item" data-section="device-zones" hidden style="display:none">Zones</button>
+        <button class="settings-nav-item" data-section="personal-records" hidden style="display:none">Personal Records</button>
         <button class="settings-nav-item" data-section="integrations">Integrations</button>
         <button class="settings-nav-item" data-section="about">About</button>
       </nav>
@@ -1039,6 +1058,14 @@
         </div>
 
         <div class="profile-form-group">
+          <label class="profile-label" for="profile-user-id">User ID</label>
+          <div class="profile-id-row">
+            <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
+            <button type="button" class="profile-id-copy" id="profile-user-id-copy" aria-label="Copy user ID" title="Copy user ID">Copy</button>
+          </div>
+        </div>
+
+        <div class="profile-form-group">
           <label class="profile-label" for="profile-display-name">Display name</label>
           <input type="text" id="profile-display-name" class="profile-input" placeholder="Loading…" autocomplete="name" maxlength="100">
           <div class="profile-field-error" id="profile-display-name-error" aria-live="polite"></div>
@@ -1048,11 +1075,6 @@
           <label class="profile-label" for="profile-email">Email</label>
           <input type="email" id="profile-email" class="profile-input" readonly>
           <div class="profile-field-error" id="profile-email-error" aria-live="polite"></div>
-        </div>
-
-        <div class="profile-form-group">
-          <label class="profile-label" for="profile-user-id">User ID</label>
-          <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
         </div>
 
         <div class="profile-form-group">
@@ -1611,6 +1633,25 @@
 
             var uidEl = document.getElementById('profile-user-id');
             if (uidEl) uidEl.value = row.user_id || '';
+            var uidCopy = document.getElementById('profile-user-id-copy');
+            if (uidCopy && !uidCopy._wired) {
+              uidCopy._wired = true;
+              uidCopy.addEventListener('click', function () {
+                var v = uidEl ? uidEl.value : '';
+                if (!v) return;
+                var done = function () {
+                  uidCopy.classList.add('copied');
+                  uidCopy.textContent = 'Copied';
+                  setTimeout(function () { uidCopy.classList.remove('copied'); uidCopy.textContent = 'Copy'; }, 1500);
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(v).then(done).catch(done);
+                } else {
+                  try { uidEl.removeAttribute('readonly'); uidEl.select(); document.execCommand('copy'); uidEl.setAttribute('readonly', ''); } catch (e) {}
+                  done();
+                }
+              });
+            }
 
             var tzEl = document.getElementById('profile-timezone');
             if (tzEl) tzEl.value = _baseline.timezone;
