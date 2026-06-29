@@ -13448,6 +13448,290 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     return JSONResponse(raw)
 
 
+# ── Monthly summary with supercompensation detection (issue #1056) ────────────
+
+_MONTHLY_SUMMARY_SAFE_LEAN_DOWN_KEY = "monthly_summary.safe_lean_down_pct_per_week"
+_MONTHLY_SUMMARY_FORM_RECOVERY_THRESHOLD = 0.0
+_MONTHLY_SUMMARY_SCORE_DELTA_THRESHOLD = 0.05
+
+
+def _monthly_score_delta(workouts: list) -> tuple:
+    """Compute endurance and speed score changes from per-workout signals.
+
+    Compares the average signal from the first half of the workout list
+    against the second half.  Returns (endurance_change, speed_change) as
+    floats, or (None, None) when insufficient data.
+    """
+    signals_with_data = [
+        (w.endurance_signal, w.speed_signal)
+        for w in workouts
+        if w.endurance_signal is not None or w.speed_signal is not None
+    ]
+    if len(signals_with_data) < 2:
+        return None, None
+
+    mid = len(signals_with_data) // 2
+    first_half = signals_with_data[:mid]
+    second_half = signals_with_data[mid:]
+
+    def _avg(items, idx):
+        vals = [x[idx] for x in items if x[idx] is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    e_start = _avg(first_half, 0)
+    e_end = _avg(second_half, 0)
+    s_start = _avg(first_half, 1)
+    s_end = _avg(second_half, 1)
+
+    e_delta = round(e_end - e_start, 3) if (e_start is not None and e_end is not None) else None
+    s_delta = round(s_end - s_start, 3) if (s_start is not None and s_end is not None) else None
+    return e_delta, s_delta
+
+
+def _compute_supercompensation_state(
+    endurance_delta,
+    speed_delta,
+    form_recovered: bool,
+    threshold: float = _MONTHLY_SUMMARY_SCORE_DELTA_THRESHOLD,
+) -> str:
+    """Classify the athlete's adaptive state for the month.
+
+    Logic:
+    - "working"  — at least one score rose (> threshold) AND form recovered
+    - "digging"  — scores flat or down AND form NOT recovered
+    - "flat"     — everything else (scores flat with form recovered, or mixed)
+    """
+    scores_rose = (
+        (endurance_delta is not None and endurance_delta > threshold)
+        or (speed_delta is not None and speed_delta > threshold)
+    )
+    if scores_rose and form_recovered:
+        return "working"
+    if not form_recovered:
+        return "digging"
+    return "flat"
+
+
+def _compute_call_to_action(
+    supercompensation_state: str,
+    weight_rate_pct_per_week,
+    safe_lean_down_rate: float,
+) -> str:
+    """Return a single short imperative call-to-action string."""
+    if (
+        weight_rate_pct_per_week is not None
+        and abs(weight_rate_pct_per_week) > safe_lean_down_rate
+        and weight_rate_pct_per_week < 0
+    ):
+        return "Ease the deficit and hold load"
+
+    if supercompensation_state == "working":
+        return "Advance plyo to single-leg phase"
+    if supercompensation_state == "digging":
+        return "Reduce volume and prioritize sleep"
+    return "Maintain load and monitor recovery"
+
+
+@app.get("/api/athletes/{athlete_id}/summary/monthly")
+def get_athlete_monthly_summary(
+    athlete_id: str,
+    current_user: User = Depends(resolve_user),
+    month: Optional[str] = Query(default=None),
+):
+    """Return a monthly training summary with supercompensation detection (issue #1056).
+
+    Query params:
+        month: YYYY-MM string selecting the target month (default: current month).
+
+    Returns a flat JSON object with exactly 14 keys.
+    Returns HTTP 424 when no weekly aggregation data is available for the month.
+    """
+    import calendar as _calendar
+
+    try:
+        uid = _uuid.UUID(athlete_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"invalid athlete_id: {athlete_id!r}")
+
+    if uid != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # ── Resolve month boundaries ───────────────────────────────────────────────
+    if month is not None:
+        try:
+            parsed = _date.fromisoformat(f"{month}-01")
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"month must be in YYYY-MM format, got {month!r}",
+            )
+        month_start = parsed
+    else:
+        from zoneinfo import ZoneInfo
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        month_start = today_bkk.replace(day=1)
+
+    last_day = _calendar.monthrange(month_start.year, month_start.month)[1]
+    month_end = month_start.replace(day=last_day)
+
+    # ── Fetch workouts, weight entries, and races ──────────────────────────────
+    with Session(engine) as session:
+        athlete = session.get(User, uid)
+        if athlete is None:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= month_start,
+                Workout.workout_date <= month_end,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+
+        weight_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= month_start,
+                WeightEntry.entry_date <= month_end,
+            )
+            .order_by(WeightEntry.entry_date)
+            .all()
+        )
+
+        # Only retrieve checkpoint-type races for next_checkpoint
+        races = (
+            session.query(Race)
+            .filter(
+                Race.user_id == uid,
+                Race.race_type == "checkpoint",
+                Race.race_date > _date.today(),
+            )
+            .order_by(Race.race_date)
+            .all()
+        )
+
+    # ── Dependency check — 424 when no training data ───────────────────────────
+    if not workouts:
+        raise HTTPException(
+            status_code=424,
+            detail=(
+                f"No training sessions found for {month_start.strftime('%B %Y')}. "
+                "Weekly aggregation data is required to compute the monthly summary."
+            ),
+        )
+
+    # ── Training aggregate fields ─────────────────────────────────────────────
+    session_count = len(workouts)
+
+    def _safe_sum(items, attr):
+        vals = []
+        for item in items:
+            v = getattr(item, attr, None)
+            if v is not None:
+                try:
+                    vals.append(float(v))
+                except (TypeError, ValueError):
+                    pass
+        return round(sum(vals), 3) if vals else 0.0
+
+    distance_km = _safe_sum(workouts, "distance_km")
+    total_tss = _safe_sum(workouts, "tss")
+
+    # ── Score change (endurance / speed signals) ───────────────────────────────
+    endurance_score_change, speed_score_change = _monthly_score_delta(workouts)
+
+    # ── Weight metrics ─────────────────────────────────────────────────────────
+    weight_change_kg = None
+    weight_rate_percent_per_week = None
+
+    if len(weight_entries) >= 2:
+        first_w = float(weight_entries[0].weight_kg)
+        last_w = float(weight_entries[-1].weight_kg)
+        weight_change_kg = round(last_w - first_w, 3)
+
+        span_days = (weight_entries[-1].entry_date - weight_entries[0].entry_date).days
+        if span_days > 0 and first_w > 0:
+            weeks = span_days / 7.0
+            rate_pct = (weight_change_kg / first_w) * 100.0 / weeks
+            weight_rate_percent_per_week = round(rate_pct, 3)
+
+    # ── Fitness / form metrics (CTL/ATL/TSB) ──────────────────────────────────
+    lookback_start = month_start - _timedelta(days=180)
+    fitness_curve = compute_fitness_series(str(uid), lookback_start, month_end)
+
+    # Extract month-specific data points from the full curve
+    month_entries = [
+        entry for entry in fitness_curve
+        if month_start <= entry["date"] <= month_end
+    ] if fitness_curve else []
+
+    if month_entries:
+        ctl_at_start = month_entries[0]["ctl"]
+        ctl_at_end = month_entries[-1]["ctl"]
+        tsb_at_end = month_entries[-1]["tsb"]
+    elif fitness_curve:
+        last = fitness_curve[-1]
+        ctl_at_start = last["ctl"]
+        ctl_at_end = last["ctl"]
+        tsb_at_end = last["tsb"]
+    else:
+        ctl_at_start = 0.0
+        ctl_at_end = 0.0
+        tsb_at_end = 0.0
+
+    fitness_ctl_change = round(ctl_at_end - ctl_at_start, 2)
+    form_recovered = tsb_at_end >= _MONTHLY_SUMMARY_FORM_RECOVERY_THRESHOLD
+
+    # ── Supercompensation state ────────────────────────────────────────────────
+    supercompensation_state = _compute_supercompensation_state(
+        endurance_score_change, speed_score_change, form_recovered
+    )
+
+    # ── Call to action ─────────────────────────────────────────────────────────
+    raw_safe_rate = _get_app_config(_MONTHLY_SUMMARY_SAFE_LEAN_DOWN_KEY, "1.0")
+    try:
+        safe_lean_down_rate = float(raw_safe_rate)
+    except (TypeError, ValueError):
+        safe_lean_down_rate = 1.0
+
+    call_to_action = _compute_call_to_action(
+        supercompensation_state, weight_rate_percent_per_week, safe_lean_down_rate
+    )
+
+    # ── Next checkpoint ────────────────────────────────────────────────────────
+    next_checkpoint = None
+    today = _date.today()
+    upcoming = [r for r in races if r.race_date > today and r.race_type == "checkpoint"]
+    if upcoming:
+        nearest = min(upcoming, key=lambda r: r.race_date)
+        next_checkpoint = {
+            "name": nearest.name,
+            "date": nearest.race_date.isoformat(),
+        }
+
+    return JSONResponse({
+        "month_start": month_start.isoformat(),
+        "month_end": month_end.isoformat(),
+        "distance_km": distance_km,
+        "total_tss": total_tss,
+        "session_count": session_count,
+        "endurance_score_change": endurance_score_change,
+        "speed_score_change": speed_score_change,
+        "weight_change_kg": weight_change_kg,
+        "weight_rate_percent_per_week": weight_rate_percent_per_week,
+        "fitness_ctl_change": fitness_ctl_change,
+        "form_recovered": form_recovered,
+        "supercompensation_state": supercompensation_state,
+        "call_to_action": call_to_action,
+        "next_checkpoint": next_checkpoint,
+    })
+
+
 # ── Sleep sync scheduler ──────────────────────────────────────────────────────
 
 def _sleep_sync_scheduler_loop() -> None:
