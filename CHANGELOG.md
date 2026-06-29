@@ -1,12 +1,11 @@
 # Changelog
 
-## Sprint 90 — Per-run speed and endurance signals, EWMA scoring, and session signal panel
+## Sprint 89 — Google Drive / Health Sync sleep file import
 
-- #1048: Compute and store speed signal per run (best 1–6 min effort ratio vs threshold; power/pace/HR basis; persisted to `workouts.speed_signal`)
-- #1049: Compute and store endurance signal per run (aerobic decoupling metric for runs ≥ 40 min; persisted to `workouts.endurance_signal`)
-- #1050: Backfill speed and endurance signals across run history (idempotent `backfill_signals_for_athlete`; auto-triggered after threshold save; `scripts/backfill_signals.py` for manual runs)
-- #1051: Aggregate per-run signals into endurance and speed scores via duration-weighted EWMA (90-day trailing window; `qualifying_session_count` added to response)
-- #1052: Show session signal in run detail panel ("This session signal" card with endurance/speed values and contributes-to hint)
+- #1032: Add sleep_records table and idempotent Alembic migration
+- #1034: Parse Health Sync sleep CSV into sleep_records
+- #1035: Add scheduled and on-demand sleep file sync from Google Drive
+- #1038: Backfill historical sleep data on first Google Drive connect
 
 ## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
 

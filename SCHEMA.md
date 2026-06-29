@@ -429,7 +429,7 @@ Unique: `(user_id, snapshot_date)`.
 
 ---
 
-## google_oauth_credentials
+## google_oauth_credentials _(last_sync_at added Sprint 89)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -442,6 +442,7 @@ Unique: `(user_id, snapshot_date)`.
 | refresh_token | text | nullable |
 | expires_at | timestamptz | |
 | id_token_payload | jsonb | nullable |
+| last_sync_at | timestamptz | nullable — stamped after each Drive sleep sync run |
 | created_at / updated_at | timestamptz | |
 
 ---
@@ -461,6 +462,35 @@ Unique: `(user_id, snapshot_date)`.
 | created_at / updated_at | timestamptz | |
 
 Unique: `(user_id, source, source_identifier)`.
+
+---
+
+## sleep_records _(added Sprint 89)_
+
+Structured nightly sleep records imported from external sources (e.g. Health Sync CSV exported from Google Drive). One row per night per user. Idempotent upsert on `(user_id, external_id)`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| sleep_date | date | NOT NULL — date of the sleep night (the morning date) |
+| start_at | timestamptz | NOT NULL |
+| end_at | timestamptz | NOT NULL |
+| total_sleep_minutes | int | NOT NULL |
+| time_in_bed_minutes | int | NOT NULL |
+| awake_minutes | int | nullable |
+| light_minutes | int | nullable |
+| deep_minutes | int | nullable |
+| rem_minutes | int | nullable |
+| sleep_score | int | nullable |
+| sleep_efficiency | numeric(5,2) | nullable |
+| source | text | NOT NULL; e.g. `health_sync_csv` |
+| device | text | nullable |
+| external_id | text | NOT NULL — dedup key; SHA-256 of `{user_id}:{sleep_date}:{start_at}` when the source has no native ID |
+| created_at / updated_at | timestamptz | |
+
+Unique: `(user_id, external_id)`. Index: `ix_sleep_records_user_sleep_date` on `(user_id, sleep_date)`.
+Migrations: `ec0e2c456452` (initial table), `53b033936666` (make stage cols nullable).
 
 ---
 

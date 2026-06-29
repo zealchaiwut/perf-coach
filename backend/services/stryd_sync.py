@@ -334,6 +334,10 @@ def sync_stryd_activities(
         # makes ON CONFLICT DO UPDATE raise "cannot affect row a second time".
         _deduped = {m["stryd_activity_id"]: m for m in mapped}
         mapped = list(_deduped.values())
+        # The Stryd calendar API ignores srtDate/endDate and always returns the full
+        # lifetime activity list, newest-first. Sort ascending so that ids[-N:] in
+        # the caller's _DAILY_RECONCILE_LIMIT slice reliably picks the most recent N.
+        mapped.sort(key=lambda m: m["start_time"])
         ids = [m["stryd_activity_id"] for m in mapped]
 
         if mapped:

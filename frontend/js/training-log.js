@@ -250,13 +250,8 @@
       totalTSS += s.total_tss || 0;
       totalMinutes += s.total_time_minutes || 0;
     });
+    // Total TSS / total hours intentionally hidden — keep just the count.
     var parts = [totalCount + " workout" + (totalCount !== 1 ? "s" : "")];
-    if (totalTSS > 0) parts.push("TSS " + Math.round(totalTSS));
-    if (totalMinutes > 0) {
-      var h = Math.floor(totalMinutes / 60);
-      var m = Math.round(totalMinutes % 60);
-      parts.push(h > 0 ? h + "h " + m + "m" : m + "m");
-    }
     subtitleEl.textContent = parts.join(" · ");
   }
 
@@ -848,7 +843,7 @@
                 yAxisID: "y",
               },
               {
-                label: 'km',
+                label: 'Distance',
                 type: 'line',
                 data: distVals,
                 borderColor: "#f59e0b",
@@ -936,7 +931,7 @@
                 ticks: { font: tickFont, color: tickColor },
                 title: {
                   display: true,
-                  text: "km",
+                  text: "Distance",
                   color: tickColor,
                   font: { size: 10 },
                 },
@@ -955,16 +950,13 @@
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
   // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
-  function buildMonthSeparator(dateStr, agg) {
-    var d = new Date(dateStr + 'T00:00:00');
+  function buildSeparator(titleText, agg, variant) {
     var sep = document.createElement('div');
-    sep.className = 'month-sep';
+    sep.className = 'month-sep' + (variant ? ' ' + variant : '');
 
     var title = document.createElement('div');
     title.className = 'month-sep-title';
-    title.textContent = isNaN(d.getMonth())
-      ? (dateStr || '').slice(0, 7)
-      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    title.textContent = titleText;
     sep.appendChild(title);
 
     var stats = document.createElement('div');
@@ -992,8 +984,38 @@
     return sep;
   }
 
+  function _monthTitle(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    return isNaN(d.getMonth()) ? (dateStr || '').slice(0, 7)
+      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
+  function _mondayOf(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var dow = d.getDay(), diff = dow === 0 ? -6 : 1 - dow;
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  function _weekKey(dateStr) {
+    var m = _mondayOf(dateStr);
+    return m.getFullYear() + '-' + pad(m.getMonth() + 1) + '-' + pad(m.getDate());
+  }
+  function _weekTitle(dateStr) {
+    var mon = _mondayOf(dateStr), sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    var a = MONTHS[mon.getMonth()] + ' ' + mon.getDate();
+    var b = mon.getMonth() === sun.getMonth() ? ('' + sun.getDate())
+      : (MONTHS[sun.getMonth()] + ' ' + sun.getDate());
+    return 'Week of ' + a + ' – ' + b;
+  }
+
+  // Incremental render state — the full history can be hundreds of workouts, so
+  // render in batches and reveal more as the user scrolls (issue: lazy load).
+  var _listState = null;
+  var _LIST_BATCH = 30; // target workouts per batch; whole days are kept intact
+
   function renderDayGroupedList(container, weeks) {
     if (!container) return;
+    if (_listState && _listState.observer) _listState.observer.disconnect();
     container.innerHTML = "";
 
     // Flatten all workout entries from all weeks, newest-first (API already orders by date desc).
@@ -1007,6 +1029,7 @@
     if (!entries.length) {
       var emptyEl = document.getElementById('log-empty-msg');
       if (emptyEl) emptyEl.style.display = '';
+      _listState = null;
       return;
     }
 
@@ -1023,30 +1046,52 @@
       }
       dayMap[date].push(entry);
     });
-    // Ensure newest-first day order.
     days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
 
-    // Per-month rollups (Run TSS / Lift TSS / Time / KM), keyed by YYYY-MM.
-    var monthAgg = {};
+    // Full month + week rollups up front, so each separator shows correct totals
+    // even before the whole period has been rendered.
+    function addAgg(map, key, e) {
+      if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+      var tk = normalizeTypeKey(e.type), tss = Number(e.tss) || 0;
+      if (tk === 'run') map[key].runTss += tss;
+      else if (tk === 'lift') map[key].liftTss += tss;
+      if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
+      if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
+    }
+    var monthAgg = {}, weekAgg = {};
     entries.forEach(function (e) {
       var mk = (e.date || '').slice(0, 7);
-      if (!mk) return;
-      if (!monthAgg[mk]) monthAgg[mk] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
-      var tk = normalizeTypeKey(e.type);
-      var tss = Number(e.tss) || 0;
-      if (tk === 'run') monthAgg[mk].runTss += tss;
-      else if (tk === 'lift') monthAgg[mk].liftTss += tss;
-      if (e.duration_seconds) monthAgg[mk].secs += Number(e.duration_seconds) || 0;
-      if (e.distance_km) monthAgg[mk].km += Number(e.distance_km) || 0;
+      if (mk) addAgg(monthAgg, mk, e);
+      if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
     });
 
-    var lastMonthKey = null;
+    _listState = {
+      container: container, days: days, dayMap: dayMap,
+      monthAgg: monthAgg, weekAgg: weekAgg,
+      cursor: 0, lastMonthKey: null, lastWeekKey: null,
+      sentinel: null, observer: null,
+    };
+    renderNextBatch();
+  }
 
-    days.forEach(function (dateStr) {
+  function renderNextBatch() {
+    var st = _listState;
+    if (!st) return;
+    if (st.sentinel && st.sentinel.parentNode) st.sentinel.parentNode.removeChild(st.sentinel);
+
+    var rendered = 0;
+    while (st.cursor < st.days.length && rendered < _LIST_BATCH) {
+      var dateStr = st.days[st.cursor++];
       var monthKey = dateStr.slice(0, 7);
-      if (monthKey !== lastMonthKey) {
-        lastMonthKey = monthKey;
-        container.appendChild(buildMonthSeparator(dateStr, monthAgg[monthKey]));
+      if (monthKey !== st.lastMonthKey) {
+        st.lastMonthKey = monthKey;
+        st.lastWeekKey = null;
+        st.container.appendChild(buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ''));
+      }
+      var wk = _weekKey(dateStr);
+      if (wk !== st.lastWeekKey) {
+        st.lastWeekKey = wk;
+        st.container.appendChild(buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], 'week-sep'));
       }
 
       var d = new Date(dateStr + 'T00:00:00');
@@ -1056,20 +1101,42 @@
 
       var header = document.createElement('div');
       header.className = 'day-group-header';
-      var dayLabel = isNaN(d.getDay()) ? dateStr :
+      header.textContent = isNaN(d.getDay()) ? dateStr :
         DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
-      header.textContent = dayLabel;
       dayGroup.appendChild(header);
 
       var rowsEl = document.createElement('div');
       rowsEl.className = 'day-group-rows';
-      dayMap[dateStr].forEach(function (entry) {
+      st.dayMap[dateStr].forEach(function (entry) {
         rowsEl.appendChild(buildEntryRow(entry));
+        rendered++;
       });
       dayGroup.appendChild(rowsEl);
+      st.container.appendChild(dayGroup);
+    }
 
-      container.appendChild(dayGroup);
-    });
+    if (st.cursor < st.days.length) {
+      var sentinel = document.createElement('div');
+      sentinel.className = 'log-load-more-sentinel';
+      sentinel.setAttribute('aria-hidden', 'true');
+      st.container.appendChild(sentinel);
+      st.sentinel = sentinel;
+      if ('IntersectionObserver' in window) {
+        if (!st.observer) {
+          st.observer = new IntersectionObserver(function (ents) {
+            if (ents.some(function (en) { return en.isIntersecting; })) renderNextBatch();
+          }, { rootMargin: '600px 0px' });
+        }
+        st.observer.observe(sentinel);
+      } else {
+        sentinel.className = 'log-load-more';
+        sentinel.textContent = 'Load more';
+        sentinel.addEventListener('click', renderNextBatch);
+      }
+    } else {
+      st.sentinel = null;
+      if (st.observer) st.observer.disconnect();
+    }
   }
 
   function renderList(container, weeks) {
@@ -1932,9 +1999,8 @@
       var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
       if (scrollEl) scrollEl.scrollTop = 0;
 
-      var panel = document.getElementById("detail-panel");
-      var panelWidth = panel ? panel.getBoundingClientRect().width : 520;
-      var captureWidth = Math.max(Math.round(panelWidth - 36), 280);
+      // Fixed 540px × scale 2 → 1080px PNG (Instagram post width).
+      var captureWidth = 540;
 
       var host = document.createElement("div");
       host.className = "dp-screenshot-capture";
@@ -1953,7 +2019,7 @@
       window
         .html2canvas(host, {
           backgroundColor: "#ffffff",
-          scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+          scale: 2,
           logging: false,
           useCORS: true,
           width: captureWidth,
@@ -3600,11 +3666,12 @@
   }
 
   function _syncSetBusy(busy) {
-    var allBtn = document.getElementById("sync-all-btn");
-    if (allBtn) allBtn.disabled = busy;
-    // Legacy: also disable old Strava-only button if it exists
-    var stravaBtn = document.getElementById("sync-strava-btn");
-    if (stravaBtn) stravaBtn.disabled = busy;
+    ["sync-btn-strava", "sync-btn-stryd", "sync-all-btn", "sync-strava-btn"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.disabled = busy;
+    });
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    if (toggleBtn) toggleBtn.disabled = busy;
   }
 
   function _syncToast(msg, isError) {
@@ -3832,6 +3899,104 @@
 
   function _onSyncStravaClick() {
     _onSyncAllClick();
+  }
+
+  function _onSyncProviderClick(label, url) {
+    _syncClearFeedback();
+    _syncSetBusy(true);
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    ready
+      .then(function () {
+        return _syncProvider(label, url, { full: false });
+      })
+      .then(function () {
+        if (window.syncBarRefresh) window.syncBarRefresh();
+        return fetch("/api/sync/status")
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.status === "error") {
+              throw new Error(data.error || "Sync failed");
+            }
+            _syncLastTerminalStatus = _syncTerminalKey(
+              data && data.status === "success" ? data : { status: "success", finished_at: "manual" }
+            );
+            _loadSyncChip();
+            fetchAndRender();
+            _syncToast(label + ": synced new activities");
+          });
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) ? err.message : "Sync failed";
+        _syncToast(msg, true);
+      })
+      .finally(function () {
+        _syncSetBusy(false);
+      });
+  }
+
+  function _initSyncWidget() {
+    var toggleBtn = document.getElementById("sync-toggle-btn");
+    var panel = document.getElementById("sync-panel");
+    if (!toggleBtn || !panel) return;
+
+    toggleBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = !panel.hidden;
+      panel.hidden = isOpen;
+      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!panel.hidden && !panel.contains(e.target) && e.target !== toggleBtn) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    Promise.all([
+      fetch("/api/strava/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch("/api/stryd/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+    ]).then(function (results) {
+      var stravaConnected = results[0] && results[0].connected;
+      var strydConnected = results[1] && results[1].connected;
+      var stravaBtn = document.getElementById("sync-btn-strava");
+      var strydBtn = document.getElementById("sync-btn-stryd");
+      var stravaTimeEl = document.getElementById("sync-time-strava");
+      var strydTimeEl = document.getElementById("sync-time-stryd");
+      if (!stravaConnected) {
+        if (stravaBtn) stravaBtn.disabled = true;
+        if (stravaTimeEl) stravaTimeEl.textContent = "Not connected";
+      }
+      if (!strydConnected) {
+        if (strydBtn) strydBtn.disabled = true;
+        if (strydTimeEl) strydTimeEl.textContent = "Not connected";
+      }
+    });
+
+    var stravaBtn = document.getElementById("sync-btn-strava");
+    if (stravaBtn) {
+      stravaBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Strava", "/api/strava/sync");
+      });
+    }
+
+    var strydBtn = document.getElementById("sync-btn-stryd");
+    if (strydBtn) {
+      strydBtn.addEventListener("click", function () {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+        _onSyncProviderClick("Stryd", "/api/stryd/sync");
+      });
+    }
   }
 
   function handleEditorSaved(result) {
@@ -4077,13 +4242,7 @@
       if (e.key === "Escape" && dupModalIsOpen()) closeDuplicateModal();
     });
 
-    var syncStravaBtn = document.getElementById("sync-strava-btn");
-    if (syncStravaBtn)
-      syncStravaBtn.addEventListener("click", _onSyncStravaClick);
-
-    var syncAllBtn = document.getElementById("sync-all-btn");
-    if (syncAllBtn) syncAllBtn.addEventListener("click", _onSyncAllClick);
-
+    _initSyncWidget();
     _loadSyncChip();
 
     var exportBtn = document.getElementById("log-export-btn");
