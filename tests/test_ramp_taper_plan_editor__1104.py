@@ -15,7 +15,6 @@ All HTTP tests run against a live UAT server (UAT_BASE_URL or http://127.0.0.1:9
 import os
 import pathlib
 import py_compile
-import re
 import uuid
 
 import httpx
