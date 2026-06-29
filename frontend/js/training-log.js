@@ -250,13 +250,8 @@
       totalTSS += s.total_tss || 0;
       totalMinutes += s.total_time_minutes || 0;
     });
+    // Total TSS / total hours intentionally hidden — keep just the count.
     var parts = [totalCount + " workout" + (totalCount !== 1 ? "s" : "")];
-    if (totalTSS > 0) parts.push("TSS " + Math.round(totalTSS));
-    if (totalMinutes > 0) {
-      var h = Math.floor(totalMinutes / 60);
-      var m = Math.round(totalMinutes % 60);
-      parts.push(h > 0 ? h + "h " + m + "m" : m + "m");
-    }
     subtitleEl.textContent = parts.join(" · ");
   }
 
