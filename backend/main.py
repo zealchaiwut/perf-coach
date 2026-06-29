@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -1591,6 +1591,106 @@ def delete_weight_plan(plan_id: str, user: User = Depends(resolve_user)):
         session.refresh(plan)
         return JSONResponse(_weight_plan_dict(plan))
 
+
+# ── Training plan endpoints (issue #1101) ──────────────────────────────────────
+
+class TrainingPlanCreateIn(BaseModel):
+    name: str
+    ramp_rate: Optional[float] = None
+    taper_start: Optional[float] = None
+    taper_length: Optional[float] = None
+    taper_shape: Optional[str] = None
+
+
+class TrainingPlanPatchIn(BaseModel):
+    name: Optional[str] = None
+    ramp_rate: Optional[float] = None
+    taper_start: Optional[float] = None
+    taper_length: Optional[float] = None
+    taper_shape: Optional[str] = None
+
+
+def _training_plan_dict(p: TrainingPlan) -> dict:
+    return {
+        "id": str(p.id),
+        "user_id": str(p.user_id),
+        "name": p.name,
+        "ramp_rate": float(p.ramp_rate) if p.ramp_rate is not None else None,
+        "taper_start": float(p.taper_start) if p.taper_start is not None else None,
+        "taper_length": float(p.taper_length) if p.taper_length is not None else None,
+        "taper_shape": p.taper_shape,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _validate_taper_shape(taper_shape: Optional[str]) -> None:
+    if taper_shape is not None and taper_shape not in TAPER_SHAPE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"taper_shape must be one of {list(TAPER_SHAPE_VALUES)} or null",
+        )
+
+
+@app.post("/api/plans", status_code=201)
+def create_training_plan(body: TrainingPlanCreateIn, user: User = Depends(resolve_user)):
+    _validate_taper_shape(body.taper_shape)
+    with Session(engine) as session:
+        plan = TrainingPlan(
+            user_id=user.id,
+            name=body.name,
+            ramp_rate=body.ramp_rate,
+            taper_start=body.taper_start,
+            taper_length=body.taper_length,
+            taper_shape=body.taper_shape,
+        )
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(status_code=201, content=_training_plan_dict(plan))
+
+
+@app.get("/api/plans/{plan_id}")
+def get_training_plan(plan_id: str, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+    with Session(engine) as session:
+        plan = session.get(TrainingPlan, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Training plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return JSONResponse(_training_plan_dict(plan))
+
+
+@app.patch("/api/plans/{plan_id}")
+def patch_training_plan(plan_id: str, body: TrainingPlanPatchIn, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+    _validate_taper_shape(body.taper_shape)
+    with Session(engine) as session:
+        plan = session.get(TrainingPlan, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Training plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if body.name is not None:
+            plan.name = body.name
+        if body.ramp_rate is not None:
+            plan.ramp_rate = body.ramp_rate
+        if body.taper_start is not None:
+            plan.taper_start = body.taper_start
+        if body.taper_length is not None:
+            plan.taper_length = body.taper_length
+        if body.taper_shape is not None:
+            plan.taper_shape = body.taper_shape
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_training_plan_dict(plan))
 
 
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
