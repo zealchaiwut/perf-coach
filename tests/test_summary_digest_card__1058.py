@@ -85,12 +85,7 @@ def test_toggle_buttons_exist_in_html(training_log_html):
 def test_this_week_toggle_is_default_active(training_log_html):
     """AC2: 'This week' button has the active/selected state by default."""
     # The week button should appear with is-active or active class or aria-selected=true
-    week_btn_pattern = re.compile(
-        r'<button[^>]*(?:is-active|active|aria-selected=["\']true["\'])[^>]*>\s*This week\s*</button>|'
-        r'<button[^>]*>\s*This week\s*</button>[^<]*(?=.*?active)',
-        re.DOTALL
-    )
-    # More straightforward: check the data-period or that "This week" is in a button with active class
+    # Check the data-period or that "This week" is in a button with active class
     # Accept either: button has class containing 'active' near "This week", or data-period="week" is referenced as default
     week_active = (
         re.search(r'<button[^>]*(?:class=["\'][^"\']*(?:is-active|active)[^"\']*|aria-selected=["\']true["\'])[^>]*>\s*This week', training_log_html) or
