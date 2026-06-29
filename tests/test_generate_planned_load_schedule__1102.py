@@ -35,7 +35,7 @@ if _uat_url:
 else:
     _engine = None
 
-from backend.services.plan_service import generate_planned_load_schedule
+from backend.services.plan_service import generate_planned_load_schedule  # noqa: E402
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ def test_ac3_taper_window_is_n_days_before_race():
         taper_shape="linear",
     )
     ramp_entries = result[: n_days - taper_length]
-    taper_entries = result[n_days - taper_length :]
+    taper_entries = result[n_days - taper_length:]
     assert len(taper_entries) == taper_length
     assert len(ramp_entries) == n_days - taper_length
 
