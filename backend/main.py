@@ -72,6 +72,7 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
+from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
@@ -11620,6 +11621,9 @@ def _race_dict(race: Race) -> dict:
         "goal_time_seconds": race.goal_time_seconds,
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "actual_time_seconds": race.actual_time_seconds,
+        "half_marathon_equivalent_seconds": _riegel_half_equivalent(
+            race.actual_time_seconds, float(race.distance_km)
+        ),
         "priority": race.priority,
         "status": race.status,
         "race_type": race.race_type if race.race_type else "race",
@@ -12082,6 +12086,10 @@ def _checkpoint_dict(cp: RaceCheckpoint) -> dict:
         "target_distance_km": float(cp.target_distance_km) if cp.target_distance_km is not None else None,
         "target_pace_seconds_per_km": cp.target_pace_seconds_per_km,
         "target_duration_seconds": cp.target_duration_seconds,
+        "half_marathon_equivalent_seconds": _riegel_half_equivalent(
+            cp.target_duration_seconds,
+            float(cp.target_distance_km) if cp.target_distance_km is not None else None,
+        ),
         "met": cp.met,
         "met_override": cp.met_override,
         "met_workout_id": str(cp.met_workout_id) if cp.met_workout_id is not None else None,
