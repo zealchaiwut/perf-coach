@@ -1152,3 +1152,41 @@ class PlannedLoad(Base):
 
     date = Column(Date, primary_key=True)
     planned_tss = Column(Numeric(8, 2), nullable=False)
+
+
+class StrengthSession(Base):
+    """A logged heavy-strength training session (issue #1142).
+
+    Supports two load-capture patterns:
+    - sets × reps × load: provide sets, reps, load; leave session_rpe/duration_minutes null.
+    - session-RPE × duration: provide session_rpe, duration_minutes; leave sets/reps/load null.
+    Both patterns may coexist in the same row.
+    """
+
+    __tablename__ = "strength_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_date = Column(Date, nullable=False)
+    sets = Column(Integer, nullable=True)
+    reps = Column(Integer, nullable=True)
+    load = Column(Numeric(8, 2), nullable=True)
+    session_rpe = Column(Integer, nullable=True)
+    duration_minutes = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_strength_sessions_user_date", "user_id", "session_date"),
+        CheckConstraint("sets IS NULL OR sets > 0", name="ck_strength_sessions_sets_positive"),
+        CheckConstraint("reps IS NULL OR reps > 0", name="ck_strength_sessions_reps_positive"),
+        CheckConstraint("load IS NULL OR load >= 0", name="ck_strength_sessions_load_non_negative"),
+        CheckConstraint(
+            "session_rpe IS NULL OR (session_rpe >= 1 AND session_rpe <= 10)",
+            name="ck_strength_sessions_rpe_range",
+        ),
+        CheckConstraint(
+            "duration_minutes IS NULL OR duration_minutes > 0",
+            name="ck_strength_sessions_duration_positive",
+        ),
+    )
