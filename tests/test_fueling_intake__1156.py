@@ -41,7 +41,7 @@ def test_kcal_intake_field_accepts_positive_integers():
 
     # Should be Integer, nullable=True
     assert kcal_col.type.__class__.__name__ == 'Integer'
-    assert kcal_col.nullable == True
+    assert kcal_col.nullable
 
 
 def test_daily_metric_api_payload_includes_kcal_intake():
