@@ -7,7 +7,7 @@ window — producing a synergy bonus that neither modality generates alone.
 Public API
 ----------
 compute_economy_stimulus(
-    strength_load, plyo_contacts, speed_kmh, fitness_score)
+    strength_load, plyo_contacts, speed_kmh, fitness_score, *, config=None)
     Pure function. No I/O, no DB calls, no side effects.
 
 Design rationale
@@ -27,6 +27,9 @@ When both modalities are present simultaneously, a combination bonus multiplier
 is applied to the total, rewarding concurrent training stimulus. Each component
 is computed identically whether or not the other is present, so the bonus is
 strictly additive relative to the sum of individual contributions.
+
+All tunable parameters (speed-dependence weights, combination bonus) are read
+from ``EconomyPriorConfig`` — see ``backend.services.economy_config``.
 
 Worked example — combination case
 ----------------------------------
@@ -89,53 +92,44 @@ Order: 8 km/h (186.7) > 12 km/h (180.0) > 16 km/h (120.0) ✓
 
 from __future__ import annotations
 
-# ── Constants ────────────────────────────────────────────────────────────────
+from typing import Optional
 
-# Strength prior: speed and fitness normalization denominators.
-# Chosen so that at typical values (speed ~20 km/h, fitness ~100) the weight
-# reaches roughly 2×–4× the baseline (speed=0, fitness=0) weight of 1.0.
-_STRENGTH_SPEED_SCALE: float = 20.0     # km/h
-_STRENGTH_FITNESS_SCALE: float = 100.0  # arbitrary fitness units
-
-# Plyo prior: boundary speed above which elastic energy return tapers.
-_PLYO_SPEED_THRESHOLD: float = 12.0    # km/h
-
-# Fraction of plyo weight lost by the time speed reaches the threshold.
-# Below threshold the decrease is gentle (this fraction over the full range).
-# Above threshold the remaining weight tapers steeply to zero at 2× threshold.
-_PLYO_BELOW_TAPER_FRACTION: float = 0.1
-
-# Combination bonus multiplier applied when both strength_load > 0 and
-# plyo_contacts > 0.  A value of 1.1 grants a 10% combined-modality bonus.
-_COMBINATION_BONUS: float = 1.1
+from backend.services.economy_config import DEFAULT_ECONOMY_CONFIG, EconomyPriorConfig
 
 
-# ── Internal helpers ─────────────────────────────────────────────────────────
+# ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _strength_weight(speed_kmh: float, fitness_score: float) -> float:
+def _strength_weight(
+    speed_kmh: float,
+    fitness_score: float,
+    speed_scale: float,
+    fitness_scale: float,
+) -> float:
     """Strength weight factor: monotonically non-decreasing in both arguments.
 
     At speed=0, fitness=0 the weight is 1.0 (baseline).  Both speed and
     fitness factors are ≥ 1.0, so the product is always ≥ 1.0.
     """
-    speed_factor = 1.0 + speed_kmh / _STRENGTH_SPEED_SCALE
-    fitness_factor = 1.0 + fitness_score / _STRENGTH_FITNESS_SCALE
+    speed_factor = 1.0 + speed_kmh / speed_scale
+    fitness_factor = 1.0 + fitness_score / fitness_scale
     return speed_factor * fitness_factor
 
 
-def _plyo_weight(speed_kmh: float) -> float:
-    """Plyo weight factor: peaks below 12 km/h, tapers above.
+def _plyo_weight(
+    speed_kmh: float,
+    threshold: float,
+    below_taper_fraction: float,
+) -> float:
+    """Plyo weight factor: peaks below threshold, tapers above.
 
-    Below the 12 km/h threshold there is a gentle linear decrease
-    (from 1.0 at 0 km/h to 0.9 at the threshold).  Above the threshold
-    the weight tapers steeply to 0.0 at twice the threshold (24 km/h).
+    Below the threshold there is a gentle linear decrease (from 1.0 at 0 km/h
+    to (1 - below_taper_fraction) at the threshold).  Above the threshold the
+    weight tapers steeply to 0.0 at twice the threshold.
 
-    The two pieces meet continuously at speed = 12 km/h (weight = 0.9):
-        below: 1 - 0.1 × (speed / 12)  →  at speed=12: 1 - 0.1 = 0.9
-        above: 0.9 × (1 - (speed - 12) / 12)  →  at speed=12: 0.9 × 1 = 0.9
+    The two pieces meet continuously at speed = threshold.
     """
-    T = _PLYO_SPEED_THRESHOLD
-    f = _PLYO_BELOW_TAPER_FRACTION
+    T = threshold
+    f = below_taper_fraction
     if speed_kmh < T:
         return 1.0 - f * (speed_kmh / T)
     else:
@@ -143,13 +137,14 @@ def _plyo_weight(speed_kmh: float) -> float:
         return max(0.0, (1.0 - f) * (1.0 - above / T))
 
 
-# ── Public API ───────────────────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def compute_economy_stimulus(
     strength_load: float,
     plyo_contacts: float,
     speed_kmh: float,
     fitness_score: float,
+    config: Optional[EconomyPriorConfig] = None,
 ) -> float:
     """Compute combined running economy stimulus from strength and plyo load.
 
@@ -166,6 +161,10 @@ def compute_economy_stimulus(
     fitness_score:
         Current athlete fitness level (0–100+ scale). Higher values amplify
         the strength prior. Must be ≥ 0.
+    config:
+        Economy prior configuration.  When ``None`` the singleton
+        ``DEFAULT_ECONOMY_CONFIG`` is used.  Pass a custom
+        ``EconomyPriorConfig`` to experiment with different parameter values.
 
     Returns
     -------
@@ -179,24 +178,39 @@ def compute_economy_stimulus(
     - Monotonically non-decreasing in strength_load and plyo_contacts.
     - Strength component is monotonically non-decreasing in speed_kmh and
       fitness_score.
-    - Plyo component is highest at low speed (< 12 km/h) and tapers above.
+    - Plyo component is highest at low speed (below plyo_speed_threshold)
+      and tapers above.
     - When both strength_load > 0 and plyo_contacts > 0, the combined
-      stimulus strictly exceeds the sum of each computed independently.
+      stimulus strictly exceeds the sum of each computed independently
+      (when combination_bonus > 1.0).
     """
+    if config is None:
+        config = DEFAULT_ECONOMY_CONFIG
+
+    sw = config.speed_weights
+
     # Clamp inputs to valid range
     sl = max(0.0, float(strength_load))
     pc = max(0.0, float(plyo_contacts))
     spd = max(0.0, float(speed_kmh))
     fit = max(0.0, float(fitness_score))
 
-    s_weight = _strength_weight(spd, fit)
-    p_weight = _plyo_weight(spd)
+    s_weight = _strength_weight(
+        spd, fit,
+        speed_scale=sw["strength_speed_scale"],
+        fitness_scale=sw["strength_fitness_scale"],
+    )
+    p_weight = _plyo_weight(
+        spd,
+        threshold=sw["plyo_speed_threshold"],
+        below_taper_fraction=sw["plyo_below_taper_fraction"],
+    )
 
     strength_component = sl * s_weight
     plyo_component = pc * p_weight
 
     if sl > 0.0 and pc > 0.0:
-        stimulus = (strength_component + plyo_component) * _COMBINATION_BONUS
+        stimulus = (strength_component + plyo_component) * config.combination_bonus
     else:
         stimulus = strength_component + plyo_component
 
