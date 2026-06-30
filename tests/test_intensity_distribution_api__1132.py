@@ -14,7 +14,9 @@ Acceptance criteria covered:
 import pathlib
 import py_compile
 import types
+import unittest.mock as mock
 
+import pytest
 
 
 # ---------------------------------------------------------------------------
