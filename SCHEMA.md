@@ -692,3 +692,60 @@ Append-only log of every PR-beating event. Written at workout-ingest time; used 
 | created_at | timestamptz | |
 
 Migration: `a1607bab81de`.
+
+---
+
+## strength_sessions _(added Sprint 94)_
+
+A logged heavy-strength training session. Each row is one exercise entry; the UI groups entries by `session_date` to form a multi-exercise session view. Supports two load-capture patterns that may coexist in the same row: **sets × reps × load** (provide `sets`, `reps`, `load`) and **session-RPE × duration** (provide `session_rpe`, `duration_minutes`). CRUD via `GET/POST /api/strength-sessions`, `PUT/DELETE /api/strength-sessions/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| session_date | date | NOT NULL |
+| exercise_name | varchar(200) | nullable; required by the API on create |
+| sets | int | nullable; check `> 0` |
+| reps | int | nullable; check `> 0` |
+| load | numeric(8,2) | nullable; check `>= 0` |
+| load_unit | varchar(10) | nullable; `kg` / `lbs`; check `ck_strength_sessions_load_unit_values` |
+| session_rpe | int | nullable; 1–10; check `ck_strength_sessions_rpe_range` |
+| duration_minutes | int | nullable; check `> 0` |
+| created_at / updated_at | timestamptz | server default now() |
+
+Index: `ix_strength_sessions_user_date` on `(user_id, session_date)`. Checks: `ck_strength_sessions_sets_positive`, `ck_strength_sessions_reps_positive`, `ck_strength_sessions_load_non_negative`, `ck_strength_sessions_rpe_range`, `ck_strength_sessions_duration_positive`, `ck_strength_sessions_load_unit_values`. Migrations: `6de228e34220` (initial table), `b1dc2caab43e` (add `exercise_name` / `load_unit`).
+
+---
+
+## plyo_sessions _(added Sprint 94)_
+
+A plyometric training session with foot-contact volume tracking. Each row is one exercise entry; the UI groups entries by `session_date`. CRUD via `GET/POST /api/plyo-sessions`, `PUT/DELETE /api/plyo-sessions/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| session_date | date | NOT NULL |
+| exercise_name | varchar(200) | nullable; required by the API on create |
+| foot_contacts | int | NOT NULL; check `>= 0` |
+| plyo_phase | varchar(20) | NOT NULL; `intro` / `build` / `maintain`; check `ck_plyo_sessions_plyo_phase_values` |
+| created_at | timestamptz | nullable; server default now() |
+
+Checks: `ck_plyo_sessions_foot_contacts_non_negative`, `ck_plyo_sessions_plyo_phase_values`. Migration: `6a4bc101eef3`.
+
+---
+
+## economy_ceiling_snapshots _(added Sprint 94)_
+
+Per-user, per-date economy stimulus and lagged score-ceiling bonus, derived from `strength_sessions` and `plyo_sessions` by `backend/services/backfill_economy.py`. Idempotent upsert on `(user_id, snapshot_date)`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| snapshot_date | date | NOT NULL |
+| economy_stimulus | float | NOT NULL; default 0.0; check `>= 0` |
+| ceiling_bonus | float | NOT NULL; default 0.0; check `>= 0` |
+| computed_at | timestamptz | server default now() |
+
+Unique: `(user_id, snapshot_date)` (`uq_economy_ceiling_snapshots_user_date`). Index: `ix_economy_ceiling_snapshots_user_date` on `(user_id, snapshot_date)`. Checks: `ck_economy_ceiling_snapshots_stimulus_non_negative`, `ck_economy_ceiling_snapshots_bonus_non_negative`. Migration: `02ea347c3bd1`.
