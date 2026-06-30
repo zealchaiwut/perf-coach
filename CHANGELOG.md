@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 94 — Strength & plyo session logging and the economy ceiling model
+
+- #1142: Add strength session logging table and model
+- #1143: Add plyometric session logging with foot-contacts
+- #1145: Build strength and plyo session entry UI
+- #1146: Compute economy stimulus from strength and plyo load
+- #1147: Model delayed ceiling lift via lagged stimulus ramp
+- #1148: Wire economy ceiling bonus into projection score-ceiling hook
+- #1149: Backfill economy model across historical sessions
+
 ## Sprint 93 — Intensity-band classification, distribution chart, and polarized-split check
 
 - #1128: Classify each lap by intensity band
