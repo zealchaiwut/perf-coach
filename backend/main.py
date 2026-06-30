@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -82,6 +82,8 @@ from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _N
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
 from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
+from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
+from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
 from backend.routers.plan import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
@@ -14219,6 +14221,68 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             score_state = "error"
 
+        # ── Economy contribution (issue #1150) ────────────────────────────────
+        # Query strength and plyo sessions within the lag window and compute the
+        # lagged economy ceiling bonus so we can surface it in the UI.
+        economy_contribution = 0.0
+        try:
+            lag_start = today - _timedelta(days=_LAG_WINDOW_DAYS)
+            strength_rows = (
+                db.query(StrengthSession)
+                .filter(
+                    StrengthSession.user_id == user.id,
+                    StrengthSession.session_date >= lag_start,
+                    StrengthSession.session_date <= today,
+                )
+                .all()
+            )
+            plyo_rows = (
+                db.query(PlyoSession)
+                .filter(
+                    PlyoSession.user_id == user.id,
+                    PlyoSession.session_date >= lag_start,
+                    PlyoSession.session_date <= today,
+                )
+                .all()
+            )
+
+            # Aggregate load and contacts per day
+            from collections import defaultdict as _defaultdict
+            day_strength: dict = _defaultdict(float)
+            day_plyo: dict = _defaultdict(float)
+
+            for s in strength_rows:
+                sets = s.sets or 0
+                reps = s.reps or 0
+                load = float(s.load or 0)
+                load_unit = s.load_unit or "kg"
+                load_kg = load * 0.453592 if load_unit == "lbs" else load
+                if sets > 0 and reps > 0 and load_kg > 0:
+                    day_strength[s.session_date] += sets * reps * load_kg
+                elif (s.session_rpe or 0) > 0 and (s.duration_minutes or 0) > 0:
+                    # RPE-based fallback: scale to same order as volume-load
+                    day_strength[s.session_date] += (s.session_rpe or 0) * (s.duration_minutes or 0) * 10.0
+
+            for p in plyo_rows:
+                day_plyo[p.session_date] += float(p.foot_contacts)
+
+            # Current CTL as fitness proxy; default 50 if no history yet
+            current_ctl = load_curves[-1]["ctl"] if load_curves else 50.0
+            default_speed_kmh = 10.0  # representative easy-run speed for weighting
+
+            all_session_dates = set(day_strength.keys()) | set(day_plyo.keys())
+            stimulus_history = []
+            for d in sorted(all_session_dates):
+                sl = day_strength.get(d, 0.0)
+                pc = day_plyo.get(d, 0.0)
+                stim = _compute_economy_stimulus(sl, pc, default_speed_kmh, current_ctl)
+                if stim > 0.0:
+                    stimulus_history.append((d, stim))
+
+            economy_contribution = round(_compute_ceiling_bonus(stimulus_history, today), 2)
+        except Exception:
+            economy_contribution = 0.0
+
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -14228,6 +14292,9 @@ def get_projection(user: User = Depends(resolve_user)):
         "endurance_score": endurance_score,
         "speed_score": speed_score,
         "score_state": score_state,
+        "economy_contribution": economy_contribution,
+        "lag_peak_days": _LAG_PEAK_DAYS,
+        "lag_window_days": _LAG_WINDOW_DAYS,
     })
 
 
