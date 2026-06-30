@@ -15,7 +15,6 @@ Acceptance criteria anchored:
 import pathlib
 import py_compile
 
-
 from backend.services.polarized_split import check_polarized_split
 
 
