@@ -13,7 +13,6 @@ import math
 import py_compile
 import os
 
-import pytest
 
 from backend.services.body_modifier import compute_body_modifier, RATE_THRESHOLD_LOW, RATE_THRESHOLD_HIGH
 
