@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session as _Session
 
 from backend.auth import COOKIE_NAME, get_current_user
 from backend.db import engine as _engine
-from backend.models import PlyoSession as _PlyoSession, StrengthSession as _StrengthSession, User
+from backend.models import (
+    PlyoSession as _PlyoSession,
+    StrengthSession as _StrengthSession,
+    User,
+)
 
 router = APIRouter()
 
@@ -23,7 +27,7 @@ _PLYO_PHASES = ("intro", "build", "maintain")
 _LOAD_UNITS = ("kg", "lbs")
 
 
-# ── Auth dependency ───────────────────────────────────────────────────────────
+# -- Auth dependency ----------------------------------------------------------
 
 async def _resolve_user(request: Request) -> User:
     token = request.cookies.get(COOKIE_NAME)
@@ -32,7 +36,7 @@ async def _resolve_user(request: Request) -> User:
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
-# ── ID parsing ────────────────────────────────────────────────────────────────
+# -- ID parsing ---------------------------------------------------------------
 
 def _parse_id(value: str, field: str = "id") -> _uuid.UUID:
     try:
@@ -41,7 +45,7 @@ def _parse_id(value: str, field: str = "id") -> _uuid.UUID:
         raise HTTPException(status_code=400, detail=f"invalid {field}")
 
 
-# ── Serializers ───────────────────────────────────────────────────────────────
+# -- Serializers --------------------------------------------------------------
 
 def _strength_dict(s: _StrengthSession) -> dict:
     return {
@@ -70,7 +74,7 @@ def _plyo_dict(p: _PlyoSession) -> dict:
     }
 
 
-# ── Request bodies ────────────────────────────────────────────────────────────
+# -- Request bodies -----------------------------------------------------------
 
 class _StrengthCreateBody(BaseModel):
     session_date: str
@@ -108,7 +112,7 @@ class _PlyoPatchBody(BaseModel):
     plyo_phase: Optional[str] = None
 
 
-# ── Validation helpers ────────────────────────────────────────────────────────
+# -- Validation helpers -------------------------------------------------------
 
 def _validate_session_date(date_str: str):
     from datetime import date
@@ -125,7 +129,10 @@ def _validate_load_unit(unit: Optional[str]) -> Optional[str]:
     if unit is not None and unit not in _LOAD_UNITS:
         raise HTTPException(
             status_code=422,
-            detail={"field": "load_unit", "error": f"must be one of: {', '.join(_LOAD_UNITS)}"},
+            detail={
+                "field": "load_unit",
+                "error": f"must be one of: {', '.join(_LOAD_UNITS)}",
+            },
         )
     return unit
 
@@ -134,7 +141,10 @@ def _validate_plyo_phase(phase: str) -> str:
     if phase not in _PLYO_PHASES:
         raise HTTPException(
             status_code=422,
-            detail={"field": "plyo_phase", "error": f"must be one of: {', '.join(_PLYO_PHASES)}"},
+            detail={
+                "field": "plyo_phase",
+                "error": f"must be one of: {', '.join(_PLYO_PHASES)}",
+            },
         )
     return phase
 
@@ -143,12 +153,15 @@ def _validate_exercise_name(name: Optional[str]) -> str:
     if not name or not name.strip():
         raise HTTPException(
             status_code=422,
-            detail={"field": "exercise_name", "error": "exercise_name is required"},
+            detail={
+                "field": "exercise_name",
+                "error": "exercise_name is required",
+            },
         )
     return name.strip()
 
 
-# ── Strength session endpoints ────────────────────────────────────────────────
+# -- Strength session endpoints -----------------------------------------------
 
 @router.get("/api/strength-sessions")
 async def list_strength_sessions(user: User = Depends(_resolve_user)):
@@ -239,7 +252,7 @@ async def delete_strength_session(
     return Response(status_code=204)
 
 
-# ── Plyo session endpoints ────────────────────────────────────────────────────
+# -- Plyo session endpoints ---------------------------------------------------
 
 @router.get("/api/plyo-sessions")
 async def list_plyo_sessions(user: User = Depends(_resolve_user)):

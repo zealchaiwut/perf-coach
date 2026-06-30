@@ -4,17 +4,23 @@ Tests for issue #1145: Build strength and plyo session entry UI.
 Acceptance criteria verified:
 - AC1: User can open a session entry form (page accessible at /sessions)
 - AC2: Strength form captures exercise name, sets, reps, load (weight + unit)
-        → POST /api/strength-sessions stores exercise_name, sets, reps, load, load_unit
+        → POST /api/strength-sessions stores exercise_name, sets, reps,
+          load, load_unit
 - AC3: Plyo form captures exercise name, foot-contacts, phase
-        → POST /api/plyo-sessions stores exercise_name, foot_contacts, plyo_phase
+        → POST /api/plyo-sessions stores exercise_name, foot_contacts,
+          plyo_phase
 - AC4: Multiple exercises per session
         → Multiple POSTs to the same endpoint work (grouped by date in UI)
-- AC5: Edit exercise entry inline → PUT /api/strength-sessions/{id} and PUT /api/plyo-sessions/{id}
-- AC6: Delete exercise entry → DELETE /api/strength-sessions/{id} and DELETE /api/plyo-sessions/{id}
+- AC5: Edit exercise entry inline
+        → PUT /api/strength-sessions/{id} and PUT /api/plyo-sessions/{id}
+- AC6: Delete exercise entry
+        → DELETE /api/strength-sessions/{id} and DELETE /api/plyo-sessions/{id}
 - AC7: POST shows success → API returns 201 on create
 - AC8: PUT persists changes → updated fields returned in response
 - AC9: DELETE removes record → subsequent GET no longer includes it
-- AC10: Sessions reload on refresh → GET /api/strength-sessions and GET /api/plyo-sessions return persisted data
+- AC10: Sessions reload on refresh
+        → GET /api/strength-sessions and GET /api/plyo-sessions
+          return persisted data
 - AC11: Form validation → missing required fields return 422 with field detail
 - AC12: Responsive UI → (verified by page existence; layout is in HTML/CSS)
 """
@@ -25,7 +31,7 @@ import uuid
 import httpx
 import pytest
 from dotenv import dotenv_values
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
@@ -42,7 +48,8 @@ _engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 def _require_engine():
     if _engine is None:
-        pytest.skip("DATABASE_URL_UAT not set — skipping Postgres-specific test")
+        pytest.skip(
+            "DATABASE_URL_UAT not set — skipping Postgres-specific test")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -85,7 +92,10 @@ def auth_client(user_id):
         u = db.get(_UserModel, uuid.UUID(user_id))
         name = u.name
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-        res = bare.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
+        res = bare.post(
+            "/api/auth/login",
+            json={"username": name, "password": _TEST_PW},
+        )
     assert res.status_code == 200, res.text
     session_cookie = res.cookies.get("session")
     csrf_token = res.cookies.get(CSRF_COOKIE_NAME)
@@ -99,7 +109,7 @@ def auth_client(user_id):
     c.close()
 
 
-# ── AC1: Page accessible ───────────────────────────────────────────────────────
+# ── AC1: Page accessible ────────────────────────────────────────────────
 
 def test_sessions_page_accessible(auth_client):
     """Session entry page is served at /sessions (AC1)."""
@@ -108,14 +118,16 @@ def test_sessions_page_accessible(auth_client):
     assert "text/html" in r.headers.get("content-type", "")
 
 
-# ── DB schema checks ───────────────────────────────────────────────────────────
+# ── DB schema checks ────────────────────────────────────────────────────
 
 def test_strength_sessions_has_exercise_name_column():
     """strength_sessions has exercise_name column (AC2)."""
     _require_engine()
     inspector = inspect(_engine)
     cols = {c["name"] for c in inspector.get_columns("strength_sessions")}
-    assert "exercise_name" in cols, "exercise_name column missing from strength_sessions"
+    assert "exercise_name" in cols, (
+        "exercise_name column missing from strength_sessions"
+    )
 
 
 def test_strength_sessions_has_load_unit_column():
@@ -123,7 +135,9 @@ def test_strength_sessions_has_load_unit_column():
     _require_engine()
     inspector = inspect(_engine)
     cols = {c["name"] for c in inspector.get_columns("strength_sessions")}
-    assert "load_unit" in cols, "load_unit column missing from strength_sessions"
+    assert "load_unit" in cols, (
+        "load_unit column missing from strength_sessions"
+    )
 
 
 def test_plyo_sessions_has_exercise_name_column():
@@ -131,13 +145,15 @@ def test_plyo_sessions_has_exercise_name_column():
     _require_engine()
     inspector = inspect(_engine)
     cols = {c["name"] for c in inspector.get_columns("plyo_sessions")}
-    assert "exercise_name" in cols, "exercise_name column missing from plyo_sessions"
+    assert "exercise_name" in cols, (
+        "exercise_name column missing from plyo_sessions"
+    )
 
 
-# ── AC2: Strength session CRUD ─────────────────────────────────────────────────
+# ── AC2: Strength session CRUD ──────────────────────────────────────────
 
 def test_post_strength_session_creates_entry(auth_client):
-    """POST /api/strength-sessions creates a new entry with all required fields (AC2, AC7)."""
+    """POST /api/strength-sessions creates entry with required fields (AC2)."""
     payload = {
         "session_date": "2099-07-01",
         "exercise_name": "Squat",
@@ -231,9 +247,12 @@ def test_multiple_strength_exercises_in_session(auth_client):
     """Multiple exercises with the same date can all be created (AC4)."""
     date = "2099-07-05"
     exercises = [
-        {"session_date": date, "exercise_name": "Squat", "sets": 3, "reps": 5, "load": 100.0, "load_unit": "kg"},
-        {"session_date": date, "exercise_name": "Deadlift", "sets": 3, "reps": 5, "load": 120.0, "load_unit": "kg"},
-        {"session_date": date, "exercise_name": "Bench", "sets": 3, "reps": 5, "load": 80.0, "load_unit": "kg"},
+        {"session_date": date, "exercise_name": "Squat", "sets": 3,
+            "reps": 5, "load": 100.0, "load_unit": "kg"},
+        {"session_date": date, "exercise_name": "Deadlift",
+            "sets": 3, "reps": 5, "load": 120.0, "load_unit": "kg"},
+        {"session_date": date, "exercise_name": "Bench",
+            "sets": 3, "reps": 5, "load": 80.0, "load_unit": "kg"},
     ]
     ids = []
     for ex in exercises:
@@ -249,7 +268,7 @@ def test_multiple_strength_exercises_in_session(auth_client):
         auth_client.delete(f"/api/strength-sessions/{entry_id}")
 
 
-# ── AC11: Validation — strength ───────────────────────────────────────────────
+# ── AC11: Validation — strength ─────────────────────────────────────────
 
 def test_post_strength_session_requires_session_date(auth_client):
     """POST /api/strength-sessions without session_date returns 422 (AC11)."""
@@ -271,10 +290,10 @@ def test_post_strength_session_requires_exercise_name(auth_client):
     assert r.status_code == 422
 
 
-# ── AC3: Plyo session CRUD ─────────────────────────────────────────────────────
+# ── AC3: Plyo session CRUD ──────────────────────────────────────────────
 
 def test_post_plyo_session_creates_entry(auth_client):
-    """POST /api/plyo-sessions creates a new entry with all required fields (AC3, AC7)."""
+    """POST /api/plyo-sessions creates entry with required fields (AC3)."""
     payload = {
         "session_date": "2099-07-10",
         "exercise_name": "Box Jump",
@@ -355,8 +374,10 @@ def test_multiple_plyo_exercises_in_session(auth_client):
     """Multiple plyo exercises with the same date can all be created (AC4)."""
     date = "2099-07-14"
     exercises = [
-        {"session_date": date, "exercise_name": "Box Jump", "foot_contacts": 60, "plyo_phase": "build"},
-        {"session_date": date, "exercise_name": "Broad Jump", "foot_contacts": 40, "plyo_phase": "build"},
+        {"session_date": date, "exercise_name": "Box Jump",
+            "foot_contacts": 60, "plyo_phase": "build"},
+        {"session_date": date, "exercise_name": "Broad Jump",
+            "foot_contacts": 40, "plyo_phase": "build"},
     ]
     ids = []
     for ex in exercises:
@@ -371,7 +392,7 @@ def test_multiple_plyo_exercises_in_session(auth_client):
         auth_client.delete(f"/api/plyo-sessions/{entry_id}")
 
 
-# ── AC11: Validation — plyo ────────────────────────────────────────────────────
+# ── AC11: Validation — plyo ─────────────────────────────────────────────
 
 def test_post_plyo_session_requires_exercise_name(auth_client):
     """POST /api/plyo-sessions without exercise_name returns 422 (AC11)."""
@@ -414,7 +435,7 @@ def test_post_plyo_session_requires_valid_phase(auth_client):
     assert r.status_code == 422
 
 
-# ── Auth: unauthenticated requests blocked ─────────────────────────────────────
+# ── Auth: unauthenticated requests blocked ──────────────────────────────
 
 def test_strength_sessions_requires_auth():
     """GET /api/strength-sessions without auth returns 401 (security)."""
@@ -428,7 +449,7 @@ def test_plyo_sessions_requires_auth():
     assert r.status_code == 401
 
 
-# ── Frontend files exist ───────────────────────────────────────────────────────
+# ── Frontend files exist ────────────────────────────────────────────────
 
 def test_sessions_html_exists():
     """frontend/pages/sessions.html exists (AC1, AC12)."""

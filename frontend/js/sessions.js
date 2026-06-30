@@ -1,28 +1,28 @@
 (function () {
   "use strict";
 
-  // ── Constants ───────────────────────────────────────────────────────────────
+  // -- Constants ---------------------------------------------------------------
 
   var PLYO_PHASES = [
-    { value: "intro",    label: "Intro" },
-    { value: "build",    label: "Build" },
+    { value: "intro", label: "Intro" },
+    { value: "build", label: "Build" },
     { value: "maintain", label: "Maintain" },
   ];
 
   var LOAD_UNITS = ["kg", "lbs"];
 
-  // ── State ───────────────────────────────────────────────────────────────────
+  // -- State -------------------------------------------------------------------
 
   var state = {
-    sessionType: "strength",   // "strength" | "plyo"
-    exercises: [],             // array of {_id, exercise_name, sets, reps, load, load_unit, foot_contacts, plyo_phase}
-    editingEntryId: null,      // DB id of an existing exercise entry being edited (null for new)
+    sessionType: "strength", // "strength" | "plyo"
+    exercises: [], // array of {_id, exercise_name, sets, reps, load, load_unit, foot_contacts, plyo_phase}
+    editingEntryId: null, // DB id of an existing exercise entry being edited (null for new)
     sessionDate: "",
-    strengthEntries: [],       // persisted entries from GET /api/strength-sessions
-    plyoEntries: [],           // persisted entries from GET /api/plyo-sessions
+    strengthEntries: [], // persisted entries from GET /api/strength-sessions
+    plyoEntries: [], // persisted entries from GET /api/plyo-sessions
   };
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
+  // -- Helpers -----------------------------------------------------------------
 
   function esc(s) {
     if (s == null) return "";
@@ -42,7 +42,11 @@
     if (!str) return "—";
     try {
       var d = new Date(str + "T00:00:00");
-      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      return d.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
     } catch (e) {
       return str;
     }
@@ -56,12 +60,18 @@
   function apiFetch(url, opts) {
     opts = opts || {};
     opts.credentials = "include";
-    opts.headers = Object.assign({ "Content-Type": "application/json", "X-CSRF-Token": getCsrf() }, opts.headers || {});
+    opts.headers = Object.assign(
+      { "Content-Type": "application/json", "X-CSRF-Token": getCsrf() },
+      opts.headers || {},
+    );
     return fetch(url, opts).then(function (r) {
       if (r.status === 204) return null;
       return r.json().then(function (data) {
         if (!r.ok) {
-          var msg = (data && data.detail) ? JSON.stringify(data.detail) : "Request failed (" + r.status + ")";
+          var msg =
+            data && data.detail
+              ? JSON.stringify(data.detail)
+              : "Request failed (" + r.status + ")";
           var err = new Error(msg);
           err.status = r.status;
           err.data = data;
@@ -72,7 +82,7 @@
     });
   }
 
-  // ── Toast ───────────────────────────────────────────────────────────────────
+  // -- Toast -------------------------------------------------------------------
 
   var _toastTimer = null;
   function showToast(msg, type) {
@@ -80,56 +90,130 @@
     t.textContent = msg;
     t.className = "se-toast " + (type || "success") + " is-visible";
     clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(function () { t.className = "se-toast"; }, 2600);
+    _toastTimer = setTimeout(function () {
+      t.className = "se-toast";
+    }, 2600);
   }
 
-  // ── Exercise row builder (form) ──────────────────────────────────────────────
+  // -- Exercise row builder (form) ----------------------------------------------
 
   var _exSeq = 0;
   function newExerciseRow() {
-    return { _id: ++_exSeq, exercise_name: "", sets: "", reps: "", load: "", load_unit: "kg", foot_contacts: "", plyo_phase: "intro" };
+    return {
+      _id: ++_exSeq,
+      exercise_name: "",
+      sets: "",
+      reps: "",
+      load: "",
+      load_unit: "kg",
+      foot_contacts: "",
+      plyo_phase: "intro",
+    };
   }
 
   function renderExerciseRow(ex, idx) {
     var type = state.sessionType;
     var gridCls = type === "strength" ? "strength-grid" : "plyo-grid";
 
-    var deleteBtn = state.exercises.length > 1
-      ? '<button type="button" class="se-ex-delete" data-seq="' + ex._id + '" title="Remove exercise">×</button>'
-      : "";
+    var deleteBtn =
+      state.exercises.length > 1
+        ? '<button type="button" class="se-ex-delete" data-seq="' +
+          ex._id +
+          '" title="Remove exercise">×</button>'
+        : "";
 
     if (type === "strength") {
       return (
-        '<div class="se-ex-row ' + gridCls + '" data-seq="' + ex._id + '">' +
+        '<div class="se-ex-row ' +
+        gridCls +
+        '" data-seq="' +
+        ex._id +
+        '">' +
         deleteBtn +
         '<div class="se-ex-field" data-area="name"><label>Exercise *</label>' +
-        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' + ex._id + '" value="' + esc(ex.exercise_name) + '" placeholder="e.g. Squat" maxlength="200"></div>' +
+        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.exercise_name) +
+        '" placeholder="e.g. Squat" maxlength="200"></div>' +
         '<div class="se-ex-field" data-area="sets"><label>Sets</label>' +
-        '<input class="se-ex-input" type="number" data-field="sets" data-seq="' + ex._id + '" value="' + esc(ex.sets) + '" min="1" placeholder="—"></div>' +
+        '<input class="se-ex-input" type="number" data-field="sets" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.sets) +
+        '" min="1" placeholder="—"></div>' +
         '<div class="se-ex-field" data-area="reps"><label>Reps</label>' +
-        '<input class="se-ex-input" type="number" data-field="reps" data-seq="' + ex._id + '" value="' + esc(ex.reps) + '" min="1" placeholder="—"></div>' +
+        '<input class="se-ex-input" type="number" data-field="reps" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.reps) +
+        '" min="1" placeholder="—"></div>' +
         '<div class="se-ex-field" data-area="load"><label>Load</label>' +
-        '<input class="se-ex-input" type="number" data-field="load" data-seq="' + ex._id + '" value="' + esc(ex.load) + '" min="0" step="0.5" placeholder="—"></div>' +
+        '<input class="se-ex-input" type="number" data-field="load" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.load) +
+        '" min="0" step="0.5" placeholder="—"></div>' +
         '<div class="se-ex-field" data-area="unit"><label>Unit</label>' +
-        '<select class="se-ex-select" data-field="load_unit" data-seq="' + ex._id + '">' +
-        LOAD_UNITS.map(function (u) { return '<option value="' + u + '"' + (ex.load_unit === u ? " selected" : "") + ">" + u + "</option>"; }).join("") +
+        '<select class="se-ex-select" data-field="load_unit" data-seq="' +
+        ex._id +
+        '">' +
+        LOAD_UNITS.map(function (u) {
+          return (
+            '<option value="' +
+            u +
+            '"' +
+            (ex.load_unit === u ? " selected" : "") +
+            ">" +
+            u +
+            "</option>"
+          );
+        }).join("") +
         "</select></div>" +
-        '<div class="se-ex-errors" data-seq-err="' + ex._id + '"></div>' +
+        '<div class="se-ex-errors" data-seq-err="' +
+        ex._id +
+        '"></div>' +
         "</div>"
       );
     } else {
       return (
-        '<div class="se-ex-row ' + gridCls + '" data-seq="' + ex._id + '">' +
+        '<div class="se-ex-row ' +
+        gridCls +
+        '" data-seq="' +
+        ex._id +
+        '">' +
         deleteBtn +
         '<div class="se-ex-field" data-area="name"><label>Exercise *</label>' +
-        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' + ex._id + '" value="' + esc(ex.exercise_name) + '" placeholder="e.g. Box Jump" maxlength="200"></div>' +
+        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.exercise_name) +
+        '" placeholder="e.g. Box Jump" maxlength="200"></div>' +
         '<div class="se-ex-field" data-area="contacts"><label>Foot Contacts *</label>' +
-        '<input class="se-ex-input" type="number" data-field="foot_contacts" data-seq="' + ex._id + '" value="' + esc(ex.foot_contacts) + '" min="0" placeholder="e.g. 80"></div>' +
+        '<input class="se-ex-input" type="number" data-field="foot_contacts" data-seq="' +
+        ex._id +
+        '" value="' +
+        esc(ex.foot_contacts) +
+        '" min="0" placeholder="e.g. 80"></div>' +
         '<div class="se-ex-field" data-area="phase"><label>Phase *</label>' +
-        '<select class="se-ex-select" data-field="plyo_phase" data-seq="' + ex._id + '">' +
-        PLYO_PHASES.map(function (p) { return '<option value="' + p.value + '"' + (ex.plyo_phase === p.value ? " selected" : "") + ">" + p.label + "</option>"; }).join("") +
+        '<select class="se-ex-select" data-field="plyo_phase" data-seq="' +
+        ex._id +
+        '">' +
+        PLYO_PHASES.map(function (p) {
+          return (
+            '<option value="' +
+            p.value +
+            '"' +
+            (ex.plyo_phase === p.value ? " selected" : "") +
+            ">" +
+            p.label +
+            "</option>"
+          );
+        }).join("") +
         "</select></div>" +
-        '<div class="se-ex-errors" data-seq-err="' + ex._id + '"></div>' +
+        '<div class="se-ex-errors" data-seq-err="' +
+        ex._id +
+        '"></div>' +
         "</div>"
       );
     }
@@ -137,7 +221,11 @@
 
   function renderForm() {
     var container = document.getElementById("se-exercises");
-    container.innerHTML = state.exercises.map(function (ex, i) { return renderExerciseRow(ex, i); }).join("");
+    container.innerHTML = state.exercises
+      .map(function (ex, i) {
+        return renderExerciseRow(ex, i);
+      })
+      .join("");
     wireFormInputs();
   }
 
@@ -147,13 +235,17 @@
       el.addEventListener("input", function () {
         var seq = parseInt(el.dataset.seq, 10);
         var field = el.dataset.field;
-        var ex = state.exercises.find(function (e) { return e._id === seq; });
+        var ex = state.exercises.find(function (e) {
+          return e._id === seq;
+        });
         if (ex) ex[field] = el.value;
       });
       el.addEventListener("change", function () {
         var seq = parseInt(el.dataset.seq, 10);
         var field = el.dataset.field;
-        var ex = state.exercises.find(function (e) { return e._id === seq; });
+        var ex = state.exercises.find(function (e) {
+          return e._id === seq;
+        });
         if (ex) ex[field] = el.value;
       });
     });
@@ -163,28 +255,44 @@
       btn.addEventListener("click", function () {
         var seq = parseInt(btn.dataset.seq, 10);
         if (state.exercises.length <= 1) return;
-        var idx = state.exercises.findIndex(function (e) { return e._id === seq; });
+        var idx = state.exercises.findIndex(function (e) {
+          return e._id === seq;
+        });
         if (idx !== -1) state.exercises.splice(idx, 1);
         renderForm();
       });
     });
   }
 
-  // ── Validation ───────────────────────────────────────────────────────────────
+  // -- Validation ---------------------------------------------------------------
 
   function clearErrors() {
-    document.querySelectorAll(".se-ex-errors").forEach(function (el) { el.innerHTML = ""; });
-    document.querySelectorAll(".has-error").forEach(function (el) { el.classList.remove("has-error"); });
+    document.querySelectorAll(".se-ex-errors").forEach(function (el) {
+      el.innerHTML = "";
+    });
+    document.querySelectorAll(".has-error").forEach(function (el) {
+      el.classList.remove("has-error");
+    });
     var dateErr = document.getElementById("se-date-err");
-    if (dateErr) { dateErr.style.display = "none"; dateErr.textContent = ""; }
+    if (dateErr) {
+      dateErr.style.display = "none";
+      dateErr.textContent = "";
+    }
   }
 
   function fieldError(seq, field, msg) {
-    var input = document.querySelector('[data-field="' + field + '"][data-seq="' + seq + '"]');
+    var input = document.querySelector(
+      '[data-field="' + field + '"][data-seq="' + seq + '"]',
+    );
     if (input) input.classList.add("has-error");
     var errContainer = document.querySelector('[data-seq-err="' + seq + '"]');
     if (errContainer) {
-      errContainer.innerHTML += '<span class="se-ex-error-msg">' + esc(field) + ": " + esc(msg) + "</span>";
+      errContainer.innerHTML +=
+        '<span class="se-ex-error-msg">' +
+        esc(field) +
+        ": " +
+        esc(msg) +
+        "</span>";
     }
   }
 
@@ -220,7 +328,7 @@
     return ok;
   }
 
-  // ── Form show/hide ───────────────────────────────────────────────────────────
+  // -- Form show/hide -----------------------------------------------------------
 
   function showForm() {
     var card = document.getElementById("se-form-card");
@@ -240,7 +348,7 @@
     clearErrors();
   }
 
-  // ── Type switching ───────────────────────────────────────────────────────────
+  // -- Type switching -----------------------------------------------------------
 
   function updateTypeButtons() {
     var strengthBtn = document.getElementById("se-type-strength");
@@ -254,7 +362,7 @@
     }
   }
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
+  // -- Submit -------------------------------------------------------------------
 
   function submitForm() {
     if (!validateForm()) return;
@@ -264,7 +372,10 @@
     btn.disabled = true;
     btn.textContent = "Saving…";
 
-    var endpoint = state.sessionType === "strength" ? "/api/strength-sessions" : "/api/plyo-sessions";
+    var endpoint =
+      state.sessionType === "strength"
+        ? "/api/strength-sessions"
+        : "/api/plyo-sessions";
 
     var promises = state.exercises.map(function (ex) {
       var payload;
@@ -285,7 +396,10 @@
           plyo_phase: ex.plyo_phase || "intro",
         };
       }
-      return apiFetch(endpoint, { method: "POST", body: JSON.stringify(payload) });
+      return apiFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
     });
 
     Promise.all(promises)
@@ -303,12 +417,17 @@
       });
   }
 
-  // ── Inline edit (single exercise entry) ──────────────────────────────────────
+  // -- Inline edit (single exercise entry) --------------------------------------
 
   function openEditEntry(id, type) {
-    var entry = type === "strength"
-      ? state.strengthEntries.find(function (e) { return e.id === id; })
-      : state.plyoEntries.find(function (e) { return e.id === id; });
+    var entry =
+      type === "strength"
+        ? state.strengthEntries.find(function (e) {
+            return e.id === id;
+          })
+        : state.plyoEntries.find(function (e) {
+            return e.id === id;
+          });
     if (!entry) return;
 
     state.sessionType = type;
@@ -348,7 +467,10 @@
     btn.textContent = "Saving…";
 
     var ex = state.exercises[0];
-    var endpoint = (state.sessionType === "strength" ? "/api/strength-sessions/" : "/api/plyo-sessions/") + state.editingEntryId;
+    var endpoint =
+      (state.sessionType === "strength"
+        ? "/api/strength-sessions/"
+        : "/api/plyo-sessions/") + state.editingEntryId;
     var payload;
     if (state.sessionType === "strength") {
       payload = {
@@ -389,11 +511,19 @@
     hideForm();
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────────
+  // -- Delete --------------------------------------------------------------------
 
   function confirmDeleteEntry(id, type, name) {
-    if (!confirm('Delete "' + (name || "this exercise") + '"? This cannot be undone.')) return;
-    var endpoint = (type === "strength" ? "/api/strength-sessions/" : "/api/plyo-sessions/") + id;
+    if (
+      !confirm(
+        'Delete "' + (name || "this exercise") + '"? This cannot be undone.',
+      )
+    )
+      return;
+    var endpoint =
+      (type === "strength"
+        ? "/api/strength-sessions/"
+        : "/api/plyo-sessions/") + id;
     apiFetch(endpoint, { method: "DELETE" })
       .then(function () {
         showToast("Entry deleted.", "success");
@@ -404,7 +534,7 @@
       });
   }
 
-  // ── List rendering ────────────────────────────────────────────────────────────
+  // -- List rendering ------------------------------------------------------------
 
   function groupByDate(entries, type) {
     var groups = {};
@@ -413,7 +543,9 @@
       if (!groups[d]) groups[d] = { date: d, type: type, exercises: [] };
       groups[d].exercises.push(e);
     });
-    return Object.values(groups).sort(function (a, b) { return b.date.localeCompare(a.date); });
+    return Object.values(groups).sort(function (a, b) {
+      return b.date.localeCompare(a.date);
+    });
   }
 
   function strengthDetail(e) {
@@ -425,39 +557,70 @@
   }
 
   function plyoDetail(e) {
-    var phase = PLYO_PHASES.find(function (p) { return p.value === e.plyo_phase; });
-    return (e.foot_contacts != null ? e.foot_contacts + " contacts" : "—") +
-      " · " + (phase ? phase.label : e.plyo_phase || "—");
+    var phase = PLYO_PHASES.find(function (p) {
+      return p.value === e.plyo_phase;
+    });
+    return (
+      (e.foot_contacts != null ? e.foot_contacts + " contacts" : "—") +
+      " · " +
+      (phase ? phase.label : e.plyo_phase || "—")
+    );
   }
 
   function renderSessionGroup(g) {
     var badgeCls = g.type;
     var label = g.type === "strength" ? "Strength" : "Plyo";
 
-    var exHtml = g.exercises.map(function (e) {
-      var detail = g.type === "strength" ? strengthDetail(e) : plyoDetail(e);
-      return (
-        '<div class="se-ex-item">' +
-        '<span class="se-ex-dot ' + badgeCls + '"></span>' +
-        '<span class="se-ex-item-name">' + esc(e.exercise_name || "Exercise") + "</span>" +
-        '<span class="se-ex-item-detail">' + esc(detail) + "</span>" +
-        '<div class="se-ex-item-actions">' +
-        '<button class="se-ex-item-btn edit" data-id="' + e.id + '" data-type="' + g.type + '">Edit</button>' +
-        '<button class="se-ex-item-btn del" data-id="' + e.id + '" data-type="' + g.type + '" data-name="' + esc(e.exercise_name) + '">Delete</button>' +
-        "</div>" +
-        "</div>"
-      );
-    }).join("");
+    var exHtml = g.exercises
+      .map(function (e) {
+        var detail = g.type === "strength" ? strengthDetail(e) : plyoDetail(e);
+        return (
+          '<div class="se-ex-item">' +
+          '<span class="se-ex-dot ' +
+          badgeCls +
+          '"></span>' +
+          '<span class="se-ex-item-name">' +
+          esc(e.exercise_name || "Exercise") +
+          "</span>" +
+          '<span class="se-ex-item-detail">' +
+          esc(detail) +
+          "</span>" +
+          '<div class="se-ex-item-actions">' +
+          '<button class="se-ex-item-btn edit" data-id="' +
+          e.id +
+          '" data-type="' +
+          g.type +
+          '">Edit</button>' +
+          '<button class="se-ex-item-btn del" data-id="' +
+          e.id +
+          '" data-type="' +
+          g.type +
+          '" data-name="' +
+          esc(e.exercise_name) +
+          '">Delete</button>' +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
 
     return (
       '<div class="se-session-card">' +
       '<div class="se-session-header">' +
       '<div class="se-session-meta">' +
-      '<span class="se-session-badge ' + badgeCls + '">' + label + "</span>" +
-      '<span class="se-session-date">' + fmtDate(g.date) + "</span>" +
+      '<span class="se-session-badge ' +
+      badgeCls +
+      '">' +
+      label +
+      "</span>" +
+      '<span class="se-session-date">' +
+      fmtDate(g.date) +
+      "</span>" +
       "</div>" +
       "</div>" +
-      '<div class="se-ex-list">' + exHtml + "</div>" +
+      '<div class="se-ex-list">' +
+      exHtml +
+      "</div>" +
       "</div>"
     );
   }
@@ -474,12 +637,15 @@
       container.innerHTML =
         '<div class="se-card se-empty">' +
         "<strong>No sessions yet</strong>" +
-        "Click "Add Session" above to log your first strength or plyo session." +
+        "<p>Click “Add Session” above to log your first strength or plyo session.</p>" +
         "</div>";
       return;
     }
 
-    container.innerHTML = '<div class="se-list">' + allGroups.map(renderSessionGroup).join("") + "</div>";
+    container.innerHTML =
+      '<div class="se-list">' +
+      allGroups.map(renderSessionGroup).join("") +
+      "</div>";
 
     // Wire edit / delete buttons
     container.querySelectorAll(".se-ex-item-btn.edit").forEach(function (btn) {
@@ -494,7 +660,7 @@
     });
   }
 
-  // ── Data loading ──────────────────────────────────────────────────────────────
+  // -- Data loading --------------------------------------------------------------
 
   function loadAll() {
     Promise.all([
@@ -508,53 +674,65 @@
       })
       .catch(function (err) {
         document.getElementById("se-list-container").innerHTML =
-          '<div class="se-card se-error-banner">Failed to load sessions: ' + esc(err.message) + "</div>";
+          '<div class="se-card se-error-banner">Failed to load sessions: ' +
+          esc(err.message) +
+          "</div>";
       });
   }
 
-  // ── Event wiring ──────────────────────────────────────────────────────────────
+  // -- Event wiring --------------------------------------------------------------
 
   function init() {
     // Add session button
     document.getElementById("se-add-btn").addEventListener("click", showForm);
 
     // Type picker
-    document.getElementById("se-type-strength").addEventListener("click", function () {
-      state.sessionType = "strength";
-      state.exercises = [newExerciseRow()];
-      updateTypeButtons();
-      renderForm();
-    });
-    document.getElementById("se-type-plyo").addEventListener("click", function () {
-      state.sessionType = "plyo";
-      state.exercises = [newExerciseRow()];
-      updateTypeButtons();
-      renderForm();
-    });
+    document
+      .getElementById("se-type-strength")
+      .addEventListener("click", function () {
+        state.sessionType = "strength";
+        state.exercises = [newExerciseRow()];
+        updateTypeButtons();
+        renderForm();
+      });
+    document
+      .getElementById("se-type-plyo")
+      .addEventListener("click", function () {
+        state.sessionType = "plyo";
+        state.exercises = [newExerciseRow()];
+        updateTypeButtons();
+        renderForm();
+      });
 
     // Add another exercise
-    document.getElementById("se-add-ex-btn").addEventListener("click", function () {
-      state.exercises.push(newExerciseRow());
-      renderForm();
-    });
+    document
+      .getElementById("se-add-ex-btn")
+      .addEventListener("click", function () {
+        state.exercises.push(newExerciseRow());
+        renderForm();
+      });
 
     // Cancel
-    document.getElementById("se-cancel-btn").addEventListener("click", function () {
-      if (state.editingEntryId) {
-        cancelEdit();
-      } else {
-        hideForm();
-      }
-    });
+    document
+      .getElementById("se-cancel-btn")
+      .addEventListener("click", function () {
+        if (state.editingEntryId) {
+          cancelEdit();
+        } else {
+          hideForm();
+        }
+      });
 
     // Submit
-    document.getElementById("se-submit-btn").addEventListener("click", function () {
-      if (state.editingEntryId) {
-        submitEdit();
-      } else {
-        submitForm();
-      }
-    });
+    document
+      .getElementById("se-submit-btn")
+      .addEventListener("click", function () {
+        if (state.editingEntryId) {
+          submitEdit();
+        } else {
+          submitForm();
+        }
+      });
 
     // Date input
     document.getElementById("se-date").addEventListener("change", function () {

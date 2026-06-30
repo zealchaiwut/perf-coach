@@ -11,6 +11,7 @@
     body {
       font-family: "Inter Tight", system-ui, sans-serif;
       background: var(--page-bg);
+      background-color: #1f3b8a;
       min-height: 100vh;
       color: var(--text-primary);
       letter-spacing: -0.01em;
@@ -64,7 +65,7 @@
       background: var(--card-bg, #fff);
       border-radius: 14px;
       border: 1px solid var(--card-border, rgba(13,30,67,0.06));
-      box-shadow: var(--card-shadow, 0 2px 12px rgba(13,30,67,0.10));
+      box-shadow: var(--card-shadow);
       padding: 20px;
     }
     .se-card-label {
@@ -159,6 +160,10 @@
       width: 100%;
       box-sizing: border-box;
     }
+    .se-ex-input[type="number"] {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 13px;
+    }
     .se-ex-input:focus, .se-ex-select:focus { outline: 2px solid #8b5cf6; outline-offset: 1px; border-color: transparent; }
     .se-ex-input.has-error, .se-ex-select.has-error { border-color: var(--danger, #dc2626); }
     .se-ex-errors {
@@ -238,7 +243,7 @@
       padding: 9px 20px;
       border: none;
       border-radius: 8px;
-      background: #8b5cf6;
+      background: #5b21b6;
       font-family: inherit;
       font-size: 13px;
       font-weight: 700;
@@ -255,7 +260,7 @@
       background: var(--card-bg, #fff);
       border-radius: 14px;
       border: 1px solid var(--card-border, rgba(13,30,67,0.06));
-      box-shadow: var(--card-shadow, 0 2px 12px rgba(13,30,67,0.10));
+      box-shadow: var(--card-shadow);
       overflow: hidden;
     }
     .se-session-header {
@@ -276,9 +281,10 @@
       padding: 3px 8px;
       border-radius: 4px;
       color: #fff;
+      background: #5b21b6;
     }
-    .se-session-badge.strength { background: #8b5cf6; }
-    .se-session-badge.plyo { background: #2563eb; }
+    .se-session-badge.strength { background: #5b21b6; }
+    .se-session-badge.plyo { background: #1d4ed8; }
     .se-session-date {
       font-size: 13px;
       font-weight: 600;
@@ -321,7 +327,7 @@
     .se-ex-dot.strength { background: #8b5cf6; }
     .se-ex-dot.plyo { background: #2563eb; }
     .se-ex-item-name { font-weight: 600; flex: 1; min-width: 80px; }
-    .se-ex-item-detail { color: var(--text-secondary, #5c6886); font-size: 12px; }
+    .se-ex-item-detail { color: var(--text-secondary, #5c6886); font-size: 12px; font-family: "JetBrains Mono", monospace; }
     .se-ex-item-actions { display: flex; gap: 4px; margin-left: auto; }
     .se-ex-item-btn {
       padding: 3px 8px;
@@ -337,7 +343,7 @@
     .se-ex-item-btn.del { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
     .se-ex-item-btn.del:hover { background: #fca5a5; }
 
-    /* ── Empty state ─────────────────────────────────────────────────────── */
+    /* -- Empty state --------------------------------------------------------- */
     .se-empty {
       text-align: center;
       padding: 40px 20px;
@@ -345,6 +351,7 @@
       font-size: 14px;
     }
     .se-empty strong { display: block; font-size: 15px; color: var(--text-primary, #0b1530); margin-bottom: 6px; }
+    .se-empty span { font-family: "JetBrains Mono", monospace; }
 
     /* ── Toast ───────────────────────────────────────────────────────────── */
     .se-toast {
