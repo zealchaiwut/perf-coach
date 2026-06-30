@@ -175,7 +175,7 @@ Child tables: `workout_exercises`, `workout_splits`.
 
 ---
 
-## workout_splits _(lap_type added Sprint 63; power/cadence/stride added Sprint 70; lap_type tightened to NOT NULL Sprint 70)_
+## workout_splits _(lap_type added Sprint 63; power/cadence/stride added Sprint 70; lap_type tightened to NOT NULL Sprint 70; intensity_band added Sprint 93)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -189,9 +189,10 @@ Child tables: `workout_exercises`, `workout_splits`.
 | cadence_spm | int | nullable — cadence in steps per minute |
 | stride_length_m | numeric(4,2) | nullable — stride length in metres |
 | lap_type | varchar(10) | NOT NULL; `auto` (1-km auto-split) or `manual`; default `auto`; check constraint enforces `IN ('auto', 'manual')` |
+| intensity_band | varchar(20) | nullable — per-lap intensity band classified from power → pace → HR vs user thresholds; `easy` / `steady` / `tempo` / `threshold` / `hard`; persisted on PUT splits; check constraint `ck_workout_splits_intensity_band_values` (Sprint 93) |
 | created_at / updated_at | timestamptz | |
 
-Unique: `(workout_id, split_index)`. Check: `ck_workout_splits_lap_type_values`.
+Unique: `(workout_id, split_index)`. Checks: `ck_workout_splits_lap_type_values`, `ck_workout_splits_intensity_band_values`. Migration: `e3f1c0da097c` (intensity_band column).
 
 ---
 

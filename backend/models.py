@@ -347,12 +347,17 @@ class WorkoutSplit(Base):
     cadence_spm = Column(Integer, nullable=True)
     stride_length_m = Column(Numeric(4, 2), nullable=True)
     lap_type = Column(String(10), nullable=False, server_default=text("'auto'"))
+    intensity_band = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("workout_id", "split_index", name="uq_workout_splits_workout_split_index"),
         CheckConstraint("lap_type IN ('auto', 'manual')", name="ck_workout_splits_lap_type_values"),
+        CheckConstraint(
+            "intensity_band IS NULL OR intensity_band IN ('easy', 'steady', 'tempo', 'threshold', 'hard')",
+            name="ck_workout_splits_intensity_band_values",
+        ),
     )
 
     workout = relationship("Workout", back_populates="splits")
