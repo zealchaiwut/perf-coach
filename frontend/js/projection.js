@@ -10,23 +10,42 @@
   var _confirmCallback = null;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  function pad(n) { return String(n).padStart(2, "0"); }
+  function pad(n) {
+    return String(n).padStart(2, "0");
+  }
 
   function esc(s) {
     return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function todayISO() {
     var d = new Date();
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    return (
+      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+    );
   }
 
   function formatDate(iso) {
     if (!iso) return "—";
     var d = new Date(iso + "T00:00:00");
-    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
   }
 
@@ -76,13 +95,28 @@
 
   // ── Plan ID (user ID is plan ID) ──────────────────────────────────────────
   function _ensurePlanId(cb) {
-    if (_planId) { cb(); return; }
+    if (_planId) {
+      cb();
+      return;
+    }
     var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    if (uid) { _planId = uid; cb(); return; }
+    if (uid) {
+      _planId = uid;
+      cb();
+      return;
+    }
     fetch("/api/auth/me", { credentials: "same-origin" })
-      .then(function (r) { if (!r.ok) return null; return r.json(); })
-      .then(function (u) { if (u) _planId = u.id; cb(); })
-      .catch(function () { cb(); });
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (u) {
+        if (u) _planId = u.id;
+        cb();
+      })
+      .catch(function () {
+        cb();
+      });
   }
 
   function _raceUrl(raceId) {
@@ -92,9 +126,16 @@
   // ── API helpers ───────────────────────────────────────────────────────────
   function apiGet(url, cb) {
     fetch(url, { credentials: "same-origin" })
-      .then(function (r) { if (!r.ok) return null; return r.json(); })
-      .then(function (d) { cb(d); })
-      .catch(function () { cb(null); });
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (d) {
+        cb(d);
+      })
+      .catch(function () {
+        cb(null);
+      });
   }
 
   function apiPostSimple(url, body, cb) {
@@ -105,10 +146,14 @@
       body: JSON.stringify(body),
     })
       .then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+        return r.json().then(function (d) {
+          return { ok: r.ok, status: r.status, data: d };
+        });
       })
       .then(cb)
-      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
+      .catch(function (e) {
+        cb({ ok: false, status: 0, data: { detail: e.message } });
+      });
   }
 
   function apiPatch(url, body, cb) {
@@ -119,16 +164,24 @@
       body: JSON.stringify(body),
     })
       .then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+        return r.json().then(function (d) {
+          return { ok: r.ok, status: r.status, data: d };
+        });
       })
       .then(cb)
-      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
+      .catch(function (e) {
+        cb({ ok: false, status: 0, data: { detail: e.message } });
+      });
   }
 
   function apiDelete(url, cb) {
     fetch(url, { method: "DELETE", credentials: "same-origin" })
-      .then(function (r) { cb({ ok: r.ok, status: r.status }); })
-      .catch(function (e) { cb({ ok: false, status: 0 }); });
+      .then(function (r) {
+        cb({ ok: r.ok, status: r.status });
+      })
+      .catch(function (e) {
+        cb({ ok: false, status: 0 });
+      });
   }
 
   // ── Score display ─────────────────────────────────────────────────────────
@@ -137,15 +190,24 @@
     return v.toFixed(1);
   }
 
+  function _fmtEconomy(v, lagPeakDays, lagWindowDays) {
+    if (v == null || typeof v !== "number") return "0";
+    if (v === 0) return "0";
+    return "+" + v.toFixed(2);
+  }
+
   function renderScores(data) {
     var endEl = document.getElementById("proj-endurance-score");
     var speedEl = document.getElementById("proj-speed-score");
     var stateEl = document.getElementById("proj-score-state");
+    var econEl = document.getElementById("proj-economy-value");
+    var econMeta = document.getElementById("proj-economy-meta");
 
     if (!data) {
       if (endEl) endEl.textContent = "—";
       if (speedEl) speedEl.textContent = "—";
       if (stateEl) stateEl.textContent = "";
+      if (econEl) econEl.textContent = "0";
       return;
     }
 
@@ -158,11 +220,38 @@
       if (state === "needs_thresholds") {
         stateEl.textContent = "Set thresholds in Settings to compute scores.";
       } else if (state === "building_baseline") {
-        stateEl.textContent = "Building baseline — log more runs to see scores.";
+        stateEl.textContent =
+          "Building baseline — log more runs to see scores.";
       } else if (state === "error") {
         stateEl.textContent = "Could not compute scores.";
       } else {
         stateEl.textContent = "";
+      }
+    }
+
+    // Economy contribution (issue #1150)
+    var econVal =
+      typeof data.economy_contribution === "number"
+        ? data.economy_contribution
+        : 0;
+    if (econEl) {
+      econEl.textContent = econVal === 0 ? "0" : _fmtEconomy(econVal);
+    }
+    if (econMeta) {
+      var lagPeak = data.lag_peak_days || 42;
+      var lagWindow = data.lag_window_days || 84;
+      if (econVal === 0) {
+        econMeta.textContent =
+          "No strength or plyometric sessions in the " +
+          lagWindow / 7 +
+          "-week lag window";
+      } else {
+        econMeta.textContent =
+          "Lagged strength & plyo effect (peaks at " +
+          lagPeak / 7 +
+          " wk, window " +
+          lagWindow / 7 +
+          " wk)";
       }
     }
   }
@@ -173,7 +262,11 @@
     var wrapEl = document.getElementById("proj-curve-wrap");
     var canvas = document.getElementById("proj-curve-canvas");
 
-    if (!data || (!data.form_curve || data.form_curve.length === 0) && !data.projected_form) {
+    if (
+      !data ||
+      ((!data.form_curve || data.form_curve.length === 0) &&
+        !data.projected_form)
+    ) {
       if (emptyEl) emptyEl.style.display = "";
       if (wrapEl) wrapEl.style.display = "none";
       return;
@@ -200,15 +293,25 @@
     });
 
     if (projectedForm) {
-      Object.keys(projectedForm).sort().forEach(function (d) {
-        projectedDates.push(d);
-        projectedValues.push(parseFloat(projectedForm[d].toFixed(2)));
-      });
+      Object.keys(projectedForm)
+        .sort()
+        .forEach(function (d) {
+          projectedDates.push(d);
+          projectedValues.push(parseFloat(projectedForm[d].toFixed(2)));
+        });
     }
 
     var allDates = historicalDates.concat(projectedDates);
-    var allValues = historicalValues.concat(projectedValues.map(function () { return null; }));
-    var projOnlyValues = historicalDates.map(function () { return null; }).concat(projectedValues);
+    var allValues = historicalValues.concat(
+      projectedValues.map(function () {
+        return null;
+      }),
+    );
+    var projOnlyValues = historicalDates
+      .map(function () {
+        return null;
+      })
+      .concat(projectedValues);
 
     if (_chart) {
       _chart.destroy();
@@ -220,9 +323,9 @@
 
     // A/B/C race markers
     var PRIORITY_COLORS = {
-      "A": { border: "rgba(21, 128, 61, 0.85)", bg: "rgba(21,128,61,0.85)" },
-      "B": { border: "rgba(3, 105, 161, 0.7)", bg: "rgba(3,105,161,0.7)" },
-      "C": { border: "rgba(100, 116, 139, 0.6)", bg: "rgba(100,116,139,0.6)" },
+      A: { border: "rgba(21, 128, 61, 0.85)", bg: "rgba(21,128,61,0.85)" },
+      B: { border: "rgba(3, 105, 161, 0.7)", bg: "rgba(3,105,161,0.7)" },
+      C: { border: "rgba(100, 116, 139, 0.6)", bg: "rgba(100,116,139,0.6)" },
     };
 
     raceMarkers.forEach(function (race, idx) {
@@ -236,7 +339,10 @@
         borderWidth: race.priority === "A" ? 2 : 1.5,
         borderDash: race.priority === "A" ? [] : [4, 3],
         label: {
-          content: race.priority + " Race" + (race.name ? ": " + race.name.slice(0, 20) : ""),
+          content:
+            race.priority +
+            " Race" +
+            (race.name ? ": " + race.name.slice(0, 20) : ""),
           enabled: true,
           position: "start",
           backgroundColor: col.bg,
@@ -299,7 +405,9 @@
           },
           {
             label: "Fresh zone",
-            data: allDates.map(function () { return freshFloor; }),
+            data: allDates.map(function () {
+              return freshFloor;
+            }),
             borderWidth: 0,
             backgroundColor: "rgba(34,197,94,0.1)",
             fill: { target: { value: 100 } },
@@ -308,7 +416,9 @@
           },
           {
             label: "Buried zone",
-            data: allDates.map(function () { return buriedCeiling; }),
+            data: allDates.map(function () {
+              return buriedCeiling;
+            }),
             borderWidth: 0,
             backgroundColor: "rgba(239,68,68,0.1)",
             fill: { target: { value: -100 } },
@@ -325,7 +435,11 @@
           tooltip: {
             callbacks: {
               label: function (ctx) {
-                return ctx.dataset.label + ": " + (ctx.raw != null ? ctx.raw.toFixed(1) : "—");
+                return (
+                  ctx.dataset.label +
+                  ": " +
+                  (ctx.raw != null ? ctx.raw.toFixed(1) : "—")
+                );
               },
             },
           },
@@ -360,7 +474,11 @@
     });
 
     // Clear existing rows
-    Array.from(container.querySelectorAll(".proj-race-row")).forEach(function (el) { el.remove(); });
+    Array.from(container.querySelectorAll(".proj-race-row")).forEach(
+      function (el) {
+        el.remove();
+      },
+    );
 
     if (sorted.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
@@ -375,31 +493,52 @@
       row.className = "proj-race-row";
       row.setAttribute("data-race-id", race.id);
 
-      var priorityClass = "proj-priority-" + (race.priority || "").toLowerCase();
-      var goalStr = race.goal_time_seconds ? fmtTime(race.goal_time_seconds) : "—";
+      var priorityClass =
+        "proj-priority-" + (race.priority || "").toLowerCase();
+      var goalStr = race.goal_time_seconds
+        ? fmtTime(race.goal_time_seconds)
+        : "—";
 
       row.innerHTML =
         '<div class="proj-race-info">' +
-        '<span class="proj-race-priority ' + priorityClass + '">' + esc(race.priority || race.type || "?") + '</span>' +
-        '<span class="proj-race-name">' + esc(race.name || "Unnamed") + '</span>' +
-        '<span class="proj-race-meta">' + esc(formatDate(race.date)) + weeksText +
-        " · " + parseFloat(race.distance || 0).toFixed(1) + " km" +
+        '<span class="proj-race-priority ' +
+        priorityClass +
+        '">' +
+        esc(race.priority || race.type || "?") +
+        "</span>" +
+        '<span class="proj-race-name">' +
+        esc(race.name || "Unnamed") +
+        "</span>" +
+        '<span class="proj-race-meta">' +
+        esc(formatDate(race.date)) +
+        weeksText +
+        " · " +
+        parseFloat(race.distance || 0).toFixed(1) +
+        " km" +
         (race.goal_time_seconds ? " · Goal: " + esc(goalStr) : "") +
         "</span>" +
         "</div>" +
         '<div class="proj-race-actions">' +
-        '<button class="proj-race-edit-btn" data-id="' + esc(race.id) + '" type="button">Edit</button>' +
-        '<button class="proj-race-del-btn" data-id="' + esc(race.id) + '" type="button">✕</button>' +
+        '<button class="proj-race-edit-btn" data-id="' +
+        esc(race.id) +
+        '" type="button">Edit</button>' +
+        '<button class="proj-race-del-btn" data-id="' +
+        esc(race.id) +
+        '" type="button">✕</button>' +
         "</div>";
 
       container.appendChild(row);
 
-      row.querySelector(".proj-race-edit-btn").addEventListener("click", function () {
-        openModal(race);
-      });
-      row.querySelector(".proj-race-del-btn").addEventListener("click", function () {
-        _deleteRow(race.id, race.name);
-      });
+      row
+        .querySelector(".proj-race-edit-btn")
+        .addEventListener("click", function () {
+          openModal(race);
+        });
+      row
+        .querySelector(".proj-race-del-btn")
+        .addEventListener("click", function () {
+          _deleteRow(race.id, race.name);
+        });
     });
   }
 
@@ -413,7 +552,11 @@
   }
 
   function loadRaces(cb) {
-    if (!_planId) { _races = []; if (cb) cb(); return; }
+    if (!_planId) {
+      _races = [];
+      if (cb) cb();
+      return;
+    }
     apiGet(_raceUrl(), function (data) {
       _races = Array.isArray(data) ? data : [];
       renderRacesList();
@@ -486,8 +629,14 @@
     var priority = priorityIn ? priorityIn.value : "A";
     var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
-    if (!date) { if (errEl) errEl.textContent = "Date is required."; return; }
-    if (!dist || isNaN(dist) || dist <= 0) { if (errEl) errEl.textContent = "Distance must be a positive number."; return; }
+    if (!date) {
+      if (errEl) errEl.textContent = "Date is required.";
+      return;
+    }
+    if (!dist || isNaN(dist) || dist <= 0) {
+      if (errEl) errEl.textContent = "Distance must be a positive number.";
+      return;
+    }
 
     var body = {
       name: name,
@@ -504,7 +653,11 @@
       // and separately patch priority via /api/races/{id}
       apiPatch(_raceUrl(_editingRaceId), body, function (res) {
         if (!res.ok) {
-          if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
+          if (errEl)
+            errEl.textContent =
+              res.data && res.data.detail
+                ? JSON.stringify(res.data.detail)
+                : "Save failed.";
           return;
         }
         // Also patch priority via the /api/races endpoint
@@ -521,7 +674,11 @@
     } else {
       apiPostSimple(_raceUrl(), body, function (res) {
         if (!res.ok) {
-          if (errEl) errEl.textContent = (res.data && res.data.detail) ? JSON.stringify(res.data.detail) : "Save failed.";
+          if (errEl)
+            errEl.textContent =
+              res.data && res.data.detail
+                ? JSON.stringify(res.data.detail)
+                : "Save failed.";
           return;
         }
         // Patch priority on the newly created race
@@ -565,35 +722,36 @@
   function _deleteRow(raceId, raceName) {
     _showConfirm(
       "Delete race?",
-      "\"" + (raceName || "Unnamed") + "\" will be permanently deleted.",
+      '"' + (raceName || "Unnamed") + '" will be permanently deleted.',
       function () {
         apiDelete(_raceUrl(raceId), function (res) {
           if (res.ok) refresh();
         });
-      }
+      },
     );
   }
 
   function deleteEditing() {
     if (!_editingRaceId) return;
     var rid = _editingRaceId;
-    var race = _races.find(function (r) { return r.id === rid; });
+    var race = _races.find(function (r) {
+      return r.id === rid;
+    });
     closeModal();
-    _showConfirm(
-      "Delete race?",
-      "This action cannot be undone.",
-      function () {
-        apiDelete(_raceUrl(rid), function (res) {
-          if (res.ok) refresh();
-        });
-      }
-    );
+    _showConfirm("Delete race?", "This action cannot be undone.", function () {
+      apiDelete(_raceUrl(rid), function (res) {
+        if (res.ok) refresh();
+      });
+    });
   }
 
   // ── Event wiring ──────────────────────────────────────────────────────────
   function _wire() {
     var addBtn = document.getElementById("proj-add-race-btn");
-    if (addBtn) addBtn.addEventListener("click", function () { openModal(null); });
+    if (addBtn)
+      addBtn.addEventListener("click", function () {
+        openModal(null);
+      });
 
     var modalClose = document.getElementById("proj-modal-close");
     if (modalClose) modalClose.addEventListener("click", closeModal);
@@ -611,21 +769,24 @@
     if (confirmCancel) confirmCancel.addEventListener("click", _closeConfirm);
 
     var confirmOk = document.getElementById("proj-confirm-ok");
-    if (confirmOk) confirmOk.addEventListener("click", function () {
-      var cb = _confirmCallback;
-      _closeConfirm();
-      if (cb) cb();
-    });
+    if (confirmOk)
+      confirmOk.addEventListener("click", function () {
+        var cb = _confirmCallback;
+        _closeConfirm();
+        if (cb) cb();
+      });
 
     var raceModal = document.getElementById("proj-race-modal");
-    if (raceModal) raceModal.addEventListener("click", function (e) {
-      if (e.target === raceModal) closeModal();
-    });
+    if (raceModal)
+      raceModal.addEventListener("click", function (e) {
+        if (e.target === raceModal) closeModal();
+      });
 
     var confirmModal = document.getElementById("proj-confirm-modal");
-    if (confirmModal) confirmModal.addEventListener("click", function (e) {
-      if (e.target === confirmModal) _closeConfirm();
-    });
+    if (confirmModal)
+      confirmModal.addEventListener("click", function (e) {
+        if (e.target === confirmModal) _closeConfirm();
+      });
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -639,4 +800,4 @@
   } else {
     init();
   }
-}());
+})();
