@@ -40,9 +40,11 @@ def _parse_session_id(session_id: str) -> _uuid.UUID:
 
 class _StrengthCreateBody(BaseModel):
     session_date: str
+    exercise_name: str
     sets: Optional[int] = None
     reps: Optional[int] = None
     load: Optional[float] = None
+    load_unit: Optional[str] = None
     session_rpe: Optional[int] = None
     duration_minutes: Optional[int] = None
 
@@ -88,9 +90,11 @@ class _StrengthCreateBody(BaseModel):
 
 class _StrengthPatchBody(BaseModel):
     session_date: Optional[str] = None
+    exercise_name: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     load: Optional[float] = None
+    load_unit: Optional[str] = None
     session_rpe: Optional[int] = None
     duration_minutes: Optional[int] = None
 
@@ -139,6 +143,7 @@ class _StrengthPatchBody(BaseModel):
 
 class _PlyoCreateBody(BaseModel):
     session_date: str
+    exercise_name: str
     foot_contacts: int
     plyo_phase: str
 
@@ -166,6 +171,7 @@ class _PlyoCreateBody(BaseModel):
 
 class _PlyoPatchBody(BaseModel):
     session_date: Optional[str] = None
+    exercise_name: Optional[str] = None
     foot_contacts: Optional[int] = None
     plyo_phase: Optional[str] = None
 
@@ -217,9 +223,11 @@ async def create_strength_session(body: _StrengthCreateBody, request: Request):
     result = _svc.create_strength_session(
         user_id=user.id,
         session_date=body.session_date,
+        exercise_name=body.exercise_name,
         sets=body.sets,
         reps=body.reps,
         load=body.load,
+        load_unit=body.load_unit,
         session_rpe=body.session_rpe,
         duration_minutes=body.duration_minutes,
     )
@@ -272,6 +280,7 @@ async def create_plyo_session(body: _PlyoCreateBody, request: Request):
     result = _svc.create_plyo_session(
         user_id=user.id,
         session_date=body.session_date,
+        exercise_name=body.exercise_name,
         foot_contacts=body.foot_contacts,
         plyo_phase=body.plyo_phase,
     )

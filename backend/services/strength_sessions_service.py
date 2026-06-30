@@ -23,9 +23,11 @@ def _strength_to_dict(row: StrengthSession) -> dict:
         "id": str(row.id),
         "user_id": str(row.user_id),
         "session_date": str(row.session_date),
+        "exercise_name": row.exercise_name,
         "sets": row.sets,
         "reps": row.reps,
         "load": float(row.load) if row.load is not None else None,
+        "load_unit": row.load_unit,
         "session_rpe": row.session_rpe,
         "duration_minutes": row.duration_minutes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -38,6 +40,7 @@ def _plyo_to_dict(row: PlyoSession) -> dict:
         "id": str(row.id),
         "user_id": str(row.user_id),
         "session_date": str(row.session_date),
+        "exercise_name": row.exercise_name,
         "foot_contacts": row.foot_contacts,
         "plyo_phase": row.plyo_phase,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -68,9 +71,11 @@ def get_strength_session(session_id: _uuid.UUID, user_id: _uuid.UUID) -> Optiona
 def create_strength_session(
     user_id: _uuid.UUID,
     session_date: str,
+    exercise_name: Optional[str] = None,
     sets: Optional[int] = None,
     reps: Optional[int] = None,
     load: Optional[float] = None,
+    load_unit: Optional[str] = None,
     session_rpe: Optional[int] = None,
     duration_minutes: Optional[int] = None,
 ) -> dict:
@@ -78,9 +83,11 @@ def create_strength_session(
         row = StrengthSession(
             user_id=user_id,
             session_date=_date.fromisoformat(session_date),
+            exercise_name=exercise_name,
             sets=sets,
             reps=reps,
             load=load,
+            load_unit=load_unit,
             session_rpe=session_rpe,
             duration_minutes=duration_minutes,
         )
@@ -90,7 +97,10 @@ def create_strength_session(
         return _strength_to_dict(row)
 
 
-_STRENGTH_MUTABLE_FIELDS = {"session_date", "sets", "reps", "load", "session_rpe", "duration_minutes"}
+_STRENGTH_MUTABLE_FIELDS = {
+    "session_date", "exercise_name", "sets", "reps",
+    "load", "load_unit", "session_rpe", "duration_minutes",
+}
 
 
 def update_strength_session(
@@ -150,11 +160,13 @@ def create_plyo_session(
     session_date: str,
     foot_contacts: int,
     plyo_phase: str,
+    exercise_name: Optional[str] = None,
 ) -> dict:
     with Session(engine) as db:
         row = PlyoSession(
             user_id=user_id,
             session_date=_date.fromisoformat(session_date),
+            exercise_name=exercise_name,
             foot_contacts=foot_contacts,
             plyo_phase=plyo_phase,
         )
@@ -164,7 +176,7 @@ def create_plyo_session(
         return _plyo_to_dict(row)
 
 
-_PLYO_MUTABLE_FIELDS = {"session_date", "foot_contacts", "plyo_phase"}
+_PLYO_MUTABLE_FIELDS = {"session_date", "exercise_name", "foot_contacts", "plyo_phase"}
 
 
 def update_plyo_session(

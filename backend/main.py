@@ -107,8 +107,8 @@ _start_time = time.monotonic()
 
 app = FastAPI()
 app.include_router(_plan_router)
-app.include_router(_sessions_router)
 app.include_router(_strength_sessions_router)
+app.include_router(_sessions_router)
 
 
 def _today_bkk() -> _date:
