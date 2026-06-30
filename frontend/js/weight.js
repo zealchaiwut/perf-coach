@@ -1020,9 +1020,12 @@ async function _submitCardB(weightKg) {
 
   if (btn) btn.disabled = true;
 
+  const dateInput = document.getElementById('log-date-input');
+  const selectedDate = (dateInput && dateInput.value) ? dateInput.value : todayISO();
+
   try {
     if (_cardBEntryId) {
-      // Edit mode: PATCH the existing entry
+      // Edit mode: PATCH the specific entry the user previously logged
       const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(_cardBEntryId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1030,35 +1033,15 @@ async function _submitCardB(weightKg) {
       });
       if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
     } else {
-      // New log: attempt POST
-      const postRes = await fetch('/api/weight-entries', {
-        method: 'POST',
+      // New log: upsert via PUT so same-date resubmission updates in place
+      const putRes = await fetch('/api/weight-entries/by-date', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entry_date: todayISO(),
-          entry_time: nowHHMM(),
-          weight_kg: weightKg,
-        }),
+        body: JSON.stringify({ entry_date: selectedDate, weight_kg: weightKg }),
       });
-
-      if (postRes.status === 409) {
-        // Race condition: entry already exists — fall back to PATCH using existing_id
-        const conflict = await postRes.json();
-        const existingId = conflict.existing_id;
-        if (!existingId) throw new Error('409 with no existing_id');
-        const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(existingId)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weight_kg: weightKg }),
-        });
-        if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
-        _cardBEntryId = existingId;
-      } else if (!postRes.ok) {
-        throw new Error(`HTTP ${postRes.status}`);
-      } else {
-        const created = await postRes.json();
-        _cardBEntryId = created.id;
-      }
+      if (!putRes.ok) throw new Error(`HTTP ${putRes.status}`);
+      const saved = await putRes.json();
+      _cardBEntryId = saved.id;
     }
 
     UIStates.showToast('Logged!');
@@ -1076,18 +1059,35 @@ async function _submitCardB(weightKg) {
 }
 
 function _initCardB() {
-  const decBtn  = document.getElementById('stepper-dec');
-  const incBtn  = document.getElementById('stepper-inc');
-  const input   = document.getElementById('stepper-input');
-  const logBtn  = document.getElementById('log-submit-btn');
-  const editBtn = document.getElementById('edit-link');
-  const dateEl  = document.getElementById('hcb-date');
+  const decBtn   = document.getElementById('stepper-dec');
+  const incBtn   = document.getElementById('stepper-inc');
+  const input    = document.getElementById('stepper-input');
+  const logBtn   = document.getElementById('log-submit-btn');
+  const editBtn  = document.getElementById('edit-link');
+  const dateEl   = document.getElementById('hcb-date');
+  const dateInput = document.getElementById('log-date-input');
 
   if (!input || !logBtn) return;
 
+  // Initialise date picker to today and keep hcb-date label in sync
+  const todayStr = todayISO();
+  if (dateInput) {
+    dateInput.value = todayStr;
+    dateInput.max = todayStr;
+    dateInput.addEventListener('change', () => {
+      if (dateEl) {
+        const d = new Date((dateInput.value || todayStr) + 'T00:00:00');
+        dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      }
+      // Reset edit-mode guard so the new date uses upsert path
+      _cardBEntryId = null;
+      _showStepperMode();
+    });
+  }
+
   // Show today's date in Card B label row
   if (dateEl) {
-    const d = new Date(todayISO() + 'T00:00:00');
+    const d = new Date(todayStr + 'T00:00:00');
     dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 

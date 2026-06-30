@@ -866,6 +866,67 @@ def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
     return JSONResponse({"deleted": True})
 
 
+class WeightEntryByDateIn(BaseModel):
+    entry_date: str  # YYYY-MM-DD
+    weight_kg: float
+    notes: Optional[str] = None
+
+
+@app.put("/api/weight-entries/by-date")
+def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(resolve_user)):
+    """Upsert a daily bodyweight entry for a given date.
+
+    If an entry (with entry_time=NULL) already exists for this user+date, it is
+    updated in-place.  Otherwise a new row is created.  Submitting twice for the
+    same date never creates a duplicate.
+    """
+    uid = user.id
+
+    if not (20 <= body.weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    if body.notes is not None and len(body.notes) > 500:
+        raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+
+    try:
+        entry_date = _date.fromisoformat(body.entry_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
+    if entry_date > _today_bkk() + _timedelta(days=1):
+        raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
+
+    with Session(engine) as session:
+        existing = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date == entry_date,
+                WeightEntry.entry_time.is_(None),
+            )
+            .first()
+        )
+        if existing is not None:
+            existing.weight_kg = body.weight_kg
+            if body.notes is not None:
+                existing.notes = body.notes
+            existing.updated_at = _datetime.now(_timezone.utc)
+            session.commit()
+            session.refresh(existing)
+            return JSONResponse(_weight_entry_dict(existing))
+        else:
+            entry = WeightEntry(
+                user_id=uid,
+                entry_date=entry_date,
+                entry_time=None,
+                weight_kg=body.weight_kg,
+                notes=body.notes,
+                source="manual",
+            )
+            session.add(entry)
+            session.commit()
+            session.refresh(entry)
+            return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+
+
 # ── Weight target endpoints ───────────────────────────────────────────────────
 
 class WeightTargetCreateIn(BaseModel):
