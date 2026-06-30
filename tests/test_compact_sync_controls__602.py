@@ -21,7 +21,7 @@ _TEST_PASSWORD = "sync602-int-pw"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _env_vals = dotenv_values(_REPO_ROOT / ".env")
 _uat_url = _env_vals.get("DATABASE_URL_UAT")
-engine = create_engine(_uat_url, pool_pre_ping=True)
+engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
