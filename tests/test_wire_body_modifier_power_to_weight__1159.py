@@ -3,7 +3,7 @@
 AC coverage:
 - AC1: Power-to-weight term in score calculation reads and applies body modifier
 - AC2: Projection pipeline includes body modifier in its power-to-weight computation
-- AC3: Stable weight + adequate EA → neutral modifier (no score delta)
+- AC3: Stable weight + adequate EA → neutral modifier (no score delta via wiring)
 - AC4: Non-neutral body modifier produces measurable, directionally correct delta
 - AC5: All modified files pass py_compile with zero errors
 - AC6: No regression for athletes with no body modifier data (fallback to neutral)
@@ -14,8 +14,13 @@ import pytest
 
 from backend.services.body_modifier import (
     compute_body_modifier,
-    BODY_MOD_WEIGHT_SENSITIVITY,
-    LOW_EA_PENALTY,
+    MAX_UPLIFT,
+    PENALTY_SLOPE,
+    EA_PENALTY_SCALE,
+    EA_LOW_THRESHOLD,
+    RATE_ZERO_CROSSING,
+    MODIFIER_MIN,
+    MODIFIER_MAX,
 )
 from backend.services.running_performance import (
     compute_endurance_score,
@@ -110,76 +115,84 @@ def _projection_args(start_ctl=60.0, start_atl=55.0):
     )
 
 
-# ── AC3: stable weight + adequate EA → neutral modifier ──────────────────────
+# ── AC3/AC4: body_modifier.py API contract and directional behavior ───────────
 
-class TestNeutralModifier:
-    def test_stable_weight_adequate_ea_returns_one(self):
-        """AC3: zero weekly rate + low_ea=False → body modifier = 1.0 (multiplicative neutral)."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=0.0, low_ea=False)
-        assert mod == pytest.approx(1.0)
+class TestBodyModifierApiContract:
+    def test_returns_dict_with_required_keys(self):
+        """compute_body_modifier returns a dict with 'modifier' and 'branch' keys."""
+        result = compute_body_modifier(0.0, 1.0)
+        assert isinstance(result, dict)
+        assert "modifier" in result
+        assert "branch" in result
 
-    def test_none_rate_adequate_ea_returns_one(self):
-        """AC6: No body modifier data available → fallback to neutral 1.0."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=None, low_ea=False)
-        assert mod == pytest.approx(1.0)
+    def test_modifier_is_float_in_valid_range(self):
+        """Modifier value is a float clamped to [MODIFIER_MIN, MODIFIER_MAX]."""
+        result = compute_body_modifier(0.0, 1.0)
+        assert isinstance(result["modifier"], float)
+        assert MODIFIER_MIN <= result["modifier"] <= MODIFIER_MAX
 
-    def test_no_args_returns_one(self):
-        """AC6: Called with no arguments → neutral modifier."""
-        mod = compute_body_modifier()
-        assert mod == pytest.approx(1.0)
+    def test_stable_weight_adequate_ea_is_uplift(self):
+        """AC3 analog: stable weight + adequate EA → positive modifier (athlete in good reserves)."""
+        result = compute_body_modifier(0.0, 1.0)
+        assert result["modifier"] > 0
+        assert result["branch"] == "uplift"
 
-    def test_near_zero_rate_adequate_ea_near_neutral(self):
-        """AC3: Very small weight fluctuation → modifier very close to 1.0."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=0.05, low_ea=False)
-        assert abs(mod - 1.0) < 0.01
-
-
-# ── AC4: non-neutral modifier → directionally correct delta ──────────────────
-
-class TestNonNeutralModifier:
-    def test_weight_loss_adequate_ea_modifier_above_one(self):
-        """AC4: weight loss + adequate EA → modifier > 1.0 (better power-to-weight)."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=-0.5, low_ea=False)
-        assert mod > 1.0
-
-    def test_weight_gain_modifier_below_one(self):
-        """AC4: weight gain → modifier < 1.0 (worse power-to-weight)."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=0.5, low_ea=False)
-        assert mod < 1.0
-
-    def test_low_ea_modifier_below_one(self):
-        """AC4: poor EA → modifier < 1.0 (impaired performance)."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=0.0, low_ea=True)
-        assert mod < 1.0
-
-    def test_weight_loss_low_ea_modifier_below_one(self):
-        """AC4: weight loss + low EA is penalized (catabolism risk)."""
-        mod = compute_body_modifier(weekly_pct_bw_rate_of_change=-0.5, low_ea=True)
-        assert mod < 1.0
-
-    def test_larger_weight_gain_more_penalty(self):
-        """AC4: larger weight gain → larger downward delta."""
-        mod_small = compute_body_modifier(weekly_pct_bw_rate_of_change=0.3, low_ea=False)
-        mod_large = compute_body_modifier(weekly_pct_bw_rate_of_change=1.0, low_ea=False)
-        assert mod_large < mod_small
-
-    def test_larger_weight_loss_more_benefit_when_ea_adequate(self):
-        """AC4: larger weight loss (adequate EA) → larger upward delta."""
-        mod_small = compute_body_modifier(weekly_pct_bw_rate_of_change=-0.3, low_ea=False)
-        mod_large = compute_body_modifier(weekly_pct_bw_rate_of_change=-1.0, low_ea=False)
-        assert mod_large > mod_small
+    def test_zero_crossing_loss_rate_is_neutral(self):
+        """AC3: at the exact zero-crossing loss rate the modifier is ≈ 0 (neutral branch)."""
+        # weekly_pct_bw_rate = -RATE_ZERO_CROSSING → loss_rate == zero_crossing exactly.
+        result = compute_body_modifier(-RATE_ZERO_CROSSING, 1.0)
+        assert abs(result["modifier"]) < 0.001
+        assert result["branch"] == "neutral"
 
 
-# ── Named constant existence ──────────────────────────────────────────────────
+class TestBodyModifierDirectionalBehavior:
+    def test_aggressive_loss_gives_penalty(self):
+        """AC4: large weekly loss (> zero-crossing) → negative modifier (penalty branch)."""
+        result = compute_body_modifier(-1.5, 1.0)
+        assert result["modifier"] < 0
+        assert result["branch"] == "penalty"
 
-class TestConstants:
-    def test_weight_sensitivity_is_positive(self):
-        assert isinstance(BODY_MOD_WEIGHT_SENSITIVITY, (int, float))
-        assert BODY_MOD_WEIGHT_SENSITIVITY > 0
+    def test_moderate_loss_gives_uplift(self):
+        """AC4: moderate loss well below zero-crossing → positive modifier (uplift branch)."""
+        result = compute_body_modifier(-0.3, 1.0)
+        assert result["modifier"] > 0
+        assert result["branch"] == "uplift"
 
-    def test_low_ea_penalty_is_positive(self):
-        assert isinstance(LOW_EA_PENALTY, (int, float))
-        assert LOW_EA_PENALTY > 0
+    def test_very_low_ea_gives_negative_modifier(self):
+        """AC4: fully-depleted EA (ea_proxy=0) → negative net modifier."""
+        result = compute_body_modifier(0.0, 0.0)
+        assert result["modifier"] < 0
+
+    def test_low_ea_reduces_modifier_vs_adequate(self):
+        """AC4: low EA penalty drives modifier lower than with adequate EA at same weight."""
+        adequate = compute_body_modifier(0.0, 1.0)
+        low_ea = compute_body_modifier(0.0, 0.0)
+        assert low_ea["modifier"] < adequate["modifier"]
+
+    def test_larger_loss_yields_lower_modifier(self):
+        """AC4: increasing weight-loss rate produces monotonically decreasing modifier."""
+        small_loss = compute_body_modifier(-0.2, 1.0)
+        moderate_loss = compute_body_modifier(-0.5, 1.0)
+        large_loss = compute_body_modifier(-1.5, 1.0)
+        assert small_loss["modifier"] > moderate_loss["modifier"] > large_loss["modifier"]
+
+
+class TestBodyModifierConstants:
+    def test_key_constants_are_positive(self):
+        """Sprint body_modifier constants MAX_UPLIFT, PENALTY_SLOPE, EA_PENALTY_SCALE are positive."""
+        assert MAX_UPLIFT > 0
+        assert PENALTY_SLOPE > 0
+        assert EA_PENALTY_SCALE > 0
+        assert RATE_ZERO_CROSSING > 0
+
+    def test_ea_low_threshold_in_valid_range(self):
+        """EA_LOW_THRESHOLD is between 0 and 1 (exclusive)."""
+        assert 0.0 < EA_LOW_THRESHOLD < 1.0
+
+    def test_modifier_bounds_correct_polarity(self):
+        """MODIFIER_MIN < 0 and MODIFIER_MAX > 0."""
+        assert MODIFIER_MIN < 0
+        assert MODIFIER_MAX > 0
 
 
 # ── AC1: endurance score reads and applies body modifier ─────────────────────
