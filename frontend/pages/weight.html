@@ -2055,11 +2055,19 @@
             </div>
             <div class="merged-sep"></div>
             <div class="hcb-top">
-              <span class="hcb-label">LOG TODAY</span>
+              <span class="hcb-label">LOG WEIGHT</span>
               <span class="hcb-date" id="hcb-date"></span>
             </div>
             <!-- Stepper (shown when not yet logged today, or while editing) -->
             <div id="stepper-wrap">
+              <div class="et-field" style="margin-bottom:8px">
+                <input
+                  type="date"
+                  id="log-date-input"
+                  aria-label="Entry date"
+                  style="width:100%;box-sizing:border-box"
+                />
+              </div>
               <div class="stepper">
                 <button
                   class="stepper-btn"
