@@ -256,12 +256,7 @@ class TestWeeklyRate:
         # 14 entries, flat at 80 kg except day 7 spikes to 85
         entries = _daily_entries(14, base=80.0)
         entries[7]["weight_kg"] = 85.0  # spike
-        # Raw first/last: both 80.0, delta = 0.0
-        # But EWMA at end will be slightly elevated due to spike memory
-        ewma_vals = compute_ewma(entries)
-        # The EWMA series still reflects the spike's lingering effect
-        # but both raw first and last are 80.0
-        raw_delta = entries[-1]["weight_kg"] - entries[0]["weight_kg"]
+        # Raw first/last: both 80.0, but EWMA at end is slightly elevated due to spike memory
         series = _dense_ewma_series(entries)
         ewma_rate = _ewma_weekly_rate_kg(series)
         # They may not be equal (EWMA carries spike memory)
@@ -283,8 +278,8 @@ class TestRateNotFirstLastDelta:
         series_normal = _dense_ewma_series(entries_normal)
         series_spiked = _dense_ewma_series(entries_spiked)
 
-        rate_normal = _ewma_weekly_rate_kg(series_normal)
         rate_spiked = _ewma_weekly_rate_kg(series_spiked)
+        assert _ewma_weekly_rate_kg(series_normal) is not None
 
         # Raw first/last delta for spiked: 90 - 75 = +15 kg
         # EWMA-derived rate should be much smaller
