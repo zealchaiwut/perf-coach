@@ -13,7 +13,6 @@ AC coverage:
 import py_compile
 from datetime import date, timedelta
 
-import pytest
 
 from backend.services.ceiling_bonus import (
     LAG_ONSET_DAYS,
