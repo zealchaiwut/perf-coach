@@ -1199,7 +1199,7 @@ class StrengthSession(Base):
 
 
 class PlyoSession(Base):
-    """Plyometric training session with foot-contact volume tracking (issue #1143)."""
+    """A logged plyometric training session (issue #1143/1144)."""
 
     __tablename__ = "plyo_sessions"
 
@@ -1209,9 +1209,10 @@ class PlyoSession(Base):
     exercise_name = Column(String(200), nullable=True)
     foot_contacts = Column(Integer, nullable=False)
     plyo_phase = Column(String(20), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
+        Index("ix_plyo_sessions_user_id_session_date", "user_id", "session_date"),
         CheckConstraint(
             "foot_contacts >= 0",
             name="ck_plyo_sessions_foot_contacts_non_negative",

@@ -1,7 +1,7 @@
 """add_plyo_sessions_table
 
 Revision ID: 6a4bc101eef3
-Revises: e3f1c0da097c
+Revises: 6de228e34220
 Create Date: 2026-06-30 16:22:05.000669
 
 """
