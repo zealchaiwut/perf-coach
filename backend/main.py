@@ -84,7 +84,6 @@ from backend.services.projection import project_fitness as _project_fitness, com
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
 from backend.routers.plan import router as _plan_router
-from backend.routers.sessions import router as _sessions_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -108,7 +107,6 @@ _start_time = time.monotonic()
 app = FastAPI()
 app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
-app.include_router(_sessions_router)
 
 
 def _today_bkk() -> _date:
