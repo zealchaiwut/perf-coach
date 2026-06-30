@@ -180,6 +180,60 @@ def _classify_single_lap(lap, ftp_w, threshold_pace, threshold_hr):
     }
 
 
+def aggregate_intensity_zones(splits, prefs):
+    """Aggregate per-lap band data into low/moderate/high zone percentages.
+
+    Calls classify_laps internally to determine the intensity band for each
+    split, then totals the duration_seconds for each composite zone:
+
+        low      = easy + steady
+        moderate = tempo
+        high     = threshold + hard
+
+    Splits whose band is None (unclassifiable due to missing thresholds or
+    metrics) are excluded from the total; they do not count as any zone.
+
+    Returns a dict with three keys:
+        low_pct      float or None
+        moderate_pct float or None
+        high_pct     float or None
+
+    Convention: when no split yields a classifiable band (total band time is
+    zero), all three values are None rather than raising a ZeroDivisionError.
+    """
+    LOW_BANDS = {BAND_EASY, BAND_STEADY}
+    MODERATE_BANDS = {BAND_TEMPO}
+    HIGH_BANDS = {BAND_THRESHOLD, BAND_HARD}
+
+    classifications = classify_laps(splits, prefs)
+
+    low_s = 0.0
+    moderate_s = 0.0
+    high_s = 0.0
+
+    for lap, cls in zip(splits, classifications):
+        band = cls.get("band")
+        if band is None:
+            continue
+        dur = getattr(lap, "duration_seconds", None) or 0
+        if band in LOW_BANDS:
+            low_s += dur
+        elif band in MODERATE_BANDS:
+            moderate_s += dur
+        elif band in HIGH_BANDS:
+            high_s += dur
+
+    total = low_s + moderate_s + high_s
+    if total == 0:
+        return {"low_pct": None, "moderate_pct": None, "high_pct": None}
+
+    return {
+        "low_pct": round(low_s / total * 100, 2),
+        "moderate_pct": round(moderate_s / total * 100, 2),
+        "high_pct": round(high_s / total * 100, 2),
+    }
+
+
 def classify_laps_for_workout(workout_id, session):
     """Thin caller: load splits and user_preferences from DB; pass to classify_laps.
 

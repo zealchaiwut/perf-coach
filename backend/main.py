@@ -84,11 +84,12 @@ from backend.services.projection import project_fitness as _project_fitness, com
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
 from backend.routers.plan import router as _plan_router
+from backend.services.guardrail import get_guardrail_result
+from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
 _TIME_CURVE_CEILING_TSB: float = 20.0
-from backend.services.guardrail import get_guardrail_result
 
 
 def _derive_goal_pace(goal_time_seconds, distance_km):
@@ -5804,6 +5805,14 @@ def get_workout_full(
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
         detected_profile = _get_session_profile(workout, split_rows, prefs)
+        _prefs_dict_for_zones = {
+            "ftp_w": prefs.ftp_w if prefs is not None else None,
+            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
+            "threshold_pace_seconds_per_km": (
+                prefs.threshold_pace_seconds_per_km if prefs is not None else None
+            ),
+        }
+        intensity_zones = _agg_zones(split_rows, _prefs_dict_for_zones)
         response_body: dict = {
             "workout": _workout_dict(workout, exercises),
             "splits": [_split_dict(s) for s in split_rows],
@@ -5817,6 +5826,7 @@ def get_workout_full(
             "computed_tss": tss_result["tss"],
             "detected_profile": detected_profile,
             "aerobic_decoupling": _aerobic_result,
+            "intensity_zones": intensity_zones,
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
