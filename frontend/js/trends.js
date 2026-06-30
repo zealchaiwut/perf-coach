@@ -867,6 +867,143 @@
     renderTSSOverlayChart(tssBodyEl, dates, tssByDate, mockReadinessByDate);
   }
 
+  // ── Intensity distribution stacked bar chart ─────────────────────────────────
+
+  let intensityChart = null;
+
+  // Design-system colours: low=green (#16a34a), moderate=amber (#d97706), high=red (#dc2626)
+  const INTENSITY_COLOURS = {
+    low:      { bg: 'rgba(22, 163, 74, 0.80)',  border: '#16a34a' },
+    moderate: { bg: 'rgba(217, 119, 6, 0.80)',  border: '#d97706' },
+    high:     { bg: 'rgba(220, 38, 38, 0.80)',  border: '#dc2626' },
+  };
+
+  function renderIntensityChart(bodyEl, data) {
+    if (!bodyEl) return;
+
+    var sessions = (data && data.sessions) || [];
+    var rollingWindow = (data && data.rolling_window) || {};
+
+    // Show empty state when no sessions have band data
+    var hasBandData = sessions.some(function (s) { return s.low_pct !== null; });
+    var hasRollingData = rollingWindow.low_pct !== null;
+    if (!hasBandData && !hasRollingData) {
+      showEmpty(bodyEl);
+      return;
+    }
+
+    bodyEl.innerHTML = '<canvas id="chart-intensity" style="display:block;width:100%;"></canvas>';
+    var canvas = document.getElementById('chart-intensity');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    // Build labels: one per session + separator + rolling window label
+    var labels = sessions.map(function (s) { return formatLabel(s.date); });
+    var sessionCount = sessions.length;
+    labels.push('');           // visual gap
+    labels.push('28-day avg'); // rolling window bar
+
+    function buildDataset(band, label) {
+      var vals = sessions.map(function (s) { return s[band + '_pct'] || 0; });
+      vals.push(0); // gap bar
+      vals.push(rollingWindow[band + '_pct'] || 0);
+      return {
+        label: label,
+        data: vals,
+        backgroundColor: INTENSITY_COLOURS[band].bg,
+        borderColor: INTENSITY_COLOURS[band].border,
+        borderWidth: 1,
+        borderRadius: 2,
+        maxBarThickness: 40,
+        stack: 'intensity',
+      };
+    }
+
+    var datasets = [
+      buildDataset('low',      'Low'),
+      buildDataset('moderate', 'Moderate'),
+      buildDataset('high',     'High'),
+    ];
+
+    if (intensityChart) { intensityChart.destroy(); intensityChart = null; }
+    intensityChart = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 3,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 12 }, color: '#6b7280' },
+          },
+          tooltip: {
+            backgroundColor: '#1f2937',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            cornerRadius: 4,
+            padding: 8,
+            callbacks: {
+              title: function (items) {
+                var idx = items[0].dataIndex;
+                if (idx === sessionCount) return '';       // gap
+                if (idx === sessionCount + 1) return '28-day rolling window';
+                var s = sessions[idx];
+                return s ? (s.name + ' · ' + s.date) : '';
+              },
+              label: function (item) {
+                var val = item.raw;
+                if (val === 0) return null;
+                return item.dataset.label + ': ' + val.toFixed(1) + '%';
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: '#6b7280',
+              font: { size: 11 },
+              maxRotation: 45,
+              callback: function (value, index) {
+                // Hide the gap-bar label
+                return index === sessionCount ? '' : this.getLabelForValue(index);
+              },
+            },
+          },
+          y: {
+            stacked: true,
+            min: 0,
+            max: 100,
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 11 }, callback: function (v) { return v + '%'; } },
+            title: { display: true, text: 'Time in zone (%)', color: '#6b7280', font: { size: 12 } },
+          },
+        },
+      },
+    });
+  }
+
+  function loadIntensityChart(win) {
+    var bodyEl = document.getElementById('slot-intensity-body');
+    if (!bodyEl) return;
+    showLoading(bodyEl);
+    if (intensityChart) { intensityChart.destroy(); intensityChart = null; }
+    if (!win.from || !win.to) { showEmpty(bodyEl); return; }
+
+    fetch('/api/workouts/intensity-distribution?from=' + win.from + '&to=' + win.to)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) { renderIntensityChart(bodyEl, data); })
+      .catch(function () {
+        bodyEl.innerHTML = '<div class="slot-empty"><div class="slot-empty-text">Could not load intensity data</div></div>';
+      });
+  }
+
   // ── Main data loader ──────────────────────────────────────────────────────────
 
   function loadChartData(state) {
@@ -898,9 +1035,12 @@
       showEmpty(rhrBodyEl);
       showEmpty(semBodyEl);
       showTSSEmpty(tssBodyEl);
+      showEmpty(document.getElementById('slot-intensity-body'));
       emptyBanner.hidden = false;
       return;
     }
+
+    loadIntensityChart(win);
 
     fetchSummary(state)
       .then(summary => {

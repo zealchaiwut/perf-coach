@@ -5633,6 +5633,98 @@ def get_exercise_names(user: User = Depends(resolve_user)):
         return JSONResponse(names)
 
 
+# ── Intensity distribution chart data ───────────────────────────────────────
+# Declared BEFORE /api/workouts/{workout_id} so the literal path isn't parsed as an id.
+
+@app.get("/api/workouts/intensity-distribution")
+def get_intensity_distribution(
+    from_date: str = Query(alias="from"),
+    to_date: str = Query(alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Per-session and rolling-window intensity distribution for the chart (issue #1133).
+
+    Returns one entry per workout in the date range with low/moderate/high
+    percentage breakdown derived from lap band data, plus a duration-weighted
+    aggregate across all sessions (rolling_window).
+    """
+    uid = user.id
+    try:
+        from_d = _date.fromisoformat(from_date)
+        to_d = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        prefs_dict = {
+            "ftp_w": prefs.ftp_w if prefs is not None else None,
+            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
+            "threshold_pace_seconds_per_km": (
+                prefs.threshold_pace_seconds_per_km if prefs is not None else None
+            ),
+        }
+
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .order_by(Workout.workout_date.asc(), Workout.created_at.asc())
+            .all()
+        )
+
+        sessions_out = []
+        total_dur = 0.0
+        total_low = 0.0
+        total_mod = 0.0
+        total_high = 0.0
+
+        for w in workouts:
+            split_rows = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == w.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+            zones = _agg_zones(split_rows, prefs_dict)
+            dur = w.duration_seconds or 0
+
+            # Accumulate rolling window totals (only when band data exists)
+            if zones["low_pct"] is not None and dur > 0:
+                total_dur += dur
+                total_low  += dur * zones["low_pct"]
+                total_mod  += dur * zones["moderate_pct"]
+                total_high += dur * zones["high_pct"]
+
+            sessions_out.append({
+                "date":             w.workout_date.isoformat(),
+                "workout_id":       str(w.id),
+                "name":             w.name,
+                "duration_seconds": dur or None,
+                "low_pct":          zones["low_pct"],
+                "moderate_pct":     zones["moderate_pct"],
+                "high_pct":         zones["high_pct"],
+            })
+
+    if total_dur == 0:
+        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
+    else:
+        rolling_window = {
+            "low_pct":      round(total_low  / total_dur, 2),
+            "moderate_pct": round(total_mod  / total_dur, 2),
+            "high_pct":     round(total_high / total_dur, 2),
+        }
+
+    return JSONResponse({"sessions": sessions_out, "rolling_window": rolling_window})
+
+
 # ── Removed (tombstoned) synced workouts ────────────────────────────────────
 # Declared BEFORE /api/workouts/{workout_id} so "removed" isn't parsed as an id.
 
