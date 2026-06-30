@@ -10,7 +10,6 @@ AC coverage:
 """
 import py_compile
 import os
-import pytest
 
 from backend.services.body_modifier import (
     compute_body_modifier,
@@ -28,7 +27,6 @@ from backend.services.running_performance import (
 )
 from backend.services.projection import (
     build_plan_projection_payload,
-    compute_expressible_score,
 )
 
 
