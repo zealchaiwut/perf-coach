@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 93 — Intensity-band classification, distribution chart, and polarized-split check
+
+- #1128: Classify each lap by intensity band
+- #1129: Aggregate session time-in-band into low/moderate/high percentages
+- #1130: Add rolling intensity distribution over trailing windows
+- #1131: Add polarized-split target-band deviation check
+- #1133: Build intensity-distribution stacked bar chart
+- #1134: Add polarized-check indicator for on-target vs grey-zone
+
 ## Sprint 92 — Training plan model, projection engine, and race time-curve chart
 
 - #1099: Add migration for races_checkpoints and planned_load tables
