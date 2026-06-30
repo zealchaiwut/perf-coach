@@ -1,4 +1,4 @@
-"""Running economy stimulus from strength and plyometric training load (issue #1146).
+"""Economy stimulus from strength and plyometric training load (issue #1146).
 
 Computes a combined economy stimulus signal that rewards sessions where both
 strength load and plyometric contact volume appear together within a rolling
@@ -6,14 +6,15 @@ window — producing a synergy bonus that neither modality generates alone.
 
 Public API
 ----------
-compute_economy_stimulus(strength_load, plyo_contacts, speed_kmh, fitness_score)
+compute_economy_stimulus(
+    strength_load, plyo_contacts, speed_kmh, fitness_score)
     Pure function. No I/O, no DB calls, no side effects.
 
 Design rationale
 ----------------
 Strength training primes neuromuscular efficiency, and its economy benefit
 scales with running speed (faster speeds leverage force production more) and
-with the athlete's fitness (higher fitness amplifies neuromuscular adaptations).
+with the athlete's fitness (fitness amplifies neuromuscular adaptations).
 The strength weight is therefore a product of a speed factor and a fitness
 factor, both monotonically non-decreasing.
 
@@ -88,7 +89,7 @@ Order: 8 km/h (186.7) > 12 km/h (180.0) > 16 km/h (120.0) ✓
 
 from __future__ import annotations
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────────
 
 # Strength prior: speed and fitness normalization denominators.
 # Chosen so that at typical values (speed ~20 km/h, fitness ~100) the weight
@@ -142,7 +143,7 @@ def _plyo_weight(speed_kmh: float) -> float:
         return max(0.0, (1.0 - f) * (1.0 - above / T))
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public API ───────────────────────────────────────────────────────────────
 
 def compute_economy_stimulus(
     strength_load: float,
