@@ -754,13 +754,125 @@
     }
   }
 
+  // ── Monthly review panel (issue #1059) ───────────────────────────────────
+
+  function _signClass(val) {
+    if (val == null) return "";
+    return val > 0 ? "positive" : val < 0 ? "negative" : "";
+  }
+
+  function _fmtDelta(val, decimals, suffix) {
+    if (val == null) return "—";
+    var s = val > 0 ? "+" : "";
+    return s + parseFloat(val).toFixed(decimals || 1) + (suffix || "");
+  }
+
+  function _supercompDotClass(state) {
+    if (!state) return "";
+    var s = String(state).toLowerCase();
+    if (s === "peak") return "supercomp-peak";
+    if (s === "building") return "supercomp-building";
+    if (s === "recovering") return "supercomp-recovering";
+    return "";
+  }
+
+  function renderMonthlyReview(data) {
+    var panel = document.getElementById("plan-monthly-review");
+    if (!panel) return;
+
+    if (!data || !data.next_checkpoint) {
+      panel.setAttribute("hidden", "");
+      return;
+    }
+
+    // Checkpoint name
+    var nameEl = document.getElementById("plan-month-checkpoint-name");
+    if (nameEl) nameEl.textContent = data.next_checkpoint.name || "";
+
+    // Chips: Endurance score, Speed score, Weight change, Fitness change, Form
+    var chipsEl = document.getElementById("plan-month-chips");
+    if (chipsEl) {
+      var chips = [
+        { val: data.endurance_score_change, label: "Endurance", decimals: 1, suffix: "" },
+        { val: data.speed_score_change, label: "Speed", decimals: 1, suffix: "" },
+        { val: data.weight_change_kg, label: "Weight", decimals: 1, suffix: " kg" },
+        { val: data.fitness_ctl_change, label: "Fitness (CTL)", decimals: 1, suffix: "" },
+        { val: data.form_recovered !== undefined ? (data.form_recovered ? 1 : -1) : null, label: "Form", special: "form_recovered", raw: data.form_recovered },
+      ];
+      var html = "";
+      chips.forEach(function (c) {
+        var display, cls;
+        if (c.special === "form_recovered") {
+          display = c.raw === true ? "Recovered" : c.raw === false ? "Fatigued" : "—";
+          cls = c.raw === true ? "positive" : c.raw === false ? "negative" : "";
+        } else {
+          display = _fmtDelta(c.val, c.decimals, c.suffix);
+          cls = _signClass(c.val);
+        }
+        html +=
+          '<div class="plan-month-chip">' +
+          '<span class="plan-month-chip-val ' + cls + '">' + esc(display) + '</span>' +
+          '<span class="plan-month-chip-lbl">' + esc(c.label) + '</span>' +
+          '</div>';
+      });
+      chipsEl.innerHTML = html;
+    }
+
+    // Supercompensation state
+    var supercompEl = document.getElementById("plan-month-supercomp");
+    var supercompLbl = document.getElementById("plan-month-supercomp-label");
+    var supercompDot = supercompEl ? supercompEl.querySelector(".plan-month-supercomp-dot") : null;
+    if (supercompLbl) supercompLbl.textContent = data.supercompensation_state || "—";
+    if (supercompDot) {
+      supercompDot.className = "plan-month-supercomp-dot " + _supercompDotClass(data.supercompensation_state);
+    }
+
+    // CTA
+    var ctaEl = document.getElementById("plan-month-cta");
+    if (ctaEl) ctaEl.textContent = data.call_to_action || "";
+
+    panel.removeAttribute("hidden");
+  }
+
+  function loadMonthlyReview() {
+    var panel = document.getElementById("plan-monthly-review");
+    if (panel) panel.setAttribute("hidden", "");
+
+    apiGet("/api/auth/me", function (me) {
+      if (!me || !me.id) return;
+      fetch("/api/athletes/" + me.id + "/summary/monthly", { credentials: "same-origin" })
+        .then(function (r) {
+          if (!r.ok) return null;
+          return r.json();
+        })
+        .then(function (data) {
+          renderMonthlyReview(data);
+        })
+        .catch(function () {
+          // keep panel hidden on error
+        });
+    });
+  }
+
+  function wireMonthlyReviewLogLink() {
+    var link = document.getElementById("plan-month-log-link");
+    if (!link) return;
+    link.addEventListener("click", function () {
+      // Switch to the Log sub-tab
+      var logBtn = document.querySelector('.training-sub-tab[data-tab="log"]');
+      if (logBtn) logBtn.click();
+    });
+  }
+
   // ── Public init ───────────────────────────────────────────────────────────
   function init() {
     if (!_initialized) {
       _initialized = true;
       wireEvents();
+      wireMonthlyReviewLogLink();
     }
     refresh();
+    loadMonthlyReview();
   }
 
   window.TrainingPlan = { init: init };
