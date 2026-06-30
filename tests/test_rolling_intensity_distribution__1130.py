@@ -12,12 +12,10 @@ Acceptance criteria anchored:
   AC7 - Unit tests cover: single session, multiple sessions spanning window
         boundary, and an empty window
 """
-import math
 import pathlib
 import py_compile
 from datetime import date
 
-import pytest
 
 from backend.services.rolling_intensity import compute_rolling_intensity_distribution
 
