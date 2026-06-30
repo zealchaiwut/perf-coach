@@ -1190,3 +1190,27 @@ class StrengthSession(Base):
             name="ck_strength_sessions_duration_positive",
         ),
     )
+
+
+class PlyoSession(Base):
+    """Plyometric training session with foot-contact volume tracking (issue #1143)."""
+
+    __tablename__ = "plyo_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_date = Column(Date, nullable=False)
+    foot_contacts = Column(Integer, nullable=False)
+    plyo_phase = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "foot_contacts >= 0",
+            name="ck_plyo_sessions_foot_contacts_non_negative",
+        ),
+        CheckConstraint(
+            "plyo_phase IN ('intro', 'build', 'maintain')",
+            name="ck_plyo_sessions_plyo_phase_values",
+        ),
+    )
