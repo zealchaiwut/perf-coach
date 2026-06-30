@@ -24,7 +24,6 @@ import datetime
 import pytest
 
 from backend.services.weight_ewma import compute_ewma, DEFAULT_SPAN
-from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
