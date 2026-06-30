@@ -34,6 +34,7 @@ const WeightChart = (() => {
   const C = {
     actual: "#9ca3af",
     trend: "#2563eb",
+    ewma: "#f59e0b",
     plan: "#16a34a",
     grid: "#e5e7eb",
     future_bg: "#f3f7ff",
@@ -80,6 +81,9 @@ const WeightChart = (() => {
     (data.trend || []).forEach((p) => {
       if (p.weight_kg != null) vals.push(p.weight_kg);
     });
+    (data.ewma || []).forEach((p) => {
+      if (p.weight_kg != null) vals.push(p.weight_kg);
+    });
     if (data.today_marker) {
       if (data.today_marker.plan_kg != null)
         vals.push(data.today_marker.plan_kg);
@@ -111,6 +115,9 @@ const WeightChart = (() => {
     const vals = [];
     (data.actuals || []).forEach((p) => vals.push(p.weight_kg));
     (data.trend || []).forEach((p) => {
+      if (p.weight_kg != null) vals.push(p.weight_kg);
+    });
+    (data.ewma || []).forEach((p) => {
       if (p.weight_kg != null) vals.push(p.weight_kg);
     });
     if (data.today_marker) {
@@ -659,6 +666,30 @@ const WeightChart = (() => {
         points: trendPts.join(" "), fill: "none", stroke: C.trend,
         "stroke-width": "2.8", "stroke-linejoin": "round", "stroke-linecap": "round",
       }));
+    }
+
+    // ════ 7b. EWMA trend line (amber) — smooth exponential average overlaid on raw entries ════
+    const ewmaData = data.ewma || [];
+    if (ewmaData.length) {
+      // Build continuous segments (split on null to avoid connecting across data gaps)
+      const ewmaSegments = [];
+      let seg = [];
+      ewmaData.forEach((p, i) => {
+        if (p.weight_kg != null) {
+          seg.push(xIdx(i) + "," + y(toU(p.weight_kg)));
+        } else {
+          if (seg.length >= 2) ewmaSegments.push(seg);
+          seg = [];
+        }
+      });
+      if (seg.length >= 2) ewmaSegments.push(seg);
+      ewmaSegments.forEach((pts) => {
+        svg.appendChild(_el("polyline", {
+          points: pts.join(" "), fill: "none", stroke: C.ewma,
+          "stroke-width": "2", "stroke-linejoin": "round", "stroke-linecap": "round",
+          opacity: "0.85",
+        }));
+      });
     }
 
     // ════ 8. Advanced forecast layers: NOW, projection (line only), goal dot ════

@@ -311,7 +311,6 @@ def _best_worst_day(logs: list) -> tuple[str | None, str | None]:
         return None, None
 
     counts: dict[int, int] = defaultdict(int)
-    total_weeks_seen: dict[int, int] = defaultdict(int)
 
     for log in logs:
         counts[log.log_date.weekday()] += 1

@@ -63,6 +63,7 @@ from backend.services.specificity_progress import specificity_progress as _speci
 from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
+from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
@@ -1940,6 +1941,38 @@ def get_weight_chart(
             day = from_d + _timedelta(days=i)
             trend.append({"date": str(day), "weight_kg": _ma_for_day(day)})
 
+        # EWMA series: compute on ALL fetched entries (includes warmup before from_d for
+        # convergence) then build a dense daily series for [from_d, to_d] carrying the
+        # last EWMA value forward on days without entries.
+        _ewma_input = [
+            {
+                "date": (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in all_entries
+        ]
+        _ewma_raw_values = _compute_ewma(_ewma_input)
+        _ewma_by_date: dict = {e["date"]: v for e, v in zip(_ewma_input, _ewma_raw_values)}
+        ewma_series = []
+        _last_ewma: float | None = None
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            if day in _ewma_by_date:
+                _last_ewma = round(_ewma_by_date[day], 4)
+            ewma_series.append({"date": str(day), "weight_kg": _last_ewma})
+
+        # Weekly rate derived from EWMA slope: ewma at to_d minus ewma 7 days earlier.
+        # This reflects trend momentum, not a raw entry-to-entry delta.
+        _ewma_non_null = [(i, p["weight_kg"]) for i, p in enumerate(ewma_series) if p["weight_kg"] is not None]
+        weekly_rate_ewma_kg: float | None = None
+        if len(_ewma_non_null) >= 2:
+            _last_ewma_idx, _last_ewma_val = _ewma_non_null[-1]
+            _target_earlier_idx = _last_ewma_idx - 7
+            _earlier_candidates = [(i, v) for i, v in _ewma_non_null if i <= max(_target_earlier_idx, 0)]
+            if _earlier_candidates and _target_earlier_idx >= 0:
+                _, _earlier_ewma_val = _earlier_candidates[-1]
+                weekly_rate_ewma_kg = round(_last_ewma_val - _earlier_ewma_val, 3)
+
         # Stats
         in_range = [e for e in all_entries if (
             from_d
@@ -1984,6 +2017,8 @@ def get_weight_chart(
             "current_avg_kg": current_avg_kg,
             "delta_7d_kg": delta_7d_kg,
             "delta_30d_kg": delta_30d_kg,
+            "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
+            "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
         }
 
         # Always fetch active target (needed for plan_series / milestones / today_marker)
@@ -2084,6 +2119,7 @@ def get_weight_chart(
             "actuals": actuals,
             "past_actuals": past_actuals,
             "trend": trend,
+            "ewma": ewma_series,
             "stats": stats,
             "future_milestones": future_milestones,
             "today_marker": today_marker,

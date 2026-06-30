@@ -99,6 +99,22 @@
 .delta-pill.loss { background: var(--green-soft, #dff5d6); color: var(--green, #2d5e10); }
 .delta-pill.gain { background: var(--red-soft, #ffd9d9);   color: var(--red, #7a1a1a); }
 
+/* ── EWMA weekly rate row ─────────────────────────────────────────────────── */
+.ewma-rate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 4px;
+}
+.ewma-rate-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary, #8fa0be);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* ── Coach strip ─────────────────────────────────────────────────────────── */
 .coach-strip {
   padding: 11px 16px;
