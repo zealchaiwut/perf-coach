@@ -406,6 +406,44 @@
     }
 
     .proj-btn-delete:hover { background: #fecaca; }
+
+    /* ── Economy contribution row ── */
+    .proj-economy-row {
+      margin-top: 14px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      background: #f0f4ff;
+      border: 1px solid #d4dcf7;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .proj-economy-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #4a6bcc;
+      flex-shrink: 0;
+    }
+
+    .proj-economy-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px;
+      font-weight: 700;
+      color: #3563d4;
+      letter-spacing: -0.03em;
+      flex-shrink: 0;
+    }
+
+    .proj-economy-meta {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      flex: 1;
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -434,6 +472,13 @@
         </div>
       </div>
       <div class="proj-score-state" id="proj-score-state"></div>
+
+      <!-- Economy contribution breakdown row (issue #1150) -->
+      <div class="proj-economy-row" id="proj-economy-row">
+        <span class="proj-economy-label">Economy</span>
+        <span class="proj-economy-value" id="proj-economy-value">–</span>
+        <span class="proj-economy-meta" id="proj-economy-meta">Lagged strength &amp; plyo contribution to performance ceiling</span>
+      </div>
     </div>
 
     <!-- ── Pace / form curve ── -->

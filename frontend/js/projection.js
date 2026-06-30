@@ -137,15 +137,24 @@
     return v.toFixed(1);
   }
 
+  function _fmtEconomy(v, lagPeakDays, lagWindowDays) {
+    if (v == null || typeof v !== "number") return "0";
+    if (v === 0) return "0";
+    return "+" + v.toFixed(2);
+  }
+
   function renderScores(data) {
     var endEl = document.getElementById("proj-endurance-score");
     var speedEl = document.getElementById("proj-speed-score");
     var stateEl = document.getElementById("proj-score-state");
+    var econEl = document.getElementById("proj-economy-value");
+    var econMeta = document.getElementById("proj-economy-meta");
 
     if (!data) {
       if (endEl) endEl.textContent = "—";
       if (speedEl) speedEl.textContent = "—";
       if (stateEl) stateEl.textContent = "";
+      if (econEl) econEl.textContent = "0";
       return;
     }
 
@@ -163,6 +172,21 @@
         stateEl.textContent = "Could not compute scores.";
       } else {
         stateEl.textContent = "";
+      }
+    }
+
+    // Economy contribution (issue #1150)
+    var econVal = typeof data.economy_contribution === "number" ? data.economy_contribution : 0;
+    if (econEl) {
+      econEl.textContent = econVal === 0 ? "0" : _fmtEconomy(econVal);
+    }
+    if (econMeta) {
+      var lagPeak = data.lag_peak_days || 42;
+      var lagWindow = data.lag_window_days || 84;
+      if (econVal === 0) {
+        econMeta.textContent = "No strength or plyometric sessions in the " + (lagWindow / 7) + "-week lag window";
+      } else {
+        econMeta.textContent = "Lagged strength & plyo effect (peaks at " + (lagPeak / 7) + " wk, window " + (lagWindow / 7) + " wk)";
       }
     }
   }
