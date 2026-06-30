@@ -40,9 +40,9 @@ def _alice_id():
     _require_engine()
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT id FROM users WHERE name = 'Alice'")
+            text("SELECT id FROM users WHERE LOWER(name) = 'alice' LIMIT 1")
         ).fetchone()
-    assert row is not None, "Alice not found — seed not run?"
+    assert row is not None, "alice user not found — seed not run?"
     return row.id
 
 
