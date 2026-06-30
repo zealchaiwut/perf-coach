@@ -1176,6 +1176,37 @@
     _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
   }
 
+  async function _renderBodyModifierGuardrail() {
+    var el = document.getElementById('body-modifier-guardrail');
+    if (!el) return;
+    try {
+      var res = await fetch('/api/body-modifier/guardrail');
+      if (!res.ok) { el.innerHTML = ''; return; }
+      var data = await res.json();
+      if (data.guardrail_state !== 'warn') {
+        el.innerHTML = '';
+        return;
+      }
+      var msg = data.guardrail_message || 'You are in the penalty region — this is a performance and health risk.';
+      el.innerHTML =
+        '<div class="bm-guardrail">' +
+          '<span class="bm-guardrail-icon" aria-hidden="true">&#9888;</span>' +
+          '<span><span class="bm-guardrail-label">Performance risk:</span>' +
+          '<span class="bm-guardrail-msg"> ' + _escHtml(msg) + '</span></span>' +
+        '</div>';
+    } catch (_) {
+      el.innerHTML = '';
+    }
+  }
+
+  function _escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function _weightSummaryAdapter(wBlock) {
     if (!wBlock) return null;
     return {
@@ -1278,6 +1309,9 @@
       if (window.HomeRTS) {
         HomeRTS.render(summary);
       }
+
+      /* Body-modifier guardrail warning (issue #1161) */
+      _renderBodyModifierGuardrail();
 
       /* Weight widget (using summary.weight block) */
       _renderHomeWeightWidget(summary.weight, userId);
