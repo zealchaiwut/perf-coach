@@ -205,6 +205,63 @@ async function _logHabitToday(habitId, value) {
   await _refreshHabitStreak(habitId);
 }
 
+// ── Miss detection helper ─────────────────────────────────────────────────────
+// For daily (7×/week) habits: true when there were missed days earlier this week
+// before today. Uses Bangkok time so the weekday is accurate.
+function _hasMissThisWeek(habit, weekDone) {
+  if (habit.tracking_type !== 'daily_checkmark') return false;
+  const wt = habit.weekly_target != null ? parseFloat(habit.weekly_target) : 7;
+  if (wt < 7) return false;
+  const bkkDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const dow = new Date(bkkDate + 'T00:00:00').getDay(); // 0=Sun..6=Sat
+  const daysBeforeToday = dow === 0 ? 6 : dow - 1;     // Mon=0...Sat=5, Sun=6
+  return daysBeforeToday > 0 && weekDone < daysBeforeToday;
+}
+
+// ── Milestone moment display ──────────────────────────────────────────────────
+// Shows a full-width coaching banner that auto-dismisses after 6 s.
+function _showMilestoneMoment(coaching) {
+  const existing = document.getElementById('habit-milestone-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'habit-milestone-banner';
+  banner.className = 'habit-milestone-banner';
+  banner.setAttribute('role', 'status');
+  banner.setAttribute('aria-live', 'polite');
+
+  const msgEl = document.createElement('p');
+  msgEl.className = 'habit-milestone-msg';
+  msgEl.textContent = coaching.message;
+  banner.appendChild(msgEl);
+
+  if (coaching.showIdentity && window.HabitVoice) {
+    const idEl = document.createElement('p');
+    idEl.className = 'habit-milestone-identity';
+    idEl.textContent = HabitVoice.identityLine(coaching._habitName || '');
+    banner.appendChild(idEl);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'habit-milestone-close';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => banner.remove());
+  banner.appendChild(closeBtn);
+
+  const card = document.getElementById('today-quick-log-card');
+  if (card) {
+    card.insertAdjacentElement('afterend', banner);
+  } else {
+    document.body.appendChild(banner);
+  }
+
+  setTimeout(() => { if (banner.parentNode) banner.remove(); }, 6000);
+}
+
+// ── Streak feedback after log ─────────────────────────────────────────────────
+// Fetches refreshed summary and renders coaching copy on the habit row.
 async function _refreshHabitStreak(habitId) {
   const res = await fetch('/api/habits/summary');
   if (!res.ok) return;
@@ -212,23 +269,38 @@ async function _refreshHabitStreak(habitId) {
   const habit = (data.habits || []).find(h => h.id === habitId);
   if (!habit) return;
 
+  const weekDone = habit.week_done != null ? habit.week_done : 0;
+  const weekTarget = habit.weekly_target != null ? Math.floor(parseFloat(habit.weekly_target)) : 7;
+  const totalLogs = habit.total_logs || 0;
+  const currentStreak = habit.current_streak || 0;
+  const isMiss = _hasMissThisWeek(habit, weekDone);
+
+  // Route all copy through the shared voice module (AC7)
+  const V = window.HabitVoice;
+  if (!V) return;
+  const coaching = V.compose(habit, weekDone, weekTarget, totalLogs, isMiss, currentStreak);
+  coaching._habitName = habit.name;
+
+  // Update row meta with coaching copy
   const row = document.querySelector(`[data-habit-id="${habitId}"]`);
-  if (!row) return;
-  const metaEl = row.querySelector('.today-habit-meta');
-  if (!metaEl) return;
+  if (row) {
+    const metaEl = row.querySelector('.today-habit-meta');
+    if (metaEl) {
+      const oldBadge = metaEl.querySelector('.streak-badge, .coaching-copy');
+      const coachEl = document.createElement('span');
+      coachEl.className = `coaching-copy coaching-copy--${coaching.framing}`;
+      coachEl.textContent = coaching.message;
+      if (oldBadge) {
+        oldBadge.replaceWith(coachEl);
+      } else {
+        metaEl.appendChild(coachEl);
+      }
+    }
+  }
 
-  const streak = habit.current_streak || 0;
-  const newBadgeHTML = streak >= 3
-    ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
-    : streak > 0
-      ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
-      : '';
-
-  const existingBadge = metaEl.querySelector('.streak-badge');
-  if (existingBadge) {
-    existingBadge.outerHTML = newBadgeHTML || '';
-  } else if (newBadgeHTML) {
-    metaEl.insertAdjacentHTML('beforeend', newBadgeHTML);
+  // Milestone moment surface (AC4, AC5)
+  if (coaching.framing === 'milestone') {
+    _showMilestoneMoment(coaching);
   }
 }
 
@@ -292,13 +364,27 @@ function renderTodayCard(habits) {
 
     const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
 
-    // Streak badge (sourced from endpoint, never computed client-side)
-    const streak = habit.current_streak || 0;
-    const streakBadgeHTML = streak >= 3
-      ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
-      : streak > 0
-        ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
-        : '';
+    // Coaching copy for initial render — route through voice module (AC7)
+    const V = window.HabitVoice;
+    const weekDone = habit.week_done != null ? habit.week_done : 0;
+    const weekTarget = habit.weekly_target != null ? Math.floor(parseFloat(habit.weekly_target)) : 7;
+    const totalLogs = habit.total_logs || 0;
+    const currentStreak = habit.current_streak || 0;
+    const isMiss = _hasMissThisWeek(habit, weekDone);
+
+    let streakBadgeHTML = '';
+    if (V) {
+      const coaching = V.compose(habit, weekDone, weekTarget, totalLogs, isMiss, currentStreak);
+      streakBadgeHTML = `<span class="coaching-copy coaching-copy--${esc(coaching.framing)}">${esc(coaching.message)}</span>`;
+    } else {
+      // Fallback: raw streak badge when voice module not loaded
+      const streak = currentStreak;
+      streakBadgeHTML = streak >= 3
+        ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''}</span>`
+        : streak > 0
+          ? `<span class="streak-badge">${streak} day${streak !== 1 ? 's' : ''}</span>`
+          : '';
+    }
 
     // Target label
     const targetStr = habit.weekly_target != null

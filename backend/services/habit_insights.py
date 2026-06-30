@@ -1,6 +1,10 @@
 """Habit-outcome correlation insight builder.
 
 Pure function — no DB access. Caller supplies all data.
+
+Tone rules for insight copy are delegated to
+:mod:`backend.services.coaching_voice` so phrase changes propagate here
+automatically.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from typing import Any
 
 from backend.services.habit_outcome_alignment import align_habit_and_outcome
 from backend.services.habit_correlation import compute_correlation
+import backend.services.coaching_voice as coaching_voice
 
 # ---------------------------------------------------------------------------
 # Configuration helpers — threshold must never be a hardcoded literal
@@ -49,18 +54,25 @@ def _generate_line(
     coefficient: float,
     lag_days: int,
 ) -> str:
-    """Return a plain-English sentence describing the insight."""
-    direction = "higher" if coefficient >= 0 else "lower"
+    """Return a plain-English sentence describing the insight.
+
+    Delegates to coaching_voice.reframe_line_builder so that tone changes
+    propagate from the shared voice module without edits here.
+    """
+    direction = "up" if coefficient >= 0 else "down"
     label = _outcome_label(outcome_name)
     if lag_days == 0:
-        return (
-            f"Logging '{habit_name}' is associated with {direction} "
-            f"'{label}' scores on the same day."
-        )
-    day_word = "day" if lag_days == 1 else "days"
-    return (
-        f"Logging '{habit_name}' is associated with {direction} "
-        f"'{label}' scores {lag_days} {day_word} later."
+        context = f"associated with higher '{label}' scores on the same day"
+    else:
+        day_word = "day" if lag_days == 1 else "days"
+        context = f"associated with higher '{label}' scores {lag_days} {day_word} later"
+    if coefficient < 0:
+        context = context.replace("higher", "lower")
+    return coaching_voice.praise_line_builder(
+        f"'{habit_name}' habit",
+        None,
+        direction,
+        context,
     )
 
 

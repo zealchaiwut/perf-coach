@@ -60,7 +60,7 @@ Partial unique index: one active target per user.
 
 ---
 
-## habits _(updated Sprint 50; v2 columns added Sprint 77)_
+## habits _(updated Sprint 50; v2 columns added Sprint 77; focus coaching fields added Sprint 84)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -85,6 +85,8 @@ Partial unique index: one active target per user.
 | sort_order | int | default 0 |
 | is_archived | bool | default false |
 | archived_at | timestamptz | nullable |
+| minimum_version | text | nullable — minimum viable version of the habit for struggling days (focus coaching, Sprint 84) |
+| anchor_event | text | nullable — existing action to pair the habit with as an implementation intention (focus coaching, Sprint 84) |
 
 ---
 

@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weekly Check-In – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-1: #5a8dee;
+      --bg-2: #1f3b8a;
+      --shell-1: #eaf0fb;
+      --shell-2: #d8e3f5;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 30, 67, 0.06);
+      --card-radius: 14px;
+      --card-shadow: 0 2px 12px rgba(13,30,67,0.10), 0 1px 3px rgba(13,30,67,0.06);
+      --text-primary: #0b1530;
+      --text-secondary: #5c6886;
+      --text-tertiary: #69748c;
+      --accent: #e4ff52;
+      --accent-text: #1a2400;
+      --green: #2d5e10;
+      --green-soft: #dff5d6;
+      --amber: #6b4408;
+      --amber-soft: #fff0c4;
+      --red: #7a1a1a;
+      --red-soft: #ffd9d9;
+      --page-bg: radial-gradient(ellipse at top left, var(--bg-1) 0%, var(--bg-2) 70%);
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter Tight', system-ui, sans-serif;
+      color: var(--text-primary);
+      background: var(--page-bg);
+      min-height: 100vh;
+      letter-spacing: -0.01em;
+    }
+
+    /* ── Nav shell ── */
+    #nav-shell { background: linear-gradient(180deg, var(--shell-1) 0%, var(--shell-2) 100%); }
+
+    /* ── Page layout ── */
+    .page {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+
+    /* ── Header ── */
+    .page-header {
+      margin-bottom: 24px;
+    }
+    .page-header h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    }
+    .page-header p {
+      margin: 0;
+      color: rgba(255,255,255,0.72);
+      font-size: 14px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 20px 22px;
+      margin-bottom: 12px;
+    }
+    .card-label {
+      margin: 0 0 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Building baseline state ── */
+    .baseline-card {
+      background: var(--card-bg);
+      border-radius: var(--card-radius);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .baseline-icon {
+      font-size: 36px;
+      margin-bottom: 12px;
+      color: var(--text-secondary);
+    }
+    .baseline-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 8px;
+    }
+    .baseline-body {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+
+    /* ── Week summary lines ── */
+    .summary-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(13,30,67,0.06);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-primary);
+    }
+    .summary-line:last-child { border-bottom: none; }
+    .summary-line .line-icon {
+      flex-shrink: 0;
+      width: 20px;
+      color: var(--text-secondary);
+      font-size: 15px;
+      margin-top: 2px;
+    }
+    .summary-line .line-null {
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    /* ── Bright spot ── */
+    .bright-spot-text {
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--text-primary);
+    }
+    .source-chip {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    /* ── Next lever ── */
+    .lever-text {
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--text-primary);
+    }
+
+    /* ── Recommit beat ── */
+    .habit-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(13,30,67,0.06);
+    }
+    .habit-row:last-child { border-bottom: none; }
+    .habit-info { flex: 1; min-width: 0; }
+    .habit-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .habit-meta {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+    .habit-controls {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .btn-keep, .btn-adjust {
+      padding: 5px 13px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+      transition: opacity 0.12s;
+    }
+    .btn-keep {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+    .btn-keep:hover { opacity: 0.8; }
+    .btn-adjust {
+      background: rgba(13,30,67,0.06);
+      color: var(--text-secondary);
+    }
+    .btn-adjust:hover { opacity: 0.7; }
+    .btn-adjust:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .cooldown-badge {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    /* ── Recommit confirmation ── */
+    .recommit-notice {
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: var(--green-soft);
+      color: var(--green);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+    }
+    .recommit-notice.visible { display: block; }
+
+    /* ── Loading skeleton ── */
+    .skeleton {
+      background: linear-gradient(90deg, #eef2fb 25%, #e0e8f5 50%, #eef2fb 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+      height: 14px;
+      margin-bottom: 8px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Error state ── */
+    .error-msg {
+      color: var(--red);
+      font-size: 14px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 480px) {
+      .page { padding: 16px 14px 40px; }
+      .card { padding: 16px 16px; }
+      .habit-controls { flex-direction: column; gap: 4px; }
+      .btn-keep, .btn-adjust { width: 70px; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div id="nav-shell"></div>
+
+  <main class="page" role="main">
+    <header class="page-header">
+      <h1>Weekly Check-In</h1>
+      <p id="week-label">Loading…</p>
+    </header>
+
+    <div id="content">
+      <!-- Skeleton while loading -->
+      <div id="skeleton">
+        <div class="card">
+          <div class="skeleton" style="width:40%;height:11px;margin-bottom:14px;"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton" style="width:85%;"></div>
+          <div class="skeleton" style="width:70%;"></div>
+        </div>
+        <div class="card">
+          <div class="skeleton" style="width:35%;height:11px;margin-bottom:14px;"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton" style="width:80%;"></div>
+        </div>
+      </div>
+
+      <!-- Building-baseline state -->
+      <div id="baseline-section" hidden>
+        <div class="baseline-card">
+          <div class="baseline-icon"><i class="ti ti-plant"></i></div>
+          <div class="baseline-title">Building your baseline</div>
+          <div class="baseline-body" id="baseline-reason">
+            Keep logging for a few more days and your first full summary will appear here.
+          </div>
+        </div>
+      </div>
+
+      <!-- Full check-in sections (shown when building=false) -->
+      <div id="full-section" hidden>
+
+        <!-- Week Summary -->
+        <div class="card" id="week-summary-card">
+          <div class="card-label">This week</div>
+          <div id="summary-lines">
+            <div class="summary-line">
+              <span class="line-icon"><i class="ti ti-scale"></i></span>
+              <span id="line-weight"></span>
+            </div>
+            <div class="summary-line">
+              <span class="line-icon"><i class="ti ti-list-check"></i></span>
+              <span id="line-habits"></span>
+            </div>
+            <div class="summary-line">
+              <span class="line-icon"><i class="ti ti-run"></i></span>
+              <span id="line-training"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bright Spot -->
+        <div class="card" id="bright-spot-card">
+          <div class="card-label">Bright spot</div>
+          <div class="bright-spot-text" id="bright-spot-text"></div>
+          <div id="bright-spot-source"></div>
+        </div>
+
+        <!-- Next-Week Lever -->
+        <div class="card" id="lever-card">
+          <div class="card-label">One thing next week</div>
+          <div class="lever-text" id="lever-text"></div>
+        </div>
+
+      </div>
+
+      <!-- Recommit Beat (always shown when focus habits exist) -->
+      <div class="card" id="recommit-card" hidden>
+        <div class="card-label">Recommit</div>
+        <div id="habit-rows"></div>
+        <div class="recommit-notice" id="recommit-notice">
+          Saved — your commitments are locked in for the week.
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="../js/nav.js"></script>
+  <script src="../js/weekly-check-in.js"></script>
+</body>
+</html>
