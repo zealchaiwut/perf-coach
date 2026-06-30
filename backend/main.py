@@ -6449,6 +6449,7 @@ def _split_dict(s: WorkoutSplit) -> dict:
         "cadence_spm": s.cadence_spm,
         "stride_length_m": float(s.stride_length_m) if s.stride_length_m is not None else None,
         "lap_type": s.lap_type if s.lap_type is not None else "auto",
+        "intensity_band": s.intensity_band,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -6516,6 +6517,30 @@ def replace_splits(workout_id: str, body: SplitsIn, user: User = Depends(resolve
         for split in new_splits:
             session.refresh(split)
         new_splits.sort(key=lambda x: x.split_index)
+        # Classify each lap by intensity band and persist to DB.
+        try:
+            from backend.services.lap_classify import classify_laps as _classify_laps_for_splits
+            prefs_row = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == workout.user_id)
+                .first()
+            )
+            prefs_dict = {
+                "ftp_w": prefs_row.ftp_w if prefs_row is not None else None,
+                "threshold_hr": prefs_row.threshold_hr if prefs_row is not None else None,
+                "threshold_pace_seconds_per_km": (
+                    prefs_row.threshold_pace_seconds_per_km if prefs_row is not None else None
+                ),
+            }
+            classifications = _classify_laps_for_splits(new_splits, prefs_dict)
+            for split, clf in zip(new_splits, classifications):
+                split.intensity_band = clf.get("band")
+            session.commit()
+        except Exception as _band_exc:
+            _logging.getLogger(__name__).warning(
+                "lap intensity band classification failed for workout %s: %s",
+                wid, _band_exc, exc_info=True,
+            )
         try:
             _persist_running_tss(wid, session)
             session.commit()
