@@ -145,3 +145,135 @@ def compute_body_modifier(
         branch = "neutral"
 
     return {"modifier": round(modifier, 6), "branch": branch}
+
+
+def compute_body_modifier_guardrail(
+    weekly_pct_bw_rate: float,
+    ea_proxy: float,
+    *,
+    rate_zero_crossing: float = RATE_ZERO_CROSSING,
+    ea_low_threshold: float = EA_LOW_THRESHOLD,
+) -> dict:
+    """Return a guardrail warning state based on body-composition penalty conditions.
+
+    Triggers when either (or both) of these conditions hold:
+    - Loss velocity is excessive: loss_rate > rate_zero_crossing (body modifier enters penalty zone)
+    - EA is low: ea_proxy < ea_low_threshold (energy availability in penalty region)
+
+    Returns
+    -------
+    dict with keys:
+        ``guardrail_state``  — ``"warn"`` or ``"ok"``
+        ``guardrail_message`` — plain-English health/performance risk message when warning;
+                               empty string when ``"ok"``
+        ``in_penalty_loss``  — True when loss rate triggers the penalty zone
+        ``in_penalty_ea``    — True when EA proxy is in the penalty region
+    """
+    loss_rate = -float(weekly_pct_bw_rate)
+    in_penalty_loss = loss_rate > rate_zero_crossing
+    in_penalty_ea = float(ea_proxy) < ea_low_threshold
+
+    if not in_penalty_loss and not in_penalty_ea:
+        return {
+            "guardrail_state": "ok",
+            "guardrail_message": "",
+            "in_penalty_loss": False,
+            "in_penalty_ea": False,
+        }
+
+    if in_penalty_loss and in_penalty_ea:
+        message = (
+            "You are in the penalty region: loss rate is excessive and energy availability "
+            "is low — both conditions are affecting your performance and health."
+        )
+    elif in_penalty_loss:
+        message = (
+            "Loss rate is excessive — rapid weight loss at this pace carries a "
+            "performance and health risk. Consider easing the deficit."
+        )
+    else:
+        message = (
+            "Energy availability is low — you are in the penalty region. "
+            "This is a performance and health risk; ensure adequate fuelling."
+        )
+
+    return {
+        "guardrail_state": "warn",
+        "guardrail_message": message,
+        "in_penalty_loss": in_penalty_loss,
+        "in_penalty_ea": in_penalty_ea,
+    }
+
+
+def get_body_modifier_guardrail_for_user(user_id, as_of_date=None) -> dict:
+    """Fetch current body-modifier inputs from the DB and compute the guardrail state.
+
+    Derives:
+    - ``weekly_pct_bw_rate`` from EWMA over the last 8 weight entries (7-day rate).
+      Falls back to 0.0 when fewer than 2 weight entries are available.
+    - ``ea_proxy`` from the average ``daily_metrics.energy`` (1–5) over the last 7 days,
+      normalised to [0, 1] as ``(avg_energy − 1) / 4``.
+      Falls back to 1.0 (fully fuelled, no EA warning) when no energy data is available.
+    """
+    from datetime import date, timedelta
+
+    from sqlalchemy import text
+
+    from backend.db import engine
+    from backend.services.weight_ewma import compute_ewma
+    from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+
+    today = as_of_date if as_of_date is not None else date.today()
+    seven_days_ago = today - timedelta(days=7)
+
+    # ── Weight loss rate ──────────────────────────────────────────────────────
+    weight_sql = text(
+        """
+        SELECT entry_date, weight_kg
+        FROM weight_entries
+        WHERE user_id = :uid
+          AND entry_date >= :from_date
+          AND entry_date <= :to_date
+        ORDER BY entry_date ASC
+        """
+    )
+    with engine.connect() as conn:
+        weight_rows = conn.execute(
+            weight_sql,
+            {"uid": str(user_id), "from_date": seven_days_ago, "to_date": today},
+        ).fetchall()
+
+    weekly_pct_bw_rate: float = 0.0
+    if len(weight_rows) >= 2:
+        entries = [{"date": r[0], "weight_kg": float(r[1])} for r in weight_rows]
+        ewma_values = compute_ewma(entries)
+        rate = compute_weekly_pct_bw_rate_of_change(ewma_values)
+        if rate is not None:
+            weekly_pct_bw_rate = rate
+
+    # ── Energy availability proxy ─────────────────────────────────────────────
+    energy_sql = text(
+        """
+        SELECT energy
+        FROM daily_metrics
+        WHERE user_id = :uid
+          AND metric_date >= :from_date
+          AND metric_date <= :to_date
+          AND energy IS NOT NULL
+        """
+    )
+    with engine.connect() as conn:
+        energy_rows = conn.execute(
+            energy_sql,
+            {"uid": str(user_id), "from_date": seven_days_ago, "to_date": today},
+        ).fetchall()
+
+    ea_proxy: float = 1.0
+    if energy_rows:
+        avg_energy = sum(float(r[0]) for r in energy_rows) / len(energy_rows)
+        ea_proxy = (avg_energy - 1.0) / 4.0
+
+    return compute_body_modifier_guardrail(
+        weekly_pct_bw_rate=weekly_pct_bw_rate,
+        ea_proxy=ea_proxy,
+    )

@@ -88,6 +88,7 @@ from backend.services.race_finish_estimator import score_to_estimated_finish_tim
 from backend.routers.plan import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
+from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
@@ -1783,6 +1784,26 @@ def patch_training_plan(plan_id: str, body: TrainingPlanPatchIn, user: User = De
         session.commit()
         session.refresh(plan)
         return JSONResponse(_training_plan_dict(plan))
+
+
+# ── Body-modifier guardrail endpoint (issue #1161) ────────────────────────────
+
+@app.get("/api/body-modifier/guardrail")
+def get_body_modifier_guardrail(user: User = Depends(resolve_user)):
+    """Return the body-modifier guardrail warning state for the authenticated user.
+
+    Warns when weight-loss velocity is excessive or energy availability (EA) falls
+    into the penalty region.  The result is framed as a performance/health risk
+    and auto-clears when both conditions return to safe bounds.
+
+    Response keys:
+      guardrail_state   — "warn" or "ok"
+      guardrail_message — plain-English risk message (empty string when "ok")
+      in_penalty_loss   — True when loss rate exceeds the penalty-zone threshold
+      in_penalty_ea     — True when EA proxy is below the penalty-region boundary
+    """
+    result = get_body_modifier_guardrail_for_user(user.id)
+    return JSONResponse(result)
 
 
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
