@@ -619,6 +619,56 @@ Index: `ix_weight_plans_user_id`. Migration: `64d8ad2d9a42`.
 
 ---
 
+## training_plans _(added Sprint 92)_
+
+Per-user training plan configuration with ramp-up and taper-down parameters. One plan per user at a time is typical; multiple are allowed. Accessed via `POST /api/plans`, `GET /api/plans/{id}`, `PATCH /api/plans/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE; indexed |
+| name | text | NOT NULL |
+| ramp_rate | numeric(6,2) | nullable — weekly CTL ramp rate target |
+| taper_start | numeric(6,2) | nullable — CTL value at which taper begins |
+| taper_length | numeric(6,2) | nullable — taper duration in days |
+| taper_shape | text | nullable; `linear` / `step` / `exponential`; check constraint `ck_training_plans_taper_shape` |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | server default now(), onupdate now() |
+
+Index: `ix_training_plans_user_id`. Migration: `3f9e1b2c4a7d`.
+
+---
+
+## races_checkpoints _(added Sprint 92, schema-only)_
+
+Standalone event table for named race or checkpoint entries used by the projection system. Distinct from `race_checkpoints` (which are milestones within an existing `races` row). The `type` column is constrained to `race` or `checkpoint`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| name | text | NOT NULL |
+| date | date | NOT NULL |
+| distance_km | numeric(8,3) | nullable |
+| type | text | NOT NULL; `race` or `checkpoint`; check constraint `ck_races_checkpoints_type` |
+| goal_time | int | nullable — goal finish time in seconds |
+
+Migration: `017a12a2a6f5`.
+
+---
+
+## planned_load _(added Sprint 92, schema-only)_
+
+One planned-TSS value per calendar date for projection planning. The `date` column is the primary key so each date has exactly one value.
+
+| column | type | notes |
+|--------|------|-------|
+| date | date PK | |
+| planned_tss | numeric(8,2) | NOT NULL |
+
+Migration: `017a12a2a6f5`.
+
+---
+
 ## strength_record_achievements _(added Sprint 74)_
 
 Append-only log of every PR-beating event. Written at workout-ingest time; used to populate the achievements feed without re-deriving history on read.

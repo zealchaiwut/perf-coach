@@ -1,5 +1,23 @@
 # Changelog
 
+## Sprint 92 — Training plan model, projection engine, and race time-curve chart
+
+- #1099: Add migration for races_checkpoints and planned_load tables
+- #1100: Add races/checkpoints CRUD API to plan router
+- #1101: Add ramp and taper parameters to plan model
+- #1102: Generate planned-load schedule from ramp/taper params
+- #1103: Build plan editor UI for races and checkpoints
+- #1104: Add ramp/taper controls with schedule preview to plan editor
+- #1105: Scaffold projection.py and roll CTL/ATL/TSB forward
+- #1106: Map projected CTL to Endurance/Speed score ceiling
+- #1107: Derive expressible score from TSB form factor
+- #1108: Convert expressible score to estimated race finish time
+- #1109: Add Riegel cross-distance equivalence for race entries
+- #1110: Add widening confidence band to projection horizon
+- #1111: Add B-race tightening hook to confidence band
+- #1112: Expose training projection via plan API endpoint
+- #1113: Render projected time-curve chart with confidence band
+- #1114: Assemble projection screen with markers and scores
 ## Sprint 91 — Weekly/monthly summaries, rate guardrail, and summary digest card
 
 - #1055: Add weekly summary aggregation endpoint

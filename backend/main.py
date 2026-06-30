@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TrainingLoadSnapshot, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -72,6 +72,7 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
+from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
@@ -79,6 +80,14 @@ from backend.services.aerobic_decoupling import compute_decoupling as _compute_d
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
+from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
+from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
+from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
+from backend.routers.plan import router as _plan_router
+
+# Ceiling TSB used when computing expressible scores from historical/projected TSB.
+# 20.0 matches the representative value established in issue #1107.
+_TIME_CURVE_CEILING_TSB: float = 20.0
 from backend.services.guardrail import get_guardrail_result
 
 
@@ -91,12 +100,7 @@ def _derive_goal_pace(goal_time_seconds, distance_km):
 _start_time = time.monotonic()
 
 app = FastAPI()
-
-
-def _derive_goal_pace(goal_time_seconds, distance_km):
-    """Thin wrapper around compute_goal_pace that returns the pace int (or None)."""
-    pace, _ = _compute_goal_pace_tuple(goal_time_seconds, distance_km)
-    return pace
+app.include_router(_plan_router)
 
 
 def _today_bkk() -> _date:
@@ -1589,6 +1593,127 @@ def delete_weight_plan(plan_id: str, user: User = Depends(resolve_user)):
         session.refresh(plan)
         return JSONResponse(_weight_plan_dict(plan))
 
+
+# ── Training plan endpoints (issue #1101) ──────────────────────────────────────
+
+class TrainingPlanCreateIn(BaseModel):
+    name: str
+    ramp_rate: Optional[float] = None
+    taper_start: Optional[float] = None
+    taper_length: Optional[float] = None
+    taper_shape: Optional[str] = None
+
+
+class TrainingPlanPatchIn(BaseModel):
+    name: Optional[str] = None
+    ramp_rate: Optional[float] = None
+    taper_start: Optional[float] = None
+    taper_length: Optional[float] = None
+    taper_shape: Optional[str] = None
+
+
+def _training_plan_dict(p: TrainingPlan) -> dict:
+    return {
+        "id": str(p.id),
+        "user_id": str(p.user_id),
+        "name": p.name,
+        "ramp_rate": float(p.ramp_rate) if p.ramp_rate is not None else None,
+        "taper_start": float(p.taper_start) if p.taper_start is not None else None,
+        "taper_length": float(p.taper_length) if p.taper_length is not None else None,
+        "taper_shape": p.taper_shape,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _validate_taper_shape(taper_shape: Optional[str]) -> None:
+    if taper_shape is not None and taper_shape not in TAPER_SHAPE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"taper_shape must be one of {list(TAPER_SHAPE_VALUES)} or null",
+        )
+
+
+def _validate_ramp_rate(ramp_rate: Optional[float]) -> None:
+    if ramp_rate is not None and ramp_rate < 0:
+        raise HTTPException(status_code=422, detail="ramp_rate must be >= 0")
+
+
+def _validate_taper_length(taper_length: Optional[float]) -> None:
+    if taper_length is not None and taper_length < 0:
+        raise HTTPException(status_code=422, detail="taper_length must be >= 0")
+
+
+@app.get("/api/plans")
+def list_training_plans(user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        plans = session.query(TrainingPlan).filter(TrainingPlan.user_id == user.id).all()
+        return JSONResponse([_training_plan_dict(p) for p in plans])
+
+
+@app.post("/api/plans", status_code=201)
+def create_training_plan(body: TrainingPlanCreateIn, user: User = Depends(resolve_user)):
+    _validate_taper_shape(body.taper_shape)
+    _validate_ramp_rate(body.ramp_rate)
+    _validate_taper_length(body.taper_length)
+    with Session(engine) as session:
+        plan = TrainingPlan(
+            user_id=user.id,
+            name=body.name,
+            ramp_rate=body.ramp_rate,
+            taper_start=body.taper_start,
+            taper_length=body.taper_length,
+            taper_shape=body.taper_shape,
+        )
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(status_code=201, content=_training_plan_dict(plan))
+
+
+@app.get("/api/plans/{plan_id}")
+def get_training_plan(plan_id: str, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+    with Session(engine) as session:
+        plan = session.get(TrainingPlan, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Training plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return JSONResponse(_training_plan_dict(plan))
+
+
+@app.patch("/api/plans/{plan_id}")
+def patch_training_plan(plan_id: str, body: TrainingPlanPatchIn, user: User = Depends(resolve_user)):
+    try:
+        pid = _uuid.UUID(plan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid plan_id")
+    _validate_taper_shape(body.taper_shape)
+    _validate_ramp_rate(body.ramp_rate)
+    _validate_taper_length(body.taper_length)
+    with Session(engine) as session:
+        plan = session.get(TrainingPlan, pid)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Training plan not found")
+        if plan.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if body.name is not None:
+            plan.name = body.name
+        if body.ramp_rate is not None:
+            plan.ramp_rate = body.ramp_rate
+        if body.taper_start is not None:
+            plan.taper_start = body.taper_start
+        if body.taper_length is not None:
+            plan.taper_length = body.taper_length
+        if body.taper_shape is not None:
+            plan.taper_shape = body.taper_shape
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_training_plan_dict(plan))
 
 
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
@@ -4834,6 +4959,7 @@ _PAGES = {
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
+    "projection": "projection.html",
 }
 
 
@@ -11518,6 +11644,9 @@ def _race_dict(race: Race) -> dict:
         "goal_time_seconds": race.goal_time_seconds,
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "actual_time_seconds": race.actual_time_seconds,
+        "half_marathon_equivalent_seconds": _riegel_half_equivalent(
+            race.actual_time_seconds, float(race.distance_km)
+        ),
         "priority": race.priority,
         "status": race.status,
         "race_type": race.race_type if race.race_type else "race",
@@ -11980,6 +12109,10 @@ def _checkpoint_dict(cp: RaceCheckpoint) -> dict:
         "target_distance_km": float(cp.target_distance_km) if cp.target_distance_km is not None else None,
         "target_pace_seconds_per_km": cp.target_pace_seconds_per_km,
         "target_duration_seconds": cp.target_duration_seconds,
+        "half_marathon_equivalent_seconds": _riegel_half_equivalent(
+            cp.target_duration_seconds,
+            float(cp.target_distance_km) if cp.target_distance_km is not None else None,
+        ),
         "met": cp.met,
         "met_override": cp.met_override,
         "met_workout_id": str(cp.met_workout_id) if cp.met_workout_id is not None else None,
@@ -12303,9 +12436,10 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     on_track_status = on_track_result.get("status")
     on_track_bool = on_track_status in ("on track", "ahead") if on_track_status else None
 
-    # ── 9. specificity_progress and timeline_markers ─────────────────────────
-    # Fetch recent runs (last 90 days) and B/C-race + checkpoint markers in one
-    # DB session so the route handler owns all data access.
+    # ── 9. specificity_progress, timeline_markers, and user thresholds ──────────
+    # Fetch recent runs (last 90 days), B/C-race + checkpoint markers, and user
+    # preferences (for threshold_pace) in one DB session so the route handler
+    # owns all data access.
     run_window_start = today - _timedelta(days=90)
     with Session(engine) as db:
         from sqlalchemy import text as _text
@@ -12349,6 +12483,14 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             },
         ).fetchall()
 
+        user_prefs_row = db.query(UserPreferences).filter(
+            UserPreferences.user_id == user.id
+        ).first()
+        threshold_pace = (
+            user_prefs_row.threshold_pace_seconds_per_km
+            if user_prefs_row else None
+        )
+
     import types as _types
 
     recent_runs = [
@@ -12372,7 +12514,70 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             "label": r_name,
         })
 
-    # ── 10. Assemble response ─────────────────────────────────────────────────
+    # ── 10. Compute time_curve (historical + projected estimated finish times) ───
+    # The time curve maps TSB-derived expressible scores to estimated race finish
+    # times, giving a view of how the projected race performance evolves over time.
+    # Confidence bands (from projection.py) are included for projected entries.
+    _tc_thresholds = {"threshold_pace_seconds_per_km": threshold_pace}
+    _tc_distance = float(race.distance_km) if race.distance_km else None
+
+    # History: last 90 days of load_curves → expressible score → estimated finish time
+    _tc_history_cutoff = today - _timedelta(days=90)
+    time_curve_history = []
+    for _row in load_curves:
+        if _row["date"] < _tc_history_cutoff:
+            continue
+        _base = _projected_ctl_to_score_ceiling(_row["ctl"])["endurance_ceiling"]
+        _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
+        _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
+        if _est["estimated_finish_seconds"] is not None:
+            time_curve_history.append({
+                "date": _row["date"].isoformat(),
+                "estimated_finish_seconds": _est["estimated_finish_seconds"],
+                "estimated_finish_time": _est["estimated_finish_time"],
+            })
+
+    # Projection: from today to race_date with zero load (taper assumption) + confidence band
+    time_curve_projection = []
+    if not building_baseline:
+        _days_to_race = (race.race_date - today).days
+        if _days_to_race > 0:
+            _planned = [0.0] * _days_to_race
+            _proj_series = _project_fitness(
+                planned_load=_planned,
+                start_ctl=last_row["ctl"],
+                start_atl=last_row["atl"],
+                start_date=today,
+            )
+            for _day, _day_data in sorted(_proj_series.items()):
+                _base = _projected_ctl_to_score_ceiling(_day_data["ctl"])["endurance_ceiling"]
+                _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
+                _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
+                if _est["estimated_finish_seconds"] is None:
+                    continue
+                # Treat confidence_band_days as a percentage of estimated finish time.
+                # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
+                _cb_pct = _day_data["confidence_band"]
+                _band_sec = int(_est["estimated_finish_seconds"] * _cb_pct / 100.0)
+                time_curve_projection.append({
+                    "date": _day.isoformat(),
+                    "estimated_finish_seconds": _est["estimated_finish_seconds"],
+                    "estimated_finish_time": _est["estimated_finish_time"],
+                    "confidence_band_seconds": _band_sec,
+                    "upper_seconds": _est["estimated_finish_seconds"] + _band_sec,
+                    "lower_seconds": max(0, _est["estimated_finish_seconds"] - _band_sec),
+                })
+
+    # Goal finish time
+    _goal_secs = race.goal_time_seconds if race.goal_time_seconds else None
+    _goal_str: Optional[str] = None
+    if _goal_secs:
+        _gh = _goal_secs // 3600
+        _gm = (_goal_secs % 3600) // 60
+        _gs = _goal_secs % 60
+        _goal_str = f"{_gh}:{_gm:02d}:{_gs:02d}"
+
+    # ── 11. Assemble response ─────────────────────────────────────────────────
     response: dict = {
         "race_id": str(race.id),
         "building_baseline": building_baseline,
@@ -12384,6 +12589,12 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
         },
         "specificity_progress": spec_result,
         "timeline_markers": timeline_markers,
+        "time_curve": {
+            "history": time_curve_history,
+            "projection": time_curve_projection,
+            "goal_finish_seconds": _goal_secs,
+            "goal_finish_time": _goal_str,
+        },
     }
 
     if not building_baseline:
@@ -13598,6 +13809,193 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Projection screen endpoint ────────────────────────────────────────────────
+
+@app.get("/api/projection")
+def get_projection(user: User = Depends(resolve_user)):
+    """Return aggregated projection data for the projection screen (issue #1114).
+
+    Combines:
+    - Form curve (historical TSB) and projected form toward the A-race
+    - Race markers for A, B, and C priority races, with recalibrates_here
+      flag on the earliest upcoming B-race
+    - Endurance and Speed scores from the running performance module
+
+    Returns:
+        200 with projection dict.
+        401 for unauthenticated requests (via resolve_user).
+    """
+    from backend.services.running_performance import compute_endurance_score, compute_speed_score
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    today = _date.today()
+    warmup_start = today - _timedelta(days=180)
+
+    with Session(engine) as db:
+        # Load all user races, sorted by date
+        races = (
+            db.query(Race)
+            .filter(Race.user_id == user.id, Race.race_type == "race")
+            .order_by(Race.race_date)
+            .all()
+        )
+
+        # Build race markers for A, B, C priority races
+        race_markers = []
+        a_race = None
+        b_race_recalibration_date = None
+
+        for race in races:
+            marker = {
+                "id": str(race.id),
+                "date": str(race.race_date),
+                "priority": race.priority,
+                "name": race.name,
+                "distance_km": float(race.distance_km),
+                "recalibrates_here": False,
+            }
+            race_markers.append(marker)
+
+            if race.priority == "A" and a_race is None:
+                a_race = race
+            # The earliest upcoming B-race is the recalibration anchor
+            if (race.priority == "B" and b_race_recalibration_date is None
+                    and race.race_date >= today):
+                b_race_recalibration_date = str(race.race_date)
+                marker["recalibrates_here"] = True
+
+        # Compute form curve from training load history
+        tss_series = daily_tss_series(str(user.id), warmup_start, today)
+        load_curves = compute_load_curves(tss_series)
+
+        buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
+        fresh_floor = _rdns_cfg_float(_RDNS_CFG_FRESH_FLOOR, FORM_FRESH_FLOOR)
+        min_history_weeks = _rdns_cfg_int(_RDNS_CFG_MIN_HISTORY_WEEKS, 8)
+
+        form_curve = [
+            {
+                "date": row["date"].isoformat(),
+                "form": row["tsb"],
+                "zone": _rdns_classify_zone(row["tsb"], buried_ceiling, fresh_floor),
+            }
+            for row in load_curves
+        ]
+
+        # Determine building_baseline
+        history_window_start = today - _timedelta(days=min_history_weeks * 7)
+        workout_days_in_window = sum(
+            1 for d, tss in tss_series
+            if tss > 0 and d >= history_window_start
+        )
+        required_workout_days = min_history_weeks * _RDNS_MIN_WORKOUT_DAYS_PER_WEEK
+        building_baseline = workout_days_in_window < required_workout_days
+
+        # Projected form toward A-race
+        projected_form = None
+        if not building_baseline and a_race is not None:
+            last_row = load_curves[-1]
+            fitness_state = {
+                "ctl": last_row["ctl"],
+                "atl": last_row["atl"],
+                "date": last_row["date"],
+            }
+            proj = project_form(fitness_state, 0.0, a_race.race_date)
+            if not proj["reason"]:
+                projected_form = {
+                    day["date"].isoformat(): day["form"]
+                    for day in proj["days"]
+                }
+
+        # Load endurance and speed scores
+        endurance_score = None
+        speed_score = None
+        score_state = "building_baseline"
+
+        try:
+            prefs_row = (
+                db.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .first()
+            )
+            if prefs_row is None:
+                score_state = "needs_thresholds"
+            else:
+                preferences = {
+                    "ftp_w": prefs_row.ftp_w,
+                    "threshold_hr": prefs_row.threshold_hr,
+                    "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+                    "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+                    "duration_curve_bests": None,
+                }
+                if _check_needs_thresholds(preferences):
+                    score_state = "needs_thresholds"
+                else:
+                    curve_data = _get_athlete_duration_curve(user.id, db)
+                    preferences["duration_curve_bests"] = curve_data or {}
+
+                    zone_constants = make_zone_constants(preferences)
+
+                    run_workouts = (
+                        db.query(Workout)
+                        .filter(Workout.user_id == user.id, Workout.workout_type == "Run")
+                        .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+                        .all()
+                    )
+
+                    runs = []
+                    for workout in run_workouts:
+                        splits = (
+                            db.query(WorkoutSplit)
+                            .filter(WorkoutSplit.workout_id == workout.id)
+                            .order_by(WorkoutSplit.split_index)
+                            .all()
+                        )
+                        classifications = classify_laps(splits, preferences)
+                        laps = []
+                        for split, cls in zip(splits, classifications):
+                            laps.append({
+                                "band": cls.get("band"),
+                                "avg_power": split.avg_power,
+                                "avg_hr": split.avg_hr,
+                                "duration_seconds": split.duration_seconds,
+                                "distance_km": split.distance_km,
+                                "avg_pace_seconds_per_km": split.avg_pace_seconds_per_km,
+                            })
+                        runs.append({
+                            "workout_date": str(workout.workout_date),
+                            "distance_km": float(workout.distance_km) if workout.distance_km else None,
+                            "duration_seconds": workout.duration_seconds,
+                            "avg_hr": workout.avg_hr,
+                            "laps": laps,
+                        })
+
+                    endurance_result = compute_endurance_score(runs, preferences, zone_constants)
+                    speed_result = compute_speed_score(runs, preferences, zone_constants)
+
+                    if isinstance(endurance_result, dict):
+                        endurance_score = endurance_result.get("score")
+                    if isinstance(speed_result, dict):
+                        speed_score = speed_result.get("score")
+
+                    score_state = _determine_performance_top_level_state(
+                        endurance_result, speed_result
+                    )
+        except Exception:
+            score_state = "error"
+
+    return JSONResponse({
+        "building_baseline": building_baseline,
+        "form_curve": form_curve,
+        "projected_form": projected_form,
+        "race_markers": race_markers,
+        "b_race_recalibration_date": b_race_recalibration_date,
+        "endurance_score": endurance_score,
+        "speed_score": speed_score,
+        "score_state": score_state,
+    })
 
 
 # ── Monthly summary with supercompensation detection (issue #1056) ────────────
