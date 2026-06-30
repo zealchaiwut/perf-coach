@@ -136,6 +136,7 @@ def compute_endurance_score(
     runs: list[dict] | None,
     preferences: dict[str, Any] | None,
     zone_constants: dict[str, Any] | None,
+    body_modifier: float = 1.0,
 ) -> dict[str, Any]:
     """Compute endurance performance score from easy/steady run data.
 
@@ -150,6 +151,13 @@ def compute_endurance_score(
     zone_constants : dict or None
         Zone band config from make_zone_constants().  Falls back to module
         defaults when None.
+    body_modifier : float
+        Multiplicative factor applied to the power-to-weight efficiency term.
+        1.0 is neutral (default); > 1.0 improves the score (lighter athlete);
+        < 1.0 reduces it (heavier or energy-deficient athlete).  Use
+        ``backend.services.body_modifier.compute_body_modifier`` to derive
+        this value.  Defaults to 1.0 so callers without body composition data
+        see no change (AC6 — no regression for data-absent athletes).
 
     Returns
     -------
@@ -233,8 +241,12 @@ def compute_endurance_score(
     base_alpha = PERFORMANCE_CONFIG["endurance_ewma_alpha"]
     ewma_series = _compute_ewma_series(normalised, duration_weights, base_alpha)
 
-    score = ewma_series[-1]
+    raw_score = ewma_series[-1]
     direction = _compute_direction(ewma_series, zc["direction_slope_threshold"])
+
+    # Apply power-to-weight body modifier: scale the score by the body
+    # composition factor, then clamp to the valid 0–100 range.
+    score = max(0.0, min(100.0, raw_score * body_modifier))
 
     return {
         "score": round(score, 2),
@@ -251,6 +263,7 @@ def compute_speed_score(
     runs: list[dict] | None,
     preferences: dict[str, Any] | None,
     zone_constants: dict[str, Any] | None,
+    body_modifier: float = 1.0,
 ) -> dict[str, Any]:
     """Compute speed performance score from hard/interval run data.
 
@@ -265,6 +278,10 @@ def compute_speed_score(
     zone_constants : dict or None
         Zone band config from make_zone_constants().  Falls back to module
         defaults when None.
+    body_modifier : float
+        Multiplicative factor applied to the power-to-weight efficiency term.
+        1.0 is neutral (default); see ``compute_endurance_score`` for full
+        documentation.  Defaults to 1.0 (no regression for data-absent athletes).
 
     Returns
     -------
@@ -376,8 +393,11 @@ def compute_speed_score(
     base_alpha = PERFORMANCE_CONFIG["speed_ewma_alpha"]
     ewma_series = _compute_ewma_series(normalised, effort_weights, base_alpha)
 
-    score = ewma_series[-1]
+    raw_score = ewma_series[-1]
     direction = _compute_direction(ewma_series, zc["direction_slope_threshold"])
+
+    # Apply power-to-weight body modifier, clamped to 0–100.
+    score = max(0.0, min(100.0, raw_score * body_modifier))
 
     return {
         "score": round(score, 2),

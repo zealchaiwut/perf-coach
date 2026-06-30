@@ -360,6 +360,7 @@ def build_plan_projection_payload(
     planned_load: "list[float]",
     races: "list[dict]",
     thresholds: "Optional[dict]",
+    body_modifier: float = 1.0,
 ) -> dict:
     """Assemble the full projection payload for GET /plans/{plan_id}/projection.
 
@@ -383,6 +384,13 @@ def build_plan_projection_payload(
     thresholds:
         User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
         to compute non-null estimated times.  None yields null estimates.
+    body_modifier:
+        Multiplicative factor applied to the power-to-weight score used in
+        race finish-time estimation.  1.0 is neutral (default — no regression
+        for athletes without body composition data).  Values > 1.0 improve
+        (lighter athlete, better power-to-weight); < 1.0 reduce it.  Use
+        ``backend.services.body_modifier.compute_body_modifier`` to derive
+        this value.
 
     Returns
     -------
@@ -422,7 +430,9 @@ def build_plan_projection_payload(
             projected_ctl = start_ctl
 
         ceiling = projected_ctl_to_score_ceiling(projected_ctl)
-        score = ceiling["endurance_ceiling"]
+        # Apply the power-to-weight body modifier to the projected endurance
+        # score before converting to a race finish time estimate.
+        score = ceiling["endurance_ceiling"] * body_modifier
 
         est = score_to_estimated_finish_time(score, thresholds, dist)
         est_seconds = est["estimated_finish_seconds"]
