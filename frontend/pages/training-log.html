@@ -3690,6 +3690,19 @@
         cursor: pointer;
       }
 
+      /* Plan settings (ramp/taper controls + schedule preview) */
+      .plan-settings-fields { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+      .plan-settings-field { display: flex; flex-direction: column; gap: 5px; min-width: 140px; flex: 1; }
+      .plan-settings-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+      .plan-settings-input-row { display: flex; align-items: center; gap: 8px; }
+      .plan-settings-input { width: 90px; border: 1.5px solid var(--card-border); border-radius: 9px; padding: 8px 10px; font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text-primary); background: #f8fafd; box-sizing: border-box; }
+      .plan-settings-input:focus { outline: none; border-color: #3563d4; background: #fff; }
+      .plan-settings-input.is-invalid { border-color: var(--red); }
+      .plan-settings-unit { font-size: 11.5px; color: var(--text-tertiary); font-weight: 600; white-space: nowrap; }
+      .plan-settings-error { font-size: 11px; color: var(--red); min-height: 14px; }
+      .plan-settings-saved { font-size: 12px; color: var(--green); font-weight: 700; margin: 8px 0 0; }
+      #plan-schedule-preview { margin-top: 4px; }
+
       /* Responsive */
       @media (max-width: 600px) {
         #plan-tab-panel {
@@ -3704,6 +3717,9 @@
         }
         .plan-race-actions {
           gap: 6px;
+        }
+        .plan-settings-fields {
+          gap: 12px;
         }
       }
     </style>
@@ -3881,6 +3897,93 @@
         <div id="plan-race-header" class="plan-section">
           <!-- Populated by training-plan.js -->
           <div id="plan-race-header-content"></div>
+        </div>
+
+        <!-- Plan Settings: Ramp Rate & Taper Window (issue #1104) -->
+        <div class="plan-section" id="plan-settings-section">
+          <div class="plan-section-header">
+            <span class="plan-section-label">Plan Settings</span>
+            <button
+              id="plan-save-settings-btn"
+              class="plan-add-btn"
+              type="button"
+            >
+              Save
+            </button>
+          </div>
+          <div class="plan-settings-fields">
+            <div class="plan-settings-field">
+              <label class="plan-settings-label" for="plan-ramp-rate-input"
+                >Ramp Rate</label
+              >
+              <div class="plan-settings-input-row">
+                <input
+                  id="plan-ramp-rate-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  class="plan-settings-input"
+                  aria-describedby="plan-ramp-rate-error"
+                />
+                <span id="plan-ramp-rate-unit" class="plan-settings-unit"
+                  >TSS/week</span
+                >
+              </div>
+              <span
+                id="plan-ramp-rate-error"
+                class="plan-settings-error"
+                role="alert"
+              ></span>
+            </div>
+            <div class="plan-settings-field">
+              <label
+                class="plan-settings-label"
+                for="plan-taper-window-input"
+                >Taper Window</label
+              >
+              <div class="plan-settings-input-row">
+                <input
+                  id="plan-taper-window-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  class="plan-settings-input"
+                  aria-describedby="plan-taper-window-error"
+                />
+                <span id="plan-taper-window-unit" class="plan-settings-unit"
+                  >weeks</span
+                >
+              </div>
+              <span
+                id="plan-taper-window-error"
+                class="plan-settings-error"
+                role="alert"
+              ></span>
+            </div>
+          </div>
+          <p
+            id="plan-settings-saved"
+            class="plan-settings-saved"
+            style="display: none"
+          >
+            &#10003; Saved
+          </p>
+          <div
+            class="plan-section-label"
+            style="margin-top: 18px; margin-bottom: 10px"
+          >
+            Schedule Preview
+          </div>
+          <div id="plan-schedule-preview">
+            <canvas
+              id="plan-schedule-canvas"
+              height="160"
+              role="img"
+              aria-label="Schedule preview: planned load series over 20 weeks based on ramp and taper parameters"
+            ></canvas>
+          </div>
         </div>
 
         <!-- Verdict banner -->
