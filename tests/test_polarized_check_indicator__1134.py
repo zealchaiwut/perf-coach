@@ -38,8 +38,18 @@ def client():
 
 @pytest.fixture(scope="module")
 def auth_client(client):
-    """Returns an authenticated client (logs in as alice)."""
+    """Returns an authenticated client (logs in as alice, creating her if needed)."""
     res = client.post("/api/auth/login", json={"username": "alice", "password": "password"})
+    if res.status_code == 401:
+        # alice doesn't exist yet — create via admin API then retry
+        admin_secret = os.environ.get("ADMIN_SECRET_UAT", "perfcoach-uat-admin")
+        admin_res = client.post("/api/admin/login", json={"secret": admin_secret})
+        if admin_res.status_code == 200:
+            client.post(
+                "/api/admin/users",
+                json={"username": "alice", "password": "password"},
+            )
+        res = client.post("/api/auth/login", json={"username": "alice", "password": "password"})
     assert res.status_code == 200, f"login failed: {res.text}"
     return client
 
