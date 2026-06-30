@@ -991,6 +991,7 @@
     if (!bodyEl) return;
     showLoading(bodyEl);
     if (intensityChart) { intensityChart.destroy(); intensityChart = null; }
+    hidePolarizedCheckIndicator();
     if (!win.from || !win.to) { showEmpty(bodyEl); return; }
 
     fetch('/api/workouts/intensity-distribution?from=' + win.from + '&to=' + win.to)
@@ -1002,6 +1003,74 @@
       .catch(function () {
         bodyEl.innerHTML = '<div class="slot-empty"><div class="slot-empty-text">Could not load intensity data</div></div>';
       });
+
+    fetch('/api/workouts/polarized-check?from=' + win.from + '&to=' + win.to)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) { renderPolarizedCheckIndicator(data); })
+      .catch(function () { hidePolarizedCheckIndicator(); });
+  }
+
+  // ── Polarized-check indicator ─────────────────────────────────────────────────
+
+  function hidePolarizedCheckIndicator() {
+    var el = document.getElementById('polarized-check-indicator');
+    if (el) el.hidden = true;
+  }
+
+  function renderPolarizedCheckIndicator(data) {
+    var el        = document.getElementById('polarized-check-indicator');
+    var iconEl    = document.getElementById('polcheck-icon');
+    var labelEl   = document.getElementById('polcheck-label');
+    var splitEl   = document.getElementById('polcheck-split');
+    var offBandEl = document.getElementById('polcheck-off-band');
+    if (!el || !iconEl || !labelEl || !splitEl || !offBandEl) return;
+
+    var verdict = data && data.verdict;
+    if (!verdict) { hidePolarizedCheckIndicator(); return; }
+
+    var actual  = data.actual  || {};
+    var targets = data.targets || {};
+    var deviations = data.deviations || [];
+
+    // Build actual split display string
+    var splitStr = '';
+    if (actual.low != null) {
+      splitStr = 'Low ' + actual.low.toFixed(1) + '% · Mod ' + actual.moderate.toFixed(1) + '% · High ' + actual.high.toFixed(1) + '%';
+    }
+
+    // Remove previous state classes
+    el.classList.remove('polarized-check-indicator--on-target', 'polarized-check-indicator--grey-zone');
+
+    if (verdict === 'on-target') {
+      el.classList.add('polarized-check-indicator--on-target');
+      iconEl.textContent  = '✓';
+      labelEl.textContent = 'On Target';
+      splitEl.textContent = splitStr;
+      offBandEl.textContent = '';
+      offBandEl.hidden = true;
+    } else {
+      el.classList.add('polarized-check-indicator--grey-zone');
+      iconEl.textContent  = '⚠';
+      labelEl.textContent = 'Grey Zone';
+      splitEl.textContent = splitStr;
+
+      // Identify the off-target bands with their target range
+      var offParts = deviations.map(function (dev) {
+        var band = dev.band;
+        var dir  = dev.direction;
+        var tgt  = targets[band];
+        var tgtStr = tgt ? tgt[0] + '–' + tgt[1] + '%' : '';
+        return band.charAt(0).toUpperCase() + band.slice(1) + ' band ' + dir + ' target' + (tgtStr ? ' (' + tgtStr + ')' : '');
+      });
+
+      offBandEl.textContent = offParts.join('; ');
+      offBandEl.hidden = offParts.length === 0;
+    }
+
+    el.hidden = false;
   }
 
   // ── Main data loader ──────────────────────────────────────────────────────────

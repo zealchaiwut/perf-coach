@@ -86,6 +86,7 @@ from backend.services.race_finish_estimator import score_to_estimated_finish_tim
 from backend.routers.plan import router as _plan_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
+from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -5723,6 +5724,106 @@ def get_intensity_distribution(
         }
 
     return JSONResponse({"sessions": sessions_out, "rolling_window": rolling_window})
+
+
+@app.get("/api/workouts/polarized-check")
+def get_polarized_check(
+    from_date: str = Query(alias="from"),
+    to_date: str = Query(alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Polarized-split on-target vs grey-zone verdict for the date window (issue #1134).
+
+    Computes the duration-weighted rolling window split (same logic as
+    /api/workouts/intensity-distribution) and runs check_polarized_split to
+    produce an authoritative verdict field.  The frontend indicator reads
+    'verdict' directly — no client-side recalculation.
+
+    Returns:
+        verdict:    "on-target" | "grey-zone" | null (null when no band data)
+        actual:     {low, moderate, high} percentage values | null
+        targets:    {low, moderate, high} each a [lo, hi] list
+        deviations: list of {band, direction} for off-target bands
+        grey_zone:  bool — True when moderate band exceeds its upper bound
+    """
+    uid = user.id
+    try:
+        from_d = _date.fromisoformat(from_date)
+        to_d = _date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
+
+    with Session(engine) as session:
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        prefs_dict = {
+            "ftp_w": prefs.ftp_w if prefs is not None else None,
+            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
+            "threshold_pace_seconds_per_km": (
+                prefs.threshold_pace_seconds_per_km if prefs is not None else None
+            ),
+        }
+
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .order_by(Workout.workout_date.asc(), Workout.created_at.asc())
+            .all()
+        )
+
+        total_dur = 0.0
+        total_low = 0.0
+        total_mod = 0.0
+        total_high = 0.0
+
+        for w in workouts:
+            split_rows = (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == w.id)
+                .order_by(WorkoutSplit.split_index)
+                .all()
+            )
+            zones = _agg_zones(split_rows, prefs_dict)
+            dur = w.duration_seconds or 0
+            if zones["low_pct"] is not None and dur > 0:
+                total_dur += dur
+                total_low  += dur * zones["low_pct"]
+                total_mod  += dur * zones["moderate_pct"]
+                total_high += dur * zones["high_pct"]
+
+    targets = {k: list(v) for k, v in _POLARIZED_BOUNDS.items()}
+
+    if total_dur == 0:
+        return JSONResponse({
+            "verdict":    None,
+            "actual":     None,
+            "targets":    targets,
+            "deviations": [],
+            "grey_zone":  False,
+        })
+
+    actual_low  = round(total_low  / total_dur, 2)
+    actual_mod  = round(total_mod  / total_dur, 2)
+    actual_high = round(total_high / total_dur, 2)
+
+    check = _check_polarized_split(actual_low, actual_mod, actual_high)
+
+    verdict = "on-target" if check["on_target"] else "grey-zone"
+
+    return JSONResponse({
+        "verdict":    verdict,
+        "actual":     {"low": actual_low, "moderate": actual_mod, "high": actual_high},
+        "targets":    targets,
+        "deviations": check["deviations"],
+        "grey_zone":  check["grey_zone"],
+    })
 
 
 # ── Removed (tombstoned) synced workouts ────────────────────────────────────
