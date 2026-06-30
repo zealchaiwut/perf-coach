@@ -87,6 +87,8 @@ from backend.routers.plan import router as _plan_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
+from backend.services.lap_classify import classify_laps as _classify_laps
+from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -14512,6 +14514,176 @@ def get_athlete_monthly_summary(
         "guardrail_state": guardrail["guardrail_state"],
         "guardrail_message": guardrail["guardrail_message"],
     })
+
+
+# ── Intensity Distribution ───────────────────────────────────────────────────
+
+_LOW_BANDS = {"easy", "steady"}
+_MODERATE_BANDS = {"tempo"}
+_HIGH_BANDS = {"threshold", "hard"}
+
+
+@app.get("/api/sessions/{session_id}/intensity-distribution")
+def get_session_intensity_distribution(session_id: str, user: User = Depends(resolve_user)):
+    """Return per-session intensity distribution and polarized-training verdict.
+
+    Path parameter:
+        session_id: UUID of the workout/session.
+
+    Response fields:
+        session_id           str       — echoed back
+        low                  float|null — % of classified session time in low intensity (easy + steady)
+        moderate             float|null — % of classified session time in moderate intensity (tempo)
+        high                 float|null — % of classified session time in high intensity (threshold + hard)
+        polarized_check      str       — "pass" | "borderline" | "fail" | "insufficient_data"
+        lap_count            int       — total number of laps/splits
+        classified_lap_count int       — laps with a resolved intensity band
+    """
+    try:
+        wid = _uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+
+    with Session(engine) as db:
+        workout = db.get(Workout, wid)
+        if workout is None or workout.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        splits = (
+            db.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id == wid)
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        )
+        prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+        prefs_dict = {
+            "ftp_w": prefs.ftp_w if prefs is not None else None,
+            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
+            "threshold_pace_seconds_per_km": (
+                prefs.threshold_pace_seconds_per_km if prefs is not None else None
+            ),
+        }
+
+        zones = _agg_zones(splits, prefs_dict)
+        low_pct = zones["low_pct"]
+        moderate_pct = zones["moderate_pct"]
+        high_pct = zones["high_pct"]
+        polarized_check = _compute_polarized_check(low_pct, moderate_pct, high_pct)
+        classified_count = sum(1 for s in splits if s.intensity_band is not None)
+
+        return JSONResponse({
+            "session_id": session_id,
+            "low": low_pct,
+            "moderate": moderate_pct,
+            "high": high_pct,
+            "polarized_check": polarized_check,
+            "lap_count": len(splits),
+            "classified_lap_count": classified_count,
+        })
+
+
+@app.get("/api/intensity-distribution/rolling")
+def get_rolling_intensity_distribution(
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Return intensity distribution aggregated across workouts in a date window.
+
+    Query parameters:
+        from  str|null — window start date YYYY-MM-DD (default: 28 days ago)
+        to    str|null — window end date YYYY-MM-DD (default: today)
+
+    Response fields:
+        from            str       — actual start date used
+        to              str       — actual end date used
+        low             float|null — aggregate % of classified time in low intensity
+        moderate        float|null — aggregate % of classified time in moderate intensity
+        high            float|null — aggregate % of classified time in high intensity
+        polarized_check str       — "pass" | "borderline" | "fail" | "insufficient_data"
+        session_count   int       — number of workouts in the date range
+    """
+    from datetime import date as _date_cls, timedelta as _timedelta_cls
+    today = _date_cls.today()
+
+    if from_date is None:
+        start = today - _timedelta_cls(days=27)
+    else:
+        try:
+            start = _date_cls.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date; use YYYY-MM-DD")
+
+    if to_date is None:
+        end = today
+    else:
+        try:
+            end = _date_cls.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date; use YYYY-MM-DD")
+
+    if start > end:
+        raise HTTPException(status_code=422, detail="'from' date must not be after 'to' date")
+
+    with Session(engine) as db:
+        workouts = (
+            db.query(Workout)
+            .filter(Workout.user_id == user.id)
+            .filter(Workout.workout_date >= start)
+            .filter(Workout.workout_date <= end)
+            .all()
+        )
+        prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+        prefs_dict = {
+            "ftp_w": prefs.ftp_w if prefs is not None else None,
+            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
+            "threshold_pace_seconds_per_km": (
+                prefs.threshold_pace_seconds_per_km if prefs is not None else None
+            ),
+        }
+
+        total_low_s = 0.0
+        total_mod_s = 0.0
+        total_high_s = 0.0
+
+        for workout in workouts:
+            splits = (
+                db.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id == workout.id)
+                .all()
+            )
+            classifications = _classify_laps(splits, prefs_dict)
+            for lap, cls in zip(splits, classifications):
+                band = cls.get("band")
+                if band is None:
+                    continue
+                dur = lap.duration_seconds or 0
+                if band in _LOW_BANDS:
+                    total_low_s += dur
+                elif band in _MODERATE_BANDS:
+                    total_mod_s += dur
+                elif band in _HIGH_BANDS:
+                    total_high_s += dur
+
+        total_s = total_low_s + total_mod_s + total_high_s
+        if total_s > 0:
+            agg_low = round(total_low_s / total_s * 100, 2)
+            agg_moderate = round(total_mod_s / total_s * 100, 2)
+            agg_high = round(total_high_s / total_s * 100, 2)
+        else:
+            agg_low = agg_moderate = agg_high = None
+
+        polarized_check = _compute_polarized_check(agg_low, agg_moderate, agg_high)
+
+        return JSONResponse({
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "low": agg_low,
+            "moderate": agg_moderate,
+            "high": agg_high,
+            "polarized_check": polarized_check,
+            "session_count": len(workouts),
+        })
 
 
 # ── Sleep sync scheduler ──────────────────────────────────────────────────────
