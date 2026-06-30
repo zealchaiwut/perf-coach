@@ -4737,6 +4737,590 @@
             type="button"
           >
             <i class="ti ti-x" aria-hidden="true"></i>
+    <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
+    <div id="perf-chart-card" class="perf-chart-card log-card">
+      <div class="perf-chart-header">
+        <span class="perf-chart-title">Fitness · Fatigue · Form</span>
+        <div class="perf-range-selector" role="group" aria-label="Date range">
+          <button class="perf-range-btn" data-range="30D" type="button">30D</button>
+          <button class="perf-range-btn active" data-range="90D" type="button">90D</button>
+          <button class="perf-range-btn" data-range="6M" type="button">6M</button>
+          <button class="perf-range-btn" data-range="1Y" type="button">1Y</button>
+        </div>
+      </div>
+      <p class="perf-chart-caption">CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed line = today.</p>
+      <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+        <span class="perf-bb-icon">📈</span>
+        <span>Building baseline: keep training to see the fitness chart.</span>
+      </div>
+      <div id="perf-chart-wrap">
+        <canvas id="perf-fitness-canvas" height="220"
+                role="img" aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"></canvas>
+      </div>
+    </div>
+
+    <!-- ACWR Guidance -->
+    <div id="perf-acwr" class="perf-acwr-card log-card">
+      <div class="perf-card-label">Training Load Ratio (ACWR)</div>
+      <div class="perf-acwr-body">
+        <div class="perf-acwr-ratio-wrap">
+          <span class="perf-acwr-label">Ratio</span>
+          <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
+          <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
+        </div>
+        <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
+      </div>
+      <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
+        <span class="perf-bb-icon">⏳</span>
+        <span>Baseline forming: log at least 28 days of training to see your ACWR.</span>
+      </div>
+    </div>
+
+    <!-- Personal Records strip -->
+    <div class="perf-pr-card log-card">
+      <div class="perf-card-label">Personal Records</div>
+      <div id="perf-pr-strip" class="perf-pr-strip">
+        <p class="perf-pr-loading">Loading…</p>
+      </div>
+    </div>
+
+  </div><!-- /#training-panel-performance -->
+
+  <style>
+    /* ── Performance sub-tab styles ──────────────────────────────────────── */
+    .perf-panel { padding-top: 4px; }
+
+    /* Score cards row */
+    .perf-scores-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .perf-score-card {
+      padding: 16px 18px;
+    }
+    .perf-card-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      margin-bottom: 12px;
+    }
+    .perf-card-body {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .perf-card-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .perf-score-val {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .perf-dir {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: lowercase;
+    }
+    .perf-dir--improving { color: var(--green); }
+    .perf-dir--declining { color: var(--red); }
+    .perf-dir--flat      { color: var(--text-tertiary); }
+    .perf-building-baseline {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--shell-1);
+      border-radius: 10px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .perf-bb-text { font-weight: 600; }
+    .perf-bb-sub  { margin: 4px 0 0; font-size: 11px; color: var(--text-tertiary); }
+    .perf-threshold-hint {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 10px 12px;
+      line-height: 1.5;
+    }
+    .perf-threshold-hint a { color: var(--bg-1); font-weight: 600; }
+    .perf-error {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--red-soft);
+      border-radius: 8px;
+      font-size: 11.5px;
+      color: var(--red);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .perf-retry-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      color: var(--red);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 3px 9px;
+    }
+    .perf-retry-btn:hover { opacity: 0.75; }
+    .perf-bb-reason {
+      margin: 0;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    /* Fitness chart */
+    .perf-chart-card { padding: 16px 18px; }
+    .perf-chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .perf-chart-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .perf-chart-caption {
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+      margin: 0 0 12px;
+    }
+    .perf-range-selector {
+      display: inline-flex;
+      gap: 3px;
+      background: var(--shell-1);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .perf-range-btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .perf-range-btn.active {
+      background: var(--card-bg);
+      color: var(--text-primary);
+      box-shadow: var(--card-shadow);
+    }
+    .perf-chart-baseline {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    /* ACWR */
+    .perf-acwr-card { padding: 16px 18px; }
+    .perf-acwr-body { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .perf-acwr-ratio-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .perf-acwr-label { font-size: 10.5px; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .perf-acwr-ratio {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .perf-acwr-band-badge {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      text-transform: capitalize;
+      background: var(--shell-1);
+      color: var(--text-secondary);
+    }
+    .perf-acwr-band--productive { background: var(--green-soft); color: var(--green); }
+    .perf-acwr-band--high_risk  { background: var(--red-soft);   color: var(--red); }
+    .perf-acwr-band--detraining { background: var(--amber-soft); color: var(--amber); }
+    .perf-acwr-guidance {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      margin: 0;
+      line-height: 1.5;
+    }
+    .perf-acwr-baseline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      background: var(--shell-1);
+      border-radius: 8px;
+      margin-top: 4px;
+    }
+
+    /* Personal Records strip */
+    .perf-pr-card { padding: 16px 18px; }
+    .perf-pr-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .perf-pr-item {
+      background: var(--shell-1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .perf-pr-name  { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+    .perf-pr-val   { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--text-primary); }
+    .perf-pr-date  { font-size: 10.5px; color: var(--text-secondary); }
+    .perf-pr-link  { font-size: 10.5px; color: var(--bg-1); text-decoration: none; margin-top: 2px; }
+    .perf-pr-link:hover { text-decoration: underline; }
+    .perf-pr-empty, .perf-pr-loading { font-size: 12.5px; color: var(--text-tertiary); margin: 0; }
+    .perf-pr-item--unavailable { opacity: 0.55; }
+    .perf-pr-reason { font-size: 10px; color: var(--text-tertiary); line-height: 1.35; margin-top: 2px; }
+
+    /* ── Mobile: single column at 480px ─────────────────────────────────── */
+    @media (max-width: 480px) {
+      .perf-scores-row { grid-template-columns: 1fr; }
+      .perf-card-body  { flex-wrap: wrap; }
+      .perf-range-selector { overflow-x: auto; max-width: 100%; }
+    }
+
+    /* ── Summary Digest Card (issue #1058) ───────────────────────────────── */
+    #summary-digest-card { padding: 14px 16px 16px; }
+
+    .sd-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .sd-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    /* Toggle pill (mirrors glass-pill pattern on light card) */
+    .sd-toggle {
+      display: inline-flex;
+      background: #f0f4fa;
+      border-radius: 999px;
+      padding: 2px;
+      gap: 0;
+    }
+
+    .sd-toggle-btn {
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+
+    .sd-toggle-btn.is-active {
+      background: #fff;
+      color: var(--text-primary);
+      box-shadow: 0 1px 4px rgba(13,30,67,0.10);
+    }
+
+    /* Stat tiles row */
+    .sd-tiles {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .sd-tile {
+      background: var(--tile, #f7f9fd);
+      border-radius: 8px;
+      padding: 9px 10px;
+      text-align: center;
+    }
+
+    .sd-tile-val {
+      font-family: var(--mono, 'JetBrains Mono', monospace);
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--ink, var(--text-primary));
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+
+    .sd-tile-label {
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    /* Chip row */
+    .sd-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .sd-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .sd-chip--pos { background: var(--green-soft, #dff5d6); color: var(--green, #2d5e10); }
+    .sd-chip--neg { background: var(--red-soft, #ffd9d9); color: var(--red, #7a1a1a); }
+    .sd-chip--neu { background: #f0f4fa; color: var(--text-secondary); }
+
+    /* Weekly note */
+    .sd-note {
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      padding: 8px 10px;
+      background: var(--tile, #f7f9fd);
+      border-radius: 7px;
+    }
+
+    .sd-note:empty { display: none; }
+
+    /* Supercompensation section (monthly only) */
+    .sd-supercomp {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--tile, #f7f9fd);
+    }
+
+    .sd-supercomp-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .sd-supercomp-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .sd-supercomp-badge--working { background: var(--green-soft, #dff5d6); color: var(--green, #2d5e10); }
+    .sd-supercomp-badge--flat    { background: #f0f4fa; color: var(--text-secondary); }
+    .sd-supercomp-badge--digging { background: var(--amber-soft, #fff0c4); color: var(--amber, #6b4408); }
+
+    .sd-supercomp-cta {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    .sd-supercomp-links {
+      display: flex;
+      gap: 10px;
+      margin-top: 7px;
+    }
+
+    .sd-supercomp-link {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--bg-1, #5a8dee);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sd-supercomp-link:hover { text-decoration: underline; }
+
+    /* Loading skeleton */
+    .sd-skeleton-tiles {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .sd-skeleton-tile {
+      height: 54px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 400px 100%;
+      animation: skeleton-shimmer 1.4s ease infinite;
+    }
+
+    .sd-skeleton-chips {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .sd-skeleton-chip {
+      height: 26px;
+      width: 72px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 400px 100%;
+      animation: skeleton-shimmer 1.4s ease infinite;
+    }
+
+    .sd-error {
+      font-size: 12.5px;
+      color: var(--danger, #dc2626);
+      padding: 8px 0;
+    }
+
+    .sd-guardrail-warn {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--amber-soft, #fff0c4);
+      color: var(--amber, #6b4408);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .sd-guardrail-warn-icon {
+      flex-shrink: 0;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 480px) {
+      .sd-tiles { gap: 5px; }
+      .sd-tile { padding: 7px 6px; }
+      .sd-tile-val { font-size: 1rem; }
+    }
+  </style>
+
+  <div id="layout-wrapper" class="log-layout">
+    <div id="list-main" class="log-page-body">
+      <!-- Summary digest card (issue #1058) -->
+      <div id="summary-digest-card" class="log-card" hidden>
+        <div class="sd-header">
+          <span class="sd-title">Summary</span>
+          <div class="sd-toggle" role="group" aria-label="Summary period">
+            <button type="button" class="sd-toggle-btn is-active" data-period="week" aria-pressed="true">This week</button>
+            <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">This month</button>
+          </div>
+        </div>
+        <div id="sd-body">
+          <!-- Populated by JS: skeleton → tiles + chips + note (→ supercomp on month) -->
+        </div>
+      </div>
+
+      <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
+      <section id="load-surfaces" aria-label="Training load">
+        <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
+        <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
+        <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
+        <div id="load-widget" class="load-widget log-card" hidden></div>
+        <!-- Weekly volume chart (Chart.js) -->
+        <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
+          <div class="vc-header">
+            <span class="vc-title">Weekly volume</span>
+          </div>
+          <div class="vc-body">
+            <canvas id="volume-chart" height="220" role="img"
+                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
+      <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>
+
+      <!-- Workout history (Log sub-tab) — issue #637 -->
+      <div class="log-card log-card--history">
+        <div id="log-list"></div>
+
+        <div id="log-empty-filter" style="display:none" class="log-empty" role="status">
+          No workouts match this filter.
+        </div>
+
+        <div id="log-error-msg" style="display:none" class="list-error-state" role="alert">
+          <p>Couldn't load workouts.</p>
+          <button id="log-retry-btn" class="btn-sm">Retry</button>
+        </div>
+
+        <div id="log-empty-msg" style="display:none" class="empty-state">
+          <div class="empty-state-icon">🏃</div>
+          <p>No workouts logged yet. Start tracking your training!</p>
+          <button id="log-empty-cta" class="btn-accent" type="button">Log your first workout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail panel backdrop (mobile only) -->
+    <div id="detail-overlay" class="detail-panel-overlay" aria-hidden="true"></div>
+
+    <!-- Workout detail panel -->
+    <aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true"
+           aria-labelledby="dp-title">
+
+      <!-- Top bar: close | prev · position pill · next | overflow -->
+      <div class="dp-topbar">
+        <button id="dp-close-btn" class="dp-icon-btn" aria-label="Close workout details" type="button">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+
+        <div class="dp-position-group">
+          <button id="dp-prev-btn" class="dp-nav-btn" aria-label="Previous workout" type="button">
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
           </button>
 
           <div class="dp-position-group">

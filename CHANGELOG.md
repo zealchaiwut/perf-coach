@@ -18,6 +18,13 @@
 - #1112: Expose training projection via plan API endpoint
 - #1113: Render projected time-curve chart with confidence band
 - #1114: Assemble projection screen with markers and scores
+## Sprint 91 — Weekly/monthly summaries, rate guardrail, and summary digest card
+
+- #1055: Add weekly summary aggregation endpoint
+- #1056: Add monthly summary endpoint with supercompensation detection
+- #1057: Add rate guardrail and stressor ramp check
+- #1058: Add summary digest card to Log tab with weekly/monthly toggle
+- #1060: Surface guardrail warning in summary cards
 
 ## Sprint 89 — Google Drive / Health Sync sleep file import
 
