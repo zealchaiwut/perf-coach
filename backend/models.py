@@ -1221,3 +1221,23 @@ class PlyoSession(Base):
             name="ck_plyo_sessions_plyo_phase_values",
         ),
     )
+
+
+class EconomyCeilingSnapshot(Base):
+    """Per-user per-date economy stimulus and lagged ceiling bonus (issue #1149)."""
+
+    __tablename__ = "economy_ceiling_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    economy_stimulus = Column(Float, nullable=False, server_default=text("0.0"))
+    ceiling_bonus = Column(Float, nullable=False, server_default=text("0.0"))
+    computed_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_economy_ceiling_snapshots_user_date"),
+        Index("ix_economy_ceiling_snapshots_user_date", "user_id", "snapshot_date"),
+        CheckConstraint("economy_stimulus >= 0", name="ck_economy_ceiling_snapshots_stimulus_non_negative"),
+        CheckConstraint("ceiling_bonus >= 0", name="ck_economy_ceiling_snapshots_bonus_non_negative"),
+    )
