@@ -1887,6 +1887,21 @@
             </div>
           </div>
 
+          <!-- Fueling / Intake (kcal) -->
+          <div class="fm-field">
+            <label class="fm-label" for="fm-kcal">
+              Intake <span class="fm-unit">kcal</span>
+              <span class="fm-optional">(optional)</span>
+            </label>
+            <div class="fm-stepper">
+              <button id="fm-kcal-minus" type="button" class="fm-step-btn" aria-label="Decrease intake">−</button>
+              <input id="fm-kcal" class="fm-input" type="number"
+                min="1" max="10000" step="50" inputmode="numeric" placeholder="—"
+                autocomplete="off">
+              <button id="fm-kcal-plus" type="button" class="fm-step-btn" aria-label="Increase intake">+</button>
+            </div>
+          </div>
+
           <!-- Energy (1–5 segmented pills) -->
           <div class="fm-field">
             <label class="fm-label">Energy</label>
