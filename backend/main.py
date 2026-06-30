@@ -810,62 +810,6 @@ def list_weight_entries(
         return JSONResponse({"entries": entries, "count": count, "summary": summary})
 
 
-@app.patch("/api/weight-entries/{entry_id}")
-def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn, user: User = Depends(resolve_user)):
-    if "user_id" in body.model_fields_set or "entry_date" in body.model_fields_set:
-        raise HTTPException(status_code=422, detail="user_id and entry_date cannot be changed")
-
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None or entry.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Entry not found")
-
-        if "weight_kg" in body.model_fields_set and body.weight_kg is not None:
-            if not (20 <= body.weight_kg <= 300):
-                raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
-            entry.weight_kg = body.weight_kg
-
-        if "notes" in body.model_fields_set:
-            if body.notes is not None and len(body.notes) > 500:
-                raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
-            entry.notes = body.notes
-
-        if "entry_time" in body.model_fields_set:
-            entry.entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
-
-        entry.updated_at = _datetime.now(_timezone.utc)
-
-        try:
-            session.commit()
-        except sa_exc.IntegrityError:
-            session.rollback()
-            return JSONResponse(status_code=409, content={"error": "Duplicate entry for this user/date/time"})
-
-        session.refresh(entry)
-        return JSONResponse(_weight_entry_dict(entry))
-
-
-@app.delete("/api/weight-entries/{entry_id}")
-def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
-    try:
-        eid = _uuid.UUID(entry_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid entry_id")
-
-    with Session(engine) as session:
-        entry = session.get(WeightEntry, eid)
-        if entry is None or entry.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        session.delete(entry)
-        session.commit()
-    return JSONResponse({"deleted": True})
-
-
 class WeightEntryByDateIn(BaseModel):
     entry_date: str  # YYYY-MM-DD
     weight_kg: float
@@ -925,6 +869,62 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
             session.commit()
             session.refresh(entry)
             return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+
+
+@app.patch("/api/weight-entries/{entry_id}")
+def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn, user: User = Depends(resolve_user)):
+    if "user_id" in body.model_fields_set or "entry_date" in body.model_fields_set:
+        raise HTTPException(status_code=422, detail="user_id and entry_date cannot be changed")
+
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None or entry.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        if "weight_kg" in body.model_fields_set and body.weight_kg is not None:
+            if not (20 <= body.weight_kg <= 300):
+                raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+            entry.weight_kg = body.weight_kg
+
+        if "notes" in body.model_fields_set:
+            if body.notes is not None and len(body.notes) > 500:
+                raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+            entry.notes = body.notes
+
+        if "entry_time" in body.model_fields_set:
+            entry.entry_time = _parse_entry_time(body.entry_time) if body.entry_time is not None else None
+
+        entry.updated_at = _datetime.now(_timezone.utc)
+
+        try:
+            session.commit()
+        except sa_exc.IntegrityError:
+            session.rollback()
+            return JSONResponse(status_code=409, content={"error": "Duplicate entry for this user/date/time"})
+
+        session.refresh(entry)
+        return JSONResponse(_weight_entry_dict(entry))
+
+
+@app.delete("/api/weight-entries/{entry_id}")
+def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
+    try:
+        eid = _uuid.UUID(entry_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_id")
+
+    with Session(engine) as session:
+        entry = session.get(WeightEntry, eid)
+        if entry is None or entry.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        session.delete(entry)
+        session.commit()
+    return JSONResponse({"deleted": True})
 
 
 # ── Weight target endpoints ───────────────────────────────────────────────────
