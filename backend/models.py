@@ -1168,9 +1168,11 @@ class StrengthSession(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     session_date = Column(Date, nullable=False)
+    exercise_name = Column(String(200), nullable=True)
     sets = Column(Integer, nullable=True)
     reps = Column(Integer, nullable=True)
     load = Column(Numeric(8, 2), nullable=True)
+    load_unit = Column(String(10), nullable=True)
     session_rpe = Column(Integer, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -1189,6 +1191,10 @@ class StrengthSession(Base):
             "duration_minutes IS NULL OR duration_minutes > 0",
             name="ck_strength_sessions_duration_positive",
         ),
+        CheckConstraint(
+            "load_unit IS NULL OR load_unit IN ('kg', 'lbs')",
+            name="ck_strength_sessions_load_unit_values",
+        ),
     )
 
 
@@ -1200,6 +1206,7 @@ class PlyoSession(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     session_date = Column(Date, nullable=False)
+    exercise_name = Column(String(200), nullable=True)
     foot_contacts = Column(Integer, nullable=False)
     plyo_phase = Column(String(20), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=True)
