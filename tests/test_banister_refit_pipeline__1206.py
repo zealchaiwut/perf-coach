@@ -1,12 +1,14 @@
 """Tests for Banister batch refit pipeline (issue #1206).
 
 AC coverage:
-  AC1 — Pipeline saves new versioned params for users with >= 14 observations and a convergent fit.
+  AC1 — Pipeline saves new versioned params for users with >=14 observations and a
+    convergent fit.
   AC2 — Pipeline emits WARNING and skips storage for users below the data gate.
   AC3 — Pipeline emits WARNING and skips storage when fitting fails to converge.
-  AC4 — A batch run for the same user produces a new version row without removing prior rows.
+  AC4 — A batch run for the same user produces a new version row without removing
+    prior rows.
   AC5 — Integration test: success path (fit → validate → store), data-gate fallback,
-        convergence-failure fallback.
+    convergence-failure fallback.
   AC6 — All new/modified files pass py_compile with zero errors.
 """
 
@@ -187,7 +189,11 @@ def test_ac1_pipeline_saves_params_on_success(db_engine, db):
     result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)] == "ok"
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 1, "Expected exactly one stored param row"
 
 
@@ -232,7 +238,11 @@ def test_ac2_data_gate_emits_warning_not_exception(db_engine, db, caplog):
         result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)].startswith("skipped")
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 0, "Storage must be skipped when data gate fires"
     assert any("warning" in rec.levelname.lower() or "WARNING" in rec.levelname
                for rec in caplog.records), "At least one WARNING must be emitted"
@@ -247,17 +257,26 @@ def test_ac2_data_gate_zero_rows(db_engine, db, caplog):
     # Insert nothing for this user
 
     factory = _make_session_factory(db_engine)
-    with caplog.at_level(logging.WARNING, logger="backend.services.banister_pipeline"):
+    with caplog.at_level(
+        logging.WARNING, logger="backend.services.banister_pipeline"
+    ):
         result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)].startswith("skipped")
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 0
 
 
 def test_ac2_previous_params_retained_after_data_gate(db_engine, db):
     """When data gate fires, previously stored params remain unchanged."""
-    from backend.services.banister_params import save_banister_params, get_banister_params
+    from backend.services.banister_params import (
+        save_banister_params,
+        get_banister_params,
+    )
     from backend.services.banister_pipeline import run_banister_refit_pipeline
 
     user_id = _uid()
@@ -293,14 +312,22 @@ def test_ac3_convergence_failure_emits_warning(db_engine, db, caplog):
     db.commit()
 
     factory = _make_session_factory(db_engine)
-    with caplog.at_level(logging.WARNING, logger="backend.services.banister_pipeline"):
+    with caplog.at_level(
+        logging.WARNING, logger="backend.services.banister_pipeline"
+    ):
         result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)].startswith("skipped")
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 0
-    assert any("WARNING" in rec.levelname or "warning" in rec.levelname.lower()
-               for rec in caplog.records)
+    assert any(
+        "WARNING" in rec.levelname or "warning" in rec.levelname.lower()
+        for rec in caplog.records
+    )
 
 
 # ── AC4: each batch run produces a new version row ────────────────────────────
@@ -320,8 +347,14 @@ def test_ac4_two_runs_produce_two_rows(db_engine, db):
     run_banister_refit_pipeline([str(user_id)], session_factory=factory)
     run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
-    assert len(rows) == 2, f"Two runs must produce 2 versioned rows, got {len(rows)}"
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
+    assert (
+        len(rows) == 2
+    ), f"Two runs must produce 2 versioned rows, got {len(rows)}"
     assert rows[0].id != rows[1].id
 
 
@@ -339,7 +372,11 @@ def test_ac4_prior_rows_not_deleted(db_engine, db):
     for _ in range(3):
         run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 3, "All 3 run-rows must be retained (no deletions)"
 
 
@@ -360,14 +397,21 @@ def test_ac5_integration_success_path(db_engine, db):
     result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)] == "ok"
-    saved = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).first()
+    saved = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .first()
+    )
     assert saved is not None
     assert saved.fitted_at is not None
 
 
 def test_ac5_integration_data_gate_fallback(db_engine, db, caplog):
     """Integration: data-gate path emits WARNING, skips storage, keeps prior params."""
-    from backend.services.banister_params import save_banister_params, get_banister_params
+    from backend.services.banister_params import (
+        save_banister_params,
+        get_banister_params,
+    )
     from backend.services.banister_pipeline import run_banister_refit_pipeline
 
     user_id = _uid()
@@ -381,7 +425,9 @@ def test_ac5_integration_data_gate_fallback(db_engine, db, caplog):
     db.commit()
 
     factory = _make_session_factory(db_engine)
-    with caplog.at_level(logging.WARNING, logger="backend.services.banister_pipeline"):
+    with caplog.at_level(
+        logging.WARNING, logger="backend.services.banister_pipeline"
+    ):
         result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)].startswith("skipped")
@@ -402,11 +448,17 @@ def test_ac5_integration_convergence_failure_fallback(db_engine, db, caplog):
     db.commit()
 
     factory = _make_session_factory(db_engine)
-    with caplog.at_level(logging.WARNING, logger="backend.services.banister_pipeline"):
+    with caplog.at_level(
+        logging.WARNING, logger="backend.services.banister_pipeline"
+    ):
         result = run_banister_refit_pipeline([str(user_id)], session_factory=factory)
 
     assert result[str(user_id)].startswith("skipped")
-    rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == user_id).all()
+    rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == user_id)
+        .all()
+    )
     assert len(rows) == 0
 
 
@@ -434,8 +486,16 @@ def test_ac5_integration_multi_user_mixed(db_engine, db):
     assert result[str(uid_good)] == "ok"
     assert result[str(uid_bad)].startswith("skipped")
 
-    good_rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == uid_good).all()
-    bad_rows = db.query(UserBanisterParams).filter(UserBanisterParams.user_id == uid_bad).all()
+    good_rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == uid_good)
+        .all()
+    )
+    bad_rows = (
+        db.query(UserBanisterParams)
+        .filter(UserBanisterParams.user_id == uid_bad)
+        .all()
+    )
     assert len(good_rows) == 1
     assert len(bad_rows) == 0
 

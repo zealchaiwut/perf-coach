@@ -153,7 +153,8 @@ def _process_one_user(session: Session, user_id: Any) -> str:
     save_banister_params(session, uid, tau1=tau1, tau2=tau2, k1=k1, k2=k2)
     session.commit()
     _log.info(
-        "banister_pipeline: saved params for user %s — tau1=%.2f tau2=%.2f k1=%.4f k2=%.4f",
+        "banister_pipeline: saved params for user %s "
+        "— tau1=%.2f tau2=%.2f k1=%.4f k2=%.4f",
         uid,
         tau1,
         tau2,
