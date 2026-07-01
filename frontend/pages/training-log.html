@@ -3582,6 +3582,55 @@
         border-color: #3563d4;
         background: #fff;
       }
+      /* Segmented controls (type tabs + priority) */
+      .plan-modal-seg {
+        display: flex;
+        gap: 4px;
+        background: #eef1f7;
+        border-radius: 10px;
+        padding: 3px;
+      }
+      #plan-modal-typeseg {
+        margin-bottom: 16px;
+      }
+      .plan-modal-seg-btn {
+        flex: 1;
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+      .plan-modal-seg-btn.active {
+        background: #fff;
+        color: var(--text-primary);
+        box-shadow: 0 1px 3px rgba(20, 28, 70, 0.12);
+      }
+      /* Distance quick-fill */
+      .plan-modal-quick {
+        display: flex;
+        gap: 6px;
+        margin-top: 7px;
+      }
+      .plan-modal-quick-btn {
+        border: 1px solid var(--card-border);
+        background: #f8fafd;
+        border-radius: 7px;
+        padding: 5px 11px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+      .plan-modal-quick-btn:hover {
+        background: #eef2fb;
+        color: var(--text-primary);
+      }
       .plan-modal-actions {
         display: flex;
         align-items: center;
@@ -3930,15 +3979,8 @@
             <div class="pm-ckhead">
               <span class="pm-sectitle">Races &amp; projections</span>
               <div class="pm-ckbtns">
-                <button id="plan-add-race-btn" class="pm-ckbtn" type="button">
-                  + Add Race
-                </button>
-                <button
-                  id="plan-add-checkpoint-btn"
-                  class="pm-ckbtn"
-                  type="button"
-                >
-                  + Add Checkpoint
+                <button id="plan-add-btn" class="pm-ckbtn dark" type="button">
+                  + Add
                 </button>
               </div>
             </div>
@@ -3955,6 +3997,15 @@
             </div>
             <div id="plan-time-curve-loading" class="pm-loading" style="display: none">
               Loading…
+            </div>
+            <div
+              id="plan-projected-now"
+              class="pm-projnow"
+              style="display: none"
+            >
+              <span class="pm-projnow-lab">Projected now</span>
+              <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
+              <span class="pm-projnow-meta" id="plan-projected-now-meta"></span>
             </div>
             <svg
               id="plan-timecurve"
@@ -4332,6 +4383,36 @@
         padding: 18px 4px;
         font-size: 12.5px;
         color: var(--pm-muted);
+      }
+      .plan-merged .pm-projnow {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: #f2f5ff;
+        border: 1px solid #e0e7ff;
+      }
+      .plan-merged .pm-projnow-lab {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #4a6bcc;
+      }
+      .plan-merged .pm-projnow-val {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+        color: var(--pm-ink);
+        line-height: 1;
+      }
+      .plan-merged .pm-projnow-meta {
+        font-size: 11.5px;
+        color: var(--pm-muted);
+        font-family: var(--pm-mono);
       }
       .plan-merged .pm-bb {
         display: flex;
@@ -5943,6 +6024,31 @@
             &#x2715;
           </button>
         </div>
+        <div
+          class="plan-modal-seg"
+          id="plan-modal-typeseg"
+          role="tablist"
+          aria-label="Entry type"
+        >
+          <button
+            type="button"
+            class="plan-modal-seg-btn active"
+            data-type="race"
+            role="tab"
+            aria-selected="true"
+          >
+            Race
+          </button>
+          <button
+            type="button"
+            class="plan-modal-seg-btn"
+            data-type="checkpoint"
+            role="tab"
+            aria-selected="false"
+          >
+            Checkpoint
+          </button>
+        </div>
         <div class="plan-modal-field">
           <label class="plan-modal-label" for="plan-modal-name">Name</label>
           <input
@@ -5970,13 +6076,54 @@
             step="0.001"
             placeholder="e.g. 42.195"
           />
+          <div class="plan-modal-quick" id="plan-modal-distance-quick">
+            <button type="button" class="plan-modal-quick-btn" data-km="10">
+              10K
+            </button>
+            <button type="button" class="plan-modal-quick-btn" data-km="21.10">
+              Half
+            </button>
+            <button type="button" class="plan-modal-quick-btn" data-km="42.20">
+              Full
+            </button>
+          </div>
         </div>
-        <div class="plan-modal-field">
-          <label class="plan-modal-label" for="plan-modal-type">Type</label>
-          <select id="plan-modal-type" class="plan-modal-input">
-            <option value="race">Race</option>
-            <option value="checkpoint">Checkpoint</option>
-          </select>
+        <div class="plan-modal-field" id="plan-modal-priority-field">
+          <label class="plan-modal-label">Priority</label>
+          <div
+            class="plan-modal-seg"
+            id="plan-modal-priorityseg"
+            role="radiogroup"
+            aria-label="Race priority"
+          >
+            <button
+              type="button"
+              class="plan-modal-seg-btn active"
+              data-priority="A"
+              role="radio"
+              aria-checked="true"
+            >
+              A
+            </button>
+            <button
+              type="button"
+              class="plan-modal-seg-btn"
+              data-priority="B"
+              role="radio"
+              aria-checked="false"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              class="plan-modal-seg-btn"
+              data-priority="C"
+              role="radio"
+              aria-checked="false"
+            >
+              C
+            </button>
+          </div>
         </div>
         <div class="plan-modal-field">
           <label class="plan-modal-label" for="plan-modal-goal-time"
