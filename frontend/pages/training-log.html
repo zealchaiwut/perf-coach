@@ -4623,6 +4623,96 @@
         font-size: 13.5px;
         color: var(--pm-muted);
       }
+      /* Completed / Upcoming section headers */
+      .plan-merged .pm-races-hdr {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--pm-faint);
+        margin: 4px 0 8px;
+      }
+      .plan-merged .pm-races-hdr + .pm-completed-grid,
+      .plan-merged .pm-races-hdr + .pm-rc {
+        margin-top: 0;
+      }
+      /* COMPLETED: two-per-row grid of compact cards (~30% smaller) */
+      .plan-merged .pm-completed-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .pm-completed-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .plan-merged .pm-rc--done {
+        margin-bottom: 0;
+        padding: 9px 11px;
+        border-radius: 9px;
+      }
+      .plan-merged .pm-rc--done .pm-rchd {
+        gap: 6px;
+        margin-bottom: 5px;
+      }
+      .plan-merged .pm-rc--done .pm-rclet {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        font-size: 9px;
+      }
+      .plan-merged .pm-rc--done .pm-rcname {
+        font-size: 11.5px;
+      }
+      .plan-merged .pm-rc--done .pm-typetag,
+      .plan-merged .pm-rc--done .pm-upc {
+        font-size: 8px;
+        padding: 1px 5px;
+      }
+      .plan-merged .pm-rc--done .pm-rcact {
+        padding: 2px 6px;
+        font-size: 9.5px;
+      }
+      .plan-merged .pm-rcmeta--done {
+        font-size: 10px;
+        margin-bottom: 7px;
+      }
+      .plan-merged .pm-rc--done .pm-rcgrid {
+        gap: 6px;
+      }
+      .plan-merged .pm-rc--done .pm-col {
+        padding: 6px 8px;
+        border-radius: 7px;
+      }
+      .plan-merged .pm-rc--done .pm-coll {
+        font-size: 8px;
+        margin-bottom: 3px;
+      }
+      .plan-merged .pm-rc--done .pm-colt {
+        font-size: 14px;
+      }
+      .plan-merged .pm-rc--done .pm-colp {
+        font-size: 9.5px;
+        margin-top: 2px;
+      }
+      /* Actual-vs-goal delta pill on completed cards */
+      .plan-merged .pm-delta {
+        font-size: 8px;
+        font-weight: 800;
+        font-family: var(--pm-mono);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .plan-merged .pm-delta.over {
+        background: var(--pm-redSoft);
+        color: var(--pm-red);
+      }
+      .plan-merged .pm-delta.under {
+        background: var(--pm-greenSoft);
+        color: var(--pm-green);
+      }
       .plan-merged .pm-rc {
         background: var(--pm-tile);
         border: 1px solid var(--pm-line);

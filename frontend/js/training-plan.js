@@ -581,6 +581,162 @@
     return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
   }
 
+  // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
+  // (under). Returns "" when there is no goal.
+  function _actualDelta(actualSec, goalSec) {
+    if (!goalSec || actualSec == null) return "";
+    var diff = actualSec - goalSec;
+    var sign = diff >= 0 ? "+" : "−";
+    var abs = Math.abs(diff);
+    var m = Math.floor(abs / 60);
+    var s = Math.round(abs % 60);
+    return sign + m + ":" + pad(s);
+  }
+
+  function _metaText(r, distKm) {
+    return (
+      formatDate(r.date) +
+      " · " +
+      (r.distance != null
+        ? distKm.toFixed(2) + " km"
+        : r.duration_seconds
+          ? fmtTime(r.duration_seconds)
+          : "—")
+    );
+  }
+
+  // Build a full-width UPCOMING card (Goal + Estimated columns).
+  function _buildUpcomingCard(r) {
+    var isCheckpoint = r.type === "checkpoint";
+    var priority = isCheckpoint ? "C" : r.priority || "A";
+    var isTarget = _primaryRace && r.id === _primaryRace.id;
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+
+    var card = document.createElement("div");
+    card.className = "pm-rc" + (isTarget ? " target" : "");
+    card.setAttribute("data-race-id", r.id);
+
+    var recalHtml =
+      _projection &&
+      _projection.b_race_recalibration_date === r.date &&
+      priority === "B"
+        ? '<span class="pm-recal">↻ recalibrates here</span>'
+        : "";
+    var rightTag = isTarget ? '<span class="pm-tgt">TARGET</span>' : recalHtml;
+
+    var head =
+      '<div class="pm-rchd">' +
+      '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+      '<span class="pm-typetag">' +
+      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
+      '<span class="pm-upc">UPCOMING</span>' +
+      rightTag +
+      '<span class="pm-rcactions">' +
+      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      "</span>" +
+      "</div>";
+
+    // Estimated column from this race's own readiness (if projection exists).
+    var secondCol = "";
+    var estInfo = _currentEstimate(_raceReadiness[r.id]);
+    if (estInfo) {
+      var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+      var bandTxt =
+        estInfo.band != null
+          ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+          : "";
+      secondCol =
+        '<div class="pm-col est">' +
+        '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
+        '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+        '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+    }
+
+    var grid =
+      '<div class="pm-rcgrid">' +
+      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+      secondCol +
+      "</div>";
+
+    card.innerHTML = head + grid;
+    _wireCardActions(card, r);
+    return card;
+  }
+
+  // Build a compact COMPLETED card (Goal + Actual columns, ~30% smaller). Shows
+  // the actual-vs-goal delta next to Actual when a goal exists.
+  function _buildCompletedCard(r) {
+    var isCheckpoint = r.type === "checkpoint";
+    var priority = isCheckpoint ? "C" : r.priority || "A";
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+    var actualSec = r.actual_time_seconds;
+    var actualPace = actualSec != null && distKm ? fmtPace(actualSec / distKm) : "";
+    var delta = _actualDelta(actualSec, goalSec);
+    var deltaCls = delta && delta.charAt(0) === "+" ? "over" : "under";
+
+    var card = document.createElement("div");
+    card.className = "pm-rc pm-rc--done";
+    card.setAttribute("data-race-id", r.id);
+
+    var head =
+      '<div class="pm-rchd">' +
+      '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+      '<span class="pm-typetag">' +
+      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+      '<span class="pm-upc pm-done">DONE</span>' +
+      '<span class="pm-rcactions">' +
+      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      "</span>" +
+      "</div>" +
+      '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
+
+    var actualLabel =
+      "Actual" +
+      (delta
+        ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
+        : "");
+
+    var grid =
+      '<div class="pm-rcgrid">' +
+      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+      '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
+      '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
+      "</div>";
+
+    card.innerHTML = head + grid;
+    _wireCardActions(card, r);
+    return card;
+  }
+
+  function _wireCardActions(card, r) {
+    var editBtn = card.querySelector('[data-act="edit"]');
+    if (editBtn)
+      editBtn.addEventListener("click", function () {
+        openModal(r, r.type || "race");
+      });
+    var delBtn = card.querySelector('[data-act="del"]');
+    if (delBtn)
+      delBtn.addEventListener("click", function () {
+        _deleteRow(r.id, r.name || "entry");
+      });
+  }
+
   function renderRaceCards() {
     var container = document.getElementById("plan-races");
     var loadingEl = document.getElementById("plan-races-loading");
@@ -588,154 +744,61 @@
     if (!container) return;
     if (loadingEl) loadingEl.style.display = "none";
 
-    // remove previously rendered cards
-    Array.from(container.querySelectorAll(".pm-rc")).forEach(function (el) {
-      el.remove();
-    });
+    // Remove previously rendered section wrapper (headers + grids + cards).
+    var prev = container.querySelector(".pm-races-sections");
+    if (prev) prev.remove();
 
-    var sorted = _races.slice().sort(function (a, b) {
-      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
-    });
-
-    if (sorted.length === 0) {
+    if (_races.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
 
-    var todayStr = todayISO();
-    var primaryId = _primaryRace && _primaryRace.id;
+    function byDate(a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    }
+    var completed = _races
+      .filter(function (r) {
+        return r.status === "done" && r.actual_time_seconds != null;
+      })
+      .sort(byDate);
+    var upcoming = _races
+      .filter(function (r) {
+        return !(r.status === "done" && r.actual_time_seconds != null);
+      })
+      .sort(byDate);
 
-    sorted.forEach(function (r) {
-      var isCheckpoint = r.type === "checkpoint";
-      // Real priority comes from the race row. Checkpoints have no priority and
-      // render under the neutral "C" treatment; real races use r.priority.
-      var priority = isCheckpoint ? "C" : r.priority || "A";
-      var isTarget = r.id === primaryId;
-      var upcoming = r.date >= todayStr;
-      var distKm = parseFloat(r.distance || 0);
-      var goalSec = r.goal_time_seconds || null;
-      var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+    var sections = document.createElement("div");
+    sections.className = "pm-races-sections";
 
-      var card = document.createElement("div");
-      card.className = "pm-rc" + (isTarget ? " target" : "");
-      card.setAttribute("data-race-id", r.id);
+    // COMPLETED first — a two-per-row grid of compact cards.
+    if (completed.length > 0) {
+      var chdr = document.createElement("div");
+      chdr.className = "pm-races-hdr";
+      chdr.textContent = "Completed";
+      sections.appendChild(chdr);
 
-      var recalHtml =
-        _projection &&
-        _projection.b_race_recalibration_date === r.date &&
-        priority === "B"
-          ? '<span class="pm-recal">↻ recalibrates here</span>'
-          : "";
-      var rightTag = isTarget
-        ? '<span class="pm-tgt">TARGET</span>'
-        : recalHtml;
-
-      // A completed (done) race carries a real result. Show a DONE pill and the
-      // actual finish time instead of the projected Estimated column.
-      var isDone =
-        r.status === "done" && r.actual_time_seconds != null;
-      var statusPillHead = isDone
-        ? '<span class="pm-upc pm-done">DONE</span>'
-        : '<span class="pm-upc' + (upcoming ? "" : " pm-past") + '">' +
-          (upcoming ? "UPCOMING" : "PAST") + "</span>";
-
-      var head =
-        '<div class="pm-rchd">' +
-        '<span class="pm-rclet" style="background:' +
-        (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
-        '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-        '<span class="pm-typetag">' +
-        (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-        '<span class="pm-rcmeta">' +
-        esc(formatDate(r.date)) + " · " +
-        (r.distance != null
-          ? distKm.toFixed(2) + " km"
-          : r.duration_seconds
-            ? fmtTime(r.duration_seconds)
-            : "—") +
-        "</span>" +
-        statusPillHead +
-        rightTag +
-        '<span class="pm-rcactions">' +
-        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-        '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
-        "</span>" +
-        "</div>";
-
-      // Second column: Actual (for done races) or Estimated (from readiness).
-      var secondCol = "";
-      if (isDone) {
-        var actualSec = r.actual_time_seconds;
-        var actualPace = distKm ? fmtPace(actualSec / distKm) : "";
-        secondCol =
-          '<div class="pm-col est">' +
-          '<div class="pm-coll">Actual ' +
-          '<span class="pm-stat ok">completed</span></div>' +
-          '<div class="pm-colt">' + esc(fmtTime(actualSec)) + "</div>" +
-          '<div class="pm-colp">' + esc(actualPace) + "</div></div>";
-      } else {
-        var estInfo = _currentEstimate(_raceReadiness[r.id]);
-        if (estInfo) {
-          var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
-          var bandTxt =
-            estInfo.band != null
-              ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
-              : "";
-          secondCol =
-            '<div class="pm-col est">' +
-            '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
-            '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
-            '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
-        }
-      }
-
-      var grid =
-        '<div class="pm-rcgrid">' +
-        '<div class="pm-col"><div class="pm-coll">Goal</div>' +
-        '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
-        '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-        secondCol +
-        "</div>";
-
-      // Footer: End/Spd score tags (athlete-level scores from /api/projection —
-      // shown on the primary race only, since scores are not per-race). No
-      // half-equiv line: the readiness API does not expose a half-equivalent
-      // time, so we do not fabricate one.
-      var foot = "";
-      if (
-        isTarget &&
-        _projection &&
-        (typeof _projection.endurance_score === "number" ||
-          typeof _projection.speed_score === "number")
-      ) {
-        var tags = "";
-        if (typeof _projection.endurance_score === "number")
-          tags +=
-            '<span class="pm-sc e">End ' +
-            Math.round(_projection.endurance_score) + "</span>";
-        if (typeof _projection.speed_score === "number")
-          tags +=
-            '<span class="pm-sc s">Spd ' +
-            Math.round(_projection.speed_score) + "</span>";
-        if (tags)
-          foot =
-            '<div class="pm-rcfoot"><div class="pm-scoretags">' +
-            tags +
-            "</div></div>";
-      }
-
-      card.innerHTML = head + grid + foot;
-
-      card.querySelector('[data-act="edit"]').addEventListener("click", function () {
-        openModal(r, r.type || "race");
+      var grid = document.createElement("div");
+      grid.className = "pm-completed-grid";
+      completed.forEach(function (r) {
+        grid.appendChild(_buildCompletedCard(r));
       });
-      card.querySelector('[data-act="del"]').addEventListener("click", function () {
-        _deleteRow(r.id, r.name || "entry");
-      });
+      sections.appendChild(grid);
+    }
 
-      container.appendChild(card);
-    });
+    // UPCOMING — full-width cards.
+    if (upcoming.length > 0) {
+      var uhdr = document.createElement("div");
+      uhdr.className = "pm-races-hdr";
+      uhdr.textContent = "Upcoming";
+      sections.appendChild(uhdr);
+
+      upcoming.forEach(function (r) {
+        sections.appendChild(_buildUpcomingCard(r));
+      });
+    }
+
+    container.appendChild(sections);
   }
 
   // ── 4. Form curve SVG (TSB) ───────────────────────────────────────────────
@@ -977,9 +1040,36 @@
     apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
       _readiness = data;
       // Cache under the race id so renderRaceCards can surface the Estimated
-      // column for the primary race.
+      // column for the primary race (also drives the form/time curves).
       _raceReadiness[_primaryRace.id] = data;
       if (done) done();
+    });
+  }
+
+  // Fetch per-race readiness for EVERY upcoming (not-done) race in parallel and
+  // cache each under its raceId. Each response carries its own estimate, so all
+  // upcoming cards can show an Estimated column — not just the primary. Cards
+  // are re-rendered as results arrive.
+  function loadAllReadiness() {
+    var todayStr = todayISO();
+    var targets = _races.filter(function (r) {
+      var done = r.status === "done" && r.actual_time_seconds != null;
+      var upcoming = r.date >= todayStr;
+      // Skip the primary — loadReadiness already fetched it — and done races.
+      return (
+        !done &&
+        upcoming &&
+        !(_primaryRace && r.id === _primaryRace.id) &&
+        !(r.id in _raceReadiness)
+      );
+    });
+    if (targets.length === 0) return;
+    targets.forEach(function (r) {
+      apiGet("/api/races/" + r.id + "/readiness", function (data) {
+        _raceReadiness[r.id] = data;
+        // Re-render so the newly-arrived estimate shows on this card.
+        renderRaceCards();
+      });
     });
   }
 
@@ -1091,11 +1181,16 @@
   }
 
   function refresh() {
+    // Drop cached readiness so edits/adds re-fetch fresh estimates.
+    _raceReadiness = {};
     _ensurePlanId(function () {
       loadProjection(function () {
         loadRaces(function () {
           loadReadiness(function () {
             renderAll();
+            // Fetch estimates for the remaining upcoming races in parallel;
+            // each updates its card as it arrives.
+            loadAllReadiness();
           });
         });
       });
