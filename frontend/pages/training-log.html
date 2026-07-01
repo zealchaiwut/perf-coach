@@ -4253,6 +4253,15 @@
       </div>
       <!-- /.perf-scores-row -->
 
+      <!-- Economy contribution strip (relocated from Projection page) -->
+      <div class="perf-econ" id="perf-economy-row">
+        <span class="perf-econ-label">Economy</span>
+        <span class="perf-econ-value" id="perf-economy-value">0</span>
+        <span class="perf-econ-meta" id="perf-economy-meta"
+          >Lagged strength &amp; plyo contribution to performance ceiling</span
+        >
+      </div>
+
       <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
       <div id="perf-chart-card" class="perf-chart-card log-card">
         <div class="perf-chart-header">
@@ -4340,6 +4349,39 @@
       }
       .perf-score-card {
         padding: 16px 18px;
+      }
+      /* Economy contribution strip */
+      .perf-econ {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+        padding: 11px 14px;
+        border-radius: 10px;
+        background: #f0f4ff;
+        border: 1px solid #d4dcf7;
+      }
+      .perf-econ-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #4a6bcc;
+        flex-shrink: 0;
+      }
+      .perf-econ-value {
+        font-family: var(--mono);
+        font-size: 16px;
+        font-weight: 700;
+        color: #3563d4;
+        letter-spacing: -0.03em;
+        flex-shrink: 0;
+      }
+      .perf-econ-meta {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        flex: 1;
+        min-width: 0;
       }
       .perf-card-label {
         font-size: 9.5px;

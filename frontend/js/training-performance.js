@@ -48,9 +48,34 @@
 
   function _loadAll() {
     _loadScores();
+    _loadEconomy();
     _loadFitnessChart(_activeRange);
     _loadAcwr();
     _loadPR();
+  }
+
+  // ── Economy contribution strip (relocated from Projection page) ──────────────
+  function _loadEconomy() {
+    var valEl = document.getElementById('perf-economy-value');
+    var metaEl = document.getElementById('perf-economy-meta');
+    if (!valEl && !metaEl) return;
+    fetch('/api/projection', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        var econ = data && typeof data.economy_contribution === 'number'
+          ? data.economy_contribution : 0;
+        if (valEl) valEl.textContent = econ === 0 ? '0' : '+' + econ.toFixed(2);
+        if (metaEl) {
+          var lagPeak = (data && data.lag_peak_days) || 42;
+          var lagWindow = (data && data.lag_window_days) || 84;
+          metaEl.textContent = econ === 0
+            ? 'No strength or plyometric sessions in the ' + (lagWindow / 7) +
+              '-week lag window'
+            : 'Lagged strength & plyo effect (peaks at ' + (lagPeak / 7) +
+              ' wk, window ' + (lagWindow / 7) + ' wk)';
+        }
+      })
+      .catch(function () {});
   }
 
   // ── Date helpers ─────────────────────────────────────────────────────────────
