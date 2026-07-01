@@ -32,8 +32,8 @@ Start: CTL=50, ATL=70 (form = -20).  Planned load = 20 TSS/day for 14 days.
 
 Because ATL has a shorter time constant (7-day) than CTL (42-day) it decays
 faster toward 20.  After 14 rest days ATL approaches 20 while CTL remains
-higher than ATL.  TSB (CTL - ATL) rises and becomes positive well before day 14,
-illustrating how a taper window improves form.
+higher than ATL.  TSB (CTL - ATL) rises and becomes positive well before
+day 14, illustrating how a taper window improves form.
 """
 
 from __future__ import annotations
@@ -55,13 +55,13 @@ from backend.services.fitness_model import (
 CTL_DECAY: float = math.exp(-1 / CTL_TIME_CONSTANT)
 ATL_DECAY: float = math.exp(-1 / ATL_TIME_CONSTANT)
 
-# ── Expressible score constants ───────────────────────────────────────────────
+# ── Expressible score constants ─────────────────────────────────────────
 # Linear scale factor applied to the TSB/ceiling ratio when computing the
 # expressible form factor.  A value of 1.0 means the factor ranges from 0.0
 # (TSB = −ceiling) through 1.0 (TSB = 0) to 2.0 (TSB = ceiling).
 EXPRESSIBLE_FORM_FACTOR_SCALE: float = 1.0
 
-# ── B-race tightening constants ───────────────────────────────────────────────
+# ── B-race tightening constants ─────────────────────────────────────────
 # After crossing a B-race date, the athlete has a real race result to anchor
 # the projection, so the confidence band is multiplied by this factor (<1.0)
 # to reflect the increased certainty.  Full recalibration math is deferred to
@@ -80,7 +80,8 @@ def _recalibrate_from_race() -> None:
     """
     # TODO: calibration milestone — compute delta between predicted and actual
     # race performance and propagate corrections into CTL/ATL estimates.
-    raise NotImplementedError("_recalibrate_from_race is reserved for the calibration milestone")
+    raise NotImplementedError(
+        "_recalibrate_from_race is reserved for the calibration milestone")
 
 
 # Scale factor for the square-root confidence band model.  Tune this to
@@ -112,7 +113,8 @@ def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
     ``B_RACE_TIGHTENING_FACTOR`` (< 1.0).  Crossing the B-race date gives the
     athlete a real race anchor that reduces forecast uncertainty — the narrower
     band reflects that increased certainty.  Full recalibration from the race
-    result is deferred to a dedicated milestone; see ``_recalibrate_from_race``.
+    result is deferred to a dedicated milestone; see
+    ``_recalibrate_from_race``.
 
     Parameters
     ----------
@@ -142,7 +144,7 @@ def project_fitness(
     start_date: date,
     b_race_date: Optional[date] = None,
 ) -> dict[date, dict[str, float]]:
-    """Roll CTL/ATL/TSB forward day by day from *start_date* using *planned_load*.
+    """Roll CTL/ATL/TSB forward from *start_date* using *planned_load*.
 
     Parameters
     ----------
@@ -156,11 +158,13 @@ def project_fitness(
         ATL value on *start_date* (the day before the first projected day).
     start_date:
         Anchor date.  The first entry in the returned series is
-        ``start_date + 1 day``; the last is ``start_date + len(planned_load) days``.
+        ``start_date + 1 day``; the last is
+        ``start_date + len(planned_load) days``.
     b_race_date:
         Optional date of a B-race.  For projected days that fall strictly after
-        this date the confidence band is tightened via ``B_RACE_TIGHTENING_FACTOR``
-        to reflect the reduced uncertainty from having a real race anchor.
+        this date the confidence band is tightened via
+        ``B_RACE_TIGHTENING_FACTOR`` to reflect reduced uncertainty from
+        having a real race anchor.
         Pass ``None`` (the default) to leave the band unchanged.
 
     Returns
@@ -186,7 +190,10 @@ def project_fitness(
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
-            "confidence_band": confidence_band_days(horizon, b_race_passed=b_race_passed),
+            "confidence_band": confidence_band_days(
+                horizon,
+                b_race_passed=b_race_passed,
+            ),
         }
     return series
 
@@ -196,7 +203,8 @@ def tsb_form_factor(projected_tsb: float, ceiling_tsb: float) -> float:
 
     The factor scales linearly with the ratio of projected_tsb to ceiling_tsb:
 
-        factor = 1.0 + (projected_tsb / ceiling_tsb) * EXPRESSIBLE_FORM_FACTOR_SCALE
+        factor = 1.0 + (projected_tsb / ceiling_tsb) \
+            * EXPRESSIBLE_FORM_FACTOR_SCALE
 
     Properties:
     - TSB = 0          → factor = 1.0   (neutral; expressible = base score)
@@ -228,9 +236,9 @@ def compute_expressible_score(
 ) -> float:
     """Apply the TSB form factor to a base Endurance/Speed score.
 
-    Multiplies *base_score* by the TSB form factor derived from *projected_tsb*
-    and *ceiling_tsb*.  When projected_tsb = 0 the result equals base_score
-    exactly; a positive TSB amplifies the score and a negative TSB suppresses it.
+    Multiplies *base_score* by the TSB form factor derived from
+    *projected_tsb* and *ceiling_tsb*.  When projected_tsb = 0 the result
+    equals base_score exactly; positive TSB amplifies, negative suppresses.
 
     Parameters
     ----------
@@ -278,12 +286,13 @@ def apply_expressible_scores(
     """
     result: dict[date, dict[str, float]] = {}
     for day, data in projection_series.items():
-        expressible = compute_expressible_score(base_score, data["tsb"], ceiling_tsb)
+        expressible = compute_expressible_score(
+            base_score, data["tsb"], ceiling_tsb)
         result[day] = {**data, "expressible_score": round(expressible, 2)}
     return result
 
 
-# ── Riegel race-equivalence ───────────────────────────────────────────────────
+# ── Riegel race-equivalence ─────────────────────────────────────────────
 
 # Riegel exponent used for cross-distance time prediction.
 # t2 = t1 * (d2/d1)^RIEGEL_EXPONENT
@@ -306,11 +315,13 @@ def compute_half_equivalent(
     estimated_finish_seconds:
         Predicted full-race finish time in seconds.  None returns None.
     distance_km:
-        Race distance in kilometres.  Must be positive; None or ≤0 returns None.
+        Race distance in kilometres.  Must be positive; None or ≤0 returns
+        None.
 
     Returns
     -------
-    Rounded integer seconds for half the race distance, or None on invalid input.
+    Rounded integer seconds for half the race distance, or None on invalid
+    input.
     """
     if estimated_finish_seconds is None or distance_km is None:
         return None
@@ -319,13 +330,13 @@ def compute_half_equivalent(
     return int(round(estimated_finish_seconds * (0.5 ** RIEGEL_EXPONENT)))
 
 
-# ── Fitness band ──────────────────────────────────────────────────────────────
+# ── Fitness band ────────────────────────────────────────────────────────
 
 def fitness_band_from_tsb(tsb: float) -> str:
-    """Classify TSB into a fitness band label using the standard readiness thresholds.
+    """Classify TSB into a fitness band label using readiness thresholds.
 
     Uses the same TSB band constants as ``fitness_model._readiness_label`` so
-    the projection and fitness-model layers agree on band boundaries.
+    projection and fitness-model layers agree on band boundaries.
 
     Parameters
     ----------
@@ -361,8 +372,9 @@ def build_plan_projection_payload(
     races: "list[dict]",
     thresholds: "Optional[dict]",
     body_modifier: float = 1.0,
+    b_race_result: "Optional[dict]" = None,
 ) -> dict:
-    """Assemble the full projection payload for GET /plans/{plan_id}/projection.
+    """Assemble the full projection payload for /plans/{plan_id}/projection.
 
     Pure function — no database access.  All data must be pre-fetched by the
     calling layer (router or service).
@@ -374,12 +386,13 @@ def build_plan_projection_payload(
     start_atl:
         Athlete's ATL on start_date.
     start_date:
-        Anchor date.  The projection runs from start_date+1 for len(planned_load) days.
+        Anchor date.  The projection runs from start_date+1 for
+        len(planned_load) days.
     planned_load:
         Ordered list of TSS values, one per projected day.
     races:
         List of race dicts, each containing at minimum:
-        ``"date"`` (date object or ISO string), ``"distance_km"`` (float or None),
+        ``"date"`` (date or ISO string), ``"distance_km"`` (float or None),
         ``"name"`` (str, optional).
     thresholds:
         User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
@@ -391,6 +404,15 @@ def build_plan_projection_payload(
         (lighter athlete, better power-to-weight); < 1.0 reduce it.  Use
         ``backend.services.body_modifier.compute_body_modifier`` to derive
         this value.
+    b_race_result:
+        Optional dict representing the most recent past B race with an actual
+        result.  When provided, race projections for dates strictly after
+        ``b_race_result["race_date"]`` use the ceiling derived from the actual
+        B race performance rather than the CTL-based ceiling.  This re-anchors
+        forward projections to the athlete's expressed race-day fitness.
+        Expected keys: ``race_date`` (date), ``actual_time_seconds`` (int),
+        ``distance_km`` (float).  Pass ``None`` (the default) to use the
+        CTL-based ceiling for all dates (AC4 — deleting the B race reverts).
 
     Returns
     -------
@@ -398,13 +420,39 @@ def build_plan_projection_payload(
         ``ctl``   — list of floats (one per projected day)
         ``atl``   — list of floats
         ``tsb``   — list of floats
-        ``races`` — list of dicts, one per race, each with ``estimated_time``,
-                    ``estimated_finish_seconds``, ``half_equivalent``,
-                    ``half_equivalent_seconds``, ``date``, ``distance_km``, ``name``
-        ``band``  — fitness band string derived from the current TSB (start_ctl − start_atl)
+        ``races`` — list of dicts, one per race, each with
+                    ``estimated_time``, ``estimated_finish_seconds``,
+                    ``half_equivalent``, ``half_equivalent_seconds``,
+                    ``date``, ``distance_km``, ``name``
+        ``band``  — fitness band string from TSB (start_ctl − start_atl)
     """
-    from backend.services.score_ceiling import projected_ctl_to_score_ceiling
-    from backend.services.race_finish_estimator import score_to_estimated_finish_time
+    from backend.services.score_ceiling import (
+        projected_ctl_to_score_ceiling,
+        ceiling_from_b_race_result,
+    )
+    from backend.services.race_finish_estimator import (
+        score_to_estimated_finish_time,
+    )
+
+    # Pre-compute B-race ceiling if a past B race result is available
+    # (#1162). The ceiling is derived by inverting the score-to-pace mapping,
+    # anchoring projections after the B race date to the expressed result.
+    _b_race_date: Optional[date] = None
+    _b_race_ceiling: Optional[dict] = None
+    if b_race_result is not None and isinstance(thresholds, dict):
+        tp = thresholds.get("threshold_pace_seconds_per_km")
+        if tp is not None and float(tp) > 0:
+            raw_date = b_race_result.get("race_date")
+            if raw_date is not None:
+                _b_race_date = (
+                    raw_date if isinstance(raw_date, date)
+                    else date.fromisoformat(str(raw_date))
+                )
+                _b_race_ceiling = ceiling_from_b_race_result(
+                    b_race_result["actual_time_seconds"],
+                    b_race_result["distance_km"],
+                    float(tp),
+                )
 
     series = project_fitness(planned_load, start_ctl, start_atl, start_date)
 
@@ -429,7 +477,17 @@ def build_plan_projection_payload(
         else:
             projected_ctl = start_ctl
 
-        ceiling = projected_ctl_to_score_ceiling(projected_ctl)
+        # Use B-race-anchored ceiling for dates strictly after the B race date
+        # (AC2 — re-anchor from the race date); fall back to CTL-based ceiling
+        # for dates on or before the B race date (AC3 — no retroactive change).
+        if (
+            _b_race_ceiling is not None
+            and _b_race_date is not None
+            and race_date > _b_race_date
+        ):
+            ceiling = _b_race_ceiling
+        else:
+            ceiling = projected_ctl_to_score_ceiling(projected_ctl)
         # Apply the power-to-weight body modifier to the projected endurance
         # score before converting to a race finish time estimate.
         score = ceiling["endurance_ceiling"] * body_modifier
@@ -439,7 +497,8 @@ def build_plan_projection_payload(
         est_time = est["estimated_finish_time"]
 
         half_seconds = compute_half_equivalent(est_seconds, dist)
-        half_time = _format_hhmmss(half_seconds) if half_seconds is not None else None
+        half_time = _format_hhmmss(
+            half_seconds) if half_seconds is not None else None
 
         race_projections.append({
             "date": str(race_date),

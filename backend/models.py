@@ -259,6 +259,9 @@ class Workout(Base):
     speed_signal_basis = Column(String(20), nullable=True)
     speed_signal_window_seconds = Column(Integer, nullable=True)
     speed_signal_source = Column(Text, nullable=True)
+    # Environmental conditions at time of run (issue #1168).
+    temperature_c = Column(Float, nullable=True)
+    humidity_pct = Column(Float, nullable=True)
     # Computed endurance signal (issue #1049): aerobic durability metric; runs ≥ 40 min only.
     endurance_signal = Column(Float, nullable=True)
     decoupling_percent = Column(Float, nullable=True)
@@ -1245,4 +1248,26 @@ class EconomyCeilingSnapshot(Base):
         Index("ix_economy_ceiling_snapshots_user_date", "user_id", "snapshot_date"),
         CheckConstraint("economy_stimulus >= 0", name="ck_economy_ceiling_snapshots_stimulus_non_negative"),
         CheckConstraint("ceiling_bonus >= 0", name="ck_economy_ceiling_snapshots_bonus_non_negative"),
+    )
+
+
+class UserBanisterParams(Base):
+    """Per-user fitted Banister model parameters with versioned history (issue #1204).
+
+    Each call to save_banister_params inserts a new row; old rows are never
+    overwritten, enabling a full audit trail of refits.
+    """
+
+    __tablename__ = "user_banister_params"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    tau1 = Column(Float, nullable=False)
+    tau2 = Column(Float, nullable=False)
+    k1 = Column(Float, nullable=False)
+    k2 = Column(Float, nullable=False)
+    fitted_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_user_banister_params_user_fitted_at", "user_id", "fitted_at"),
     )

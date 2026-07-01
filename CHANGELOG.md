@@ -1,5 +1,19 @@
 # Changelog
 
+## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
+
+- #1162: Recalibrate score ceiling on B race entry
+- #1163: Implement post-race confidence band tightening
+- #1164: Track qualifying-signal density for speed score
+- #1165: Surface calibration status: recency, sufficiency, and confidence
+- #1166: Build fit-data collector with minimum-data gate
+- #1168: Normalize training load for heat and humidity
+- #1169: Normalize treadmill incline and NGP into activity signals
+- #1170: Add periodic refit with versioning and rollback
+- #1203: Implement Banister parameter fitting function with data gate and fallback
+- #1204: Add per-user Banister parameter storage with versioned history
+- #1205: Implement held-out MSE validation comparing fitted vs population Banister params
+
 ## Sprint 95 — Bodyweight EWMA trend, energy-availability proxy, and body-composition modifier
 
 - #1153: Add daily bodyweight logging by date

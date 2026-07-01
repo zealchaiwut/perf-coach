@@ -78,6 +78,10 @@ from backend.services.duration_curve_best_effort import get_athlete_duration_cur
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
+from backend.services.heat_correction import (
+    compute_heat_correction_factor as _compute_heat_correction_factor,
+    apply_heat_correction_to_decoupling as _apply_heat_correction,
+)
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
@@ -5268,6 +5272,9 @@ class WorkoutIn(BaseModel):
     np: Optional[int] = None
     avg_cadence_spm: Optional[int] = None
     avg_stride_m: Optional[float] = None
+    # Environmental conditions for heat/humidity normalization (issue #1168)
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -5290,6 +5297,9 @@ class WorkoutPatch(BaseModel):
     np: Optional[int] = None
     avg_cadence_spm: Optional[int] = None
     avg_stride_m: Optional[float] = None
+    # Environmental conditions for heat/humidity normalization (issue #1168)
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -5438,6 +5448,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "np": w.np,
         "avg_cadence_spm": w.avg_cadence_spm,
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
+        "temperature_c": w.temperature_c,
+        "humidity_pct": w.humidity_pct,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -6107,6 +6119,16 @@ def get_workout_full(
         _aerobic_result, _aerobic_reason = _compute_decoupling(
             _workout_dict_plain, _decoupling_input, _decoupling_threshold
         )
+        # Apply heat/humidity correction when environmental data is present (AC4).
+        if _aerobic_result is not None:
+            _heat_factor, _heat_active = _compute_heat_correction_factor(
+                temperature_c=getattr(workout, "temperature_c", None),
+                humidity_pct=getattr(workout, "humidity_pct", None),
+            )
+            if _heat_active:
+                _aerobic_result = _apply_heat_correction(
+                    _aerobic_result, _heat_factor, _decoupling_threshold
+                )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -6203,6 +6225,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             np=body.np,
             avg_cadence_spm=body.avg_cadence_spm,
             avg_stride_m=body.avg_stride_m,
+            temperature_c=body.temperature_c,
+            humidity_pct=body.humidity_pct,
         )
         session.add(workout)
         session.flush()
@@ -6337,6 +6361,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.avg_cadence_spm = body.avg_cadence_spm
         if 'avg_stride_m' in body.model_fields_set:
             workout.avg_stride_m = body.avg_stride_m
+        if 'temperature_c' in body.model_fields_set:
+            workout.temperature_c = body.temperature_c
+        if 'humidity_pct' in body.model_fields_set:
+            workout.humidity_pct = body.humidity_pct
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -12415,6 +12443,130 @@ def accept_calibration(
         })
 
 
+# ── Calibration status ────────────────────────────────────────────────────────
+
+# Thresholds derived from the CTL model time constant so they scale with the
+# underlying model rather than being bare magic numbers.
+_CALIB_WINDOW_90: int = CTL_DAYS * 2 + 6   # 90-day sufficiency window
+_CALIB_WINDOW_42: int = CTL_DAYS            # one CTL period = confidence window
+_CALIB_SUFFICIENCY_HIGH: int = CTL_DAYS * 2  # ≥84 snapshots in 90 days → Sufficient
+_CALIB_SUFFICIENCY_LOW: int = CTL_DAYS       # ≥42 → Low
+_CALIB_BAND_HIGH: int = int(CTL_DAYS * 5 / 6)  # ≥35 snapshots in 42 days → High
+_CALIB_BAND_MEDIUM: int = CTL_DAYS // 2         # ≥21 → Medium
+
+
+def _compute_calibration_status(
+    last_calibrated_race,
+    snapshot_count_90: int,
+    snapshot_count_42: int,
+) -> dict:
+    """Derive calibration status from pre-fetched DB values.
+
+    Pure function — no DB access. The calling endpoint fetches the necessary
+    values and passes them in so this function is independently testable.
+
+    Parameters
+    ----------
+    last_calibrated_race:
+        The most recent Race with status='done' and actual_time_seconds set,
+        or None if the user has never calibrated.
+    snapshot_count_90:
+        Number of TrainingLoadSnapshot rows for this user in the past 90 days.
+    snapshot_count_42:
+        Number of TrainingLoadSnapshot rows for this user in the past 42 days
+        (one CTL period).
+
+    Returns
+    -------
+    dict with keys:
+        last_calibration_date — ISO date string or None
+        data_sufficiency      — 'Sufficient', 'Low', or 'Insufficient'
+        band_confidence       — 'High', 'Medium', or 'Low'
+        calibrated            — bool
+    """
+    last_calibration_date = None
+    if last_calibrated_race is not None:
+        ts = getattr(last_calibrated_race, "updated_at", None)
+        if ts is not None:
+            last_calibration_date = ts.date().isoformat()
+
+    if snapshot_count_90 >= _CALIB_SUFFICIENCY_HIGH:
+        data_sufficiency = "Sufficient"
+    elif snapshot_count_90 >= _CALIB_SUFFICIENCY_LOW:
+        data_sufficiency = "Low"
+    else:
+        data_sufficiency = "Insufficient"
+
+    if snapshot_count_42 >= _CALIB_BAND_HIGH:
+        band_confidence = "High"
+    elif snapshot_count_42 >= _CALIB_BAND_MEDIUM:
+        band_confidence = "Medium"
+    else:
+        band_confidence = "Low"
+
+    return {
+        "last_calibration_date": last_calibration_date,
+        "data_sufficiency": data_sufficiency,
+        "band_confidence": band_confidence,
+        "calibrated": last_calibration_date is not None,
+    }
+
+
+@app.get("/api/calibration/status")
+def get_calibration_status(user: User = Depends(resolve_user)):
+    """Return calibration status for the current user (issue #1165).
+
+    Surfaces three model-level indicators so users can assess the trustworthiness
+    of model outputs and know when a recalibration may be needed:
+
+    - last_calibration_date: date of the most recent race marked as done with
+      an actual result (i.e. the last time calibrate_race was called).
+    - data_sufficiency: quality label based on training snapshot density in the
+      past 90 days ('Sufficient', 'Low', or 'Insufficient').
+    - band_confidence: confidence label based on training snapshot density in
+      the past 42 days (one CTL period) — 'High', 'Medium', or 'Low'.
+    - calibrated: boolean, false when the user has never calibrated.
+
+    All values are derived from model constants (CTL_DAYS) and live DB state —
+    nothing is hardcoded.
+    """
+    today = _date.today()
+    window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
+    window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
+
+    with Session(engine) as db:
+        last_race = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.status == "done",
+                Race.actual_time_seconds.isnot(None),
+            )
+            .order_by(Race.updated_at.desc())
+            .first()
+        )
+
+        count_90 = (
+            db.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user.id,
+                TrainingLoadSnapshot.snapshot_date >= window_90,
+            )
+            .count()
+        )
+
+        count_42 = (
+            db.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user.id,
+                TrainingLoadSnapshot.snapshot_date >= window_42,
+            )
+            .count()
+        )
+
+    return JSONResponse(_compute_calibration_status(last_race, count_90, count_42))
+
+
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
 
 
@@ -14912,3 +15064,59 @@ _sleep_sync_thread = _threading.Thread(
     name="sleep-sync-scheduler",
 )
 _sleep_sync_thread.start()
+
+
+# ── Banister refit scheduler ─────────────────────────────────────────────────
+
+_BANISTER_REFIT_INTERVAL_SECONDS: int = 7 * 24 * 3600  # weekly
+
+
+def _banister_refit_scheduler_loop() -> None:
+    """Background daemon: weekly Banister parameter refit for all users."""
+    import logging as _br_log
+    from sqlalchemy.orm import Session as _OrmSession
+    from backend.db import engine as _br_engine
+    from backend.models import User as _User
+    from backend.services.banister_pipeline import run_banister_refit_pipeline
+
+    _log = _br_log.getLogger("backend.banister_refit_scheduler")
+    _log.info(
+        "Banister refit scheduler started (interval=%ds)",
+        _BANISTER_REFIT_INTERVAL_SECONDS,
+    )
+
+    while True:
+        time.sleep(_BANISTER_REFIT_INTERVAL_SECONDS)
+        try:
+            with _OrmSession(_br_engine) as _sess:
+                _user_ids = [
+                    str(r.id)
+                    for r in _sess.query(_User.id)
+                    .filter(_User.is_active.is_(True))
+                    .all()
+                ]
+            _log.info(
+                "banister_refit_scheduler: starting batch for %d user(s)",
+                len(_user_ids)
+            )
+            results = run_banister_refit_pipeline(_user_ids)
+            ok_count = sum(1 for v in results.values() if v == "ok")
+            skip_count = len(results) - ok_count
+            _log.info(
+                "banister_refit_scheduler: batch complete — %d ok, %d skipped",
+                ok_count,
+                skip_count,
+            )
+        except Exception as exc:
+            _log.error(
+                "banister_refit_scheduler: unhandled error: %s",
+                exc, exc_info=True
+            )
+
+
+_banister_refit_thread = _threading.Thread(
+    target=_banister_refit_scheduler_loop,
+    daemon=True,
+    name="banister-refit-scheduler",
+)
+_banister_refit_thread.start()
