@@ -19,6 +19,10 @@
   var _pickedActualSeconds = null;
   var _historyLoaded = false;
   var _historyRuns = [];
+  // Goal input mode: "time" (HH:MM:SS) or "pace" (M:SS /km, derived via distance).
+  var _goalMode = "time";
+  // Checkpoint measure mode: "distance" or "duration" (duration = stubbed).
+  var _checkpointMeasure = "distance";
 
   var NS = "http://www.w3.org/2000/svg";
 
@@ -1094,37 +1098,92 @@
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
-  // Set the active type tab (race|checkpoint) and toggle priority visibility.
-  function _setModalType(type) {
-    _editingRaceType = type === "checkpoint" ? "checkpoint" : "race";
+  // The type segmented control has three tabs: race | checkpoint | history.
+  // "history" is a UI-only mode for picking a past run; the actual entry it
+  // creates is still a race (_editingRaceType), so we track the active tab
+  // separately from the entry type.
+  var _activeTab = "race";
+
+  function _show(id, on) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = on ? "" : "none";
+  }
+
+  // Set the active type tab and reconfigure which fields are visible.
+  function _setModalType(tab) {
+    if (["race", "checkpoint", "history"].indexOf(tab) < 0) tab = "race";
+    // History is only offered when ADDING (not editing an existing entry).
+    if (tab === "history" && _editingRaceId) tab = "race";
+    _activeTab = tab;
+    _editingRaceType = tab === "checkpoint" ? "checkpoint" : "race";
+
     var seg = document.getElementById("plan-modal-typeseg");
     if (seg) {
       Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
         function (b) {
-          var active = b.getAttribute("data-type") === _editingRaceType;
+          var active = b.getAttribute("data-type") === tab;
           b.classList.toggle("active", active);
           b.setAttribute("aria-selected", active ? "true" : "false");
+          // The History tab is hidden while editing.
+          if (b.getAttribute("data-type") === "history")
+            b.style.display = _editingRaceId ? "none" : "";
         },
       );
     }
-    var prField = document.getElementById("plan-modal-priority-field");
-    if (prField)
-      prField.style.display = _editingRaceType === "checkpoint" ? "none" : "";
-    // "Pick from history" only when ADDING a race (not editing, not checkpoint).
-    var histField = document.getElementById("plan-modal-history-field");
-    var showPicker = !_editingRaceId && _editingRaceType === "race";
-    if (histField) histField.style.display = showPicker ? "" : "none";
-    // Switching to Checkpoint clears any picked completed-race state.
-    if (_editingRaceType === "checkpoint" && _pickedActualSeconds != null) {
-      _setActualState(null);
+
+    var isHistory = tab === "history";
+    var isCheckpoint = tab === "checkpoint";
+
+    // History tab: show only the preloaded run list; hide the entry form.
+    _show("plan-modal-history-tab", isHistory);
+    // Entry form fields (hidden on the History tab until a run is picked).
+    _show("plan-modal-name-field", !isHistory);
+    _show("plan-modal-date-field", !isHistory);
+    _show("plan-modal-goal-field", !isHistory && !isCheckpoint);
+    _show("plan-modal-priority-field", !isHistory && !isCheckpoint);
+    // Checkpoint measure toggle + distance/duration fields.
+    _show("plan-modal-measure-field", isCheckpoint);
+    if (isHistory) {
+      _show("plan-modal-distance-field", false);
+      _show("plan-modal-duration-field", false);
+    } else {
+      _applyCheckpointMeasure();
     }
+
+    // Switching away from a completed-race context clears picked state.
+    if (isCheckpoint && _pickedActualSeconds != null) _setActualState(null);
+
+    if (isHistory) _loadHistory();
+
     var title = document.getElementById("plan-modal-title");
     if (title) {
       var editing = !!_editingRaceId;
       title.textContent =
-        (editing ? "Edit " : "Add ") +
-        (_editingRaceType === "checkpoint" ? "Checkpoint" : "Race");
+        (editing ? "Edit " : "Add ") + (isCheckpoint ? "Checkpoint" : "Race");
     }
+  }
+
+  // ── Checkpoint measure (distance | duration) ──────────────────────────────
+  function _applyCheckpointMeasure() {
+    var isCheckpoint = _activeTab === "checkpoint";
+    var byDuration = isCheckpoint && _checkpointMeasure === "duration";
+    // Races always use distance; checkpoints follow the toggle.
+    _show("plan-modal-distance-field", !byDuration);
+    _show("plan-modal-duration-field", byDuration);
+  }
+
+  function _setCheckpointMeasure(measure) {
+    _checkpointMeasure = measure === "duration" ? "duration" : "distance";
+    var seg = document.getElementById("plan-modal-measureseg");
+    if (seg)
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-measure") === _checkpointMeasure;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-checked", active ? "true" : "false");
+        },
+      );
+    _applyCheckpointMeasure();
   }
 
   // Set the active priority (A|B|C) in the priority segmented control.
@@ -1141,12 +1200,115 @@
     );
   }
 
+  // ── Goal input mode (time | pace) ─────────────────────────────────────────
+  // Parse a pace string "M:SS" (or "MM:SS") into seconds-per-km. Returns null
+  // when blank/invalid.
+  function _parsePace(str) {
+    if (!str || !str.trim()) return null;
+    var parts = str.trim().split(":").map(Number);
+    if (parts.some(isNaN)) return null;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 1) return parts[0] * 60;
+    return null;
+  }
+
+  function _paceToStr(secPerKm) {
+    if (secPerKm == null) return "";
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    return m + ":" + pad(s);
+  }
+
+  // Read the current distance from the input (NaN-safe).
+  function _currentDistance() {
+    var distIn = document.getElementById("plan-modal-distance");
+    var d = distIn ? parseFloat(distIn.value) : NaN;
+    return isNaN(d) || d <= 0 ? null : d;
+  }
+
+  // Recompute the derived-value hint under the goal input for the active mode.
+  function _updateGoalDerived() {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var hint = document.getElementById("plan-modal-goal-derived");
+    if (!goalIn || !hint) return;
+    var dist = _currentDistance();
+    var raw = goalIn.value.trim();
+    if (!raw) {
+      hint.textContent = dist ? "" : "Set distance to derive pace/time.";
+      return;
+    }
+    if (_goalMode === "time") {
+      var goalSec = parseGoalTime(raw);
+      if (goalSec == null) {
+        hint.textContent = "Enter time as HH:MM:SS or MM:SS.";
+      } else if (dist) {
+        hint.textContent = "= " + fmtPace(goalSec / dist);
+      } else {
+        hint.textContent = "Set distance to see pace.";
+      }
+    } else {
+      var paceSec = _parsePace(raw);
+      if (paceSec == null) {
+        hint.textContent = "Enter pace as M:SS /km.";
+      } else if (dist) {
+        hint.textContent = "= goal " + fmtTime(Math.round(paceSec * dist));
+      } else {
+        hint.textContent = "Set distance to see goal time.";
+      }
+    }
+  }
+
+  // Switch goal input mode, converting the current value between time and pace
+  // so the field stays consistent for the user.
+  function _setGoalMode(mode) {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var next = mode === "pace" ? "pace" : "time";
+    var dist = _currentDistance();
+    if (goalIn && next !== _goalMode && goalIn.value.trim() && dist) {
+      if (next === "pace") {
+        var gs = parseGoalTime(goalIn.value);
+        if (gs != null) goalIn.value = _paceToStr(gs / dist);
+      } else {
+        var ps = _parsePace(goalIn.value);
+        if (ps != null) goalIn.value = goalTimeToStr(Math.round(ps * dist));
+      }
+    }
+    _goalMode = next;
+    var seg = document.getElementById("plan-modal-goalmodeseg");
+    if (seg)
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-goalmode") === _goalMode;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-checked", active ? "true" : "false");
+        },
+      );
+    if (goalIn)
+      goalIn.placeholder = _goalMode === "pace" ? "M:SS /km" : "HH:MM:SS or MM:SS";
+    _updateGoalDerived();
+  }
+
+  // Resolve the goal-time seconds from the field regardless of mode. Returns
+  // { seconds, error } — error is a user-facing string when parsing fails.
+  function _resolveGoalSeconds(dist) {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var raw = goalIn ? goalIn.value.trim() : "";
+    if (!raw) return { seconds: null, error: null };
+    if (_goalMode === "pace") {
+      var paceSec = _parsePace(raw);
+      if (paceSec == null) return { seconds: null, error: "Enter pace as M:SS /km." };
+      if (!dist) return { seconds: null, error: "Set a distance to convert pace to a goal time." };
+      return { seconds: Math.round(paceSec * dist), error: null };
+    }
+    var gs = parseGoalTime(raw);
+    if (gs == null) return { seconds: null, error: "Enter goal time as HH:MM:SS or MM:SS." };
+    return { seconds: gs, error: null };
+  }
+
   // ── Pick from history (completed-race picker) ─────────────────────────────
   // Reset picker + completed-race state (called on open/close).
   function _resetPicker() {
     _pickedActualSeconds = null;
-    var panel = document.getElementById("plan-modal-history-panel");
-    if (panel) panel.style.display = "none";
     var actualField = document.getElementById("plan-modal-actual-field");
     if (actualField) actualField.style.display = "none";
   }
@@ -1212,7 +1374,8 @@
     if (loadingEl) loadingEl.style.display = "";
     if (emptyEl) emptyEl.style.display = "none";
 
-    var from = _isoDaysAgo(365 * 3);
+    // Last 3 months (90 days) of runs.
+    var from = _isoDaysAgo(90);
     var to = todayISO();
     apiGet(
       "/api/workouts?from=" + from + "&to=" + to,
@@ -1253,12 +1416,13 @@
     if (dateIn) dateIn.value = run.workout_date || "";
     if (distIn) distIn.value = distKm ? distKm.toFixed(2) : "";
 
+    // Leave the History tab and reveal the Race entry form pre-filled.
+    _setModalType("race");
     // Past races are usually B-priority; default the selector to B.
     _setModalPriority("B");
     _setActualState(run.duration_seconds || null);
-
-    var panel = document.getElementById("plan-modal-history-panel");
-    if (panel) panel.style.display = "none";
+    // Refresh the goal-pace hint now that distance is set.
+    _updateGoalDerived();
   }
 
   function openModal(race, raceType) {
@@ -1292,13 +1456,21 @@
 
     // Reset picker/completed-race state every time the modal opens.
     _resetPicker();
+    // Reset goal mode to Time and checkpoint measure to Distance on each open.
+    _goalMode = "time";
+    _setGoalMode("time");
+    _setCheckpointMeasure("distance");
 
     // Tab + priority state (must run after _editingRaceId is set for the title).
     _setModalType(type);
     _setModalPriority(race && race.priority ? race.priority : "A");
+    _updateGoalDerived();
+
+    // Preload the history list up front so the History tab is instant.
+    if (!_editingRaceId) _loadHistory();
 
     modal.style.display = "";
-    if (nameIn) nameIn.focus();
+    if (nameIn && type !== "history") nameIn.focus();
   }
 
   function closeModal() {
@@ -1319,7 +1491,6 @@
     var dist = distIn ? parseFloat(distIn.value) : NaN;
     // Type comes from the active segmented tab, not a <select>.
     var type = _editingRaceType === "checkpoint" ? "checkpoint" : "race";
-    var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
     if (!name) {
       if (errEl) errEl.textContent = "Name is required.";
@@ -1329,22 +1500,42 @@
       if (errEl) errEl.textContent = "Date is required.";
       return;
     }
+
+    // Duration-only checkpoint: the backend cannot store this yet (races.distance_km
+    // is NOT NULL and there is no duration column). Block the save with a clear
+    // message instead of sending invalid data. See report/TODO for the schema fix.
+    if (type === "checkpoint" && _checkpointMeasure === "duration") {
+      if (errEl)
+        errEl.textContent =
+          "Duration-only checkpoints can’t be saved yet (backend needs a " +
+          "duration column). Switch to Distance for now.";
+      return;
+    }
+
     if (isNaN(dist) || dist <= 0) {
       if (errEl) errEl.textContent = "Distance must be a positive number.";
       return;
     }
-    // Plausibility guard: a goal like "4:30" parses as MM:SS (4.5 min), which
-    // over a marathon is 0:06 /km — clearly a typo for 4:30:00. Reject goals
-    // whose implied pace is outside a realistic 2:30–15:00 /km band and point
-    // the user at HH:MM:SS.
+
+    // Resolve goal seconds from whichever mode (time or pace) is active.
+    var goalRes = _resolveGoalSeconds(dist);
+    if (goalRes.error) {
+      if (errEl) errEl.textContent = goalRes.error;
+      return;
+    }
+    var goalSec = goalRes.seconds;
+
+    // Plausibility guard: reject goals whose implied pace is outside a realistic
+    // 2:30–15:00 /km band (catches "4:30" typed for 4:30:00). Measured actual
+    // times bypass this — they are real data.
     if (goalSec !== null && dist > 0) {
       var paceSec = goalSec / dist;
       if (paceSec < 150 || paceSec > 900) {
         if (errEl)
           errEl.textContent =
-            "Goal " + (goalIn ? goalIn.value.trim() : "") + " implies " +
-            fmtPace(paceSec) + " over " + dist + " km — not a realistic pace. " +
-            "For longer races use HH:MM:SS (e.g. 4:30:00).";
+            "Goal implies " + fmtPace(paceSec) + " over " + dist +
+            " km — not a realistic pace. For longer races use HH:MM:SS " +
+            "(e.g. 4:30:00), or switch to Pace mode.";
         return;
       }
     }
@@ -1482,16 +1673,29 @@
         _setModalPriority(b.getAttribute("data-priority"));
       });
 
-    // Pick from history: toggle the panel + load past runs on first open.
-    var histToggle = document.getElementById("plan-modal-history-toggle");
-    if (histToggle)
-      histToggle.addEventListener("click", function () {
-        var panel = document.getElementById("plan-modal-history-panel");
-        if (!panel) return;
-        var show = panel.style.display === "none";
-        panel.style.display = show ? "" : "none";
-        if (show) _loadHistory();
+    // Checkpoint measure toggle (Distance | Duration).
+    var measureSeg = document.getElementById("plan-modal-measureseg");
+    if (measureSeg)
+      measureSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setCheckpointMeasure(b.getAttribute("data-measure"));
       });
+
+    // Goal mode toggle (Time | Pace).
+    var goalModeSeg = document.getElementById("plan-modal-goalmodeseg");
+    if (goalModeSeg)
+      goalModeSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setGoalMode(b.getAttribute("data-goalmode"));
+      });
+
+    // Recompute the goal-derived hint as the user types goal or distance.
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    if (goalIn) goalIn.addEventListener("input", _updateGoalDerived);
+    var distIn = document.getElementById("plan-modal-distance");
+    if (distIn) distIn.addEventListener("input", _updateGoalDerived);
 
     // Clear completed-race state (revert to a normal planned race).
     var actualClear = document.getElementById("plan-modal-actual-clear");
@@ -1508,6 +1712,7 @@
         if (!b) return;
         var distIn = document.getElementById("plan-modal-distance");
         if (distIn) distIn.value = b.getAttribute("data-km");
+        _updateGoalDerived();
       });
 
     var modalClose = document.getElementById("plan-modal-close");
