@@ -119,12 +119,23 @@ from typing import Any
 #
 # trailing_window_days: only sessions within this many days of the most recent
 #   run in the input list contribute to the EWMA. Older sessions are ignored.
+#
+# speed_sparse_effort_threshold: minimum number of qualifying hard efforts in
+#   the window below which data density is considered sparse. When the count
+#   falls below this threshold, a low_data_warning flag is set and the
+#   confidence band is widened. Default: 5 hard efforts.
+#
+# speed_sparse_band_multiplier: factor by which to widen the confidence band
+#   for sparse data. The base band width (e.g., ±10 around the score) is
+#   multiplied by this factor when sparse. Default: 1.5 (50% wider).
 PERFORMANCE_CONFIG: dict = {
     "endurance_ewma_alpha": 0.2,
     "speed_ewma_alpha": 0.3,
     "endurance_reference_duration_seconds": 3600,
     "speed_reference_signal": 1.30,
     "trailing_window_days": 90,
+    "speed_sparse_effort_threshold": 5,
+    "speed_sparse_band_multiplier": 1.5,
 }
 
 
@@ -399,11 +410,21 @@ def compute_speed_score(
     # Apply power-to-weight body modifier, clamped to 0–100.
     score = max(0.0, min(100.0, raw_score * body_modifier))
 
+    # Compute confidence band and sparse-data warning (issue #1164)
+    qualifying_effort_count = len(qualifying_meta)
+    sparse_threshold = PERFORMANCE_CONFIG.get("speed_sparse_effort_threshold", 5)
+    low_data_warning = qualifying_effort_count < sparse_threshold
+    confidence_band = _compute_confidence_band(
+        score, qualifying_effort_count, sparse_threshold, base_band_width=10.0
+    )
+
     return {
         "score": round(score, 2),
         "direction": direction,
         "trend": [round(v, 2) for v in ewma_series],
-        "qualifying_session_count": len(qualifying_meta),
+        "qualifying_session_count": qualifying_effort_count,
+        "low_data_warning": low_data_warning,
+        "confidence_band": confidence_band,
         "debug": {
             "perRunEfficiency": per_run_efficiency,
             "durationCurveBestUsed": curve_best_used,
@@ -661,3 +682,42 @@ def _compute_direction(trend: list[float], threshold: float) -> str:
     if slope < -threshold:
         return "declining"
     return "flat"
+
+
+def _compute_confidence_band(
+    score: float,
+    qualifying_count: int,
+    sparse_threshold: int,
+    base_band_width: float = 10.0,
+) -> dict:
+    """Compute confidence band (uncertainty interval) around a score.
+
+    Parameters
+    ----------
+    score : float
+        The central score value (0–100).
+    qualifying_count : int
+        Number of qualifying efforts contributing to the score.
+    sparse_threshold : int
+        Minimum qualifying count for normal (non-sparse) band width.
+    base_band_width : float
+        Base band width (distance from score to upper/lower bound when not sparse).
+        Default: 10.0 (±10 around the score).
+
+    Returns
+    -------
+    dict
+        {"lower": float, "upper": float} representing the confidence interval.
+        Bounds are clamped to [0, 100].
+    """
+    sparse_multiplier = PERFORMANCE_CONFIG.get("speed_sparse_band_multiplier", 1.5)
+    is_sparse = qualifying_count < sparse_threshold
+
+    # When sparse, widen the band by the multiplier
+    effective_width = base_band_width * (sparse_multiplier if is_sparse else 1.0)
+
+    # Compute bounds centered on the score
+    lower = max(0.0, score - effective_width)
+    upper = min(100.0, score + effective_width)
+
+    return {"lower": round(lower, 2), "upper": round(upper, 2)}
