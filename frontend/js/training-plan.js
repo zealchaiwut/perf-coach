@@ -1177,6 +1177,21 @@
       if (errEl) errEl.textContent = "Distance must be a positive number.";
       return;
     }
+    // Plausibility guard: a goal like "4:30" parses as MM:SS (4.5 min), which
+    // over a marathon is 0:06 /km — clearly a typo for 4:30:00. Reject goals
+    // whose implied pace is outside a realistic 2:30–15:00 /km band and point
+    // the user at HH:MM:SS.
+    if (goalSec !== null && dist > 0) {
+      var paceSec = goalSec / dist;
+      if (paceSec < 150 || paceSec > 900) {
+        if (errEl)
+          errEl.textContent =
+            "Goal " + (goalIn ? goalIn.value.trim() : "") + " implies " +
+            fmtPace(paceSec) + " over " + dist + " km — not a realistic pace. " +
+            "For longer races use HH:MM:SS (e.g. 4:30:00).";
+        return;
+      }
+    }
 
     var body = { name: name, date: date, distance: dist, type: type };
     if (goalSec !== null) body.goal_time_seconds = goalSec;
