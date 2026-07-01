@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import math
 
-import pytest
 
 from backend.services.banister_validation import validate_banister_fit
 
