@@ -78,6 +78,10 @@ from backend.services.duration_curve_best_effort import get_athlete_duration_cur
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
+from backend.services.heat_correction import (
+    compute_heat_correction_factor as _compute_heat_correction_factor,
+    apply_heat_correction_to_decoupling as _apply_heat_correction,
+)
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
@@ -5268,6 +5272,9 @@ class WorkoutIn(BaseModel):
     np: Optional[int] = None
     avg_cadence_spm: Optional[int] = None
     avg_stride_m: Optional[float] = None
+    # Environmental conditions for heat/humidity normalization (issue #1168)
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -5290,6 +5297,9 @@ class WorkoutPatch(BaseModel):
     np: Optional[int] = None
     avg_cadence_spm: Optional[int] = None
     avg_stride_m: Optional[float] = None
+    # Environmental conditions for heat/humidity normalization (issue #1168)
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -5438,6 +5448,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "np": w.np,
         "avg_cadence_spm": w.avg_cadence_spm,
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
+        "temperature_c": w.temperature_c,
+        "humidity_pct": w.humidity_pct,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -6107,6 +6119,16 @@ def get_workout_full(
         _aerobic_result, _aerobic_reason = _compute_decoupling(
             _workout_dict_plain, _decoupling_input, _decoupling_threshold
         )
+        # Apply heat/humidity correction when environmental data is present (AC4).
+        if _aerobic_result is not None:
+            _heat_factor, _heat_active = _compute_heat_correction_factor(
+                temperature_c=getattr(workout, "temperature_c", None),
+                humidity_pct=getattr(workout, "humidity_pct", None),
+            )
+            if _heat_active:
+                _aerobic_result = _apply_heat_correction(
+                    _aerobic_result, _heat_factor, _decoupling_threshold
+                )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -6203,6 +6225,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             np=body.np,
             avg_cadence_spm=body.avg_cadence_spm,
             avg_stride_m=body.avg_stride_m,
+            temperature_c=body.temperature_c,
+            humidity_pct=body.humidity_pct,
         )
         session.add(workout)
         session.flush()
@@ -6337,6 +6361,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.avg_cadence_spm = body.avg_cadence_spm
         if 'avg_stride_m' in body.model_fields_set:
             workout.avg_stride_m = body.avg_stride_m
+        if 'temperature_c' in body.model_fields_set:
+            workout.temperature_c = body.temperature_c
+        if 'humidity_pct' in body.model_fields_set:
+            workout.humidity_pct = body.humidity_pct
         session.commit()
         exercises = (
             session.query(WorkoutExercise)

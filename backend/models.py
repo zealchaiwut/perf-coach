@@ -259,6 +259,9 @@ class Workout(Base):
     speed_signal_basis = Column(String(20), nullable=True)
     speed_signal_window_seconds = Column(Integer, nullable=True)
     speed_signal_source = Column(Text, nullable=True)
+    # Environmental conditions at time of run (issue #1168).
+    temperature_c = Column(Float, nullable=True)
+    humidity_pct = Column(Float, nullable=True)
     # Computed endurance signal (issue #1049): aerobic durability metric; runs ≥ 40 min only.
     endurance_signal = Column(Float, nullable=True)
     decoupling_percent = Column(Float, nullable=True)
