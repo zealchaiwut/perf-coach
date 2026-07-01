@@ -9,7 +9,6 @@ AC coverage:
   AC8  — known incline% + raw_pace → expected flat_equivalent_pace within tolerance.
 """
 
-import math
 import py_compile
 import importlib.util
 import pytest
