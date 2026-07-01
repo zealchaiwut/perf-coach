@@ -63,24 +63,61 @@ EXPRESSIBLE_FORM_FACTOR_SCALE: float = 1.0
 
 # ── B-race tightening constants ───────────────────────────────────────────────
 # After crossing a B-race date, the athlete has a real race result to anchor
-# the projection, so the confidence band is multiplied by this factor (<1.0)
-# to reflect the increased certainty.  Full recalibration math is deferred to
-# the calibration milestone; see _recalibrate_from_race.
+# the projection, so the confidence band is multiplied by a tightening factor
+# (<1.0) to reflect the increased certainty.
+#
+# B_RACE_TIGHTENING_FACTOR is used as a fallback when no recalibration anchor
+# is available (backward-compatible path).  When an anchor is provided,
+# _recalibrate_from_race computes a factor scaled to the anchor strength.
 B_RACE_TIGHTENING_FACTOR: float = 0.6
 
+# Minimum tightening factor: ensures the band is always strictly positive after
+# tightening, regardless of anchor strength.  Band = factor * raw_band > 0
+# as long as raw_band > 0 and FLOOR > 0.
+B_RACE_TIGHTENING_FLOOR: float = 0.1
 
-def _recalibrate_from_race() -> None:
-    """Stub for full race-result recalibration of the projection model.
 
-    When a B-race result is available the band should be recalibrated using
-    the actual performance delta to update the underlying fitness estimates.
-    That calculation is intentionally left for a dedicated milestone.
+def _recalibrate_from_race(recalibration_anchor: Optional[float] = None) -> Optional[float]:
+    """Compute the confidence band tightening factor from a recalibration anchor.
 
-    # TODO: calibration milestone — implement race-result recalibration
+    Replaces the B-race hook (P13) placeholder with real anchor-based logic.
+    The tightening factor is derived from the recalibration anchor (score
+    ceiling from the actual B race result) so that the factor scales with
+    how strongly the race anchors the projection, rather than using a
+    hardcoded constant.
+
+    Higher anchor value (stronger race result) → smaller factor → tighter band.
+    The factor is bounded to [B_RACE_TIGHTENING_FLOOR, 0.9] so the band is
+    always strictly narrower than the pre-race band but never collapses to zero.
+
+    Parameters
+    ----------
+    recalibration_anchor:
+        Score ceiling in [0, 100] derived from the actual B race result via
+        ``ceiling_from_b_race_result``.  When ``None`` (no anchor available),
+        raises ``NotImplementedError`` — use B_RACE_TIGHTENING_FACTOR directly.
+
+    Returns
+    -------
+    float in [B_RACE_TIGHTENING_FLOOR, 0.9] — multiplier applied to the raw
+    confidence band to produce the tightened post-race band.
+
+    # TODO: calibration milestone — propagate the race-result delta into
+    #        CTL/ATL estimates for full impulse-response recalibration (deferred).
     """
-    # TODO: calibration milestone — compute delta between predicted and actual
-    # race performance and propagate corrections into CTL/ATL estimates.
-    raise NotImplementedError("_recalibrate_from_race is reserved for the calibration milestone")
+    if recalibration_anchor is None:
+        # TODO: calibration milestone — anchor required for full recalibration
+        raise NotImplementedError(
+            "_recalibrate_from_race requires a recalibration_anchor; "
+            "pass the score ceiling from ceiling_from_b_race_result"
+        )
+    # Linear interpolation: anchor=0 → 0.9 (slight tightening),
+    # anchor=100 → B_RACE_TIGHTENING_FLOOR (maximum tightening).
+    # Any race result (anchor ≥ 0) narrows the band; higher anchor scores
+    # narrow it more, reflecting greater confidence from the expressed result.
+    clamped = max(0.0, min(100.0, float(recalibration_anchor)))
+    factor = 0.9 - (clamped / 100.0) * (0.9 - B_RACE_TIGHTENING_FLOOR)
+    return max(B_RACE_TIGHTENING_FLOOR, factor)
 
 
 # Scale factor for the square-root confidence band model.  Tune this to
@@ -88,7 +125,11 @@ def _recalibrate_from_race() -> None:
 CONFIDENCE_BAND_RATE: float = 0.5
 
 
-def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
+def confidence_band_days(
+    horizon: int,
+    b_race_passed: bool = False,
+    recalibration_anchor: Optional[float] = None,
+) -> float:
     """Compute the ± confidence band width (in days) for a projected entry.
 
     The band models compounding forecast uncertainty that grows with the
@@ -108,11 +149,16 @@ def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
 
     B-race tightening
     -----------------
-    When *b_race_passed* is ``True`` the raw band is multiplied by
-    ``B_RACE_TIGHTENING_FACTOR`` (< 1.0).  Crossing the B-race date gives the
-    athlete a real race anchor that reduces forecast uncertainty — the narrower
-    band reflects that increased certainty.  Full recalibration from the race
-    result is deferred to a dedicated milestone; see ``_recalibrate_from_race``.
+    When *b_race_passed* is ``True`` the raw band is multiplied by a tightening
+    factor (< 1.0).  Crossing the B-race date gives the athlete a real race
+    anchor that reduces forecast uncertainty — the narrower band reflects that
+    increased certainty.
+
+    When *recalibration_anchor* is provided, the tightening factor is computed
+    by ``_recalibrate_from_race`` using the anchor value (score ceiling derived
+    from the actual race result), so the factor scales with anchor strength.
+    When no anchor is supplied, ``B_RACE_TIGHTENING_FACTOR`` is used as a
+    fallback (backward-compatible path).
 
     Parameters
     ----------
@@ -120,8 +166,14 @@ def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
         Number of days into the future from the anchor (start_date).  Values
         ≤ 0 return 0.
     b_race_passed:
-        When ``True`` the band is tightened by ``B_RACE_TIGHTENING_FACTOR``
-        to reflect reduced uncertainty after a B-race result is available.
+        When ``True`` the band is tightened to reflect reduced uncertainty
+        after a B-race result is available.
+    recalibration_anchor:
+        Score ceiling in [0, 100] derived from the actual B race result.
+        When provided together with *b_race_passed*, the tightening factor is
+        computed from the anchor via ``_recalibrate_from_race`` rather than
+        using the hardcoded ``B_RACE_TIGHTENING_FACTOR``.  Pass ``None``
+        (default) to use the fallback factor.
 
     Returns
     -------
@@ -131,7 +183,10 @@ def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
         return 0
     band = CONFIDENCE_BAND_RATE * math.sqrt(horizon)
     if b_race_passed:
-        band *= B_RACE_TIGHTENING_FACTOR
+        if recalibration_anchor is not None:
+            band *= _recalibrate_from_race(recalibration_anchor)
+        else:
+            band *= B_RACE_TIGHTENING_FACTOR
     return band
 
 
@@ -141,6 +196,7 @@ def project_fitness(
     start_atl: float,
     start_date: date,
     b_race_date: Optional[date] = None,
+    recalibration_anchor: Optional[float] = None,
 ) -> dict[date, dict[str, float]]:
     """Roll CTL/ATL/TSB forward day by day from *start_date* using *planned_load*.
 
@@ -159,9 +215,16 @@ def project_fitness(
         ``start_date + 1 day``; the last is ``start_date + len(planned_load) days``.
     b_race_date:
         Optional date of a B-race.  For projected days that fall strictly after
-        this date the confidence band is tightened via ``B_RACE_TIGHTENING_FACTOR``
-        to reflect the reduced uncertainty from having a real race anchor.
-        Pass ``None`` (the default) to leave the band unchanged.
+        this date the confidence band is tightened to reflect reduced uncertainty
+        from having a real race anchor.  Pass ``None`` (the default) to leave
+        the band unchanged.
+    recalibration_anchor:
+        Score ceiling in [0, 100] derived from the actual B race result via
+        ``ceiling_from_b_race_result``.  When provided, the confidence band for
+        post-B-race days is tightened using the anchor-based factor from
+        ``_recalibrate_from_race`` instead of the hardcoded
+        ``B_RACE_TIGHTENING_FACTOR``.  Pass ``None`` (the default) to use the
+        fallback factor.
 
     Returns
     -------
@@ -186,7 +249,11 @@ def project_fitness(
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
-            "confidence_band": confidence_band_days(horizon, b_race_passed=b_race_passed),
+            "confidence_band": confidence_band_days(
+                horizon,
+                b_race_passed=b_race_passed,
+                recalibration_anchor=recalibration_anchor if b_race_passed else None,
+            ),
         }
     return series
 
@@ -439,7 +506,23 @@ def build_plan_projection_payload(
                     float(tp),
                 )
 
-    series = project_fitness(planned_load, start_ctl, start_atl, start_date)
+    # Extract the recalibration anchor from the B-race ceiling so that
+    # post-B-race confidence bands are tightened using the anchor-based factor
+    # (P13 hook — issue #1163) rather than the hardcoded fallback.
+    _recalibration_anchor: Optional[float] = (
+        _b_race_ceiling.get("endurance_ceiling")
+        if _b_race_ceiling is not None
+        else None
+    )
+
+    series = project_fitness(
+        planned_load,
+        start_ctl,
+        start_atl,
+        start_date,
+        b_race_date=_b_race_date,
+        recalibration_anchor=_recalibration_anchor,
+    )
 
     sorted_dates = sorted(series.keys())
     ctl_list = [round(series[d]["ctl"], 2) for d in sorted_dates]
