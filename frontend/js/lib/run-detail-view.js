@@ -1152,23 +1152,32 @@
     var hint = w.contributes_to;
     var hasES = es != null;
     var hasSS = ss != null;
-    // Signed value: "+0.3" / "-0.2" / "—" when no numeric signal this session.
-    function sigVal(v) {
-      if (v == null) return "—";
-      var n = parseFloat(v.toFixed(3));
+    // Row shows the session's contribution (Δ) and the current athlete score:
+    // "+0.3 (90)". Δ is "—" when this session moved the score by nothing / the
+    // backend hasn't supplied it yet; the score in parens is omitted when null.
+    function sigVal(delta) {
+      if (delta == null) return "—";
+      var n = parseFloat(delta.toFixed(1));
       return (n > 0 ? "+" : "") + n;
     }
-    function sigRow(lbl, v, note) {
+    function sigCur(current) {
+      return current == null ? "" : ' <span class="rd4-signal-cur">(' + Math.round(current) + ")</span>";
+    }
+    function sigRow(lbl, delta, current, note) {
       return (
         '<div class="rd4-signal-row">' +
         '<span class="rd4-signal-lbl">' + lbl + "</span>" +
         '<span class="rd4-signal-vwrap">' +
-        '<span class="rd4-signal-val">' + sigVal(v) + "</span>" +
+        '<span class="rd4-signal-val">' + sigVal(delta) + sigCur(current) + "</span>" +
         (note ? '<span class="rd4-signal-note">· ' + esc(note) + "</span>" : "") +
         "</span>" +
         "</div>"
       );
     }
+    var eDelta = w.endurance_score_delta;
+    var eCur = w.endurance_score_current;
+    var sDelta = w.speed_score_delta;
+    var sCur = w.speed_score_current;
     var signalTitle =
       '<h2 class="rd4-sec-title">This session\'s signal' +
       '<span class="rd4-new-badge">NEW</span>' +
@@ -1184,8 +1193,8 @@
         '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
         signalTitle +
         '<div class="rd4-signal-rows">' +
-        sigRow("Endurance signal", es, esNote) +
-        sigRow("Speed signal", ss, ssNote) +
+        sigRow("Endurance signal", eDelta, eCur, esNote) +
+        sigRow("Speed signal", sDelta, sCur, ssNote) +
         "</div>" +
         (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
         "</section>";

@@ -837,6 +837,11 @@
   color: #4f46e5;
 }
 
+.rd4-signal-cur {
+  font-weight: 600;
+  color: #6366f1;
+}
+
 .rd4-signal-note {
   font-size: 0.8125rem;
   color: #6366f1;
