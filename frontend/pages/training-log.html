@@ -3610,6 +3610,33 @@
         color: var(--text-primary);
         box-shadow: 0 1px 3px rgba(20, 28, 70, 0.12);
       }
+      .plan-modal-seg--sm .plan-modal-seg-btn {
+        padding: 4px 10px;
+        font-size: 11.5px;
+      }
+      .plan-modal-goal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 5px;
+      }
+      .plan-modal-goal-head .plan-modal-label {
+        margin-bottom: 0;
+      }
+      .plan-modal-goal-head .plan-modal-seg {
+        width: 140px;
+        flex-shrink: 0;
+      }
+      .plan-modal-hint {
+        font-size: 11.5px;
+        color: var(--text-tertiary);
+        margin: 6px 0 0;
+        min-height: 1em;
+      }
+      .plan-modal-hint--warn {
+        color: #b45309;
+      }
       /* Pick from history */
       .plan-modal-history-toggle {
         width: 100%;
@@ -6154,31 +6181,35 @@
           >
             Checkpoint
           </button>
-        </div>
-
-        <!-- Pick from history (only shown when ADDING a race) -->
-        <div class="plan-modal-field" id="plan-modal-history-field">
           <button
             type="button"
-            id="plan-modal-history-toggle"
-            class="plan-modal-history-toggle"
+            class="plan-modal-seg-btn"
+            data-type="history"
+            role="tab"
+            aria-selected="false"
           >
-            <span aria-hidden="true">↧</span> Pick from history
+            History
           </button>
+        </div>
+
+        <!-- History tab: preloaded list of recent long runs -->
+        <div class="plan-modal-field" id="plan-modal-history-tab" style="display: none">
+          <p class="plan-modal-hint" style="margin-bottom: 8px">
+            Add a past run as a completed race (feeds calibration).
+          </p>
           <div
             id="plan-modal-history-panel"
             class="plan-modal-history-panel"
-            style="display: none"
           >
             <div id="plan-modal-history-loading" class="plan-modal-history-msg">
-              Loading past runs…
+              Loading recent runs…
             </div>
             <div
               id="plan-modal-history-empty"
               class="plan-modal-history-msg"
               style="display: none"
             >
-              No past runs over 10 km logged.
+              No runs over 10 km in the last 3 months.
             </div>
             <div id="plan-modal-history-list" class="plan-modal-history-list"></div>
           </div>
@@ -6218,7 +6249,41 @@
           <label class="plan-modal-label" for="plan-modal-date">Date</label>
           <input id="plan-modal-date" class="plan-modal-input" type="date" />
         </div>
-        <div class="plan-modal-field">
+        <!-- Checkpoint measure toggle: define by distance or duration -->
+        <div
+          class="plan-modal-field"
+          id="plan-modal-measure-field"
+          style="display: none"
+        >
+          <label class="plan-modal-label">Define by</label>
+          <div
+            class="plan-modal-seg"
+            id="plan-modal-measureseg"
+            role="radiogroup"
+            aria-label="Checkpoint measure"
+          >
+            <button
+              type="button"
+              class="plan-modal-seg-btn active"
+              data-measure="distance"
+              role="radio"
+              aria-checked="true"
+            >
+              Distance
+            </button>
+            <button
+              type="button"
+              class="plan-modal-seg-btn"
+              data-measure="duration"
+              role="radio"
+              aria-checked="false"
+            >
+              Duration
+            </button>
+          </div>
+        </div>
+
+        <div class="plan-modal-field" id="plan-modal-distance-field">
           <label class="plan-modal-label" for="plan-modal-distance"
             >Distance (km)</label
           >
@@ -6241,6 +6306,27 @@
               Full
             </button>
           </div>
+        </div>
+
+        <!-- Checkpoint duration input (stub — see backend TODO) -->
+        <div
+          class="plan-modal-field"
+          id="plan-modal-duration-field"
+          style="display: none"
+        >
+          <label class="plan-modal-label" for="plan-modal-duration"
+            >Duration (H:MM:SS)</label
+          >
+          <input
+            id="plan-modal-duration"
+            class="plan-modal-input"
+            type="text"
+            placeholder="e.g. 1:30:00"
+          />
+          <p class="plan-modal-hint plan-modal-hint--warn" id="plan-modal-duration-note">
+            Duration-only checkpoints aren’t saved yet — the backend needs a
+            duration column (see TODO). Use Distance for now.
+          </p>
         </div>
         <div class="plan-modal-field" id="plan-modal-priority-field">
           <label class="plan-modal-label">Priority</label>
@@ -6279,16 +6365,44 @@
             </button>
           </div>
         </div>
-        <div class="plan-modal-field">
-          <label class="plan-modal-label" for="plan-modal-goal-time"
-            >Goal time (optional)</label
-          >
+        <div class="plan-modal-field" id="plan-modal-goal-field">
+          <div class="plan-modal-goal-head">
+            <label class="plan-modal-label" for="plan-modal-goal-time"
+              >Goal (optional)</label
+            >
+            <div
+              class="plan-modal-seg plan-modal-seg--sm"
+              id="plan-modal-goalmodeseg"
+              role="radiogroup"
+              aria-label="Goal input mode"
+            >
+              <button
+                type="button"
+                class="plan-modal-seg-btn active"
+                data-goalmode="time"
+                role="radio"
+                aria-checked="true"
+              >
+                Time
+              </button>
+              <button
+                type="button"
+                class="plan-modal-seg-btn"
+                data-goalmode="pace"
+                role="radio"
+                aria-checked="false"
+              >
+                Pace
+              </button>
+            </div>
+          </div>
           <input
             id="plan-modal-goal-time"
             class="plan-modal-input"
             type="text"
             placeholder="HH:MM:SS or MM:SS"
           />
+          <p class="plan-modal-hint" id="plan-modal-goal-derived"></p>
         </div>
         <div
           id="plan-modal-error"
