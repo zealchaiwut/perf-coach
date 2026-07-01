@@ -648,7 +648,13 @@
         '<span class="pm-typetag">' +
         (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
         '<span class="pm-rcmeta">' +
-        esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km</span>" +
+        esc(formatDate(r.date)) + " · " +
+        (r.distance != null
+          ? distKm.toFixed(2) + " km"
+          : r.duration_seconds
+            ? fmtTime(r.duration_seconds)
+            : "—") +
+        "</span>" +
         statusPillHead +
         rightTag +
         '<span class="pm-rcactions">' +
@@ -1501,58 +1507,62 @@
       return;
     }
 
-    // Duration-only checkpoint: the backend cannot store this yet (races.distance_km
-    // is NOT NULL and there is no duration column). Block the save with a clear
-    // message instead of sending invalid data. See report/TODO for the schema fix.
+    var body;
     if (type === "checkpoint" && _checkpointMeasure === "duration") {
-      if (errEl)
-        errEl.textContent =
-          "Duration-only checkpoints can’t be saved yet (backend needs a " +
-          "duration column). Switch to Distance for now.";
-      return;
-    }
-
-    if (isNaN(dist) || dist <= 0) {
-      if (errEl) errEl.textContent = "Distance must be a positive number.";
-      return;
-    }
-
-    // Resolve goal seconds from whichever mode (time or pace) is active.
-    var goalRes = _resolveGoalSeconds(dist);
-    if (goalRes.error) {
-      if (errEl) errEl.textContent = goalRes.error;
-      return;
-    }
-    var goalSec = goalRes.seconds;
-
-    // Plausibility guard: reject goals whose implied pace is outside a realistic
-    // 2:30–15:00 /km band (catches "4:30" typed for 4:30:00). Measured actual
-    // times bypass this — they are real data.
-    if (goalSec !== null && dist > 0) {
-      var paceSec = goalSec / dist;
-      if (paceSec < 150 || paceSec > 900) {
-        if (errEl)
-          errEl.textContent =
-            "Goal implies " + fmtPace(paceSec) + " over " + dist +
-            " km — not a realistic pace. For longer races use HH:MM:SS " +
-            "(e.g. 4:30:00), or switch to Pace mode.";
+      // Duration-defined checkpoint (issue #1226): no distance, no goal pace.
+      var durIn = document.getElementById("plan-modal-duration");
+      var durSec = durIn ? parseGoalTime(durIn.value) : null;
+      if (durSec === null || durSec <= 0) {
+        if (errEl) errEl.textContent = "Enter a valid duration (H:MM:SS).";
         return;
       }
-    }
-
-    var body = { name: name, date: date, distance: dist, type: type };
-    if (goalSec !== null) body.goal_time_seconds = goalSec;
-    // Priority is only meaningful for races (checkpoints are forced to C by the
-    // backend). Send it from the priority segmented control on the Race tab.
-    if (type === "race") body.priority = _modalPriority;
-    // Completed-race mode: a past run was picked from history → mark done and
-    // send the real finish time (calibration data). actual_time is measured, so
-    // the goal-pace plausibility guard above does not apply to it.
-    if (type === "race" && _pickedActualSeconds != null) {
-      body.status = "done";
-      body.actual_time_seconds = _pickedActualSeconds;
+      body = {
+        name: name, date: date, type: "checkpoint",
+        duration_seconds: durSec, status: "planned",
+      };
     } else {
-      body.status = "planned";
+      if (isNaN(dist) || dist <= 0) {
+        if (errEl) errEl.textContent = "Distance must be a positive number.";
+        return;
+      }
+
+      // Resolve goal seconds from whichever mode (time or pace) is active.
+      var goalRes = _resolveGoalSeconds(dist);
+      if (goalRes.error) {
+        if (errEl) errEl.textContent = goalRes.error;
+        return;
+      }
+      var goalSec = goalRes.seconds;
+
+      // Plausibility guard: reject goals whose implied pace is outside a realistic
+      // 2:30–15:00 /km band (catches "4:30" typed for 4:30:00). Measured actual
+      // times bypass this — they are real data.
+      if (goalSec !== null && dist > 0) {
+        var paceSec = goalSec / dist;
+        if (paceSec < 150 || paceSec > 900) {
+          if (errEl)
+            errEl.textContent =
+              "Goal implies " + fmtPace(paceSec) + " over " + dist +
+              " km — not a realistic pace. For longer races use HH:MM:SS " +
+              "(e.g. 4:30:00), or switch to Pace mode.";
+          return;
+        }
+      }
+
+      body = { name: name, date: date, distance: dist, type: type };
+      if (goalSec !== null) body.goal_time_seconds = goalSec;
+      // Priority is only meaningful for races (checkpoints are forced to C by the
+      // backend). Send it from the priority segmented control on the Race tab.
+      if (type === "race") body.priority = _modalPriority;
+      // Completed-race mode: a past run was picked from history → mark done and
+      // send the real finish time (calibration data). actual_time is measured, so
+      // the goal-pace plausibility guard above does not apply to it.
+      if (type === "race" && _pickedActualSeconds != null) {
+        body.status = "done";
+        body.actual_time_seconds = _pickedActualSeconds;
+      } else {
+        body.status = "planned";
+      }
     }
     if (errEl) errEl.textContent = "";
 

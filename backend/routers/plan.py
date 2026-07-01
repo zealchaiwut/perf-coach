@@ -72,13 +72,14 @@ def _check_plan_access(plan_id: _uuid.UUID, user: User) -> None:
 
 class _RaceCreateBody(BaseModel):
     date: str
-    distance: float
+    distance: Optional[float] = None
     type: str
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
     priority: Optional[str] = None
     status: Optional[str] = None
     actual_time_seconds: Optional[int] = None
+    duration_seconds: Optional[int] = None
 
 
 class _RacePatchBody(BaseModel):
@@ -179,8 +180,31 @@ async def create_race(
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
     date = _validate_date(body.date)
-    _validate_distance(body.distance)
     _validate_race_type(body.type)
+    # A checkpoint may be defined by distance OR duration (exactly one); races
+    # always require a distance (issue #1226).
+    if body.type == "checkpoint":
+        has_dist = body.distance is not None
+        has_dur = body.duration_seconds is not None
+        if has_dist == has_dur:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "distance", "error": "checkpoint needs exactly one of distance or duration_seconds"},
+            )
+        if has_dist:
+            _validate_distance(body.distance)
+        if has_dur and body.duration_seconds <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "duration_seconds", "error": "duration_seconds must be positive"},
+            )
+    else:
+        if body.distance is None:
+            raise HTTPException(
+                status_code=422,
+                detail={"field": "distance", "error": "distance is required"},
+            )
+        _validate_distance(body.distance)
     status = body.status or "planned"
     if status not in ("planned", "done", "abandoned"):
         raise HTTPException(
@@ -197,6 +221,7 @@ async def create_race(
         priority=_resolve_priority(body.type, body.priority),
         status=status,
         actual_time_seconds=body.actual_time_seconds,
+        duration_seconds=body.duration_seconds,
     )
     return JSONResponse(status_code=201, content=data)
 
