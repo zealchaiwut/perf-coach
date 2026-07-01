@@ -5655,6 +5655,20 @@
           });
         }
 
+        // Session-signal card (in the workout detail panel) → close the panel
+        // and open the Performance tab, scrolled to the score cards.
+        document.addEventListener("rd4:open-performance-signal", function () {
+          var closeBtn = document.getElementById("dp-close-btn");
+          if (closeBtn) closeBtn.click();
+          history.pushState({ tab: "performance" }, "",
+            window.location.pathname + window.location.search + "#performance");
+          activateTab("performance");
+          var target = document.getElementById("perf-score-endurance");
+          if (target && target.scrollIntoView) {
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+
         // Restore tab on back/forward navigation
         window.addEventListener("popstate", function () {
           activateTab(getActiveTab());

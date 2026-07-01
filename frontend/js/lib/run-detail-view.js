@@ -1171,16 +1171,17 @@
     }
     var signalTitle =
       '<h2 class="rd4-sec-title">This session\'s signal' +
-      '<span class="rd4-new-badge">NEW</span></h2>';
+      '<span class="rd4-new-badge">NEW</span>' +
+      '<span class="rd4-signal-go">View in Performance →</span></h2>';
     if (!hasES && !hasSS && !esNote && !ssNote) {
       signalBlock =
-        '<section class="rd4-card rd4-signal">' +
+        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
         signalTitle +
         '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
         "</section>";
     } else {
       signalBlock =
-        '<section class="rd4-card rd4-signal">' +
+        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
         signalTitle +
         '<div class="rd4-signal-rows">' +
         sigRow("Endurance signal", es, esNote) +
@@ -1593,6 +1594,18 @@
           b.classList.toggle("rd4-lm-btn--on", b === btn);
         });
         refreshLapsUi();
+      });
+    }
+
+    // Session-signal card → jump to the Performance tab (page listens for this).
+    var sigCard = container.querySelector(".rd4-signal--link");
+    if (sigCard) {
+      var goPerf = function () {
+        document.dispatchEvent(new CustomEvent("rd4:open-performance-signal"));
+      };
+      sigCard.addEventListener("click", goPerf);
+      sigCard.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goPerf(); }
       });
     }
 

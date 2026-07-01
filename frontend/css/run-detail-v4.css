@@ -789,6 +789,19 @@
   vertical-align: middle;
 }
 
+.rd4-signal--link { cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.rd4-signal--link:hover { background: #e6eafe; border-color: #cdd4fb; }
+.rd4-signal--link:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+.rd4-signal .rd4-sec-title { display: flex; align-items: center; }
+.rd4-signal-go {
+  margin-left: auto;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #4f46e5;
+}
+
 .rd4-signal-rows {
   display: flex;
   flex-direction: column;
