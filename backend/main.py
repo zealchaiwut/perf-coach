@@ -6898,6 +6898,7 @@ class DailyMetricIn(BaseModel):
     energy: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    kcal_intake: Optional[int] = None
 
 
 class DailyMetricBody(BaseModel):
@@ -6908,6 +6909,7 @@ class DailyMetricBody(BaseModel):
     energy: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    kcal_intake: Optional[int] = None
 
 
 def _validate_metric_fields(
@@ -6917,6 +6919,7 @@ def _validate_metric_fields(
     sleep_quality: Optional[int] = None,
     energy: Optional[int] = None,
     mood: Optional[int] = None,
+    kcal_intake: Optional[int] = None,
 ) -> None:
     if resting_hr is not None and not (20 <= resting_hr <= 200):
         raise HTTPException(status_code=422, detail={"field": "resting_hr", "error": "resting_hr must be between 20 and 200"})
@@ -6930,6 +6933,8 @@ def _validate_metric_fields(
         raise HTTPException(status_code=422, detail={"field": "energy", "error": "energy must be between 1 and 5"})
     if mood is not None and not (1 <= mood <= 5):
         raise HTTPException(status_code=422, detail={"field": "mood", "error": "mood must be between 1 and 5"})
+    if kcal_intake is not None and kcal_intake <= 0:
+        raise HTTPException(status_code=422, detail={"field": "kcal_intake", "error": "kcal_intake must be a positive integer"})
 
 
 def _daily_metric_dict(m: DailyMetric) -> dict:
@@ -6944,6 +6949,7 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
         "energy": m.energy,
         "mood": m.mood,
         "notes": m.notes,
+        "kcal_intake": m.kcal_intake,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
@@ -7018,6 +7024,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = DailyMetric(
@@ -7030,6 +7037,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
             energy=body.energy,
             mood=body.mood,
             notes=body.notes,
+            kcal_intake=body.kcal_intake,
         )
         session.add(row)
         try:
@@ -7065,6 +7073,7 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = (
@@ -7088,6 +7097,8 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
             row.mood = body.mood
         if body.notes is not None:
             row.notes = body.notes
+        if body.kcal_intake is not None:
+            row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
         return JSONResponse(_daily_metric_dict(row))
@@ -7114,6 +7125,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = (
@@ -7132,6 +7144,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
                 energy=body.energy,
                 mood=body.mood,
                 notes=body.notes,
+                kcal_intake=body.kcal_intake,
             )
             session.add(row)
         else:
@@ -7142,6 +7155,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
             row.energy = body.energy
             row.mood = body.mood
             row.notes = body.notes
+            row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
         return JSONResponse(_daily_metric_dict(row))
