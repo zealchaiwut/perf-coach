@@ -542,6 +542,77 @@
     });
   }
 
+  // ── Calibration status ────────────────────────────────────────────────────
+  var _SUFFICIENCY_CLASS = {
+    Sufficient: "proj-calib-badge-sufficient",
+    Low: "proj-calib-badge-low",
+    Insufficient: "proj-calib-badge-insufficient",
+  };
+
+  var _CONFIDENCE_CLASS = {
+    High: "proj-calib-badge-high",
+    Medium: "proj-calib-badge-medium",
+    Low: "proj-calib-badge-low-conf",
+  };
+
+  function _setBadge(el, text, cssClass) {
+    if (!el) return;
+    el.classList.remove("proj-calib-not-set");
+    el.innerHTML =
+      '<span class="proj-calib-badge ' +
+      esc(cssClass) +
+      '">' +
+      esc(text) +
+      "</span>";
+  }
+
+  function _setFallback(el) {
+    if (!el) return;
+    el.classList.add("proj-calib-not-set");
+    el.textContent = "Not yet calibrated";
+  }
+
+  function renderCalibrationStatus(data) {
+    var dateEl = document.getElementById("proj-calib-date");
+    var suffEl = document.getElementById("proj-calib-sufficiency");
+    var confEl = document.getElementById("proj-calib-confidence");
+
+    if (!data || !data.calibrated) {
+      _setFallback(dateEl);
+    } else {
+      if (dateEl) {
+        dateEl.classList.remove("proj-calib-not-set");
+        dateEl.textContent = formatDate(data.last_calibration_date);
+      }
+    }
+
+    if (data && data.data_sufficiency) {
+      _setBadge(
+        suffEl,
+        data.data_sufficiency,
+        _SUFFICIENCY_CLASS[data.data_sufficiency] || "proj-calib-badge-low"
+      );
+    } else {
+      _setFallback(suffEl);
+    }
+
+    if (data && data.band_confidence) {
+      _setBadge(
+        confEl,
+        data.band_confidence,
+        _CONFIDENCE_CLASS[data.band_confidence] || "proj-calib-badge-low-conf"
+      );
+    } else {
+      _setFallback(confEl);
+    }
+  }
+
+  function loadCalibrationStatus() {
+    apiGet("/api/calibration/status", function (data) {
+      renderCalibrationStatus(data);
+    });
+  }
+
   // ── Data loading ──────────────────────────────────────────────────────────
   function loadProjection(cb) {
     apiGet("/api/projection", function (data) {
@@ -570,6 +641,7 @@
       loadRaces();
       loadProjection();
     });
+    loadCalibrationStatus();
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
