@@ -5089,7 +5089,6 @@ _PAGES = {
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
-    "projection": "projection.html",
     "sessions": "sessions.html",
 }
 
@@ -5117,6 +5116,14 @@ def _serve_weight_targets():
     return RedirectResponse(url="/weight", status_code=302)
 
 app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
+
+
+def _serve_projection_redirect():
+    # Projection was merged into the Training → Plan sub-tab (issue #1226).
+    return RedirectResponse(url="/log#plan", status_code=302)
+
+app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
+app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
 
 
 @app.get("/")
