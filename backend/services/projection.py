@@ -32,8 +32,8 @@ Start: CTL=50, ATL=70 (form = -20).  Planned load = 20 TSS/day for 14 days.
 
 Because ATL has a shorter time constant (7-day) than CTL (42-day) it decays
 faster toward 20.  After 14 rest days ATL approaches 20 while CTL remains
-higher than ATL.  TSB (CTL - ATL) rises and becomes positive well before day 14,
-illustrating how a taper window improves form.
+higher than ATL.  TSB (CTL - ATL) rises and becomes positive well before
+day 14, illustrating how a taper window improves form.
 """
 
 from __future__ import annotations
@@ -55,69 +55,33 @@ from backend.services.fitness_model import (
 CTL_DECAY: float = math.exp(-1 / CTL_TIME_CONSTANT)
 ATL_DECAY: float = math.exp(-1 / ATL_TIME_CONSTANT)
 
-# ── Expressible score constants ───────────────────────────────────────────────
+# ── Expressible score constants ─────────────────────────────────────────
 # Linear scale factor applied to the TSB/ceiling ratio when computing the
 # expressible form factor.  A value of 1.0 means the factor ranges from 0.0
 # (TSB = −ceiling) through 1.0 (TSB = 0) to 2.0 (TSB = ceiling).
 EXPRESSIBLE_FORM_FACTOR_SCALE: float = 1.0
 
-# ── B-race tightening constants ───────────────────────────────────────────────
+# ── B-race tightening constants ─────────────────────────────────────────
 # After crossing a B-race date, the athlete has a real race result to anchor
-# the projection, so the confidence band is multiplied by a tightening factor
-# (<1.0) to reflect the increased certainty.
-#
-# B_RACE_TIGHTENING_FACTOR is used as a fallback when no recalibration anchor
-# is available (backward-compatible path).  When an anchor is provided,
-# _recalibrate_from_race computes a factor scaled to the anchor strength.
+# the projection, so the confidence band is multiplied by this factor (<1.0)
+# to reflect the increased certainty.  Full recalibration math is deferred to
+# the calibration milestone; see _recalibrate_from_race.
 B_RACE_TIGHTENING_FACTOR: float = 0.6
 
-# Minimum tightening factor: ensures the band is always strictly positive after
-# tightening, regardless of anchor strength.  Band = factor * raw_band > 0
-# as long as raw_band > 0 and FLOOR > 0.
-B_RACE_TIGHTENING_FLOOR: float = 0.1
 
+def _recalibrate_from_race() -> None:
+    """Stub for full race-result recalibration of the projection model.
 
-def _recalibrate_from_race(recalibration_anchor: Optional[float] = None) -> Optional[float]:
-    """Compute the confidence band tightening factor from a recalibration anchor.
+    When a B-race result is available the band should be recalibrated using
+    the actual performance delta to update the underlying fitness estimates.
+    That calculation is intentionally left for a dedicated milestone.
 
-    Replaces the B-race hook (P13) placeholder with real anchor-based logic.
-    The tightening factor is derived from the recalibration anchor (score
-    ceiling from the actual B race result) so that the factor scales with
-    how strongly the race anchors the projection, rather than using a
-    hardcoded constant.
-
-    Higher anchor value (stronger race result) → smaller factor → tighter band.
-    The factor is bounded to [B_RACE_TIGHTENING_FLOOR, 0.9] so the band is
-    always strictly narrower than the pre-race band but never collapses to zero.
-
-    Parameters
-    ----------
-    recalibration_anchor:
-        Score ceiling in [0, 100] derived from the actual B race result via
-        ``ceiling_from_b_race_result``.  When ``None`` (no anchor available),
-        raises ``NotImplementedError`` — use B_RACE_TIGHTENING_FACTOR directly.
-
-    Returns
-    -------
-    float in [B_RACE_TIGHTENING_FLOOR, 0.9] — multiplier applied to the raw
-    confidence band to produce the tightened post-race band.
-
-    # TODO: calibration milestone — propagate the race-result delta into
-    #        CTL/ATL estimates for full impulse-response recalibration (deferred).
+    # TODO: calibration milestone — implement race-result recalibration
     """
-    if recalibration_anchor is None:
-        # TODO: calibration milestone — anchor required for full recalibration
-        raise NotImplementedError(
-            "_recalibrate_from_race requires a recalibration_anchor; "
-            "pass the score ceiling from ceiling_from_b_race_result"
-        )
-    # Linear interpolation: anchor=0 → 0.9 (slight tightening),
-    # anchor=100 → B_RACE_TIGHTENING_FLOOR (maximum tightening).
-    # Any race result (anchor ≥ 0) narrows the band; higher anchor scores
-    # narrow it more, reflecting greater confidence from the expressed result.
-    clamped = max(0.0, min(100.0, float(recalibration_anchor)))
-    factor = 0.9 - (clamped / 100.0) * (0.9 - B_RACE_TIGHTENING_FLOOR)
-    return max(B_RACE_TIGHTENING_FLOOR, factor)
+    # TODO: calibration milestone — compute delta between predicted and actual
+    # race performance and propagate corrections into CTL/ATL estimates.
+    raise NotImplementedError(
+        "_recalibrate_from_race is reserved for the calibration milestone")
 
 
 # Scale factor for the square-root confidence band model.  Tune this to
@@ -125,11 +89,7 @@ def _recalibrate_from_race(recalibration_anchor: Optional[float] = None) -> Opti
 CONFIDENCE_BAND_RATE: float = 0.5
 
 
-def confidence_band_days(
-    horizon: int,
-    b_race_passed: bool = False,
-    recalibration_anchor: Optional[float] = None,
-) -> float:
+def confidence_band_days(horizon: int, b_race_passed: bool = False) -> float:
     """Compute the ± confidence band width (in days) for a projected entry.
 
     The band models compounding forecast uncertainty that grows with the
@@ -149,16 +109,12 @@ def confidence_band_days(
 
     B-race tightening
     -----------------
-    When *b_race_passed* is ``True`` the raw band is multiplied by a tightening
-    factor (< 1.0).  Crossing the B-race date gives the athlete a real race
-    anchor that reduces forecast uncertainty — the narrower band reflects that
-    increased certainty.
-
-    When *recalibration_anchor* is provided, the tightening factor is computed
-    by ``_recalibrate_from_race`` using the anchor value (score ceiling derived
-    from the actual race result), so the factor scales with anchor strength.
-    When no anchor is supplied, ``B_RACE_TIGHTENING_FACTOR`` is used as a
-    fallback (backward-compatible path).
+    When *b_race_passed* is ``True`` the raw band is multiplied by
+    ``B_RACE_TIGHTENING_FACTOR`` (< 1.0).  Crossing the B-race date gives the
+    athlete a real race anchor that reduces forecast uncertainty — the narrower
+    band reflects that increased certainty.  Full recalibration from the race
+    result is deferred to a dedicated milestone; see
+    ``_recalibrate_from_race``.
 
     Parameters
     ----------
@@ -166,14 +122,8 @@ def confidence_band_days(
         Number of days into the future from the anchor (start_date).  Values
         ≤ 0 return 0.
     b_race_passed:
-        When ``True`` the band is tightened to reflect reduced uncertainty
-        after a B-race result is available.
-    recalibration_anchor:
-        Score ceiling in [0, 100] derived from the actual B race result.
-        When provided together with *b_race_passed*, the tightening factor is
-        computed from the anchor via ``_recalibrate_from_race`` rather than
-        using the hardcoded ``B_RACE_TIGHTENING_FACTOR``.  Pass ``None``
-        (default) to use the fallback factor.
+        When ``True`` the band is tightened by ``B_RACE_TIGHTENING_FACTOR``
+        to reflect reduced uncertainty after a B-race result is available.
 
     Returns
     -------
@@ -183,10 +133,7 @@ def confidence_band_days(
         return 0
     band = CONFIDENCE_BAND_RATE * math.sqrt(horizon)
     if b_race_passed:
-        if recalibration_anchor is not None:
-            band *= _recalibrate_from_race(recalibration_anchor)
-        else:
-            band *= B_RACE_TIGHTENING_FACTOR
+        band *= B_RACE_TIGHTENING_FACTOR
     return band
 
 
@@ -196,9 +143,8 @@ def project_fitness(
     start_atl: float,
     start_date: date,
     b_race_date: Optional[date] = None,
-    recalibration_anchor: Optional[float] = None,
 ) -> dict[date, dict[str, float]]:
-    """Roll CTL/ATL/TSB forward day by day from *start_date* using *planned_load*.
+    """Roll CTL/ATL/TSB forward from *start_date* using *planned_load*.
 
     Parameters
     ----------
@@ -212,19 +158,14 @@ def project_fitness(
         ATL value on *start_date* (the day before the first projected day).
     start_date:
         Anchor date.  The first entry in the returned series is
-        ``start_date + 1 day``; the last is ``start_date + len(planned_load) days``.
+        ``start_date + 1 day``; the last is
+        ``start_date + len(planned_load) days``.
     b_race_date:
         Optional date of a B-race.  For projected days that fall strictly after
-        this date the confidence band is tightened to reflect reduced uncertainty
-        from having a real race anchor.  Pass ``None`` (the default) to leave
-        the band unchanged.
-    recalibration_anchor:
-        Score ceiling in [0, 100] derived from the actual B race result via
-        ``ceiling_from_b_race_result``.  When provided, the confidence band for
-        post-B-race days is tightened using the anchor-based factor from
-        ``_recalibrate_from_race`` instead of the hardcoded
-        ``B_RACE_TIGHTENING_FACTOR``.  Pass ``None`` (the default) to use the
-        fallback factor.
+        this date the confidence band is tightened via
+        ``B_RACE_TIGHTENING_FACTOR`` to reflect reduced uncertainty from
+        having a real race anchor.
+        Pass ``None`` (the default) to leave the band unchanged.
 
     Returns
     -------
@@ -252,7 +193,6 @@ def project_fitness(
             "confidence_band": confidence_band_days(
                 horizon,
                 b_race_passed=b_race_passed,
-                recalibration_anchor=recalibration_anchor if b_race_passed else None,
             ),
         }
     return series
@@ -263,7 +203,8 @@ def tsb_form_factor(projected_tsb: float, ceiling_tsb: float) -> float:
 
     The factor scales linearly with the ratio of projected_tsb to ceiling_tsb:
 
-        factor = 1.0 + (projected_tsb / ceiling_tsb) * EXPRESSIBLE_FORM_FACTOR_SCALE
+        factor = 1.0 + (projected_tsb / ceiling_tsb) \
+            * EXPRESSIBLE_FORM_FACTOR_SCALE
 
     Properties:
     - TSB = 0          → factor = 1.0   (neutral; expressible = base score)
@@ -295,9 +236,9 @@ def compute_expressible_score(
 ) -> float:
     """Apply the TSB form factor to a base Endurance/Speed score.
 
-    Multiplies *base_score* by the TSB form factor derived from *projected_tsb*
-    and *ceiling_tsb*.  When projected_tsb = 0 the result equals base_score
-    exactly; a positive TSB amplifies the score and a negative TSB suppresses it.
+    Multiplies *base_score* by the TSB form factor derived from
+    *projected_tsb* and *ceiling_tsb*.  When projected_tsb = 0 the result
+    equals base_score exactly; positive TSB amplifies, negative suppresses.
 
     Parameters
     ----------
@@ -345,12 +286,13 @@ def apply_expressible_scores(
     """
     result: dict[date, dict[str, float]] = {}
     for day, data in projection_series.items():
-        expressible = compute_expressible_score(base_score, data["tsb"], ceiling_tsb)
+        expressible = compute_expressible_score(
+            base_score, data["tsb"], ceiling_tsb)
         result[day] = {**data, "expressible_score": round(expressible, 2)}
     return result
 
 
-# ── Riegel race-equivalence ───────────────────────────────────────────────────
+# ── Riegel race-equivalence ─────────────────────────────────────────────
 
 # Riegel exponent used for cross-distance time prediction.
 # t2 = t1 * (d2/d1)^RIEGEL_EXPONENT
@@ -373,11 +315,13 @@ def compute_half_equivalent(
     estimated_finish_seconds:
         Predicted full-race finish time in seconds.  None returns None.
     distance_km:
-        Race distance in kilometres.  Must be positive; None or ≤0 returns None.
+        Race distance in kilometres.  Must be positive; None or ≤0 returns
+        None.
 
     Returns
     -------
-    Rounded integer seconds for half the race distance, or None on invalid input.
+    Rounded integer seconds for half the race distance, or None on invalid
+    input.
     """
     if estimated_finish_seconds is None or distance_km is None:
         return None
@@ -386,13 +330,13 @@ def compute_half_equivalent(
     return int(round(estimated_finish_seconds * (0.5 ** RIEGEL_EXPONENT)))
 
 
-# ── Fitness band ──────────────────────────────────────────────────────────────
+# ── Fitness band ────────────────────────────────────────────────────────
 
 def fitness_band_from_tsb(tsb: float) -> str:
-    """Classify TSB into a fitness band label using the standard readiness thresholds.
+    """Classify TSB into a fitness band label using readiness thresholds.
 
     Uses the same TSB band constants as ``fitness_model._readiness_label`` so
-    the projection and fitness-model layers agree on band boundaries.
+    projection and fitness-model layers agree on band boundaries.
 
     Parameters
     ----------
@@ -430,7 +374,7 @@ def build_plan_projection_payload(
     body_modifier: float = 1.0,
     b_race_result: "Optional[dict]" = None,
 ) -> dict:
-    """Assemble the full projection payload for GET /plans/{plan_id}/projection.
+    """Assemble the full projection payload for /plans/{plan_id}/projection.
 
     Pure function — no database access.  All data must be pre-fetched by the
     calling layer (router or service).
@@ -442,12 +386,13 @@ def build_plan_projection_payload(
     start_atl:
         Athlete's ATL on start_date.
     start_date:
-        Anchor date.  The projection runs from start_date+1 for len(planned_load) days.
+        Anchor date.  The projection runs from start_date+1 for
+        len(planned_load) days.
     planned_load:
         Ordered list of TSS values, one per projected day.
     races:
         List of race dicts, each containing at minimum:
-        ``"date"`` (date object or ISO string), ``"distance_km"`` (float or None),
+        ``"date"`` (date or ISO string), ``"distance_km"`` (float or None),
         ``"name"`` (str, optional).
     thresholds:
         User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
@@ -475,20 +420,23 @@ def build_plan_projection_payload(
         ``ctl``   — list of floats (one per projected day)
         ``atl``   — list of floats
         ``tsb``   — list of floats
-        ``races`` — list of dicts, one per race, each with ``estimated_time``,
-                    ``estimated_finish_seconds``, ``half_equivalent``,
-                    ``half_equivalent_seconds``, ``date``, ``distance_km``, ``name``
-        ``band``  — fitness band string derived from the current TSB (start_ctl − start_atl)
+        ``races`` — list of dicts, one per race, each with
+                    ``estimated_time``, ``estimated_finish_seconds``,
+                    ``half_equivalent``, ``half_equivalent_seconds``,
+                    ``date``, ``distance_km``, ``name``
+        ``band``  — fitness band string from TSB (start_ctl − start_atl)
     """
     from backend.services.score_ceiling import (
         projected_ctl_to_score_ceiling,
         ceiling_from_b_race_result,
     )
-    from backend.services.race_finish_estimator import score_to_estimated_finish_time
+    from backend.services.race_finish_estimator import (
+        score_to_estimated_finish_time,
+    )
 
-    # Pre-compute B-race ceiling if a past B race result is available (issue #1162).
-    # The ceiling is derived by inverting the score-to-pace mapping, anchoring all
-    # projections for dates strictly after the B race date to the expressed result.
+    # Pre-compute B-race ceiling if a past B race result is available
+    # (#1162). The ceiling is derived by inverting the score-to-pace mapping,
+    # anchoring projections after the B race date to the expressed result.
     _b_race_date: Optional[date] = None
     _b_race_ceiling: Optional[dict] = None
     if b_race_result is not None and isinstance(thresholds, dict):
@@ -506,23 +454,7 @@ def build_plan_projection_payload(
                     float(tp),
                 )
 
-    # Extract the recalibration anchor from the B-race ceiling so that
-    # post-B-race confidence bands are tightened using the anchor-based factor
-    # (P13 hook — issue #1163) rather than the hardcoded fallback.
-    _recalibration_anchor: Optional[float] = (
-        _b_race_ceiling.get("endurance_ceiling")
-        if _b_race_ceiling is not None
-        else None
-    )
-
-    series = project_fitness(
-        planned_load,
-        start_ctl,
-        start_atl,
-        start_date,
-        b_race_date=_b_race_date,
-        recalibration_anchor=_recalibration_anchor,
-    )
+    series = project_fitness(planned_load, start_ctl, start_atl, start_date)
 
     sorted_dates = sorted(series.keys())
     ctl_list = [round(series[d]["ctl"], 2) for d in sorted_dates]
@@ -548,7 +480,11 @@ def build_plan_projection_payload(
         # Use B-race-anchored ceiling for dates strictly after the B race date
         # (AC2 — re-anchor from the race date); fall back to CTL-based ceiling
         # for dates on or before the B race date (AC3 — no retroactive change).
-        if _b_race_ceiling is not None and _b_race_date is not None and race_date > _b_race_date:
+        if (
+            _b_race_ceiling is not None
+            and _b_race_date is not None
+            and race_date > _b_race_date
+        ):
             ceiling = _b_race_ceiling
         else:
             ceiling = projected_ctl_to_score_ceiling(projected_ctl)
@@ -561,7 +497,8 @@ def build_plan_projection_payload(
         est_time = est["estimated_finish_time"]
 
         half_seconds = compute_half_equivalent(est_seconds, dist)
-        half_time = _format_hhmmss(half_seconds) if half_seconds is not None else None
+        half_time = _format_hhmmss(
+            half_seconds) if half_seconds is not None else None
 
         race_projections.append({
             "date": str(race_date),
