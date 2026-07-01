@@ -9,8 +9,11 @@
   var _projection = null;
   var _editingRaceId = null;
   var _editingRaceType = "race";
+  var _modalPriority = "A";
   var _confirmCallback = null;
   var _planId = null;
+  // Per-race readiness cache: raceId -> readiness response (or null if none).
+  var _raceReadiness = {};
 
   var NS = "http://www.w3.org/2000/svg";
 
@@ -305,9 +308,14 @@
     var svg = document.getElementById("plan-timecurve");
     var emptyEl = document.getElementById("plan-time-curve-empty");
     var loadingEl = document.getElementById("plan-time-curve-loading");
+    var projNow = document.getElementById("plan-projected-now");
     if (!svg) return;
     if (loadingEl) loadingEl.style.display = "none";
     clearSvg(svg);
+
+    function _hideProjNow() {
+      if (projNow) projNow.style.display = "none";
+    }
 
     var tc = _readiness && _readiness.time_curve;
     var history = (tc && tc.history) || [];
@@ -319,36 +327,79 @@
     if (!_primaryRace || (history.length === 0 && projection.length === 0)) {
       svg.style.display = "none";
       if (emptyEl) emptyEl.style.display = "";
+      _hideProjNow();
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
+    // Current projected finish readout (first projection sample, else the last
+    // history sample). Gives the user a directly readable prediction.
+    var estInfo = _currentEstimate(_readiness);
+    var valEl = document.getElementById("plan-projected-now-val");
+    var metaEl = document.getElementById("plan-projected-now-meta");
+    if (estInfo && projNow) {
+      projNow.style.display = "";
+      if (valEl) valEl.textContent = fmtTime(estInfo.est);
+      if (metaEl) {
+        var parts = [];
+        var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
+        if (distKm) parts.push(fmtPace(estInfo.est / distKm));
+        if (estInfo.band != null)
+          parts.push("±" + Math.max(1, Math.round(estInfo.band / 60)) + " min");
+        if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
+        metaEl.textContent = parts.join(" · ");
+      }
+    } else {
+      _hideProjNow();
+    }
+
     var W = 1140, H = 200, p = { l: 54, r: 30, t: 14, b: 26 };
 
-    // Collect all finish-time samples to derive a tight y-range.
-    var samples = [];
-    history.forEach(function (e) {
-      if (e.estimated_finish_seconds != null) samples.push(e.estimated_finish_seconds);
-    });
+    // ── Tight y-domain ────────────────────────────────────────────────────────
+    // Early low-fitness history estimates can be wildly large (e.g. 7h for a
+    // half), which blows up an all-samples auto-scale and makes the current
+    // projection unreadable. Anchor the domain on the values that matter — the
+    // projection band, the goal, and only the RECENT tail of history — then
+    // clamp outliers to that window instead of letting them stretch the axis.
+    var coreSamples = [];
     projection.forEach(function (e) {
-      if (e.estimated_finish_seconds != null) samples.push(e.estimated_finish_seconds);
-      if (e.upper_seconds != null) samples.push(e.upper_seconds);
-      if (e.lower_seconds != null) samples.push(e.lower_seconds);
+      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
+      if (e.upper_seconds != null) coreSamples.push(e.upper_seconds);
+      if (e.lower_seconds != null) coreSamples.push(e.lower_seconds);
     });
-    if (goalSec != null) samples.push(goalSec);
-    if (samples.length === 0) {
+    if (goalSec != null) coreSamples.push(goalSec);
+    // Recent history tail (last ~21 points) to show the approach without the
+    // noisy early ramp.
+    var recentHist = history.slice(-21);
+    recentHist.forEach(function (e) {
+      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
+    });
+    // Fallback: if the projection was empty, use whatever history we have.
+    if (coreSamples.length === 0) {
+      history.forEach(function (e) {
+        if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
+      });
+    }
+    if (coreSamples.length === 0) {
       svg.style.display = "none";
       if (emptyEl) emptyEl.style.display = "";
+      _hideProjNow();
       return;
     }
-    var vmin = Math.min.apply(null, samples);
-    var vmax = Math.max.apply(null, samples);
-    var padY = Math.max(30, (vmax - vmin) * 0.12);
+    var vmin = Math.min.apply(null, coreSamples);
+    var vmax = Math.max.apply(null, coreSamples);
+    // Guarantee a sensible minimum span (5 min) so a nearly-flat series still
+    // reads, and pad ~8% on each side.
+    var span = Math.max(vmax - vmin, 300);
+    var padY = span * 0.08;
     vmin -= padY;
     vmax += padY;
     function y(v) {
-      return p.t + (1 - (v - vmin) / (vmax - vmin || 1)) * (H - p.t - p.b);
+      // Clamp so outlier history points render at the axis edge instead of
+      // rescaling the whole chart.
+      var cv = Math.max(vmin, Math.min(vmax, v));
+      return p.t + (1 - (cv - vmin) / (vmax - vmin || 1)) * (H - p.t - p.b);
     }
 
     // Piecewise x: history 0..nowT, projection nowT..1 (expanded).
@@ -474,6 +525,53 @@
   // ── 3b. Race/checkpoint cards ─────────────────────────────────────────────
   var _LET_BG = { A: "#1b2340", B: "#3b4ba8", C: "#6b7280" };
 
+  // Extract the current projected finish (seconds), band (seconds), and status
+  // from a readiness response's time_curve + on_track blocks. Returns null when
+  // no usable estimate is present.
+  function _currentEstimate(rd) {
+    if (!rd || !rd.time_curve) return null;
+    var tc = rd.time_curve;
+    var proj = tc.projection || [];
+    var hist = tc.history || [];
+    var est = null,
+      band = null;
+    if (proj.length > 0) {
+      est = proj[0].estimated_finish_seconds;
+      band = proj[0].confidence_band_seconds != null
+        ? proj[0].confidence_band_seconds
+        : null;
+    } else if (hist.length > 0) {
+      est = hist[hist.length - 1].estimated_finish_seconds;
+    }
+    if (est == null) return null;
+    var goalSec = tc.goal_finish_seconds != null ? tc.goal_finish_seconds : null;
+    var status = rd.on_track && rd.on_track.status_summary;
+    return { est: est, band: band, goalSec: goalSec, status: status };
+  }
+
+  // Map a readiness on_track result to a status pill (label + ok/watch class).
+  function _statusPill(estInfo) {
+    if (!estInfo) return "";
+    var status = estInfo.status;
+    var cls, label;
+    if (status === "on track" || status === "ahead") {
+      cls = "ok";
+      label = status === "ahead" ? "ahead" : "on track";
+    } else if (status === "behind") {
+      cls = "watch";
+      // If we know goal + est, express the gap in minutes over.
+      if (estInfo.goalSec != null && estInfo.est != null && estInfo.est > estInfo.goalSec) {
+        var overMin = Math.round((estInfo.est - estInfo.goalSec) / 60);
+        label = "~" + overMin + " min over";
+      } else {
+        label = "behind";
+      }
+    } else {
+      return "";
+    }
+    return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
+  }
+
   function renderRaceCards() {
     var container = document.getElementById("plan-races");
     var loadingEl = document.getElementById("plan-races-loading");
@@ -501,7 +599,9 @@
 
     sorted.forEach(function (r) {
       var isCheckpoint = r.type === "checkpoint";
-      var priority = isCheckpoint ? "C" : r.priority || "C";
+      // Real priority comes from the race row. Checkpoints have no priority and
+      // render under the neutral "C" treatment; real races use r.priority.
+      var priority = isCheckpoint ? "C" : r.priority || "A";
       var isTarget = r.id === primaryId;
       var upcoming = r.date >= todayStr;
       var distKm = parseFloat(r.distance || 0);
@@ -540,14 +640,58 @@
         "</span>" +
         "</div>";
 
+      // Estimated column (from cached per-race readiness, when available).
+      var estInfo = _currentEstimate(_raceReadiness[r.id]);
+      var estCol = "";
+      if (estInfo) {
+        var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+        var bandTxt =
+          estInfo.band != null
+            ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+            : "";
+        estCol =
+          '<div class="pm-col est">' +
+          '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
+          '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+          '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+      }
+
       var grid =
         '<div class="pm-rcgrid">' +
         '<div class="pm-col"><div class="pm-coll">Goal</div>' +
         '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
         '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+        estCol +
         "</div>";
 
-      card.innerHTML = head + grid;
+      // Footer: End/Spd score tags (athlete-level scores from /api/projection —
+      // shown on the primary race only, since scores are not per-race). No
+      // half-equiv line: the readiness API does not expose a half-equivalent
+      // time, so we do not fabricate one.
+      var foot = "";
+      if (
+        isTarget &&
+        _projection &&
+        (typeof _projection.endurance_score === "number" ||
+          typeof _projection.speed_score === "number")
+      ) {
+        var tags = "";
+        if (typeof _projection.endurance_score === "number")
+          tags +=
+            '<span class="pm-sc e">End ' +
+            Math.round(_projection.endurance_score) + "</span>";
+        if (typeof _projection.speed_score === "number")
+          tags +=
+            '<span class="pm-sc s">Spd ' +
+            Math.round(_projection.speed_score) + "</span>";
+        if (tags)
+          foot =
+            '<div class="pm-rcfoot"><div class="pm-scoretags">' +
+            tags +
+            "</div></div>";
+      }
+
+      card.innerHTML = head + grid + foot;
 
       card.querySelector('[data-act="edit"]').addEventListener("click", function () {
         openModal(r, r.type || "race");
@@ -798,6 +942,9 @@
     }
     apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
       _readiness = data;
+      // Cache under the race id so renderRaceCards can surface the Estimated
+      // column for the primary race.
+      _raceReadiness[_primaryRace.id] = data;
       if (done) done();
     });
   }
@@ -923,32 +1070,59 @@
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
+  // Set the active type tab (race|checkpoint) and toggle priority visibility.
+  function _setModalType(type) {
+    _editingRaceType = type === "checkpoint" ? "checkpoint" : "race";
+    var seg = document.getElementById("plan-modal-typeseg");
+    if (seg) {
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-type") === _editingRaceType;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-selected", active ? "true" : "false");
+        },
+      );
+    }
+    var prField = document.getElementById("plan-modal-priority-field");
+    if (prField)
+      prField.style.display = _editingRaceType === "checkpoint" ? "none" : "";
+    var title = document.getElementById("plan-modal-title");
+    if (title) {
+      var editing = !!_editingRaceId;
+      title.textContent =
+        (editing ? "Edit " : "Add ") +
+        (_editingRaceType === "checkpoint" ? "Checkpoint" : "Race");
+    }
+  }
+
+  // Set the active priority (A|B|C) in the priority segmented control.
+  function _setModalPriority(priority) {
+    _modalPriority = ["A", "B", "C"].indexOf(priority) >= 0 ? priority : "A";
+    var seg = document.getElementById("plan-modal-priorityseg");
+    if (!seg) return;
+    Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+      function (b) {
+        var active = b.getAttribute("data-priority") === _modalPriority;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-checked", active ? "true" : "false");
+      },
+    );
+  }
+
   function openModal(race, raceType) {
     _editingRaceId = race ? race.id : null;
-    _editingRaceType = raceType || "race";
 
     var modal = document.getElementById("plan-race-modal");
-    var title = document.getElementById("plan-modal-title");
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var typeIn = document.getElementById("plan-modal-type");
     var goalIn = document.getElementById("plan-modal-goal-time");
     var deleteBtn = document.getElementById("plan-modal-delete-btn");
     var errEl = document.getElementById("plan-modal-error");
 
     if (!modal) return;
 
-    var isCheckpoint = _editingRaceType === "checkpoint";
-
-    if (title)
-      title.textContent = race
-        ? isCheckpoint
-          ? "Edit Checkpoint"
-          : "Edit Race"
-        : isCheckpoint
-          ? "Add Checkpoint"
-          : "Add Race";
+    var type = race ? race.type || "race" : raceType || "race";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
     if (errEl) errEl.textContent = "";
 
@@ -956,15 +1130,17 @@
       if (nameIn) nameIn.value = race.name || "";
       if (dateIn) dateIn.value = race.date || "";
       if (distIn) distIn.value = race.distance || "";
-      if (typeIn) typeIn.value = race.type || "race";
       if (goalIn) goalIn.value = goalTimeToStr(race.goal_time_seconds);
     } else {
       if (nameIn) nameIn.value = "";
       if (dateIn) dateIn.value = "";
       if (distIn) distIn.value = "";
-      if (typeIn) typeIn.value = isCheckpoint ? "checkpoint" : "race";
       if (goalIn) goalIn.value = "";
     }
+
+    // Tab + priority state (must run after _editingRaceId is set for the title).
+    _setModalType(type);
+    _setModalPriority(race && race.priority ? race.priority : "A");
 
     modal.style.display = "";
     if (nameIn) nameIn.focus();
@@ -979,14 +1155,14 @@
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var typeIn = document.getElementById("plan-modal-type");
     var goalIn = document.getElementById("plan-modal-goal-time");
     var errEl = document.getElementById("plan-modal-error");
 
     var name = nameIn ? nameIn.value.trim() : "";
     var date = dateIn ? dateIn.value : "";
     var dist = distIn ? parseFloat(distIn.value) : NaN;
-    var type = typeIn ? typeIn.value : _editingRaceType;
+    // Type comes from the active segmented tab, not a <select>.
+    var type = _editingRaceType === "checkpoint" ? "checkpoint" : "race";
     var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
     if (!name) {
@@ -1004,6 +1180,9 @@
 
     var body = { name: name, date: date, distance: dist, type: type };
     if (goalSec !== null) body.goal_time_seconds = goalSec;
+    // Priority is only meaningful for races (checkpoints are forced to C by the
+    // backend). Send it from the priority segmented control on the Race tab.
+    if (type === "race") body.priority = _modalPriority;
     if (errEl) errEl.textContent = "";
 
     if (_editingRaceId) {
@@ -1098,16 +1277,39 @@
 
   // ── Event wiring ──────────────────────────────────────────────────────────
   function wireEvents() {
-    var addRaceBtn = document.getElementById("plan-add-race-btn");
-    if (addRaceBtn)
-      addRaceBtn.addEventListener("click", function () {
+    // Single "+ Add" button opens the modal defaulting to the Race tab.
+    var addBtn = document.getElementById("plan-add-btn");
+    if (addBtn)
+      addBtn.addEventListener("click", function () {
         openModal(null, "race");
       });
 
-    var addCpBtn = document.getElementById("plan-add-checkpoint-btn");
-    if (addCpBtn)
-      addCpBtn.addEventListener("click", function () {
-        openModal(null, "checkpoint");
+    // Modal type tabs (Race | Checkpoint).
+    var typeSeg = document.getElementById("plan-modal-typeseg");
+    if (typeSeg)
+      typeSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setModalType(b.getAttribute("data-type"));
+      });
+
+    // Modal priority segmented control (A | B | C).
+    var prSeg = document.getElementById("plan-modal-priorityseg");
+    if (prSeg)
+      prSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setModalPriority(b.getAttribute("data-priority"));
+      });
+
+    // Distance quick-fill buttons.
+    var distQuick = document.getElementById("plan-modal-distance-quick");
+    if (distQuick)
+      distQuick.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-quick-btn");
+        if (!b) return;
+        var distIn = document.getElementById("plan-modal-distance");
+        if (distIn) distIn.value = b.getAttribute("data-km");
       });
 
     var modalClose = document.getElementById("plan-modal-close");
