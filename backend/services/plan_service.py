@@ -25,6 +25,7 @@ def race_to_dict(race: Race) -> dict:
         "date": str(race.race_date),
         "distance": float(race.distance_km),
         "type": race.race_type or "race",
+        "priority": race.priority,
         "goal_time_seconds": race.goal_time_seconds,
         "name": race.name,
         "created_at": race.created_at.isoformat() if race.created_at else None,
