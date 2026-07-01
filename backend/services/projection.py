@@ -361,6 +361,7 @@ def build_plan_projection_payload(
     races: "list[dict]",
     thresholds: "Optional[dict]",
     body_modifier: float = 1.0,
+    b_race_result: "Optional[dict]" = None,
 ) -> dict:
     """Assemble the full projection payload for GET /plans/{plan_id}/projection.
 
@@ -391,6 +392,15 @@ def build_plan_projection_payload(
         (lighter athlete, better power-to-weight); < 1.0 reduce it.  Use
         ``backend.services.body_modifier.compute_body_modifier`` to derive
         this value.
+    b_race_result:
+        Optional dict representing the most recent past B race with an actual
+        result.  When provided, race projections for dates strictly after
+        ``b_race_result["race_date"]`` use the ceiling derived from the actual
+        B race performance rather than the CTL-based ceiling.  This re-anchors
+        forward projections to the athlete's expressed race-day fitness.
+        Expected keys: ``race_date`` (date), ``actual_time_seconds`` (int),
+        ``distance_km`` (float).  Pass ``None`` (the default) to use the
+        CTL-based ceiling for all dates (AC4 — deleting the B race reverts).
 
     Returns
     -------
@@ -403,8 +413,31 @@ def build_plan_projection_payload(
                     ``half_equivalent_seconds``, ``date``, ``distance_km``, ``name``
         ``band``  — fitness band string derived from the current TSB (start_ctl − start_atl)
     """
-    from backend.services.score_ceiling import projected_ctl_to_score_ceiling
+    from backend.services.score_ceiling import (
+        projected_ctl_to_score_ceiling,
+        ceiling_from_b_race_result,
+    )
     from backend.services.race_finish_estimator import score_to_estimated_finish_time
+
+    # Pre-compute B-race ceiling if a past B race result is available (issue #1162).
+    # The ceiling is derived by inverting the score-to-pace mapping, anchoring all
+    # projections for dates strictly after the B race date to the expressed result.
+    _b_race_date: Optional[date] = None
+    _b_race_ceiling: Optional[dict] = None
+    if b_race_result is not None and isinstance(thresholds, dict):
+        tp = thresholds.get("threshold_pace_seconds_per_km")
+        if tp is not None and float(tp) > 0:
+            raw_date = b_race_result.get("race_date")
+            if raw_date is not None:
+                _b_race_date = (
+                    raw_date if isinstance(raw_date, date)
+                    else date.fromisoformat(str(raw_date))
+                )
+                _b_race_ceiling = ceiling_from_b_race_result(
+                    b_race_result["actual_time_seconds"],
+                    b_race_result["distance_km"],
+                    float(tp),
+                )
 
     series = project_fitness(planned_load, start_ctl, start_atl, start_date)
 
@@ -429,7 +462,13 @@ def build_plan_projection_payload(
         else:
             projected_ctl = start_ctl
 
-        ceiling = projected_ctl_to_score_ceiling(projected_ctl)
+        # Use B-race-anchored ceiling for dates strictly after the B race date
+        # (AC2 — re-anchor from the race date); fall back to CTL-based ceiling
+        # for dates on or before the B race date (AC3 — no retroactive change).
+        if _b_race_ceiling is not None and _b_race_date is not None and race_date > _b_race_date:
+            ceiling = _b_race_ceiling
+        else:
+            ceiling = projected_ctl_to_score_ceiling(projected_ctl)
         # Apply the power-to-weight body modifier to the projected endurance
         # score before converting to a race finish time estimate.
         score = ceiling["endurance_ceiling"] * body_modifier

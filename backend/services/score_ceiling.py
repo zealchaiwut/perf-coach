@@ -79,3 +79,47 @@ def projected_ctl_to_score_ceiling(
         "endurance_ceiling": ceiling,
         "speed_ceiling": ceiling,
     }
+
+
+def ceiling_from_b_race_result(
+    actual_time_seconds: int,
+    distance_km: float,
+    threshold_pace_spm: float,
+) -> dict[str, float]:
+    """Derive score ceilings from a B race actual finish result (issue #1162).
+
+    Inverts the score-to-pace mapping from
+    ``backend.services.race_finish_estimator.score_to_estimated_finish_time``::
+
+        estimated_pace = threshold_pace * (2 - score / 100)
+
+    Rearranging for score::
+
+        actual_pace = actual_time_seconds / distance_km
+        score = (2 - actual_pace / threshold_pace) * 100
+
+    This allows the projection model to re-anchor its ceiling to the
+    performance the athlete actually expressed on race day, rather than
+    continuing from a stale CTL-based estimate.
+
+    Parameters
+    ----------
+    actual_time_seconds:
+        Recorded finish time in seconds.  Values ≤ 0 return a zero ceiling.
+    distance_km:
+        Race distance in kilometres.  Values ≤ 0 return a zero ceiling.
+    threshold_pace_spm:
+        Athlete's threshold pace in seconds per kilometre.  Values ≤ 0
+        return a zero ceiling.
+
+    Returns
+    -------
+    dict with keys ``endurance_ceiling`` and ``speed_ceiling``, both
+    clamped to ``[0, SCORE_CEILING_MAX]``.
+    """
+    if actual_time_seconds <= 0 or distance_km <= 0 or threshold_pace_spm <= 0:
+        return {"endurance_ceiling": 0.0, "speed_ceiling": 0.0}
+    actual_pace = actual_time_seconds / distance_km
+    raw_score = (2.0 - actual_pace / threshold_pace_spm) * 100.0
+    ceiling = min(SCORE_CEILING_MAX, max(0.0, round(raw_score, 2)))
+    return {"endurance_ceiling": ceiling, "speed_ceiling": ceiling}
