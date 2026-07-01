@@ -18,6 +18,12 @@
   var _planEntityId = null;
   // Per-race readiness cache: raceId -> readiness response (or null if none).
   var _raceReadiness = {};
+  // Athlete current performance scores (GET /api/athletes/{id}/performance).
+  // Null until loaded; only rendered when .state === "scored".
+  var _athletePerf = null;
+  // Threshold pace (seconds/km) from /api/user-preferences — used to compute the
+  // demonstrated "Fitness" score of a completed race. Null when unset.
+  var _thresholdPace = null;
   // Completed-race (Pick-from-history) state. When a past run is selected while
   // ADDING a race, we stash its finish time here and POST status:"done".
   var _pickedActualSeconds = null;
@@ -585,6 +591,57 @@
     return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
   }
 
+  // Direction glyph for a performance-score trend.
+  function _dirArrow(direction) {
+    if (direction === "improving") return "↑";
+    if (direction === "declining") return "↓";
+    return "–";
+  }
+
+  // Athlete-level End/Spd score tags for UPCOMING cards. Rendered only when the
+  // performance endpoint returned state === "scored"; otherwise "" (no fake
+  // scores for needs_thresholds / building_baseline / error states).
+  function _athleteScoreFoot() {
+    if (!_athletePerf || _athletePerf.state !== "scored") return "";
+    var end = _athletePerf.endurance || {};
+    var spd = _athletePerf.speed || {};
+    var tags = "";
+    if (typeof end.score === "number")
+      tags +=
+        '<span class="pm-sc e">End ' +
+        Math.round(end.score) +
+        " " +
+        _dirArrow(end.direction) +
+        "</span>";
+    if (typeof spd.score === "number")
+      tags +=
+        '<span class="pm-sc s">Spd ' +
+        Math.round(spd.score) +
+        " " +
+        _dirArrow(spd.direction) +
+        "</span>";
+    if (!tags) return "";
+    return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
+  }
+
+  // Demonstrated fitness score of a COMPLETED race, computed client-side from
+  // its own result using the same anchor formula the backend uses:
+  //   pace  = actual_time_seconds / distance_km
+  //   score = clamp((2 - pace/tp) * 100, 0, 100)
+  // Returns an integer, or null when threshold pace / distance / actual are
+  // missing (so we render nothing instead of a fake number).
+  function _demonstratedScore(r) {
+    var tp = _thresholdPace;
+    var distKm = parseFloat(r.distance || 0);
+    var actualSec = r.actual_time_seconds;
+    if (!tp || tp <= 0 || !distKm || distKm <= 0 || actualSec == null) return null;
+    var pace = actualSec / distKm;
+    var score = (2 - pace / tp) * 100;
+    if (score < 0) score = 0;
+    if (score > 100) score = 100;
+    return Math.round(score);
+  }
+
   // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
   // (under). Returns "" when there is no goal.
   function _actualDelta(actualSec, goalSec) {
@@ -670,7 +727,10 @@
       secondCol +
       "</div>";
 
-    card.innerHTML = head + grid;
+    // Athlete current End/Spd scores (shown when the perf endpoint is "scored").
+    var foot = _athleteScoreFoot();
+
+    card.innerHTML = head + grid + foot;
     _wireCardActions(card, r);
     return card;
   }
@@ -692,6 +752,14 @@
     card.className = "pm-rc pm-rc--done";
     card.setAttribute("data-race-id", r.id);
 
+    // Demonstrated fitness score from this race's own result (one score per
+    // race — endurance == speed — so a single "Fitness N" tag).
+    var demoScore = _demonstratedScore(r);
+    var fitnessTag =
+      demoScore != null
+        ? '<span class="pm-sc f">Fitness ' + demoScore + "</span>"
+        : "";
+
     var head =
       '<div class="pm-rchd">' +
       '<span class="pm-rclet" style="background:' +
@@ -700,6 +768,7 @@
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
       '<span class="pm-upc pm-done">DONE</span>' +
+      fitnessTag +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
       '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
@@ -1084,6 +1153,30 @@
     });
   }
 
+  // Athlete current performance scores (End/Spd) for upcoming cards. Cached in
+  // _athletePerf; re-renders cards on arrival. Uses the user id as athlete id.
+  function loadAthletePerformance() {
+    var aid = _planId || (window.getCurrentUserId ? window.getCurrentUserId() : null);
+    if (!aid) return;
+    apiGet("/api/athletes/" + aid + "/performance", function (data) {
+      _athletePerf = data;
+      renderRaceCards();
+    });
+  }
+
+  // Threshold pace (sec/km) used to compute completed races' demonstrated
+  // fitness score. Cached in _thresholdPace; re-renders cards on arrival.
+  function loadThresholdPace() {
+    apiGet("/api/user-preferences", function (data) {
+      var row = data && data.row ? data.row : null;
+      _thresholdPace =
+        row && typeof row.threshold_pace_seconds_per_km === "number"
+          ? row.threshold_pace_seconds_per_km
+          : null;
+      renderRaceCards();
+    });
+  }
+
   // ── Plan settings ─────────────────────────────────────────────────────────
   function _validateSettingsInputs() {
     var rampIn = document.getElementById("plan-ramp-rate-input");
@@ -1188,6 +1281,10 @@
     // Drop cached readiness so edits/adds re-fetch fresh estimates.
     _raceReadiness = {};
     _ensurePlanId(function () {
+      // Athlete scores + threshold pace load in parallel; each re-renders cards
+      // on arrival (upcoming End/Spd tags, completed Fitness tags).
+      loadAthletePerformance();
+      loadThresholdPace();
       loadProjection(function () {
         loadRaces(function () {
           loadReadiness(function () {
