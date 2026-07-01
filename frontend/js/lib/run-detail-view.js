@@ -1062,7 +1062,8 @@
         "</div></div>" +
         '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
         '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
-        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
+        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>' +
+        '<div class="rd4-lap-tip" id="rd4-lap-tip" hidden></div></div>' +
         '<div class="rd4-row2 rd4-axis2" id="rd4-lap-axis"></div>' +
         '<div class="rd4-chart2-legend" id="rd4-lap-legend"></div>' +
         '<div class="rv-z2-note rd4-z2-note"><span class="rd4-z2-swatch"></span> Zone 2 laps (HR ' +
@@ -1466,34 +1467,65 @@
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
           if (v == null) {
-            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+            return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
           var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
-          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
+          return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
-      // Labeled value gridlines: ~5 nice ticks from min→max, placed with the
-      // same normalization as the bars so lines and bar-tops share one scale.
+      // Hover: frame the bar under the cursor and show its lap values in a tip.
+      var tip = container.querySelector("#rd4-lap-tip");
+      var chart2 = chart.parentNode;
+      function hideTip() {
+        if (tip) tip.hidden = true;
+        var hv = chart.querySelector(".rd4-cell2--hover");
+        if (hv) hv.classList.remove("rd4-cell2--hover");
+      }
+      chart.onmousemove = function (e) {
+        var cell = e.target.closest(".rd4-cell2");
+        if (!cell || !tip) { hideTip(); return; }
+        var li = +cell.getAttribute("data-i");
+        var lap = laps[li];
+        if (!lap) { hideTip(); return; }
+        var paceTxt = lap.paceSec ? fmtPaceSec2(lap.paceSec) + "/km" : "—";
+        var pwrTxt = lap.power != null ? lap.power + " W" : "—";
+        var hrTxt = lap.split && lap.split.avg_hr != null ? lap.split.avg_hr + " bpm" : "—";
+        tip.innerHTML =
+          '<span class="rd4-lap-tip-h">Lap ' + lap.index + "</span>" +
+          "<span>" + paceTxt + "</span><span>" + pwrTxt + "</span><span>" + hrTxt + "</span>";
+        tip.hidden = false;
+        var r2 = chart2.getBoundingClientRect();
+        var x = e.clientX - r2.left;
+        tip.style.left = Math.max(4, Math.min(x, r2.width - tip.offsetWidth - 4)) + "px";
+        var cur = chart.querySelector(".rd4-cell2--hover");
+        if (cur && cur !== cell) cur.classList.remove("rd4-cell2--hover");
+        cell.classList.add("rd4-cell2--hover");
+      };
+      chart.onmouseleave = hideTip;
+
+      // Labeled value gridlines: exactly 5 ticks from min→max (hard cap), placed
+      // with the same normalization as the bars so lines and bar-tops share one
+      // scale. Labels are rounded (nearest 5s / 5W) and de-duped.
       var gridEl = container.querySelector("#rd4-lap-grid");
       if (gridEl) {
         if (!nums.length) {
           gridEl.innerHTML = gridSpans2(4);
         } else {
-          var cands = barMetric === "power" ? [5, 10, 25, 50, 100] : [5, 10, 15, 20, 30, 60];
-          var raw = rng / 4;
-          var step = cands[cands.length - 1];
-          for (var ci = 0; ci < cands.length; ci++) { if (cands[ci] >= raw) { step = cands[ci]; break; } }
-          var lo = Math.floor(mn / step) * step;
-          var hi = Math.ceil(mx / step) * step;
+          var GLINES = 5;
           var gridHtml = "";
-          for (var tv = lo; tv <= hi + 0.001; tv += step) {
+          var seenLbl = {};
+          for (var gi = 0; gi < GLINES; gi++) {
+            var frac = gi / (GLINES - 1);            // 0 (=min value) … 1 (=max value)
+            var tv = mn + frac * rng;
             var gnorm = barMetric === "pace" ? 1 - (tv - mn) / rng : (tv - mn) / rng;
             var top = 100 - (10 + gnorm * 86);
-            if (top < -2 || top > 102) continue;
-            var glbl = barMetric === "power" ? Math.round(tv) : fmtPaceSec2(tv);
+            var rounded = Math.round(tv / 5) * 5;    // nearest 5s (pace) / 5W (power)
+            var glbl = barMetric === "power" ? rounded : fmtPaceSec2(rounded);
+            if (seenLbl[glbl]) continue;             // drop duplicate labels when range is tiny
+            seenLbl[glbl] = 1;
             gridHtml += '<div class="rd4-gl" style="top:' + top.toFixed(1) + '%"><span class="rd4-gl-lbl">' + glbl + "</span></div>";
           }
           gridEl.innerHTML = gridHtml;

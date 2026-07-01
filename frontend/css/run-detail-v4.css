@@ -682,6 +682,32 @@
 .rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; font-size: 12px; color: #5c6886; }
 .rd4-chart2-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .rd4-swatch2 { width: 14px; height: 10px; border-radius: 2px; }
+
+/* Lap-bar hover: frame the hovered bar + floating value tooltip. */
+.rd4-chart2-bars .rd4-cell2 { cursor: pointer; }
+.rd4-cell2--hover .rd4-cbar2 {
+  outline: 2px solid #0b1530;
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.rd4-lap-tip {
+  position: absolute;
+  top: 2px;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  gap: 9px;
+  white-space: nowrap;
+  background: #0b1530;
+  color: #fff;
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(13,30,67,0.25);
+}
+.rd4-lap-tip[hidden] { display: none; }
+.rd4-lap-tip-h { font-weight: 700; }
 .rd4-hr-key2 { width: 16px; height: 0; border-top: 3px solid #ef4444; border-radius: 2px; }
 
 /* Inline name editing */
