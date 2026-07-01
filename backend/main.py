@@ -11710,6 +11710,11 @@ class AdminGoogleLoginToggleIn(BaseModel):
     enabled: bool
 
 
+class AdminCopyUserIn(BaseModel):
+    identifier: str  # PRD user name or UUID
+    overwrite: bool = False
+
+
 @app.get("/api/admin/config/google-login", dependencies=[Depends(require_admin)])
 def admin_get_google_login_config():
     env_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").lower() == "true"
@@ -11732,6 +11737,75 @@ def admin_get_google_login_config():
 def admin_set_google_login_config(body: AdminGoogleLoginToggleIn):
     _set_app_config(_APP_CONFIG_GOOGLE_LOGIN, "true" if body.enabled else "false")
     return JSONResponse({"toggle_enabled": body.enabled})
+
+
+# ── Admin: DB backup + user copy ────────────────────────────────────────────────
+
+@app.get("/api/admin/db/backup", dependencies=[Depends(require_admin)])
+def admin_db_backup():
+    """Stream a pg_dump (custom format) of the current environment's database.
+
+    Restore is intentionally NOT exposed here — use scripts/db_restore.py.
+    """
+    import tempfile
+    from backend.db import database_url, environment
+    from backend.services.db_backup import BackupError, default_backup_name, make_backup
+    from starlette.background import BackgroundTask
+
+    if not database_url:
+        raise HTTPException(status_code=500, detail="No database_url configured")
+
+    filename = default_backup_name(environment)
+    tmp = tempfile.NamedTemporaryFile(prefix="pcbackup-", suffix=".dump", delete=False)
+    tmp.close()
+    try:
+        make_backup(database_url, tmp.name)
+    except BackupError as exc:
+        os.remove(tmp.name)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/octet-stream",
+        filename=filename,
+        background=BackgroundTask(os.remove, tmp.name),
+    )
+
+
+@app.get("/api/admin/prd-users", dependencies=[Depends(require_admin)])
+def admin_list_prd_users():
+    """List users in the PRD database, for the copy-to-UAT picker."""
+    from backend.services.user_copy import UserCopyError, list_prd_users
+
+    try:
+        users = list_prd_users()
+    except UserCopyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return JSONResponse(
+        {
+            "users": [
+                {
+                    "id": str(u["id"]),
+                    "name": u["name"],
+                    "is_active": bool(u["is_active"]),
+                    "is_admin": bool(u["is_admin"]),
+                }
+                for u in users
+            ]
+        }
+    )
+
+
+@app.post("/api/admin/users/copy-to-uat", dependencies=[Depends(require_admin)])
+def admin_copy_user_to_uat(body: AdminCopyUserIn):
+    """Copy one PRD user's full data graph into UAT. Direction is hard-locked."""
+    from backend.services.user_copy import UserCopyError, copy_user_to_uat
+
+    try:
+        result = copy_user_to_uat(body.identifier, overwrite=bool(body.overwrite))
+    except UserCopyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return JSONResponse(result)
 
 
 # ── Sync status endpoint ───────────────────────────────────────────────────────
