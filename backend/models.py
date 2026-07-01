@@ -376,6 +376,7 @@ class DailyMetric(Base):
     energy = Column(Integer, nullable=True)
     mood = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+    kcal_intake = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -404,6 +405,10 @@ class DailyMetric(Base):
         CheckConstraint(
             "mood IS NULL OR (mood >= 1 AND mood <= 5)",
             name="ck_daily_metrics_mood",
+        ),
+        CheckConstraint(
+            "kcal_intake IS NULL OR kcal_intake > 0",
+            name="ck_daily_metrics_kcal_intake",
         ),
     )
 

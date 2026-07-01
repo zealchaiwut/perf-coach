@@ -739,16 +739,18 @@
   var _autoSaveTimer = null;
 
   var _FM_STEPPERS = [
-    { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120, step: 1   },
-    { inputId: 'fm-hrv',    minusId: 'fm-hrv-minus',    plusId: 'fm-hrv-plus',    min: 0,   max: 200, step: 1   },
-    { inputId: 'fm-sleep',  minusId: 'fm-sleep-minus',  plusId: 'fm-sleep-plus',  min: 0,   max: 12,  step: 0.5 },
-    { inputId: 'fm-weight', minusId: 'fm-weight-minus', plusId: 'fm-weight-plus', min: 30,  max: 200, step: 1   },
+    { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120,   step: 1   },
+    { inputId: 'fm-hrv',    minusId: 'fm-hrv-minus',    plusId: 'fm-hrv-plus',    min: 0,   max: 200,   step: 1   },
+    { inputId: 'fm-sleep',  minusId: 'fm-sleep-minus',  plusId: 'fm-sleep-plus',  min: 0,   max: 12,    step: 0.5 },
+    { inputId: 'fm-kcal',   minusId: 'fm-kcal-minus',   plusId: 'fm-kcal-plus',   min: 1,   max: 10000, step: 50  },
+    { inputId: 'fm-weight', minusId: 'fm-weight-minus', plusId: 'fm-weight-plus', min: 30,  max: 200,   step: 1   },
   ];
 
   function _fmBuildPayload() {
     var rhr    = document.getElementById('fm-rhr')   ? document.getElementById('fm-rhr').value.trim()   : '';
     var hrv    = document.getElementById('fm-hrv')   ? document.getElementById('fm-hrv').value.trim()   : '';
     var sleep  = document.getElementById('fm-sleep') ? document.getElementById('fm-sleep').value.trim() : '';
+    var kcal   = document.getElementById('fm-kcal')  ? document.getElementById('fm-kcal').value.trim()  : '';
     var energy = document.getElementById('fm-energy-val') ? document.getElementById('fm-energy-val').value : '';
     var mood   = document.getElementById('fm-mood-val')   ? document.getElementById('fm-mood-val').value   : '';
     var notes  = document.getElementById('fm-notes') ? document.getElementById('fm-notes').value.trim()  : '';
@@ -757,6 +759,7 @@
     if (rhr    !== '') payload.resting_hr  = parseInt(rhr, 10);
     if (hrv    !== '') payload.hrv         = parseInt(hrv, 10);
     if (sleep  !== '') payload.sleep_hours = parseFloat(sleep);
+    if (kcal   !== '') payload.kcal_intake = parseInt(kcal, 10);
     if (energy !== '') payload.energy      = parseInt(energy, 10);
     if (mood   !== '') payload.mood        = parseInt(mood, 10);
     if (notes  !== '') payload.notes       = notes;
@@ -863,6 +866,7 @@
     if (existing.resting_hr  != null) { var el = document.getElementById('fm-rhr');   if (el) el.value = existing.resting_hr; }
     if (existing.hrv         != null) { var el = document.getElementById('fm-hrv');   if (el) el.value = existing.hrv; }
     if (existing.sleep_hours != null) { var el = document.getElementById('fm-sleep'); if (el) el.value = existing.sleep_hours; }
+    if (existing.kcal_intake != null) { var el = document.getElementById('fm-kcal');  if (el) el.value = existing.kcal_intake; }
     if (existing.energy != null) {
       var hidden = document.getElementById('fm-energy-val'); if (hidden) hidden.value = existing.energy;
       var group  = document.getElementById('fm-energy-pills'); if (group) _fmSelectPill(group, existing.energy);
