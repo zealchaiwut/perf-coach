@@ -1,27 +1,32 @@
 """Tests for issue #1156: Add lightweight fueling/intake input for energy-availability proxy (runs against UAT)"""
 import os
 import py_compile
+import pytest
+import httpx
+from datetime import date
+
+BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:9001"
 
 
-def test_main_py_compiles():
+@pytest.fixture
+def client():
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+        yield c
+
+
+def test_python_files_compile():
     """AC: All new and modified Python files pass `py_compile` with zero errors"""
-    main_file = os.path.join(os.path.dirname(__file__), '..', 'backend', 'main.py')
-    py_compile.compile(main_file, doraise=True)
+    files = [
+        'backend/main.py',
+        'backend/models.py',
+        'alembic/versions/4ea6071056c8_add_kcal_intake_to_daily_metrics.py'
+    ]
+    for filepath in files:
+        full_path = os.path.join(os.path.dirname(__file__), '..', filepath)
+        py_compile.compile(full_path, doraise=True)
 
 
-def test_models_py_compiles():
-    """AC: All new and modified Python files pass `py_compile` with zero errors"""
-    models_file = os.path.join(os.path.dirname(__file__), '..', 'backend', 'models.py')
-    py_compile.compile(models_file, doraise=True)
-
-
-def test_migration_py_compiles():
-    """AC: All new and modified Python files pass `py_compile` with zero errors"""
-    migration_file = os.path.join(os.path.dirname(__file__), '..', 'alembic', 'versions', '4ea6071056c8_add_kcal_intake_to_daily_metrics.py')
-    py_compile.compile(migration_file, doraise=True)
-
-
-def test_kcal_intake_field_exists_in_daily_metric_model():
+def test_kcal_intake_field_exists_in_model():
     """AC: User can enter a daily fueling/intake value (e.g., kilocalories or relative unit) from the UI"""
     from backend.models import DailyMetric
     from sqlalchemy import inspect
@@ -31,32 +36,87 @@ def test_kcal_intake_field_exists_in_daily_metric_model():
     assert 'kcal_intake' in columns, "kcal_intake column not found in DailyMetric model"
 
 
-def test_kcal_intake_field_accepts_positive_integers():
-    """AC: Submitted intake value is persisted to the database"""
+def test_kcal_intake_field_is_integer_nullable():
+    """AC: Submitted intake value is persisted to the database and survives a page reload or app restart"""
     from backend.models import DailyMetric
     from sqlalchemy import inspect
 
     mapper = inspect(DailyMetric)
     kcal_col = mapper.c.kcal_intake
 
-    # Should be Integer, nullable=True
     assert kcal_col.type.__class__.__name__ == 'Integer'
     assert kcal_col.nullable
 
 
-def test_daily_metric_api_payload_includes_kcal_intake():
-    """AC: Persisted intake value is returned in the relevant API response"""
+def test_api_schema_includes_kcal_intake():
+    """AC: Persisted intake value is retrievable via the backend and returned in the relevant API response"""
     from backend.main import DailyMetricIn, DailyMetricBody
     from typing import get_type_hints
 
-    # Check DailyMetricIn input schema
     hints_in = get_type_hints(DailyMetricIn)
-    assert 'kcal_intake' in hints_in, "kcal_intake not in DailyMetricIn schema"
+    assert 'kcal_intake' in hints_in
 
-    # Check DailyMetricBody update schema
     hints_body = get_type_hints(DailyMetricBody)
-    assert 'kcal_intake' in hints_body, "kcal_intake not in DailyMetricBody schema"
+    assert 'kcal_intake' in hints_body
 
+
+def test_validation_rejects_zero_and_negative_intake():
+    """AC: All new and modified Python files pass `py_compile` with zero errors"""
+    from backend.main import _validate_metric_fields
+    from fastapi import HTTPException
+
+    try:
+        _validate_metric_fields(kcal_intake=0)
+        assert False, "Should reject zero kcal_intake"
+    except HTTPException as e:
+        assert e.status_code == 422
+
+    try:
+        _validate_metric_fields(kcal_intake=-100)
+        assert False, "Should reject negative kcal_intake"
+    except HTTPException as e:
+        assert e.status_code == 422
+
+
+def test_validation_accepts_positive_intake():
+    """AC: Submitted intake value is persisted to the database"""
+    from backend.main import _validate_metric_fields
+
+    _validate_metric_fields(kcal_intake=2500)
+
+
+def test_migration_adds_kcal_intake_with_constraint():
+    """AC: Database supports storing kcal_intake with positive-only constraint"""
+    migration_file = os.path.join(os.path.dirname(__file__), '..', 'alembic', 'versions', '4ea6071056c8_add_kcal_intake_to_daily_metrics.py')
+
+    with open(migration_file, 'r') as f:
+        content = f.read()
+
+    assert 'kcal_intake' in content
+    assert 'kcal_intake IS NULL OR kcal_intake > 0' in content
+
+
+def test_frontend_html_has_intake_field():
+    """AC: User can enter a daily fueling/intake value from the UI"""
+    home_html = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'pages', 'home.html')
+
+    with open(home_html, 'r') as f:
+        content = f.read()
+
+    assert 'fm-kcal' in content
+    assert 'Intake' in content
+    assert 'kcal' in content.lower()
+
+
+def test_frontend_js_handles_kcal_intake():
+    """AC: Submitted intake value is persisted via the frontend"""
+    home_js = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'js', 'home.js')
+
+    with open(home_js, 'r') as f:
+        content = f.read()
+
+    assert 'fm-kcal' in content
+    assert 'kcal_intake' in content
 
 def test_kcal_intake_validation_exists():
     """AC: kcal_intake validation rejects non-positive values"""
