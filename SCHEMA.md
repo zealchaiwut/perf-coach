@@ -112,7 +112,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90; temperature/humidity added Sprint 96)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -150,6 +150,8 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | efficiency_first_half | float | nullable — power/HR or speed/HR for first half of run |
 | efficiency_second_half | float | nullable — same metric for second half |
 | endurance_signal_source | varchar(20) | nullable — `power_hr` / `speed_hr` |
+| temperature_c | float | nullable — ambient temperature (°C) for heat/humidity normalization (Sprint 96 / #1168) |
+| humidity_pct | float | nullable — relative humidity (0–100) for heat/humidity normalization (Sprint 96 / #1168) |
 | created_at | timestamptz | |
 
 Child tables: `workout_exercises`, `workout_splits`.
@@ -749,3 +751,21 @@ Per-user, per-date economy stimulus and lagged score-ceiling bonus, derived from
 | computed_at | timestamptz | server default now() |
 
 Unique: `(user_id, snapshot_date)` (`uq_economy_ceiling_snapshots_user_date`). Index: `ix_economy_ceiling_snapshots_user_date` on `(user_id, snapshot_date)`. Checks: `ck_economy_ceiling_snapshots_stimulus_non_negative`, `ck_economy_ceiling_snapshots_bonus_non_negative`. Migration: `02ea347c3bd1`.
+
+---
+
+## user_banister_params _(added Sprint 96)_
+
+Per-user fitted Banister impulse-response model parameters (τ₁, τ₂, k₁, k₂) with versioned history (`backend/services/banister_params.py`). Each fit is an immutable version snapshot — `save_banister_params` always inserts a new row and prior rows are never overwritten, giving a full audit trail of refits. Users with no stored fit fall back to population defaults (τ1=50.0, τ2=11.0, k1=1.0, k2=2.0).
+
+| column | type | notes |
+|--------|------|-------|
+| id | int PK | autoincrement |
+| user_id | UUID FK→users | CASCADE |
+| tau1 | float | NOT NULL — fitness time constant (days) |
+| tau2 | float | NOT NULL — fatigue time constant (days) |
+| k1 | float | NOT NULL — fitness gain |
+| k2 | float | NOT NULL — fatigue gain |
+| fitted_at | timestamptz | NOT NULL |
+
+Index: `ix_user_banister_params_user_fitted_at` on `(user_id, fitted_at)`. Migration: `5552a8d45c57`.
