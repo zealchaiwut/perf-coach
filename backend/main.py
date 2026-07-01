@@ -12687,6 +12687,7 @@ def _compute_calibration_status(
     last_calibrated_race,
     snapshot_count_90: int,
     snapshot_count_42: int,
+    race_count_90: int = 0,
 ) -> dict:
     """Derive calibration status from pre-fetched DB values.
 
@@ -12717,7 +12718,15 @@ def _compute_calibration_status(
         ts = getattr(last_calibrated_race, "updated_at", None)
         if ts is not None:
             last_calibration_date = ts.date().isoformat()
+        else:
+            # Older done races may have no updated_at; fall back to the race date.
+            rd = getattr(last_calibrated_race, "race_date", None)
+            if rd is not None:
+                last_calibration_date = rd.isoformat()
 
+    # Snapshot density gives the baseline; recent finished races (a real result
+    # within the 90-day window) are strong calibration evidence and raise the
+    # sufficiency/confidence floor: ≥2 races → Sufficient/High, 1 → Low/Medium.
     if snapshot_count_90 >= _CALIB_SUFFICIENCY_HIGH:
         data_sufficiency = "Sufficient"
     elif snapshot_count_90 >= _CALIB_SUFFICIENCY_LOW:
@@ -12731,6 +12740,19 @@ def _compute_calibration_status(
         band_confidence = "Medium"
     else:
         band_confidence = "Low"
+
+    _rank = {"Insufficient": 0, "Low": 1, "Sufficient": 2}
+    _band_rank = {"Low": 0, "Medium": 1, "High": 2}
+    if race_count_90 >= 2:
+        race_suff, race_band = "Sufficient", "High"
+    elif race_count_90 == 1:
+        race_suff, race_band = "Low", "Medium"
+    else:
+        race_suff, race_band = "Insufficient", "Low"
+    if _rank[race_suff] > _rank[data_sufficiency]:
+        data_sufficiency = race_suff
+    if _band_rank[race_band] > _band_rank[band_confidence]:
+        band_confidence = race_band
 
     return {
         "last_calibration_date": last_calibration_date,
@@ -12792,7 +12814,22 @@ def get_calibration_status(user: User = Depends(resolve_user)):
             .count()
         )
 
-    return JSONResponse(_compute_calibration_status(last_race, count_90, count_42))
+        # Finished races (real result) within the 90-day window count as
+        # calibration records (issue #1226).
+        race_count_90 = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.status == "done",
+                Race.actual_time_seconds.isnot(None),
+                Race.race_date >= window_90,
+            )
+            .count()
+        )
+
+    return JSONResponse(
+        _compute_calibration_status(last_race, count_90, count_42, race_count_90)
+    )
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
