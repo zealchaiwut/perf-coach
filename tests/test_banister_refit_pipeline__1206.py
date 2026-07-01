@@ -19,7 +19,7 @@ import uuid
 from datetime import date, datetime, timezone, timedelta
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
