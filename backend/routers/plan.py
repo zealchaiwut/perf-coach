@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session as _Session
 from backend.auth import COOKIE_NAME, get_current_user
 from backend.db import engine as _engine
 from backend.models import (
+    Race as _Race,
     TrainingPlan as _TrainingPlan,
     User,
     UserPreferences as _UserPreferences,
@@ -390,6 +391,30 @@ async def get_plan_projection(
         for r in races
     ]
 
+    # Find the most recent past B race with an actual result (issue #1162).
+    # This re-anchors forward projections to the expressed race-day fitness.
+    # Querying at request time means delete/edit propagates naturally (AC4).
+    today = _date.today()
+    b_race_result = None
+    with _Session(_engine) as db:
+        b_race_rows = (
+            db.query(_Race)
+            .filter(
+                _Race.user_id == plan.user_id,
+                _Race.priority == "B",
+                _Race.actual_time_seconds.isnot(None),
+                _Race.race_date <= today,
+            )
+            .order_by(_Race.race_date.desc())
+            .first()
+        )
+        if b_race_rows is not None:
+            b_race_result = {
+                "race_date": b_race_rows.race_date,
+                "actual_time_seconds": b_race_rows.actual_time_seconds,
+                "distance_km": float(b_race_rows.distance_km),
+            }
+
     payload = _proj.build_plan_projection_payload(
         start_ctl=start_ctl,
         start_atl=start_atl,
@@ -397,5 +422,6 @@ async def get_plan_projection(
         planned_load=planned_load,
         races=race_inputs,
         thresholds=thresholds,
+        b_race_result=b_race_result,
     )
     return JSONResponse(payload)
