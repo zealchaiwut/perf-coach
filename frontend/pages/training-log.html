@@ -4696,7 +4696,6 @@
         border-radius: 5px;
         background: var(--pm-amberSoft);
         color: var(--pm-amber);
-        margin-left: auto;
       }
       .plan-merged .pm-tgt {
         font-size: 9px;
@@ -4706,12 +4705,13 @@
         border-radius: 5px;
         background: var(--pm-blueSoft);
         color: var(--pm-lavHi);
-        margin-left: auto;
       }
+      /* Actions are always pushed to the far right of the card header,
+         regardless of which tags (recalibrates/target) are present. */
       .plan-merged .pm-rcactions {
         display: flex;
         gap: 6px;
-        margin-left: 8px;
+        margin-left: auto;
       }
       .plan-merged .pm-rcact {
         border: 1px solid var(--pm-line);
