@@ -27,6 +27,8 @@ def race_to_dict(race: Race) -> dict:
         "type": race.race_type or "race",
         "priority": race.priority,
         "goal_time_seconds": race.goal_time_seconds,
+        "actual_time_seconds": race.actual_time_seconds,
+        "status": race.status,
         "name": race.name,
         "created_at": race.created_at.isoformat() if race.created_at else None,
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
@@ -73,6 +75,8 @@ def create_race(
     name: str = "",
     goal_time_seconds: Optional[int] = None,
     priority: str = "A",
+    status: str = "planned",
+    actual_time_seconds: Optional[int] = None,
 ) -> dict:
     with Session(engine) as db:
         race = Race(
@@ -83,7 +87,8 @@ def create_race(
             name=name,
             goal_time_seconds=goal_time_seconds,
             priority=priority,
-            status="planned",
+            status=status,
+            actual_time_seconds=actual_time_seconds,
         )
         db.add(race)
         db.commit()

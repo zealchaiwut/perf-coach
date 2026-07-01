@@ -77,6 +77,8 @@ class _RaceCreateBody(BaseModel):
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
     priority: Optional[str] = None
+    status: Optional[str] = None
+    actual_time_seconds: Optional[int] = None
 
 
 class _RacePatchBody(BaseModel):
@@ -179,6 +181,12 @@ async def create_race(
     date = _validate_date(body.date)
     _validate_distance(body.distance)
     _validate_race_type(body.type)
+    status = body.status or "planned"
+    if status not in ("planned", "done", "abandoned"):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "status", "error": "status must be one of: planned, done, abandoned"},
+        )
     data = _svc.create_race(
         plan_id=pid,
         date=date,
@@ -187,6 +195,8 @@ async def create_race(
         name=body.name or "",
         goal_time_seconds=body.goal_time_seconds,
         priority=_resolve_priority(body.type, body.priority),
+        status=status,
+        actual_time_seconds=body.actual_time_seconds,
     )
     return JSONResponse(status_code=201, content=data)
 
