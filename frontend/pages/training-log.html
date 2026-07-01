@@ -3610,6 +3610,108 @@
         color: var(--text-primary);
         box-shadow: 0 1px 3px rgba(20, 28, 70, 0.12);
       }
+      /* Pick from history */
+      .plan-modal-history-toggle {
+        width: 100%;
+        border: 1px dashed var(--card-border);
+        background: #f8fafd;
+        border-radius: 9px;
+        padding: 9px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        color: #3563d4;
+        cursor: pointer;
+        text-align: center;
+      }
+      .plan-modal-history-toggle:hover {
+        background: #eef2fb;
+      }
+      .plan-modal-history-panel {
+        margin-top: 8px;
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .plan-modal-history-msg {
+        padding: 14px;
+        font-size: 12.5px;
+        color: var(--text-secondary);
+        text-align: center;
+      }
+      .plan-modal-history-list {
+        max-height: 240px;
+        overflow-y: auto;
+      }
+      .plan-modal-history-row {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        width: 100%;
+        text-align: left;
+        border: none;
+        border-bottom: 1px solid var(--card-border);
+        background: #fff;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .plan-modal-history-row:last-child {
+        border-bottom: none;
+      }
+      .plan-modal-history-row:hover {
+        background: #f2f5ff;
+      }
+      .plan-modal-history-row-top {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        font-family: var(--mono, "JetBrains Mono", monospace);
+      }
+      .plan-modal-history-row-name {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      /* Completed-race actual-time banner */
+      .plan-modal-actual {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: #dcfce7;
+        border: 1px solid #bbf7d0;
+      }
+      .plan-modal-actual-lab {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #15803d;
+      }
+      .plan-modal-actual-val {
+        font-size: 16px;
+        font-weight: 700;
+        font-family: var(--mono, "JetBrains Mono", monospace);
+        color: #14532d;
+      }
+      .plan-modal-actual-clear {
+        margin-left: auto;
+        border: 1px solid #bbf7d0;
+        background: #fff;
+        border-radius: 7px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        color: #15803d;
+        cursor: pointer;
+      }
+      .plan-modal-actual-clear:hover {
+        background: #f0fdf4;
+      }
       /* Distance quick-fill */
       .plan-modal-quick {
         display: flex;
@@ -6049,6 +6151,54 @@
             Checkpoint
           </button>
         </div>
+
+        <!-- Pick from history (only shown when ADDING a race) -->
+        <div class="plan-modal-field" id="plan-modal-history-field">
+          <button
+            type="button"
+            id="plan-modal-history-toggle"
+            class="plan-modal-history-toggle"
+          >
+            <span aria-hidden="true">↧</span> Pick from history
+          </button>
+          <div
+            id="plan-modal-history-panel"
+            class="plan-modal-history-panel"
+            style="display: none"
+          >
+            <div id="plan-modal-history-loading" class="plan-modal-history-msg">
+              Loading past runs…
+            </div>
+            <div
+              id="plan-modal-history-empty"
+              class="plan-modal-history-msg"
+              style="display: none"
+            >
+              No past runs over 10 km logged.
+            </div>
+            <div id="plan-modal-history-list" class="plan-modal-history-list"></div>
+          </div>
+        </div>
+
+        <!-- Completed-race banner (shown when a history run was picked) -->
+        <div
+          id="plan-modal-actual-field"
+          class="plan-modal-field"
+          style="display: none"
+        >
+          <div class="plan-modal-actual">
+            <span class="plan-modal-actual-lab">Completed race · actual time</span>
+            <span class="plan-modal-actual-val" id="plan-modal-actual-val">—</span>
+            <button
+              type="button"
+              id="plan-modal-actual-clear"
+              class="plan-modal-actual-clear"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
         <div class="plan-modal-field">
           <label class="plan-modal-label" for="plan-modal-name">Name</label>
           <input
