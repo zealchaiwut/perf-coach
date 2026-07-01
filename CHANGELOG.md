@@ -1,5 +1,16 @@
 # Changelog
 
+## Sprint 95 — Bodyweight EWMA trend, energy-availability proxy, and body-composition modifier
+
+- #1153: Add daily bodyweight logging by date
+- #1154: Compute bodyweight trend via EWMA smoothing
+- #1155: Compute weekly percent bodyweight rate of change from EWMA
+- #1157: Compute energy availability proxy and flag low state
+- #1158: Model body-modifier sign-flip around deficit threshold
+- #1159: Wire body modifier into power-to-weight score term
+- #1160: Build weight-trend view with EWMA and weekly rate
+- #1161: Surface guardrail warning when loss is excessive or EA is low
+
 ## Sprint 94 — Strength & plyo session logging and the economy ceiling model
 
 - #1142: Add strength session logging table and model

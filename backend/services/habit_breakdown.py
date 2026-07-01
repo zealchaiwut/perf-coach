@@ -7,7 +7,7 @@ Caller passes already-fetched habit row and logs.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 from backend.services.habit_completion import is_period_met

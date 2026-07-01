@@ -63,6 +63,7 @@ from backend.services.specificity_progress import specificity_progress as _speci
 from backend.services.daily_load import daily_load_series as _daily_load_series
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
+from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
@@ -88,6 +89,7 @@ from backend.services.race_finish_estimator import score_to_estimated_finish_tim
 from backend.routers.plan import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
+from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
@@ -808,6 +810,67 @@ def list_weight_entries(
         }
 
         return JSONResponse({"entries": entries, "count": count, "summary": summary})
+
+
+class WeightEntryByDateIn(BaseModel):
+    entry_date: str  # YYYY-MM-DD
+    weight_kg: float
+    notes: Optional[str] = None
+
+
+@app.put("/api/weight-entries/by-date")
+def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(resolve_user)):
+    """Upsert a daily bodyweight entry for a given date.
+
+    If an entry (with entry_time=NULL) already exists for this user+date, it is
+    updated in-place.  Otherwise a new row is created.  Submitting twice for the
+    same date never creates a duplicate.
+    """
+    uid = user.id
+
+    if not (20 <= body.weight_kg <= 300):
+        raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    if body.notes is not None and len(body.notes) > 500:
+        raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
+
+    try:
+        entry_date = _date.fromisoformat(body.entry_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid entry_date; use YYYY-MM-DD")
+    if entry_date > _today_bkk() + _timedelta(days=1):
+        raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
+
+    with Session(engine) as session:
+        existing = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date == entry_date,
+                WeightEntry.entry_time.is_(None),
+            )
+            .first()
+        )
+        if existing is not None:
+            existing.weight_kg = body.weight_kg
+            if body.notes is not None:
+                existing.notes = body.notes
+            existing.updated_at = _datetime.now(_timezone.utc)
+            session.commit()
+            session.refresh(existing)
+            return JSONResponse(_weight_entry_dict(existing))
+        else:
+            entry = WeightEntry(
+                user_id=uid,
+                entry_date=entry_date,
+                entry_time=None,
+                weight_kg=body.weight_kg,
+                notes=body.notes,
+                source="manual",
+            )
+            session.add(entry)
+            session.commit()
+            session.refresh(entry)
+            return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
 
 
 @app.patch("/api/weight-entries/{entry_id}")
@@ -1724,6 +1787,26 @@ def patch_training_plan(plan_id: str, body: TrainingPlanPatchIn, user: User = De
         return JSONResponse(_training_plan_dict(plan))
 
 
+# ── Body-modifier guardrail endpoint (issue #1161) ────────────────────────────
+
+@app.get("/api/body-modifier/guardrail")
+def get_body_modifier_guardrail(user: User = Depends(resolve_user)):
+    """Return the body-modifier guardrail warning state for the authenticated user.
+
+    Warns when weight-loss velocity is excessive or energy availability (EA) falls
+    into the penalty region.  The result is framed as a performance/health risk
+    and auto-clears when both conditions return to safe bounds.
+
+    Response keys:
+      guardrail_state   — "warn" or "ok"
+      guardrail_message — plain-English risk message (empty string when "ok")
+      in_penalty_loss   — True when loss rate exceeds the penalty-zone threshold
+      in_penalty_ea     — True when EA proxy is below the penalty-region boundary
+    """
+    result = get_body_modifier_guardrail_for_user(user.id)
+    return JSONResponse(result)
+
+
 # ── Weight chart endpoint ──────────────────────────────────────────────────────
 
 def _advance_one_month(d: _date) -> _date:
@@ -1858,6 +1941,38 @@ def get_weight_chart(
             day = from_d + _timedelta(days=i)
             trend.append({"date": str(day), "weight_kg": _ma_for_day(day)})
 
+        # EWMA series: compute on ALL fetched entries (includes warmup before from_d for
+        # convergence) then build a dense daily series for [from_d, to_d] carrying the
+        # last EWMA value forward on days without entries.
+        _ewma_input = [
+            {
+                "date": (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date))),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in all_entries
+        ]
+        _ewma_raw_values = _compute_ewma(_ewma_input)
+        _ewma_by_date: dict = {e["date"]: v for e, v in zip(_ewma_input, _ewma_raw_values)}
+        ewma_series = []
+        _last_ewma: float | None = None
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            if day in _ewma_by_date:
+                _last_ewma = round(_ewma_by_date[day], 4)
+            ewma_series.append({"date": str(day), "weight_kg": _last_ewma})
+
+        # Weekly rate derived from EWMA slope: ewma at to_d minus ewma 7 days earlier.
+        # This reflects trend momentum, not a raw entry-to-entry delta.
+        _ewma_non_null = [(i, p["weight_kg"]) for i, p in enumerate(ewma_series) if p["weight_kg"] is not None]
+        weekly_rate_ewma_kg: float | None = None
+        if len(_ewma_non_null) >= 2:
+            _last_ewma_idx, _last_ewma_val = _ewma_non_null[-1]
+            _target_earlier_idx = _last_ewma_idx - 7
+            _earlier_candidates = [(i, v) for i, v in _ewma_non_null if i <= max(_target_earlier_idx, 0)]
+            if _earlier_candidates and _target_earlier_idx >= 0:
+                _, _earlier_ewma_val = _earlier_candidates[-1]
+                weekly_rate_ewma_kg = round(_last_ewma_val - _earlier_ewma_val, 3)
+
         # Stats
         in_range = [e for e in all_entries if (
             from_d
@@ -1902,6 +2017,8 @@ def get_weight_chart(
             "current_avg_kg": current_avg_kg,
             "delta_7d_kg": delta_7d_kg,
             "delta_30d_kg": delta_30d_kg,
+            "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
+            "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
         }
 
         # Always fetch active target (needed for plan_series / milestones / today_marker)
@@ -2002,6 +2119,7 @@ def get_weight_chart(
             "actuals": actuals,
             "past_actuals": past_actuals,
             "trend": trend,
+            "ewma": ewma_series,
             "stats": stats,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
@@ -6780,6 +6898,7 @@ class DailyMetricIn(BaseModel):
     energy: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    kcal_intake: Optional[int] = None
 
 
 class DailyMetricBody(BaseModel):
@@ -6790,6 +6909,7 @@ class DailyMetricBody(BaseModel):
     energy: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    kcal_intake: Optional[int] = None
 
 
 def _validate_metric_fields(
@@ -6799,6 +6919,7 @@ def _validate_metric_fields(
     sleep_quality: Optional[int] = None,
     energy: Optional[int] = None,
     mood: Optional[int] = None,
+    kcal_intake: Optional[int] = None,
 ) -> None:
     if resting_hr is not None and not (20 <= resting_hr <= 200):
         raise HTTPException(status_code=422, detail={"field": "resting_hr", "error": "resting_hr must be between 20 and 200"})
@@ -6812,6 +6933,8 @@ def _validate_metric_fields(
         raise HTTPException(status_code=422, detail={"field": "energy", "error": "energy must be between 1 and 5"})
     if mood is not None and not (1 <= mood <= 5):
         raise HTTPException(status_code=422, detail={"field": "mood", "error": "mood must be between 1 and 5"})
+    if kcal_intake is not None and kcal_intake <= 0:
+        raise HTTPException(status_code=422, detail={"field": "kcal_intake", "error": "kcal_intake must be a positive integer"})
 
 
 def _daily_metric_dict(m: DailyMetric) -> dict:
@@ -6826,6 +6949,7 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
         "energy": m.energy,
         "mood": m.mood,
         "notes": m.notes,
+        "kcal_intake": m.kcal_intake,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
@@ -6900,6 +7024,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = DailyMetric(
@@ -6912,6 +7037,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
             energy=body.energy,
             mood=body.mood,
             notes=body.notes,
+            kcal_intake=body.kcal_intake,
         )
         session.add(row)
         try:
@@ -6947,6 +7073,7 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = (
@@ -6970,6 +7097,8 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
             row.mood = body.mood
         if body.notes is not None:
             row.notes = body.notes
+        if body.kcal_intake is not None:
+            row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
         return JSONResponse(_daily_metric_dict(row))
@@ -6996,6 +7125,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         sleep_quality=body.sleep_quality,
         energy=body.energy,
         mood=body.mood,
+        kcal_intake=body.kcal_intake,
     )
     with Session(engine) as session:
         row = (
@@ -7014,6 +7144,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
                 energy=body.energy,
                 mood=body.mood,
                 notes=body.notes,
+                kcal_intake=body.kcal_intake,
             )
             session.add(row)
         else:
@@ -7024,6 +7155,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
             row.energy = body.energy
             row.mood = body.mood
             row.notes = body.notes
+            row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
         return JSONResponse(_daily_metric_dict(row))
