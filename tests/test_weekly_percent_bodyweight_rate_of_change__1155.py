@@ -2,7 +2,7 @@
 import os
 import pytest
 import httpx
-from datetime import date, timedelta
+from datetime import date
 from backend.services.weight_ewma import compute_ewma
 
 
@@ -148,7 +148,6 @@ def test_weekly_percent_bodyweight_rate_of_change__returned_value_format():
 def test_py_compile_syntax_check(tmp_path):
     """AC: py_compile (or python -m py_compile <file>) exits with code 0 on every modified source file."""
     import py_compile
-    import tempfile
 
     # Create a simple test to verify we can compile Python files
     test_file = tmp_path / "test_syntax.py"
