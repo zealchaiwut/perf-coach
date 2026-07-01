@@ -71,6 +71,7 @@ def create_race(
     race_type: str,
     name: str = "",
     goal_time_seconds: Optional[int] = None,
+    priority: str = "A",
 ) -> dict:
     with Session(engine) as db:
         race = Race(
@@ -80,7 +81,7 @@ def create_race(
             race_type=race_type,
             name=name,
             goal_time_seconds=goal_time_seconds,
-            priority="A",
+            priority=priority,
             status="planned",
         )
         db.add(race)
@@ -99,6 +100,7 @@ def update_race(
     name: Optional[str] = None,
     goal_time_seconds: Optional[int] = None,
     goal_time_set: bool = False,
+    priority: Optional[str] = None,
 ) -> Optional[dict]:
     with Session(engine) as db:
         race = db.get(Race, race_id)
@@ -112,6 +114,8 @@ def update_race(
             race.race_type = race_type
         if name is not None:
             race.name = name
+        if priority is not None:
+            race.priority = priority
         if goal_time_set:
             race.goal_time_seconds = goal_time_seconds
         pace, _ = _compute_goal_pace(
