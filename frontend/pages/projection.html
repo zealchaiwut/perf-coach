@@ -446,6 +446,86 @@
         background: #fecaca;
       }
 
+      /* ── Calibration status card ── */
+      .proj-calib-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      @media (max-width: 480px) {
+        .proj-calib-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .proj-calib-tile {
+        background: #f7f9fd;
+        border-radius: 10px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .proj-calib-tile-label {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+
+      .proj-calib-tile-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .proj-calib-tile-value.proj-calib-not-set {
+        color: var(--text-tertiary);
+        font-weight: 400;
+        font-style: italic;
+      }
+
+      .proj-calib-badge {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 6px;
+      }
+
+      .proj-calib-badge-sufficient {
+        background: #dff5d6;
+        color: #2d5e10;
+      }
+
+      .proj-calib-badge-low {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .proj-calib-badge-insufficient {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .proj-calib-badge-high {
+        background: #dff5d6;
+        color: #2d5e10;
+      }
+
+      .proj-calib-badge-medium {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .proj-calib-badge-low-conf {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
       /* ── Economy contribution row ── */
       .proj-economy-row {
         margin-top: 14px;
@@ -521,6 +601,59 @@
           >
         </div>
       </div>
+
+      <!-- ── Calibration status ── -->
+      <section
+        class="proj-card"
+        aria-label="Calibration status"
+        id="proj-calib-card"
+      >
+        <div class="proj-card-label">Calibration Status</div>
+        <div class="proj-calib-grid" role="list">
+          <div
+            class="proj-calib-tile"
+            role="listitem"
+            aria-label="Last recalibrated"
+          >
+            <div class="proj-calib-tile-label">Last Recalibrated</div>
+            <div
+              class="proj-calib-tile-value proj-calib-not-set"
+              id="proj-calib-date"
+              aria-live="polite"
+            >
+              Not yet calibrated
+            </div>
+          </div>
+          <div
+            class="proj-calib-tile"
+            role="listitem"
+            aria-label="Data sufficiency"
+          >
+            <div class="proj-calib-tile-label">Data Sufficiency</div>
+            <div
+              class="proj-calib-tile-value proj-calib-not-set"
+              id="proj-calib-sufficiency"
+              aria-live="polite"
+            >
+              Not yet calibrated
+            </div>
+          </div>
+          <div
+            class="proj-calib-tile"
+            role="listitem"
+            aria-label="Band confidence"
+          >
+            <div class="proj-calib-tile-label">Band Confidence</div>
+            <div
+              class="proj-calib-tile-value proj-calib-not-set"
+              id="proj-calib-confidence"
+              aria-live="polite"
+            >
+              Not yet calibrated
+            </div>
+          </div>
+        </div>
+      </section>
 
       <!-- ── Pace / form curve ── -->
       <div class="proj-card">

@@ -12415,6 +12415,130 @@ def accept_calibration(
         })
 
 
+# ── Calibration status ────────────────────────────────────────────────────────
+
+# Thresholds derived from the CTL model time constant so they scale with the
+# underlying model rather than being bare magic numbers.
+_CALIB_WINDOW_90: int = CTL_DAYS * 2 + 6   # 90-day sufficiency window
+_CALIB_WINDOW_42: int = CTL_DAYS            # one CTL period = confidence window
+_CALIB_SUFFICIENCY_HIGH: int = CTL_DAYS * 2  # ≥84 snapshots in 90 days → Sufficient
+_CALIB_SUFFICIENCY_LOW: int = CTL_DAYS       # ≥42 → Low
+_CALIB_BAND_HIGH: int = int(CTL_DAYS * 5 / 6)  # ≥35 snapshots in 42 days → High
+_CALIB_BAND_MEDIUM: int = CTL_DAYS // 2         # ≥21 → Medium
+
+
+def _compute_calibration_status(
+    last_calibrated_race,
+    snapshot_count_90: int,
+    snapshot_count_42: int,
+) -> dict:
+    """Derive calibration status from pre-fetched DB values.
+
+    Pure function — no DB access. The calling endpoint fetches the necessary
+    values and passes them in so this function is independently testable.
+
+    Parameters
+    ----------
+    last_calibrated_race:
+        The most recent Race with status='done' and actual_time_seconds set,
+        or None if the user has never calibrated.
+    snapshot_count_90:
+        Number of TrainingLoadSnapshot rows for this user in the past 90 days.
+    snapshot_count_42:
+        Number of TrainingLoadSnapshot rows for this user in the past 42 days
+        (one CTL period).
+
+    Returns
+    -------
+    dict with keys:
+        last_calibration_date — ISO date string or None
+        data_sufficiency      — 'Sufficient', 'Low', or 'Insufficient'
+        band_confidence       — 'High', 'Medium', or 'Low'
+        calibrated            — bool
+    """
+    last_calibration_date = None
+    if last_calibrated_race is not None:
+        ts = getattr(last_calibrated_race, "updated_at", None)
+        if ts is not None:
+            last_calibration_date = ts.date().isoformat()
+
+    if snapshot_count_90 >= _CALIB_SUFFICIENCY_HIGH:
+        data_sufficiency = "Sufficient"
+    elif snapshot_count_90 >= _CALIB_SUFFICIENCY_LOW:
+        data_sufficiency = "Low"
+    else:
+        data_sufficiency = "Insufficient"
+
+    if snapshot_count_42 >= _CALIB_BAND_HIGH:
+        band_confidence = "High"
+    elif snapshot_count_42 >= _CALIB_BAND_MEDIUM:
+        band_confidence = "Medium"
+    else:
+        band_confidence = "Low"
+
+    return {
+        "last_calibration_date": last_calibration_date,
+        "data_sufficiency": data_sufficiency,
+        "band_confidence": band_confidence,
+        "calibrated": last_calibration_date is not None,
+    }
+
+
+@app.get("/api/calibration/status")
+def get_calibration_status(user: User = Depends(resolve_user)):
+    """Return calibration status for the current user (issue #1165).
+
+    Surfaces three model-level indicators so users can assess the trustworthiness
+    of model outputs and know when a recalibration may be needed:
+
+    - last_calibration_date: date of the most recent race marked as done with
+      an actual result (i.e. the last time calibrate_race was called).
+    - data_sufficiency: quality label based on training snapshot density in the
+      past 90 days ('Sufficient', 'Low', or 'Insufficient').
+    - band_confidence: confidence label based on training snapshot density in
+      the past 42 days (one CTL period) — 'High', 'Medium', or 'Low'.
+    - calibrated: boolean, false when the user has never calibrated.
+
+    All values are derived from model constants (CTL_DAYS) and live DB state —
+    nothing is hardcoded.
+    """
+    today = _date.today()
+    window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
+    window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
+
+    with Session(engine) as db:
+        last_race = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.status == "done",
+                Race.actual_time_seconds.isnot(None),
+            )
+            .order_by(Race.updated_at.desc())
+            .first()
+        )
+
+        count_90 = (
+            db.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user.id,
+                TrainingLoadSnapshot.snapshot_date >= window_90,
+            )
+            .count()
+        )
+
+        count_42 = (
+            db.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user.id,
+                TrainingLoadSnapshot.snapshot_date >= window_42,
+            )
+            .count()
+        )
+
+    return JSONResponse(_compute_calibration_status(last_race, count_90, count_42))
+
+
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
 
 
