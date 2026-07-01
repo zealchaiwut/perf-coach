@@ -4704,17 +4704,8 @@
     .sd-tile {
       background: var(--tile, #f7f9fd);
       border-radius: 8px;
-      padding: 9px 10px;
-      text-align: center;
-    }
-
-    .sd-tile-val {
-      font-family: var(--mono, 'JetBrains Mono', monospace);
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: var(--ink, var(--text-primary));
-      line-height: 1.05;
-      letter-spacing: -0.02em;
+      padding: 10px 12px;
+      text-align: left;
     }
 
     .sd-tile-label {
@@ -4722,8 +4713,24 @@
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      color: var(--text-tertiary, #9aa3b2);
+      margin-bottom: 5px;
+    }
+
+    .sd-tile-val {
+      font-family: var(--mono, 'JetBrains Mono', monospace);
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: var(--ink, var(--text-primary));
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+
+    .sd-tile-unit {
+      font-size: 0.8125rem;
+      font-weight: 600;
       color: var(--text-secondary);
-      margin-top: 3px;
+      letter-spacing: 0;
     }
 
     /* Chip row */
@@ -4747,6 +4754,20 @@
 
     .sd-chip--pos { background: var(--green-soft, #dff5d6); color: var(--green, #2d5e10); }
     .sd-chip--neg { background: var(--red-soft, #ffd9d9); color: var(--red, #7a1a1a); }
+    .sd-chip--form { background: #e6eafe; color: #4f46e5; }
+
+    .sd-new-badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: #e6eafe;
+      color: #4f46e5;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      vertical-align: middle;
+    }
     .sd-chip--neu { background: #f0f4fa; color: var(--text-secondary); }
 
     /* Weekly note */
@@ -4885,7 +4906,7 @@
       <!-- Summary digest card (issue #1058) -->
       <div id="summary-digest-card" class="log-card" hidden>
         <div class="sd-header">
-          <span class="sd-title">Summary</span>
+          <span class="sd-title">Summary<span class="sd-new-badge">NEW</span></span>
           <div class="sd-toggle" role="group" aria-label="Summary period">
             <button type="button" class="sd-toggle-btn is-active" data-period="week" aria-pressed="true">This week</button>
             <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">This month</button>

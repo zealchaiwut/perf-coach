@@ -1089,7 +1089,7 @@
     if (halves && halves.decPct > 0) {
       decBlock =
         '<section class="rd4-card rd4-dec"><h2 class="rd4-sec-title">Aerobic decoupling · power vs HR</h2>' +
-        '<div class="rd4-dec-head"><span class="rd4-dec-pct">+' +
+        '<div class="rd4-dec-head"><span class="rd4-dec-pct">-' +
         halves.decPct +
         '%</span><p class="rd4-dec-copy">Efficiency dropped in the second half (HR ~' +
         halves.hr1 +
@@ -1151,31 +1151,40 @@
     var hint = w.contributes_to;
     var hasES = es != null;
     var hasSS = ss != null;
-    if (!hasES && !hasSS) {
+    // Signed value: "+0.3" / "-0.2" / "—" when no numeric signal this session.
+    function sigVal(v) {
+      if (v == null) return "—";
+      var n = parseFloat(v.toFixed(3));
+      return (n > 0 ? "+" : "") + n;
+    }
+    function sigRow(lbl, v, note) {
+      return (
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">' + lbl + "</span>" +
+        '<span class="rd4-signal-vwrap">' +
+        '<span class="rd4-signal-val">' + sigVal(v) + "</span>" +
+        (note ? '<span class="rd4-signal-note">· ' + esc(note) + "</span>" : "") +
+        "</span>" +
+        "</div>"
+      );
+    }
+    var signalTitle =
+      '<h2 class="rd4-sec-title">This session\'s signal' +
+      '<span class="rd4-new-badge">NEW</span></h2>';
+    if (!hasES && !hasSS && !esNote && !ssNote) {
       signalBlock =
         '<section class="rd4-card rd4-signal">' +
-        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        signalTitle +
         '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
         "</section>";
     } else {
-      var esRow =
-        '<div class="rd4-signal-row">' +
-        '<span class="rd4-signal-lbl">Endurance</span>' +
-        (hasES
-          ? '<span class="rd4-signal-val">' + parseFloat(es.toFixed(3)) + "</span>"
-          : '<em class="rd4-signal-note">' + esc(esNote || "—") + "</em>") +
-        "</div>";
-      var ssRow =
-        '<div class="rd4-signal-row">' +
-        '<span class="rd4-signal-lbl">Speed</span>' +
-        (hasSS
-          ? '<span class="rd4-signal-val">' + parseFloat(ss.toFixed(3)) + "</span>"
-          : '<em class="rd4-signal-note">' + esc(ssNote || "—") + "</em>") +
-        "</div>";
       signalBlock =
         '<section class="rd4-card rd4-signal">' +
-        '<h2 class="rd4-sec-title">This session signal</h2>' +
-        '<div class="rd4-signal-rows">' + esRow + ssRow + "</div>" +
+        signalTitle +
+        '<div class="rd4-signal-rows">' +
+        sigRow("Endurance signal", es, esNote) +
+        sigRow("Speed signal", ss, ssNote) +
+        "</div>" +
         (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
         "</section>";
     }
@@ -1239,6 +1248,7 @@
       html:
         '<div class="rd4-stack">' +
         header +
+        signalBlock +
         load +
         pzBlock +
         profileBlock +
@@ -1246,7 +1256,6 @@
         intervalsBlock +
         decBlock +
         effSnap +
-        signalBlock +
         routeBlock +
         srcBlock +
         "</div>",
@@ -1466,9 +1475,30 @@
         })
         .join("");
 
-      // gridlines + axis
+      // Labeled value gridlines: ~5 nice ticks from min→max, placed with the
+      // same normalization as the bars so lines and bar-tops share one scale.
       var gridEl = container.querySelector("#rd4-lap-grid");
-      if (gridEl) gridEl.innerHTML = gridSpans2(4);
+      if (gridEl) {
+        if (!nums.length) {
+          gridEl.innerHTML = gridSpans2(4);
+        } else {
+          var cands = barMetric === "power" ? [5, 10, 25, 50, 100] : [5, 10, 15, 20, 30, 60];
+          var raw = rng / 4;
+          var step = cands[cands.length - 1];
+          for (var ci = 0; ci < cands.length; ci++) { if (cands[ci] >= raw) { step = cands[ci]; break; } }
+          var lo = Math.floor(mn / step) * step;
+          var hi = Math.ceil(mx / step) * step;
+          var gridHtml = "";
+          for (var tv = lo; tv <= hi + 0.001; tv += step) {
+            var gnorm = barMetric === "pace" ? 1 - (tv - mn) / rng : (tv - mn) / rng;
+            var top = 100 - (10 + gnorm * 86);
+            if (top < -2 || top > 102) continue;
+            var glbl = barMetric === "power" ? Math.round(tv) : fmtPaceSec2(tv);
+            gridHtml += '<div class="rd4-gl" style="top:' + top.toFixed(1) + '%"><span class="rd4-gl-lbl">' + glbl + "</span></div>";
+          }
+          gridEl.innerHTML = gridHtml;
+        }
+      }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
         axisEl.innerHTML = laps.map(function (lap) {

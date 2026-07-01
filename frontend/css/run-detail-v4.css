@@ -665,7 +665,15 @@
 
 .rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; }
 .rd4-chart2-bars { position: relative; z-index: 1; height: 100%; }
-.rd4-cbar2 { display: block; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 4px; }
+.rd4-cbar2 { display: block; margin: 0 1.5px; border-radius: 3px 3px 0 0; min-height: 4px; }
+/* Labeled value gridlines (pace / power) for the combined laps chart. */
+.rd4-gl { position: absolute; left: 0; right: 0; border-top: 1px dotted rgba(13,30,67,0.14); }
+.rd4-gl-lbl {
+  position: absolute; left: 0; top: -7px;
+  font-size: 9px; line-height: 1; color: #8b95ad;
+  background: rgba(255,255,255,0.82); padding: 0 3px;
+  font-variant-numeric: tabular-nums;
+}
 .rd4-cbar2--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
 .rd4-cbar2--break { background: #94a3b8 !important; opacity: 0.85; }
 .rd4-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
@@ -736,37 +744,63 @@
 }
 
 /* Session signal block (#1052) */
+/* Session-signal card — indigo/lavender treatment (matches design mock). */
+.rd4-signal {
+  background: #eef1fe;
+  border: 1px solid #dde2fb;
+}
+
+.rd4-new-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #dfe3fd;
+  color: #4f46e5;
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
+
 .rd4-signal-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
 .rd4-signal-row {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
 }
 
 .rd4-signal-lbl {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--text-secondary, #3d4a6a);
-  min-width: 80px;
+  color: var(--text-primary, #0b1530);
   flex-shrink: 0;
+}
+
+.rd4-signal-vwrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  text-align: right;
 }
 
 .rd4-signal-val {
   font-family: var(--mono, "JetBrains Mono", monospace);
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-primary, #0b1530);
+  color: #4f46e5;
 }
 
 .rd4-signal-note {
   font-size: 0.8125rem;
-  color: var(--text-tertiary, #9aa3b2);
+  color: #6366f1;
   font-style: normal;
 }
 
@@ -775,14 +809,14 @@
   font-size: 0.8125rem;
   color: var(--text-secondary, #3d4a6a);
   line-height: 1.45;
-  border-top: 1px solid var(--card-border, #e8eaf0);
+  border-top: 1px solid #dde2fb;
   padding-top: 10px;
 }
 
 .rd4-signal-none {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--text-tertiary, #9aa3b2);
+  color: var(--text-secondary, #3d4a6a);
 }
 
 @media (max-width: 599px) {
