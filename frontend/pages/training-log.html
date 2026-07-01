@@ -4914,15 +4914,17 @@
         background: #fdeee5;
         color: var(--pm-speed);
       }
-      /* "Fitness N" demonstrated-score tag on completed cards. */
-      .plan-merged .pm-sc.f {
-        background: var(--pm-blueSoft);
-        color: var(--pm-lavHi);
+      /* Required-score tag with a positive (improvement-needed) delta: tint the
+         End/Spd tag amber so a needed gain reads as work-to-do vs an already
+         green (within-current-ability) tag. */
+      .plan-merged .pm-sc.req {
+        background: var(--pm-amberSoft);
+        color: var(--pm-amber);
+      }
+      /* Demonstrated End/Spd tags on the compact completed cards. */
+      .plan-merged .pm-rc--done .pm-sc {
         font-size: 9px;
         padding: 1px 6px;
-      }
-      .plan-merged .pm-rc--done .pm-sc.f {
-        margin-left: 2px;
       }
       .plan-merged .pm-equiv {
         font-size: 11.5px;

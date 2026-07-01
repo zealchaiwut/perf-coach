@@ -591,55 +591,81 @@
     return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
   }
 
-  // Direction glyph for a performance-score trend.
-  function _dirArrow(direction) {
-    if (direction === "improving") return "↑";
-    if (direction === "declining") return "↓";
-    return "–";
+  function _clamp01_100(v) {
+    return Math.max(0, Math.min(100, v));
   }
 
-  // Athlete-level End/Spd score tags for UPCOMING cards. Rendered only when the
-  // performance endpoint returned state === "scored"; otherwise "" (no fake
-  // scores for needs_thresholds / building_baseline / error states).
-  function _athleteScoreFoot() {
+  // Signed integer as "(+N)" / "(−N)" for a score delta.
+  function _signed(n) {
+    return "(" + (n >= 0 ? "+" : "−") + Math.abs(n) + ")";
+  }
+
+  // ── Score model (FIRST-PASS heuristic — tunable) ──────────────────────────
+  // The required-/demonstrated-score model below is a first-pass distance
+  // weighting: reference distance 21.1 km (half), speed/endurance split slope
+  // 0.18 for required scores and 0.06 for demonstrated. Short races demand more
+  // speed, long races more endurance. The operator may recalibrate these
+  // constants and the overall scale later — nothing downstream depends on them.
+
+  // Per-race REQUIRED End/Spd tags for UPCOMING cards: the endurance/speed
+  // scores this race's GOAL implies, distance-weighted, plus the delta vs the
+  // athlete's current scores. Rendered only when the race has a goal, distance,
+  // a readiness estimate, current "scored" performance, and tp>0; otherwise ""
+  // (no fake scores).
+  function _requiredScoreFoot(r) {
     if (!_athletePerf || _athletePerf.state !== "scored") return "";
-    var end = _athletePerf.endurance || {};
-    var spd = _athletePerf.speed || {};
-    var tags = "";
-    if (typeof end.score === "number")
-      tags +=
-        '<span class="pm-sc e">End ' +
-        Math.round(end.score) +
-        " " +
-        _dirArrow(end.direction) +
-        "</span>";
-    if (typeof spd.score === "number")
-      tags +=
-        '<span class="pm-sc s">Spd ' +
-        Math.round(spd.score) +
-        " " +
-        _dirArrow(spd.direction) +
-        "</span>";
-    if (!tags) return "";
+    var cE = _athletePerf.endurance && _athletePerf.endurance.score;
+    var cS = _athletePerf.speed && _athletePerf.speed.score;
+    if (typeof cE !== "number" || typeof cS !== "number") return "";
+
+    var tp = _thresholdPace;
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    if (!tp || tp <= 0 || !distKm || distKm <= 0 || !goalSec) return "";
+
+    var estInfo = _currentEstimate(_raceReadiness[r.id]);
+    if (!estInfo || estInfo.est == null) return "";
+
+    var goalPace = goalSec / distKm;
+    var estPace = estInfo.est / distKm;
+    // gap > 0 → goal is faster than the current prediction → improvement needed.
+    var gap = ((estPace - goalPace) / tp) * 100;
+
+    var le = Math.log(distKm / 21.1); // <0 short, >0 long (half = 0)
+    var speedWeight = Math.max(0.15, Math.min(0.85, 0.5 - 0.18 * le));
+    var endWeight = 1 - speedWeight;
+
+    var dEnd = Math.round(gap * endWeight);
+    var dSpd = Math.round(gap * speedWeight);
+    var reqEnd = _clamp01_100(Math.round(cE + dEnd));
+    var reqSpd = _clamp01_100(Math.round(cS + dSpd));
+
+    // Positive delta → improvement required (neutral/red-ish); negative delta →
+    // goal within current ability (green).
+    var endCls = "pm-sc e" + (dEnd > 0 ? " req" : "");
+    var spdCls = "pm-sc s" + (dSpd > 0 ? " req" : "");
+
+    var tags =
+      '<span class="' + endCls + '">End ' + reqEnd + " " + _signed(dEnd) + "</span>" +
+      '<span class="' + spdCls + '">Spd ' + reqSpd + " " + _signed(dSpd) + "</span>";
     return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
   }
 
-  // Demonstrated fitness score of a COMPLETED race, computed client-side from
-  // its own result using the same anchor formula the backend uses:
-  //   pace  = actual_time_seconds / distance_km
-  //   score = clamp((2 - pace/tp) * 100, 0, 100)
-  // Returns an integer, or null when threshold pace / distance / actual are
-  // missing (so we render nothing instead of a fake number).
-  function _demonstratedScore(r) {
+  // DEMONSTRATED End/Spd for a COMPLETED race, from its own result. A single
+  // race yields one base fitness (clamp((2 - pace/tp)*100)), split by distance:
+  // longer races demonstrate more endurance, shorter more speed. Returns null
+  // when tp / distance / actual are missing.
+  function _demonstratedScores(r) {
     var tp = _thresholdPace;
     var distKm = parseFloat(r.distance || 0);
     var actualSec = r.actual_time_seconds;
     if (!tp || tp <= 0 || !distKm || distKm <= 0 || actualSec == null) return null;
     var pace = actualSec / distKm;
-    var score = (2 - pace / tp) * 100;
-    if (score < 0) score = 0;
-    if (score > 100) score = 100;
-    return Math.round(score);
+    var dem = _clamp01_100((2 - pace / tp) * 100);
+    var le = Math.log(distKm / 21.1);
+    var demEnd = _clamp01_100(Math.round(dem * (1 + 0.06 * le)));
+    var demSpd = _clamp01_100(Math.round(dem * (1 - 0.06 * le)));
+    return { end: demEnd, spd: demSpd };
   }
 
   // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
@@ -727,8 +753,9 @@
       secondCol +
       "</div>";
 
-    // Athlete current End/Spd scores (shown when the perf endpoint is "scored").
-    var foot = _athleteScoreFoot();
+    // Per-race REQUIRED End/Spd scores for this race's goal, plus delta vs
+    // current (shown only when goal + estimate + scores + tp are all present).
+    var foot = _requiredScoreFoot(r);
 
     card.innerHTML = head + grid + foot;
     _wireCardActions(card, r);
@@ -752,13 +779,12 @@
     card.className = "pm-rc pm-rc--done";
     card.setAttribute("data-race-id", r.id);
 
-    // Demonstrated fitness score from this race's own result (one score per
-    // race — endurance == speed — so a single "Fitness N" tag).
-    var demoScore = _demonstratedScore(r);
-    var fitnessTag =
-      demoScore != null
-        ? '<span class="pm-sc f">Fitness ' + demoScore + "</span>"
-        : "";
+    // Demonstrated End/Spd scores from this race's own result (distance-split).
+    var demo = _demonstratedScores(r);
+    var demoTags = demo
+      ? '<span class="pm-sc e">End ' + demo.end + "</span>" +
+        '<span class="pm-sc s">Spd ' + demo.spd + "</span>"
+      : "";
 
     var head =
       '<div class="pm-rchd">' +
@@ -768,7 +794,7 @@
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
       '<span class="pm-upc pm-done">DONE</span>' +
-      fitnessTag +
+      demoTags +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
       '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
