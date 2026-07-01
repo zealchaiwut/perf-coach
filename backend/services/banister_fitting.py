@@ -46,7 +46,12 @@ TAU_MIN: float = 1.0
 TAU_MAX: float = 90.0
 
 
-def validate_banister_fit(tau1: float, tau2: float, k1: float, k2: float) -> bool:
+def validate_banister_fit(
+    tau1: float,
+    tau2: float,
+    k1: float,
+    k2: float,
+) -> bool:
     """Return True if fitted Banister params pass post-fit plausibility checks.
 
     Called after a successful (non-None) ``fit_banister_params`` result to
@@ -88,7 +93,7 @@ def fit_banister_params(
     * optimiser does not converge (convergence guard)
     * any fitted τ lies outside [1, 90] days (plausibility check)
     """
-    # ── guard: invalid / missing input ────────────────────────────────────────
+    # ── guard: invalid / missing input ──────────────────────────────────────
     if load_series is None or perf_series is None:
         return None
 
@@ -108,7 +113,7 @@ def fit_banister_params(
     loads = loads[:n]
     perfs = perfs[:n]
 
-    # ── optimisation ──────────────────────────────────────────────────────────
+    # ── optimisation ────────────────────────────────────────────────────────
     try:
         result = _fit(loads, perfs)
     except Exception:
@@ -126,7 +131,7 @@ def fit_banister_params(
     return (float(tau1), float(tau2), float(k1), float(k2))
 
 
-# ── internal helpers ──────────────────────────────────────────────────────────
+# ── internal helpers ────────────────────────────────────────────────────
 
 
 def _banister_signals(loads: list[float], tau1: float, tau2: float):
@@ -151,9 +156,9 @@ def _fit(loads: list[float], perfs: list[float]):
     """
     from scipy.optimize import curve_fit  # deferred import for portability
 
-    # Degenerate guard: if loads have zero variance, the Banister signals g and h
-    # are proportional to each other regardless of τ, giving the optimiser nothing
-    # to work with for k₁ and k₂.  Treat this as a convergence failure.
+    # Degenerate guard: if loads have zero variance, the Banister signals g
+    # and h are proportional to each other regardless of τ, giving the
+    # optimiser nothing to work with for k₁ and k₂. Treat as failure.
     load_mean = sum(loads) / len(loads)
     load_var = sum((w - load_mean) ** 2 for w in loads)
     if load_var == 0.0:

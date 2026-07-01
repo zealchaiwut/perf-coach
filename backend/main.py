@@ -15066,13 +15066,13 @@ _sleep_sync_thread = _threading.Thread(
 _sleep_sync_thread.start()
 
 
-# ── Banister refit scheduler ───────────────────────────────────────────────────
+# ── Banister refit scheduler ─────────────────────────────────────────────────
 
 _BANISTER_REFIT_INTERVAL_SECONDS: int = 7 * 24 * 3600  # weekly
 
 
 def _banister_refit_scheduler_loop() -> None:
-    """Background daemon thread: weekly Banister parameter refit for all users."""
+    """Background daemon: weekly Banister parameter refit for all users."""
     import logging as _br_log
     from sqlalchemy.orm import Session as _OrmSession
     from backend.db import engine as _br_engine
@@ -15091,10 +15091,13 @@ def _banister_refit_scheduler_loop() -> None:
             with _OrmSession(_br_engine) as _sess:
                 _user_ids = [
                     str(r.id)
-                    for r in _sess.query(_User.id).filter(_User.is_active.is_(True)).all()
+                    for r in _sess.query(_User.id)
+                    .filter(_User.is_active.is_(True))
+                    .all()
                 ]
             _log.info(
-                "banister_refit_scheduler: starting batch for %d user(s)", len(_user_ids)
+                "banister_refit_scheduler: starting batch for %d user(s)",
+                len(_user_ids)
             )
             results = run_banister_refit_pipeline(_user_ids)
             ok_count = sum(1 for v in results.values() if v == "ok")
@@ -15106,7 +15109,8 @@ def _banister_refit_scheduler_loop() -> None:
             )
         except Exception as exc:
             _log.error(
-                "banister_refit_scheduler: unhandled error: %s", exc, exc_info=True
+                "banister_refit_scheduler: unhandled error: %s",
+                exc, exc_info=True
             )
 
 

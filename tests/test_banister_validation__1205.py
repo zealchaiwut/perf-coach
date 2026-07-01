@@ -22,7 +22,7 @@ from backend.services.banister_validation import validate_banister_fit
 
 
 def _banister_performance(loads, tau1, tau2, k1, k2, p0=250.0):
-    """Compute ground-truth Banister performance series from known parameters."""
+    """Compute ground-truth Banister performance series from known params."""
     alpha1 = math.exp(-1.0 / tau1)
     alpha2 = math.exp(-1.0 / tau2)
     g, h = 0.0, 0.0
@@ -71,7 +71,7 @@ def test_partitions_data_80_20_chronologically():
 
 
 def test_no_shuffling_preserves_order():
-    """Ensure that the training/held-out split preserves chronological order."""
+    """Ensure the training/held-out split preserves chronological order."""
     # Use distinctive load pattern to verify chronology
     loads = list(range(100))  # 0, 1, 2, ..., 99
     perfs = [p * 2.5 + 250.0 for p in loads]
@@ -89,7 +89,7 @@ def test_no_shuffling_preserves_order():
 
 
 def test_improvement_case_fitted_outperforms_default():
-    """When synthetic data is generated with fitted params, fitted_mse < default_mse."""
+    """Fitted params from same distribution yield fitted_mse < default_mse."""
     loads, perfs, fitted_params, default_params = _synthetic_data(
         n=50,
         fitted_tau1=42.0,
@@ -118,7 +118,7 @@ def test_improvement_flag_true_when_fitted_better():
 
 
 def test_regression_case_default_outperforms_fitted():
-    """When fitted params diverge from ground truth, default can win; improvement: false."""
+    """When fitted params diverge from ground truth, improvement: false."""
     loads, perfs, fitted_params, default_params = _synthetic_data(
         n=50,
         fitted_tau1=10.0,
@@ -161,7 +161,7 @@ def test_log_entry_emitted_on_validation(caplog):
     loads, perfs, fitted_params, default_params = _synthetic_data(n=50)
 
     with caplog.at_level(logging.DEBUG):
-        result = validate_banister_fit(loads, perfs, fitted_params, default_params)
+        validate_banister_fit(loads, perfs, fitted_params, default_params)
 
     # At least one log entry should have been emitted at DEBUG or INFO
     assert len(caplog.records) > 0
@@ -175,11 +175,15 @@ def test_log_includes_improvement_flag(caplog):
     loads, perfs, fitted_params, default_params = _synthetic_data(n=50)
 
     with caplog.at_level(logging.DEBUG):
-        result = validate_banister_fit(loads, perfs, fitted_params, default_params)
+        validate_banister_fit(loads, perfs, fitted_params, default_params)
 
     log_text = caplog.text.lower()
     # The improvement flag or "improvement" keyword should appear
-    assert "improvement" in log_text or "better" in log_text or "worse" in log_text
+    assert (
+        "improvement" in log_text
+        or "better" in log_text
+        or "worse" in log_text
+    )
 
 
 # ── AC (e): edge case — minimal held-out data ────────────────────────────────
@@ -198,8 +202,9 @@ def test_minimal_dataset_no_crash():
 
 
 def test_small_held_out_split():
-    """When 80/20 split yields very small held-out set (1 sample), handle gracefully."""
-    loads = [50.0 + 5.0 * i for i in range(6)]  # 6 samples: 4.8 train (5), 1.2 test (1)
+    """80/20 split with tiny held-out set (1 sample) handles gracefully."""
+    loads = [50.0 + 5.0 *
+             i for i in range(6)]  # 6 samples: 4.8 train (5), 1.2 test (1)
     perfs = [250.0 + p * 0.5 for p in loads]
     fitted_params = (42.0, 7.0, 1.0, 2.0)
     default_params = (40.0, 8.0, 0.9, 1.8)
@@ -212,12 +217,13 @@ def test_small_held_out_split():
 
 def test_empty_input_returns_none_or_error():
     """Empty load/perf series should not crash."""
-    result = validate_banister_fit([], [], (42.0, 7.0, 1.0, 2.0), (40.0, 8.0, 0.9, 1.8))
+    result = validate_banister_fit(
+        [], [], (42.0, 7.0, 1.0, 2.0), (40.0, 8.0, 0.9, 1.8))
     # Either returns None or raises ValueError/TypeError (both acceptable)
     assert result is None or isinstance(result, dict)
 
 
-# ── General robustness ────────────────────────────────────────────────────────
+# ── General robustness ──────────────────────────────────────────────────
 
 
 def test_return_dict_structure():

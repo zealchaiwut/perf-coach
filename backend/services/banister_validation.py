@@ -41,7 +41,7 @@ def validate_banister_fit(
     dict with keys ``fitted_mse``, ``default_mse``, and ``improvement``
     (bool; True iff fitted_mse < default_mse), or None on invalid input.
     """
-    # ── guard: invalid input ──────────────────────────────────────────────────
+    # ── guard: invalid input ────────────────────────────────────────────────
     if (
         load_series is None
         or perf_series is None
@@ -65,7 +65,7 @@ def validate_banister_fit(
     except (TypeError, ValueError):
         return None
 
-    # ── partition: chronological 80/20 split ──────────────────────────────────
+    # ── partition: chronological 80/20 split ────────────────────────────────
     n = len(loads)
     train_size = max(1, int(0.8 * n))
     test_size = n - train_size
@@ -78,11 +78,11 @@ def validate_banister_fit(
     test_loads = loads[train_size:]
     test_perfs = perfs[train_size:]
 
-    # ── compute Banister signals on held-out data ─────────────────────────────
-    # For each parameter set, compute the signals g and h from the training data,
-    # then evaluate performance on the held-out segment.
+    # ── compute Banister signals on held-out data ───────────────────────────
+    # For each param set, compute g/h from training, then forecast on test.
 
-    def _banister_signals_and_forecast(loads_train, loads_test, tau1, tau2, k1, k2):
+    def _banister_signals_and_forecast(
+            loads_train, loads_test, tau1, tau2, k1, k2):
         """Compute g, h from training data, then forecast on test data."""
         alpha1 = math.exp(-1.0 / tau1)
         alpha2 = math.exp(-1.0 / tau2)
@@ -103,7 +103,8 @@ def validate_banister_fit(
 
         return forecasts
 
-    # Use the same p0 = 250.0 baseline for both (AC does not specify, using convention)
+    # Use the same p0 = 250.0 baseline for both (AC does not specify, using
+    # convention)
     fitted_forecasts = _banister_signals_and_forecast(
         train_loads, test_loads, tau1_f, tau2_f, k1_f, k2_f
     )
@@ -113,11 +114,13 @@ def validate_banister_fit(
 
     # ── compute MSE ──────────────────────────────────────────────────────────
     fitted_mse = (
-        sum((test_perfs[i] - fitted_forecasts[i]) ** 2 for i in range(test_size))
+        sum((test_perfs[i] - fitted_forecasts[i])
+            ** 2 for i in range(test_size))
         / test_size
     )
     default_mse = (
-        sum((test_perfs[i] - default_forecasts[i]) ** 2 for i in range(test_size))
+        sum((test_perfs[i] - default_forecasts[i])
+            ** 2 for i in range(test_size))
         / test_size
     )
 
@@ -131,7 +134,8 @@ def validate_banister_fit(
 
     # ── log the result ───────────────────────────────────────────────────────
     logger.info(
-        "Banister validation: fitted_mse=%.4f, default_mse=%.4f, improvement=%s",
+        "Banister validation: fitted_mse=%.4f, default_mse=%.4f,"
+        " improvement=%s",
         fitted_mse,
         default_mse,
         improvement,

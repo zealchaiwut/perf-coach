@@ -23,7 +23,10 @@ from typing import Any, Callable, Iterator, List
 
 from sqlalchemy.orm import Session
 
-from backend.services.banister_fitting import fit_banister_params, validate_banister_fit
+from backend.services.banister_fitting import (
+    fit_banister_params,
+    validate_banister_fit,
+)
 from backend.services.banister_params import save_banister_params
 from backend.models import TrainingLoadSnapshot
 
@@ -44,7 +47,8 @@ def fetch_banister_history(
     Returns two parallel lists; both are empty when no snapshots exist.
     """
     rows = (
-        session.query(TrainingLoadSnapshot.tss_for_day, TrainingLoadSnapshot.ctl)
+        session.query(TrainingLoadSnapshot.tss_for_day,
+                      TrainingLoadSnapshot.ctl)
         .filter(TrainingLoadSnapshot.user_id == user_id)
         .order_by(TrainingLoadSnapshot.snapshot_date)
         .all()
@@ -86,7 +90,8 @@ def run_banister_refit_pipeline(
                 outcome = _process_one_user(session, user_id)
                 results[uid_str] = outcome
         except Exception:
-            _log.exception("banister_pipeline: unhandled error for user %s", uid_str)
+            _log.exception(
+                "banister_pipeline: unhandled error for user %s", uid_str)
             results[uid_str] = "error"
     return results
 
@@ -129,9 +134,14 @@ def _process_one_user(session: Session, user_id: Any) -> str:
 
     if params is None:
         if n < 14:
-            reason = f"data gate: only {n} paired observation(s), minimum 14 required"
+            reason = (
+                f"data gate: only {n} paired observation(s), "
+                "minimum 14 required"
+            )
         else:
-            reason = "fitting failed: convergence failure or implausible parameters"
+            reason = (
+                "fitting failed: convergence failure or implausible parameters"
+            )
         _log.warning(
             "banister_pipeline: skip user %s — %s",
             user_id,
@@ -142,7 +152,9 @@ def _process_one_user(session: Session, user_id: Any) -> str:
     tau1, tau2, k1, k2 = params
 
     if not validate_banister_fit(tau1, tau2, k1, k2):
-        reason = "post-fit validation failed (non-finite or out-of-range values)"
+        reason = (
+            "post-fit validation failed (non-finite or out-of-range values)"
+        )
         _log.warning(
             "banister_pipeline: skip user %s — %s",
             user_id,
