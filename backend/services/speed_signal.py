@@ -199,6 +199,36 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
         .all()
     )
 
+    # Intervals are logged as manual lap presses (e.g. 8 × 400 m) — the real
+    # hard efforts. Stryd stores those as boundary timestamps in the streams,
+    # not as rows in workout_splits (which only holds the 1 km auto-splits, too
+    # long to qualify). Derive the manual laps from the Stryd streams and scan
+    # ONLY those when present; fall back to the stored splits otherwise, so
+    # non-interval runs keep their existing behavior.
+    from types import SimpleNamespace
+    from backend.models import StrydActivity
+    from backend.services.stryd_laps import compute_manual_laps
+
+    manual_laps = []
+    if getattr(workout, "stryd_activity_pk", None):
+        sta = (
+            session.query(StrydActivity)
+            .filter(StrydActivity.id == workout.stryd_activity_pk)
+            .first()
+        )
+        streams = sta.streams_payload if sta is not None and isinstance(sta.streams_payload, dict) else None
+        for i, lap in enumerate(compute_manual_laps(streams) or []):
+            manual_laps.append(
+                SimpleNamespace(
+                    split_index=i + 1,
+                    duration_seconds=lap.get("duration_seconds"),
+                    distance_km=lap.get("distance_km"),
+                    avg_power=lap.get("avg_power"),
+                    avg_hr=lap.get("avg_hr"),
+                )
+            )
+    scan_splits = manual_laps if manual_laps else splits
+
     prefs_row = (
         session.query(UserPreferences)
         .filter(UserPreferences.user_id == workout.user_id)
@@ -213,7 +243,7 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
         ),
     }
 
-    result = compute_speed_signal(splits, prefs)
+    result = compute_speed_signal(scan_splits, prefs)
 
     workout.speed_signal = result["speed_signal"]
     workout.speed_signal_basis = result["speed_signal_basis"]

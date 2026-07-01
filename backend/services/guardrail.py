@@ -233,7 +233,7 @@ def get_guardrail_result(user_id: str, as_of_date=None) -> dict:
         SELECT workout_date, COALESCE(SUM(tss), 0)::float AS run_tss
         FROM workouts
         WHERE user_id = :uid
-          AND workout_type = 'Run'
+          AND lower(workout_type) = 'run'
           AND tss IS NOT NULL
           AND workout_date BETWEEN :from_date AND :to_date
         GROUP BY workout_date

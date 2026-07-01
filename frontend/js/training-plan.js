@@ -6,13 +6,21 @@
   var _races = [];
   var _primaryRace = null;
   var _readiness = null;
-  var _formCurveChart = null;
-  var _timeCurveChart = null;
+  var _projection = null;
   var _editingRaceId = null;
   var _editingRaceType = "race";
+  var _modalPriority = "A";
   var _confirmCallback = null;
   var _planId = null;
-  var _scheduleChart = null;
+  // Per-race readiness cache: raceId -> readiness response (or null if none).
+  var _raceReadiness = {};
+  // Completed-race (Pick-from-history) state. When a past run is selected while
+  // ADDING a race, we stash its finish time here and POST status:"done".
+  var _pickedActualSeconds = null;
+  var _historyLoaded = false;
+  var _historyRuns = [];
+
+  var NS = "http://www.w3.org/2000/svg";
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
@@ -38,18 +46,8 @@
     if (!iso) return "—";
     var d = new Date(iso + "T00:00:00");
     var months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
   }
@@ -75,7 +73,7 @@
     if (!totalSec) return "—";
     var h = Math.floor(totalSec / 3600);
     var m = Math.floor((totalSec % 3600) / 60);
-    var s = totalSec % 60;
+    var s = Math.round(totalSec % 60);
     if (h > 0) return h + ":" + pad(m) + ":" + pad(s);
     return m + ":" + pad(s);
   }
@@ -101,6 +99,25 @@
   function fmtKm(v) {
     if (v == null) return "—";
     return parseFloat(v).toFixed(2);
+  }
+
+  // SVG builders
+  function E(t, a) {
+    var e = document.createElementNS(NS, t);
+    for (var k in a) e.setAttribute(k, a[k]);
+    return e;
+  }
+  function Path(pts, close) {
+    return (
+      pts
+        .map(function (p, i) {
+          return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
+        })
+        .join(" ") + (close ? "Z" : "")
+    );
+  }
+  function clearSvg(svg) {
+    while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
   }
 
   // ── Plan ID ───────────────────────────────────────────────────────────────
@@ -183,40 +200,26 @@
       });
   }
 
-  function apiPatch(url, body, cb) {
-    fetch(url, {
-      method: "PATCH",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
-      })
-      .then(cb)
-      .catch(function (e) { cb({ ok: false, status: 0, data: { detail: e.message } }); });
-  }
-
   function apiDelete(url, cb) {
     fetch(url, { method: "DELETE", credentials: "same-origin" })
       .then(function (r) {
         cb({ ok: r.ok, status: r.status });
       })
-      .catch(function (e) {
+      .catch(function () {
         cb({ ok: false, status: 0 });
       });
   }
 
-  // ── Race header ───────────────────────────────────────────────────────────
+  // ── 1. A-race header ──────────────────────────────────────────────────────
   function renderRaceHeader() {
     var el = document.getElementById("plan-race-header-content");
     if (!el) return;
 
     if (!_primaryRace) {
       el.innerHTML =
-        '<div class="plan-no-race">' +
+        '<div class="pm-no-race">' +
         "<span>No A-priority race set. Add your main race to start planning.</span>" +
-        '<button id="plan-header-add-btn" class="plan-add-btn" type="button">+ Add Race</button>' +
+        '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">+ Add Race</button>' +
         "</div>";
       var addBtn = document.getElementById("plan-header-add-btn");
       if (addBtn)
@@ -227,752 +230,710 @@
     }
 
     var r = _primaryRace;
-    var weeks = weeksUntil(r.date);
-    var weeksHtml =
-      weeks !== null && weeks > 0
-        ? '<span class="plan-weeks-chip">⏱ ' +
-          weeks +
-          " week" +
-          (weeks === 1 ? "" : "s") +
-          " to go</span>"
-        : "";
-
-    var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : null;
-    var goalPaceSecPerKm =
-      r.goal_time_seconds && r.distance
-        ? r.goal_time_seconds / parseFloat(r.distance)
-        : null;
-    var goalPace = goalPaceSecPerKm ? fmtPace(goalPaceSecPerKm) : null;
+    var distKm = parseFloat(r.distance || 0);
+    var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : "—";
+    var goalPaceSec =
+      r.goal_time_seconds && distKm ? r.goal_time_seconds / distKm : null;
+    var goalPace = goalPaceSec ? fmtPace(goalPaceSec) : "";
 
     el.innerHTML =
-      '<div class="plan-race-hd">' +
-      '<div class="plan-race-hd-info">' +
-      '<h2 class="plan-race-hd-name">' +
-      esc(r.name) +
-      "</h2>" +
-      '<div class="plan-race-meta">' +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Date</span><span class="plan-meta-value">' +
-      esc(formatDate(r.date)) +
-      "</span></div>" +
-      '<div class="plan-race-meta-item"><span class="plan-meta-label">Distance</span><span class="plan-meta-value">' +
-      parseFloat(r.distance)
-        .toFixed(3)
-        .replace(/\.?0+$/, "") +
-      " km</span></div>" +
-      (goalTime
-        ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal time</span><span class="plan-meta-value">' +
-          esc(goalTime) +
-          "</span></div>"
-        : "") +
+      '<div class="pm-hdrbar">' +
+      '<span class="pm-hdrlet">A</span>' +
+      '<div class="pm-hdrid">' +
+      '<div class="pm-hdrname">' + esc(r.name || "Unnamed") + "</div>" +
+      '<div class="pm-hdrmeta">' +
+      esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km · A-priority" +
+      "</div>" +
+      "</div>" +
+      '<div class="pm-hdrdiv"></div>' +
+      '<div class="pm-hdrgoalbox">' +
+      '<div class="pm-glab">Goal</div>' +
+      '<div class="pm-gval">' + esc(goalTime) + "</div>" +
       (goalPace
-        ? '<div class="plan-race-meta-item"><span class="plan-meta-label">Goal pace</span><span class="plan-meta-value">' +
-          esc(goalPace) +
-          "</span></div>"
+        ? '<div class="pm-gsub">' + esc(goalPace) + " · target pace</div>"
         : "") +
       "</div>" +
-      weeksHtml +
-      "</div>" +
+      '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">Change race</button>' +
       "</div>";
+
+    var chBtn = document.getElementById("plan-header-add-btn");
+    if (chBtn)
+      chBtn.addEventListener("click", function () {
+        openModal(_primaryRace, "race");
+      });
   }
 
-  // ── Verdict banner ────────────────────────────────────────────────────────
-  function renderVerdict() {
-    var el = document.getElementById("plan-verdict");
-    if (!el) return;
+  // ── 2. Calibration status ─────────────────────────────────────────────────
+  var _SUFF_BADGE = { Sufficient: "good", Low: "low", Insufficient: "low" };
+  var _CONF_BADGE = { High: "good", Medium: "med", Low: "low" };
 
-    if (!_readiness || !_primaryRace) {
-      el.style.display = "none";
-      return;
-    }
+  function renderCalibration(data) {
+    var dateEl = document.getElementById("plan-calib-date");
+    var suffEl = document.getElementById("plan-calib-sufficiency");
+    var confEl = document.getElementById("plan-calib-confidence");
 
-    var onTrack = _readiness.on_track;
-    var status = onTrack && onTrack.status_summary;
-    var cls, label;
-
-    if (status === "on track" || status === "ahead") {
-      cls = "verdict-on-track";
-      label = status;
-    } else if (status === "behind") {
-      cls = "verdict-at-risk";
-      label = status;
-    } else {
-      el.style.display = "none";
-      return;
-    }
-
-    el.className = "plan-verdict " + cls;
-    el.textContent = label;
-    el.style.display = "";
-  }
-
-  // ── Performance curve ─────────────────────────────────────────────────────
-  function renderCurve() {
-    var emptyEl = document.getElementById("plan-curve-empty");
-    var baselineEl = document.getElementById("plan-building-baseline");
-    var wrapEl = document.getElementById("plan-curve-wrap");
-    if (!emptyEl || !baselineEl || !wrapEl) return;
-
-    if (!_readiness || !_primaryRace) {
-      emptyEl.style.display = "";
-      baselineEl.style.display = "none";
-      wrapEl.style.display = "none";
-      return;
-    }
-
-    if (_readiness.building_baseline) {
-      emptyEl.style.display = "none";
-      baselineEl.style.display = "";
-      wrapEl.style.display = "none";
-      return;
-    }
-
-    var formCurve = _readiness.form_curve || [];
-    var projectedForm = _readiness.projected_form || null;
-
-    if (formCurve.length === 0 && !projectedForm) {
-      emptyEl.style.display = "";
-      baselineEl.style.display = "none";
-      wrapEl.style.display = "none";
-      return;
-    }
-
-    emptyEl.style.display = "none";
-    baselineEl.style.display = "none";
-    wrapEl.style.display = "";
-
-    var canvas = document.getElementById("plan-form-curve");
-    if (!canvas || typeof Chart === "undefined") return;
-
-    var today = todayISO();
-    var historicalDates = [];
-    var historicalValues = [];
-    var projectedDates = [];
-    var projectedValues = [];
-
-    formCurve.forEach(function (pt) {
-      historicalDates.push(pt.date);
-      historicalValues.push(parseFloat(pt.form.toFixed(2)));
-    });
-
-    if (projectedForm) {
-      Object.keys(projectedForm)
-        .sort()
-        .forEach(function (d) {
-          projectedDates.push(d);
-          projectedValues.push(parseFloat(projectedForm[d].toFixed(2)));
-        });
-    }
-
-    var allDates = historicalDates.concat(projectedDates);
-    var allValues = historicalValues.concat(
-      projectedValues.map(function () {
-        return null;
-      }),
-    );
-    var projOnlyValues = historicalDates
-      .map(function () {
-        return null;
-      })
-      .concat(projectedValues);
-
-    if (_formCurveChart) {
-      _formCurveChart.destroy();
-      _formCurveChart = null;
-    }
-
-    var taperDate =
-      _readiness.taper_recommendation &&
-      _readiness.taper_recommendation.taper_start_date
-        ? _readiness.taper_recommendation.taper_start_date
-        : null;
-
-    var annotations = {};
-    if (taperDate) {
-      annotations.taperLine = {
-        type: "line",
-        xMin: taperDate,
-        xMax: taperDate,
-        borderColor: "rgba(180, 83, 9, 0.7)",
-        borderWidth: 1.5,
-        borderDash: [4, 4],
-        label: {
-          content: "Taper",
-          enabled: true,
-          position: "start",
-          backgroundColor: "rgba(180,83,9,0.8)",
-          color: "#fff",
-          font: { size: 10 },
-        },
-      };
-    }
-
-    if (_primaryRace && _primaryRace.date) {
-      annotations.raceLine = {
-        type: "line",
-        xMin: _primaryRace.date,
-        xMax: _primaryRace.date,
-        borderColor: "rgba(21, 128, 61, 0.8)",
-        borderWidth: 2,
-        label: {
-          content: "Race day",
-          enabled: true,
-          position: "start",
-          backgroundColor: "rgba(21,128,61,0.8)",
-          color: "#fff",
-          font: { size: 10 },
-        },
-      };
-    }
-
-    _races.forEach(function (race) {
-      if (
-        race.type === "race" &&
-        race.id !== (_primaryRace && _primaryRace.id)
-      ) {
-        annotations["brace_" + race.id] = {
-          type: "line",
-          xMin: race.date,
-          xMax: race.date,
-          borderColor: "rgba(3, 105, 161, 0.6)",
-          borderWidth: 1,
-          borderDash: [3, 3],
-        };
+    if (dateEl) {
+      if (data && data.calibrated && data.last_calibration_date) {
+        dateEl.textContent = formatDate(data.last_calibration_date);
+      } else {
+        dateEl.innerHTML =
+          '<span class="pm-italic">Not yet calibrated</span>';
       }
-      if (race.type === "checkpoint") {
-        annotations["cp_" + race.id] = {
-          type: "line",
-          xMin: race.date,
-          xMax: race.date,
-          borderColor: "rgba(100, 116, 139, 0.5)",
-          borderWidth: 1,
-          borderDash: [2, 4],
-        };
+    }
+    if (suffEl) {
+      if (data && data.data_sufficiency) {
+        suffEl.innerHTML =
+          '<span class="pm-badge ' +
+          (_SUFF_BADGE[data.data_sufficiency] || "med") +
+          '">' + esc(data.data_sufficiency) + "</span>";
+      } else {
+        suffEl.innerHTML = '<span class="pm-italic">—</span>';
       }
-    });
-
-    _formCurveChart = new Chart(canvas.getContext("2d"), {
-      type: "line",
-      data: {
-        labels: allDates,
-        datasets: [
-          {
-            label: "Historical form",
-            data: allValues,
-            borderColor: "#3563d4",
-            borderWidth: 2,
-            fill: false,
-            tension: 0.35,
-            pointRadius: 0,
-            spanGaps: false,
-          },
-          {
-            label: "Projected form",
-            data: projOnlyValues,
-            borderColor: "#3563d4",
-            borderWidth: 2,
-            borderDash: [6, 3],
-            fill: false,
-            tension: 0.35,
-            pointRadius: 0,
-            spanGaps: false,
-          },
-          {
-            label: "Fresh zone",
-            data: allDates.map(function () {
-              return 5;
-            }),
-            borderWidth: 0,
-            backgroundColor: "rgba(34, 197, 94, 0.1)",
-            fill: { target: { value: 100 } },
-            tension: 0,
-            pointRadius: 0,
-          },
-          {
-            label: "Buried zone",
-            data: allDates.map(function () {
-              return -30;
-            }),
-            borderWidth: 0,
-            backgroundColor: "rgba(239, 68, 68, 0.1)",
-            fill: { target: { value: -100 } },
-            tension: 0,
-            pointRadius: 0,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: function (ctx) {
-                return (
-                  ctx.dataset.label +
-                  ": " +
-                  (ctx.raw != null ? ctx.raw.toFixed(1) : "—")
-                );
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            type: "category",
-            ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b2" },
-            grid: { display: false },
-          },
-          y: {
-            ticks: { font: { size: 10 }, color: "#9aa3b2" },
-            grid: { color: "#f0f2f8" },
-          },
-        },
-        animation: { duration: 300 },
-      },
-    });
+    }
+    if (confEl) {
+      if (data && data.band_confidence) {
+        confEl.innerHTML =
+          '<span class="pm-badge ' +
+          (_CONF_BADGE[data.band_confidence] || "med") +
+          '">' + esc(data.band_confidence) + "</span>";
+      } else {
+        confEl.innerHTML = '<span class="pm-italic">—</span>';
+      }
+    }
   }
 
-  // ── Projected time-curve chart (issue #1113) ──────────────────────────────
-  function _fmtSeconds(sec) {
-    if (sec == null) return "—";
-    var h = Math.floor(sec / 3600);
-    var m = Math.floor((sec % 3600) / 60);
-    var s = sec % 60;
-    if (h > 0) return h + ":" + pad(m) + ":" + pad(s);
-    return m + ":" + pad(s);
+  function loadCalibration() {
+    apiGet("/api/calibration/status", renderCalibration);
   }
 
+  // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────
+  // Ported from mock #timecurve. Piecewise x compresses the pre-race lead-in
+  // and expands the race window; y-range tightened around the projected times.
   function renderTimeCurve() {
+    var svg = document.getElementById("plan-timecurve");
     var emptyEl = document.getElementById("plan-time-curve-empty");
-    var wrapEl = document.getElementById("plan-time-curve-wrap");
-    var errorEl = document.getElementById("plan-time-curve-error");
+    var loadingEl = document.getElementById("plan-time-curve-loading");
+    var projNow = document.getElementById("plan-projected-now");
+    if (!svg) return;
+    if (loadingEl) loadingEl.style.display = "none";
+    clearSvg(svg);
 
-    function _showEmpty() {
+    function _hideProjNow() {
+      if (projNow) projNow.style.display = "none";
+    }
+
+    var tc = _readiness && _readiness.time_curve;
+    var history = (tc && tc.history) || [];
+    var projection = (tc && tc.projection) || [];
+    var goalSec = tc && tc.goal_finish_seconds != null
+      ? tc.goal_finish_seconds
+      : (_primaryRace && _primaryRace.goal_time_seconds) || null;
+
+    if (!_primaryRace || (history.length === 0 && projection.length === 0)) {
+      svg.style.display = "none";
       if (emptyEl) emptyEl.style.display = "";
-      if (wrapEl) wrapEl.style.display = "none";
-      if (errorEl) errorEl.style.display = "none";
-    }
-    function _showError() {
-      if (emptyEl) emptyEl.style.display = "none";
-      if (wrapEl) wrapEl.style.display = "none";
-      if (errorEl) errorEl.style.display = "";
-    }
-    function _showChart() {
-      if (emptyEl) emptyEl.style.display = "none";
-      if (wrapEl) wrapEl.style.display = "";
-      if (errorEl) errorEl.style.display = "none";
-    }
-
-    if (!_readiness || !_primaryRace) {
-      _showEmpty();
+      _hideProjNow();
       return;
     }
+    if (emptyEl) emptyEl.style.display = "none";
+    svg.style.display = "";
 
-    var tc = _readiness.time_curve;
-    if (!tc) {
-      _showEmpty();
-      return;
+    // Current projected finish readout (first projection sample, else the last
+    // history sample). Gives the user a directly readable prediction.
+    var estInfo = _currentEstimate(_readiness);
+    var valEl = document.getElementById("plan-projected-now-val");
+    var metaEl = document.getElementById("plan-projected-now-meta");
+    if (estInfo && projNow) {
+      projNow.style.display = "";
+      if (valEl) valEl.textContent = fmtTime(estInfo.est);
+      if (metaEl) {
+        var parts = [];
+        var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
+        if (distKm) parts.push(fmtPace(estInfo.est / distKm));
+        if (estInfo.band != null)
+          parts.push("±" + Math.max(1, Math.round(estInfo.band / 60)) + " min");
+        if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
+        metaEl.textContent = parts.join(" · ");
+      }
+    } else {
+      _hideProjNow();
     }
 
-    var history = tc.history || [];
-    var projection = tc.projection || [];
-    var goalSec = tc.goal_finish_seconds || null;
+    var W = 1140, H = 200, p = { l: 54, r: 30, t: 14, b: 26 };
 
-    if (history.length === 0 && projection.length === 0) {
-      _showEmpty();
-      return;
-    }
-
-    var canvas = document.getElementById("plan-time-curve");
-    if (!canvas || typeof Chart === "undefined") {
-      _showError();
-      return;
-    }
-
-    _showChart();
-
-    if (_timeCurveChart) {
-      _timeCurveChart.destroy();
-      _timeCurveChart = null;
-    }
-
-    var today = todayISO();
-
-    var histDates = history.map(function (e) {
-      return e.date;
+    // ── Tight y-domain ────────────────────────────────────────────────────────
+    // Early low-fitness history estimates can be wildly large (e.g. 7h for a
+    // half), which blows up an all-samples auto-scale and makes the current
+    // projection unreadable. Anchor the domain on the values that matter — the
+    // projection band, the goal, and only the RECENT tail of history — then
+    // clamp outliers to that window instead of letting them stretch the axis.
+    var coreSamples = [];
+    projection.forEach(function (e) {
+      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
+      if (e.upper_seconds != null) coreSamples.push(e.upper_seconds);
+      if (e.lower_seconds != null) coreSamples.push(e.lower_seconds);
     });
-    var projDates = projection.map(function (e) {
-      return e.date;
+    if (goalSec != null) coreSamples.push(goalSec);
+    // Recent history tail (last ~21 points) to show the approach without the
+    // noisy early ramp.
+    var recentHist = history.slice(-21);
+    recentHist.forEach(function (e) {
+      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
     });
-    var allDates = histDates.concat(projDates);
-
-    var histValues = history.map(function (e) {
-      return e.estimated_finish_seconds != null
-        ? e.estimated_finish_seconds
-        : null;
-    });
-    var histData = histValues.concat(
-      projDates.map(function () {
-        return null;
-      }),
-    );
-
-    var projCenter = histDates
-      .map(function () {
-        return null;
-      })
-      .concat(
-        projection.map(function (e) {
-          return e.estimated_finish_seconds != null
-            ? e.estimated_finish_seconds
-            : null;
-        }),
-      );
-
-    var projUpper = histDates
-      .map(function () {
-        return null;
-      })
-      .concat(
-        projection.map(function (e) {
-          return e.upper_seconds != null ? e.upper_seconds : null;
-        }),
-      );
-
-    var projLower = histDates
-      .map(function () {
-        return null;
-      })
-      .concat(
-        projection.map(function (e) {
-          return e.lower_seconds != null ? e.lower_seconds : null;
-        }),
-      );
-
-    var goalLine =
-      goalSec != null
-        ? allDates.map(function () {
-            return goalSec;
-          })
-        : null;
-
-    var annotations = {};
-    if (today && allDates.indexOf(today) >= 0) {
-      annotations.nowLine = {
-        type: "line",
-        xMin: today,
-        xMax: today,
-        borderColor: "rgba(100, 116, 139, 0.75)",
-        borderWidth: 1.5,
-        borderDash: [4, 4],
-        label: {
-          content: "NOW",
-          enabled: true,
-          position: "start",
-          backgroundColor: "rgba(100,116,139,0.8)",
-          color: "#fff",
-          font: { size: 10 },
-        },
-      };
-    }
-
-    var datasets = [
-      {
-        label: "Historical",
-        data: histData,
-        borderColor: "#3563d4",
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3,
-        pointRadius: 0,
-        spanGaps: false,
-      },
-      {
-        label: "Projected",
-        data: projCenter,
-        borderColor: "#3563d4",
-        borderWidth: 2,
-        borderDash: [6, 3],
-        fill: false,
-        tension: 0.3,
-        pointRadius: 0,
-        spanGaps: false,
-      },
-      {
-        label: "Band upper",
-        data: projUpper,
-        borderColor: "transparent",
-        backgroundColor: "rgba(53, 99, 212, 0.12)",
-        fill: "+1",
-        tension: 0.3,
-        pointRadius: 0,
-        spanGaps: false,
-      },
-      {
-        label: "Band lower",
-        data: projLower,
-        borderColor: "transparent",
-        backgroundColor: "rgba(53, 99, 212, 0.12)",
-        fill: false,
-        tension: 0.3,
-        pointRadius: 0,
-        spanGaps: false,
-      },
-    ];
-
-    if (goalLine) {
-      datasets.push({
-        label: "Goal",
-        data: goalLine,
-        borderColor: "rgba(21, 128, 61, 0.7)",
-        borderWidth: 1.5,
-        borderDash: [5, 3],
-        fill: false,
-        tension: 0,
-        pointRadius: 0,
+    // Fallback: if the projection was empty, use whatever history we have.
+    if (coreSamples.length === 0) {
+      history.forEach(function (e) {
+        if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
       });
     }
+    if (coreSamples.length === 0) {
+      svg.style.display = "none";
+      if (emptyEl) emptyEl.style.display = "";
+      _hideProjNow();
+      return;
+    }
+    var vmin = Math.min.apply(null, coreSamples);
+    var vmax = Math.max.apply(null, coreSamples);
+    // Guarantee a sensible minimum span (5 min) so a nearly-flat series still
+    // reads, and pad ~8% on each side.
+    var span = Math.max(vmax - vmin, 300);
+    var padY = span * 0.08;
+    vmin -= padY;
+    vmax += padY;
+    function y(v) {
+      // Clamp so outlier history points render at the axis edge instead of
+      // rescaling the whole chart.
+      var cv = Math.max(vmin, Math.min(vmax, v));
+      return p.t + (1 - (cv - vmin) / (vmax - vmin || 1)) * (H - p.t - p.b);
+    }
 
-    _timeCurveChart = new Chart(canvas.getContext("2d"), {
-      type: "line",
-      data: {
-        labels: allDates,
-        datasets: datasets,
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-          legend: { display: false },
-          annotation: { annotations: annotations },
-          tooltip: {
-            callbacks: {
-              label: function (ctx) {
-                if (ctx.raw == null) return null;
-                return ctx.dataset.label + ": " + _fmtSeconds(ctx.raw);
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            type: "category",
-            ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b2" },
-            grid: { display: false },
-          },
-          y: {
-            reverse: false,
-            ticks: {
-              font: { size: 10 },
-              color: "#9aa3b2",
-              callback: function (val) {
-                return _fmtSeconds(val);
-              },
-            },
-            grid: { color: "#f0f2f8" },
-          },
-        },
-        animation: { duration: 300 },
-      },
+    // Piecewise x: history 0..nowT, projection nowT..1 (expanded).
+    var nHist = history.length;
+    var nProj = projection.length;
+    var total = nHist + nProj;
+    var nowT = total > 0 ? Math.max(0.08, Math.min(0.5, nHist / total)) : 0.15;
+    function xHist(i) {
+      return p.l + (nHist > 1 ? i / (nHist - 1) : 0) * (nowT) * (W - p.l - p.r);
+    }
+    function xProj(i) {
+      var u = nProj > 1 ? i / (nProj - 1) : 1;
+      return p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
+    }
+
+    // gridlines + labels
+    var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
+    ticks.forEach(function (v) {
+      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
+      var lab = E("text", {
+        x: p.l - 8, y: y(v) + 3, "font-size": 10,
+        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
+      });
+      lab.textContent = fmtTime(Math.round(v));
+      svg.appendChild(lab);
+    });
+
+    // projection shaded window
+    var nowX = p.l + nowT * (W - p.l - p.r);
+    svg.appendChild(E("rect", {
+      x: nowX, y: p.t, width: W - p.r - nowX, height: H - p.t - p.b,
+      fill: "#f4f7ff", "fill-opacity": 0.7,
+    }));
+
+    // confidence band
+    var top = [], bot = [];
+    projection.forEach(function (e, i) {
+      if (e.upper_seconds != null) top.push([xProj(i), y(e.upper_seconds)]);
+      if (e.lower_seconds != null) bot.push([xProj(i), y(e.lower_seconds)]);
+    });
+    if (top.length && bot.length) {
+      svg.appendChild(E("path", {
+        d: Path(top.concat(bot.reverse()), true),
+        fill: "#4f6ef7", "fill-opacity": 0.12,
+      }));
+    }
+
+    // history line
+    var histPts = history
+      .filter(function (e) { return e.estimated_finish_seconds != null; })
+      .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
+    if (histPts.length)
+      svg.appendChild(E("path", {
+        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": 2.4,
+      }));
+
+    // projection center (dashed)
+    var projPts = projection
+      .map(function (e, i) {
+        return e.estimated_finish_seconds != null
+          ? [xProj(i), y(e.estimated_finish_seconds)]
+          : null;
+      })
+      .filter(Boolean);
+    if (projPts.length)
+      svg.appendChild(E("path", {
+        d: Path(projPts), fill: "none", stroke: "#4f6ef7",
+        "stroke-width": 2.4, "stroke-dasharray": "5 4",
+      }));
+
+    // goal line
+    if (goalSec != null) {
+      svg.appendChild(E("line", {
+        x1: p.l, x2: W - p.r, y1: y(goalSec), y2: y(goalSec),
+        stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
+      }));
+      var gl = E("text", {
+        x: p.l + 4, y: y(goalSec) - 5, "font-size": 9,
+        "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
+      });
+      gl.textContent = "A goal " + fmtTime(goalSec);
+      svg.appendChild(gl);
+    }
+
+    // NOW line
+    svg.appendChild(E("line", {
+      x1: nowX, x2: nowX, y1: p.t, y2: H - p.b,
+      stroke: "#cbd5e1", "stroke-dasharray": "3 3",
+    }));
+    var nt = E("text", {
+      x: nowX + 3, y: p.t + 8, "font-size": 8, "font-family": "JetBrains Mono",
+      fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
+    });
+    nt.textContent = "NOW";
+    svg.appendChild(nt);
+
+    // race markers along the projection window
+    var markers = (_projection && _projection.race_markers) || [];
+    var COL = { A: "#1b2340", B: "#d97706", C: "#6b7280" };
+    var todayStr = todayISO();
+    markers.forEach(function (m) {
+      if (m.date < todayStr) return;
+      var w = weeksUntil(m.date);
+      var maxW = weeksUntil(_primaryRace && _primaryRace.date) || 1;
+      var u = maxW > 0 ? 1 - Math.min(1, w / maxW) : 1;
+      var mx = p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
+      var c = COL[m.priority] || "#6b7280";
+      svg.appendChild(E("line", {
+        x1: mx, x2: mx, y1: p.t, y2: H - p.b, stroke: c,
+        "stroke-width": m.priority === "A" ? 1.5 : 1,
+        "stroke-dasharray": m.priority === "A" ? "none" : "2 3",
+        "stroke-opacity": 0.6,
+      }));
+      var t = E("text", {
+        x: mx, y: H - 7, "font-size": 9, "font-family": "JetBrains Mono",
+        fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
+      });
+      t.textContent = m.priority || "•";
+      svg.appendChild(t);
     });
   }
 
-  // ── Races list ────────────────────────────────────────────────────────────
-  function renderRacesList() {
+  // ── 3b. Race/checkpoint cards ─────────────────────────────────────────────
+  var _LET_BG = { A: "#1b2340", B: "#3b4ba8", C: "#6b7280" };
+
+  // Extract the current projected finish (seconds), band (seconds), and status
+  // from a readiness response's time_curve + on_track blocks. Returns null when
+  // no usable estimate is present.
+  function _currentEstimate(rd) {
+    if (!rd || !rd.time_curve) return null;
+    var tc = rd.time_curve;
+    var proj = tc.projection || [];
+    var hist = tc.history || [];
+    var est = null,
+      band = null;
+    if (proj.length > 0) {
+      est = proj[0].estimated_finish_seconds;
+      band = proj[0].confidence_band_seconds != null
+        ? proj[0].confidence_band_seconds
+        : null;
+    } else if (hist.length > 0) {
+      est = hist[hist.length - 1].estimated_finish_seconds;
+    }
+    if (est == null) return null;
+    var goalSec = tc.goal_finish_seconds != null ? tc.goal_finish_seconds : null;
+    var status = rd.on_track && rd.on_track.status_summary;
+    return { est: est, band: band, goalSec: goalSec, status: status };
+  }
+
+  // Map a readiness on_track result to a status pill (label + ok/watch class).
+  function _statusPill(estInfo) {
+    if (!estInfo) return "";
+    var status = estInfo.status;
+    var cls, label;
+    if (status === "on track" || status === "ahead") {
+      cls = "ok";
+      label = status === "ahead" ? "ahead" : "on track";
+    } else if (status === "behind") {
+      cls = "watch";
+      // If we know goal + est, express the gap in minutes over.
+      if (estInfo.goalSec != null && estInfo.est != null && estInfo.est > estInfo.goalSec) {
+        var overMin = Math.round((estInfo.est - estInfo.goalSec) / 60);
+        label = "~" + overMin + " min over";
+      } else {
+        label = "behind";
+      }
+    } else {
+      return "";
+    }
+    return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
+  }
+
+  function renderRaceCards() {
     var container = document.getElementById("plan-races");
     var loadingEl = document.getElementById("plan-races-loading");
     var emptyEl = document.getElementById("plan-races-empty");
     if (!container) return;
-
     if (loadingEl) loadingEl.style.display = "none";
+
+    // remove previously rendered cards
+    Array.from(container.querySelectorAll(".pm-rc")).forEach(function (el) {
+      el.remove();
+    });
 
     var sorted = _races.slice().sort(function (a, b) {
       return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
     });
 
-    var races = sorted.filter(function (r) {
-      return r.type !== "checkpoint";
-    });
-    var checkpoints = sorted.filter(function (r) {
-      return r.type === "checkpoint";
-    });
-
     if (sorted.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
-      Array.from(container.querySelectorAll(".plan-editor-section")).forEach(
-        function (el) {
-          el.remove();
-        },
-      );
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
 
-    Array.from(container.querySelectorAll(".plan-editor-section")).forEach(
-      function (el) {
-        el.remove();
-      },
-    );
+    var todayStr = todayISO();
+    var primaryId = _primaryRace && _primaryRace.id;
 
-    function buildSection(label, items) {
-      var sec = document.createElement("div");
-      sec.className = "plan-editor-section";
+    sorted.forEach(function (r) {
+      var isCheckpoint = r.type === "checkpoint";
+      // Real priority comes from the race row. Checkpoints have no priority and
+      // render under the neutral "C" treatment; real races use r.priority.
+      var priority = isCheckpoint ? "C" : r.priority || "A";
+      var isTarget = r.id === primaryId;
+      var upcoming = r.date >= todayStr;
+      var distKm = parseFloat(r.distance || 0);
+      var goalSec = r.goal_time_seconds || null;
+      var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
 
-      var hdr = document.createElement("div");
-      hdr.className = "plan-editor-section-hdr";
-      hdr.textContent = label;
-      sec.appendChild(hdr);
+      var card = document.createElement("div");
+      card.className = "pm-rc" + (isTarget ? " target" : "");
+      card.setAttribute("data-race-id", r.id);
 
-      if (items.length === 0) {
-        var emp = document.createElement("p");
-        emp.className = "plan-list-empty";
-        emp.textContent = "No " + label.toLowerCase() + " added yet.";
-        sec.appendChild(emp);
-        return sec;
+      var recalHtml =
+        _projection &&
+        _projection.b_race_recalibration_date === r.date &&
+        priority === "B"
+          ? '<span class="pm-recal">↻ recalibrates here</span>'
+          : "";
+      var rightTag = isTarget
+        ? '<span class="pm-tgt">TARGET</span>'
+        : recalHtml;
+
+      // A completed (done) race carries a real result. Show a DONE pill and the
+      // actual finish time instead of the projected Estimated column.
+      var isDone =
+        r.status === "done" && r.actual_time_seconds != null;
+      var statusPillHead = isDone
+        ? '<span class="pm-upc pm-done">DONE</span>'
+        : '<span class="pm-upc' + (upcoming ? "" : " pm-past") + '">' +
+          (upcoming ? "UPCOMING" : "PAST") + "</span>";
+
+      var head =
+        '<div class="pm-rchd">' +
+        '<span class="pm-rclet" style="background:' +
+        (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+        '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+        '<span class="pm-typetag">' +
+        (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+        '<span class="pm-rcmeta">' +
+        esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km</span>" +
+        statusPillHead +
+        rightTag +
+        '<span class="pm-rcactions">' +
+        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+        '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+        "</span>" +
+        "</div>";
+
+      // Second column: Actual (for done races) or Estimated (from readiness).
+      var secondCol = "";
+      if (isDone) {
+        var actualSec = r.actual_time_seconds;
+        var actualPace = distKm ? fmtPace(actualSec / distKm) : "";
+        secondCol =
+          '<div class="pm-col est">' +
+          '<div class="pm-coll">Actual ' +
+          '<span class="pm-stat ok">completed</span></div>' +
+          '<div class="pm-colt">' + esc(fmtTime(actualSec)) + "</div>" +
+          '<div class="pm-colp">' + esc(actualPace) + "</div></div>";
+      } else {
+        var estInfo = _currentEstimate(_raceReadiness[r.id]);
+        if (estInfo) {
+          var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+          var bandTxt =
+            estInfo.band != null
+              ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+              : "";
+          secondCol =
+            '<div class="pm-col est">' +
+            '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
+            '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+            '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+        }
       }
 
-      items.forEach(function (r) {
-        var row = document.createElement("div");
-        row.className = "plan-race-row";
-        row.dataset.raceId = r.id;
+      var grid =
+        '<div class="pm-rcgrid">' +
+        '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+        '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+        '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+        secondCol +
+        "</div>";
 
-        var info = document.createElement("div");
-        info.className = "plan-race-row-info";
+      // Footer: End/Spd score tags (athlete-level scores from /api/projection —
+      // shown on the primary race only, since scores are not per-race). No
+      // half-equiv line: the readiness API does not expose a half-equivalent
+      // time, so we do not fabricate one.
+      var foot = "";
+      if (
+        isTarget &&
+        _projection &&
+        (typeof _projection.endurance_score === "number" ||
+          typeof _projection.speed_score === "number")
+      ) {
+        var tags = "";
+        if (typeof _projection.endurance_score === "number")
+          tags +=
+            '<span class="pm-sc e">End ' +
+            Math.round(_projection.endurance_score) + "</span>";
+        if (typeof _projection.speed_score === "number")
+          tags +=
+            '<span class="pm-sc s">Spd ' +
+            Math.round(_projection.speed_score) + "</span>";
+        if (tags)
+          foot =
+            '<div class="pm-rcfoot"><div class="pm-scoretags">' +
+            tags +
+            "</div></div>";
+      }
 
-        var name = document.createElement("p");
-        name.className = "plan-race-row-name";
-        name.textContent = r.name || "(unnamed)";
-        info.appendChild(name);
+      card.innerHTML = head + grid + foot;
 
-        var meta = document.createElement("div");
-        meta.className = "plan-race-row-meta";
-        meta.innerHTML =
-          "<span>" +
-          esc(formatDate(r.date)) +
-          "</span>" +
-          " <span>" +
-          parseFloat(r.distance || 0).toFixed(2) +
-          " km</span>" +
-          (r.goal_time_seconds
-            ? " <span>" + esc(fmtTime(r.goal_time_seconds)) + "</span>"
-            : "");
-        info.appendChild(meta);
-        row.appendChild(info);
-
-        var actions = document.createElement("div");
-        actions.className = "plan-race-row-actions";
-
-        var editBtn = document.createElement("button");
-        editBtn.type = "button";
-        editBtn.className = "plan-row-action-btn";
-        editBtn.textContent = "Edit";
-        editBtn.addEventListener("click", function (e) {
-          e.stopPropagation();
-          openModal(r, r.type || "race");
-        });
-
-        var delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.className = "plan-row-action-btn plan-row-action-btn--delete";
-        delBtn.textContent = "Delete";
-        delBtn.addEventListener("click", function (e) {
-          e.stopPropagation();
-          _deleteRow(r.id, r.name || "entry");
-        });
-
-        actions.appendChild(editBtn);
-        actions.appendChild(delBtn);
-        row.appendChild(actions);
-
-        sec.appendChild(row);
+      card.querySelector('[data-act="edit"]').addEventListener("click", function () {
+        openModal(r, r.type || "race");
+      });
+      card.querySelector('[data-act="del"]').addEventListener("click", function () {
+        _deleteRow(r.id, r.name || "entry");
       });
 
-      return sec;
-    }
-
-    container.appendChild(buildSection("Races", races));
-    container.appendChild(buildSection("Checkpoints", checkpoints));
+      container.appendChild(card);
+    });
   }
 
-  // ── Specificity bars ──────────────────────────────────────────────────────
+  // ── 4. Form curve SVG (TSB) ───────────────────────────────────────────────
+  // Ported from mock #pacecurve: recent-emphasis x (pow 1.55), fresh/overreach
+  // zones. Fed the real daily TSB series from form_curve.
+  function renderFormCurve() {
+    var svg = document.getElementById("plan-pacecurve");
+    var emptyEl = document.getElementById("plan-curve-empty");
+    var bbEl = document.getElementById("plan-building-baseline");
+    if (!svg) return;
+    clearSvg(svg);
+
+    if (_readiness && _readiness.building_baseline) {
+      svg.style.display = "none";
+      if (emptyEl) emptyEl.style.display = "none";
+      if (bbEl) bbEl.style.display = "";
+      return;
+    }
+    if (bbEl) bbEl.style.display = "none";
+
+    var formCurve =
+      (_readiness && _readiness.form_curve) ||
+      (_projection && _projection.form_curve) ||
+      [];
+
+    if (formCurve.length < 2) {
+      svg.style.display = "none";
+      if (emptyEl) emptyEl.style.display = "";
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = "none";
+    svg.style.display = "";
+
+    var W = 1140, H = 300, p = { l: 44, r: 20, t: 12, b: 28 };
+    var vmin = -25, vmax = 10;
+    // widen range if data exceeds defaults
+    formCurve.forEach(function (pt) {
+      if (pt.form < vmin) vmin = Math.floor(pt.form);
+      if (pt.form > vmax) vmax = Math.ceil(pt.form);
+    });
+    function y(v) {
+      return p.t + (1 - (v - vmin) / (vmax - vmin)) * (H - p.t - p.b);
+    }
+    function xf(u) {
+      return Math.pow(u, 1.55);
+    }
+    function x(i, n) {
+      return p.l + xf(n > 1 ? i / (n - 1) : 0) * (W - p.l - p.r);
+    }
+
+    // fresh (green) and overreach (red) zones
+    svg.appendChild(E("rect", {
+      x: p.l, y: y(vmax), width: W - p.l - p.r, height: y(5) - y(vmax),
+      fill: "#dcfce7", "fill-opacity": 0.55,
+    }));
+    svg.appendChild(E("rect", {
+      x: p.l, y: y(-18), width: W - p.l - p.r, height: y(vmin) - y(-18),
+      fill: "#fee2e2", "fill-opacity": 0.55,
+    }));
+
+    [vmax, 0, -10, vmin].forEach(function (v) {
+      svg.appendChild(E("line", {
+        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
+      }));
+      var lab = E("text", {
+        x: p.l - 8, y: y(v) + 3, "font-size": 10, "font-family": "JetBrains Mono",
+        fill: "#9aa3b8", "text-anchor": "end",
+      });
+      lab.textContent = Math.round(v);
+      svg.appendChild(lab);
+    });
+
+    var N = formCurve.length;
+    var pts = formCurve.map(function (pt, i) {
+      return [x(i, N), y(pt.form)];
+    });
+    svg.appendChild(E("path", {
+      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": 1.8,
+      "stroke-linejoin": "round",
+    }));
+
+    // date ticks: first, ~mid, last
+    var idxs = [0, Math.floor(N * 0.6), N - 1];
+    idxs.forEach(function (i, k) {
+      var xx = x(i, N);
+      var t = E("text", {
+        x: xx, y: H - 8, "font-size": 10, "font-family": "JetBrains Mono",
+        fill: "#9aa3b8",
+        "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
+      });
+      var d = new Date(formCurve[i].date + "T00:00:00");
+      var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      t.textContent = months[d.getMonth()] + " " + d.getDate();
+      svg.appendChild(t);
+    });
+  }
+
+  // ── 5. Schedule preview bars ──────────────────────────────────────────────
+  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
+    weeks = weeks || 20;
+    var BASE_TSS = 55;
+    var PLATEAU = 100;
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
+    var arr = [];
+    for (var w = 1; w <= weeks; w++) {
+      var tss;
+      if (w <= weeks - taper) {
+        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
+      } else {
+        var into = w - (weeks - taper);
+        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
+      }
+      arr.push(tss);
+    }
+    return arr;
+  }
+
+  function renderSchedulePreview() {
+    var host = document.getElementById("plan-sched");
+    var labs = document.getElementById("plan-wklabels");
+    if (!host) return;
+    host.innerHTML = "";
+    if (labs) labs.innerHTML = "";
+
+    var rampIn = document.getElementById("plan-ramp-rate-input");
+    var taperIn = document.getElementById("plan-taper-window-input");
+    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
+    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
+
+    // Prefer planned_load from the plan projection when available.
+    var weeks = 20;
+    var series;
+    var planned = _projection && _projection.planned_load;
+    if (Array.isArray(planned) && planned.length > 0) {
+      // aggregate daily planned load into weeks
+      var byWeek = [];
+      for (var i = 0; i < planned.length; i += 7) {
+        var chunk = planned.slice(i, i + 7);
+        var sum = chunk.reduce(function (a, b) { return a + (b || 0); }, 0);
+        byWeek.push(sum);
+      }
+      series = byWeek.length ? byWeek : _computeScheduleSeries(rampRate, taperWindow, weeks);
+    } else {
+      series = _computeScheduleSeries(rampRate, taperWindow, weeks);
+    }
+
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
+    var max = Math.max.apply(null, series.concat([1]));
+
+    series.forEach(function (tss, i) {
+      var bar = document.createElement("div");
+      bar.className = "pm-bar" + (i >= series.length - taper ? " taper" : "");
+      bar.style.height = (tss / max) * 100 + "%";
+      bar.title = "Wk " + (i + 1) + " · " + Math.round(tss) + " TSS";
+      host.appendChild(bar);
+      if (labs) {
+        var s = document.createElement("span");
+        s.textContent = (i + 1) % 2 === 1 ? "Wk " + (i + 1) : "";
+        labs.appendChild(s);
+      }
+    });
+  }
+
+  // ── 6. Specificity bars ───────────────────────────────────────────────────
   function renderSpecBars() {
-    var barsEl = document.getElementById("plan-spec-bars");
+    var host = document.getElementById("plan-spec-bars");
     var emptyEl = document.getElementById("plan-spec-empty");
-    if (!barsEl || !emptyEl) return;
+    if (!host) return;
 
-    if (!_readiness || !_readiness.specificity_progress) {
-      barsEl.style.display = "none";
-      emptyEl.style.display = "";
+    var sp = _readiness && _readiness.specificity_progress;
+    if (!sp || sp.reason) {
+      host.innerHTML = "";
+      if (emptyEl) emptyEl.style.display = "";
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = "none";
+
+    var rows = [];
+    function pct(cur, tgt) {
+      return tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0;
+    }
+    if (sp.volume_at_pace)
+      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target)]);
+    if (sp.longest_pace_effort)
+      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target)]);
+    if (sp.longest_run_by_distance)
+      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target)]);
+    if (sp.longest_run_by_duration)
+      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target)]);
+
+    if (rows.length === 0) {
+      host.innerHTML = "";
+      if (emptyEl) emptyEl.style.display = "";
       return;
     }
 
-    var sp = _readiness.specificity_progress;
-    if (sp.reason) {
-      barsEl.style.display = "none";
-      emptyEl.style.display = "";
-      return;
-    }
-
-    barsEl.style.display = "";
-    emptyEl.style.display = "none";
-
-    function updateBar(currentId, targetId, fillId, current, target) {
-      var cEl = document.getElementById(currentId);
-      var tEl = document.getElementById(targetId);
-      var fEl = document.getElementById(fillId);
-      if (cEl) cEl.textContent = fmtKm(current);
-      if (tEl) tEl.textContent = fmtKm(target);
-      if (fEl) {
-        var pct =
-          target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-        fEl.style.transform = "scaleX(" + pct / 100 + ")";
-      }
-    }
-
-    if (sp.volume_at_pace) {
-      updateBar(
-        "plan-spec-volume-current",
-        "plan-spec-volume-target",
-        "plan-spec-volume-fill",
-        sp.volume_at_pace.current,
-        sp.volume_at_pace.target,
-      );
-    }
-    if (sp.longest_pace_effort) {
-      updateBar(
-        "plan-spec-pace-current",
-        "plan-spec-pace-target",
-        "plan-spec-pace-fill",
-        sp.longest_pace_effort.current,
-        sp.longest_pace_effort.target,
-      );
-    }
-    if (sp.longest_run_by_distance) {
-      updateBar(
-        "plan-spec-slower-current",
-        "plan-spec-slower-target",
-        "plan-spec-slower-fill",
-        sp.longest_run_by_distance.current,
-        sp.longest_run_by_distance.target,
-      );
-    }
-    if (sp.longest_run_by_duration) {
-      var durCurrent = sp.longest_run_by_duration.current || 0;
-      var durTarget = sp.longest_run_by_duration.target || 0;
-      var cEl = document.getElementById("plan-spec-duration-current");
-      var tEl = document.getElementById("plan-spec-duration-target");
-      var fEl = document.getElementById("plan-spec-duration-fill");
-      if (cEl) cEl.textContent = fmtTime(durCurrent) || "—";
-      if (tEl) tEl.textContent = fmtTime(durTarget) || "—";
-      if (fEl) {
-        var pct =
-          durTarget > 0
-            ? Math.min(100, Math.round((durCurrent / durTarget) * 100))
-            : 0;
-        fEl.style.transform = "scaleX(" + pct / 100 + ")";
-      }
-    }
+    host.innerHTML = rows
+      .map(function (r) {
+        return (
+          '<div class="pm-specrow">' +
+          '<div class="pm-specname">' + esc(r[0]) + "</div>" +
+          '<div class="pm-spectrack"><div class="pm-specfill" style="width:' +
+          r[1] + '%"></div></div>' +
+          '<div class="pm-specpct">' + r[1] + "%</div>" +
+          "</div>"
+        );
+      })
+      .join("");
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────
@@ -987,8 +948,12 @@
       _races = Array.isArray(data) ? data : [];
       _primaryRace =
         _races.find(function (r) {
+          return r.type === "race" && r.priority === "A";
+        }) ||
+        _races.find(function (r) {
           return r.type === "race";
-        }) || null;
+        }) ||
+        null;
       if (done) done();
     });
   }
@@ -1001,89 +966,21 @@
     }
     apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
       _readiness = data;
+      // Cache under the race id so renderRaceCards can surface the Estimated
+      // column for the primary race.
+      _raceReadiness[_primaryRace.id] = data;
       if (done) done();
     });
   }
 
-  // ── Plan settings: ramp/taper controls + schedule preview (issue #1104) ──────
-
-  function _computeScheduleSeries(rampRate, taperWindow) {
-    var WEEKS = 20;
-    var BASE_TSS = 100;
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), WEEKS - 1));
-    var buildWeeks = WEEKS - taper;
-    var series = [];
-    for (var i = 0; i < buildWeeks; i++) {
-      series.push(Math.round(BASE_TSS + rampRate * i));
-    }
-    var peak = series.length > 0 ? series[series.length - 1] : BASE_TSS;
-    for (var j = 0; j < taper; j++) {
-      var frac = (taper - j - 1) / Math.max(taper, 1);
-      series.push(Math.round(BASE_TSS * 0.6 + (peak - BASE_TSS * 0.6) * frac));
-    }
-    return series;
-  }
-
-  function renderSchedulePreview() {
-    var canvas = document.getElementById("plan-schedule-canvas");
-    if (!canvas || typeof Chart === "undefined") return;
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
-    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
-
-    var series = _computeScheduleSeries(rampRate, taperWindow);
-    var labels = series.map(function (_, i) { return "Wk " + (i + 1); });
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
-    var colors = series.map(function (_, i) {
-      return i >= series.length - taper ? "rgba(239,68,68,0.7)" : "rgba(53,99,212,0.75)";
-    });
-
-    if (_scheduleChart) {
-      _scheduleChart.destroy();
-      _scheduleChart = null;
-    }
-
-    _scheduleChart = new Chart(canvas.getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: labels,
-        datasets: [{
-          label: "Planned Load (TSS)",
-          data: series,
-          backgroundColor: colors,
-          borderRadius: 3,
-          borderSkipped: false,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: function (ctx) { return "TSS: " + ctx.raw; },
-            },
-          },
-        },
-        scales: {
-          x: {
-            ticks: { maxTicksLimit: 10, font: { size: 9 }, color: "#9aa3b2" },
-            grid: { display: false },
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { font: { size: 9 }, color: "#9aa3b2" },
-            grid: { color: "#f0f2f8" },
-          },
-        },
-        animation: { duration: 200 },
-      },
+  function loadProjection(done) {
+    apiGet("/api/projection", function (data) {
+      _projection = data;
+      if (done) done();
     });
   }
 
+  // ── Plan settings ─────────────────────────────────────────────────────────
   function _validateSettingsInputs() {
     var rampIn = document.getElementById("plan-ramp-rate-input");
     var taperIn = document.getElementById("plan-taper-window-input");
@@ -1121,9 +1018,9 @@
       if (plan) {
         _planId = plan.id;
         if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
-        if (taperIn) taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
+        if (taperIn)
+          taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
       } else {
-        _planId = null;
         if (rampIn) rampIn.value = 0;
         if (taperIn) taperIn.value = 0;
       }
@@ -1144,71 +1041,240 @@
     function onSaved(res) {
       if (!res.ok) {
         var rampErr = document.getElementById("plan-ramp-rate-error");
-        if (rampErr) rampErr.textContent = (res.data && res.data.detail) ? res.data.detail : "Save failed.";
+        if (rampErr)
+          rampErr.textContent =
+            res.data && res.data.detail ? res.data.detail : "Save failed.";
         return;
       }
       _planId = res.data.id;
       if (savedEl) {
         savedEl.style.display = "";
-        setTimeout(function () { savedEl.style.display = "none"; }, 2000);
+        setTimeout(function () {
+          savedEl.style.display = "none";
+        }, 2000);
       }
     }
 
     if (_planId) {
-      apiPatch("/api/plans/" + _planId, { ramp_rate: rampRate, taper_length: taperLength }, onSaved);
+      apiPatch(
+        "/api/plans/" + _planId,
+        { ramp_rate: rampRate, taper_length: taperLength },
+        onSaved,
+      );
     } else {
-      apiPost("/api/plans", { name: "Training Plan", ramp_rate: rampRate, taper_length: taperLength }, function (res) {
-        onSaved(res);
-      });
+      apiPost(
+        "/api/plans",
+        { name: "Training Plan", ramp_rate: rampRate, taper_length: taperLength },
+        onSaved,
+      );
     }
   }
 
+  // ── Render orchestration ──────────────────────────────────────────────────
   function renderAll() {
     renderRaceHeader();
-    renderVerdict();
-    renderCurve();
     renderTimeCurve();
-    renderRacesList();
+    renderRaceCards();
+    renderFormCurve();
     renderSpecBars();
+    renderSchedulePreview();
   }
 
   function refresh() {
     _ensurePlanId(function () {
-      loadRaces(function () {
-        loadReadiness(function () {
-          renderAll();
+      loadProjection(function () {
+        loadRaces(function () {
+          loadReadiness(function () {
+            renderAll();
+          });
         });
       });
     });
+    loadCalibration();
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
-  function openModal(race, raceType) {
-    _editingRaceId = race ? race.id : null;
-    _editingRaceType = raceType || "race";
-
-    var modal = document.getElementById("plan-race-modal");
+  // Set the active type tab (race|checkpoint) and toggle priority visibility.
+  function _setModalType(type) {
+    _editingRaceType = type === "checkpoint" ? "checkpoint" : "race";
+    var seg = document.getElementById("plan-modal-typeseg");
+    if (seg) {
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-type") === _editingRaceType;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-selected", active ? "true" : "false");
+        },
+      );
+    }
+    var prField = document.getElementById("plan-modal-priority-field");
+    if (prField)
+      prField.style.display = _editingRaceType === "checkpoint" ? "none" : "";
+    // "Pick from history" only when ADDING a race (not editing, not checkpoint).
+    var histField = document.getElementById("plan-modal-history-field");
+    var showPicker = !_editingRaceId && _editingRaceType === "race";
+    if (histField) histField.style.display = showPicker ? "" : "none";
+    // Switching to Checkpoint clears any picked completed-race state.
+    if (_editingRaceType === "checkpoint" && _pickedActualSeconds != null) {
+      _setActualState(null);
+    }
     var title = document.getElementById("plan-modal-title");
+    if (title) {
+      var editing = !!_editingRaceId;
+      title.textContent =
+        (editing ? "Edit " : "Add ") +
+        (_editingRaceType === "checkpoint" ? "Checkpoint" : "Race");
+    }
+  }
+
+  // Set the active priority (A|B|C) in the priority segmented control.
+  function _setModalPriority(priority) {
+    _modalPriority = ["A", "B", "C"].indexOf(priority) >= 0 ? priority : "A";
+    var seg = document.getElementById("plan-modal-priorityseg");
+    if (!seg) return;
+    Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+      function (b) {
+        var active = b.getAttribute("data-priority") === _modalPriority;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-checked", active ? "true" : "false");
+      },
+    );
+  }
+
+  // ── Pick from history (completed-race picker) ─────────────────────────────
+  // Reset picker + completed-race state (called on open/close).
+  function _resetPicker() {
+    _pickedActualSeconds = null;
+    var panel = document.getElementById("plan-modal-history-panel");
+    if (panel) panel.style.display = "none";
+    var actualField = document.getElementById("plan-modal-actual-field");
+    if (actualField) actualField.style.display = "none";
+  }
+
+  // Show/hide the completed-race "Actual time" banner and remember the seconds.
+  function _setActualState(seconds) {
+    _pickedActualSeconds = seconds;
+    var actualField = document.getElementById("plan-modal-actual-field");
+    var valEl = document.getElementById("plan-modal-actual-val");
+    if (seconds != null) {
+      if (valEl) valEl.textContent = fmtTime(seconds);
+      if (actualField) actualField.style.display = "";
+    } else {
+      if (actualField) actualField.style.display = "none";
+    }
+  }
+
+  function _isoDaysAgo(days) {
+    var d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  function _loadHistory() {
+    var listEl = document.getElementById("plan-modal-history-list");
+    var loadingEl = document.getElementById("plan-modal-history-loading");
+    var emptyEl = document.getElementById("plan-modal-history-empty");
+
+    function _renderHistoryList() {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (!listEl) return;
+      if (_historyRuns.length === 0) {
+        if (emptyEl) emptyEl.style.display = "";
+        listEl.innerHTML = "";
+        return;
+      }
+      if (emptyEl) emptyEl.style.display = "none";
+      listEl.innerHTML = "";
+      _historyRuns.forEach(function (r, idx) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plan-modal-history-row";
+        btn.setAttribute("data-idx", idx);
+        var distKm = parseFloat(r.distance_km || 0).toFixed(2);
+        btn.innerHTML =
+          '<span class="plan-modal-history-row-top">' +
+          esc(formatDate(r.workout_date)) +
+          " · " + distKm + " km · " + esc(fmtTime(r.duration_seconds)) +
+          "</span>" +
+          '<span class="plan-modal-history-row-name">' +
+          esc(r.name || "Run") + "</span>";
+        btn.addEventListener("click", function () {
+          _pickRun(r);
+        });
+        listEl.appendChild(btn);
+      });
+    }
+
+    if (_historyLoaded) {
+      _renderHistoryList();
+      return;
+    }
+    if (loadingEl) loadingEl.style.display = "";
+    if (emptyEl) emptyEl.style.display = "none";
+
+    var from = _isoDaysAgo(365 * 3);
+    var to = todayISO();
+    apiGet(
+      "/api/workouts?from=" + from + "&to=" + to,
+      function (data) {
+        var rows = Array.isArray(data) ? data : [];
+        // Runs only, > 10 km, with a usable finish time. Server does not filter
+        // by distance, so filter client-side. Sort most-recent first.
+        _historyRuns = rows
+          .filter(function (w) {
+            return (
+              (w.workout_type || "").toLowerCase() === "run" &&
+              w.distance_km != null &&
+              parseFloat(w.distance_km) > 10 &&
+              w.duration_seconds
+            );
+          })
+          .sort(function (a, b) {
+            return a.workout_date < b.workout_date ? 1 : a.workout_date > b.workout_date ? -1 : 0;
+          });
+        _historyLoaded = true;
+        _renderHistoryList();
+      },
+    );
+  }
+
+  // Prefill the form from a picked past run and switch to completed-race mode.
+  function _pickRun(run) {
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var typeIn = document.getElementById("plan-modal-type");
+    var distKm = parseFloat(run.distance_km || 0);
+
+    if (nameIn)
+      nameIn.value =
+        run.name && run.name.trim()
+          ? run.name.trim()
+          : Math.round(distKm) + "K race";
+    if (dateIn) dateIn.value = run.workout_date || "";
+    if (distIn) distIn.value = distKm ? distKm.toFixed(2) : "";
+
+    // Past races are usually B-priority; default the selector to B.
+    _setModalPriority("B");
+    _setActualState(run.duration_seconds || null);
+
+    var panel = document.getElementById("plan-modal-history-panel");
+    if (panel) panel.style.display = "none";
+  }
+
+  function openModal(race, raceType) {
+    _editingRaceId = race ? race.id : null;
+
+    var modal = document.getElementById("plan-race-modal");
+    var nameIn = document.getElementById("plan-modal-name");
+    var dateIn = document.getElementById("plan-modal-date");
+    var distIn = document.getElementById("plan-modal-distance");
     var goalIn = document.getElementById("plan-modal-goal-time");
     var deleteBtn = document.getElementById("plan-modal-delete-btn");
     var errEl = document.getElementById("plan-modal-error");
 
     if (!modal) return;
 
-    var isCheckpoint = _editingRaceType === "checkpoint";
-
-    if (title)
-      title.textContent = race
-        ? isCheckpoint
-          ? "Edit Checkpoint"
-          : "Edit Race"
-        : isCheckpoint
-          ? "Add Checkpoint"
-          : "Add Race";
+    var type = race ? race.type || "race" : raceType || "race";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
     if (errEl) errEl.textContent = "";
 
@@ -1216,15 +1282,20 @@
       if (nameIn) nameIn.value = race.name || "";
       if (dateIn) dateIn.value = race.date || "";
       if (distIn) distIn.value = race.distance || "";
-      if (typeIn) typeIn.value = race.type || "race";
       if (goalIn) goalIn.value = goalTimeToStr(race.goal_time_seconds);
     } else {
       if (nameIn) nameIn.value = "";
       if (dateIn) dateIn.value = "";
       if (distIn) distIn.value = "";
-      if (typeIn) typeIn.value = isCheckpoint ? "checkpoint" : "race";
       if (goalIn) goalIn.value = "";
     }
+
+    // Reset picker/completed-race state every time the modal opens.
+    _resetPicker();
+
+    // Tab + priority state (must run after _editingRaceId is set for the title).
+    _setModalType(type);
+    _setModalPriority(race && race.priority ? race.priority : "A");
 
     modal.style.display = "";
     if (nameIn) nameIn.focus();
@@ -1233,20 +1304,21 @@
   function closeModal() {
     var modal = document.getElementById("plan-race-modal");
     if (modal) modal.style.display = "none";
+    _resetPicker();
   }
 
   function saveModal() {
     var nameIn = document.getElementById("plan-modal-name");
     var dateIn = document.getElementById("plan-modal-date");
     var distIn = document.getElementById("plan-modal-distance");
-    var typeIn = document.getElementById("plan-modal-type");
     var goalIn = document.getElementById("plan-modal-goal-time");
     var errEl = document.getElementById("plan-modal-error");
 
     var name = nameIn ? nameIn.value.trim() : "";
     var date = dateIn ? dateIn.value : "";
     var dist = distIn ? parseFloat(distIn.value) : NaN;
-    var type = typeIn ? typeIn.value : _editingRaceType;
+    // Type comes from the active segmented tab, not a <select>.
+    var type = _editingRaceType === "checkpoint" ? "checkpoint" : "race";
     var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
     if (!name) {
@@ -1261,15 +1333,36 @@
       if (errEl) errEl.textContent = "Distance must be a positive number.";
       return;
     }
+    // Plausibility guard: a goal like "4:30" parses as MM:SS (4.5 min), which
+    // over a marathon is 0:06 /km — clearly a typo for 4:30:00. Reject goals
+    // whose implied pace is outside a realistic 2:30–15:00 /km band and point
+    // the user at HH:MM:SS.
+    if (goalSec !== null && dist > 0) {
+      var paceSec = goalSec / dist;
+      if (paceSec < 150 || paceSec > 900) {
+        if (errEl)
+          errEl.textContent =
+            "Goal " + (goalIn ? goalIn.value.trim() : "") + " implies " +
+            fmtPace(paceSec) + " over " + dist + " km — not a realistic pace. " +
+            "For longer races use HH:MM:SS (e.g. 4:30:00).";
+        return;
+      }
+    }
 
-    var body = {
-      name: name,
-      date: date,
-      distance: dist,
-      type: type,
-    };
+    var body = { name: name, date: date, distance: dist, type: type };
     if (goalSec !== null) body.goal_time_seconds = goalSec;
-
+    // Priority is only meaningful for races (checkpoints are forced to C by the
+    // backend). Send it from the priority segmented control on the Race tab.
+    if (type === "race") body.priority = _modalPriority;
+    // Completed-race mode: a past run was picked from history → mark done and
+    // send the real finish time (calibration data). actual_time is measured, so
+    // the goal-pace plausibility guard above does not apply to it.
+    if (type === "race" && _pickedActualSeconds != null) {
+      body.status = "done";
+      body.actual_time_seconds = _pickedActualSeconds;
+    } else {
+      body.status = "planned";
+    }
     if (errEl) errEl.textContent = "";
 
     if (_editingRaceId) {
@@ -1364,16 +1457,57 @@
 
   // ── Event wiring ──────────────────────────────────────────────────────────
   function wireEvents() {
-    var addRaceBtn = document.getElementById("plan-add-race-btn");
-    if (addRaceBtn)
-      addRaceBtn.addEventListener("click", function () {
+    // Single "+ Add" button opens the modal defaulting to the Race tab.
+    var addBtn = document.getElementById("plan-add-btn");
+    if (addBtn)
+      addBtn.addEventListener("click", function () {
         openModal(null, "race");
       });
 
-    var addCpBtn = document.getElementById("plan-add-checkpoint-btn");
-    if (addCpBtn)
-      addCpBtn.addEventListener("click", function () {
-        openModal(null, "checkpoint");
+    // Modal type tabs (Race | Checkpoint).
+    var typeSeg = document.getElementById("plan-modal-typeseg");
+    if (typeSeg)
+      typeSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setModalType(b.getAttribute("data-type"));
+      });
+
+    // Modal priority segmented control (A | B | C).
+    var prSeg = document.getElementById("plan-modal-priorityseg");
+    if (prSeg)
+      prSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setModalPriority(b.getAttribute("data-priority"));
+      });
+
+    // Pick from history: toggle the panel + load past runs on first open.
+    var histToggle = document.getElementById("plan-modal-history-toggle");
+    if (histToggle)
+      histToggle.addEventListener("click", function () {
+        var panel = document.getElementById("plan-modal-history-panel");
+        if (!panel) return;
+        var show = panel.style.display === "none";
+        panel.style.display = show ? "" : "none";
+        if (show) _loadHistory();
+      });
+
+    // Clear completed-race state (revert to a normal planned race).
+    var actualClear = document.getElementById("plan-modal-actual-clear");
+    if (actualClear)
+      actualClear.addEventListener("click", function () {
+        _setActualState(null);
+      });
+
+    // Distance quick-fill buttons.
+    var distQuick = document.getElementById("plan-modal-distance-quick");
+    if (distQuick)
+      distQuick.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-quick-btn");
+        if (!b) return;
+        var distIn = document.getElementById("plan-modal-distance");
+        if (distIn) distIn.value = b.getAttribute("data-km");
       });
 
     var modalClose = document.getElementById("plan-modal-close");
@@ -1399,28 +1533,25 @@
         if (cb) cb();
       });
 
-    // Plan settings: ramp/taper live preview and save
     var rampIn = document.getElementById("plan-ramp-rate-input");
     var taperIn = document.getElementById("plan-taper-window-input");
     var saveSettingsBtn = document.getElementById("plan-save-settings-btn");
 
     if (rampIn) rampIn.addEventListener("input", renderSchedulePreview);
     if (taperIn) taperIn.addEventListener("input", renderSchedulePreview);
-    if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", savePlanSettings);
+    if (saveSettingsBtn)
+      saveSettingsBtn.addEventListener("click", savePlanSettings);
 
-    // Close modals on overlay click
     var planModal = document.getElementById("plan-race-modal");
-    if (planModal) {
+    if (planModal)
       planModal.addEventListener("click", function (e) {
         if (e.target === planModal) closeModal();
       });
-    }
     var confirmModal = document.getElementById("plan-confirm-modal");
-    if (confirmModal) {
+    if (confirmModal)
       confirmModal.addEventListener("click", function (e) {
         if (e.target === confirmModal) closeConfirm();
       });
-    }
   }
 
   // ── Public init ───────────────────────────────────────────────────────────

@@ -5089,7 +5089,6 @@ _PAGES = {
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
-    "projection": "projection.html",
     "sessions": "sessions.html",
 }
 
@@ -5117,6 +5116,14 @@ def _serve_weight_targets():
     return RedirectResponse(url="/weight", status_code=302)
 
 app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
+
+
+def _serve_projection_redirect():
+    # Projection was merged into the Training → Plan sub-tab (issue #1226).
+    return RedirectResponse(url="/log#plan", status_code=302)
+
+app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
+app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
 
 
 @app.get("/")
@@ -5375,6 +5382,149 @@ def _best_values_dict(w: Workout) -> dict:
         "best_avg_power_w": bv["best_avg_power_w"],
         "best_tss": float(bv["best_tss"]) if bv["best_tss"] is not None else None,
         "best_name": bv["best_name"],
+    }
+
+
+def _normalize_workout_type(t: str | None) -> str | None:
+    """Canonicalize run type casing on write ('Run'/'Running' → 'run').
+
+    Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
+    guardrail) match. Other types are passed through trimmed, unchanged.
+    """
+    if t is None:
+        return None
+    t = t.strip()
+    if t.lower() in ("run", "running"):
+        return "run"
+    return t
+
+
+def _workout_signal_scores(session, workout) -> dict:
+    """Per-session endurance/speed scores for the signal card.
+
+    Returns the athlete's score as of this workout's date (``*_current``) and
+    the delta that date contributed (current minus the score as of the day
+    before) as ``*_delta``. Any value is None when it can't be computed
+    (non-run, no prefs, insufficient data). Multiple runs on the same date are
+    attributed together (delta ≈ that day's contribution).
+    """
+    from backend.services.running_performance import (
+        compute_endurance_score,
+        compute_speed_score,
+    )
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    if (workout.workout_type or "").lower() != "run" or workout.workout_date is None:
+        return {}
+
+    prefs_row = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == workout.user_id)
+        .first()
+    )
+    prefs_dict = {}
+    if prefs_row is not None:
+        prefs_dict = {
+            "ftp_w": prefs_row.ftp_w,
+            "threshold_hr": prefs_row.threshold_hr,
+            "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+            "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+            "duration_curve_bests": None,
+        }
+    zone_constants = make_zone_constants()
+    try:
+        compute_decoupling = _compute_decoupling
+    except Exception:
+        compute_decoupling = None
+
+    run_workouts = (
+        session.query(Workout)
+        .filter(Workout.user_id == workout.user_id, Workout.workout_type == "run")
+        .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+        .all()
+    )
+    # Batch all splits in one query to avoid N+1 across the athlete's runs.
+    wids = [wk.id for wk in run_workouts]
+    splits_by_wk: dict = {}
+    if wids:
+        for s in (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id.in_(wids))
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        ):
+            splits_by_wk.setdefault(s.workout_id, []).append(s)
+
+    def _build(max_date, before_date=None):
+        runs = []
+        for wk in run_workouts:
+            if wk.workout_date > max_date:
+                continue
+            if before_date is not None and wk.workout_date >= before_date:
+                continue
+            splits = splits_by_wk.get(wk.id, [])
+            laps = [
+                {
+                    "band": cls.get("band"),
+                    "avg_power": s.avg_power,
+                    "avg_hr": s.avg_hr,
+                    "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                    "duration_seconds": s.duration_seconds,
+                }
+                for s, cls in zip(splits, classify_laps(splits, prefs_dict))
+            ]
+            dpct = None
+            if compute_decoupling is not None:
+                try:
+                    dres = compute_decoupling(
+                        [
+                            {
+                                "split_index": s.split_index,
+                                "duration_seconds": s.duration_seconds,
+                                "avg_hr": s.avg_hr,
+                                "avg_power": s.avg_power,
+                                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                            }
+                            for s in splits
+                        ],
+                        {"workout_type": wk.workout_type},
+                    )
+                    dpct = dres.get("decoupling_pct") if dres else None
+                except Exception:
+                    dpct = None
+            runs.append(
+                {
+                    "run_id": str(wk.id),
+                    "workout_date": wk.workout_date.isoformat() if wk.workout_date else "",
+                    "laps": laps,
+                    "decoupling_pct": dpct,
+                    "avg_power": wk.avg_power,
+                    "avg_hr": wk.avg_hr,
+                    "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
+                    "duration_seconds": wk.duration_seconds,
+                    "speed_signal": wk.speed_signal,
+                }
+            )
+        return runs
+
+    def _score(fn, runs):
+        r = fn(runs, prefs_dict or None, zone_constants)
+        s = r.get("score") if isinstance(r, dict) else None
+        return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+
+    d = workout.workout_date
+    cur = _build(d)
+    prev = _build(d, before_date=d)
+    e_cur = _score(compute_endurance_score, cur)
+    s_cur = _score(compute_speed_score, cur)
+    e_prev = _score(compute_endurance_score, prev)
+    s_prev = _score(compute_speed_score, prev)
+    return {
+        "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
+        "endurance_score_delta": round(e_cur - e_prev, 1) if e_cur is not None and e_prev is not None else None,
+        "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
+        "speed_score_delta": round(s_cur - s_prev, 1) if s_cur is not None and s_prev is not None else None,
     }
 
 
@@ -6033,7 +6183,9 @@ def get_workout(workout_id: str, user: User = Depends(resolve_user)):
             .order_by(WorkoutExercise.display_order)
             .all()
         )
-        return JSONResponse(_workout_dict(workout, exercises))
+        data = _workout_dict(workout, exercises)
+        data.update(_workout_signal_scores(session, workout))
+        return JSONResponse(data)
 
 
 @app.get("/api/workouts/{workout_id}/full")
@@ -6153,8 +6305,10 @@ def get_workout_full(
             ),
         }
         intensity_zones = _agg_zones(split_rows, _prefs_dict_for_zones)
+        _workout_block = _workout_dict(workout, exercises)
+        _workout_block.update(_workout_signal_scores(session, workout))
         response_body: dict = {
-            "workout": _workout_dict(workout, exercises),
+            "workout": _workout_block,
             "splits": [_split_dict(s) for s in split_rows],
             "sources": {"strava": strava, "stryd": stryd},
             "unified": unified,
@@ -6208,7 +6362,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             user_id=uid,
             name=name,
             workout_date=workout_date,
-            workout_type=body.workout_type.strip(),
+            workout_type=_normalize_workout_type(body.workout_type),
             remarks=body.remarks.strip() if body.remarks else None,
             tss=body.tss,
             tss_source='manual' if body.tss is not None else None,
@@ -6311,7 +6465,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             t = body.workout_type.strip()
             if not t:
                 raise HTTPException(status_code=422, detail="workout_type is required")
-            workout.workout_type = t
+            workout.workout_type = _normalize_workout_type(t)
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -13805,7 +13959,7 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             # Load all run workouts in chronological order (oldest first)
             run_workouts = (
                 session.query(Workout)
-                .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+                .filter(Workout.user_id == uid, Workout.workout_type == "run")
                 .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
@@ -14097,7 +14251,7 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
 
         run_workouts = (
             session.query(Workout)
-            .filter(Workout.user_id == uid, Workout.workout_type == "Run")
+            .filter(Workout.user_id == uid, Workout.workout_type == "run")
             .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
             .all()
         )
@@ -14533,7 +14687,7 @@ def get_projection(user: User = Depends(resolve_user)):
 
                     run_workouts = (
                         db.query(Workout)
-                        .filter(Workout.user_id == user.id, Workout.workout_type == "Run")
+                        .filter(Workout.user_id == user.id, Workout.workout_type == "run")
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )

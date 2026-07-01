@@ -1062,7 +1062,8 @@
         "</div></div>" +
         '<div class="rd4-chart2"><div class="rd4-grid2" id="rd4-lap-grid"></div>' +
         '<div class="rd4-row2 rd4-chart2-bars" id="rd4-lap-chart"></div>' +
-        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg></div>' +
+        '<svg class="rd4-hr-svg" id="rd4-lap-hr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>' +
+        '<div class="rd4-lap-tip" id="rd4-lap-tip" hidden></div></div>' +
         '<div class="rd4-row2 rd4-axis2" id="rd4-lap-axis"></div>' +
         '<div class="rd4-chart2-legend" id="rd4-lap-legend"></div>' +
         '<div class="rv-z2-note rd4-z2-note"><span class="rd4-z2-swatch"></span> Zone 2 laps (HR ' +
@@ -1089,7 +1090,7 @@
     if (halves && halves.decPct > 0) {
       decBlock =
         '<section class="rd4-card rd4-dec"><h2 class="rd4-sec-title">Aerobic decoupling · power vs HR</h2>' +
-        '<div class="rd4-dec-head"><span class="rd4-dec-pct">+' +
+        '<div class="rd4-dec-head"><span class="rd4-dec-pct">-' +
         halves.decPct +
         '%</span><p class="rd4-dec-copy">Efficiency dropped in the second half (HR ~' +
         halves.hr1 +
@@ -1151,31 +1152,50 @@
     var hint = w.contributes_to;
     var hasES = es != null;
     var hasSS = ss != null;
-    if (!hasES && !hasSS) {
+    // Row shows the session's contribution (Δ) and the current athlete score:
+    // "+0.3 (90)". Δ is "—" when this session moved the score by nothing / the
+    // backend hasn't supplied it yet; the score in parens is omitted when null.
+    function sigVal(delta) {
+      if (delta == null) return "—";
+      var n = parseFloat(delta.toFixed(1));
+      return (n > 0 ? "+" : "") + n;
+    }
+    function sigCur(current) {
+      return current == null ? "" : ' <span class="rd4-signal-cur">(' + Math.round(current) + ")</span>";
+    }
+    function sigRow(lbl, delta, current, note) {
+      return (
+        '<div class="rd4-signal-row">' +
+        '<span class="rd4-signal-lbl">' + lbl + "</span>" +
+        '<span class="rd4-signal-vwrap">' +
+        '<span class="rd4-signal-val">' + sigVal(delta) + sigCur(current) + "</span>" +
+        (note ? '<span class="rd4-signal-note">· ' + esc(note) + "</span>" : "") +
+        "</span>" +
+        "</div>"
+      );
+    }
+    var eDelta = w.endurance_score_delta;
+    var eCur = w.endurance_score_current;
+    var sDelta = w.speed_score_delta;
+    var sCur = w.speed_score_current;
+    var signalTitle =
+      '<h2 class="rd4-sec-title">This session\'s signal' +
+      '<span class="rd4-new-badge">NEW</span>' +
+      '<span class="rd4-signal-go">View in Performance →</span></h2>';
+    if (!hasES && !hasSS && !esNote && !ssNote) {
       signalBlock =
-        '<section class="rd4-card rd4-signal">' +
-        '<h2 class="rd4-sec-title">This session signal</h2>' +
+        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
+        signalTitle +
         '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
         "</section>";
     } else {
-      var esRow =
-        '<div class="rd4-signal-row">' +
-        '<span class="rd4-signal-lbl">Endurance</span>' +
-        (hasES
-          ? '<span class="rd4-signal-val">' + parseFloat(es.toFixed(3)) + "</span>"
-          : '<em class="rd4-signal-note">' + esc(esNote || "—") + "</em>") +
-        "</div>";
-      var ssRow =
-        '<div class="rd4-signal-row">' +
-        '<span class="rd4-signal-lbl">Speed</span>' +
-        (hasSS
-          ? '<span class="rd4-signal-val">' + parseFloat(ss.toFixed(3)) + "</span>"
-          : '<em class="rd4-signal-note">' + esc(ssNote || "—") + "</em>") +
-        "</div>";
       signalBlock =
-        '<section class="rd4-card rd4-signal">' +
-        '<h2 class="rd4-sec-title">This session signal</h2>' +
-        '<div class="rd4-signal-rows">' + esRow + ssRow + "</div>" +
+        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
+        signalTitle +
+        '<div class="rd4-signal-rows">' +
+        sigRow("Endurance signal", eDelta, eCur, esNote) +
+        sigRow("Speed signal", sDelta, sCur, ssNote) +
+        "</div>" +
         (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
         "</section>";
     }
@@ -1239,6 +1259,7 @@
       html:
         '<div class="rd4-stack">' +
         header +
+        signalBlock +
         load +
         pzBlock +
         profileBlock +
@@ -1246,7 +1267,6 @@
         intervalsBlock +
         decBlock +
         effSnap +
-        signalBlock +
         routeBlock +
         srcBlock +
         "</div>",
@@ -1457,18 +1477,70 @@
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
           if (v == null) {
-            return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+            return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
           var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
-          return '<div class="rd4-cell2" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
+          return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
-      // gridlines + axis
+      // Hover: frame the bar under the cursor and show its lap values in a tip.
+      var tip = container.querySelector("#rd4-lap-tip");
+      var chart2 = chart.parentNode;
+      function hideTip() {
+        if (tip) tip.hidden = true;
+        var hv = chart.querySelector(".rd4-cell2--hover");
+        if (hv) hv.classList.remove("rd4-cell2--hover");
+      }
+      chart.onmousemove = function (e) {
+        var cell = e.target.closest(".rd4-cell2");
+        if (!cell || !tip) { hideTip(); return; }
+        var li = +cell.getAttribute("data-i");
+        var lap = laps[li];
+        if (!lap) { hideTip(); return; }
+        var paceTxt = lap.paceSec ? fmtPaceSec2(lap.paceSec) + "/km" : "—";
+        var pwrTxt = lap.power != null ? lap.power + " W" : "—";
+        var hrTxt = lap.split && lap.split.avg_hr != null ? lap.split.avg_hr + " bpm" : "—";
+        tip.innerHTML =
+          '<span class="rd4-lap-tip-h">Lap ' + lap.index + "</span>" +
+          "<span>" + paceTxt + "</span><span>" + pwrTxt + "</span><span>" + hrTxt + "</span>";
+        tip.hidden = false;
+        var r2 = chart2.getBoundingClientRect();
+        var x = e.clientX - r2.left;
+        tip.style.left = Math.max(4, Math.min(x, r2.width - tip.offsetWidth - 4)) + "px";
+        var cur = chart.querySelector(".rd4-cell2--hover");
+        if (cur && cur !== cell) cur.classList.remove("rd4-cell2--hover");
+        cell.classList.add("rd4-cell2--hover");
+      };
+      chart.onmouseleave = hideTip;
+
+      // Labeled value gridlines: exactly 5 ticks from min→max (hard cap), placed
+      // with the same normalization as the bars so lines and bar-tops share one
+      // scale. Labels are rounded (nearest 5s / 5W) and de-duped.
       var gridEl = container.querySelector("#rd4-lap-grid");
-      if (gridEl) gridEl.innerHTML = gridSpans2(4);
+      if (gridEl) {
+        if (!nums.length) {
+          gridEl.innerHTML = gridSpans2(4);
+        } else {
+          var GLINES = 5;
+          var gridHtml = "";
+          var seenLbl = {};
+          for (var gi = 0; gi < GLINES; gi++) {
+            var frac = gi / (GLINES - 1);            // 0 (=min value) … 1 (=max value)
+            var tv = mn + frac * rng;
+            var gnorm = barMetric === "pace" ? 1 - (tv - mn) / rng : (tv - mn) / rng;
+            var top = 100 - (10 + gnorm * 86);
+            var rounded = Math.round(tv / 5) * 5;    // nearest 5s (pace) / 5W (power)
+            var glbl = barMetric === "power" ? rounded : fmtPaceSec2(rounded);
+            if (seenLbl[glbl]) continue;             // drop duplicate labels when range is tiny
+            seenLbl[glbl] = 1;
+            gridHtml += '<div class="rd4-gl" style="top:' + top.toFixed(1) + '%"><span class="rd4-gl-lbl">' + glbl + "</span></div>";
+          }
+          gridEl.innerHTML = gridHtml;
+        }
+      }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
         axisEl.innerHTML = laps.map(function (lap) {
@@ -1531,6 +1603,18 @@
           b.classList.toggle("rd4-lm-btn--on", b === btn);
         });
         refreshLapsUi();
+      });
+    }
+
+    // Session-signal card → jump to the Performance tab (page listens for this).
+    var sigCard = container.querySelector(".rd4-signal--link");
+    if (sigCard) {
+      var goPerf = function () {
+        document.dispatchEvent(new CustomEvent("rd4:open-performance-signal"));
+      };
+      sigCard.addEventListener("click", goPerf);
+      sigCard.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goPerf(); }
       });
     }
 

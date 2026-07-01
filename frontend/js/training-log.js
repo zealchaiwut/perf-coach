@@ -4882,115 +4882,82 @@
     );
   }
 
+  // ── Shared tiles + chips (weekly and monthly share the same top block) ───────
+
+  // Named metric tiles: label on top, value + unit below (design mock).
+  function _sdTiles(data) {
+    function tile(label, val, unit) {
+      return (
+        '<div class="sd-tile">' +
+          '<div class="sd-tile-label">' + label + '</div>' +
+          '<div class="sd-tile-val">' + _esc(val) +
+            (unit ? ' <span class="sd-tile-unit">' + unit + '</span>' : '') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    return (
+      '<div class="sd-tiles">' +
+        tile('Volume', (data.distance_km || 0).toFixed(1), 'km') +
+        tile('Load', Math.round(data.total_tss || 0), 'TSS') +
+        tile('Sessions', data.session_count || 0, '') +
+      '</div>'
+    );
+  }
+
+  // Form-state descriptor derived client-side from the weekly TSB change — the
+  // weekly summary endpoint has no form-band field. Tune thresholds as needed.
+  function _formBand(tsbChange) {
+    if (tsbChange == null) return null;
+    var n = Number(tsbChange);
+    if (!isFinite(n)) return null;
+    if (n >= 3) return 'fresh';
+    if (n <= -12) return 'overreaching';
+    if (n <= -3) return 'productive';
+    return 'steady';
+  }
+
+  // Separate Endurance / Speed / Weight / Form chips (design mock).
+  function _sdChips(data) {
+    var chips = '';
+    var has = false;
+    function add(label, val, cls, suffix) {
+      chips +=
+        '<span class="sd-chip ' + cls + '">' + label + ' ' + _esc(val) +
+        (suffix ? ' · ' + _esc(suffix) : '') + '</span>';
+      has = true;
+    }
+    if (data.endurance_score_change != null && data.endurance_score_change !== 0) {
+      var eStr = _fmtDelta(data.endurance_score_change, '');
+      if (eStr) add('Endurance', eStr, _chipClass(data.endurance_score_change));
+    }
+    if (data.speed_score_change != null && data.speed_score_change !== 0) {
+      var sStr = _fmtDelta(data.speed_score_change, '');
+      if (sStr) add('Speed', sStr, _chipClass(data.speed_score_change));
+    }
+    if (data.weight_change_kg != null) {
+      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
+      if (wStr) add('Weight', wStr, _chipClass(data.weight_change_kg));
+    }
+    if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
+      var fStr = _fmtDelta(data.form_tsb_change, '');
+      if (fStr) add('Form', fStr, 'sd-chip--form', _formBand(data.form_tsb_change));
+    }
+    return has ? '<div class="sd-chips">' + chips + '</div>' : '';
+  }
+
   // ── Render weekly view ───────────────────────────────────────────────────────
 
   function _renderWeek(data) {
-    var tiles =
-      '<div class="sd-tiles">' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc((data.distance_km || 0).toFixed(1)) + '</div>' +
-          '<div class="sd-tile-label">km</div>' +
-        '</div>' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc(Math.round(data.total_tss || 0)) + '</div>' +
-          '<div class="sd-tile-label">TSS</div>' +
-        '</div>' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc(data.session_count || 0) + '</div>' +
-          '<div class="sd-tile-label">Sessions</div>' +
-        '</div>' +
-      '</div>';
-
-    var chips = '';
-    var hasAnyChip = false;
-
-    // Score chip: show only when endurance_score_change or speed_score_change is non-zero
-    var scoreVal = data.endurance_score_change != null && data.endurance_score_change !== 0
-      ? data.endurance_score_change
-      : (data.speed_score_change != null && data.speed_score_change !== 0 ? data.speed_score_change : null);
-    if (scoreVal != null) {
-      var scoreStr = _fmtDelta(scoreVal, '');
-      if (scoreStr) {
-        chips += '<span class="sd-chip ' + _chipClass(scoreVal) + '">Score ' + _esc(scoreStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    // Weight chip: hidden when weight_change_kg is null
-    if (data.weight_change_kg != null) {
-      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
-      if (wStr) {
-        chips += '<span class="sd-chip ' + _chipClass(data.weight_change_kg) + '">Weight ' + _esc(wStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    // Form chip: show only when form_tsb_change is non-zero
-    if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
-      var fStr = _fmtDelta(data.form_tsb_change, '');
-      if (fStr) {
-        chips += '<span class="sd-chip ' + _chipClass(data.form_tsb_change) + '">Form ' + _esc(fStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    var chipsHtml = hasAnyChip ? '<div class="sd-chips">' + chips + '</div>' : '';
-
     var noteHtml = data.note ? '<div class="sd-note">' + _esc(data.note) + '</div>' : '';
-
-    return tiles + chipsHtml + noteHtml + _renderGuardrailWarn(data);
+    return _sdTiles(data) + _sdChips(data) + noteHtml + _renderGuardrailWarn(data);
   }
 
   // ── Render monthly view ──────────────────────────────────────────────────────
 
   function _renderMonth(data) {
-    var tiles =
-      '<div class="sd-tiles">' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc((data.distance_km || 0).toFixed(1)) + '</div>' +
-          '<div class="sd-tile-label">km</div>' +
-        '</div>' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc(Math.round(data.total_tss || 0)) + '</div>' +
-          '<div class="sd-tile-label">TSS</div>' +
-        '</div>' +
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-val">' + _esc(data.session_count || 0) + '</div>' +
-          '<div class="sd-tile-label">Sessions</div>' +
-        '</div>' +
-      '</div>';
-
-    var chips = '';
-    var hasAnyChip = false;
-
-    var scoreVal = data.endurance_score_change != null && data.endurance_score_change !== 0
-      ? data.endurance_score_change
-      : (data.speed_score_change != null && data.speed_score_change !== 0 ? data.speed_score_change : null);
-    if (scoreVal != null) {
-      var scoreStr = _fmtDelta(scoreVal, '');
-      if (scoreStr) {
-        chips += '<span class="sd-chip ' + _chipClass(scoreVal) + '">Score ' + _esc(scoreStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    if (data.weight_change_kg != null) {
-      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
-      if (wStr) {
-        chips += '<span class="sd-chip ' + _chipClass(data.weight_change_kg) + '">Weight ' + _esc(wStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
-      var fStr = _fmtDelta(data.form_tsb_change, '');
-      if (fStr) {
-        chips += '<span class="sd-chip ' + _chipClass(data.form_tsb_change) + '">Form ' + _esc(fStr) + '</span>';
-        hasAnyChip = true;
-      }
-    }
-
-    var chipsHtml = hasAnyChip ? '<div class="sd-chips">' + chips + '</div>' : '';
+    var tiles = _sdTiles(data);
+    var chipsHtml = _sdChips(data);
 
     // Supercompensation section
     var state = data.supercompensation_state || 'flat';

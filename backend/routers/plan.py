@@ -76,6 +76,9 @@ class _RaceCreateBody(BaseModel):
     type: str
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    actual_time_seconds: Optional[int] = None
 
 
 class _RacePatchBody(BaseModel):
@@ -84,6 +87,7 @@ class _RacePatchBody(BaseModel):
     type: Optional[str] = None
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
+    priority: Optional[str] = None
 
 
 class _CheckpointCreateBody(BaseModel):
@@ -142,6 +146,21 @@ def _validate_race_type(type_str: str) -> str:
     return type_str
 
 
+def _resolve_priority(race_type: str, priority: Optional[str]) -> str:
+    """Resolve/validate race priority. Checkpoints are always 'C'; races take
+    the supplied A/B/C (default 'A')."""
+    if race_type == "checkpoint":
+        return "C"
+    if priority is None:
+        return "A"
+    if priority not in ("A", "B", "C"):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "priority", "error": "priority must be one of: A, B, C"},
+        )
+    return priority
+
+
 # ── Race endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/plans/{plan_id}/races")
@@ -162,6 +181,12 @@ async def create_race(
     date = _validate_date(body.date)
     _validate_distance(body.distance)
     _validate_race_type(body.type)
+    status = body.status or "planned"
+    if status not in ("planned", "done", "abandoned"):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "status", "error": "status must be one of: planned, done, abandoned"},
+        )
     data = _svc.create_race(
         plan_id=pid,
         date=date,
@@ -169,6 +194,9 @@ async def create_race(
         race_type=body.type,
         name=body.name or "",
         goal_time_seconds=body.goal_time_seconds,
+        priority=_resolve_priority(body.type, body.priority),
+        status=status,
+        actual_time_seconds=body.actual_time_seconds,
     )
     return JSONResponse(status_code=201, content=data)
 
@@ -206,6 +234,9 @@ async def patch_race(
         _validate_distance(body.distance)
     if body.type is not None:
         _validate_race_type(body.type)
+    priority = None
+    if body.priority is not None:
+        priority = _resolve_priority(body.type or "race", body.priority)
 
     goal_time_set = "goal_time_seconds" in body.model_fields_set
     data = _svc.update_race(
@@ -217,6 +248,7 @@ async def patch_race(
         name=body.name,
         goal_time_seconds=body.goal_time_seconds,
         goal_time_set=goal_time_set,
+        priority=priority,
     )
     if data is None:
         raise HTTPException(status_code=404, detail="race not found")
