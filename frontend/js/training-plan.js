@@ -14,6 +14,11 @@
   var _planId = null;
   // Per-race readiness cache: raceId -> readiness response (or null if none).
   var _raceReadiness = {};
+  // Completed-race (Pick-from-history) state. When a past run is selected while
+  // ADDING a race, we stash its finish time here and POST status:"done".
+  var _pickedActualSeconds = null;
+  var _historyLoaded = false;
+  var _historyRuns = [];
 
   var NS = "http://www.w3.org/2000/svg";
 
@@ -622,6 +627,15 @@
         ? '<span class="pm-tgt">TARGET</span>'
         : recalHtml;
 
+      // A completed (done) race carries a real result. Show a DONE pill and the
+      // actual finish time instead of the projected Estimated column.
+      var isDone =
+        r.status === "done" && r.actual_time_seconds != null;
+      var statusPillHead = isDone
+        ? '<span class="pm-upc pm-done">DONE</span>'
+        : '<span class="pm-upc' + (upcoming ? "" : " pm-past") + '">' +
+          (upcoming ? "UPCOMING" : "PAST") + "</span>";
+
       var head =
         '<div class="pm-rchd">' +
         '<span class="pm-rclet" style="background:' +
@@ -631,8 +645,7 @@
         (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
         '<span class="pm-rcmeta">' +
         esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km</span>" +
-        '<span class="pm-upc' + (upcoming ? "" : " pm-past") + '">' +
-        (upcoming ? "UPCOMING" : "PAST") + "</span>" +
+        statusPillHead +
         rightTag +
         '<span class="pm-rcactions">' +
         '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
@@ -640,20 +653,31 @@
         "</span>" +
         "</div>";
 
-      // Estimated column (from cached per-race readiness, when available).
-      var estInfo = _currentEstimate(_raceReadiness[r.id]);
-      var estCol = "";
-      if (estInfo) {
-        var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
-        var bandTxt =
-          estInfo.band != null
-            ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
-            : "";
-        estCol =
+      // Second column: Actual (for done races) or Estimated (from readiness).
+      var secondCol = "";
+      if (isDone) {
+        var actualSec = r.actual_time_seconds;
+        var actualPace = distKm ? fmtPace(actualSec / distKm) : "";
+        secondCol =
           '<div class="pm-col est">' +
-          '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
-          '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
-          '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+          '<div class="pm-coll">Actual ' +
+          '<span class="pm-stat ok">completed</span></div>' +
+          '<div class="pm-colt">' + esc(fmtTime(actualSec)) + "</div>" +
+          '<div class="pm-colp">' + esc(actualPace) + "</div></div>";
+      } else {
+        var estInfo = _currentEstimate(_raceReadiness[r.id]);
+        if (estInfo) {
+          var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+          var bandTxt =
+            estInfo.band != null
+              ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+              : "";
+          secondCol =
+            '<div class="pm-col est">' +
+            '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
+            '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+            '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+        }
       }
 
       var grid =
@@ -661,7 +685,7 @@
         '<div class="pm-col"><div class="pm-coll">Goal</div>' +
         '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
         '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-        estCol +
+        secondCol +
         "</div>";
 
       // Footer: End/Spd score tags (athlete-level scores from /api/projection —
@@ -1086,6 +1110,14 @@
     var prField = document.getElementById("plan-modal-priority-field");
     if (prField)
       prField.style.display = _editingRaceType === "checkpoint" ? "none" : "";
+    // "Pick from history" only when ADDING a race (not editing, not checkpoint).
+    var histField = document.getElementById("plan-modal-history-field");
+    var showPicker = !_editingRaceId && _editingRaceType === "race";
+    if (histField) histField.style.display = showPicker ? "" : "none";
+    // Switching to Checkpoint clears any picked completed-race state.
+    if (_editingRaceType === "checkpoint" && _pickedActualSeconds != null) {
+      _setActualState(null);
+    }
     var title = document.getElementById("plan-modal-title");
     if (title) {
       var editing = !!_editingRaceId;
@@ -1107,6 +1139,126 @@
         b.setAttribute("aria-checked", active ? "true" : "false");
       },
     );
+  }
+
+  // ── Pick from history (completed-race picker) ─────────────────────────────
+  // Reset picker + completed-race state (called on open/close).
+  function _resetPicker() {
+    _pickedActualSeconds = null;
+    var panel = document.getElementById("plan-modal-history-panel");
+    if (panel) panel.style.display = "none";
+    var actualField = document.getElementById("plan-modal-actual-field");
+    if (actualField) actualField.style.display = "none";
+  }
+
+  // Show/hide the completed-race "Actual time" banner and remember the seconds.
+  function _setActualState(seconds) {
+    _pickedActualSeconds = seconds;
+    var actualField = document.getElementById("plan-modal-actual-field");
+    var valEl = document.getElementById("plan-modal-actual-val");
+    if (seconds != null) {
+      if (valEl) valEl.textContent = fmtTime(seconds);
+      if (actualField) actualField.style.display = "";
+    } else {
+      if (actualField) actualField.style.display = "none";
+    }
+  }
+
+  function _isoDaysAgo(days) {
+    var d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  function _loadHistory() {
+    var listEl = document.getElementById("plan-modal-history-list");
+    var loadingEl = document.getElementById("plan-modal-history-loading");
+    var emptyEl = document.getElementById("plan-modal-history-empty");
+
+    function _renderHistoryList() {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (!listEl) return;
+      if (_historyRuns.length === 0) {
+        if (emptyEl) emptyEl.style.display = "";
+        listEl.innerHTML = "";
+        return;
+      }
+      if (emptyEl) emptyEl.style.display = "none";
+      listEl.innerHTML = "";
+      _historyRuns.forEach(function (r, idx) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plan-modal-history-row";
+        btn.setAttribute("data-idx", idx);
+        var distKm = parseFloat(r.distance_km || 0).toFixed(2);
+        btn.innerHTML =
+          '<span class="plan-modal-history-row-top">' +
+          esc(formatDate(r.workout_date)) +
+          " · " + distKm + " km · " + esc(fmtTime(r.duration_seconds)) +
+          "</span>" +
+          '<span class="plan-modal-history-row-name">' +
+          esc(r.name || "Run") + "</span>";
+        btn.addEventListener("click", function () {
+          _pickRun(r);
+        });
+        listEl.appendChild(btn);
+      });
+    }
+
+    if (_historyLoaded) {
+      _renderHistoryList();
+      return;
+    }
+    if (loadingEl) loadingEl.style.display = "";
+    if (emptyEl) emptyEl.style.display = "none";
+
+    var from = _isoDaysAgo(365 * 3);
+    var to = todayISO();
+    apiGet(
+      "/api/workouts?from=" + from + "&to=" + to,
+      function (data) {
+        var rows = Array.isArray(data) ? data : [];
+        // Runs only, > 10 km, with a usable finish time. Server does not filter
+        // by distance, so filter client-side. Sort most-recent first.
+        _historyRuns = rows
+          .filter(function (w) {
+            return (
+              (w.workout_type || "").toLowerCase() === "run" &&
+              w.distance_km != null &&
+              parseFloat(w.distance_km) > 10 &&
+              w.duration_seconds
+            );
+          })
+          .sort(function (a, b) {
+            return a.workout_date < b.workout_date ? 1 : a.workout_date > b.workout_date ? -1 : 0;
+          });
+        _historyLoaded = true;
+        _renderHistoryList();
+      },
+    );
+  }
+
+  // Prefill the form from a picked past run and switch to completed-race mode.
+  function _pickRun(run) {
+    var nameIn = document.getElementById("plan-modal-name");
+    var dateIn = document.getElementById("plan-modal-date");
+    var distIn = document.getElementById("plan-modal-distance");
+    var distKm = parseFloat(run.distance_km || 0);
+
+    if (nameIn)
+      nameIn.value =
+        run.name && run.name.trim()
+          ? run.name.trim()
+          : Math.round(distKm) + "K race";
+    if (dateIn) dateIn.value = run.workout_date || "";
+    if (distIn) distIn.value = distKm ? distKm.toFixed(2) : "";
+
+    // Past races are usually B-priority; default the selector to B.
+    _setModalPriority("B");
+    _setActualState(run.duration_seconds || null);
+
+    var panel = document.getElementById("plan-modal-history-panel");
+    if (panel) panel.style.display = "none";
   }
 
   function openModal(race, raceType) {
@@ -1138,6 +1290,9 @@
       if (goalIn) goalIn.value = "";
     }
 
+    // Reset picker/completed-race state every time the modal opens.
+    _resetPicker();
+
     // Tab + priority state (must run after _editingRaceId is set for the title).
     _setModalType(type);
     _setModalPriority(race && race.priority ? race.priority : "A");
@@ -1149,6 +1304,7 @@
   function closeModal() {
     var modal = document.getElementById("plan-race-modal");
     if (modal) modal.style.display = "none";
+    _resetPicker();
   }
 
   function saveModal() {
@@ -1198,6 +1354,15 @@
     // Priority is only meaningful for races (checkpoints are forced to C by the
     // backend). Send it from the priority segmented control on the Race tab.
     if (type === "race") body.priority = _modalPriority;
+    // Completed-race mode: a past run was picked from history → mark done and
+    // send the real finish time (calibration data). actual_time is measured, so
+    // the goal-pace plausibility guard above does not apply to it.
+    if (type === "race" && _pickedActualSeconds != null) {
+      body.status = "done";
+      body.actual_time_seconds = _pickedActualSeconds;
+    } else {
+      body.status = "planned";
+    }
     if (errEl) errEl.textContent = "";
 
     if (_editingRaceId) {
@@ -1315,6 +1480,24 @@
         var b = e.target.closest(".plan-modal-seg-btn");
         if (!b) return;
         _setModalPriority(b.getAttribute("data-priority"));
+      });
+
+    // Pick from history: toggle the panel + load past runs on first open.
+    var histToggle = document.getElementById("plan-modal-history-toggle");
+    if (histToggle)
+      histToggle.addEventListener("click", function () {
+        var panel = document.getElementById("plan-modal-history-panel");
+        if (!panel) return;
+        var show = panel.style.display === "none";
+        panel.style.display = show ? "" : "none";
+        if (show) _loadHistory();
+      });
+
+    // Clear completed-race state (revert to a normal planned race).
+    var actualClear = document.getElementById("plan-modal-actual-clear");
+    if (actualClear)
+      actualClear.addEventListener("click", function () {
+        _setActualState(null);
       });
 
     // Distance quick-fill buttons.
