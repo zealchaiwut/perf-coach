@@ -6298,8 +6298,10 @@ def get_workout_full(
             ),
         }
         intensity_zones = _agg_zones(split_rows, _prefs_dict_for_zones)
+        _workout_block = _workout_dict(workout, exercises)
+        _workout_block.update(_workout_signal_scores(session, workout))
         response_body: dict = {
-            "workout": _workout_dict(workout, exercises),
+            "workout": _workout_block,
             "splits": [_split_dict(s) for s in split_rows],
             "sources": {"strava": strava, "stryd": stryd},
             "unified": unified,
