@@ -46,6 +46,26 @@ TAU_MIN: float = 1.0
 TAU_MAX: float = 90.0
 
 
+def validate_banister_fit(tau1: float, tau2: float, k1: float, k2: float) -> bool:
+    """Return True if fitted Banister params pass post-fit plausibility checks.
+
+    Called after a successful (non-None) ``fit_banister_params`` result to
+    catch degenerate values that bypass the optimiser's internal guards (e.g.
+    NaN / inf from edge-case data shapes).
+
+    Checks:
+    * All four values are finite (not NaN, not ±inf).
+    * Both τ values lie within the physiological range [TAU_MIN, TAU_MAX].
+    """
+    if any(not math.isfinite(v) for v in (tau1, tau2, k1, k2)):
+        return False
+    if not (TAU_MIN <= tau1 <= TAU_MAX):
+        return False
+    if not (TAU_MIN <= tau2 <= TAU_MAX):
+        return False
+    return True
+
+
 def fit_banister_params(
     load_series,
     perf_series,
