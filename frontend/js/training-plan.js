@@ -12,6 +12,10 @@
   var _modalPriority = "A";
   var _confirmCallback = null;
   var _planId = null;
+  // Distinct from _planId (the user id used in /plans/{userId}/races): this is the
+  // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
+  // savePlanSettings then POSTs to create one (fixes "Training plan not found").
+  var _planEntityId = null;
   // Per-race readiness cache: raceId -> readiness response (or null if none).
   var _raceReadiness = {};
   // Completed-race (Pick-from-history) state. When a past run is selected while
@@ -1116,7 +1120,7 @@
       var taperIn = document.getElementById("plan-taper-window-input");
 
       if (plan) {
-        _planId = plan.id;
+        _planEntityId = plan.id;
         if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
         if (taperIn)
           taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
@@ -1146,7 +1150,7 @@
             res.data && res.data.detail ? res.data.detail : "Save failed.";
         return;
       }
-      _planId = res.data.id;
+      _planEntityId = res.data.id;
       if (savedEl) {
         savedEl.style.display = "";
         setTimeout(function () {
@@ -1155,9 +1159,9 @@
       }
     }
 
-    if (_planId) {
+    if (_planEntityId) {
       apiPatch(
-        "/api/plans/" + _planId,
+        "/api/plans/" + _planEntityId,
         { ramp_rate: rampRate, taper_length: taperLength },
         onSaved,
       );
