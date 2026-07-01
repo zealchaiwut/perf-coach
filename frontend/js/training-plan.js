@@ -12,13 +12,27 @@
   var _modalPriority = "A";
   var _confirmCallback = null;
   var _planId = null;
+  // Distinct from _planId (the user id used in /plans/{userId}/races): this is the
+  // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
+  // savePlanSettings then POSTs to create one (fixes "Training plan not found").
+  var _planEntityId = null;
   // Per-race readiness cache: raceId -> readiness response (or null if none).
   var _raceReadiness = {};
+  // Athlete current performance scores (GET /api/athletes/{id}/performance).
+  // Null until loaded; only rendered when .state === "scored".
+  var _athletePerf = null;
+  // Threshold pace (seconds/km) from /api/user-preferences — used to compute the
+  // demonstrated "Fitness" score of a completed race. Null when unset.
+  var _thresholdPace = null;
   // Completed-race (Pick-from-history) state. When a past run is selected while
   // ADDING a race, we stash its finish time here and POST status:"done".
   var _pickedActualSeconds = null;
   var _historyLoaded = false;
   var _historyRuns = [];
+  // Goal input mode: "time" (HH:MM:SS) or "pace" (M:SS /km, derived via distance).
+  var _goalMode = "time";
+  // Checkpoint measure mode: "distance" or "duration" (duration = stubbed).
+  var _checkpointMeasure = "distance";
 
   var NS = "http://www.w3.org/2000/svg";
 
@@ -577,6 +591,251 @@
     return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
   }
 
+  function _clamp01_100(v) {
+    return Math.max(0, Math.min(100, v));
+  }
+
+  // Signed integer as "(+N)" / "(−N)" for a score delta.
+  function _signed(n) {
+    return "(" + (n >= 0 ? "+" : "−") + Math.abs(n) + ")";
+  }
+
+  // ── Score model (FIRST-PASS heuristic — tunable) ──────────────────────────
+  // The required-/demonstrated-score model below is a first-pass distance
+  // weighting: reference distance 21.1 km (half), speed/endurance split slope
+  // 0.18 for required scores and 0.06 for demonstrated. Short races demand more
+  // speed, long races more endurance. The operator may recalibrate these
+  // constants and the overall scale later — nothing downstream depends on them.
+
+  // Per-race REQUIRED End/Spd tags for UPCOMING cards: the endurance/speed
+  // scores this race's GOAL implies, distance-weighted, plus the delta vs the
+  // athlete's current scores. Rendered only when the race has a goal, distance,
+  // a readiness estimate, current "scored" performance, and tp>0; otherwise ""
+  // (no fake scores).
+  function _requiredScoreFoot(r) {
+    if (!_athletePerf || _athletePerf.state !== "scored") return "";
+    var cE = _athletePerf.endurance && _athletePerf.endurance.score;
+    var cS = _athletePerf.speed && _athletePerf.speed.score;
+    if (typeof cE !== "number" || typeof cS !== "number") return "";
+
+    var tp = _thresholdPace;
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    if (!tp || tp <= 0 || !distKm || distKm <= 0 || !goalSec) return "";
+
+    var estInfo = _currentEstimate(_raceReadiness[r.id]);
+    if (!estInfo || estInfo.est == null) return "";
+
+    var goalPace = goalSec / distKm;
+    var estPace = estInfo.est / distKm;
+    // gap > 0 → goal is faster than the current prediction → improvement needed.
+    var gap = ((estPace - goalPace) / tp) * 100;
+
+    var le = Math.log(distKm / 21.1); // <0 short, >0 long (half = 0)
+    var speedWeight = Math.max(0.15, Math.min(0.85, 0.5 - 0.18 * le));
+    var endWeight = 1 - speedWeight;
+
+    var dEnd = Math.round(gap * endWeight);
+    var dSpd = Math.round(gap * speedWeight);
+    var reqEnd = _clamp01_100(Math.round(cE + dEnd));
+    var reqSpd = _clamp01_100(Math.round(cS + dSpd));
+
+    // Positive delta → improvement required (neutral/red-ish); negative delta →
+    // goal within current ability (green).
+    var endCls = "pm-sc e" + (dEnd > 0 ? " req" : "");
+    var spdCls = "pm-sc s" + (dSpd > 0 ? " req" : "");
+
+    var tags =
+      '<span class="' + endCls + '">End ' + reqEnd + " " + _signed(dEnd) + "</span>" +
+      '<span class="' + spdCls + '">Spd ' + reqSpd + " " + _signed(dSpd) + "</span>";
+    return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
+  }
+
+  // DEMONSTRATED End/Spd for a COMPLETED race, from its own result. A single
+  // race yields one base fitness (clamp((2 - pace/tp)*100)), split by distance:
+  // longer races demonstrate more endurance, shorter more speed. Returns null
+  // when tp / distance / actual are missing.
+  function _demonstratedScores(r) {
+    var tp = _thresholdPace;
+    var distKm = parseFloat(r.distance || 0);
+    var actualSec = r.actual_time_seconds;
+    if (!tp || tp <= 0 || !distKm || distKm <= 0 || actualSec == null) return null;
+    var pace = actualSec / distKm;
+    var dem = _clamp01_100((2 - pace / tp) * 100);
+    var le = Math.log(distKm / 21.1);
+    var demEnd = _clamp01_100(Math.round(dem * (1 + 0.06 * le)));
+    var demSpd = _clamp01_100(Math.round(dem * (1 - 0.06 * le)));
+    return { end: demEnd, spd: demSpd };
+  }
+
+  // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
+  // (under). Returns "" when there is no goal.
+  function _actualDelta(actualSec, goalSec) {
+    if (!goalSec || actualSec == null) return "";
+    var diff = actualSec - goalSec;
+    var sign = diff >= 0 ? "+" : "−";
+    var abs = Math.abs(diff);
+    var m = Math.floor(abs / 60);
+    var s = Math.round(abs % 60);
+    return sign + m + ":" + pad(s);
+  }
+
+  function _metaText(r, distKm) {
+    return (
+      formatDate(r.date) +
+      " · " +
+      (r.distance != null
+        ? distKm.toFixed(2) + " km"
+        : r.duration_seconds
+          ? fmtTime(r.duration_seconds)
+          : "—")
+    );
+  }
+
+  // Build a full-width UPCOMING card (Goal + Estimated columns).
+  function _buildUpcomingCard(r) {
+    var isCheckpoint = r.type === "checkpoint";
+    var priority = isCheckpoint ? "C" : r.priority || "A";
+    var isTarget = _primaryRace && r.id === _primaryRace.id;
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+
+    var card = document.createElement("div");
+    card.className = "pm-rc" + (isTarget ? " target" : "");
+    card.setAttribute("data-race-id", r.id);
+
+    var recalHtml =
+      _projection &&
+      _projection.b_race_recalibration_date === r.date &&
+      priority === "B"
+        ? '<span class="pm-recal">↻ recalibrates here</span>'
+        : "";
+    var rightTag = isTarget ? '<span class="pm-tgt">TARGET</span>' : recalHtml;
+
+    var head =
+      '<div class="pm-rchd">' +
+      '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+      '<span class="pm-typetag">' +
+      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
+      '<span class="pm-upc">UPCOMING</span>' +
+      rightTag +
+      '<span class="pm-rcactions">' +
+      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      "</span>" +
+      "</div>";
+
+    // Estimated column from this race's own readiness (if projection exists).
+    var secondCol = "";
+    var estInfo = _currentEstimate(_raceReadiness[r.id]);
+    if (estInfo) {
+      var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+      var bandTxt =
+        estInfo.band != null
+          ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+          : "";
+      secondCol =
+        '<div class="pm-col est">' +
+        '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
+        '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+        '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
+    }
+
+    var grid =
+      '<div class="pm-rcgrid">' +
+      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+      secondCol +
+      "</div>";
+
+    // Per-race REQUIRED End/Spd scores for this race's goal, plus delta vs
+    // current (shown only when goal + estimate + scores + tp are all present).
+    var foot = _requiredScoreFoot(r);
+
+    card.innerHTML = head + grid + foot;
+    _wireCardActions(card, r);
+    return card;
+  }
+
+  // Build a compact COMPLETED card (Goal + Actual columns, ~30% smaller). Shows
+  // the actual-vs-goal delta next to Actual when a goal exists.
+  function _buildCompletedCard(r) {
+    var isCheckpoint = r.type === "checkpoint";
+    var priority = isCheckpoint ? "C" : r.priority || "A";
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+    var actualSec = r.actual_time_seconds;
+    var actualPace = actualSec != null && distKm ? fmtPace(actualSec / distKm) : "";
+    var delta = _actualDelta(actualSec, goalSec);
+    var deltaCls = delta && delta.charAt(0) === "+" ? "over" : "under";
+
+    var card = document.createElement("div");
+    card.className = "pm-rc pm-rc--done";
+    card.setAttribute("data-race-id", r.id);
+
+    // Demonstrated End/Spd scores from this race's own result (distance-split).
+    var demo = _demonstratedScores(r);
+    var demoTags = demo
+      ? '<span class="pm-sc e">End ' + demo.end + "</span>" +
+        '<span class="pm-sc s">Spd ' + demo.spd + "</span>"
+      : "";
+
+    var head =
+      '<div class="pm-rchd">' +
+      '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+      '<span class="pm-typetag">' +
+      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+      '<span class="pm-upc pm-done">DONE</span>' +
+      demoTags +
+      '<span class="pm-rcactions">' +
+      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      "</span>" +
+      "</div>" +
+      '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
+
+    var actualLabel =
+      "Actual" +
+      (delta
+        ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
+        : "");
+
+    var grid =
+      '<div class="pm-rcgrid">' +
+      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+      '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
+      '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
+      "</div>";
+
+    card.innerHTML = head + grid;
+    _wireCardActions(card, r);
+    return card;
+  }
+
+  function _wireCardActions(card, r) {
+    var editBtn = card.querySelector('[data-act="edit"]');
+    if (editBtn)
+      editBtn.addEventListener("click", function () {
+        openModal(r, r.type || "race");
+      });
+    var delBtn = card.querySelector('[data-act="del"]');
+    if (delBtn)
+      delBtn.addEventListener("click", function () {
+        _deleteRow(r.id, r.name || "entry");
+      });
+  }
+
   function renderRaceCards() {
     var container = document.getElementById("plan-races");
     var loadingEl = document.getElementById("plan-races-loading");
@@ -584,148 +843,61 @@
     if (!container) return;
     if (loadingEl) loadingEl.style.display = "none";
 
-    // remove previously rendered cards
-    Array.from(container.querySelectorAll(".pm-rc")).forEach(function (el) {
-      el.remove();
-    });
+    // Remove previously rendered section wrapper (headers + grids + cards).
+    var prev = container.querySelector(".pm-races-sections");
+    if (prev) prev.remove();
 
-    var sorted = _races.slice().sort(function (a, b) {
-      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
-    });
-
-    if (sorted.length === 0) {
+    if (_races.length === 0) {
       if (emptyEl) emptyEl.style.display = "";
       return;
     }
     if (emptyEl) emptyEl.style.display = "none";
 
-    var todayStr = todayISO();
-    var primaryId = _primaryRace && _primaryRace.id;
+    function byDate(a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    }
+    var completed = _races
+      .filter(function (r) {
+        return r.status === "done" && r.actual_time_seconds != null;
+      })
+      .sort(byDate);
+    var upcoming = _races
+      .filter(function (r) {
+        return !(r.status === "done" && r.actual_time_seconds != null);
+      })
+      .sort(byDate);
 
-    sorted.forEach(function (r) {
-      var isCheckpoint = r.type === "checkpoint";
-      // Real priority comes from the race row. Checkpoints have no priority and
-      // render under the neutral "C" treatment; real races use r.priority.
-      var priority = isCheckpoint ? "C" : r.priority || "A";
-      var isTarget = r.id === primaryId;
-      var upcoming = r.date >= todayStr;
-      var distKm = parseFloat(r.distance || 0);
-      var goalSec = r.goal_time_seconds || null;
-      var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+    var sections = document.createElement("div");
+    sections.className = "pm-races-sections";
 
-      var card = document.createElement("div");
-      card.className = "pm-rc" + (isTarget ? " target" : "");
-      card.setAttribute("data-race-id", r.id);
+    // COMPLETED first — a two-per-row grid of compact cards.
+    if (completed.length > 0) {
+      var chdr = document.createElement("div");
+      chdr.className = "pm-races-hdr";
+      chdr.textContent = "Completed";
+      sections.appendChild(chdr);
 
-      var recalHtml =
-        _projection &&
-        _projection.b_race_recalibration_date === r.date &&
-        priority === "B"
-          ? '<span class="pm-recal">↻ recalibrates here</span>'
-          : "";
-      var rightTag = isTarget
-        ? '<span class="pm-tgt">TARGET</span>'
-        : recalHtml;
-
-      // A completed (done) race carries a real result. Show a DONE pill and the
-      // actual finish time instead of the projected Estimated column.
-      var isDone =
-        r.status === "done" && r.actual_time_seconds != null;
-      var statusPillHead = isDone
-        ? '<span class="pm-upc pm-done">DONE</span>'
-        : '<span class="pm-upc' + (upcoming ? "" : " pm-past") + '">' +
-          (upcoming ? "UPCOMING" : "PAST") + "</span>";
-
-      var head =
-        '<div class="pm-rchd">' +
-        '<span class="pm-rclet" style="background:' +
-        (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
-        '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-        '<span class="pm-typetag">' +
-        (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-        '<span class="pm-rcmeta">' +
-        esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km</span>" +
-        statusPillHead +
-        rightTag +
-        '<span class="pm-rcactions">' +
-        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-        '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
-        "</span>" +
-        "</div>";
-
-      // Second column: Actual (for done races) or Estimated (from readiness).
-      var secondCol = "";
-      if (isDone) {
-        var actualSec = r.actual_time_seconds;
-        var actualPace = distKm ? fmtPace(actualSec / distKm) : "";
-        secondCol =
-          '<div class="pm-col est">' +
-          '<div class="pm-coll">Actual ' +
-          '<span class="pm-stat ok">completed</span></div>' +
-          '<div class="pm-colt">' + esc(fmtTime(actualSec)) + "</div>" +
-          '<div class="pm-colp">' + esc(actualPace) + "</div></div>";
-      } else {
-        var estInfo = _currentEstimate(_raceReadiness[r.id]);
-        if (estInfo) {
-          var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
-          var bandTxt =
-            estInfo.band != null
-              ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
-              : "";
-          secondCol =
-            '<div class="pm-col est">' +
-            '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
-            '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
-            '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
-        }
-      }
-
-      var grid =
-        '<div class="pm-rcgrid">' +
-        '<div class="pm-col"><div class="pm-coll">Goal</div>' +
-        '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
-        '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-        secondCol +
-        "</div>";
-
-      // Footer: End/Spd score tags (athlete-level scores from /api/projection —
-      // shown on the primary race only, since scores are not per-race). No
-      // half-equiv line: the readiness API does not expose a half-equivalent
-      // time, so we do not fabricate one.
-      var foot = "";
-      if (
-        isTarget &&
-        _projection &&
-        (typeof _projection.endurance_score === "number" ||
-          typeof _projection.speed_score === "number")
-      ) {
-        var tags = "";
-        if (typeof _projection.endurance_score === "number")
-          tags +=
-            '<span class="pm-sc e">End ' +
-            Math.round(_projection.endurance_score) + "</span>";
-        if (typeof _projection.speed_score === "number")
-          tags +=
-            '<span class="pm-sc s">Spd ' +
-            Math.round(_projection.speed_score) + "</span>";
-        if (tags)
-          foot =
-            '<div class="pm-rcfoot"><div class="pm-scoretags">' +
-            tags +
-            "</div></div>";
-      }
-
-      card.innerHTML = head + grid + foot;
-
-      card.querySelector('[data-act="edit"]').addEventListener("click", function () {
-        openModal(r, r.type || "race");
+      var grid = document.createElement("div");
+      grid.className = "pm-completed-grid";
+      completed.forEach(function (r) {
+        grid.appendChild(_buildCompletedCard(r));
       });
-      card.querySelector('[data-act="del"]').addEventListener("click", function () {
-        _deleteRow(r.id, r.name || "entry");
-      });
+      sections.appendChild(grid);
+    }
 
-      container.appendChild(card);
-    });
+    // UPCOMING — full-width cards.
+    if (upcoming.length > 0) {
+      var uhdr = document.createElement("div");
+      uhdr.className = "pm-races-hdr";
+      uhdr.textContent = "Upcoming";
+      sections.appendChild(uhdr);
+
+      upcoming.forEach(function (r) {
+        sections.appendChild(_buildUpcomingCard(r));
+      });
+    }
+
+    container.appendChild(sections);
   }
 
   // ── 4. Form curve SVG (TSB) ───────────────────────────────────────────────
@@ -967,9 +1139,36 @@
     apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
       _readiness = data;
       // Cache under the race id so renderRaceCards can surface the Estimated
-      // column for the primary race.
+      // column for the primary race (also drives the form/time curves).
       _raceReadiness[_primaryRace.id] = data;
       if (done) done();
+    });
+  }
+
+  // Fetch per-race readiness for EVERY upcoming (not-done) race in parallel and
+  // cache each under its raceId. Each response carries its own estimate, so all
+  // upcoming cards can show an Estimated column — not just the primary. Cards
+  // are re-rendered as results arrive.
+  function loadAllReadiness() {
+    var todayStr = todayISO();
+    var targets = _races.filter(function (r) {
+      var done = r.status === "done" && r.actual_time_seconds != null;
+      var upcoming = r.date >= todayStr;
+      // Skip the primary — loadReadiness already fetched it — and done races.
+      return (
+        !done &&
+        upcoming &&
+        !(_primaryRace && r.id === _primaryRace.id) &&
+        !(r.id in _raceReadiness)
+      );
+    });
+    if (targets.length === 0) return;
+    targets.forEach(function (r) {
+      apiGet("/api/races/" + r.id + "/readiness", function (data) {
+        _raceReadiness[r.id] = data;
+        // Re-render so the newly-arrived estimate shows on this card.
+        renderRaceCards();
+      });
     });
   }
 
@@ -977,6 +1176,30 @@
     apiGet("/api/projection", function (data) {
       _projection = data;
       if (done) done();
+    });
+  }
+
+  // Athlete current performance scores (End/Spd) for upcoming cards. Cached in
+  // _athletePerf; re-renders cards on arrival. Uses the user id as athlete id.
+  function loadAthletePerformance() {
+    var aid = _planId || (window.getCurrentUserId ? window.getCurrentUserId() : null);
+    if (!aid) return;
+    apiGet("/api/athletes/" + aid + "/performance", function (data) {
+      _athletePerf = data;
+      renderRaceCards();
+    });
+  }
+
+  // Threshold pace (sec/km) used to compute completed races' demonstrated
+  // fitness score. Cached in _thresholdPace; re-renders cards on arrival.
+  function loadThresholdPace() {
+    apiGet("/api/user-preferences", function (data) {
+      var row = data && data.row ? data.row : null;
+      _thresholdPace =
+        row && typeof row.threshold_pace_seconds_per_km === "number"
+          ? row.threshold_pace_seconds_per_km
+          : null;
+      renderRaceCards();
     });
   }
 
@@ -1016,7 +1239,7 @@
       var taperIn = document.getElementById("plan-taper-window-input");
 
       if (plan) {
-        _planId = plan.id;
+        _planEntityId = plan.id;
         if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
         if (taperIn)
           taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
@@ -1046,7 +1269,7 @@
             res.data && res.data.detail ? res.data.detail : "Save failed.";
         return;
       }
-      _planId = res.data.id;
+      _planEntityId = res.data.id;
       if (savedEl) {
         savedEl.style.display = "";
         setTimeout(function () {
@@ -1055,9 +1278,9 @@
       }
     }
 
-    if (_planId) {
+    if (_planEntityId) {
       apiPatch(
-        "/api/plans/" + _planId,
+        "/api/plans/" + _planEntityId,
         { ramp_rate: rampRate, taper_length: taperLength },
         onSaved,
       );
@@ -1081,11 +1304,20 @@
   }
 
   function refresh() {
+    // Drop cached readiness so edits/adds re-fetch fresh estimates.
+    _raceReadiness = {};
     _ensurePlanId(function () {
+      // Athlete scores + threshold pace load in parallel; each re-renders cards
+      // on arrival (upcoming End/Spd tags, completed Fitness tags).
+      loadAthletePerformance();
+      loadThresholdPace();
       loadProjection(function () {
         loadRaces(function () {
           loadReadiness(function () {
             renderAll();
+            // Fetch estimates for the remaining upcoming races in parallel;
+            // each updates its card as it arrives.
+            loadAllReadiness();
           });
         });
       });
@@ -1094,37 +1326,92 @@
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
-  // Set the active type tab (race|checkpoint) and toggle priority visibility.
-  function _setModalType(type) {
-    _editingRaceType = type === "checkpoint" ? "checkpoint" : "race";
+  // The type segmented control has three tabs: race | checkpoint | history.
+  // "history" is a UI-only mode for picking a past run; the actual entry it
+  // creates is still a race (_editingRaceType), so we track the active tab
+  // separately from the entry type.
+  var _activeTab = "race";
+
+  function _show(id, on) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = on ? "" : "none";
+  }
+
+  // Set the active type tab and reconfigure which fields are visible.
+  function _setModalType(tab) {
+    if (["race", "checkpoint", "history"].indexOf(tab) < 0) tab = "race";
+    // History is only offered when ADDING (not editing an existing entry).
+    if (tab === "history" && _editingRaceId) tab = "race";
+    _activeTab = tab;
+    _editingRaceType = tab === "checkpoint" ? "checkpoint" : "race";
+
     var seg = document.getElementById("plan-modal-typeseg");
     if (seg) {
       Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
         function (b) {
-          var active = b.getAttribute("data-type") === _editingRaceType;
+          var active = b.getAttribute("data-type") === tab;
           b.classList.toggle("active", active);
           b.setAttribute("aria-selected", active ? "true" : "false");
+          // The History tab is hidden while editing.
+          if (b.getAttribute("data-type") === "history")
+            b.style.display = _editingRaceId ? "none" : "";
         },
       );
     }
-    var prField = document.getElementById("plan-modal-priority-field");
-    if (prField)
-      prField.style.display = _editingRaceType === "checkpoint" ? "none" : "";
-    // "Pick from history" only when ADDING a race (not editing, not checkpoint).
-    var histField = document.getElementById("plan-modal-history-field");
-    var showPicker = !_editingRaceId && _editingRaceType === "race";
-    if (histField) histField.style.display = showPicker ? "" : "none";
-    // Switching to Checkpoint clears any picked completed-race state.
-    if (_editingRaceType === "checkpoint" && _pickedActualSeconds != null) {
-      _setActualState(null);
+
+    var isHistory = tab === "history";
+    var isCheckpoint = tab === "checkpoint";
+
+    // History tab: show only the preloaded run list; hide the entry form.
+    _show("plan-modal-history-tab", isHistory);
+    // Entry form fields (hidden on the History tab until a run is picked).
+    _show("plan-modal-name-field", !isHistory);
+    _show("plan-modal-date-field", !isHistory);
+    _show("plan-modal-goal-field", !isHistory && !isCheckpoint);
+    _show("plan-modal-priority-field", !isHistory && !isCheckpoint);
+    // Checkpoint measure toggle + distance/duration fields.
+    _show("plan-modal-measure-field", isCheckpoint);
+    if (isHistory) {
+      _show("plan-modal-distance-field", false);
+      _show("plan-modal-duration-field", false);
+    } else {
+      _applyCheckpointMeasure();
     }
+
+    // Switching away from a completed-race context clears picked state.
+    if (isCheckpoint && _pickedActualSeconds != null) _setActualState(null);
+
+    if (isHistory) _loadHistory();
+
     var title = document.getElementById("plan-modal-title");
     if (title) {
       var editing = !!_editingRaceId;
       title.textContent =
-        (editing ? "Edit " : "Add ") +
-        (_editingRaceType === "checkpoint" ? "Checkpoint" : "Race");
+        (editing ? "Edit " : "Add ") + (isCheckpoint ? "Checkpoint" : "Race");
     }
+  }
+
+  // ── Checkpoint measure (distance | duration) ──────────────────────────────
+  function _applyCheckpointMeasure() {
+    var isCheckpoint = _activeTab === "checkpoint";
+    var byDuration = isCheckpoint && _checkpointMeasure === "duration";
+    // Races always use distance; checkpoints follow the toggle.
+    _show("plan-modal-distance-field", !byDuration);
+    _show("plan-modal-duration-field", byDuration);
+  }
+
+  function _setCheckpointMeasure(measure) {
+    _checkpointMeasure = measure === "duration" ? "duration" : "distance";
+    var seg = document.getElementById("plan-modal-measureseg");
+    if (seg)
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-measure") === _checkpointMeasure;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-checked", active ? "true" : "false");
+        },
+      );
+    _applyCheckpointMeasure();
   }
 
   // Set the active priority (A|B|C) in the priority segmented control.
@@ -1141,12 +1428,115 @@
     );
   }
 
+  // ── Goal input mode (time | pace) ─────────────────────────────────────────
+  // Parse a pace string "M:SS" (or "MM:SS") into seconds-per-km. Returns null
+  // when blank/invalid.
+  function _parsePace(str) {
+    if (!str || !str.trim()) return null;
+    var parts = str.trim().split(":").map(Number);
+    if (parts.some(isNaN)) return null;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 1) return parts[0] * 60;
+    return null;
+  }
+
+  function _paceToStr(secPerKm) {
+    if (secPerKm == null) return "";
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    return m + ":" + pad(s);
+  }
+
+  // Read the current distance from the input (NaN-safe).
+  function _currentDistance() {
+    var distIn = document.getElementById("plan-modal-distance");
+    var d = distIn ? parseFloat(distIn.value) : NaN;
+    return isNaN(d) || d <= 0 ? null : d;
+  }
+
+  // Recompute the derived-value hint under the goal input for the active mode.
+  function _updateGoalDerived() {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var hint = document.getElementById("plan-modal-goal-derived");
+    if (!goalIn || !hint) return;
+    var dist = _currentDistance();
+    var raw = goalIn.value.trim();
+    if (!raw) {
+      hint.textContent = dist ? "" : "Set distance to derive pace/time.";
+      return;
+    }
+    if (_goalMode === "time") {
+      var goalSec = parseGoalTime(raw);
+      if (goalSec == null) {
+        hint.textContent = "Enter time as HH:MM:SS or MM:SS.";
+      } else if (dist) {
+        hint.textContent = "= " + fmtPace(goalSec / dist);
+      } else {
+        hint.textContent = "Set distance to see pace.";
+      }
+    } else {
+      var paceSec = _parsePace(raw);
+      if (paceSec == null) {
+        hint.textContent = "Enter pace as M:SS /km.";
+      } else if (dist) {
+        hint.textContent = "= goal " + fmtTime(Math.round(paceSec * dist));
+      } else {
+        hint.textContent = "Set distance to see goal time.";
+      }
+    }
+  }
+
+  // Switch goal input mode, converting the current value between time and pace
+  // so the field stays consistent for the user.
+  function _setGoalMode(mode) {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var next = mode === "pace" ? "pace" : "time";
+    var dist = _currentDistance();
+    if (goalIn && next !== _goalMode && goalIn.value.trim() && dist) {
+      if (next === "pace") {
+        var gs = parseGoalTime(goalIn.value);
+        if (gs != null) goalIn.value = _paceToStr(gs / dist);
+      } else {
+        var ps = _parsePace(goalIn.value);
+        if (ps != null) goalIn.value = goalTimeToStr(Math.round(ps * dist));
+      }
+    }
+    _goalMode = next;
+    var seg = document.getElementById("plan-modal-goalmodeseg");
+    if (seg)
+      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
+        function (b) {
+          var active = b.getAttribute("data-goalmode") === _goalMode;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-checked", active ? "true" : "false");
+        },
+      );
+    if (goalIn)
+      goalIn.placeholder = _goalMode === "pace" ? "M:SS /km" : "HH:MM:SS or MM:SS";
+    _updateGoalDerived();
+  }
+
+  // Resolve the goal-time seconds from the field regardless of mode. Returns
+  // { seconds, error } — error is a user-facing string when parsing fails.
+  function _resolveGoalSeconds(dist) {
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    var raw = goalIn ? goalIn.value.trim() : "";
+    if (!raw) return { seconds: null, error: null };
+    if (_goalMode === "pace") {
+      var paceSec = _parsePace(raw);
+      if (paceSec == null) return { seconds: null, error: "Enter pace as M:SS /km." };
+      if (!dist) return { seconds: null, error: "Set a distance to convert pace to a goal time." };
+      return { seconds: Math.round(paceSec * dist), error: null };
+    }
+    var gs = parseGoalTime(raw);
+    if (gs == null) return { seconds: null, error: "Enter goal time as HH:MM:SS or MM:SS." };
+    return { seconds: gs, error: null };
+  }
+
   // ── Pick from history (completed-race picker) ─────────────────────────────
   // Reset picker + completed-race state (called on open/close).
   function _resetPicker() {
     _pickedActualSeconds = null;
-    var panel = document.getElementById("plan-modal-history-panel");
-    if (panel) panel.style.display = "none";
     var actualField = document.getElementById("plan-modal-actual-field");
     if (actualField) actualField.style.display = "none";
   }
@@ -1212,7 +1602,8 @@
     if (loadingEl) loadingEl.style.display = "";
     if (emptyEl) emptyEl.style.display = "none";
 
-    var from = _isoDaysAgo(365 * 3);
+    // Last 3 months (90 days) of runs.
+    var from = _isoDaysAgo(90);
     var to = todayISO();
     apiGet(
       "/api/workouts?from=" + from + "&to=" + to,
@@ -1253,12 +1644,13 @@
     if (dateIn) dateIn.value = run.workout_date || "";
     if (distIn) distIn.value = distKm ? distKm.toFixed(2) : "";
 
+    // Leave the History tab and reveal the Race entry form pre-filled.
+    _setModalType("race");
     // Past races are usually B-priority; default the selector to B.
     _setModalPriority("B");
     _setActualState(run.duration_seconds || null);
-
-    var panel = document.getElementById("plan-modal-history-panel");
-    if (panel) panel.style.display = "none";
+    // Refresh the goal-pace hint now that distance is set.
+    _updateGoalDerived();
   }
 
   function openModal(race, raceType) {
@@ -1292,13 +1684,21 @@
 
     // Reset picker/completed-race state every time the modal opens.
     _resetPicker();
+    // Reset goal mode to Time and checkpoint measure to Distance on each open.
+    _goalMode = "time";
+    _setGoalMode("time");
+    _setCheckpointMeasure("distance");
 
     // Tab + priority state (must run after _editingRaceId is set for the title).
     _setModalType(type);
     _setModalPriority(race && race.priority ? race.priority : "A");
+    _updateGoalDerived();
+
+    // Preload the history list up front so the History tab is instant.
+    if (!_editingRaceId) _loadHistory();
 
     modal.style.display = "";
-    if (nameIn) nameIn.focus();
+    if (nameIn && type !== "history") nameIn.focus();
   }
 
   function closeModal() {
@@ -1319,7 +1719,6 @@
     var dist = distIn ? parseFloat(distIn.value) : NaN;
     // Type comes from the active segmented tab, not a <select>.
     var type = _editingRaceType === "checkpoint" ? "checkpoint" : "race";
-    var goalSec = goalIn ? parseGoalTime(goalIn.value) : null;
 
     if (!name) {
       if (errEl) errEl.textContent = "Name is required.";
@@ -1329,39 +1728,63 @@
       if (errEl) errEl.textContent = "Date is required.";
       return;
     }
-    if (isNaN(dist) || dist <= 0) {
-      if (errEl) errEl.textContent = "Distance must be a positive number.";
-      return;
-    }
-    // Plausibility guard: a goal like "4:30" parses as MM:SS (4.5 min), which
-    // over a marathon is 0:06 /km — clearly a typo for 4:30:00. Reject goals
-    // whose implied pace is outside a realistic 2:30–15:00 /km band and point
-    // the user at HH:MM:SS.
-    if (goalSec !== null && dist > 0) {
-      var paceSec = goalSec / dist;
-      if (paceSec < 150 || paceSec > 900) {
-        if (errEl)
-          errEl.textContent =
-            "Goal " + (goalIn ? goalIn.value.trim() : "") + " implies " +
-            fmtPace(paceSec) + " over " + dist + " km — not a realistic pace. " +
-            "For longer races use HH:MM:SS (e.g. 4:30:00).";
+
+    var body;
+    if (type === "checkpoint" && _checkpointMeasure === "duration") {
+      // Duration-defined checkpoint (issue #1226): no distance, no goal pace.
+      var durIn = document.getElementById("plan-modal-duration");
+      var durSec = durIn ? parseGoalTime(durIn.value) : null;
+      if (durSec === null || durSec <= 0) {
+        if (errEl) errEl.textContent = "Enter a valid duration (H:MM:SS).";
         return;
       }
-    }
-
-    var body = { name: name, date: date, distance: dist, type: type };
-    if (goalSec !== null) body.goal_time_seconds = goalSec;
-    // Priority is only meaningful for races (checkpoints are forced to C by the
-    // backend). Send it from the priority segmented control on the Race tab.
-    if (type === "race") body.priority = _modalPriority;
-    // Completed-race mode: a past run was picked from history → mark done and
-    // send the real finish time (calibration data). actual_time is measured, so
-    // the goal-pace plausibility guard above does not apply to it.
-    if (type === "race" && _pickedActualSeconds != null) {
-      body.status = "done";
-      body.actual_time_seconds = _pickedActualSeconds;
+      body = {
+        name: name, date: date, type: "checkpoint",
+        duration_seconds: durSec, status: "planned",
+      };
     } else {
-      body.status = "planned";
+      if (isNaN(dist) || dist <= 0) {
+        if (errEl) errEl.textContent = "Distance must be a positive number.";
+        return;
+      }
+
+      // Resolve goal seconds from whichever mode (time or pace) is active.
+      var goalRes = _resolveGoalSeconds(dist);
+      if (goalRes.error) {
+        if (errEl) errEl.textContent = goalRes.error;
+        return;
+      }
+      var goalSec = goalRes.seconds;
+
+      // Plausibility guard: reject goals whose implied pace is outside a realistic
+      // 2:30–15:00 /km band (catches "4:30" typed for 4:30:00). Measured actual
+      // times bypass this — they are real data.
+      if (goalSec !== null && dist > 0) {
+        var paceSec = goalSec / dist;
+        if (paceSec < 150 || paceSec > 900) {
+          if (errEl)
+            errEl.textContent =
+              "Goal implies " + fmtPace(paceSec) + " over " + dist +
+              " km — not a realistic pace. For longer races use HH:MM:SS " +
+              "(e.g. 4:30:00), or switch to Pace mode.";
+          return;
+        }
+      }
+
+      body = { name: name, date: date, distance: dist, type: type };
+      if (goalSec !== null) body.goal_time_seconds = goalSec;
+      // Priority is only meaningful for races (checkpoints are forced to C by the
+      // backend). Send it from the priority segmented control on the Race tab.
+      if (type === "race") body.priority = _modalPriority;
+      // Completed-race mode: a past run was picked from history → mark done and
+      // send the real finish time (calibration data). actual_time is measured, so
+      // the goal-pace plausibility guard above does not apply to it.
+      if (type === "race" && _pickedActualSeconds != null) {
+        body.status = "done";
+        body.actual_time_seconds = _pickedActualSeconds;
+      } else {
+        body.status = "planned";
+      }
     }
     if (errEl) errEl.textContent = "";
 
@@ -1482,16 +1905,29 @@
         _setModalPriority(b.getAttribute("data-priority"));
       });
 
-    // Pick from history: toggle the panel + load past runs on first open.
-    var histToggle = document.getElementById("plan-modal-history-toggle");
-    if (histToggle)
-      histToggle.addEventListener("click", function () {
-        var panel = document.getElementById("plan-modal-history-panel");
-        if (!panel) return;
-        var show = panel.style.display === "none";
-        panel.style.display = show ? "" : "none";
-        if (show) _loadHistory();
+    // Checkpoint measure toggle (Distance | Duration).
+    var measureSeg = document.getElementById("plan-modal-measureseg");
+    if (measureSeg)
+      measureSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setCheckpointMeasure(b.getAttribute("data-measure"));
       });
+
+    // Goal mode toggle (Time | Pace).
+    var goalModeSeg = document.getElementById("plan-modal-goalmodeseg");
+    if (goalModeSeg)
+      goalModeSeg.addEventListener("click", function (e) {
+        var b = e.target.closest(".plan-modal-seg-btn");
+        if (!b) return;
+        _setGoalMode(b.getAttribute("data-goalmode"));
+      });
+
+    // Recompute the goal-derived hint as the user types goal or distance.
+    var goalIn = document.getElementById("plan-modal-goal-time");
+    if (goalIn) goalIn.addEventListener("input", _updateGoalDerived);
+    var distIn = document.getElementById("plan-modal-distance");
+    if (distIn) distIn.addEventListener("input", _updateGoalDerived);
 
     // Clear completed-race state (revert to a normal planned race).
     var actualClear = document.getElementById("plan-modal-actual-clear");
@@ -1508,6 +1944,7 @@
         if (!b) return;
         var distIn = document.getElementById("plan-modal-distance");
         if (distIn) distIn.value = b.getAttribute("data-km");
+        _updateGoalDerived();
       });
 
     var modalClose = document.getElementById("plan-modal-close");

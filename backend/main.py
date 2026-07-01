@@ -12687,6 +12687,7 @@ def _compute_calibration_status(
     last_calibrated_race,
     snapshot_count_90: int,
     snapshot_count_42: int,
+    race_count_90: int = 0,
 ) -> dict:
     """Derive calibration status from pre-fetched DB values.
 
@@ -12717,7 +12718,15 @@ def _compute_calibration_status(
         ts = getattr(last_calibrated_race, "updated_at", None)
         if ts is not None:
             last_calibration_date = ts.date().isoformat()
+        else:
+            # Older done races may have no updated_at; fall back to the race date.
+            rd = getattr(last_calibrated_race, "race_date", None)
+            if rd is not None:
+                last_calibration_date = rd.isoformat()
 
+    # Snapshot density gives the baseline; recent finished races (a real result
+    # within the 90-day window) are strong calibration evidence and raise the
+    # sufficiency/confidence floor: ≥2 races → Sufficient/High, 1 → Low/Medium.
     if snapshot_count_90 >= _CALIB_SUFFICIENCY_HIGH:
         data_sufficiency = "Sufficient"
     elif snapshot_count_90 >= _CALIB_SUFFICIENCY_LOW:
@@ -12731,6 +12740,19 @@ def _compute_calibration_status(
         band_confidence = "Medium"
     else:
         band_confidence = "Low"
+
+    _rank = {"Insufficient": 0, "Low": 1, "Sufficient": 2}
+    _band_rank = {"Low": 0, "Medium": 1, "High": 2}
+    if race_count_90 >= 2:
+        race_suff, race_band = "Sufficient", "High"
+    elif race_count_90 == 1:
+        race_suff, race_band = "Low", "Medium"
+    else:
+        race_suff, race_band = "Insufficient", "Low"
+    if _rank[race_suff] > _rank[data_sufficiency]:
+        data_sufficiency = race_suff
+    if _band_rank[race_band] > _band_rank[band_confidence]:
+        band_confidence = race_band
 
     return {
         "last_calibration_date": last_calibration_date,
@@ -12792,7 +12814,22 @@ def get_calibration_status(user: User = Depends(resolve_user)):
             .count()
         )
 
-    return JSONResponse(_compute_calibration_status(last_race, count_90, count_42))
+        # Finished races (real result) within the 90-day window count as
+        # calibration records (issue #1226).
+        race_count_90 = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.status == "done",
+                Race.actual_time_seconds.isnot(None),
+                Race.race_date >= window_90,
+            )
+            .count()
+        )
+
+    return JSONResponse(
+        _compute_calibration_status(last_race, count_90, count_42, race_count_90)
+    )
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
@@ -13268,13 +13305,49 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     _tc_thresholds = {"threshold_pace_seconds_per_km": threshold_pace}
     _tc_distance = float(race.distance_km) if race.distance_km else None
 
+    # Anchor the estimate on DEMONSTRATED fitness: invert the best finished race
+    # within 90 days into an endurance ceiling and use it as the estimate
+    # baseline, instead of the CTL-derived score which discards race results
+    # (issue #1226). Falls back to the CTL ceiling when no recent race exists.
+    _race_anchor_ceiling = None
+    if threshold_pace and float(threshold_pace) > 0:
+        from backend.services.score_ceiling import (
+            ceiling_from_b_race_result as _ceiling_from_race,
+        )
+        _anchor_cut = today - _timedelta(days=90)
+        _done_races = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.status == "done",
+                Race.actual_time_seconds.isnot(None),
+                Race.distance_km.isnot(None),
+                Race.race_date >= _anchor_cut,
+            )
+            .all()
+        )
+        for _dr in _done_races:
+            _c = _ceiling_from_race(
+                _dr.actual_time_seconds, float(_dr.distance_km), float(threshold_pace)
+            )
+            _ec = _c.get("endurance_ceiling")
+            if _ec is not None and (
+                _race_anchor_ceiling is None or _ec > _race_anchor_ceiling
+            ):
+                _race_anchor_ceiling = _ec
+
+    def _base_ceiling(ctl_value):
+        if _race_anchor_ceiling is not None:
+            return _race_anchor_ceiling
+        return _projected_ctl_to_score_ceiling(ctl_value)["endurance_ceiling"]
+
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
     time_curve_history = []
     for _row in load_curves:
         if _row["date"] < _tc_history_cutoff:
             continue
-        _base = _projected_ctl_to_score_ceiling(_row["ctl"])["endurance_ceiling"]
+        _base = _base_ceiling(_row["ctl"])
         _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
@@ -13297,7 +13370,7 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
                 start_date=today,
             )
             for _day, _day_data in sorted(_proj_series.items()):
-                _base = _projected_ctl_to_score_ceiling(_day_data["ctl"])["endurance_ceiling"]
+                _base = _base_ceiling(_day_data["ctl"])
                 _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:

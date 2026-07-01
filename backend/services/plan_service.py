@@ -23,7 +23,8 @@ def race_to_dict(race: Race) -> dict:
         "id": str(race.id),
         "plan_id": str(race.user_id),
         "date": str(race.race_date),
-        "distance": float(race.distance_km),
+        "distance": float(race.distance_km) if race.distance_km is not None else None,
+        "duration_seconds": race.duration_seconds,
         "type": race.race_type or "race",
         "priority": race.priority,
         "goal_time_seconds": race.goal_time_seconds,
@@ -70,19 +71,21 @@ def get_race(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> Optional[dict]:
 def create_race(
     plan_id: _uuid.UUID,
     date: _date,
-    distance: float,
+    distance: Optional[float],
     race_type: str,
     name: str = "",
     goal_time_seconds: Optional[int] = None,
     priority: str = "A",
     status: str = "planned",
     actual_time_seconds: Optional[int] = None,
+    duration_seconds: Optional[int] = None,
 ) -> dict:
     with Session(engine) as db:
         race = Race(
             user_id=plan_id,
             race_date=date,
             distance_km=distance,
+            duration_seconds=duration_seconds,
             race_type=race_type,
             name=name,
             goal_time_seconds=goal_time_seconds,

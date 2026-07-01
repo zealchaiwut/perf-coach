@@ -897,8 +897,11 @@ class Race(Base):
     """Human-readable event name (e.g. 'Boston Marathon 2026')."""
     race_date = Column(Date, nullable=False)
     """Scheduled or actual date of the race."""
-    distance_km = Column(Numeric(8, 3), nullable=False)
-    """Official race distance in kilometres (must be positive)."""
+    distance_km = Column(Numeric(8, 3), nullable=True)
+    """Distance in km. NULL only for a duration-defined checkpoint (issue #1226)."""
+    duration_seconds = Column(Integer, nullable=True)
+    """Target duration in seconds — set instead of distance for a duration-defined
+    checkpoint; NULL for distance-defined races/checkpoints."""
     goal_time_seconds = Column(Integer, nullable=True)
     """Target finish time in seconds; NULL if no goal is set."""
     goal_pace_seconds_per_km = Column(Integer, nullable=True)

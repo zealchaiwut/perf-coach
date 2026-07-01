@@ -3610,6 +3610,33 @@
         color: var(--text-primary);
         box-shadow: 0 1px 3px rgba(20, 28, 70, 0.12);
       }
+      .plan-modal-seg--sm .plan-modal-seg-btn {
+        padding: 4px 10px;
+        font-size: 11.5px;
+      }
+      .plan-modal-goal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 5px;
+      }
+      .plan-modal-goal-head .plan-modal-label {
+        margin-bottom: 0;
+      }
+      .plan-modal-goal-head .plan-modal-seg {
+        width: 140px;
+        flex-shrink: 0;
+      }
+      .plan-modal-hint {
+        font-size: 11.5px;
+        color: var(--text-tertiary);
+        margin: 6px 0 0;
+        min-height: 1em;
+      }
+      .plan-modal-hint--warn {
+        color: #b45309;
+      }
       /* Pick from history */
       .plan-modal-history-toggle {
         width: 100%;
@@ -4046,6 +4073,8 @@
       <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
+          <!-- Row: A-race header + calibration status -->
+          <div class="pm-row2">
           <!-- 1. A-race header -->
           <div class="pm-card" id="plan-race-header">
             <div id="plan-race-header-content"></div>
@@ -4075,6 +4104,8 @@
               </div>
             </div>
           </div>
+
+          </div><!-- /pm-row2 (header + calibration) -->
 
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
@@ -4128,6 +4159,8 @@
             </div>
           </div>
 
+          <!-- Row: form curve + plan settings -->
+          <div class="pm-row2">
           <!-- 4. Form curve (TSB) -->
           <div class="pm-card">
             <span class="pm-sectitle">Form curve (TSB)</span>
@@ -4207,6 +4240,8 @@
             <div class="pm-schedwrap" id="plan-sched"></div>
             <div class="pm-wklabels" id="plan-wklabels"></div>
           </div>
+
+          </div><!-- /pm-row2 (form curve + plan settings) -->
 
           <!-- 6. Race-readiness specificity -->
           <div class="pm-card" id="plan-spec-section">
@@ -4411,6 +4446,17 @@
         box-shadow: 0 8px 24px rgba(20, 28, 70, 0.1);
         border: 1px solid var(--pm-line);
       }
+      /* Two cards side-by-side in one row (header+calibration, formcurve+settings). */
+      .plan-merged .pm-row2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: stretch;
+      }
+      .plan-merged .pm-row2 > .pm-card { min-width: 0; }
+      @media (max-width: 860px) {
+        .plan-merged .pm-row2 { grid-template-columns: 1fr; }
+      }
       .plan-merged .pm-sectitle {
         font-size: 11px;
         font-weight: 800;
@@ -4596,6 +4642,96 @@
         font-size: 13.5px;
         color: var(--pm-muted);
       }
+      /* Completed / Upcoming section headers */
+      .plan-merged .pm-races-hdr {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--pm-faint);
+        margin: 4px 0 8px;
+      }
+      .plan-merged .pm-races-hdr + .pm-completed-grid,
+      .plan-merged .pm-races-hdr + .pm-rc {
+        margin-top: 0;
+      }
+      /* COMPLETED: two-per-row grid of compact cards (~30% smaller) */
+      .plan-merged .pm-completed-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .pm-completed-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .plan-merged .pm-rc--done {
+        margin-bottom: 0;
+        padding: 9px 11px;
+        border-radius: 9px;
+      }
+      .plan-merged .pm-rc--done .pm-rchd {
+        gap: 6px;
+        margin-bottom: 5px;
+      }
+      .plan-merged .pm-rc--done .pm-rclet {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        font-size: 9px;
+      }
+      .plan-merged .pm-rc--done .pm-rcname {
+        font-size: 11.5px;
+      }
+      .plan-merged .pm-rc--done .pm-typetag,
+      .plan-merged .pm-rc--done .pm-upc {
+        font-size: 8px;
+        padding: 1px 5px;
+      }
+      .plan-merged .pm-rc--done .pm-rcact {
+        padding: 2px 6px;
+        font-size: 9.5px;
+      }
+      .plan-merged .pm-rcmeta--done {
+        font-size: 10px;
+        margin-bottom: 7px;
+      }
+      .plan-merged .pm-rc--done .pm-rcgrid {
+        gap: 6px;
+      }
+      .plan-merged .pm-rc--done .pm-col {
+        padding: 6px 8px;
+        border-radius: 7px;
+      }
+      .plan-merged .pm-rc--done .pm-coll {
+        font-size: 8px;
+        margin-bottom: 3px;
+      }
+      .plan-merged .pm-rc--done .pm-colt {
+        font-size: 14px;
+      }
+      .plan-merged .pm-rc--done .pm-colp {
+        font-size: 9.5px;
+        margin-top: 2px;
+      }
+      /* Actual-vs-goal delta pill on completed cards */
+      .plan-merged .pm-delta {
+        font-size: 8px;
+        font-weight: 800;
+        font-family: var(--pm-mono);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .plan-merged .pm-delta.over {
+        background: var(--pm-redSoft);
+        color: var(--pm-red);
+      }
+      .plan-merged .pm-delta.under {
+        background: var(--pm-greenSoft);
+        color: var(--pm-green);
+      }
       .plan-merged .pm-rc {
         background: var(--pm-tile);
         border: 1px solid var(--pm-line);
@@ -4669,7 +4805,6 @@
         border-radius: 5px;
         background: var(--pm-amberSoft);
         color: var(--pm-amber);
-        margin-left: auto;
       }
       .plan-merged .pm-tgt {
         font-size: 9px;
@@ -4679,12 +4814,13 @@
         border-radius: 5px;
         background: var(--pm-blueSoft);
         color: var(--pm-lavHi);
-        margin-left: auto;
       }
+      /* Actions are always pushed to the far right of the card header,
+         regardless of which tags (recalibrates/target) are present. */
       .plan-merged .pm-rcactions {
         display: flex;
         gap: 6px;
-        margin-left: 8px;
+        margin-left: auto;
       }
       .plan-merged .pm-rcact {
         border: 1px solid var(--pm-line);
@@ -4777,6 +4913,18 @@
       .plan-merged .pm-sc.s {
         background: #fdeee5;
         color: var(--pm-speed);
+      }
+      /* Required-score tag with a positive (improvement-needed) delta: tint the
+         End/Spd tag amber so a needed gain reads as work-to-do vs an already
+         green (within-current-ability) tag. */
+      .plan-merged .pm-sc.req {
+        background: var(--pm-amberSoft);
+        color: var(--pm-amber);
+      }
+      /* Demonstrated End/Spd tags on the compact completed cards. */
+      .plan-merged .pm-rc--done .pm-sc {
+        font-size: 9px;
+        padding: 1px 6px;
       }
       .plan-merged .pm-equiv {
         font-size: 11.5px;
@@ -4935,6 +5083,109 @@
       .plan-merged svg {
         display: block;
       }
+
+      /* ── Compact / denser layout (issue #1226 item 4) ─────────────────────
+         Many records are expected, so tighten paddings, fonts and gaps across
+         the Plan tab while staying readable. */
+      .plan-merged {
+        gap: 11px;
+      }
+      .plan-merged .pm-card {
+        padding: 14px 16px;
+        border-radius: 13px;
+        box-shadow: 0 4px 14px rgba(20, 28, 70, 0.08);
+      }
+      .plan-merged .pm-csub {
+        margin: 4px 0 9px;
+        font-size: 11.5px;
+      }
+      /* Race/checkpoint cards */
+      .plan-merged .pm-rc {
+        padding: 10px 12px;
+        border-radius: 10px;
+        margin-bottom: 7px;
+      }
+      .plan-merged .pm-rchd {
+        gap: 8px;
+        margin-bottom: 9px;
+      }
+      .plan-merged .pm-rclet {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        font-size: 10px;
+      }
+      .plan-merged .pm-rcname {
+        font-size: 13px;
+      }
+      .plan-merged .pm-rcmeta {
+        font-size: 11px;
+      }
+      .plan-merged .pm-rcgrid {
+        gap: 8px;
+      }
+      .plan-merged .pm-col {
+        padding: 8px 10px;
+        border-radius: 8px;
+      }
+      .plan-merged .pm-colt {
+        font-size: 17px;
+      }
+      .plan-merged .pm-colp {
+        font-size: 11px;
+        margin-top: 3px;
+      }
+      .plan-merged .pm-coll {
+        margin-bottom: 4px;
+      }
+      .plan-merged .pm-rcfoot {
+        margin-top: 8px;
+      }
+      .plan-merged .pm-rcact {
+        padding: 3px 8px;
+        font-size: 10.5px;
+      }
+      /* Calibration + settings tiles */
+      .plan-merged .pm-calgrid {
+        gap: 9px;
+        margin-top: 9px;
+      }
+      .plan-merged .pm-caltile {
+        padding: 10px 12px;
+        border-radius: 10px;
+      }
+      .plan-merged .pm-caltile .pm-v {
+        font-size: 13px;
+      }
+      .plan-merged .pm-settingsrow {
+        gap: 22px;
+        margin: 11px 0 14px;
+      }
+      .plan-merged .pm-field input {
+        padding: 6px 9px;
+        font-size: 14px;
+      }
+      /* A-race header */
+      .plan-merged .pm-hdrlet {
+        width: 30px;
+        height: 30px;
+        font-size: 13px;
+      }
+      .plan-merged .pm-hdrgoalbox .pm-gval {
+        font-size: 24px;
+      }
+      .plan-merged .pm-projnow {
+        padding: 8px 12px;
+        margin-bottom: 9px;
+      }
+      .plan-merged .pm-projnow-val {
+        font-size: 19px;
+      }
+      /* Specificity rows */
+      .plan-merged .pm-specrow {
+        margin-bottom: 8px;
+      }
+
       @media (max-width: 720px) {
         .plan-merged .pm-rcgrid,
         .plan-merged .pm-calgrid {
@@ -6154,31 +6405,35 @@
           >
             Checkpoint
           </button>
-        </div>
-
-        <!-- Pick from history (only shown when ADDING a race) -->
-        <div class="plan-modal-field" id="plan-modal-history-field">
           <button
             type="button"
-            id="plan-modal-history-toggle"
-            class="plan-modal-history-toggle"
+            class="plan-modal-seg-btn"
+            data-type="history"
+            role="tab"
+            aria-selected="false"
           >
-            <span aria-hidden="true">↧</span> Pick from history
+            History
           </button>
+        </div>
+
+        <!-- History tab: preloaded list of recent long runs -->
+        <div class="plan-modal-field" id="plan-modal-history-tab" style="display: none">
+          <p class="plan-modal-hint" style="margin-bottom: 8px">
+            Add a past run as a completed race (feeds calibration).
+          </p>
           <div
             id="plan-modal-history-panel"
             class="plan-modal-history-panel"
-            style="display: none"
           >
             <div id="plan-modal-history-loading" class="plan-modal-history-msg">
-              Loading past runs…
+              Loading recent runs…
             </div>
             <div
               id="plan-modal-history-empty"
               class="plan-modal-history-msg"
               style="display: none"
             >
-              No past runs over 10 km logged.
+              No runs over 10 km in the last 3 months.
             </div>
             <div id="plan-modal-history-list" class="plan-modal-history-list"></div>
           </div>
@@ -6203,7 +6458,7 @@
           </div>
         </div>
 
-        <div class="plan-modal-field">
+        <div class="plan-modal-field" id="plan-modal-name-field">
           <label class="plan-modal-label" for="plan-modal-name">Name</label>
           <input
             id="plan-modal-name"
@@ -6214,11 +6469,45 @@
             autocomplete="off"
           />
         </div>
-        <div class="plan-modal-field">
+        <div class="plan-modal-field" id="plan-modal-date-field">
           <label class="plan-modal-label" for="plan-modal-date">Date</label>
           <input id="plan-modal-date" class="plan-modal-input" type="date" />
         </div>
-        <div class="plan-modal-field">
+        <!-- Checkpoint measure toggle: define by distance or duration -->
+        <div
+          class="plan-modal-field"
+          id="plan-modal-measure-field"
+          style="display: none"
+        >
+          <label class="plan-modal-label">Define by</label>
+          <div
+            class="plan-modal-seg"
+            id="plan-modal-measureseg"
+            role="radiogroup"
+            aria-label="Checkpoint measure"
+          >
+            <button
+              type="button"
+              class="plan-modal-seg-btn active"
+              data-measure="distance"
+              role="radio"
+              aria-checked="true"
+            >
+              Distance
+            </button>
+            <button
+              type="button"
+              class="plan-modal-seg-btn"
+              data-measure="duration"
+              role="radio"
+              aria-checked="false"
+            >
+              Duration
+            </button>
+          </div>
+        </div>
+
+        <div class="plan-modal-field" id="plan-modal-distance-field">
           <label class="plan-modal-label" for="plan-modal-distance"
             >Distance (km)</label
           >
@@ -6241,6 +6530,26 @@
               Full
             </button>
           </div>
+        </div>
+
+        <!-- Checkpoint duration input (stub — see backend TODO) -->
+        <div
+          class="plan-modal-field"
+          id="plan-modal-duration-field"
+          style="display: none"
+        >
+          <label class="plan-modal-label" for="plan-modal-duration"
+            >Duration (H:MM:SS)</label
+          >
+          <input
+            id="plan-modal-duration"
+            class="plan-modal-input"
+            type="text"
+            placeholder="e.g. 1:30:00"
+          />
+          <p class="plan-modal-hint" id="plan-modal-duration-note">
+            A time-based checkpoint (e.g. a 90-minute long run) — no distance needed.
+          </p>
         </div>
         <div class="plan-modal-field" id="plan-modal-priority-field">
           <label class="plan-modal-label">Priority</label>
@@ -6279,16 +6588,44 @@
             </button>
           </div>
         </div>
-        <div class="plan-modal-field">
-          <label class="plan-modal-label" for="plan-modal-goal-time"
-            >Goal time (optional)</label
-          >
+        <div class="plan-modal-field" id="plan-modal-goal-field">
+          <div class="plan-modal-goal-head">
+            <label class="plan-modal-label" for="plan-modal-goal-time"
+              >Goal (optional)</label
+            >
+            <div
+              class="plan-modal-seg plan-modal-seg--sm"
+              id="plan-modal-goalmodeseg"
+              role="radiogroup"
+              aria-label="Goal input mode"
+            >
+              <button
+                type="button"
+                class="plan-modal-seg-btn active"
+                data-goalmode="time"
+                role="radio"
+                aria-checked="true"
+              >
+                Time
+              </button>
+              <button
+                type="button"
+                class="plan-modal-seg-btn"
+                data-goalmode="pace"
+                role="radio"
+                aria-checked="false"
+              >
+                Pace
+              </button>
+            </div>
+          </div>
           <input
             id="plan-modal-goal-time"
             class="plan-modal-input"
             type="text"
             placeholder="HH:MM:SS or MM:SS"
           />
+          <p class="plan-modal-hint" id="plan-modal-goal-derived"></p>
         </div>
         <div
           id="plan-modal-error"
