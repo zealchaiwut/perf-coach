@@ -9806,6 +9806,21 @@ def _default_strava_since_date(user_id: _uuid.UUID) -> str:
     return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
 
 
+def _run_plan_matcher(uid) -> None:
+    """Post-sync pass: match planned_sessions against the freshly reconciled
+    workouts. Runs after reconcile_workouts, before mark_success. Failures never
+    fail the sync — the on-demand /api/planned-sessions/reconcile is the backstop.
+    """
+    try:
+        from backend.services import plan_matching as _pm
+        with Session(engine) as _s:
+            _pm.reconcile_user(_s, uid)
+    except Exception as _pm_exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning(
+            "plan matcher failed for user %s: %s", uid, _pm_exc, exc_info=True
+        )
+
+
 def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Strava activities (optionally since since_date) and upsert."""
     import calendar as _calendar
@@ -9918,6 +9933,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 uid,
                 strava_activity_ids=synced_strava_ids[-_DAILY_RECONCILE_LIMIT:],
             )
+        _run_plan_matcher(uid)
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -9979,6 +9995,7 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
                 uid,
                 stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
             )
+        _run_plan_matcher(uid)
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
