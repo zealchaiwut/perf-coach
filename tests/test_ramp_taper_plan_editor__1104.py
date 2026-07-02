@@ -19,6 +19,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "test1104plan!"
@@ -53,7 +54,7 @@ def auth_client():
     uname = f"plan1104_{uuid.uuid4().hex[:8]}"
 
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-        r = bare.post("/api/users", json={"name": uname})
+        r = bare.post("/api/users", json={"name": uname}, cookies=_admin_cookies())
         assert r.status_code == 201, f"create user: {r.text}"
         user_id = r.json()["id"]
 

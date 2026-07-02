@@ -26,6 +26,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
+from backend.auth import require_admin
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
@@ -280,7 +281,7 @@ def get_about():
     })
 
 
-@app.get("/api/users")
+@app.get("/api/users", dependencies=[Depends(require_admin)])
 def get_users():
     try:
         from sqlalchemy import func, select
@@ -349,7 +350,7 @@ class UserIn(BaseModel):
     name: str
 
 
-@app.post("/api/users", status_code=201)
+@app.post("/api/users", status_code=201, dependencies=[Depends(require_admin)])
 def create_user(body: UserIn):
     name = body.name.strip()
     if not (1 <= len(name) <= 100):
@@ -374,7 +375,7 @@ def create_user(body: UserIn):
         )
 
 
-@app.patch("/api/users/{user_id}")
+@app.patch("/api/users/{user_id}", dependencies=[Depends(require_admin)])
 def rename_user(user_id: str, body: UserIn):
     try:
         uid = _uuid.UUID(user_id)
@@ -401,7 +402,7 @@ def rename_user(user_id: str, body: UserIn):
         })
 
 
-@app.delete("/api/users/{user_id}", status_code=204)
+@app.delete("/api/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_user(user_id: str):
     try:
         uid = _uuid.UUID(user_id)
@@ -5080,7 +5081,6 @@ _PAGES = {
     "home": "home.html",
     "weight": "weight.html",
     "habits": "habits.html",
-    "users": "users.html",
     "calendar": "calendar.html",
     "log": "training-log.html",
     "training": "training.html",

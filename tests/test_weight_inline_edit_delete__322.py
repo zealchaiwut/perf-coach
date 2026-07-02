@@ -34,6 +34,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _TESTER_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _CODER_ROOT = _TESTER_ROOT.parent / "coder"
@@ -65,7 +66,7 @@ engine = create_engine(_uat_url, pool_pre_ping=True)
 
 def _make_authed_client(username: str):
     with httpx.Client(base_url=BASE, timeout=10) as fresh:
-        res = fresh.post("/api/users", json={"name": username})
+        res = fresh.post("/api/users", json={"name": username}, cookies=_admin_cookies())
         assert res.status_code == 201, res.text
         user_id = res.json()["id"]
 
@@ -115,7 +116,7 @@ def alice():
     yield {"id": user_id, "client": authed}
     authed.close()
     with httpx.Client(base_url=BASE, timeout=10) as c:
-        c.delete(f"/api/users/{user_id}")
+        c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +125,7 @@ def bob():
     yield {"id": user_id, "client": authed}
     authed.close()
     with httpx.Client(base_url=BASE, timeout=10) as c:
-        c.delete(f"/api/users/{user_id}")
+        c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 # ── (a) JS: Edit button in renderEntries ─────────────────────────────────────

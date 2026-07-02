@@ -33,6 +33,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Path detection: prefer tester root post-merge, coder root pre-merge ──────
 _TESTER_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -70,7 +71,7 @@ def client():
 
 
 def _make_authed_client(client, name):
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     user_id = res.json()["id"]
 
@@ -105,7 +106,7 @@ def auth_user(client):
     user_id, authed = _make_authed_client(client, f"TplUser320_{_RUN}")
     yield {"id": user_id, "client": authed}
     authed.close()
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
@@ -113,7 +114,7 @@ def other_user(client):
     user_id, authed = _make_authed_client(client, f"TplOther320_{_RUN}")
     yield {"id": user_id, "client": authed}
     authed.close()
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 _SAMPLE_EXERCISES = [

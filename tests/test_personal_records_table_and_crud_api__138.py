@@ -8,6 +8,7 @@ from backend.auth import hash_password
 from backend.db import engine
 from backend.models import User
 from sqlalchemy.orm import Session
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:9001")
@@ -27,7 +28,7 @@ def client():
 @pytest.fixture(scope="module")
 def alice_id(client):
     """Fetch Alice's user ID, set a known password, and log the shared client in as Alice."""
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -311,7 +312,7 @@ def test_seed_script_idempotent(client, alice_id):
 def test_no_existing_tables_modified(client, alice_id):
     """AC: No existing tables or data are modified by the migration or seed script."""
     # Verify that we can still fetch users and other data
-    users_res = client.get("/api/users")
+    users_res = client.get("/api/users", cookies=_admin_cookies())
     assert users_res.status_code == 200
     users = users_res.json()
     assert len(users) > 0, "Users table should still have data"

@@ -14,6 +14,7 @@ import uuid
 import pytest
 import httpx
 from datetime import date
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "")
@@ -56,7 +57,7 @@ def authenticated_client():
     uname = f"econ1150_{uuid.uuid4().hex[:8]}"
     try:
         with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-            r = bare.post("/api/users", json={"name": uname})
+            r = bare.post("/api/users", json={"name": uname}, cookies=_admin_cookies())
             if r.status_code != 201:
                 pytest.skip(f"Could not create test user: {r.status_code}")
             user_id = r.json()["id"]

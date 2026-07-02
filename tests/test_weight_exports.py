@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session as _OrmSess
 from backend.auth import hash_password as _hash_pw
 from backend.db import engine
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 
@@ -48,7 +49,7 @@ def client():
 @pytest.fixture(scope="module")
 def test_uid(client):
     name = f"wt341_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"user creation failed: {r.text}"
     uid = r.json()["id"]
     pw_hash = _hash_pw(_EXPORT_TEST_PW)
@@ -57,7 +58,7 @@ def test_uid(client):
         u.password_hash = pw_hash
         db.commit()
     yield uid
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

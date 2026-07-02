@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -56,7 +57,7 @@ def authenticated_client(client):
 
     # Create test user
     user_name = f"proj_test_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": user_name})
+    r = client.post("/api/users", json={"name": user_name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"Failed to create user: {r.text}"
     user_id = r.json()["id"]
 

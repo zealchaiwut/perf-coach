@@ -14,6 +14,7 @@ import pathlib
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = os.environ.get("UAT_BASE_URL") or f"http://localhost:{os.environ.get('UAT_PORT', '9001')}"
 if not BASE.startswith("http"):
@@ -38,13 +39,13 @@ def client():
 
 @pytest.fixture(scope="module")
 def test_user(client):
-    res = client.post("/api/users", json={"name": "RestDayTester127"})
+    res = client.post("/api/users", json={"name": "RestDayTester127"}, cookies=_admin_cookies())
     assert res.status_code in (200, 201), f"create user failed: {res.text}"
     uid = res.json()["id"]
     yield uid
     for d in [_METRICS_ONLY_DATE, _BOTH_DATE, _NULL_METRICS_DATE]:
         client.delete(f"/api/daily-metrics/{uid}/{d}")
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 def _put_metric(client, user_id, date_str, **fields):

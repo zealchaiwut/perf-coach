@@ -3,6 +3,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _RUN = str(uuid.uuid4())[:8]
@@ -16,12 +17,12 @@ def client():
 
 @pytest.fixture(scope="module")
 def user_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     name = f"FeelUser_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next((u for u in users if u["name"] == name), None)
     assert u is not None
     return u["id"]
@@ -173,9 +174,9 @@ _AL_DATE_BACKFILL = "2025-11-13"
 @pytest.fixture(scope="module")
 def al_user_id(client):
     name = f"ALUser_{_AL_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next(u for u in users if u["name"] == name)
     return u["id"]
 
@@ -309,9 +310,9 @@ _SS_RUN = str(uuid.uuid4())[:8]
 @pytest.fixture(scope="module")
 def ss_user_id(client):
     name = f"SSUser_{_SS_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next(u for u in users if u["name"] == name)
     return u["id"]
 
@@ -335,9 +336,9 @@ def ss_entries(client, ss_user_id):
 # (a) summary with no entries returns null stats
 def test_summary_no_entries_returns_null_stats(client):
     name = f"EmptyUser_{_SS_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next(u for u in users if u["name"] == name)
     empty_uid = u["id"]
 

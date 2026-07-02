@@ -3,6 +3,7 @@ import os
 import pytest
 import httpx
 from datetime import datetime, timedelta
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -22,7 +23,7 @@ def client():
 @pytest.fixture
 def test_user_id(client):
     """Fetch or use a test user ID"""
-    r = client.get("/api/users")
+    r = client.get("/api/users", cookies=_admin_cookies())
     assert r.status_code == 200
     users = r.json()
     assert len(users) > 0, "At least one user must exist"

@@ -14,6 +14,7 @@ from backend.auth import hash_password
 from backend.db import engine
 from backend.models import User
 from sqlalchemy.orm import Session
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _RUN = uuid.uuid4().hex[:8]
@@ -30,7 +31,7 @@ def client():
 
 def _make_auth_user(client, suffix):
     name = f"ident-{suffix}-{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     user_id = res.json()["id"]
     pw_hash = hash_password(_TEST_PASSWORD)
@@ -51,14 +52,14 @@ def _login(client, name):
 def user_a(client):
     u = _make_auth_user(client, "a")
     yield u
-    client.delete(f"/api/users/{u['id']}")
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
 def user_b(client):
     u = _make_auth_user(client, "b")
     yield u
-    client.delete(f"/api/users/{u['id']}")
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

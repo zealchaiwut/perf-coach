@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from backend.auth import COOKIE_NAME, CSRF_COOKIE_NAME, generate_csrf_token, hash_password
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Root detection ────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ engine = create_engine(_uat_url, pool_pre_ping=True)
 
 def _make_authed_client(username: str):
     with httpx.Client(base_url=BASE, timeout=10) as fresh:
-        res = fresh.post("/api/users", json={"name": username})
+        res = fresh.post("/api/users", json={"name": username}, cookies=_admin_cookies())
         assert res.status_code == 201, res.text
         user_id = res.json()["id"]
 

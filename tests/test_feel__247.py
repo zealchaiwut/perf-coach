@@ -3,6 +3,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _RUN = str(uuid.uuid4())[:8]
@@ -18,9 +19,9 @@ def client():
 @pytest.fixture(scope="module")
 def user_id(client):
     name = f"FeelUser247_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next((u for u in users if u["name"] == name), None)
     assert u is not None
     return u["id"]
@@ -29,9 +30,9 @@ def user_id(client):
 @pytest.fixture(scope="module")
 def other_user_id(client):
     name = f"OtherUser247_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next((u for u in users if u["name"] == name), None)
     assert u is not None
     return u["id"]

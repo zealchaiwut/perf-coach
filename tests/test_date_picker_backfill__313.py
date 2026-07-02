@@ -28,6 +28,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9002"
 TODAY = datetime.date.today().isoformat()
@@ -54,7 +55,7 @@ def client():
 @pytest.fixture(scope="module")
 def auth_user(client):
     name = f"DP313_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     user_id = res.json()["id"]
 
@@ -86,7 +87,7 @@ def auth_user(client):
     yield {"id": user_id, "name": name, "client": authed}
 
     authed.close()
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 # ── (a) HTML structure ────────────────────────────────────────────────────────
