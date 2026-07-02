@@ -5637,45 +5637,10 @@
         color: var(--perf-muted);
       }
 
-      .perf-card-label {
-        font-size: 9.5px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--text-tertiary);
-        margin-bottom: 12px;
-      }
+      /* Score-card body is a single vertical column (matches the mock) —
+         NOT a horizontal flex split of score vs feeding list. */
       .perf-card-body {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-      }
-      .perf-card-info {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      .perf-score-val {
-        font-family: var(--mono);
-        font-size: 28px;
-        font-weight: 700;
-        color: var(--text-primary);
-        line-height: 1;
-      }
-      .perf-dir {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: lowercase;
-      }
-      .perf-dir--improving {
-        color: var(--green);
-      }
-      .perf-dir--declining {
-        color: var(--red);
-      }
-      .perf-dir--flat {
-        color: var(--text-tertiary);
+        display: block;
       }
       .perf-building-baseline {
         display: flex;
