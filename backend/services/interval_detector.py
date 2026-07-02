@@ -49,7 +49,11 @@ median marks the start of a new set.
 
 # ── Internal band classification ───────────────────────────────────────────────
 
-_HARD_BANDS = frozenset({"tempo", "threshold"})
+# A "hard rep" is any lap at or above threshold intensity. This includes the
+# 'hard' band (classify_laps ratio ≥ 1.06) — a genuine interval rep (e.g. an
+# 8×400m at ~1.25×FTP) lands in 'hard', so it MUST count here or real interval
+# sessions go undetected.
+_HARD_BANDS = frozenset({"tempo", "threshold", "hard"})
 _RECOVERY_BANDS = frozenset({"easy", "steady"})
 
 
