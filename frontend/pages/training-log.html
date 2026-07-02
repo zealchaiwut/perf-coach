@@ -6126,18 +6126,20 @@
     @keyframes lrxsp { to { transform: rotate(360deg); } }
 
     /* ── Detail drawer as overlay ────────────────────────────────────────── */
-    /* Start below the two stacked nav bars (global 60px + sticky training nav
-       ~56px) so the drawer's own top bar isn't hidden behind them. */
+    /* Start below the two stacked nav bars. --log-nav-total is measured in JS
+       (global nav + sticky training nav) with a 116px fallback. Rounded left
+       corners + a small right inset so it reads as a card, matching the layout. */
     #layout-wrapper .detail-panel {
       position: fixed;
-      top: 116px;
-      right: 0;
-      height: calc(100vh - 116px);
+      top: var(--log-nav-total, 116px);
+      right: 12px;
+      height: calc(100vh - var(--log-nav-total, 116px) - 12px);
       width: 440px;
       max-width: 94vw;
       background: #fff;
+      border-radius: 16px;
       box-shadow: -10px 0 34px rgba(15, 20, 50, 0.22);
-      transform: translateX(100%);
+      transform: translateX(calc(100% + 12px));
       transition: transform 0.24s ease;
       z-index: 80;
       overflow-y: auto;
@@ -6145,6 +6147,14 @@
     #layout-wrapper.has-panel .detail-panel,
     #layout-wrapper .detail-panel.is-open {
       transform: translateX(0);
+    }
+    /* Round the sticky top bar so it matches the drawer's rounded corners. */
+    #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
+    /* Highlight the log-list day-groups belonging to a calendar-selected week. */
+    .day-group.lrx-week-hl {
+      background: #eef2ff;
+      border-radius: 12px;
+      box-shadow: inset 3px 0 0 var(--lrx-run, #4f6ef7);
     }
     .detail-panel-overlay {
       position: fixed;

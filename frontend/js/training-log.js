@@ -4593,11 +4593,30 @@
 
   window.addEventListener("userReady", function () {
     loadAndRender(currentMonday);
+    _positionNav();
   });
 
   window.addEventListener("userChanged", function () {
     loadAndRender(currentMonday);
   });
+
+  // Measure the two stacked nav bars (global nav + sticky training header) so the
+  // detail-drawer overlay starts exactly below them, and the training header
+  // sticks right under the global nav — robust across breakpoints/heights.
+  function _positionNav() {
+    var gnav = document.querySelector(".global-nav");
+    var hdr = document.querySelector(".log-page-header");
+    var gh = gnav ? gnav.offsetHeight : 60;
+    if (hdr) hdr.style.top = gh + "px";
+    var hh = hdr ? hdr.offsetHeight : 56;
+    document.documentElement.style.setProperty(
+      "--log-nav-total",
+      gh + hh + "px",
+    );
+  }
+  window.addEventListener("load", _positionNav);
+  window.addEventListener("resize", _positionNav);
+  _positionNav();
 
   // ── Month Calendar (issue #638) ───────────────────────────────────────────
   // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
@@ -4653,8 +4672,25 @@
   }
   function _calClearWeekSel() {
     var el = document.getElementById('log-calendar');
-    if (!el) return;
-    el.querySelectorAll('.lrx-calrow.sel').forEach(function (r) { r.classList.remove('sel'); });
+    if (el) el.querySelectorAll('.lrx-calrow.sel').forEach(function (r) { r.classList.remove('sel'); });
+    _clearLogWeekHl();
+  }
+  function _clearLogWeekHl() {
+    document.querySelectorAll('#log-list .day-group.lrx-week-hl')
+      .forEach(function (g) { g.classList.remove('lrx-week-hl'); });
+  }
+  // Highlight the log-list day-groups within [ws, we] (ISO dates) and scroll the
+  // first into view, so clicking a calendar week points at it in the list too.
+  function _highlightLogWeek(ws, we) {
+    if (!ws || !we) return;
+    var first = null;
+    document.querySelectorAll('#log-list .day-group').forEach(function (g) {
+      var d = g.dataset.date;
+      var inWk = d && d >= ws && d <= we;
+      g.classList.toggle('lrx-week-hl', inWk);
+      if (inWk && !first) first = g;
+    });
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function renderCalendar() {
@@ -4810,6 +4846,8 @@
             label: label, distance_km: km, total_tss: tss, session_count: sess,
           });
         }
+        // Also highlight + scroll to that week's groups in the log list below.
+        _highlightLogWeek(ws, we);
       });
     }
   }
