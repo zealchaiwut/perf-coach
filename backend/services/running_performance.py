@@ -11,9 +11,9 @@ Design (docs/calculations/score-reanchor-proposal.md §4, DECIDED 2026-07-02):
     Speed: the run's best sustained hard effort → its pace + duration →
       vdot_from_pace_duration → rescale_to_score → perf_i.
     Endurance: an aerobic lap set's pace, HR-extrapolated to threshold
-      intensity (equivalent_speed = lap_speed / (avg_hr / threshold_hr)), fed
-      through VDOT at a threshold-effort duration, × decoupling durability
-      factor → perf_i.
+      intensity (equivalent_pace = lap_pace × (avg_hr / threshold_hr) ** k, with
+      a calibration exponent k>1 since pace–HR is non-linear), fed through VDOT
+      at a threshold-effort duration, × decoupling durability factor → perf_i.
 - Aggregate = decayed top-3 mean:
     decayed_i = max(0, perf_i − decay_points(days_since_i))
     score(t)  = mean of the 3 largest decayed_i over runs (date ≤ t) in window.
@@ -55,10 +55,18 @@ from backend.services.vdot import (
 # threshold_effort_minutes: the effort duration used when extrapolating an
 #   endurance lap to threshold intensity (a ~threshold-effort reference so the
 #   %VO2max term is that of a sustained threshold run, not the easy-run length).
+# endurance_hr_extrapolation_exponent: pace–HR is non-linear, so a pure-linear
+#   HR scaling (exponent 1.0) systematically under-extrapolates easy runs and
+#   pins Endurance near the band floor (the §6 calibration target). An exponent
+#   of 1.5 pushes an easy aerobic run's equivalent threshold pace toward the
+#   athlete's real threshold neighborhood without overstating it, while a
+#   genuinely detrained run (higher HR for the same pace) still reads lower.
+#   equivalent_pace = lap_pace × (avg_hr / threshold_hr) ** exponent.
 # speed_sparse_effort_threshold / speed_sparse_band_multiplier: confidence band.
 PERFORMANCE_CONFIG: dict = {
     "trailing_window_days": 90,
     "threshold_effort_minutes": 30.0,
+    "endurance_hr_extrapolation_exponent": 1.5,
     "speed_sparse_effort_threshold": 5,
     "speed_sparse_band_multiplier": 1.5,
 }
@@ -109,13 +117,15 @@ def compute_endurance_score(
         if lap_pace is None or avg_hr is None or avg_hr <= 0:
             continue
 
-        # HR-extrapolate the aerobic lap to threshold intensity:
-        #   equivalent_speed = lap_speed / (avg_hr / threshold_hr)
-        #   → equivalent_pace = lap_pace × (avg_hr / threshold_hr)
+        # HR-extrapolate the aerobic lap to threshold intensity. Pace–HR is
+        # non-linear, so a linear scaling under-extrapolates easy runs; apply a
+        # calibration exponent (proposal §6): equivalent_pace =
+        # lap_pace × (avg_hr / threshold_hr) ** exponent.
         hr_ratio = avg_hr / float(threshold_hr)
         if hr_ratio <= 0:
             continue
-        equivalent_pace = lap_pace * hr_ratio  # s/km at threshold intensity
+        exponent = PERFORMANCE_CONFIG["endurance_hr_extrapolation_exponent"]
+        equivalent_pace = lap_pace * (hr_ratio ** exponent)  # s/km at threshold intensity
         velocity = 1000.0 / (equivalent_pace / 60.0)  # m/min
         vdot = vdot_from_pace_duration(velocity, threshold_effort_min)
         perf = rescale_to_score(vdot)
