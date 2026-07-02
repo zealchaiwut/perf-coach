@@ -14149,6 +14149,16 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             if preferences is not None:
                 preferences["duration_curve_bests"] = curve_data or {}
 
+            # Performance-score cache (issue: cacheable scores, same model as the
+            # weekly/monthly summaries). Recompute only when a new workout is
+            # synced (signature changes) or a threshold/preference input the
+            # score depends on changes — not on every page load.
+            _perf_sig = _performance_signature(session, uid, prefs_row)
+            _perf_cached = _summary_cache_get(uid, "performance", _perf_sig)
+            if _perf_cached is not None:
+                _performance_log.info("performance cache hit for %s", uid)
+                return JSONResponse(_perf_cached)
+
             # Load all run workouts in chronological order (oldest first)
             run_workouts = (
                 session.query(Workout)
@@ -14280,14 +14290,17 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                 )
             )
 
-        return JSONResponse(
-            _build_performance_response(
-                state="scored",
-                endurance=endurance,
-                speed=speed,
-                generated_at=generated_at,
-            )
+        _scored_payload = _build_performance_response(
+            state="scored",
+            endurance=endurance,
+            speed=speed,
+            generated_at=generated_at,
         )
+        # Cache the computed scored payload; the signature invalidates it when a
+        # sync inserts/updates workouts or a relevant threshold changes.
+        _summary_cache_put(uid, "performance", _perf_sig, _scored_payload)
+        _performance_log.info("performance cache miss (computed) for %s", uid)
+        return JSONResponse(_scored_payload)
 
     except HTTPException:
         raise
@@ -14372,6 +14385,28 @@ def _summary_cache_get(user_id, key, sig):
 
 def _summary_cache_put(user_id, key, sig, payload):
     _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+
+
+def _performance_signature(session, user_id, prefs_row) -> str:
+    """Cache signature for the Endurance/Speed performance scores.
+
+    Combines the workout-set signature (MAX(created_at) + count for the athlete —
+    a sync that inserts/updates any workout bumps created_at) with the
+    threshold/preference inputs the score compute depends on (FTP, threshold HR,
+    threshold pace, aerobic-decoupling threshold). Any of these changing
+    recomputes the scores; otherwise repeat loads reuse the cached payload.
+    """
+    base = _summary_signature(session, user_id)
+    if prefs_row is not None:
+        prefs_part = "%s|%s|%s|%s" % (
+            getattr(prefs_row, "ftp_w", None),
+            getattr(prefs_row, "threshold_hr", None),
+            getattr(prefs_row, "threshold_pace_seconds_per_km", None),
+            getattr(prefs_row, "aerobic_decoupling_threshold", None),
+        )
+    else:
+        prefs_part = "no-prefs"
+    return base + "|" + prefs_part
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
