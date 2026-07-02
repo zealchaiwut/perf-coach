@@ -5528,6 +5528,125 @@ def _workout_signal_scores(session, workout) -> dict:
     }
 
 
+def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
+    """Endurance/speed score for the athlete AS OF ``as_of_date``.
+
+    Uses the SAME machinery as ``_workout_signal_scores`` (the numbers shown on
+    the workout-detail/log card) — all run workouts with ``workout_date <=
+    as_of_date`` scored via compute_endurance_score / compute_speed_score. This
+    is deliberately the athlete-scale score, not a pace inversion, so a
+    completed race's demonstrated score matches the log for that date.
+
+    Returns ``{"endurance": float|None, "speed": float|None}``.
+    """
+    from backend.services.running_performance import (
+        compute_endurance_score,
+        compute_speed_score,
+    )
+    from backend.services.zone_constants import make_zone_constants
+    from backend.services.lap_classify import classify_laps
+
+    if as_of_date is None:
+        return {"endurance": None, "speed": None}
+
+    prefs_row = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_id)
+        .first()
+    )
+    prefs_dict = {}
+    if prefs_row is not None:
+        prefs_dict = {
+            "ftp_w": prefs_row.ftp_w,
+            "threshold_hr": prefs_row.threshold_hr,
+            "threshold_pace_seconds_per_km": prefs_row.threshold_pace_seconds_per_km,
+            "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
+            "duration_curve_bests": None,
+        }
+    zone_constants = make_zone_constants()
+    try:
+        compute_decoupling = _compute_decoupling
+    except Exception:
+        compute_decoupling = None
+
+    run_workouts = (
+        session.query(Workout)
+        .filter(Workout.user_id == user_id, Workout.workout_type == "run")
+        .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
+        .all()
+    )
+    wids = [wk.id for wk in run_workouts]
+    splits_by_wk: dict = {}
+    if wids:
+        for s in (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id.in_(wids))
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        ):
+            splits_by_wk.setdefault(s.workout_id, []).append(s)
+
+    runs = []
+    for wk in run_workouts:
+        if wk.workout_date is None or wk.workout_date > as_of_date:
+            continue
+        splits = splits_by_wk.get(wk.id, [])
+        laps = [
+            {
+                "band": cls.get("band"),
+                "avg_power": s.avg_power,
+                "avg_hr": s.avg_hr,
+                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                "duration_seconds": s.duration_seconds,
+            }
+            for s, cls in zip(splits, classify_laps(splits, prefs_dict))
+        ]
+        dpct = None
+        if compute_decoupling is not None:
+            try:
+                dres = compute_decoupling(
+                    [
+                        {
+                            "split_index": s.split_index,
+                            "duration_seconds": s.duration_seconds,
+                            "avg_hr": s.avg_hr,
+                            "avg_power": s.avg_power,
+                            "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                        }
+                        for s in splits
+                    ],
+                    {"workout_type": wk.workout_type},
+                )
+                dpct = dres.get("decoupling_pct") if dres else None
+            except Exception:
+                dpct = None
+        runs.append(
+            {
+                "run_id": str(wk.id),
+                "workout_date": wk.workout_date.isoformat() if wk.workout_date else "",
+                "laps": laps,
+                "decoupling_pct": dpct,
+                "avg_power": wk.avg_power,
+                "avg_hr": wk.avg_hr,
+                "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
+                "duration_seconds": wk.duration_seconds,
+                "speed_signal": wk.speed_signal,
+            }
+        )
+
+    def _score(fn):
+        r = fn(runs, prefs_dict or None, zone_constants)
+        s = r.get("score") if isinstance(r, dict) else None
+        return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+
+    e = _score(compute_endurance_score)
+    s = _score(compute_speed_score)
+    return {
+        "endurance": round(e, 1) if e is not None else None,
+        "speed": round(s, 1) if s is not None else None,
+    }
+
+
 def _compute_session_signals(w: Workout) -> dict:
     """Derive display-ready signal fields for a workout.
 
@@ -14629,6 +14748,285 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
     )
 
     return JSONResponse(raw)
+
+
+# ── Plan computed cache (collapses ~10 Plan-tab calls into 1) ─────────────────
+
+def _plan_signature(session, user_id, plan) -> str:
+    """Cheap fingerprint of everything the Plan bundle depends on.
+
+    Hash of: MAX(workouts.updated_at), MAX(races.updated_at),
+    user_preferences.threshold_pace_seconds_per_km_updated_at (falls back to the
+    prefs row's own updated_at), and the plan's updated_at. New training sync
+    bumps workouts; target/race edits bump races; ramp/taper edits bump the
+    plan — so any of those changes the signature and forces a recompute.
+    """
+    from sqlalchemy import func as _sa_func
+
+    # Workout has no updated_at; MAX(created_at)+COUNT catches new synced rows
+    # (the "new training bumps the signature" case) without a schema change.
+    max_wo = (
+        session.query(_sa_func.max(Workout.created_at))
+        .filter(Workout.user_id == user_id)
+        .scalar()
+    )
+    wo_count = (
+        session.query(_sa_func.count(Workout.id))
+        .filter(Workout.user_id == user_id)
+        .scalar()
+    )
+    max_race = (
+        session.query(_sa_func.max(Race.updated_at))
+        .filter(Race.user_id == user_id)
+        .scalar()
+    )
+    max_race_created = (
+        session.query(_sa_func.max(Race.created_at))
+        .filter(Race.user_id == user_id)
+        .scalar()
+    )
+    prefs_row = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_id)
+        .first()
+    )
+    prefs_stamp = None
+    if prefs_row is not None:
+        prefs_stamp = (
+            getattr(prefs_row, "threshold_pace_seconds_per_km_updated_at", None)
+            or getattr(prefs_row, "updated_at", None)
+        )
+    parts = [
+        str(max_wo), str(wo_count),
+        str(max_race), str(max_race_created), str(prefs_stamp),
+        str(getattr(plan, "updated_at", None)),
+    ]
+    return _hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+# NOTE: required-/demonstrated-score distance weighting below is a FIRST-PASS
+# tunable heuristic (reference 21.1 km; required-gap split slope 0.18). The
+# demonstrated (completed) score is the athlete-scale score AS OF the race date
+# (matches the log) — no pace inversion. Operator may recalibrate later.
+def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scores, tp):
+    """Per-race End/Spd for the bundle.
+
+    Completed race → demonstrated athlete score as of the race date.
+    Upcoming race  → required End/Spd for its goal + delta from current, using
+                     the readiness estimate. None when inputs are missing.
+    """
+    import math as _math
+
+    status = race_dict.get("status")
+    dist = race_dict.get("distance")
+    if status == "done" and race_dict.get("actual_time_seconds") is not None:
+        s = _athlete_scores_as_of(session, user_id, race.race_date)
+        if s.get("endurance") is None and s.get("speed") is None:
+            return None
+        return {
+            "kind": "demonstrated",
+            "end": round(s["endurance"]) if s.get("endurance") is not None else None,
+            "spd": round(s["speed"]) if s.get("speed") is not None else None,
+        }
+
+    # Upcoming: required scores need goal, distance, estimate, current, tp.
+    goal = race_dict.get("goal_time_seconds")
+    cE = current_scores.get("endurance")
+    cS = current_scores.get("speed")
+    if (
+        not goal or not dist or dist <= 0 or not tp or tp <= 0
+        or not isinstance(cE, (int, float)) or not isinstance(cS, (int, float))
+    ):
+        return None
+    est = None
+    if readiness and readiness.get("time_curve"):
+        proj = readiness["time_curve"].get("projection") or []
+        hist = readiness["time_curve"].get("history") or []
+        if proj:
+            est = proj[0].get("estimated_finish_seconds")
+        elif hist:
+            est = hist[-1].get("estimated_finish_seconds")
+    if est is None:
+        return None
+
+    goal_pace = goal / dist
+    est_pace = est / dist
+    gap = (est_pace - goal_pace) / tp * 100.0
+    le = _math.log(dist / 21.1)
+    speed_weight = max(0.15, min(0.85, 0.5 - 0.18 * le))
+    end_weight = 1 - speed_weight
+    d_end = round(gap * end_weight)
+    d_spd = round(gap * speed_weight)
+    req_end = max(0, min(100, round(cE + d_end)))
+    req_spd = max(0, min(100, round(cS + d_spd)))
+    return {
+        "kind": "required",
+        "end": req_end, "spd": req_spd,
+        "d_end": d_end, "d_spd": d_spd,
+    }
+
+
+def _compute_plan_bundle(user) -> dict:
+    """Compute the full Plan-tab bundle by calling the existing endpoints
+    in-process (no HTTP) and decoding their JSON, then attaching per-race
+    computed scores/estimates. Reused by GET /api/plan/computed and
+    POST /api/plan/recompute."""
+    from backend.services.plan_service import race_to_dict as _race_to_dict
+
+    def _decode(resp):
+        try:
+            return _json.loads(resp.body)
+        except Exception:
+            return None
+
+    # Current athlete scores.
+    try:
+        perf = _decode(get_athlete_performance(user=user)) or {}
+    except HTTPException:
+        perf = {}
+    p_state = perf.get("state")
+    cur_end = (perf.get("endurance") or {}).get("score") if p_state == "scored" else None
+    cur_spd = (perf.get("speed") or {}).get("score") if p_state == "scored" else None
+    current_scores = {
+        "endurance": cur_end,
+        "speed": cur_spd,
+        "endurance_dir": (perf.get("endurance") or {}).get("direction"),
+        "speed_dir": (perf.get("speed") or {}).get("direction"),
+        "state": p_state,
+    }
+
+    # Calibration.
+    try:
+        calibration = _decode(get_calibration_status(user=user)) or {}
+    except HTTPException:
+        calibration = {}
+
+    # Projection (form curve, markers, projected-now for the primary race).
+    try:
+        projection = _decode(get_projection(user=user)) or {}
+    except HTTPException:
+        projection = {}
+
+    with Session(engine) as session:
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .first()
+        )
+        tp = prefs_row.threshold_pace_seconds_per_km if prefs_row else None
+
+        races = (
+            session.query(Race)
+            .filter(Race.user_id == user.id)
+            .order_by(Race.race_date)
+            .all()
+        )
+        today = _date.today()
+        race_out = []
+        for race in races:
+            rd = _race_to_dict(race)
+            is_done = rd.get("status") == "done" and rd.get("actual_time_seconds") is not None
+            readiness = None
+            estimate = None
+            if not is_done and str(race.race_date) >= str(today):
+                try:
+                    readiness = _decode(get_race_readiness(str(race.id), user=user))
+                except HTTPException:
+                    readiness = None
+                if readiness and readiness.get("time_curve"):
+                    proj = readiness["time_curve"].get("projection") or []
+                    hist = readiness["time_curve"].get("history") or []
+                    e = None
+                    band = None
+                    if proj:
+                        e = proj[0].get("estimated_finish_seconds")
+                        band = proj[0].get("confidence_band_seconds")
+                    elif hist:
+                        e = hist[-1].get("estimated_finish_seconds")
+                    if e is not None:
+                        estimate = {"est": e, "band": band}
+            scores = _plan_race_scores(
+                session, user.id, race, rd, readiness, current_scores, tp
+            )
+            rd["computed"] = {"estimate": estimate, "scores": scores}
+            race_out.append(rd)
+
+    return {
+        "generated_at": _datetime.now(_timezone.utc).isoformat(),
+        "current_scores": current_scores,
+        "prefs": {"threshold_pace": tp},
+        "calibration": {
+            "last_calibration_date": calibration.get("last_calibration_date"),
+            "data_sufficiency": calibration.get("data_sufficiency"),
+            "band_confidence": calibration.get("band_confidence"),
+            "calibrated": calibration.get("calibrated"),
+        },
+        "projection": {
+            "form_curve": projection.get("form_curve"),
+            "projected_form": projection.get("projected_form"),
+            "race_markers": projection.get("race_markers"),
+            "b_race_recalibration_date": projection.get("b_race_recalibration_date"),
+            "building_baseline": projection.get("building_baseline"),
+        },
+        "races": race_out,
+    }
+
+
+def _resolve_or_create_plan(session, user_id):
+    """Return the user's TrainingPlan, creating a default one if none exists."""
+    plan = (
+        session.query(TrainingPlan)
+        .filter(TrainingPlan.user_id == user_id)
+        .order_by(TrainingPlan.created_at.asc())
+        .first()
+    )
+    if plan is None:
+        plan = TrainingPlan(user_id=user_id, name="Training Plan")
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+    return plan
+
+
+@app.get("/api/plan/computed")
+def get_plan_computed(user: User = Depends(resolve_user)):
+    """Single Plan-tab data call, backed by a plan-level cache.
+
+    Returns the cached bundle when the data signature is unchanged
+    (``cached: true``); otherwise recomputes, stores cache+signature, and
+    returns it (``cached: false``).
+    """
+    with Session(engine) as session:
+        plan = _resolve_or_create_plan(session, user.id)
+        sig = _plan_signature(session, user.id, plan)
+        if plan.computed_signature == sig and plan.computed_cache:
+            bundle = dict(plan.computed_cache)
+            bundle["cached"] = True
+            return JSONResponse(bundle)
+
+    bundle = _compute_plan_bundle(user)
+    with Session(engine) as session:
+        plan = _resolve_or_create_plan(session, user.id)
+        plan.computed_cache = bundle
+        plan.computed_signature = _plan_signature(session, user.id, plan)
+        session.commit()
+    out = dict(bundle)
+    out["cached"] = False
+    return JSONResponse(out)
+
+
+@app.post("/api/plan/recompute")
+def post_plan_recompute(user: User = Depends(resolve_user)):
+    """Force a fresh Plan-tab bundle compute, store it, and return it."""
+    bundle = _compute_plan_bundle(user)
+    with Session(engine) as session:
+        plan = _resolve_or_create_plan(session, user.id)
+        plan.computed_cache = bundle
+        plan.computed_signature = _plan_signature(session, user.id, plan)
+        session.commit()
+    out = dict(bundle)
+    out["cached"] = False
+    return JSONResponse(out)
 
 
 # ── Projection screen endpoint ────────────────────────────────────────────────
