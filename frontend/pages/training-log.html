@@ -6156,6 +6156,15 @@
     }
     /* Round the sticky top bar so it matches the drawer's rounded corners. */
     #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
+    /* Inset the drawer top bar to match the card padding (item: "same as summary"). */
+    #layout-wrapper .detail-panel .dp-topbar { padding: 0 18px; }
+    /* Responsive: when the drawer is open on a wide screen, shift the centered
+       content left to reserve room for the drawer instead of covering it. Below
+       the threshold there isn't enough width, so it falls back to an overlay. */
+    #layout-wrapper { transition: margin-right 0.24s ease; }
+    @media (min-width: 1200px) {
+      #layout-wrapper.has-panel { margin-right: 476px; }
+    }
     /* Highlight the log-list day-groups belonging to a calendar-selected week. */
     .day-group.lrx-week-hl {
       background: #eef2ff;
