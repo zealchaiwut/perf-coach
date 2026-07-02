@@ -67,7 +67,7 @@
       /* ── Page header (on gradient) ─────────────────────────────────────── */
       .log-page-header {
         display: flex;
-        align-items: flex-end;
+        align-items: center;
         justify-content: space-between;
         gap: 1rem;
         flex-wrap: wrap;
@@ -81,19 +81,19 @@
       }
 
       .log-page-title {
-        margin: 0 0 4px;
-        font-size: 26px;
-        font-weight: 600;
-        letter-spacing: -0.025em;
-        line-height: 1.15;
+        margin: 0 0 2px;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
         color: #fff;
         text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
       }
 
       .log-subtitle {
         margin: 0;
-        font-size: 13px;
-        color: rgba(255, 255, 255, 0.78);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.72);
       }
 
       .log-subtitle strong {
@@ -3910,6 +3910,36 @@
           <h1 class="log-page-title">Training log</h1>
           <p class="log-subtitle" id="log-subtitle">Loading…</p>
         </div>
+        <nav
+          class="training-sub-tabs"
+          id="training-sub-tabs"
+          aria-label="Training sub-tabs"
+        >
+          <button
+            class="training-sub-tab active"
+            data-tab="log"
+            type="button"
+            aria-selected="true"
+          >
+            Log
+          </button>
+          <button
+            class="training-sub-tab"
+            data-tab="plan"
+            type="button"
+            aria-selected="false"
+          >
+            Plan
+          </button>
+          <button
+            class="training-sub-tab"
+            data-tab="performance"
+            type="button"
+            aria-selected="false"
+          >
+            Performance
+          </button>
+        </nav>
         <div class="log-page-header-actions">
           <div id="sync-widget" class="sync-widget">
             <button
@@ -4024,37 +4054,6 @@
         </div>
       </div>
 
-      <!-- Sub-tab bar: Log / Plan / Performance -->
-      <nav
-        class="training-sub-tabs"
-        id="training-sub-tabs"
-        aria-label="Training sub-tabs"
-      >
-        <button
-          class="training-sub-tab active"
-          data-tab="log"
-          type="button"
-          aria-selected="true"
-        >
-          Log
-        </button>
-        <button
-          class="training-sub-tab"
-          data-tab="plan"
-          type="button"
-          aria-selected="false"
-        >
-          Plan
-        </button>
-        <button
-          class="training-sub-tab"
-          data-tab="performance"
-          type="button"
-          aria-selected="false"
-        >
-          Performance
-        </button>
-      </nav>
 
       <!-- Week strip (JS renders into this) — Log tab content -->
       <div class="log-card log-card--week">
@@ -4112,6 +4111,9 @@
             <div class="pm-ckhead">
               <span class="pm-sectitle">Races &amp; projections</span>
               <div class="pm-ckbtns">
+                <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
+                  ↻ Recalculate
+                </button>
                 <button id="plan-add-btn" class="pm-ckbtn dark" type="button">
                   + Add
                 </button>
@@ -4454,6 +4456,12 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
+      /* Race header content floats vertically centered in its stretched card. */
+      .plan-merged #plan-race-header {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
       @media (max-width: 860px) {
         .plan-merged .pm-row2 { grid-template-columns: 1fr; }
       }
@@ -4494,6 +4502,14 @@
         background: var(--pm-ink);
         color: #fff;
         border-color: var(--pm-ink);
+      }
+      .plan-merged .pm-ckbtn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .plan-merged .pm-ckbtn.is-loading {
+        opacity: 0.6;
+        pointer-events: none;
       }
       .plan-merged .pm-csub {
         font-size: 12px;

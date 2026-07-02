@@ -1144,6 +1144,10 @@ class TrainingPlan(Base):
     taper_start = Column(Numeric(6, 2), nullable=True)
     taper_length = Column(Numeric(6, 2), nullable=True)
     taper_shape = Column(Text, nullable=True)
+    # Cached computed Plan-tab bundle + the signature it was computed for
+    # (see GET /api/plan/computed). Recomputed when the signature changes.
+    computed_cache = Column(JSONB, nullable=True)
+    computed_signature = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
 
