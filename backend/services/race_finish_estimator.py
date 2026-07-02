@@ -1,43 +1,103 @@
-"""Convert an expressible fitness score to an estimated race finish time (issue #1108).
+"""Convert an expressible fitness score to an estimated race finish time — VDOT.
 
 Pure function module — no database access, no side effects.
 
-The "expressible score" is a 0–100 fitness indicator (e.g. the endurance or
-speed score from running_performance.py, or the score ceiling from
-score_ceiling.py).  The conversion maps the score to an estimated pace using
-the user's configured threshold pace, then multiplies by the entry distance
-to produce the total finish time.
+The "expressible score" is a 0–100 fitness indicator on the same **universal
+VDOT band** as the Endurance/Speed scores (see backend/services/vdot.py). This
+module maps that score to a predicted race pace at the race's own distance, then
+multiplies by the distance to produce the finish time.
 
-Mathematical model
-------------------
-At score=100 (peak fitness) the athlete is estimated to perform at their
-threshold pace.  At score=0 (minimum fitness) the estimated pace is
-SLOW_FACTOR × threshold pace (twice as slow by default).  All values in
-between are interpolated linearly:
+Model (VDOT-based, re-anchored)
+-------------------------------
+1. score → VDOT via the inverse band rescale (vdot.py constants FLOOR/CEIL):
+       VDOT = score/100 × (VDOT_CEIL − VDOT_FLOOR) + VDOT_FLOOR
+2. VDOT → predicted race pace at the race distance by inverting
+   ``vdot_from_pace_duration``. The Daniels %VO2max term depends on the effort
+   DURATION, and duration = pace × distance, so we iterate: guess a pace →
+   duration → %VO2max → the velocity that yields this VDOT at that duration →
+   new pace, repeating to convergence.
+3. finish_time = predicted_pace × distance.
 
-    estimated_pace = threshold_pace × (1 + (1 − score/100) × (SLOW_FACTOR − 1))
+Higher score → higher VDOT → faster pace → shorter finish time (monotonic),
+preserving the property the linear model guaranteed. The threshold pace is now
+only a *fallback* reference when VDOT constants are unavailable.
 
-For the default SLOW_FACTOR of 2.0 this simplifies to:
-
-    estimated_pace = threshold_pace × (2 − score/100)
-
-This guarantees that a higher score always yields a faster (lower) finish time
-for the same distance, satisfying the monotonic trend property required by AC3.
-
-Worked example
---------------
-score=75, threshold_pace=300 s/km, distance=10 km:
-
-    estimated_pace = 300 × (2 − 0.75) = 300 × 1.25 = 375 s/km
-    finish_time    = 375 × 10 = 3750 s  →  "01:02:30"
+Worked example (Daniels sanity)
+-------------------------------
+A VDOT-49.8 athlete (5k in 20:00) over 5 km: the solver converges to ≈240 s/km
+→ 20:00, matching Daniels. On the recreational band (15/58) that VDOT is
+score ≈ 81.
 """
 from __future__ import annotations
 
+import math
+
+from backend.services.vdot import VDOT_FLOOR, VDOT_CEIL
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Multiplier applied to threshold pace when the score is 0.
-# A value of 2.0 means the slowest estimated pace is 2× the threshold pace.
+# Retained for the fallback path / backward-compat imports. The primary model is
+# now VDOT-based; SLOW_FACTOR only drives the threshold-pace fallback used when a
+# VDOT cannot be formed (e.g. score maps to VDOT ≤ 0).
 SLOW_FACTOR: float = 2.0
+
+# Iteration controls for inverting vdot_from_pace_duration.
+_MAX_ITERS = 40
+_TOL_SECONDS_PER_KM = 0.05
+
+
+def score_to_vdot(score: float) -> float:
+    """Inverse band rescale: 0–100 score → VDOT (vdot.py FLOOR/CEIL constants)."""
+    s = max(0.0, min(100.0, float(score)))
+    return s / 100.0 * (VDOT_CEIL - VDOT_FLOOR) + VDOT_FLOOR
+
+
+def _velocity_for_vdot_at_duration(target_vdot: float, duration_min: float) -> float | None:
+    """Velocity (m/min) that yields target_vdot at a fixed effort duration.
+
+    Inverts VO2 = %VO2max(t) × VDOT for the fixed t, then solves the quadratic
+    VO2 = −4.60 + 0.182258·v + 0.000104·v² for v.
+    """
+    if duration_min <= 0:
+        return None
+    pct = (
+        0.8
+        + 0.1894393 * math.exp(-0.012778 * duration_min)
+        + 0.2989558 * math.exp(-0.1932605 * duration_min)
+    )
+    vo2 = pct * target_vdot
+    # 0.000104 v² + 0.182258 v + (−4.60 − vo2) = 0
+    a = 0.000104
+    b = 0.182258
+    c = -4.60 - vo2
+    disc = b * b - 4 * a * c
+    if disc < 0:
+        return None
+    v = (-b + math.sqrt(disc)) / (2 * a)
+    return v if v > 0 else None
+
+
+def vdot_to_race_pace_seconds(target_vdot: float, distance_km: float) -> float | None:
+    """Predicted race pace (s/km) for a VDOT over a distance, by iteration.
+
+    duration depends on pace and pace depends (via %VO2max) on duration, so we
+    fixed-point iterate from an initial guess until the pace converges.
+    """
+    if target_vdot <= 0 or distance_km <= 0:
+        return None
+    # Initial guess: a moderate 5:00/km, then converge.
+    pace = 300.0
+    for _ in range(_MAX_ITERS):
+        duration_min = pace * distance_km / 60.0
+        v = _velocity_for_vdot_at_duration(target_vdot, duration_min)
+        if v is None or v <= 0:
+            return None
+        new_pace = 1000.0 / (v / 60.0)  # s/km
+        if abs(new_pace - pace) < _TOL_SECONDS_PER_KM:
+            pace = new_pace
+            break
+        pace = new_pace
+    return pace if pace > 0 else None
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -49,42 +109,17 @@ def score_to_estimated_finish_time(
 ) -> dict:
     """Convert an expressible fitness score to an estimated race finish time.
 
-    Parameters
-    ----------
-    score:
-        Fitness score on the 0–100 scale.  Values outside [0, 100] are clamped.
-        None returns a null result with a descriptive reason.
-    thresholds:
-        User preference dict.  Must contain ``threshold_pace_seconds_per_km``
-        (a positive number) to compute a meaningful estimate.  None or a dict
-        without the key returns a null result.
-    distance_km:
-        Race or checkpoint distance in kilometres (must be positive).
+    VDOT-based: score → VDOT → predicted pace at the race distance → finish time.
+    Falls back to the old linear threshold-pace model only when a positive VDOT
+    pace can't be formed (and a threshold pace is available).
 
-    Returns
-    -------
-    dict with keys:
-        ``estimated_finish_seconds`` — int total seconds, or None on failure
-        ``estimated_finish_time``    — "HH:MM:SS" string, or None on failure
-        ``reason``                   — None on success; descriptive string on failure
+    Returns a dict with ``estimated_finish_seconds`` / ``estimated_finish_time``
+    (None on failure) and a ``reason`` (None on success).
     """
     _null = {"estimated_finish_seconds": None, "estimated_finish_time": None}
 
     if score is None:
         return {**_null, "reason": "score is None"}
-
-    if not isinstance(thresholds, dict):
-        return {**_null, "reason": "thresholds must be a dict"}
-
-    threshold_pace = thresholds.get("threshold_pace_seconds_per_km")
-    if threshold_pace is None:
-        return {**_null, "reason": "threshold_pace_seconds_per_km not set"}
-    try:
-        threshold_pace = float(threshold_pace)
-    except (TypeError, ValueError):
-        return {**_null, "reason": "threshold_pace_seconds_per_km is not numeric"}
-    if threshold_pace <= 0:
-        return {**_null, "reason": "threshold_pace_seconds_per_km must be positive"}
 
     if distance_km is None:
         return {**_null, "reason": "distance_km is None"}
@@ -97,12 +132,26 @@ def score_to_estimated_finish_time(
 
     clamped_score = max(0.0, min(100.0, float(score)))
 
-    # Linear interpolation between threshold pace (score=100) and SLOW_FACTOR×threshold (score=0).
-    estimated_pace = threshold_pace * (
-        1.0 + (1.0 - clamped_score / 100.0) * (SLOW_FACTOR - 1.0)
-    )
-    total_seconds = int(round(estimated_pace * distance_km))
+    # Primary: VDOT-based estimate.
+    target_vdot = score_to_vdot(clamped_score)
+    pace = vdot_to_race_pace_seconds(target_vdot, distance_km)
 
+    if pace is None:
+        # Fallback: linear threshold-pace model (only if a threshold is set).
+        threshold_pace = None
+        if isinstance(thresholds, dict):
+            threshold_pace = thresholds.get("threshold_pace_seconds_per_km")
+        if threshold_pace is None:
+            return {**_null, "reason": "could not form a VDOT pace and no threshold_pace fallback"}
+        try:
+            threshold_pace = float(threshold_pace)
+        except (TypeError, ValueError):
+            return {**_null, "reason": "threshold_pace_seconds_per_km is not numeric"}
+        if threshold_pace <= 0:
+            return {**_null, "reason": "threshold_pace_seconds_per_km must be positive"}
+        pace = threshold_pace * (1.0 + (1.0 - clamped_score / 100.0) * (SLOW_FACTOR - 1.0))
+
+    total_seconds = int(round(pace * distance_km))
     return {
         "estimated_finish_seconds": total_seconds,
         "estimated_finish_time": _format_hhmmss(total_seconds),
@@ -114,16 +163,7 @@ def apply_finish_estimates(
     entries: list[dict],
     thresholds: dict | None,
 ) -> list[dict]:
-    """Augment each entry dict with an estimated finish time.
-
-    Each entry must have ``"expressible_score"`` (float or None) and
-    ``"distance_km"`` (float or None) keys.  The function adds
-    ``"estimated_finish_seconds"`` and ``"estimated_finish_time"`` in-place
-    and returns the same list so callers can chain the call.
-
-    Entries that are missing a score or distance receive None values for both
-    fields — they are never skipped and no exception is raised (UAT step 5).
-    """
+    """Augment each entry dict with an estimated finish time (in-place)."""
     for entry in entries:
         result = score_to_estimated_finish_time(
             score=entry.get("expressible_score"),

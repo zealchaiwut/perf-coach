@@ -421,6 +421,17 @@ async def get_plan_projection(
 
     races = _svc.list_races(plan.user_id)
 
+    # Athlete's current VDOT-band Endurance score (same scale as Performance),
+    # so the CTL ceiling stays sane relative to what's demonstrated now.
+    _current_score = None
+    try:
+        from backend.main import _athlete_scores_as_of as _scores_as_of
+        with _Session(_engine) as _sdb:
+            _cur = _scores_as_of(_sdb, plan.user_id, _date.today())
+        _current_score = _cur.get("endurance")
+    except Exception:
+        _current_score = None
+
     load_state = _current_load(str(plan.user_id))
     start_date: _date = load_state["date"]
     start_ctl: float = load_state["ctl"]
@@ -482,5 +493,6 @@ async def get_plan_projection(
         races=race_inputs,
         thresholds=thresholds,
         b_race_result=b_race_result,
+        current_score=_current_score,
     )
     return JSONResponse(payload)

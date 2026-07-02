@@ -85,34 +85,44 @@ def test_ac1_returns_endurance_and_speed_keys():
     assert "speed_ceiling" in result
 
 
-def test_ac1_round_trip_score_75():
-    """Ceiling derived from the B race result round-trips: score→time→ceiling == score.
+def test_ac1_vdot_round_trip_via_estimator():
+    """VDOT re-anchor: score → estimated finish time → ceiling round-trips.
 
-    At score=75, threshold_pace=300 s/km, distance=10 km:
-        estimated_pace = 300 * (2 - 0.75) = 375 s/km
-        actual_time    = 375 * 10 = 3750 s
-        derived score  = (2 - 3750/10/300) * 100 = 75.0
+    A B-race result maps to a VDOT-band score; feeding that score back through
+    the VDOT estimator reproduces (near) the same time. We assert the ceiling of
+    a 10 km in 3000 s equals the score the estimator would produce for that time.
     """
-    actual_time = 3750  # 75-score equivalent
-    result = ceiling_from_b_race_result(actual_time, 10.0, _THRESHOLD_PACE)
-    assert result["endurance_ceiling"] == pytest.approx(75.0, abs=0.01)
-    assert result["speed_ceiling"] == pytest.approx(75.0, abs=0.01)
+    from backend.services.race_finish_estimator import score_to_estimated_finish_time
+    ceiling = ceiling_from_b_race_result(3000, 10.0, _THRESHOLD_PACE)["endurance_ceiling"]
+    est = score_to_estimated_finish_time(ceiling, None, 10.0)["estimated_finish_seconds"]
+    assert est == pytest.approx(3000, abs=30)
 
 
-def test_ac1_round_trip_score_100():
-    """Score 100 round-trip: athlete ran at exactly threshold pace."""
-    # At score=100: estimated_pace = 300 * (2 - 1.0) = 300 s/km
-    # actual_time = 300 * 10 = 3000 s
+def test_ac1_10k_result_maps_to_vdot_band_score():
+    # 10 km in 3000 s (5:00/km) → VDOT ≈ 44.9 → band (15/58) score ≈ 58.
     result = ceiling_from_b_race_result(3000, 10.0, _THRESHOLD_PACE)
-    assert result["endurance_ceiling"] == pytest.approx(100.0, abs=0.01)
+    assert result["endurance_ceiling"] == pytest.approx(58.17, abs=1.0)
+    assert result["speed_ceiling"] == pytest.approx(58.17, abs=1.0)
+
+
+def test_ac1_fast_result_saturates_ceiling():
+    # 10 km in 2184 s → VDOT 58 (band ceiling) → score 100.
+    result = ceiling_from_b_race_result(2184, 10.0, _THRESHOLD_PACE)
+    assert result["endurance_ceiling"] == pytest.approx(100.0, abs=0.5)
 
 
 def test_ac1_slow_result_maps_to_low_ceiling():
-    """A slow B race result yields a low ceiling score."""
-    # Very slow: actual_pace = 2 * threshold_pace → score = 0
-    # actual_time = 2 * 300 * 10 = 6000 s → score = (2 - 2.0) * 100 = 0
+    """A slow B race result yields a low ceiling score on the VDOT band."""
+    # 10 km in 6000 s (10:00/km) → VDOT ≈ 17.2 → band score ≈ 5.
     result = ceiling_from_b_race_result(6000, 10.0, _THRESHOLD_PACE)
-    assert result["endurance_ceiling"] == pytest.approx(0.0, abs=0.01)
+    assert result["endurance_ceiling"] == pytest.approx(5.11, abs=1.0)
+
+
+def test_ac1_ceiling_is_threshold_independent():
+    """VDOT mapping ignores threshold pace (kept only for signature stability)."""
+    a = ceiling_from_b_race_result(3000, 10.0, 300)
+    b = ceiling_from_b_race_result(3000, 10.0, 250)
+    assert a["endurance_ceiling"] == b["endurance_ceiling"]
 
 
 def test_ac1_ceiling_clamped_to_zero():
@@ -353,7 +363,8 @@ def test_ac6_ceiling_anchor_logic_covered():
     """Explicit anchor test: B-race ceiling replaces CTL ceiling for post-B races.
 
     This test precisely verifies the ceiling-switching logic using known values.
-    score=75 → ceiling=75.  CTL=20 → CTL ceiling≈13.3.  Post-B race should use 75.
+    A 10 km in 3750 s → VDOT band ceiling ≈ 36.6.  CTL=20 → CTL ceiling≈13.3.
+    Post-B race should use the demonstrated (higher) ceiling.
     """
     b_result = _b_race_result(actual_time_seconds=3750, distance_km=10.0)
     b_ceiling = ceiling_from_b_race_result(
@@ -363,7 +374,7 @@ def test_ac6_ceiling_anchor_logic_covered():
     )
     ctl_ceiling = projected_ctl_to_score_ceiling(ctl=20.0)
 
-    assert b_ceiling["endurance_ceiling"] == pytest.approx(75.0, abs=0.01)
+    assert b_ceiling["endurance_ceiling"] == pytest.approx(36.63, abs=1.0)
     assert ctl_ceiling["endurance_ceiling"] < 20.0, "Sanity: CTL=20 gives low ceiling"
     assert b_ceiling["endurance_ceiling"] > ctl_ceiling["endurance_ceiling"], (
         "B-race ceiling must exceed low-CTL ceiling for this test to be meaningful"
@@ -402,13 +413,16 @@ def test_no_races_b_race_result_ignored():
     assert payload["races"] == []
 
 
-def test_no_thresholds_b_race_not_applied():
-    """Without thresholds, ceiling derivation from B race is skipped gracefully."""
+def test_no_thresholds_b_race_ceiling_skipped_but_estimate_present():
+    """Without a threshold PACE the B-race ceiling re-anchor is skipped (that
+    branch still guards on threshold_pace), but the VDOT estimator no longer
+    needs thresholds, so a finish-time estimate is still produced.
+    """
     race = {"date": str(_FUTURE_RACE_DATE), "distance_km": 10.0, "name": "Future Race"}
     args = dict(_base_projection_args(races=[race]), thresholds=None)
     payload = build_plan_projection_payload(**args, b_race_result=_b_race_result())
-    # Should not raise; estimated_finish_seconds will be None (no threshold pace)
-    assert payload["races"][0]["estimated_finish_seconds"] is None
+    # Should not raise; the VDOT estimate is threshold-independent → non-null.
+    assert payload["races"][0]["estimated_finish_seconds"] is not None
 
 
 def test_b_race_result_no_threshold_pace():

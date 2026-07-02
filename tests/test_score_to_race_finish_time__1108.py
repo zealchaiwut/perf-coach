@@ -18,7 +18,6 @@ import py_compile
 import pytest
 
 from backend.services.race_finish_estimator import (
-    SLOW_FACTOR,
     apply_finish_estimates,
     score_to_estimated_finish_time,
 )
@@ -67,24 +66,26 @@ def test_returns_null_when_distance_is_none():
     assert result["estimated_finish_time"] is None
 
 
-def test_returns_null_when_thresholds_is_none():
+def test_threshold_independent_when_none():
+    # VDOT re-anchor: score + distance fully determine the estimate; the
+    # threshold pace is only a fallback, so thresholds=None still produces a
+    # (non-null) result.
     result = score_to_estimated_finish_time(
         score=75,
         thresholds=None,
         distance_km=10.0,
     )
-    assert result["estimated_finish_seconds"] is None
-    assert result["estimated_finish_time"] is None
+    assert result["estimated_finish_seconds"] is not None
+    assert result["reason"] is None
 
 
-def test_returns_null_when_threshold_pace_missing_from_dict():
+def test_threshold_independent_when_missing_from_dict():
     result = score_to_estimated_finish_time(
         score=75,
         thresholds={},
         distance_km=10.0,
     )
-    assert result["estimated_finish_seconds"] is None
-    assert result["reason"] is not None
+    assert result["estimated_finish_seconds"] is not None
 
 
 def test_returns_null_when_distance_non_positive():
@@ -96,13 +97,15 @@ def test_returns_null_when_distance_non_positive():
     assert result["estimated_finish_seconds"] is None
 
 
-def test_returns_null_when_threshold_pace_non_positive():
+def test_threshold_pace_non_positive_ignored_vdot_path():
+    # A bad threshold pace no longer breaks the estimate — the VDOT path doesn't
+    # use it (it's only a fallback).
     result = score_to_estimated_finish_time(
         score=75,
         thresholds={"threshold_pace_seconds_per_km": 0},
         distance_km=10.0,
     )
-    assert result["estimated_finish_seconds"] is None
+    assert result["estimated_finish_seconds"] is not None
 
 
 # ── AC2: non-null when score and distance available ───────────────────────────
@@ -175,98 +178,64 @@ def test_score_trend_monotonic_across_three_entries():
     )
 
 
-# ── AC4: respects user-configured thresholds ─────────────────────────────────
+# ── AC4 (VDOT): estimate is threshold-INDEPENDENT ─────────────────────────────
+# The VDOT model uses score + distance only; threshold pace is a fallback, so
+# changing it does not change the estimate.
 
-def test_faster_threshold_pace_yields_faster_finish_time():
+def test_estimate_independent_of_threshold_pace():
     fast_thresholds = {"threshold_pace_seconds_per_km": 240}
     slow_thresholds = {"threshold_pace_seconds_per_km": 360}
     fast = score_to_estimated_finish_time(score=75, thresholds=fast_thresholds, distance_km=10.0)
     slow = score_to_estimated_finish_time(score=75, thresholds=slow_thresholds, distance_km=10.0)
-    assert fast["estimated_finish_seconds"] < slow["estimated_finish_seconds"]
+    assert fast["estimated_finish_seconds"] == slow["estimated_finish_seconds"]
 
 
-def test_updated_threshold_changes_estimate():
-    """AC4: updating the threshold changes the estimate (simulates UAT step 4)."""
-    old_thresholds = {"threshold_pace_seconds_per_km": 300}
-    new_thresholds = {"threshold_pace_seconds_per_km": 330}
-    old = score_to_estimated_finish_time(score=75, thresholds=old_thresholds, distance_km=10.0)
-    new = score_to_estimated_finish_time(score=75, thresholds=new_thresholds, distance_km=10.0)
-    assert new["estimated_finish_seconds"] != old["estimated_finish_seconds"], (
-        "Updating threshold_pace_seconds_per_km must change the estimated finish time"
-    )
+def test_higher_score_still_yields_faster_time():
+    lo = score_to_estimated_finish_time(score=50, thresholds=None, distance_km=10.0)
+    hi = score_to_estimated_finish_time(score=80, thresholds=None, distance_km=10.0)
+    assert hi["estimated_finish_seconds"] < lo["estimated_finish_seconds"]
 
 
-def test_estimate_proportional_to_threshold_pace():
-    """Doubling the threshold pace should double the finish time at the same score."""
-    score = 60
-    distance = 10.0
-    r300 = score_to_estimated_finish_time(
-        score=score,
-        thresholds={"threshold_pace_seconds_per_km": 300},
-        distance_km=distance,
-    )
-    r600 = score_to_estimated_finish_time(
-        score=score,
-        thresholds={"threshold_pace_seconds_per_km": 600},
-        distance_km=distance,
-    )
-    assert r600["estimated_finish_seconds"] == pytest.approx(
-        r300["estimated_finish_seconds"] * 2, abs=2
-    )
+def test_longer_distance_yields_longer_time_at_same_score():
+    short = score_to_estimated_finish_time(score=60, thresholds=None, distance_km=5.0)
+    long = score_to_estimated_finish_time(score=60, thresholds=None, distance_km=21.1)
+    assert long["estimated_finish_seconds"] > short["estimated_finish_seconds"]
 
 
-# ── AC7: known input/output with tolerance ────────────────────────────────────
+# ── AC7 (VDOT): known input/output on the recreational band (15/58) ───────────
 
-def test_known_input_score_100_threshold_300_10km():
-    """score=100, threshold=300 s/km, distance=10 km → pace=300 → 3000 s."""
-    result = score_to_estimated_finish_time(
-        score=100,
-        thresholds={"threshold_pace_seconds_per_km": 300},
-        distance_km=10.0,
-    )
-    assert result["estimated_finish_seconds"] == pytest.approx(3000, abs=10)
+def test_known_input_score_100_10km():
+    # score 100 → VDOT 58 (band ceiling) → ~36:24 over 10 km.
+    result = score_to_estimated_finish_time(score=100, thresholds=None, distance_km=10.0)
+    assert result["estimated_finish_seconds"] == pytest.approx(2184, abs=30)
     assert result["reason"] is None
 
 
-def test_known_input_score_0_threshold_300_10km():
-    """score=0, threshold=300 s/km → pace=SLOW_FACTOR×300, distance=10 km."""
-    expected = int(round(SLOW_FACTOR * 300 * 10))
-    result = score_to_estimated_finish_time(
-        score=0,
-        thresholds={"threshold_pace_seconds_per_km": 300},
-        distance_km=10.0,
-    )
-    assert result["estimated_finish_seconds"] == pytest.approx(expected, abs=10)
+def test_known_input_score_0_10km():
+    # score 0 → VDOT 15 (band floor) → a slow but valid ~1:50 over 10 km.
+    result = score_to_estimated_finish_time(score=0, thresholds=None, distance_km=10.0)
+    assert result["estimated_finish_seconds"] == pytest.approx(6651, abs=60)
 
 
-def test_known_input_score_75_threshold_300_10km():
-    """score=75, threshold=300 s/km, distance=10 km.
-
-    pace = 300 × (2 − 75/100) = 300 × 1.25 = 375 s/km
-    finish = 375 × 10 = 3750 s  → "01:02:30"
-    """
-    result = score_to_estimated_finish_time(
-        score=75,
-        thresholds={"threshold_pace_seconds_per_km": 300},
-        distance_km=10.0,
-    )
-    assert result["estimated_finish_seconds"] == pytest.approx(3750, abs=10)
-    assert result["estimated_finish_time"] == "01:02:30"
+def test_known_input_score_75_10km():
+    # score 75 → VDOT 47.25 → ~43:23 over 10 km.
+    result = score_to_estimated_finish_time(score=75, thresholds=None, distance_km=10.0)
+    assert result["estimated_finish_seconds"] == pytest.approx(2603, abs=30)
 
 
-def test_known_half_marathon_score_80_threshold_330():
-    """score=80, threshold=330 s/km (5:30/km), distance=21.1 km.
+def test_known_half_marathon_score_80():
+    # score 80 → VDOT 49.4 → ~1:32:30 over the half.
+    result = score_to_estimated_finish_time(score=80, thresholds=None, distance_km=21.1)
+    assert result["estimated_finish_seconds"] == pytest.approx(5550, abs=45)
 
-    pace = 330 × (2 − 0.80) = 330 × 1.2 = 396 s/km
-    finish ≈ 396 × 21.1 = 8355.6 → 8356 s
-    """
-    expected = int(round(330.0 * 1.2 * 21.1))
-    result = score_to_estimated_finish_time(
-        score=80,
-        thresholds={"threshold_pace_seconds_per_km": 330},
-        distance_km=21.1,
-    )
-    assert result["estimated_finish_seconds"] == pytest.approx(expected, abs=10)
+
+def test_daniels_anchor_vdot_49_8_5k_in_20min():
+    """Daniels sanity: VDOT 49.8 → 5k in 20:00. On the band (15/58) that VDOT is
+    score ≈ 80.9; the estimator must return ~1200 s over 5 km."""
+    from backend.services.vdot import rescale_to_score
+    score = rescale_to_score(49.8)
+    result = score_to_estimated_finish_time(score=score, thresholds=None, distance_km=5.0)
+    assert result["estimated_finish_seconds"] == pytest.approx(1200, abs=15)
 
 
 def test_hhmmss_format_correct_length():

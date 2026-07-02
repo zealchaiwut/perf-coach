@@ -373,6 +373,7 @@ def build_plan_projection_payload(
     thresholds: "Optional[dict]",
     body_modifier: float = 1.0,
     b_race_result: "Optional[dict]" = None,
+    current_score: "Optional[float]" = None,
 ) -> dict:
     """Assemble the full projection payload for /plans/{plan_id}/projection.
 
@@ -487,7 +488,17 @@ def build_plan_projection_payload(
         ):
             ceiling = _b_race_ceiling
         else:
-            ceiling = projected_ctl_to_score_ceiling(projected_ctl)
+            # VDOT-aware CTL ceiling: kept sane relative to the athlete's current
+            # demonstrated score and any real race result.
+            _race_ceil_val = (
+                _b_race_ceiling["endurance_ceiling"]
+                if isinstance(_b_race_ceiling, dict) else None
+            )
+            ceiling = projected_ctl_to_score_ceiling(
+                projected_ctl,
+                current_score=current_score,
+                race_ceiling=_race_ceil_val,
+            )
         # Apply the power-to-weight body modifier to the projected endurance
         # score before converting to a race finish time estimate.
         score = ceiling["endurance_ceiling"] * body_modifier
