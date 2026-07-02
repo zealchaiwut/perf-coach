@@ -10157,7 +10157,7 @@ def get_strava_sync_status(
     """Return full SyncJob row for the given job_id."""
     with Session(engine) as session:
         job = session.get(SyncJob, job_id)
-    if job is None:
+    if job is None or job.user_id != user.id:
         raise HTTPException(status_code=404, detail="Job not found")
     return JSONResponse({
         "id": str(job.id),
