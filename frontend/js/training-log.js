@@ -4299,9 +4299,8 @@
         else closeDetailPanel();
         return;
       }
-      if (panelMode !== "view") return;
-      if (e.key === "ArrowUp" || e.key === "ArrowLeft") navigateDetail(-1);
-      if (e.key === "ArrowDown" || e.key === "ArrowRight") navigateDetail(1);
+      // Arrow-key navigation between workouts is intentionally disabled — the
+      // on-screen prev/next pager ("N of M" ‹ ›) still works by click.
     });
   });
 
