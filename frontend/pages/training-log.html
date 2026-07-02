@@ -4454,6 +4454,12 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
+      /* Race header content floats vertically centered in its stretched card. */
+      .plan-merged #plan-race-header {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
       @media (max-width: 860px) {
         .plan-merged .pm-row2 { grid-template-columns: 1fr; }
       }

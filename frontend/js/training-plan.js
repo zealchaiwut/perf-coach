@@ -623,27 +623,22 @@
     var goalSec = r.goal_time_seconds || null;
     if (!tp || tp <= 0 || !distKm || distKm <= 0 || !goalSec) return "";
 
-    var estInfo = _currentEstimate(_raceReadiness[r.id]);
-    if (!estInfo || estInfo.est == null) return "";
-
+    // REQUIRED score to hit the goal, on the SAME absolute scale as the
+    // demonstrated score of a completed race: base = (2 − goal_pace/tp)*100,
+    // split by distance (long → more endurance, short → more speed). This keeps
+    // upcoming and completed comparable — a faster goal always needs a higher
+    // score. Delta = required − current athlete score.
     var goalPace = goalSec / distKm;
-    var estPace = estInfo.est / distKm;
-    // gap > 0 → goal is faster than the current prediction → improvement needed.
-    var gap = ((estPace - goalPace) / tp) * 100;
-
+    var base = _clamp01_100((2 - goalPace / tp) * 100);
     var le = Math.log(distKm / 21.1); // <0 short, >0 long (half = 0)
-    var speedWeight = Math.max(0.15, Math.min(0.85, 0.5 - 0.18 * le));
-    var endWeight = 1 - speedWeight;
+    var reqEnd = _clamp01_100(Math.round(base * (1 + 0.06 * le)));
+    var reqSpd = _clamp01_100(Math.round(base * (1 - 0.06 * le)));
+    var dEnd = Math.round(reqEnd - cE);
+    var dSpd = Math.round(reqSpd - cS);
 
-    var dEnd = Math.round(gap * endWeight);
-    var dSpd = Math.round(gap * speedWeight);
-    var reqEnd = _clamp01_100(Math.round(cE + dEnd));
-    var reqSpd = _clamp01_100(Math.round(cS + dSpd));
-
-    // Positive delta → improvement required (neutral/red-ish); negative delta →
-    // goal within current ability (green).
-    var endCls = "pm-sc e" + (dEnd > 0 ? " req" : "");
-    var spdCls = "pm-sc s" + (dSpd > 0 ? " req" : "");
+    // All score tags share the amber "req" treatment for a consistent look.
+    var endCls = "pm-sc req";
+    var spdCls = "pm-sc req";
 
     var tags =
       '<span class="' + endCls + '">End ' + reqEnd + " " + _signed(dEnd) + "</span>" +
@@ -782,8 +777,8 @@
     // Demonstrated End/Spd scores from this race's own result (distance-split).
     var demo = _demonstratedScores(r);
     var demoTags = demo
-      ? '<span class="pm-sc e">End ' + demo.end + "</span>" +
-        '<span class="pm-sc s">Spd ' + demo.spd + "</span>"
+      ? '<span class="pm-sc req">End ' + demo.end + "</span>" +
+        '<span class="pm-sc req">Spd ' + demo.spd + "</span>"
       : "";
 
     var head =
