@@ -14922,6 +14922,14 @@ def _compute_plan_bundle(user) -> dict:
             .all()
         )
         today = _date.today()
+        # Primary A race drives the time-curve chart; capture its readiness
+        # time_curve for the frontend "Projected now" readout + chart.
+        primary_race = next(
+            (r for r in races if r.race_type == "race" and r.priority == "A"),
+            next((r for r in races if r.race_type == "race"), None),
+        )
+        primary_time_curve = None
+        primary_race_id = str(primary_race.id) if primary_race else None
         race_out = []
         for race in races:
             rd = _race_to_dict(race)
@@ -14933,6 +14941,12 @@ def _compute_plan_bundle(user) -> dict:
                     readiness = _decode(get_race_readiness(str(race.id), user=user))
                 except HTTPException:
                     readiness = None
+                if (
+                    primary_race is not None
+                    and race.id == primary_race.id
+                    and readiness
+                ):
+                    primary_time_curve = readiness.get("time_curve")
                 if readiness and readiness.get("time_curve"):
                     proj = readiness["time_curve"].get("projection") or []
                     hist = readiness["time_curve"].get("history") or []
@@ -14967,6 +14981,8 @@ def _compute_plan_bundle(user) -> dict:
             "race_markers": projection.get("race_markers"),
             "b_race_recalibration_date": projection.get("b_race_recalibration_date"),
             "building_baseline": projection.get("building_baseline"),
+            "primary_race_id": primary_race_id,
+            "time_curve": primary_time_curve,
         },
         "races": race_out,
     }
