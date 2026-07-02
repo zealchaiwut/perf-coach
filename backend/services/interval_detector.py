@@ -47,6 +47,21 @@ The default value of 1.5 means a recovery that is 50 % longer than the group
 median marks the start of a new set.
 """
 
+SET_BALANCE_TOLERANCE = 1
+"""Max allowed spread (max − min) between per-set rep counts for a multi-set split.
+
+The boundary-multiplier rule alone is fooled by a *single* anomalously-long
+recovery: an 8×400m with one long jog (e.g. 244 s vs a ~150 s median) trips one
+false boundary and splits [2, 6].  To stay robust to a lone outlier we only
+accept a multi-set split when the resulting sets are *balanced* — the spread
+between the largest and smallest set is within this tolerance.  A real
+structure like 3×4 (sets [4, 4, 4], spread 0) passes; a lone-outlier split like
+[2, 6] (spread 4) is rejected and collapses to a single set of `total_reps`.
+
+Tunable: 0 requires exactly-equal sets; 1 allows an off-by-one (e.g. 5×3 that
+lands [3, 3, 3, 3, 2] from a trailing incomplete set).
+"""
+
 # ── Internal band classification ───────────────────────────────────────────────
 
 # A "hard rep" is any lap at or above threshold intensity. This includes the
@@ -255,11 +270,20 @@ def detect_sets(intervals_phase, laps):
     recovery durations, take the middle value for an odd count, or the average
     of the two middle values for an even count.
 
+    A candidate multi-set split is only accepted when the resulting sets are
+    *balanced* — the spread (max − min) between per-set rep counts is within
+    SET_BALANCE_TOLERANCE.  This keeps the split robust to a *single*
+    anomalously-long recovery: an 8×400m with one long jog trips one false
+    boundary and would otherwise split [2, 6] (spread 4); that is rejected and
+    collapses back to a single set of 8.  A real structure like 3×4 (sets
+    [4, 4, 4], spread 0) still splits.
+
     The returned phase dict always includes reps_per_set (a list of integers,
-    one entry per set).  When no long recovery is found sets_detected is 1 and
-    reps_per_set contains the single total rep count.  If all sets are even,
-    reps_detected is updated to the per-set count; if sets are uneven,
-    reps_detected is set to None and a human-readable reason string is returned.
+    one entry per set).  When no long recovery is found — or a candidate split
+    fails the balance check — sets_detected is 1 and reps_per_set contains the
+    single total rep count.  If all sets are even, reps_detected is updated to
+    the per-set count; if sets are uneven, reps_detected is set to None and a
+    human-readable reason string is returned.
 
     Parameters
     ----------
@@ -358,6 +382,18 @@ def detect_sets(intervals_phase, laps):
     reps_per_set = [set_boundaries[k + 1] - set_boundaries[k] for k in range(sets_count)]
 
     updated = dict(intervals_phase)
+
+    # Balance guard: a genuine multi-set workout has evenly-sized sets.  A lone
+    # anomalously-long recovery produces an *unbalanced* split (e.g. [2, 6]) — a
+    # false boundary, not a real set break.  Only keep the split when the sets
+    # are balanced (max − min ≤ SET_BALANCE_TOLERANCE); otherwise collapse to a
+    # single set so a plain N×reps block reads as one set of N.
+    if sets_count > 1 and (max(reps_per_set) - min(reps_per_set)) > SET_BALANCE_TOLERANCE:
+        updated["sets_detected"] = 1
+        updated["reps_per_set"] = [total_reps]
+        updated["reps_detected"] = total_reps
+        return updated, None
+
     updated["sets_detected"] = sets_count
     updated["reps_per_set"] = reps_per_set
 
