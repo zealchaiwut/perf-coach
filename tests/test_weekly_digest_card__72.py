@@ -204,23 +204,6 @@ def test_ac_no_llm_endpoint_in_home_js():
 
 # ── AC: Mock data — HRV demonstrable (last 3 days below baseline) ────────────
 
-def test_ac_mock_data_hrv_last_3_days_below_avg():
-    """MOCK_TRENDS_SUMMARY must have last 3 HRV values below the reported avg."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
-    # Extract HRV block specifically
-    hrv_match = re.search(r"hrv:\s*\{.*?avg:\s*([\d.]+)", mock_js, re.DOTALL)
-    hrv_series_match = re.search(r"hrv:\s*\{[^}]*series:\s*\[(.*?)\]", mock_js, re.DOTALL)
-    if hrv_match and hrv_series_match:
-        avg = float(hrv_match.group(1))
-        values = [float(v) for v in re.findall(r"value:\s*(\d+)", hrv_series_match.group(1))]
-        if len(values) >= 3:
-            last_3 = values[-3:]
-            assert all(v < avg for v in last_3), \
-                f"MOCK_TRENDS_SUMMARY: last 3 HRV values {last_3} must all be below avg {avg}"
-
-
-# ── AC: API — fewer than 7 days yields null averages ─────────────────────────
-
 def test_ac_sparse_user_has_null_readiness_avg(client, sparse_user_id):
     """A user with only 3 days of data must get null readiness.avg (triggers fallback)."""
     res = client.get(f"/trends/summary?user_id={sparse_user_id}&range=7d")

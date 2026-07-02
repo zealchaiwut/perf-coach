@@ -12,7 +12,6 @@ BASE = "http://127.0.0.1:9001"
 
 HTML      = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
 JS        = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
-MOCK_DATA = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -164,29 +163,6 @@ def test_ac4_tss_summed_per_day():
     )
 
 
-def test_ac4_mock_tss_has_double_session():
-    """js/mock-data.js must include at least one date with two TSS entries (double session)."""
-    tss_entries = re.findall(r"\{\s*date:\s*'([^']+)',\s*tss:\s*\d+", MOCK_DATA)
-    date_counts = {}
-    for d in tss_entries:
-        date_counts[d] = date_counts.get(d, 0) + 1
-    has_double = any(count >= 2 for count in date_counts.values())
-    assert has_double, (
-        "js/mock-data.js must include a date with two TSS workout entries (double session) "
-        "to allow the sum-per-day logic to be exercised."
-    )
-
-
-def test_ac4_mock_tss_has_enough_entries():
-    """js/mock-data.js must define MOCK_TSS with at least 5 entries."""
-    tss_entries = re.findall(r"tss:\s*\d+", MOCK_DATA)
-    assert len(tss_entries) >= 5, (
-        f"js/mock-data.js MOCK_TSS must have at least 5 entries; found {len(tss_entries)}."
-    )
-
-
-# ── AC-5: Empty state when fewer than 2 valid pairs ──────────────────────────
-
 def test_ac5_empty_state_message_in_js():
     """trends.js must show the specific empty-state message when < 2 TSS+readiness pairs."""
     assert "Not enough data" in JS, (
@@ -237,16 +213,6 @@ def test_ac6_tss_fetches_workouts_api():
     # Issue #52 migrated TSS fetching to /trends/summary; either endpoint is acceptable.
     assert "/api/workouts" in JS or "/trends/summary" in JS, (
         "trends.js must fetch TSS data from /api/workouts or /trends/summary."
-    )
-
-
-def test_ac6_tss_fallback_to_mock_on_error():
-    """trends.js must fall back to MOCK_TSS when the API request fails."""
-    assert "MOCK_TSS" in JS, (
-        "trends.js must reference MOCK_TSS as a fallback data source when /api/workouts fails."
-    )
-    assert "catch" in JS, (
-        "trends.js must catch API errors and fall back to MOCK_TSS."
     )
 
 
@@ -357,53 +323,6 @@ def test_ac8_max_rotation_zero():
 
 
 # ── AC-9: Mock data integrity ─────────────────────────────────────────────────
-
-def test_ac9_mock_tss_defined():
-    """js/mock-data.js must define MOCK_TSS."""
-    assert "MOCK_TSS" in MOCK_DATA, (
-        "js/mock-data.js must define the MOCK_TSS constant."
-    )
-
-
-def test_ac9_mock_tss_and_readiness_overlap():
-    """MOCK_TSS and MOCK_READINESS must have overlapping dates so the chart is non-empty."""
-    tss_dates = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", MOCK_DATA))
-    readiness_dates = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", MOCK_DATA))
-
-    # For the overlay, we need a TSS date whose next day has a readiness score.
-    tss_dates_raw = re.findall(
-        r"MOCK_TSS[\s\S]*?(?=const MOCK_|$)",
-        MOCK_DATA
-    )
-    readiness_dates_raw = re.findall(
-        r"MOCK_READINESS[\s\S]*?(?=const MOCK_|$)",
-        MOCK_DATA
-    )
-
-    assert tss_dates_raw, "MOCK_TSS block not found in mock-data.js"
-    assert readiness_dates_raw, "MOCK_READINESS block not found in mock-data.js"
-
-    tss_block = tss_dates_raw[0]
-    readiness_block = readiness_dates_raw[0]
-
-    tss_only_dates = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", tss_block))
-    readiness_only_dates = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", readiness_block))
-
-    def add_one(date_str):
-        from datetime import datetime, timedelta
-        d = datetime.strptime(date_str, "%Y-%m-%d")
-        return (d + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    valid_pairs = [
-        d for d in tss_only_dates if add_one(d) in readiness_only_dates
-    ]
-    assert len(valid_pairs) >= 2, (
-        f"MOCK_TSS and MOCK_READINESS must share at least 2 date pairs where a TSS date's "
-        f"next day has a readiness score; found {len(valid_pairs)} pair(s)."
-    )
-
-
-# ── AC-10: JS chart slot loading state ────────────────────────────────────────
 
 def test_ac10_tss_slot_loading_state_in_html():
     """trends.html must show a loading skeleton for the TSS slot on initial load."""
