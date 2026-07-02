@@ -1278,3 +1278,34 @@ class UserBanisterParams(Base):
     __table_args__ = (
         Index("ix_user_banister_params_user_fitted_at", "user_id", "fitted_at"),
     )
+
+
+class SummaryCache(Base):
+    """Durable (Neon-backed) L2 cache for computed summary/performance payloads.
+
+    Mirrors the in-memory ``_SUMMARY_CACHE`` (L1) in ``backend/main.py``: one row
+    per ``(user_id, cache_key)``, invalidated when the stored ``signature`` no
+    longer matches the recomputed signature. Persisting to Neon means a server
+    restart (which wipes L1) does not force a cold recompute — the first request
+    after restart reads straight from this table.
+
+    ``cache_key`` values in use: ``"weekly"``, ``"monthly:<...>"``,
+    ``"performance"`` — the same keys the callers already pass to get/put.
+    """
+
+    __tablename__ = "summary_cache"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    cache_key = Column(Text, primary_key=True, nullable=False)
+    signature = Column(Text, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )

@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -14379,12 +14379,66 @@ def _summary_signature(session, user_id) -> str:
 
 
 def _summary_cache_get(user_id, key, sig):
+    """Two-level cache read: in-memory L1, then durable Neon L2.
+
+    L1 (``_SUMMARY_CACHE``) is the fast per-process path. On an L1 miss (e.g. the
+    first request after a restart wiped L1) fall back to the ``summary_cache``
+    table: if a row exists whose stored signature matches, hydrate L1 and return
+    it — no recompute. Any DB error degrades gracefully to a miss (recompute).
+    """
     ent = _SUMMARY_CACHE.get((str(user_id), key))
-    return ent[1] if ent and ent[0] == sig else None
+    if ent and ent[0] == sig:
+        return ent[1]
+
+    # L2: durable Neon-backed cache. A restart clears L1 but not this table.
+    try:
+        with Session(engine) as _s:
+            row = (
+                _s.query(SummaryCache.signature, SummaryCache.payload)
+                .filter(
+                    SummaryCache.user_id == user_id,
+                    SummaryCache.cache_key == key,
+                )
+                .first()
+            )
+        if row is not None and row[0] == sig:
+            payload = row[1]
+            _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
+            return payload
+    except Exception:
+        _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
+    return None
 
 
 def _summary_cache_put(user_id, key, sig, payload):
+    """Two-level cache write: set L1, then UPSERT the durable L2 row.
+
+    A DB failure on the L2 write must not break the request — L1 still serves
+    within the process; the durable row simply refreshes on the next compute.
+    """
     _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+    try:
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+        stmt = _pg_insert(SummaryCache.__table__).values(
+            user_id=user_id,
+            cache_key=key,
+            signature=sig,
+            payload=payload,
+            updated_at=_datetime.now(_timezone.utc),
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["user_id", "cache_key"],
+            set_={
+                "signature": stmt.excluded.signature,
+                "payload": stmt.excluded.payload,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        with Session(engine) as _s:
+            _s.execute(stmt)
+            _s.commit()
+    except Exception:
+        _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
