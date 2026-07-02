@@ -376,7 +376,7 @@
     };
   }
 
-  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+  function _subChartDerived(series, color, mean, sd, today) {
     const dates = series.map(s => s.date);
     const values = series.map(s => s.value);
     const labels = dates.map(formatLabel);
@@ -394,22 +394,28 @@
     );
     const pointBorderWidths = values.map((_, i) => (i === todayIdx ? 2 : 0));
 
+    return { labels, values, pointBgColors, pointRadii, pointHoverRadii, pointBorderColors, pointBorderWidths };
+  }
+
+  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+    const d = _subChartDerived(series, color, mean, sd, today);
+
     return new Chart(ctx, {
       type: 'line',
       plugins: [baselineBandPlugin],
       data: {
-        labels,
+        labels: d.labels,
         datasets: [{
           label,
-          data: values,
+          data: d.values,
           borderColor: color,
           backgroundColor: 'transparent',
           borderWidth: 2,
-          pointRadius: pointRadii,
-          pointHoverRadius: pointHoverRadii,
-          pointBackgroundColor: pointBgColors,
-          pointBorderColor: pointBorderColors,
-          pointBorderWidth: pointBorderWidths,
+          pointRadius: d.pointRadii,
+          pointHoverRadius: d.pointHoverRadii,
+          pointBackgroundColor: d.pointBgColors,
+          pointBorderColor: d.pointBorderColors,
+          pointBorderWidth: d.pointBorderWidths,
           spanGaps: false,
           tension: 0.3,
         }],
@@ -436,8 +442,27 @@
     });
   }
 
+  // Update an existing sub-chart's data/point-styling/baseline in place
+  // instead of destroy+recreate (avoids flicker on every range change).
+  function updateSubChart(chart, series, label, unit, color, mean, sd, today) {
+    const d = _subChartDerived(series, color, mean, sd, today);
+    chart.data.labels = d.labels;
+    const ds = chart.data.datasets[0];
+    ds.data = d.values;
+    ds.pointRadius = d.pointRadii;
+    ds.pointHoverRadius = d.pointHoverRadii;
+    ds.pointBackgroundColor = d.pointBgColors;
+    ds.pointBorderColor = d.pointBorderColors;
+    ds.pointBorderWidth = d.pointBorderWidths;
+    chart.options.plugins.tooltip.callbacks = buildSubChartTooltipCallbacks(series, label, unit, mean, sd);
+    chart.options.plugins.baselineBand.mean = mean;
+    chart.options.plugins.baselineBand.sd = sd;
+    chart.update();
+  }
+
   function renderHrvChart(bodyEl, info, today) {
     if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
       showEmpty(bodyEl); return;
     }
     const baseline_mean = info.baseline_mean ?? null;
@@ -446,6 +471,10 @@
     if (labelEl && info.is_approximate) {
       labelEl.innerHTML = 'HRV (ms) <span class="hrv-rhr-approx">approximate</span>';
     }
+    if (hrvSubChart) {
+      updateSubChart(hrvSubChart, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
+      return;
+    }
     bodyEl.innerHTML = '<canvas></canvas>';
     const ctx = bodyEl.querySelector('canvas').getContext('2d');
     hrvSubChart = buildSubChart(ctx, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
@@ -453,6 +482,7 @@
 
   function renderRhrChart(bodyEl, info, today) {
     if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
       showEmpty(bodyEl); return;
     }
     const baseline_mean = info.baseline_mean ?? null;
@@ -460,6 +490,10 @@
     const labelEl = document.getElementById('rhr-sub-label');
     if (labelEl && info.is_approximate) {
       labelEl.innerHTML = 'Resting HR (bpm) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    if (rhrSubChart) {
+      updateSubChart(rhrSubChart, info.series, 'Resting HR', 'bpm', '#ef4444', baseline_mean, baseline_sd, today);
+      return;
     }
     bodyEl.innerHTML = '<canvas></canvas>';
     const ctx = bodyEl.querySelector('canvas').getContext('2d');
@@ -530,7 +564,11 @@
     const hasAnyEnergy = energyData.some(v => v !== null);
     const hasAnyMood   = moodData.some(v => v !== null);
 
-    if (!hasAnySleep && !hasAnyEnergy && !hasAnyMood) { showEmpty(bodyEl); return; }
+    if (!hasAnySleep && !hasAnyEnergy && !hasAnyMood) {
+      if (semChart) { semChart.destroy(); semChart = null; }
+      showEmpty(bodyEl);
+      return;
+    }
 
     const energyBtn  = document.getElementById('btn-toggle-energy');
     const moodBtn    = document.getElementById('btn-toggle-mood');
@@ -593,6 +631,18 @@
         order: 2,
         hidden: !_semMoodVisible,
       });
+    }
+
+    // Update in place when possible — the dataset count can still change
+    // (e.g. energy/mood data appearing for the first time in a new range),
+    // which Chart.js handles fine via a full data.datasets reassignment.
+    if (semChart) {
+      semChart.data.labels = labels;
+      semChart.data.datasets = datasets;
+      semChart.options.plugins.tooltip.callbacks.title = items => dates[items[0].dataIndex];
+      semChart.options.plugins.weeklyAvgAnnotations = { enabled: _semWeeklyAvgVisible, dates, sleepData };
+      semChart.update();
+      return;
     }
 
     bodyEl.innerHTML = '<canvas id="chart-sem"></canvas>';
@@ -1087,18 +1137,22 @@
     const semBodyEl = document.getElementById('slot-sem-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
+    // Only show the loading skeleton for slots without a live chart to reuse —
+    // showLoading() replaces the body's innerHTML (destroying the <canvas>),
+    // which would orphan an existing Chart.js instance we intend to update
+    // in place once the new range's data arrives.
     showLoading(readinessBodyEl);
-    showLoading(hrvBodyEl);
-    showLoading(rhrBodyEl);
-    showLoading(semBodyEl);
-    showLoading(tssBodyEl);
-    if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
-    if (semChart) { semChart.destroy(); semChart = null; }
-    if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
-    if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
+    if (!hrvSubChart) showLoading(hrvBodyEl);
+    if (!rhrSubChart) showLoading(rhrBodyEl);
+    if (!semChart) showLoading(semBodyEl);
+    if (!tssOverlayChart) showLoading(tssBodyEl);
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
+      if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+      if (semChart) { semChart.destroy(); semChart = null; }
+      if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+      if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
       showEmpty(readinessBodyEl);
       showEmpty(hrvBodyEl);
       showEmpty(rhrBodyEl);

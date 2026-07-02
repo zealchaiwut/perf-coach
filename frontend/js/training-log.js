@@ -976,10 +976,30 @@
           };
         }
 
+        var runBg = makeBarBg(
+          'rgba(96,165,250,0.95)', 'rgba(37,99,235,0.88)',
+          'rgba(96,165,250,0.38)', 'rgba(37,99,235,0.28)'
+        );
+        var liftBg = makeBarBg(
+          'rgba(167,139,250,0.95)', 'rgba(109,40,217,0.88)',
+          'rgba(167,139,250,0.38)', 'rgba(109,40,217,0.28)'
+        );
+
+        // Update the existing chart in place when possible (avoids the
+        // destroy/recreate flash on every fetch, including single-workout
+        // edits) — only rebuild when the instance is missing entirely.
         if (volumeChart) {
-          volumeChart.destroy();
-          volumeChart = null;
+          volumeChart.data.labels = labels;
+          volumeChart.data.datasets[0].data = runTssVals;
+          volumeChart.data.datasets[0].backgroundColor = runBg;
+          volumeChart.data.datasets[1].data = strengthTssVals;
+          volumeChart.data.datasets[1].backgroundColor = liftBg;
+          volumeChart.data.datasets[2].data = distVals;
+          volumeChart.update();
+          card.hidden = false;
+          return;
         }
+
         volumeChart = new Chart(canvas.getContext("2d"), {
           type: "bar",
           data: {
@@ -988,10 +1008,7 @@
               {
                 label: "Run TSS",
                 data: runTssVals,
-                backgroundColor: makeBarBg(
-                  'rgba(96,165,250,0.95)', 'rgba(37,99,235,0.88)',
-                  'rgba(96,165,250,0.38)', 'rgba(37,99,235,0.28)'
-                ),
+                backgroundColor: runBg,
                 borderRadius: 4,
                 maxBarThickness: 36,
                 stack: "tss",
@@ -1001,10 +1018,7 @@
               {
                 label: 'Lift TSS',
                 data: strengthTssVals,
-                backgroundColor: makeBarBg(
-                  'rgba(167,139,250,0.95)', 'rgba(109,40,217,0.88)',
-                  'rgba(167,139,250,0.38)', 'rgba(109,40,217,0.28)'
-                ),
+                backgroundColor: liftBg,
                 borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
                 maxBarThickness: 36,
                 stack: "tss",
