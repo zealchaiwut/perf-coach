@@ -4535,22 +4535,23 @@
       gh + hh + "px",
     );
 
-    // Align the two nav clusters with the columns below them: brand+tabs to the
-    // content column's left edge, actions to the detail drawer's left edge.
+    // Align the nav clusters to the shared centered content box so the brand
+    // sits at the content's left edge (same as #plan-race-header / any .pm-card)
+    // and the actions at its right edge — balanced and responsive. Computed from
+    // the geometry (all four tabs share max-width:1000 + 24px horizontal padding,
+    // border-box) rather than measuring #list-main, which is display:none on the
+    // Plan/Projection/Performance tabs and would collapse the padding to 0.
     var inner = document.querySelector(".log-page-header-inner");
-    var col = document.getElementById("list-main");
     var actions = document.querySelector(".log-page-header-actions");
     if (inner) {
-      var innerLeft = inner.getBoundingClientRect().left;
-      if (col) {
-        var contentLeft = col.getBoundingClientRect().left;
-        inner.style.paddingLeft = Math.max(0, contentLeft - innerLeft) + "px";
-      }
+      var CONTENT_MAX = 1000, PAD = 24;
+      var vw = document.documentElement.clientWidth;
+      var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
+      inner.style.paddingLeft = contentLeft + "px";
+      inner.style.paddingRight = contentLeft + "px";
       if (actions) {
-        var DRAWER_W = 440, DRAWER_INSET = 12;
-        var drawerLeft = window.innerWidth - DRAWER_INSET - DRAWER_W;
-        actions.style.left = Math.max(0, drawerLeft - innerLeft) + "px";
-        actions.style.right = "auto";
+        actions.style.left = "auto";
+        actions.style.right = contentLeft + "px";
       }
     }
   }
