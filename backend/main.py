@@ -13218,6 +13218,9 @@ def _rdns_classify_zone(tsb: float, buried_ceiling: float, fresh_floor: float) -
     return "optimal"
 
 
+_RACE_READINESS_UNSET = object()
+
+
 @app.get("/api/races/{race_id}/readiness")
 def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
     """Return combined race-readiness data for the given race.
@@ -13231,6 +13234,19 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
         403 when the race belongs to a different user.
         404 when the race_id does not exist or is invalid.
     """
+    return _race_readiness_impl(race_id, user)
+
+
+def _race_readiness_impl(
+    race_id: str,
+    user: User,
+    _shared_load_curves=None,
+    _shared_threshold_pace=_RACE_READINESS_UNSET,
+):
+    """Core of get_race_readiness(), extracted so callers computing readiness
+    for multiple races of the same user in one request (e.g. the Plan bundle)
+    can pass in the shared 180-day TSS/EWMA series and threshold_pace instead
+    of each race re-querying/recomputing identical per-user data."""
     # ── 1. Parse and resolve race ─────────────────────────────────────────────
     try:
         rid = _uuid.UUID(race_id)
@@ -13255,8 +13271,11 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
 
     # ── 3. Load historical TSS series for form_curve (6-month warmup window) ──
     warmup_start = today - _timedelta(days=180)
-    tss_series = daily_tss_series(str(user.id), warmup_start, today)
-    load_curves = compute_load_curves(tss_series)
+    if _shared_load_curves is not None:
+        tss_series, load_curves = _shared_load_curves
+    else:
+        tss_series = daily_tss_series(str(user.id), warmup_start, today)
+        load_curves = compute_load_curves(tss_series)
 
     # ── 4. Build form_curve with configurable zone labels ─────────────────────
     form_curve = [
@@ -13386,13 +13405,16 @@ def get_race_readiness(race_id: str, user: User = Depends(resolve_user)):
             },
         ).fetchall()
 
-        user_prefs_row = db.query(UserPreferences).filter(
-            UserPreferences.user_id == user.id
-        ).first()
-        threshold_pace = (
-            user_prefs_row.threshold_pace_seconds_per_km
-            if user_prefs_row else None
-        )
+        if _shared_threshold_pace is not _RACE_READINESS_UNSET:
+            threshold_pace = _shared_threshold_pace
+        else:
+            user_prefs_row = db.query(UserPreferences).filter(
+                UserPreferences.user_id == user.id
+            ).first()
+            threshold_pace = (
+                user_prefs_row.threshold_pace_seconds_per_km
+                if user_prefs_row else None
+            )
 
     import types as _types
 
@@ -14798,37 +14820,35 @@ def _plan_signature(session, user_id, plan) -> str:
 
     # Workout has no updated_at; MAX(created_at)+COUNT catches new synced rows
     # (the "new training bumps the signature" case) without a schema change.
-    max_wo = (
+    # Single SELECT with scalar subqueries instead of 5 separate round trips.
+    row = session.query(
         session.query(_sa_func.max(Workout.created_at))
         .filter(Workout.user_id == user_id)
-        .scalar()
-    )
-    wo_count = (
+        .scalar_subquery()
+        .label("max_wo"),
         session.query(_sa_func.count(Workout.id))
         .filter(Workout.user_id == user_id)
-        .scalar()
-    )
-    max_race = (
+        .scalar_subquery()
+        .label("wo_count"),
         session.query(_sa_func.max(Race.updated_at))
         .filter(Race.user_id == user_id)
-        .scalar()
-    )
-    max_race_created = (
+        .scalar_subquery()
+        .label("max_race"),
         session.query(_sa_func.max(Race.created_at))
         .filter(Race.user_id == user_id)
-        .scalar()
-    )
-    prefs_row = (
-        session.query(UserPreferences)
+        .scalar_subquery()
+        .label("max_race_created"),
+        session.query(UserPreferences.threshold_pace_seconds_per_km_updated_at)
         .filter(UserPreferences.user_id == user_id)
-        .first()
-    )
-    prefs_stamp = None
-    if prefs_row is not None:
-        prefs_stamp = (
-            getattr(prefs_row, "threshold_pace_seconds_per_km_updated_at", None)
-            or getattr(prefs_row, "updated_at", None)
-        )
+        .scalar_subquery()
+        .label("prefs_pace_stamp"),
+        session.query(UserPreferences.updated_at)
+        .filter(UserPreferences.user_id == user_id)
+        .scalar_subquery()
+        .label("prefs_updated_at"),
+    ).one()
+    max_wo, wo_count, max_race, max_race_created, prefs_pace_stamp, prefs_updated_at = row
+    prefs_stamp = prefs_pace_stamp or prefs_updated_at
     parts = [
         str(max_wo), str(wo_count),
         str(max_race), str(max_race_created), str(prefs_stamp),
@@ -14955,6 +14975,12 @@ def _compute_plan_bundle(user) -> dict:
             .all()
         )
         today = _date.today()
+
+        # Shared per-user 180-day TSS/EWMA series: every upcoming race's
+        # get_race_readiness() call would otherwise recompute this identically.
+        _warmup_start = today - _timedelta(days=180)
+        _shared_tss_series = daily_tss_series(str(user.id), _warmup_start, today)
+        _shared_load_curves = compute_load_curves(_shared_tss_series)
         # Primary A race drives the time-curve chart; capture its readiness
         # time_curve for the frontend "Projected now" readout + chart.
         primary_race = next(
@@ -14971,7 +14997,14 @@ def _compute_plan_bundle(user) -> dict:
             estimate = None
             if not is_done and str(race.race_date) >= str(today):
                 try:
-                    readiness = _decode(get_race_readiness(str(race.id), user=user))
+                    readiness = _decode(
+                        _race_readiness_impl(
+                            str(race.id),
+                            user,
+                            _shared_load_curves=(_shared_tss_series, _shared_load_curves),
+                            _shared_threshold_pace=tp,
+                        )
+                    )
                 except HTTPException:
                     readiness = None
                 if (
