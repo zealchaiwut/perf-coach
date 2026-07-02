@@ -78,10 +78,23 @@ def _make_preferences():
 
 
 def _make_hard_run(run_id="h1", workout_date="2025-01-10", speed_signal=1.20):
+    # VDOT re-anchor: speed is now pace/duration based; a qualifying hard lap
+    # with real distance+duration is required. speed_signal drives the pace.
+    distance_km = 1.0
+    pace = 300.0 / speed_signal  # faster as the ratio rises
+    lap_dur = pace * distance_km
     return {
         "run_id": run_id,
         "workout_date": workout_date,
-        "laps": [],
+        "laps": [
+            {
+                "band": "hard",
+                "avg_power": 260.0,
+                "avg_hr": 165.0,
+                "distance_km": distance_km,
+                "duration_seconds": lap_dur,
+            }
+        ],
         "decoupling_pct": None,
         "duration_seconds": 1800,
         "speed_signal": speed_signal,

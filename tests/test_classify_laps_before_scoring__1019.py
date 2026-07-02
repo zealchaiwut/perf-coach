@@ -304,7 +304,7 @@ class TestSpeedScoringReceivesMinimumQualifyingRuns:
 
     def test_speed_score_with_exactly_min_qualifying_runs_is_numeric(self):
         """Exactly MIN_QUALIFYING_RUNS hard-band runs produces a numeric speed score."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [self._hard_run(f"r{i}", i) for i in range(1, MIN_QUALIFYING_RUNS + 1)]
         zc = make_zone_constants()
         result = compute_speed_score(runs, prefs, zc)
@@ -314,7 +314,7 @@ class TestSpeedScoringReceivesMinimumQualifyingRuns:
 
     def test_speed_score_with_fewer_than_min_runs_returns_building_baseline(self):
         """Fewer than MIN_QUALIFYING_RUNS qualifying runs yields building_baseline."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [self._hard_run(f"r{i}", i) for i in range(1, MIN_QUALIFYING_RUNS)]
         zc = make_zone_constants()
         result = compute_speed_score(runs, prefs, zc)
@@ -324,7 +324,7 @@ class TestSpeedScoringReceivesMinimumQualifyingRuns:
 
     def test_speed_score_only_counts_hard_band_runs(self):
         """Only runs with speed-band laps count toward the qualifying run threshold."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
 
         # Mix: MIN_QUALIFYING_RUNS+1 easy runs (not speed-band) and 2 hard runs
@@ -354,7 +354,7 @@ class TestSpeedScoringReceivesMinimumQualifyingRuns:
             w.id: [_split(avg_power=230, avg_hr=165, distance_km=1.0, duration_seconds=300)]
             for w in workouts
         }
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
 
         runs = _assemble_runs(workouts, splits_by_id, prefs)
 
@@ -400,7 +400,7 @@ class TestEnduranceScoringNonEmptyWhenLapQualifies:
 
     def test_endurance_score_key_present_with_qualifying_runs(self):
         """compute_endurance_score result has a 'score' key when runs qualify."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [self._easy_run(f"r{i}", i, avg_power=140 + i * 3) for i in range(1, MIN_QUALIFYING_RUNS + 2)]
         zc = make_zone_constants()
         result = compute_endurance_score(runs, prefs, zc)
@@ -408,7 +408,7 @@ class TestEnduranceScoringNonEmptyWhenLapQualifies:
 
     def test_endurance_score_is_numeric_with_easy_runs(self):
         """Numeric endurance score returned when easy-band laps qualify."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [self._easy_run(f"r{i}", i, avg_power=140 + i * 3) for i in range(1, MIN_QUALIFYING_RUNS + 2)]
         zc = make_zone_constants()
         result = compute_endurance_score(runs, prefs, zc)
@@ -417,7 +417,7 @@ class TestEnduranceScoringNonEmptyWhenLapQualifies:
 
     def test_endurance_score_has_trend_list(self):
         """Result includes a 'trend' list matching the number of qualifying runs."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         n = MIN_QUALIFYING_RUNS + 1
         runs = [self._easy_run(f"r{i}", i, avg_power=140 + i * 3) for i in range(1, n + 1)]
         zc = make_zone_constants()
@@ -428,7 +428,7 @@ class TestEnduranceScoringNonEmptyWhenLapQualifies:
 
     def test_endurance_score_with_zero_qualifying_laps_is_building_baseline(self):
         """No qualifying laps (band=None) → building_baseline, not empty score."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [
             {
                 "run_id": f"r{i}",
@@ -458,6 +458,7 @@ class TestEnduranceScoringNonEmptyWhenLapQualifies:
         }
         prefs = {
             "ftp_w": 200,
+            "threshold_hr": 165,  # VDOT re-anchor: endurance needs threshold_hr
             "aerobic_decoupling_threshold": 8.0,
             "duration_curve_bests": None,
         }
@@ -484,7 +485,7 @@ class TestClassificationDoesNotAlterResponseSchema:
 
     def test_response_has_endurance_and_speed_keys(self):
         """The response schema stays {endurance: ..., speed: ...}."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
         endurance = compute_endurance_score([], prefs, zc)
         speed = compute_speed_score([], prefs, zc)
@@ -494,7 +495,7 @@ class TestClassificationDoesNotAlterResponseSchema:
 
     def test_response_schema_unchanged_regardless_of_band_presence(self):
         """Both classified and unclassified runs return the same response shape."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
 
         classified_runs = [
@@ -531,7 +532,7 @@ class TestClassificationDoesNotAlterResponseSchema:
         The endpoint returns {endurance: ..., speed: ...}; band is an implementation
         detail used by the scoring functions and never exposed to the caller.
         """
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
         endurance = compute_endurance_score([], prefs, zc)
         speed = compute_speed_score([], prefs, zc)
@@ -544,7 +545,7 @@ class TestClassificationDoesNotAlterResponseSchema:
 
     def test_no_new_top_level_keys_introduced_by_classification(self):
         """Classification adds band to lap dicts but must not add new keys to the response."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
         allowed_endurance_keys = {"score", "direction", "trend", "debug", "state", "reason"}
         allowed_speed_keys = {"score", "direction", "trend", "debug", "state", "reason"}

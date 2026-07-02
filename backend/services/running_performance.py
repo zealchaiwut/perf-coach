@@ -240,8 +240,17 @@ def _aggregate_and_shape(
             ),
         }
 
-    # Distinct dates, oldest first — one trend value per date.
+    # Distinct dates, oldest first — one trend value per date. Also evaluate at
+    # TODAY when the last point is in the past AND today is still within the
+    # trailing window of that last point, so the CURRENT score reflects
+    # decay-to-now (detraining lowers the displayed score with no new run). We
+    # skip this for purely-historical data (last run already outside the window
+    # relative to today) — there the trend ends at the last real point.
+    window_days = PERFORMANCE_CONFIG["trailing_window_days"]
     trend_dates = sorted({d for d, _ in points})
+    today = date.today()
+    if trend_dates and trend_dates[-1] < today and (today - trend_dates[-1]).days <= window_days:
+        trend_dates.append(today)
     trend = [_score_at(points, t, race_perf) for t in trend_dates]
 
     raw_score = trend[-1]

@@ -165,25 +165,22 @@ def test__ac1_ac2_config_block_exists_and_has_weights(client, auth_user_id):
     """AC1 + AC2: Config block exists with duration and effort quality weights."""
     from backend.services.running_performance import PERFORMANCE_CONFIG
 
-    # Verify all required config keys exist
+    # VDOT re-anchor: EWMA-smoothing config keys were removed; tuning lives in
+    # the shared vdot helper plus a small window/threshold config here.
     required_keys = {
-        "endurance_ewma_alpha",
-        "speed_ewma_alpha",
-        "endurance_reference_duration_seconds",
-        "speed_reference_signal",
         "trailing_window_days",
+        "threshold_effort_minutes",
+        "speed_sparse_effort_threshold",
+        "speed_sparse_band_multiplier",
     }
     for key in required_keys:
         assert key in PERFORMANCE_CONFIG, (
             f"Missing config key '{key}' in PERFORMANCE_CONFIG"
         )
-
-    # Verify types and ranges
-    assert 0 < PERFORMANCE_CONFIG["endurance_ewma_alpha"] < 1
-    assert 0 < PERFORMANCE_CONFIG["speed_ewma_alpha"] < 1
-    assert PERFORMANCE_CONFIG["endurance_reference_duration_seconds"] > 0
-    assert PERFORMANCE_CONFIG["speed_reference_signal"] > 0
+    assert "endurance_ewma_alpha" not in PERFORMANCE_CONFIG
+    assert "speed_ewma_alpha" not in PERFORMANCE_CONFIG
     assert PERFORMANCE_CONFIG["trailing_window_days"] > 0
+    assert PERFORMANCE_CONFIG["threshold_effort_minutes"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -318,16 +315,17 @@ def test__uat_step_5_alpha_config_modifies_score(client, auth_user_id):
         for i in range(3)
     ]
 
-    # Original alpha
+    # VDOT re-anchor: the EWMA alpha is gone. Tuning is now the VDOT band width;
+    # widening the ceiling lowers every rescaled score. Prove a config knob moves
+    # the score (the re-anchor equivalent of the old alpha-modifies-score UAT).
+    from backend.services import vdot as _vdot
+
     score_orig = running_performance.compute_endurance_score(runs, prefs, zc)["score"]
+    original_ceil = _vdot.VDOT_CEIL
+    _vdot.VDOT_CEIL = 120.0  # wider band → same VDOT rescales to a lower score
+    score_wide = running_performance.compute_endurance_score(runs, prefs, zc)["score"]
+    _vdot.VDOT_CEIL = original_ceil
 
-    # Increase alpha (higher = faster decay to recent values)
-    original_alpha = running_performance.PERFORMANCE_CONFIG["endurance_ewma_alpha"]
-    running_performance.PERFORMANCE_CONFIG["endurance_ewma_alpha"] = 0.5
-    score_high = running_performance.compute_endurance_score(runs, prefs, zc)["score"]
-    running_performance.PERFORMANCE_CONFIG["endurance_ewma_alpha"] = original_alpha
-
-    # Scores must differ when alpha changes
-    assert score_orig != score_high, (
-        "Modifying alpha should change the computed score (higher alpha = faster response)"
+    assert score_orig != score_wide, (
+        "Modifying the VDOT band ceiling should change the computed score"
     )

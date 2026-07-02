@@ -242,13 +242,23 @@ class TestNeedsThresholdsResponseShape:
 class TestBuildingBaselinePreserved:
     """AC2: building_baseline path preserved when at least one threshold is set."""
 
-    def test_no_runs_with_thresholds_returns_building_baseline(self):
-        """With thresholds set but no runs, scores are building_baseline."""
+    def test_no_runs_with_ftp_only_endurance_needs_thresholds_speed_baseline(self):
+        """VDOT re-anchor: endurance requires threshold_hr (HR extrapolation), so
+        ftp-only prefs → endurance needs_thresholds; speed with no runs →
+        building_baseline. (Replaces the old 'both building_baseline' assertion —
+        endurance no longer builds a baseline without threshold_hr.)
+        """
         zc = make_zone_constants()
         endurance = compute_endurance_score([], _prefs_with_ftp_only(), zc)
         speed = compute_speed_score([], _prefs_with_ftp_only(), zc)
-        assert endurance.get("state") == "building_baseline"
+        assert endurance.get("state") == "needs_thresholds"
         assert speed.get("state") == "building_baseline"
+
+    def test_no_runs_with_threshold_hr_endurance_building_baseline(self):
+        """With threshold_hr set but no runs, endurance is building_baseline."""
+        zc = make_zone_constants()
+        endurance = compute_endurance_score([], _prefs_all_thresholds(), zc)
+        assert endurance.get("state") == "building_baseline"
 
     def test_insufficient_runs_with_thresholds_returns_building_baseline(self):
         runs = [_make_easy_run(f"r{i}") for i in range(1, MIN_QUALIFYING_RUNS)]
