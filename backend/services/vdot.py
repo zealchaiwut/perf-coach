@@ -9,18 +9,25 @@ and duration. The displayed 0–100 band is a linear rescale of VDOT so any
 athlete's efforts land on the same absolute scale.
 
 Tuning knobs (one line each):
-    VDOT_FLOOR / VDOT_CEIL — the band endpoints (VDOT 30 → 0, 85 → 100).
+    VDOT_FLOOR / VDOT_CEIL — the band endpoints (VDOT 15 → 0, 58 → 100).
     GRACE_WEEKS            — weeks of no-decay grace after an effort.
     DECAY_PER_WEEK         — points/week a best effort loses after the grace.
     TOP_K                  — how many decayed efforts the aggregate averages.
+
+Band calibration (2026-07, recreational): the band was recalibrated from the
+initial (30, 85) to (15, 58) so a real recreational runner's efforts land in a
+usable spread instead of pinning near 0. Least-squares fit to three of zeal's
+real efforts — race half (VDOT 31.1 → ~37), best hard track effort
+(VDOT 41.9 → ~63), easy Z2 run (VDOT 24 → ~21). Accepted trade-off: elite VDOT
+≥ 58 saturates at 100. See docs/calculations/score-reanchor-proposal.md §4.1.
 """
 from __future__ import annotations
 
 import math
 
-# ── Tunable constants (proposal §4) ───────────────────────────────────────────
-VDOT_FLOOR = 30.0
-VDOT_CEIL = 85.0
+# ── Tunable constants (proposal §4; band recalibrated recreational, §4.1) ──────
+VDOT_FLOOR = 15.0
+VDOT_CEIL = 58.0
 GRACE_WEEKS = 2
 DECAY_PER_WEEK = 1.5
 TOP_K = 3

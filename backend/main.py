@@ -14927,8 +14927,10 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     recomputes the scores; otherwise repeat loads reuse the cached payload.
     """
     # Bump this token whenever the score FORMULA changes so the durable Neon
-    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA).
-    _FORMULA_VERSION = "vdot-v2"
+    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
+    # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
+    # exponent.
+    _FORMULA_VERSION = "vdot-v3"
     base = _summary_signature(session, user_id)
     if prefs_row is not None:
         prefs_part = "%s|%s|%s|%s" % (

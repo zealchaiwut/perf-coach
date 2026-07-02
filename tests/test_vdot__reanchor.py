@@ -55,18 +55,28 @@ def test_non_positive_inputs_return_zero():
 # ── Rescale endpoints ───────────────────────────────────────────────────────────
 
 def test_rescale_endpoints():
-    assert rescale_to_score(vdot.VDOT_FLOOR) == 0.0    # VDOT 30 → 0
-    assert rescale_to_score(vdot.VDOT_CEIL) == 100.0   # VDOT 85 → 100
+    # Recreational band (15/58): floor → 0, ceil → 100.
+    assert rescale_to_score(vdot.VDOT_FLOOR) == 0.0
+    assert rescale_to_score(vdot.VDOT_CEIL) == 100.0
 
 
-def test_rescale_midband():
-    # VDOT 55 → (55-30)/55*100 ≈ 45.45
-    assert abs(rescale_to_score(55.0) - 45.4545) < 0.01
+def test_rescale_midband_computed_from_constants():
+    # Assert the linear rescale relative to the current band constants, so the
+    # test follows the calibration instead of hard-coding endpoints.
+    mid = (vdot.VDOT_FLOOR + vdot.VDOT_CEIL) / 2.0
+    assert abs(rescale_to_score(mid) - 50.0) < 0.01
+
+
+def test_rescale_recreational_anchors():
+    # zeal's real efforts must land in the intended recreational spread.
+    assert 34.0 <= rescale_to_score(31.1) <= 41.0   # race half → ~37
+    assert 58.0 <= rescale_to_score(41.9) <= 66.0   # best hard effort → ~63
+    assert 15.0 <= rescale_to_score(24.0) <= 25.0   # easy Z2 → ~21
 
 
 def test_rescale_clamps_out_of_band():
-    assert rescale_to_score(10.0) == 0.0
-    assert rescale_to_score(120.0) == 100.0
+    assert rescale_to_score(10.0) == 0.0            # below floor
+    assert rescale_to_score(120.0) == 100.0         # elite saturates
 
 
 # ── Decay grace behaviour ───────────────────────────────────────────────────────

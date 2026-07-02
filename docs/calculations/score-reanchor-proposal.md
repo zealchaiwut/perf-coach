@@ -144,22 +144,43 @@ VDOT_i    = VO2 / %VO2max
 then rescale to the displayed band:
 
 ```
-perf_i = clamp( (VDOT_i − 30) / 55 × 100 , 0, 100 )      # VDOT 30 → 0, 85 → 100
+perf_i = clamp( (VDOT_i − FLOOR) / (CEIL − FLOOR) × 100 , 0, 100 )
 ```
 
-The band is **universal** (athlete-independent): score ~45 ≈ VDOT 55, and any
-athlete's runs land on the same scale. Per score:
+**Band calibration (recreational, revised 2026-07):** the band was recalibrated
+from the initial `(FLOOR, CEIL) = (30, 85)` to **`(15, 58)`** because the
+original band pinned a real recreational runner (zeal) at Endurance 0 /
+Speed ~10 — the efforts landed below the floor and saturated the low end. The
+new endpoints are a least-squares fit to three of zeal's real efforts:
+
+| effort | VDOT | target score | fitted (15/58) |
+|---|---|---|---|
+| race half 2:19 | 31.1 | ~37 | 37.4 |
+| best hard track effort (6-26) | 41.9 | ~62 | 62.6 |
+| easy Z2 run | 24.0 | ~20 | 20.9 |
+
+Accepted trade-off: the band is now **recreational-calibrated** — elite runners
+(VDOT ≥ 58) **saturate at 100**. When the estimator is later reworked onto VDOT,
+the endpoints stay the single source of truth (`vdot.VDOT_FLOOR/VDOT_CEIL`).
+
+Per score:
 
 - **Speed:** the run's best sustained hard effort (from `speed_signal` /
-  duration-curve best) → pace + duration → VDOT as above. Confirm
-  `speed_signal` basis (power vs pace) before mapping; if power, convert via
-  the athlete's pace–power relation or fall back to lap pace.
+  duration-curve best) → pace + duration → VDOT as above. `speed_signal` is an
+  intensity **ratio** (basis power|pace|heart_rate), not a pace: the effort pace
+  is derived from the hard laps when present, else from the ratio (pace basis:
+  `threshold_pace/signal`; power basis: the run's own pace–power relation).
 - **Endurance:** **HR-extrapolated VDOT** — take the aerobic lap's pace and
-  extrapolate to threshold intensity via heart rate,
-  `equivalent_threshold_pace ≈ lap_pace × (avg_hr / threshold_hr)`
-  (i.e. equivalent speed `= lap_speed / (avg_hr / threshold_hr)`), feed that
-  through the VDOT formula at a threshold-effort duration, then multiply by the
-  existing decoupling `durability_factor`. Same universal band as Speed.
+  extrapolate to threshold intensity via heart rate. Pace–HR is **non-linear**,
+  so a pure-linear scaling `lap_pace × (avg_hr / threshold_hr)` under-
+  extrapolates easy runs and pins Endurance at the floor (the §6 target). We
+  apply a **calibration exponent** `k = 1.5`:
+  `equivalent_threshold_pace = lap_pace × (avg_hr / threshold_hr) ** 1.5`,
+  feed that through the VDOT formula at a threshold-effort duration, then
+  multiply by the existing decoupling `durability_factor`. `k = 1.5` maps
+  zeal's easy Z2 runs (~80% HR) toward a threshold-effort VDOT in the athlete's
+  real neighborhood (score ~30–43) instead of collapsing to 0, while a
+  genuinely detrained run (higher HR at the same pace) still reads lower.
 
 Requires `threshold_hr` (endurance) and pace data. Missing → keep the existing
 `needs_thresholds` state.
