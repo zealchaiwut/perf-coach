@@ -112,12 +112,11 @@
         flex-shrink: 0;
         flex-wrap: wrap;
       }
-      /* Equal-size action buttons (Sync / Removed / + Log workout). */
+      /* Equal HEIGHT action buttons (Sync / Removed / + Log workout). */
       .log-page-header-actions .sync-chip,
       .log-page-header .btn-secondary,
       .log-page-header .btn-accent {
-        min-width: 132px;
-        justify-content: center;
+        height: 36px;
       }
 
       .log-page-header .btn-secondary {
@@ -3919,7 +3918,7 @@
       <header class="log-page-header">
         <div class="log-page-header-inner">
         <div class="log-page-header-info">
-          <h1 class="log-page-title">Training log</h1>
+          <h1 class="log-page-title">Training</h1>
           <p class="log-subtitle" id="log-subtitle">Loading…</p>
         </div>
         <nav
@@ -5888,8 +5887,8 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
     .log-page-header-inner {
-      max-width: 1120px;
-      margin: 0 auto;
+      max-width: none;              /* full-bleed row: brand+tabs far left, actions far right */
+      margin: 0;
       padding: 12px 24px;
       display: flex;
       align-items: center;
