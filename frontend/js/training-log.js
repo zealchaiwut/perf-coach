@@ -1007,6 +1007,25 @@
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
   // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
   function buildSeparator(titleText, agg, variant) {
+    // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
+    // Month separators are rendered as a light label row (kept minimal so the
+    // week headers carry the totals, matching the mock's week-grouped list).
+    if (variant === 'week-sep') {
+      var sep = document.createElement('div');
+      sep.className = 'lrx-wkhdr';
+      var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
+      var km = agg ? (Math.round(agg.km * 10) / 10) : 0;
+      var wl = document.createElement('span');
+      wl.className = 'wl';
+      wl.textContent = (titleText || '').replace(/^Week of\s*/, '');
+      var wr = document.createElement('span');
+      wr.className = 'wr';
+      wr.textContent = tss + ' TSS · ' + km + ' km';
+      sep.appendChild(wl);
+      sep.appendChild(wr);
+      return sep;
+    }
+
     var sep = document.createElement('div');
     sep.className = 'month-sep' + (variant ? ' ' + variant : '');
 
@@ -1173,8 +1192,8 @@
 
     if (st.cursor < st.days.length) {
       var sentinel = document.createElement('div');
-      sentinel.className = 'log-load-more-sentinel';
-      sentinel.setAttribute('aria-hidden', 'true');
+      sentinel.className = 'log-load-more-sentinel lrx-sentinel';
+      sentinel.innerHTML = '<span class="lrx-spin"></span> Loading older weeks…';
       st.container.appendChild(sentinel);
       st.sentinel = sentinel;
       if ('IntersectionObserver' in window) {
@@ -1185,13 +1204,18 @@
         }
         st.observer.observe(sentinel);
       } else {
-        sentinel.className = 'log-load-more';
+        sentinel.className = 'log-load-more lrx-sentinel';
         sentinel.textContent = 'Load more';
         sentinel.addEventListener('click', renderNextBatch);
       }
     } else {
       st.sentinel = null;
       if (st.observer) st.observer.disconnect();
+      // End-of-log marker (mock: "— end of log —").
+      var endEl = document.createElement('div');
+      endEl.className = 'lrx-sentinel';
+      endEl.textContent = '— end of log —';
+      st.container.appendChild(endEl);
     }
   }
 
@@ -1354,158 +1378,87 @@
     );
   }
 
+  // Reworked to the mock's .lrx-logrow (typed left accent, day block, name +
+  // meta, TSS at right) while keeping ALL existing wiring: entry-row classes +
+  // data-workout-* attrs (filtering/syncActiveRow), click/keydown → detail.
   function buildEntryRow(w) {
+    var typeKey = normalizeTypeKey(w.type);
+    // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
+    var fam = (typeKey === "run" || typeKey === "bike") ? "run" : "lift";
+    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
+    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
+
     var row = document.createElement("div");
-    row.className = "entry-row";
-    if (w.id && activeDetailWorkoutId === w.id) {
-      row.classList.add("is-active");
-    }
+    row.className = "entry-row lrx-logrow " + fam + " entry-row--" + typeSlug;
+    if (w.id && activeDetailWorkoutId === w.id) row.classList.add("is-active");
+    row.dataset.workoutType = typeKey;
+    row.dataset.workoutTitle = (w.title || "").toLowerCase();
 
     if (w.id) {
       row.setAttribute("tabindex", "0");
       row.setAttribute("role", "button");
-      // Accessible name: type, title, date, and primary metric.
       var ariaBits = [];
-      var tk = normalizeTypeKey(w.type);
-      ariaBits.push(
-        { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" }[tk] ||
-          w.type ||
-          "Workout",
-      );
+      ariaBits.push(TYPE_LABELS[typeKey] || w.type || "Workout");
       ariaBits.push(w.title || "Workout");
       if (w.date) ariaBits.push(fmtDate(w.date));
-      if (tk === "run" && w.distance_km != null)
+      if (typeKey === "run" && w.distance_km != null)
         ariaBits.push((+w.distance_km).toFixed(1) + " kilometers");
       else if (w.duration_seconds)
         ariaBits.push(Math.round(w.duration_seconds / 60) + " minutes");
       row.setAttribute("aria-label", ariaBits.join(", ") + ". Open details");
       row.dataset.workoutId = w.id;
       var rowRef = row;
-      row.addEventListener("click", function () {
-        openDetailPanel(w.id, rowRef);
-      });
+      row.addEventListener("click", function () { openDetailPanel(w.id, rowRef); });
       row.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openDetailPanel(w.id, rowRef);
-        }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetailPanel(w.id, rowRef); }
       });
     }
 
-    var dateCol = document.createElement("div");
-    dateCol.className = "entry-date";
+    // Day block (number + month abbr).
     var d = new Date((w.date || "") + "T00:00:00");
-    var dayNumEl = document.createElement("div");
-    dayNumEl.className = "entry-day-num";
-    dayNumEl.textContent = isNaN(d.getDate()) ? "" : d.getDate();
-    var dayNameEl = document.createElement("div");
-    dayNameEl.className = "entry-day-name";
-    dayNameEl.textContent = isNaN(d.getDay()) ? "" : DAY_ABBR[d.getDay()];
-    dateCol.appendChild(dayNumEl);
-    dateCol.appendChild(dayNameEl);
+    var lday = document.createElement("div");
+    lday.className = "lday";
+    lday.innerHTML =
+      '<div class="d">' + (isNaN(d.getDate()) ? "" : d.getDate()) + "</div>" +
+      '<div class="m">' + (isNaN(d.getMonth()) ? "" : MONTHS[d.getMonth()]) + "</div>";
 
-    var typeKey = normalizeTypeKey(w.type);
-    var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
-    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
-    row.classList.add('entry-row--' + typeSlug);
-    // issue #637: data attributes for client-side filtering
-    row.dataset.workoutType  = typeKey;
-    row.dataset.workoutTitle = (w.title || '').toLowerCase();
-    var badge = document.createElement('span');
-    badge.className = 'entry-type entry-type--' + typeSlug;
-    var dot = document.createElement('span');
-    dot.className = 'entry-type-dot';
-    badge.appendChild(dot);
-    var typeLbl = document.createElement("span");
-    typeLbl.className = "entry-type-label";
-    typeLbl.textContent = (TYPE_LABELS[typeKey] || w.type || "").toUpperCase();
-    badge.appendChild(typeLbl);
-
-    var body = document.createElement("div");
-    body.className = "entry-body";
-
-    var titleEl = document.createElement("div");
-    titleEl.className = "entry-title";
-    titleEl.textContent = w.title || "Workout";
-    body.appendChild(titleEl);
-
+    // Name + type badge + meta line.
     var metaParts = [];
     if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
-    if (typeKey === "run" && w.average_pace_seconds_per_km) {
+    if (typeKey === "run" && w.distance_km != null)
+      metaParts.push((+w.distance_km).toFixed(1) + " km");
+    if (typeKey === "run" && w.average_pace_seconds_per_km)
       metaParts.push(fmtPace(w.average_pace_seconds_per_km));
-    }
     if (w.avg_hr != null) metaParts.push("HR " + w.avg_hr);
     metaParts = metaParts.filter(Boolean);
 
+    var lname = document.createElement("div");
+    lname.className = "lname";
+    var nEl = document.createElement("div");
+    nEl.className = "n";
+    var badge = document.createElement("span");
+    badge.className = "lrx-tbadge " + fam;
+    badge.textContent = fam === "run" ? "run" : "lift";
+    nEl.appendChild(badge);
+    nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
+    lname.appendChild(nEl);
     if (metaParts.length) {
       var metaEl = document.createElement("div");
-      metaEl.className = "entry-meta";
+      metaEl.className = "meta";
       metaEl.textContent = metaParts.join(" · ");
-      body.appendChild(metaEl);
+      lname.appendChild(metaEl);
     }
 
-    var metricEl = document.createElement("div");
-    metricEl.className = "entry-metric";
-    var metricPrimary = document.createElement("div");
-    metricPrimary.className = "entry-metric-primary";
-    var metricSecondary = document.createElement("div");
-    metricSecondary.className = "entry-metric-secondary";
-    if (typeKey === "run" && w.distance_km != null) {
-      metricPrimary.textContent = (+w.distance_km).toFixed(1) + " km";
-      if (w.duration_seconds)
-        metricSecondary.textContent = fmtDurationRow(w.duration_seconds);
-    } else if (w.duration_seconds) {
-      var mins = Math.round(w.duration_seconds / 60);
-      metricPrimary.textContent = mins + " min";
-    }
-    metricEl.appendChild(metricPrimary);
-    if (metricSecondary.textContent) metricEl.appendChild(metricSecondary);
+    // Right-side stat: TSS (or em-dash for strength with no TSS).
+    var lstat = document.createElement("div");
+    lstat.className = "lstat";
+    var b = document.createElement("b");
+    b.textContent = w.tss != null ? Math.round(w.tss) + " TSS" : "—";
+    lstat.appendChild(b);
 
-    var tssEl = null;
-    if (w.tss != null) {
-      tssEl = document.createElement("span");
-      var tc = w.tss > 80 ? "tss-high" : w.tss > 50 ? "tss-mid" : "tss-low";
-      tssEl.className = "tss-pill " + tc;
-      tssEl.textContent = "TSS " + Math.round(w.tss);
-    }
-
-    var sourcesWrap = document.createElement("div");
-    sourcesWrap.className = "source-badges-wrap";
-    var isStrava = !!w.has_strava;
-    var isStryd = !!w.has_stryd;
-    if (isStrava) {
-      var sbadge = document.createElement("span");
-      sbadge.className = "source-badge source-badge--strava";
-      sbadge.textContent = "St";
-      sourcesWrap.appendChild(sbadge);
-    }
-    if (isStryd) {
-      var sbadgeStryd = document.createElement("span");
-      sbadgeStryd.className = "source-badge source-badge--stryd";
-      sbadgeStryd.textContent = "S";
-      sourcesWrap.appendChild(sbadgeStryd);
-    }
-    if (!isStrava && !isStryd) {
-      var sbadgeM = document.createElement("span");
-      sbadgeM.className = "source-badge source-badge--manual";
-      sbadgeM.setAttribute("aria-label", "Manual");
-      sbadgeM.innerHTML = "&#9998;";
-      sourcesWrap.appendChild(sbadgeM);
-    }
-
-    var chevron = document.createElement("span");
-    chevron.className = "entry-chevron";
-    chevron.setAttribute("aria-hidden", "true");
-    chevron.innerHTML = "&#8250;";
-
-    row.appendChild(dateCol);
-    row.appendChild(badge);
-    row.appendChild(body);
-    row.appendChild(metricEl);
-    if (tssEl) row.appendChild(tssEl);
-    row.appendChild(sourcesWrap);
-    row.appendChild(chevron);
-
+    row.appendChild(lday);
+    row.appendChild(lname);
+    row.appendChild(lstat);
     return row;
   }
 
