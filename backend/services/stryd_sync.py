@@ -364,6 +364,15 @@ def sync_stryd_activities(
         fetched = len(raw_acts)
         mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
+        # The calendar API ignores srtDate/endDate and returns the full lifetime
+        # list. Drop rows older than since_date here so an incremental sync only
+        # upserts (and considers for enrichment) the requested window instead of
+        # rewriting all history rows on every "Sync new". Full jobs (including a
+        # user's first-ever sync, which resolves to job_type "full") keep the
+        # whole list — storing all available history there is intentional.
+        if since_date is not None and job_type in ("incremental", "manual"):
+            cutoff = datetime(since_date.year, since_date.month, since_date.day, tzinfo=timezone.utc)
+            mapped = [m for m in mapped if m["start_time"] >= cutoff]
         # Dedup by stryd_activity_id (keep last). A duplicate id in a single batch
         # makes ON CONFLICT DO UPDATE raise "cannot affect row a second time".
         _deduped = {m["stryd_activity_id"]: m for m in mapped}
