@@ -323,13 +323,17 @@
     return runs.slice(0, 5);
   }
 
-  // Speed card = last 5 interval / workout sessions.
+  // Speed card = last 5 interval sessions. Interval is a run SUBTYPE
+  // (run_subtype='interval'), not a workout_type — the run stays workout_type
+  // 'run'. Also match legacy non-run workout types (workout/track/tempo) for
+  // any older data.
+  function _isInterval(e) {
+    if ((e.run_subtype || '').toLowerCase() === 'interval') return true;
+    var t = (e.type || '').toLowerCase();
+    return t === 'workout' || t === 'track' || t === 'tempo';
+  }
   function _pickSpeed(entries) {
-    return entries.filter(function (e) {
-      var t = (e.type || '').toLowerCase();
-      return t === 'interval' || t === 'intervals' || t === 'workout' ||
-             t === 'track' || t === 'tempo';
-    }).slice(0, 5);
+    return entries.filter(_isInterval).slice(0, 5);
   }
 
   function _renderFeed(type, rows) {
@@ -394,10 +398,7 @@
     var longRuns = count(function (e) {
       return (e.type || '').toLowerCase().indexOf('run') !== -1 && (e.distance_km || 0) >= 12;
     });
-    var intervals = count(function (e) {
-      var t = (e.type || '').toLowerCase();
-      return t === 'interval' || t === 'intervals' || t === 'workout' || t === 'track' || t === 'tempo';
-    });
+    var intervals = count(_isInterval);
     var strength = count(function (e) {
       var t = (e.type || '').toLowerCase();
       return t === 'strength' || t === 'gym' || t === 'plyo' || t === 'plyometric';

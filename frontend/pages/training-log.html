@@ -2857,6 +2857,31 @@
         background: #fee2e2;
       }
 
+      /* Run-subtype group (Interval / Long run / Easy / Tempo / None) */
+      .dp-subtype-group {
+        border-top: 1px solid #eef0f5;
+        border-bottom: 1px solid #eef0f5;
+        padding: 4px 0;
+      }
+      .dp-subtype-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-tertiary, #9aa3b8);
+        padding: 6px 14px 2px;
+      }
+      .dp-subtype-group button.is-selected {
+        font-weight: 700;
+        color: var(--bg-1, #4f6ef7);
+      }
+      /* Checkmark for the current subtype */
+      .dp-subtype-group button.is-selected::after {
+        content: "✓";
+        float: right;
+        margin-left: 8px;
+      }
+
       /* ── Panel form title ── */
       .dp-form-title {
         margin: 0 0 1rem;
@@ -6662,14 +6687,30 @@
               <button id="dp-menu-edit" type="button" role="menuitem">
                 Edit
               </button>
-              <button
-                id="dp-menu-interval"
-                type="button"
-                role="menuitem"
+              <div
+                id="dp-subtype-group"
+                class="dp-subtype-group"
+                role="group"
+                aria-label="Run subtype"
                 style="display: none"
               >
-                Mark as interval
-              </button>
+                <div class="dp-subtype-label">Run type</div>
+                <button type="button" role="menuitemradio" data-subtype="interval">
+                  Interval
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="longrun">
+                  Long run
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="easy">
+                  Easy
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="tempo">
+                  Tempo
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="">
+                  None
+                </button>
+              </div>
               <button id="dp-menu-duplicate" type="button" role="menuitem">
                 Duplicate
               </button>

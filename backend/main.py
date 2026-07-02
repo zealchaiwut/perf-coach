@@ -5289,6 +5289,7 @@ class WorkoutPatch(BaseModel):
     name: Optional[str] = None
     workout_date: Optional[str] = None
     workout_type: Optional[str] = None
+    run_subtype: Optional[str] = None
     remarks: Optional[str] = None
     tss: Optional[float] = None
     distance_km: Optional[float] = None
@@ -5387,23 +5388,24 @@ def _best_values_dict(w: Workout) -> dict:
 
 
 def _normalize_workout_type(t: str | None) -> str | None:
-    """Canonicalize workout-type casing on write.
+    """Canonicalize run type casing on write ('Run'/'Running' → 'run').
 
-    'Run'/'Running' → 'run' so run-scoped queries (scoring, guardrail) match.
-    'Interval'/'Intervals' → 'interval' so it survives as a DISTINCT type
-    end-to-end — the Performance Speed feed and "what's moving" match
-    workout_type 'interval'/'intervals', so it must NOT collapse back to 'run'.
-    Other types are passed through trimmed, unchanged.
+    Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
+    guardrail) match. Other types are passed through trimmed, unchanged.
+    Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
+    (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
+    pipeline (detail layout, decoupling, PRs, run counts).
     """
     if t is None:
         return None
     t = t.strip()
-    low = t.lower()
-    if low in ("run", "running"):
+    if t.lower() in ("run", "running"):
         return "run"
-    if low in ("interval", "intervals"):
-        return "interval"
     return t
+
+
+# Allowed run-subtype values (issue: run subtype as its own column). None clears it.
+_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -5703,6 +5705,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "name": w.name,
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": int(w.tss) if w.tss is not None else None,
         "tss_source": w.tss_source,
@@ -5930,6 +5933,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "workout_date": str(w.workout_date),
         "name": w.name,
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
@@ -6592,6 +6596,19 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if not t:
                 raise HTTPException(status_code=422, detail="workout_type is required")
             workout.workout_type = _normalize_workout_type(t)
+        if 'run_subtype' in body.model_fields_set:
+            # None/empty clears it; otherwise must be one of the allowed values.
+            rs = body.run_subtype
+            if rs is None or (isinstance(rs, str) and rs.strip() == ""):
+                workout.run_subtype = None
+            else:
+                rs = rs.strip().lower()
+                if rs not in _RUN_SUBTYPE_VALUES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="run_subtype must be one of: " + ", ".join(sorted(_RUN_SUBTYPE_VALUES)),
+                    )
+                workout.run_subtype = rs
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -8624,6 +8641,7 @@ def get_training_log(
         {
             "date": str(w.workout_date),
             "type": w.workout_type,
+            "run_subtype": w.run_subtype,
             "id": str(w.id),
             "title": w.name,
             "duration_seconds": w.duration_seconds,
@@ -11883,6 +11901,7 @@ def admin_user_recent_activities(user_id: str):
                 "date": w.workout_date.isoformat() if w.workout_date else None,
                 "name": w.name,
                 "type": w.workout_type,
+                "run_subtype": w.run_subtype,
                 "distance_km": float(w.distance_km) if w.distance_km is not None else None,
                 "duration_seconds": int(w.duration_seconds) if w.duration_seconds is not None else None,
             }

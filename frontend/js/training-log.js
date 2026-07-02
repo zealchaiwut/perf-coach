@@ -1435,11 +1435,13 @@
   function buildEntryRow(w) {
     var typeKey = normalizeTypeKey(w.type);
     // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
-    // 'interval' is a run variant → run family (blue) with its own badge.
-    var isRunLike = typeKey === "run" || typeKey === "bike" || typeKey === "interval";
+    var isRunLike = typeKey === "run" || typeKey === "bike";
     var fam = isRunLike ? "run" : "lift";
-    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike", interval: "Interval" };
+    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
     var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
+    // Run subtype (interval | longrun | easy | tempo) labels a run row while it
+    // stays in the run family — it is NOT a separate workout_type.
+    var runSubtype = (w.run_subtype || "").toLowerCase();
 
     var row = document.createElement("div");
     row.className = "entry-row lrx-logrow " + fam + " entry-row--" + typeSlug;
@@ -1491,7 +1493,13 @@
     nEl.className = "n";
     var badge = document.createElement("span");
     badge.className = "lrx-tbadge " + fam;
-    badge.textContent = typeKey === "interval" ? "interval" : (fam === "run" ? "run" : "lift");
+    // A run with a subtype shows the subtype label (e.g. "interval"); otherwise
+    // the family label. Subtype stays in the run family (blue) styling.
+    var SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+    badge.textContent =
+      fam === "run" && SUBTYPE_LABELS[runSubtype]
+        ? SUBTYPE_LABELS[runSubtype]
+        : (fam === "run" ? "run" : "lift");
     nEl.appendChild(badge);
     nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
     lname.appendChild(nEl);
@@ -1698,30 +1706,33 @@
     setWorkoutURLParam(workoutId);
   }
 
-  // Toggle a run ↔ interval from the drawer. Marking sets workout_type to
-  // 'interval' (so the Performance Speed feed + "what's moving" pick it up);
-  // unmarking restores it to 'run'. Persists via the existing PATCH endpoint
-  // (window.fetch auto-attaches X-CSRF-Token) and refreshes the drawer + list.
-  function toggleIntervalType() {
+  // Set (or clear) a run's subtype from the drawer. workout_type stays 'run' so
+  // the row keeps the full run pipeline (detail layout, decoupling, PRs, run
+  // counts); run_subtype just labels it and feeds the Performance Speed card.
+  // Persists via the existing PATCH endpoint (window.fetch auto-attaches
+  // X-CSRF-Token) and refreshes the drawer + list.
+  var _RUN_SUBTYPE_TOAST = {
+    interval: "Marked as interval",
+    longrun: "Marked as long run",
+    easy: "Marked as easy run",
+    tempo: "Marked as tempo",
+  };
+  function setRunSubtype(subtype) {
     if (!activeDetailWorkoutId) return;
-    var w = cachedDetailWorkout;
-    var curKey = w ? normalizeTypeKey(w.workout_type || w.type) : null;
-    var target = curKey === "interval" ? "run" : "interval";
+    // subtype === null clears it.
     fetch("/api/workouts/" + activeDetailWorkoutId, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workout_type: target }),
+      body: JSON.stringify({ run_subtype: subtype }),
     })
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
       })
       .then(function () {
-        UIStates.showToast(
-          target === "interval" ? "Marked as interval" : "Interval unmarked",
-        );
-        // Re-fetch the detail (updates cachedDetailWorkout + overflow label) and
-        // refresh the list so the row badge/family updates.
+        UIStates.showToast(subtype ? (_RUN_SUBTYPE_TOAST[subtype] || "Subtype set") : "Subtype cleared");
+        // Re-fetch the detail (updates cachedDetailWorkout + menu state) and
+        // refresh the list so the row badge updates.
         fetchAndRenderDetail(activeDetailWorkoutId);
         fetchAndRender();
       })
@@ -1874,22 +1885,28 @@
     var menuDup = document.getElementById("dp-menu-duplicate");
     var menuStrava = document.getElementById("dp-menu-strava");
     var menuDelete = document.getElementById("dp-menu-delete");
-    var menuInterval = document.getElementById("dp-menu-interval");
+    var subtypeGroup = document.getElementById("dp-subtype-group");
 
     var hasWorkout = !!workout;
     if (menuEdit) menuEdit.style.display = hasWorkout ? "" : "none";
     if (menuDup) menuDup.style.display = hasWorkout ? "" : "none";
 
-    // Interval toggle: only for run-like workouts (a run, or an already-marked
-    // interval). Label flips between mark/unmark based on the current type.
-    if (menuInterval) {
+    // Run-subtype group: only for run-family workouts (workout_type 'run'). Each
+    // option PATCHes run_subtype; the current subtype is marked. workout_type is
+    // never changed, so the run stays in the full run pipeline.
+    if (subtypeGroup) {
       var tk = hasWorkout ? normalizeTypeKey(workout.workout_type || workout.type) : null;
-      if (hasWorkout && (tk === "run" || tk === "interval")) {
-        menuInterval.style.display = "";
-        menuInterval.textContent =
-          tk === "interval" ? "Unmark interval" : "Mark as interval";
-      } else {
-        menuInterval.style.display = "none";
+      var isRun = hasWorkout && tk === "run";
+      subtypeGroup.style.display = isRun ? "" : "none";
+      if (isRun) {
+        var cur = (workout.run_subtype || "").toLowerCase();
+        var btns = subtypeGroup.querySelectorAll("[data-subtype]");
+        Array.prototype.forEach.call(btns, function (b) {
+          var v = b.getAttribute("data-subtype"); // "" means clear/none
+          var selected = (v === "" && !cur) || v === cur;
+          b.setAttribute("aria-checked", selected ? "true" : "false");
+          b.classList.toggle("is-selected", selected);
+        });
       }
     }
 
@@ -4188,11 +4205,14 @@
     var menuEdit = document.getElementById("dp-menu-edit");
     if (menuEdit) menuEdit.addEventListener("click", switchToEditMode);
 
-    var menuInterval = document.getElementById("dp-menu-interval");
-    if (menuInterval)
-      menuInterval.addEventListener("click", function () {
+    var subtypeGroup = document.getElementById("dp-subtype-group");
+    if (subtypeGroup)
+      subtypeGroup.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-subtype]");
+        if (!btn) return;
         closeOverflowMenu();
-        toggleIntervalType();
+        var v = btn.getAttribute("data-subtype"); // "" clears
+        setRunSubtype(v === "" ? null : v);
       });
 
     var menuDup = document.getElementById("dp-menu-duplicate");
