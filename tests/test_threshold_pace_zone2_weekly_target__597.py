@@ -25,6 +25,7 @@ from backend.auth import hash_password
 from backend.db import engine
 from backend.models import User
 from sqlalchemy.orm import Session
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 
 BASE_URL = "http://127.0.0.1:9001"
@@ -35,7 +36,7 @@ _TEST_PASSWORD = "Zone2597testPw!"
 def authed_client():
     username = f"tester597_{uuid.uuid4().hex[:8]}"
     with httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=True) as c:
-        res = c.post("/api/users", json={"name": username})
+        res = c.post("/api/users", json={"name": username}, cookies=_admin_cookies())
         assert res.status_code == 201, f"Failed to create test user: {res.text}"
         user_id = res.json()["id"]
 
@@ -56,7 +57,7 @@ def authed_client():
         c._csrf = csrf
         yield c
 
-        c.delete(f"/api/users/{user_id}")
+        c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

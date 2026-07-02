@@ -5,6 +5,7 @@ Runs against UAT environment
 import os
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
 # Default kept only as a last-resort fallback if BASE_URL not exported.
@@ -23,7 +24,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"

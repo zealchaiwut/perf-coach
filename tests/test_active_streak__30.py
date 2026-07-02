@@ -7,6 +7,7 @@ import datetime
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -21,7 +22,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -117,7 +118,7 @@ def test_response_shape(client, alice_id):
 def test_new_user_returns_zeros(client):
     """A brand-new user with no entries returns current_streak=0, longest_streak=0, last_active_date=null."""
     # Create a fresh user
-    res = client.post("/api/users", json={"name": "_streak_brand_new_user"})
+    res = client.post("/api/users", json={"name": "_streak_brand_new_user"}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     uid = res.json()["id"]
     try:
@@ -128,7 +129,7 @@ def test_new_user_returns_zeros(client):
         assert data["longest_streak"] == 0
         assert data["last_active_date"] is None
     finally:
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: Current streak counts from today when today is active ─────────────────
@@ -152,7 +153,7 @@ def test_current_streak_includes_today(client, alice_id):
 
 def test_forgiving_streak_starts_yesterday(client):
     """If today has no entry but yesterday does, current_streak starts from yesterday."""
-    res = client.post("/api/users", json={"name": "_streak_forgiving_user"})
+    res = client.post("/api/users", json={"name": "_streak_forgiving_user"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     habit_id = _create_habit(client, uid, "_streak_forgiving")
@@ -167,14 +168,14 @@ def test_forgiving_streak_starts_yesterday(client):
         assert data["current_streak"] == 3
     finally:
         _delete_habit(client, habit_id)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: Streak breaks when there is a gap ─────────────────────────────────────
 
 def test_streak_breaks_on_gap(client):
     """If yesterday and today both have no entry, current_streak is 0."""
-    res = client.post("/api/users", json={"name": "_streak_gap_user"})
+    res = client.post("/api/users", json={"name": "_streak_gap_user"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     habit_id = _create_habit(client, uid, "_streak_gap")
@@ -187,14 +188,14 @@ def test_streak_breaks_on_gap(client):
         assert res.json()["current_streak"] == 0
     finally:
         _delete_habit(client, habit_id)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: Cross-tracker — weight entry counts as active day ─────────────────────
 
 def test_weight_entry_counts_as_active(client):
     """A weight entry alone on a day makes that day active."""
-    res = client.post("/api/users", json={"name": "_streak_weight_only"})
+    res = client.post("/api/users", json={"name": "_streak_weight_only"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     entry_ids = []
@@ -208,14 +209,14 @@ def test_weight_entry_counts_as_active(client):
     finally:
         for eid in entry_ids:
             _delete_weight(client, eid)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: Cross-tracker — workout entry counts as active day ────────────────────
 
 def test_workout_entry_counts_as_active(client):
     """A workout entry alone on a day makes that day active."""
-    res = client.post("/api/users", json={"name": "_streak_workout_only"})
+    res = client.post("/api/users", json={"name": "_streak_workout_only"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     workout_ids = []
@@ -229,14 +230,14 @@ def test_workout_entry_counts_as_active(client):
     finally:
         for wid in workout_ids:
             _delete_workout(client, wid)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: longest_streak reflects the longest ever run ─────────────────────────
 
 def test_longest_streak_across_all_time(client):
     """longest_streak reflects the longest consecutive run, even if current streak is shorter."""
-    res = client.post("/api/users", json={"name": "_streak_longest_user"})
+    res = client.post("/api/users", json={"name": "_streak_longest_user"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     habit_id = _create_habit(client, uid, "_streak_longest")
@@ -255,14 +256,14 @@ def test_longest_streak_across_all_time(client):
         assert data["current_streak"] == 2
     finally:
         _delete_habit(client, habit_id)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: last_active_date is correct ──────────────────────────────────────────
 
 def test_last_active_date(client):
     """last_active_date is the most recent date across all trackers."""
-    res = client.post("/api/users", json={"name": "_streak_last_active_user"})
+    res = client.post("/api/users", json={"name": "_streak_last_active_user"}, cookies=_admin_cookies())
     assert res.status_code == 201
     uid = res.json()["id"]
     habit_id = _create_habit(client, uid, "_streak_last_active")
@@ -274,7 +275,7 @@ def test_last_active_date(client):
         assert res.json()["last_active_date"] == _days_ago(3)
     finally:
         _delete_habit(client, habit_id)
-        client.delete(f"/api/users/{uid}")
+        client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: Invalid user_id returns 400 ──────────────────────────────────────────

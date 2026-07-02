@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 # backend.db import triggers load_dotenv which populates DATABASE_URL_UAT from .env
 import backend.db as _bd  # noqa: F401
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 def _get_pg_url():
     pg_url = os.environ.get("DATABASE_URL_UAT")
@@ -133,7 +134,7 @@ def _make_auth_client(suffix):
 
     name = f"cal504-{suffix}-{_RUN}"
     with httpx.Client(base_url=BASE, timeout=10) as bare:
-        res = bare.post("/api/users", json={"name": name})
+        res = bare.post("/api/users", json={"name": name}, cookies=_admin_cookies())
         assert res.status_code == 201, res.text
         user_id = res.json()["id"]
 
@@ -162,7 +163,7 @@ def auth_ctx():
     """Yield (auth_client, user_info) and clean up after the module."""
     auth, user = _make_auth_client("main")
     yield auth, user
-    auth.delete(f"/api/users/{user['id']}")
+    auth.delete(f"/api/users/{user['id']}", cookies=_admin_cookies())
     auth.close()
 
 

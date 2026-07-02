@@ -9,10 +9,31 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.services.training_load import compute_load_curves, current_load, daily_tss_series, daily_update
+from backend.services.training_load import (
+    ATL_DAYS,
+    CTL_DAYS,
+    compute_load_curves,
+    current_load,
+    daily_tss_series,
+    daily_update,
+)
 
 _client = TestClient(app)
 _USER_ID = str(uuid.uuid4())
+
+
+@pytest.fixture(autouse=True)
+def _default_calibration(monkeypatch):
+    """These tests exercise snapshot-cache/upsert plumbing, not the calibration
+    lookup added for fix-loopholes Task 5 (covered by
+    tests/test_calibration_loop__loophole5.py). resolve_user_ewma_days opens
+    its own Session(engine), which would otherwise collide with each test's
+    ad-hoc Session mock and return MagicMocks in place of real ctl_days/atl_days.
+    Pin it to the module defaults here."""
+    monkeypatch.setattr(
+        "backend.services.training_load.resolve_user_ewma_days",
+        lambda user_id: (CTL_DAYS, ATL_DAYS),
+    )
 
 
 def _mock_session_smart(snap_list=None, seed_snap=None):

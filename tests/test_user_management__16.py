@@ -7,6 +7,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 ROOT = pathlib.Path(__file__).parent.parent
@@ -20,7 +21,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -28,13 +29,13 @@ def alice_id(client):
 
 
 def _create_user(client, name):
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, f"Failed to create user {name!r}: {res.text}"
     return res.json()
 
 
 def _delete_user(client, user_id):
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 # ── AC-1: /users.html is reachable via a nav link ───────────────────────────
@@ -86,7 +87,7 @@ def test_ac2_table_column_actions():
 
 def test_ac2_api_includes_weight_count_and_habits_count(client):
     """GET /api/users must return weight_count and habits_count per user."""
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     users = res.json()
     assert len(users) > 0
@@ -99,7 +100,7 @@ def test_ac2_api_includes_weight_count_and_habits_count(client):
 
 def test_ac2_api_includes_created_at(client):
     """GET /api/users must return created_at per user."""
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     for u in res.json():
         assert "created_at" in u, f"User {u['name']!r} missing created_at"
@@ -159,14 +160,14 @@ def test_ac4_users_js_shows_inline_error():
 
 def test_ac4_server_rejects_empty_name(client):
     """POST /api/users with empty name returns 400 (server-side belt-and-suspenders)."""
-    res = client.post("/api/users", json={"name": ""})
+    res = client.post("/api/users", json={"name": ""}, cookies=_admin_cookies())
     assert res.status_code in (400, 422), \
         f"Expected 400/422 for empty name, got {res.status_code}"
 
 
 def test_ac4_server_rejects_name_over_100_chars(client):
     """POST /api/users with a 101-character name returns 400."""
-    res = client.post("/api/users", json={"name": "x" * 101})
+    res = client.post("/api/users", json={"name": "x" * 101}, cookies=_admin_cookies())
     assert res.status_code == 400, f"Expected 400 for >100-char name, got {res.status_code}"
 
 
@@ -175,7 +176,7 @@ def test_ac4_server_rejects_name_over_100_chars(client):
 def test_ac5_post_returns_201_with_body(client):
     """POST /api/users with a valid name returns 201 and {id, name, created_at}."""
     name = f"NewUser-{uuid.uuid4().hex[:6]}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, f"Expected 201, got {res.status_code}: {res.text}"
     body = res.json()
     assert "id" in body and body["id"], "Response must include id"
@@ -188,7 +189,7 @@ def test_ac5_created_user_appears_in_list(client):
     """Newly created user must appear in GET /api/users immediately."""
     name = f"ListMe-{uuid.uuid4().hex[:6]}"
     u = _create_user(client, name)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     assert any(x["name"] == name for x in users), f"{name!r} not in user list after creation"
     _delete_user(client, u["id"])
 
@@ -197,7 +198,7 @@ def test_ac5_new_user_has_zero_weight_count(client):
     """Newly created user must have weight_count=0 in GET /api/users."""
     name = f"ZeroW-{uuid.uuid4().hex[:6]}"
     u = _create_user(client, name)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     match = next((x for x in users if x["id"] == u["id"]), None)
     assert match is not None, "New user not found in list"
     assert match["weight_count"] == 0
@@ -208,7 +209,7 @@ def test_ac5_new_user_has_zero_habits_count(client):
     """Newly created user must have habits_count=0 in GET /api/users."""
     name = f"ZeroH-{uuid.uuid4().hex[:6]}"
     u = _create_user(client, name)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     match = next((x for x in users if x["id"] == u["id"]), None)
     assert match is not None, "New user not found in list"
     assert match["habits_count"] == 0
@@ -219,7 +220,7 @@ def test_ac5_duplicate_post_returns_409(client):
     """POST /api/users with a duplicate name returns 409."""
     name = f"DupUser-{uuid.uuid4().hex[:6]}"
     u = _create_user(client, name)
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 409, f"Expected 409 for duplicate name, got {res.status_code}"
     _delete_user(client, u["id"])
 
@@ -230,7 +231,7 @@ def test_ac6_patch_updates_name(client):
     """PATCH /api/users/<id> returns 200 with the updated name."""
     u = _create_user(client, f"BeforeRename-{uuid.uuid4().hex[:6]}")
     new_name = f"AfterRename-{uuid.uuid4().hex[:6]}"
-    res = client.patch(f"/api/users/{u['id']}", json={"name": new_name})
+    res = client.patch(f"/api/users/{u['id']}", json={"name": new_name}, cookies=_admin_cookies())
     assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
     assert res.json()["name"] == new_name
     _delete_user(client, u["id"])
@@ -248,7 +249,7 @@ def test_ac6_patch_duplicate_name_returns_409(client):
     """PATCH /api/users/<id> with an already-taken name returns 409."""
     u1 = _create_user(client, f"AC6a-{uuid.uuid4().hex[:6]}")
     u2 = _create_user(client, f"AC6b-{uuid.uuid4().hex[:6]}")
-    res = client.patch(f"/api/users/{u2['id']}", json={"name": u1["name"]})
+    res = client.patch(f"/api/users/{u2['id']}", json={"name": u1["name"]}, cookies=_admin_cookies())
     assert res.status_code == 409, f"Expected 409 for duplicate rename, got {res.status_code}"
     _delete_user(client, u1["id"])
     _delete_user(client, u2["id"])
@@ -257,7 +258,7 @@ def test_ac6_patch_duplicate_name_returns_409(client):
 def test_ac6_patch_empty_name_returns_400(client):
     """PATCH /api/users/<id> with empty string returns 400."""
     u = _create_user(client, f"AC6Empty-{uuid.uuid4().hex[:6]}")
-    res = client.patch(f"/api/users/{u['id']}", json={"name": ""})
+    res = client.patch(f"/api/users/{u['id']}", json={"name": ""}, cookies=_admin_cookies())
     assert res.status_code in (400, 422), f"Expected 400/422, got {res.status_code}"
     _delete_user(client, u["id"])
 
@@ -265,7 +266,7 @@ def test_ac6_patch_empty_name_returns_400(client):
 def test_ac6_patch_name_over_100_chars_returns_400(client):
     """PATCH /api/users/<id> with >100-char name returns 400."""
     u = _create_user(client, f"AC6Long-{uuid.uuid4().hex[:6]}")
-    res = client.patch(f"/api/users/{u['id']}", json={"name": "y" * 101})
+    res = client.patch(f"/api/users/{u['id']}", json={"name": "y" * 101}, cookies=_admin_cookies())
     assert res.status_code == 400, f"Expected 400, got {res.status_code}"
     _delete_user(client, u["id"])
 
@@ -274,8 +275,8 @@ def test_ac6_renamed_user_appears_in_list(client):
     """After renaming, GET /api/users reflects the new name."""
     u = _create_user(client, f"RenameA-{uuid.uuid4().hex[:6]}")
     new_name = f"RenameB-{uuid.uuid4().hex[:6]}"
-    client.patch(f"/api/users/{u['id']}", json={"name": new_name})
-    users = client.get("/api/users").json()
+    client.patch(f"/api/users/{u['id']}", json={"name": new_name}, cookies=_admin_cookies())
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     match = next((x for x in users if x["id"] == u["id"]), None)
     assert match is not None
     assert match["name"] == new_name
@@ -321,15 +322,15 @@ def test_ac7_modal_mentions_habit_logs():
 def test_ac8_delete_returns_204(client):
     """DELETE /api/users/<id> returns 204 No Content."""
     u = _create_user(client, f"Del204-{uuid.uuid4().hex[:6]}")
-    res = client.delete(f"/api/users/{u['id']}")
+    res = client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
     assert res.status_code == 204, f"Expected 204, got {res.status_code}: {res.text}"
 
 
 def test_ac8_deleted_user_absent_from_list(client):
     """Deleted user must not appear in GET /api/users."""
     u = _create_user(client, f"Gone-{uuid.uuid4().hex[:6]}")
-    client.delete(f"/api/users/{u['id']}")
-    users = client.get("/api/users").json()
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     assert not any(x["id"] == u["id"] for x in users), \
         f"Deleted user {u['name']!r} still appears in user list"
 
@@ -349,7 +350,7 @@ def test_ac8_delete_cascades_weight_entries(client):
     before = before_res.json().get("entries", before_res.json())
     assert len(before) == 1, "Expected 1 weight entry before delete"
 
-    client.delete(f"/api/users/{u['id']}")
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
 
     after = client.get(f"/api/weight-entries?user_id={u['id']}")
     if after.status_code == 200:
@@ -365,7 +366,7 @@ def test_ac8_delete_cascades_habits(client):
         json={"name": "TestHabit-cascade", "frequency": "daily"},
     )
     if h_res.status_code == 201:
-        client.delete(f"/api/users/{u['id']}")
+        client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
         after = client.get(f"/api/habits?user_id={u['id']}")
         if after.status_code == 200:
             assert after.json() == [], "Habits must be deleted with user"

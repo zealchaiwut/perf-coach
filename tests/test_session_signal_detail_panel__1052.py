@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 from backend.auth import hash_password as _hash_pw
 from backend.models import User as _UserModel, Workout as _WorkoutModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _root = pathlib.Path(__file__).resolve().parents[1]
 _env_file = _root / ".env"
@@ -42,7 +43,7 @@ def user_id(client):
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
     name = f"tester1052_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, r.text
     uid = r.json()["id"]
     with _OrmSess(_engine) as db:
@@ -50,7 +51,7 @@ def user_id(client):
         u.password_hash = _hash_pw(_TEST_PW)
         db.commit()
     yield uid
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

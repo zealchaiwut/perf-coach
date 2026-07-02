@@ -7,6 +7,7 @@ import datetime
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -21,7 +22,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -30,7 +31,7 @@ def alice_id(client):
 
 @pytest.fixture(scope="module")
 def bob_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     bob = next((u for u in res.json() if u["name"] == "Bob"), None)
     assert bob is not None, "Bob not found in /api/users"

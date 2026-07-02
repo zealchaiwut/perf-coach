@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth import generate_csrf_token, hash_password
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _TEST_PASSWORD = "settings365-int-pw"
@@ -69,7 +70,7 @@ def authed_client():
     """Authenticated client with a fresh user."""
     username = f"si365_{uuid.uuid4().hex[:8]}"
     temp = httpx.Client(base_url=BASE, timeout=10, follow_redirects=True)
-    res = temp.post("/api/users", json={"name": username})
+    res = temp.post("/api/users", json={"name": username}, cookies=_admin_cookies())
     assert res.status_code == 201, f"Failed to create user: {res.text}"
     user_id = res.json()["id"]
     temp.close()
@@ -81,7 +82,7 @@ def authed_client():
     c = _make_authed_client(username, user_id)
     yield c
     # Cleanup: delete user (need CSRF for DELETE)
-    c.delete(f"/api/users/{user_id}")
+    c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
     c.close()
 
 
@@ -362,7 +363,7 @@ class TestACFPRsCRUD:
         """Session-authenticated client + user_id for PR tests."""
         username = f"pr365_{uuid.uuid4().hex[:8]}"
         temp = httpx.Client(base_url=BASE, timeout=10, follow_redirects=True)
-        res = temp.post("/api/users", json={"name": username})
+        res = temp.post("/api/users", json={"name": username}, cookies=_admin_cookies())
         assert res.status_code == 201
         user_id = res.json()["id"]
         temp.close()
@@ -373,7 +374,7 @@ class TestACFPRsCRUD:
             db.commit()
         c = _make_authed_client(username, user_id)
         yield c
-        c.delete(f"/api/users/{user_id}")
+        c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
         c.close()
 
     def test_create_personal_record(self, pr_client):

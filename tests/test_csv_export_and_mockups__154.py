@@ -12,6 +12,7 @@ import re
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE      = "http://localhost:9001"
 TODAY     = datetime.date.today()
@@ -32,14 +33,14 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     if alice:
         return alice["id"]
-    res = client.post("/api/users", json={"name": "Alice"})
+    res = client.post("/api/users", json={"name": "Alice"}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     alice = next((u for u in users if u["name"] == "Alice"), None)
     assert alice is not None
     return alice["id"]

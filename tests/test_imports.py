@@ -3,6 +3,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _RUN = str(uuid.uuid4())[:8]
@@ -17,14 +18,14 @@ def client():
 
 @pytest.fixture(scope="module")
 def user_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     if alice:
         return alice["id"]
-    res = client.post("/api/users", json={"name": "Alice"})
+    res = client.post("/api/users", json={"name": "Alice"}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     alice = next((u for u in users if u["name"] == "Alice"), None)
     assert alice is not None
     return alice["id"]
@@ -180,9 +181,9 @@ LIST_DATE_C = "2026-03-10"
 @pytest.fixture(scope="module")
 def list_user_id(client):
     name = f"ListUser_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next((u for u in users if u["name"] == name), None)
     assert u is not None
     return u["id"]

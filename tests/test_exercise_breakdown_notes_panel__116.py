@@ -4,6 +4,7 @@ import os
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -27,7 +28,7 @@ def client():
 @pytest.fixture(scope="module")
 def user_id(client):
     """Get or create a test user for this test suite."""
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200, f"Failed to fetch users: {res.status_code}"
     users = res.json()
 
@@ -36,9 +37,9 @@ def user_id(client):
         return users[0]["id"]
 
     # Create a test user if none exist
-    res = client.post("/api/users", json={"name": "test_user_116"})
+    res = client.post("/api/users", json={"name": "test_user_116"}, cookies=_admin_cookies())
     assert res.status_code in (201, 409), f"Failed to create user: {res.status_code}"
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     return users[0]["id"] if users else None
 
 

@@ -42,6 +42,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Source under test ────────────────────────────────────────────────────────
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -317,7 +318,7 @@ engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 def _make_authed_user(label):
     name = f"ManualSplits526_{label}_{_RUN}"
     with httpx.Client(base_url=BASE, timeout=10) as bare:
-        res = bare.post("/api/users", json={"name": name})
+        res = bare.post("/api/users", json={"name": name}, cookies=_admin_cookies())
         assert res.status_code == 201, res.text
         user_id = res.json()["id"]
 
@@ -352,7 +353,7 @@ def auth_user():
         pytest.skip("DATABASE_URL_UAT not configured")
     u = _make_authed_user("main")
     yield u
-    u["client"].delete(f"/api/users/{u['id']}")
+    u["client"].delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
     u["client"].close()
 
 

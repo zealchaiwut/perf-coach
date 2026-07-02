@@ -19,6 +19,7 @@ import re
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -38,7 +39,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -48,7 +49,7 @@ def alice_id(client):
 @pytest.fixture(scope="module")
 def sparse_user_id(client):
     """User with only 3 days of data — below the 7-day threshold."""
-    res = client.post("/api/users", json={"name": "DigestTestUser72Sparse"})
+    res = client.post("/api/users", json={"name": "DigestTestUser72Sparse"}, cookies=_admin_cookies())
     assert res.status_code in (200, 201)
     uid = res.json()["id"]
     dates = []
@@ -64,7 +65,7 @@ def sparse_user_id(client):
     yield uid
     for d in dates:
         client.delete(f"/api/daily-metrics/{uid}/{d}")
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: HTML positioning — digest must come immediately before check-in ───────
