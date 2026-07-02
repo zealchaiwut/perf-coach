@@ -178,8 +178,10 @@ def current_load(
 ) -> dict:
     """Return CTL, ATL, TSB as of a given date (default: today).
 
-    Queries workouts from 6 months before as_of to give the EWMA time to
-    charge up. Returns a dict with keys: date, ctl, atl, tsb.
+    Reads today's row from training_load_snapshots when present and fresh
+    (snapshot_date == end date) to avoid a 180-day recompute on the hot path.
+    Falls back to the live recompute when the snapshot is missing or stale,
+    and upserts the result via daily_update() so the next call hits the cache.
 
     Args:
         user_id: the user's ID.
@@ -189,17 +191,31 @@ def current_load(
         dict with keys date, ctl, atl, tsb for the last day of the series.
     """
     end = as_of if as_of is not None else date.today()
-    # 6-month warm-up window so EWMA is reasonably converged by end date
-    start = end - timedelta(days=180)
 
-    series = daily_tss_series(user_id, start, end)
-    curves = compute_load_curves(series)
-    last = curves[-1]
+    uid = _uuid_mod.UUID(str(user_id))
+    with Session(engine) as session:
+        snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date == end,
+            )
+            .first()
+        )
+        if snap is not None:
+            return {
+                "date": snap.snapshot_date,
+                "ctl": snap.ctl,
+                "atl": snap.atl,
+                "tsb": snap.tsb,
+            }
+
+    computed = daily_update(user_id, target_date=end)
     return {
-        "date": last["date"],
-        "ctl": last["ctl"],
-        "atl": last["atl"],
-        "tsb": last["tsb"],
+        "date": computed["date"],
+        "ctl": computed["ctl"],
+        "atl": computed["atl"],
+        "tsb": computed["tsb"],
     }
 
 

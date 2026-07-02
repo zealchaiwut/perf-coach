@@ -133,15 +133,29 @@ def test_single_spike_then_decay():
 # ---------------------------------------------------------------------------
 
 
+def _mock_session_snapshot(snap=None):
+    """Session mock for current_load's snapshot read (and daily_update's upsert)."""
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.query.return_value.filter.return_value.first.return_value = snap
+    return mock_session
+
+
 def test_current_load_returns_last_entry():
     start = date(2024, 1, 1)
     series = [(start + timedelta(days=i), 80) for i in range(50)]
     curves = compute_load_curves(series)
     last = curves[-1]
 
-    with patch("backend.services.training_load.daily_tss_series") as mock_series:
+    mock_session = _mock_session_snapshot(None)
+
+    with (
+        patch("backend.services.training_load.Session", return_value=mock_session),
+        patch("backend.services.training_load.daily_tss_series") as mock_series,
+    ):
         mock_series.return_value = series
-        result = current_load("user-1", as_of=series[-1][0])
+        result = current_load(_USER_ID, as_of=series[-1][0])
 
     assert result["date"] == last["date"]
     assert result["ctl"] == last["ctl"]
@@ -169,12 +183,90 @@ def test_current_load_as_of_past_date():
             return series_today
         return series_past
 
-    with patch("backend.services.training_load.daily_tss_series", side_effect=fake_series):
-        result_today = current_load("user-1", as_of=today)
-        result_past = current_load("user-1", as_of=past)
+    mock_session = _mock_session_snapshot(None)
+
+    with (
+        patch("backend.services.training_load.Session", return_value=mock_session),
+        patch("backend.services.training_load.daily_tss_series", side_effect=fake_series),
+    ):
+        result_today = current_load(_USER_ID, as_of=today)
+        result_past = current_load(_USER_ID, as_of=past)
 
     assert result_today["date"] == today
     assert result_past["date"] == past
+
+
+# ---------------------------------------------------------------------------
+# current_load() reads the training_load_snapshots cache (Task 1, perf/hot-paths)
+# ---------------------------------------------------------------------------
+
+
+def test_current_load_reads_snapshot_cache_single_query():
+    """Cache hit: current_load must do exactly 1 query and skip the recompute."""
+    today = date(2024, 6, 1)
+    snap = MagicMock()
+    snap.snapshot_date = today
+    snap.ctl = 55.5
+    snap.atl = 40.2
+    snap.tsb = 15.3
+
+    mock_session = _mock_session_snapshot(snap)
+
+    with (
+        patch("backend.services.training_load.Session", return_value=mock_session),
+        patch("backend.services.training_load.daily_tss_series") as mock_series,
+    ):
+        result = current_load(_USER_ID, as_of=today)
+
+    assert result == {"date": today, "ctl": 55.5, "atl": 40.2, "tsb": 15.3}
+    mock_series.assert_not_called()
+    mock_session.query.assert_called_once()
+
+
+def test_current_load_cache_miss_falls_back_and_upserts():
+    """Cache miss: current_load recomputes via daily_update and upserts the row."""
+    today = date(2024, 6, 1)
+    start = today - timedelta(days=180)
+    series = [(start + timedelta(days=i), 80) for i in range((today - start).days + 1)]
+    curves = compute_load_curves(series)
+    expected = curves[-1]
+
+    mock_session = _mock_session_snapshot(None)
+
+    with (
+        patch("backend.services.training_load.Session", return_value=mock_session),
+        patch("backend.services.training_load.daily_tss_series", return_value=series),
+    ):
+        result = current_load(_USER_ID, as_of=today)
+
+    assert result["date"] == expected["date"]
+    assert result["ctl"] == expected["ctl"]
+    assert result["atl"] == expected["atl"]
+    assert result["tsb"] == expected["tsb"]
+    # daily_update's upsert ran on the same session used for the cache read
+    mock_session.execute.assert_called_once()
+    mock_session.commit.assert_called_once()
+
+
+def test_current_load_identical_to_direct_recompute():
+    """Values from the cache-miss fallback must match the plain recompute path."""
+    today = date(2024, 6, 1)
+    start = today - timedelta(days=180)
+    series = [(start + timedelta(days=i), 65) for i in range((today - start).days + 1)]
+    direct_curves = compute_load_curves(series)
+    direct_last = direct_curves[-1]
+
+    mock_session = _mock_session_snapshot(None)
+
+    with (
+        patch("backend.services.training_load.Session", return_value=mock_session),
+        patch("backend.services.training_load.daily_tss_series", return_value=series),
+    ):
+        result = current_load(_USER_ID, as_of=today)
+
+    assert result["ctl"] == direct_last["ctl"]
+    assert result["atl"] == direct_last["atl"]
+    assert result["tsb"] == direct_last["tsb"]
 
 
 # ---------------------------------------------------------------------------
