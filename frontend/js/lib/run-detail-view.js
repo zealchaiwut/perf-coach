@@ -6,6 +6,9 @@
 
   var TF = win.TrainingFormat || {};
 
+  /** Run-subtype display labels for the header subtype tag (run_subtype column). */
+  var RD4_SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+
   /** Zone-2 HR band — becomes user preference later (issue #598). */
   var RUN_DETAIL_ZONE2_HR_MIN = 130;
   var RUN_DETAIL_ZONE2_HR_MAX = 155;
@@ -733,7 +736,15 @@
     var header =
       '<section class="rd4-card rd4-header">' +
       '<div class="rd4-header-top">' +
+      // Type badge + optional run-subtype tag, grouped left: [RUN] [INTERVAL].
+      '<span class="rd4-typebadges">' +
       '<span class="rd4-typebadge">RUN</span>' +
+      (RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]
+        ? '<span class="rd4-typebadge rd4-subtypebadge">' +
+          esc(RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]) +
+          "</span>"
+        : "") +
+      "</span>" +
       '<div class="rd4-srcbadges">' +
       srcBadges +
       "</div></div>" +

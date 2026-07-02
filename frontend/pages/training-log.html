@@ -495,11 +495,15 @@
         background: rgba(255, 255, 255, 0.12);
       }
 
-      /* ── Placeholder panels (Plan / Performance) ── */
+      /* ── Placeholder panels (Projection / Performance) ──
+         Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
+         max-width 1120px, padding 20px 24px 60px) so all three sub-tabs share
+         the same content-left/right edge and _positionNav aligns the tab strip
+         to it on every tab. */
       .tab-panel-placeholder {
-        max-width: 1280px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 0 22px 40px;
+        padding: 20px 24px 60px;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -2096,6 +2100,13 @@
         background: #f1f4fa;
         color: var(--ink-2);
       }
+      /* Run subtype chip in the drawer header — secondary/outlined variant of
+         the type pill: [RUN] [INTERVAL]. */
+      .dp-subtype-pill {
+        background: transparent;
+        color: var(--bg-1, #4f6ef7);
+        border: 1px solid var(--bg-1, #4f6ef7);
+      }
 
       .dp-hero h1 {
         margin: 0;
@@ -2851,6 +2862,31 @@
       }
       .dp-overflow-menu .dp-menu-danger:hover {
         background: #fee2e2;
+      }
+
+      /* Run-subtype group (Interval / Long run / Easy / Tempo / None) */
+      .dp-subtype-group {
+        border-top: 1px solid #eef0f5;
+        border-bottom: 1px solid #eef0f5;
+        padding: 4px 0;
+      }
+      .dp-subtype-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-tertiary, #9aa3b8);
+        padding: 6px 14px 2px;
+      }
+      .dp-subtype-group button.is-selected {
+        font-weight: 700;
+        color: var(--bg-1, #4f6ef7);
+      }
+      /* Checkmark for the current subtype */
+      .dp-subtype-group button.is-selected::after {
+        content: "✓";
+        float: right;
+        margin-left: 8px;
       }
 
       /* ── Panel form title ── */
@@ -3942,11 +3978,11 @@
           </button>
           <button
             class="training-sub-tab"
-            data-tab="plan"
+            data-tab="projection"
             type="button"
             aria-selected="false"
           >
-            Plan
+            Projection
           </button>
           <button
             class="training-sub-tab"
@@ -4086,7 +4122,7 @@
     </main>
 
     <!-- Plan panel (issue #650) -->
-    <div id="training-panel-plan" class="tab-panel-placeholder" hidden>
+    <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
       <!-- ── Plan tab panel ─────────────────────────────────────────── -->
       <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
@@ -4280,26 +4316,30 @@
       <!-- end Plan tab panel -->
     </div>
 
-    <!-- Performance panel (issue #811) -->
+    <!-- Performance panel (issue #811; reworked feature/performance-tab-rework) -->
     <div
       id="training-panel-performance"
       class="tab-panel-placeholder perf-panel"
       hidden
     >
-      <!-- Score cards: Endurance + Speed -->
-      <div class="perf-scores-row">
+      <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
+      <div class="perf-scorewrap">
         <!-- Endurance score card -->
-        <div id="perf-score-endurance" class="perf-score-card log-card">
-          <div class="perf-card-label">Endurance</div>
+        <div id="perf-score-endurance" class="perf-card">
+          <div class="perf-chead">
+            <span class="perf-sectitle">Endurance</span>
+            <span class="perf-tag">Trend</span>
+          </div>
           <div class="perf-card-body">
-            <div class="perf-ring" aria-label="Endurance score ring"></div>
-            <div class="perf-card-info">
-              <div class="perf-score-val"></div>
-              <div class="perf-dir"></div>
-              <div
-                class="perf-spark"
-                aria-label="Endurance trend sparkline"
-              ></div>
+            <div class="perf-bigscore perf-bigscore--e">
+              <span class="perf-score-val"></span>
+              <span class="perf-blk" hidden></span>
+            </div>
+            <p class="perf-insight"></p>
+            <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
+            <div class="perf-flabel">Last 5 long runs feeding this score</div>
+            <div class="perf-feed" id="perf-feed-endurance">
+              <p class="perf-feed-loading">Loading…</p>
             </div>
           </div>
           <div class="perf-building-baseline" hidden>
@@ -4321,14 +4361,21 @@
         </div>
 
         <!-- Speed score card -->
-        <div id="perf-score-speed" class="perf-score-card log-card">
-          <div class="perf-card-label">Speed</div>
+        <div id="perf-score-speed" class="perf-card">
+          <div class="perf-chead">
+            <span class="perf-sectitle">Speed</span>
+            <span class="perf-tag">Trend</span>
+          </div>
           <div class="perf-card-body">
-            <div class="perf-ring" aria-label="Speed score ring"></div>
-            <div class="perf-card-info">
-              <div class="perf-score-val"></div>
-              <div class="perf-dir"></div>
-              <div class="perf-spark" aria-label="Speed trend sparkline"></div>
+            <div class="perf-bigscore perf-bigscore--s">
+              <span class="perf-score-val"></span>
+              <span class="perf-blk" hidden></span>
+            </div>
+            <p class="perf-insight"></p>
+            <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
+            <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
+            <div class="perf-feed" id="perf-feed-speed">
+              <p class="perf-feed-loading">Loading…</p>
             </div>
           </div>
           <div class="perf-building-baseline" hidden>
@@ -4349,84 +4396,148 @@
           </div>
         </div>
       </div>
-      <!-- /.perf-scores-row -->
+      <!-- /.perf-scorewrap -->
 
-      <!-- Economy contribution strip (relocated from Projection page) -->
-      <div class="perf-econ" id="perf-economy-row">
-        <span class="perf-econ-label">Economy</span>
-        <span class="perf-econ-value" id="perf-economy-value">0</span>
-        <span class="perf-econ-meta" id="perf-economy-meta"
-          >Lagged strength &amp; plyo contribution to performance ceiling</span
-        >
+      <!-- ── What's moving your scores ─────────────────────────────────────── -->
+      <div class="perf-card perf-moves-card">
+        <div class="perf-chead" style="margin-bottom: 0">
+          <span class="perf-sectitle perf-sectitle--strong"
+            >What's moving your scores</span
+          >
+          <span class="perf-tag">New</span>
+        </div>
+        <div class="perf-movesub" id="perf-moves-sub">
+          Recent training composition — associations from your sessions, not
+          proof of cause. Tap a row to filter the log.
+        </div>
+        <div id="perf-moves">
+          <p class="perf-feed-loading">Loading…</p>
+        </div>
+        <div class="perf-movefoot">
+          Strength and plyo take 6–12 weeks to show; intervals respond faster;
+          weight helps until it starts costing power. Each row filters the log
+          to the sessions behind it.
+        </div>
       </div>
 
-      <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
-      <div id="perf-chart-card" class="perf-chart-card log-card">
-        <div class="perf-chart-header">
-          <span class="perf-chart-title">Fitness · Fatigue · Form</span>
-          <div class="perf-range-selector" role="group" aria-label="Date range">
-            <button class="perf-range-btn" data-range="30D" type="button">
-              30D
-            </button>
-            <button
-              class="perf-range-btn active"
-              data-range="90D"
-              type="button"
+      <!-- ── FFF chart (half) + ACWR + projected checkpoint stack ──────────── -->
+      <div class="perf-row2">
+        <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
+        <div id="perf-chart-card" class="perf-card perf-chart-card">
+          <div class="perf-chart-header">
+            <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
+              >Fitness · Fatigue · Form</span
             >
-              90D
-            </button>
-            <button class="perf-range-btn" data-range="6M" type="button">
-              6M
-            </button>
-            <button class="perf-range-btn" data-range="1Y" type="button">
-              1Y
-            </button>
+            <div
+              class="perf-range-selector"
+              role="group"
+              aria-label="Date range"
+            >
+              <button class="perf-range-btn" data-range="30D" type="button">
+                30D
+              </button>
+              <button
+                class="perf-range-btn active"
+                data-range="90D"
+                type="button"
+              >
+                90D
+              </button>
+              <button class="perf-range-btn" data-range="6M" type="button">
+                6M
+              </button>
+              <button class="perf-range-btn" data-range="1Y" type="button">
+                1Y
+              </button>
+            </div>
+          </div>
+          <p class="perf-chart-caption">
+            CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
+            line = today.
+          </p>
+          <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+            <span class="perf-bb-icon">📈</span>
+            <span
+              >Building baseline: keep training to see the fitness chart.</span
+            >
+          </div>
+          <div id="perf-chart-wrap">
+            <canvas
+              id="perf-fitness-canvas"
+              height="220"
+              role="img"
+              aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
+            ></canvas>
           </div>
         </div>
-        <p class="perf-chart-caption">
-          CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed line
-          = today.
-        </p>
-        <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-          <span class="perf-bb-icon">📈</span>
-          <span
-            >Building baseline: keep training to see the fitness chart.</span
-          >
-        </div>
-        <div id="perf-chart-wrap">
-          <canvas
-            id="perf-fitness-canvas"
-            height="220"
-            role="img"
-            aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
-          ></canvas>
+
+        <!-- Right stack: ACWR + Projected at next checkpoint -->
+        <div class="perf-rstack">
+          <!-- ACWR Guidance -->
+          <div id="perf-acwr" class="perf-card perf-acwr-card">
+            <div class="perf-chead">
+              <span class="perf-sectitle">Training load ratio (ACWR)</span>
+            </div>
+            <div class="perf-acwr-body">
+              <div class="perf-acwr-ratio-wrap">
+                <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
+                <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
+              </div>
+              <!-- Zone band + marker (matches the readiness .lrx-rband style).
+                   Scale 0 → 2.0; marker positioned by numeric ratio. -->
+              <div id="perf-acwr-bandbar" class="perf-acwr-bandbar" hidden>
+                <div class="lrx-rband perf-acwr-rband">
+                  <div id="perf-acwr-marker" class="mk"></div>
+                </div>
+                <div class="perf-acwr-scale">
+                  <span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0</span>
+                </div>
+              </div>
+              <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
+            </div>
+            <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
+              <span class="perf-bb-icon">⏳</span>
+              <span
+                >Baseline forming: log at least 28 days of training to see your
+                ACWR.</span
+              >
+            </div>
+          </div>
+
+          <!-- Projected at next checkpoint -->
+          <div id="perf-proj" class="perf-card perf-proj-card">
+            <div class="perf-chead">
+              <span class="perf-sectitle">Projected at next checkpoint</span>
+              <span class="perf-tag">New</span>
+            </div>
+            <div id="perf-proj-body" hidden>
+              <div class="perf-proj-meta" id="perf-proj-meta"></div>
+              <div class="perf-projgrid">
+                <div class="perf-projtile perf-projtile--e">
+                  <div class="perf-projtile-l">Endurance</div>
+                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
+                </div>
+                <div class="perf-projtile perf-projtile--s">
+                  <div class="perf-projtile-l">Speed</div>
+                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
+                </div>
+              </div>
+              <a class="perf-plink" href="#projection"
+                >Full projection on Projection →</a
+              >
+            </div>
+            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
+              No upcoming checkpoint —
+              <a class="perf-plink" href="#projection">add one on Projection</a>.
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- ACWR Guidance -->
-      <div id="perf-acwr" class="perf-acwr-card log-card">
-        <div class="perf-card-label">Training Load Ratio (ACWR)</div>
-        <div class="perf-acwr-body">
-          <div class="perf-acwr-ratio-wrap">
-            <span class="perf-acwr-label">Ratio</span>
-            <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
-            <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
-          </div>
-          <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
-        </div>
-        <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
-          <span class="perf-bb-icon">⏳</span>
-          <span
-            >Baseline forming: log at least 28 days of training to see your
-            ACWR.</span
-          >
-        </div>
-      </div>
-
-      <!-- Personal Records strip -->
-      <div class="perf-pr-card log-card">
-        <div class="perf-card-label">Personal Records</div>
-        <div id="perf-pr-strip" class="perf-pr-strip">
+      <!-- ── Personal records ──────────────────────────────────────────────── -->
+      <div class="perf-card perf-pr-card">
+        <span class="perf-sectitle">Personal records</span>
+        <div id="perf-pr-strip" class="perf-prgrid">
           <p class="perf-pr-loading">Loading…</p>
         </div>
       </div>
@@ -5240,92 +5351,342 @@
         }
       }
 
-      /* ── Performance sub-tab styles ──────────────────────────────────────── */
+      /* ── Performance sub-tab styles (reworked) ───────────────────────────── */
       .perf-panel {
+        --perf-endur: #16a34a;
+        --perf-speed: #ea580c;
+        --perf-faint: #9aa3b8;
+        --perf-muted: #6b7280;
+        --perf-line: #eceef4;
+        --perf-tile: #f6f7fb;
+        --perf-green: #16a34a;
+        --perf-greenSoft: #dcfce7;
+        --perf-lavHi: #6366f1;
+        --perf-blueSoft: #e6ebfe;
+        --perf-strava: #ea580c;
+        --perf-stryd: #1b2340;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
         padding-top: 4px;
       }
-
-      /* Score cards row */
-      .perf-scores-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
+      .perf-panel .perf-card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 18px 20px;
+        box-shadow: 0 8px 24px rgba(20, 28, 70, 0.16);
       }
-      .perf-score-card {
-        padding: 16px 18px;
+      .perf-sectitle {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        color: var(--perf-faint);
+        text-transform: uppercase;
       }
-      /* Economy contribution strip */
-      .perf-econ {
+      .perf-sectitle--strong {
+        font-size: 13px;
+        color: var(--text-primary, #1b2340);
+        letter-spacing: 0;
+        text-transform: none;
+        font-weight: 800;
+      }
+      .perf-chead {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 10px;
+        margin-bottom: 6px;
         flex-wrap: wrap;
-        margin-top: 12px;
-        padding: 11px 14px;
-        border-radius: 10px;
-        background: #f0f4ff;
-        border: 1px solid #d4dcf7;
       }
-      .perf-econ-label {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        color: #4a6bcc;
-        flex-shrink: 0;
+      .perf-tag {
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        color: var(--perf-lavHi);
+        background: var(--perf-blueSoft);
+        padding: 3px 8px;
+        border-radius: 6px;
+        text-transform: uppercase;
       }
-      .perf-econ-value {
+
+      /* Score cards */
+      .perf-scorewrap {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .perf-bigscore {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-top: 2px;
+      }
+      .perf-bigscore .perf-score-val {
+        font-size: 46px;
+        font-weight: 800;
         font-family: var(--mono);
-        font-size: 16px;
+        line-height: 1;
+      }
+      .perf-bigscore--e .perf-score-val {
+        color: var(--perf-endur);
+      }
+      .perf-bigscore--s .perf-score-val {
+        color: var(--perf-speed);
+      }
+      .perf-blk {
+        font-size: 12px;
         font-weight: 700;
-        color: #3563d4;
-        letter-spacing: -0.03em;
+        font-family: var(--mono);
+        color: var(--perf-green);
+      }
+      .perf-bigscore--s .perf-blk {
+        color: var(--perf-speed);
+      }
+      .perf-blk--down {
+        color: var(--red, #dc2626) !important;
+      }
+      .perf-blk--flat {
+        color: var(--perf-muted) !important;
+      }
+      .perf-insight {
+        font-size: 12.5px;
+        color: var(--perf-muted);
+        margin: 8px 0 6px;
+      }
+      .perf-trend {
+        width: 100%;
+        height: 56px;
+        display: block;
+      }
+      .perf-flabel {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        color: var(--perf-faint);
+        text-transform: uppercase;
+        margin: 14px 0 2px;
+      }
+      .perf-frow {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 9px 0;
+        border-top: 1px solid var(--perf-line);
+        text-decoration: none;
+        color: inherit;
+      }
+      .perf-frow:hover {
+        background: #fafbff;
+      }
+      .perf-frow .perf-fdate {
+        width: 48px;
+        font-size: 11px;
+        color: var(--perf-faint);
+        font-family: var(--mono);
         flex-shrink: 0;
       }
-      .perf-econ-meta {
-        font-size: 11px;
-        color: var(--text-tertiary);
+      .perf-frow .perf-fmain {
         flex: 1;
         min-width: 0;
       }
-      .perf-card-label {
-        font-size: 9.5px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--text-tertiary);
-        margin-bottom: 12px;
+      .perf-frow .perf-fn {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      .perf-card-body {
+      .perf-frow .perf-fm {
+        font-size: 11px;
+        color: var(--perf-muted);
+        font-family: var(--mono);
+        margin-top: 1px;
+      }
+      .perf-src {
+        font-size: 9px;
+        font-weight: 800;
+        padding: 2px 6px;
+        border-radius: 5px;
+        flex-shrink: 0;
+      }
+      .perf-src--s {
+        background: var(--perf-strava);
+        color: #fff;
+      }
+      .perf-src--st {
+        background: var(--perf-stryd);
+        color: #fff;
+      }
+      .perf-dchip {
+        font-size: 11px;
+        font-weight: 700;
+        font-family: var(--mono);
+        color: var(--perf-muted);
+        background: var(--perf-tile);
+        padding: 2px 8px;
+        border-radius: 6px;
+        flex-shrink: 0;
+      }
+      .perf-farr {
+        color: var(--perf-faint);
+        font-size: 12px;
+        flex-shrink: 0;
+      }
+      .perf-feed-loading,
+      .perf-feed-empty {
+        font-size: 12px;
+        color: var(--perf-faint);
+        padding: 10px 0 2px;
+      }
+
+      /* What's moving */
+      .perf-movesub {
+        font-size: 12.5px;
+        color: var(--perf-muted);
+        margin: 6px 0 6px;
+      }
+      .perf-arow {
         display: flex;
         align-items: center;
-        gap: 16px;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 0;
+        border-top: 1px solid var(--perf-line);
+        cursor: pointer;
+        background: none;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        width: 100%;
+        text-align: left;
+        font: inherit;
+        color: inherit;
       }
-      .perf-card-info {
+      .perf-arow:first-of-type {
+        border-top: none;
+      }
+      .perf-arow:hover {
+        background: #fafbff;
+      }
+      .perf-arow .perf-an {
+        font-size: 14px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .perf-arow .perf-an .perf-a {
+        color: var(--perf-faint);
+        font-size: 12px;
+      }
+      .perf-arow .perf-aright {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .perf-arow .perf-adet {
+        font-size: 12px;
+        color: var(--perf-muted);
+        font-family: var(--mono);
+      }
+      .perf-achip {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 9px;
+        border-radius: 6px;
+      }
+      .perf-achip--g {
+        background: var(--perf-greenSoft);
+        color: var(--perf-green);
+      }
+      .perf-achip--b {
+        background: var(--perf-blueSoft);
+        color: var(--perf-lavHi);
+      }
+      .perf-achip--n {
+        background: var(--perf-tile);
+        color: var(--perf-muted);
+      }
+      .perf-movefoot {
+        font-size: 12px;
+        color: var(--perf-muted);
+        line-height: 1.5;
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid var(--perf-line);
+      }
+
+      /* Two-column: FFF + right stack */
+      .perf-row2 {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 16px;
+        align-items: start;
+      }
+      .perf-rstack {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 16px;
       }
-      .perf-score-val {
+
+      /* Projected checkpoint */
+      .perf-proj-meta {
+        font-size: 12px;
+        color: var(--perf-muted);
         font-family: var(--mono);
-        font-size: 28px;
+        margin: 2px 0 4px;
+      }
+      .perf-projgrid {
+        display: flex;
+        gap: 10px;
+        margin: 12px 0 10px;
+      }
+      .perf-projtile {
+        flex: 1;
+        background: var(--perf-tile);
+        border: 1px solid var(--perf-line);
+        border-radius: 11px;
+        padding: 12px 14px;
+      }
+      .perf-projtile-l {
+        font-size: 9px;
+        font-weight: 800;
+        color: var(--perf-faint);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .perf-projtile-v {
+        font-size: 26px;
         font-weight: 700;
-        color: var(--text-primary);
-        line-height: 1;
+        font-family: var(--mono);
+        margin-top: 6px;
       }
-      .perf-dir {
+      .perf-projtile--e .perf-projtile-v {
+        color: var(--perf-endur);
+      }
+      .perf-projtile--s .perf-projtile-v {
+        color: var(--perf-speed);
+      }
+      .perf-projtile-v small {
         font-size: 11px;
+        color: var(--perf-muted);
         font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: lowercase;
       }
-      .perf-dir--improving {
-        color: var(--green);
+      .perf-plink {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--perf-lavHi);
+        text-decoration: none;
       }
-      .perf-dir--declining {
-        color: var(--red);
+      .perf-proj-empty {
+        font-size: 12.5px;
+        color: var(--perf-muted);
       }
-      .perf-dir--flat {
-        color: var(--text-tertiary);
+
+      /* Score-card body is a single vertical column (matches the mock) —
+         NOT a horizontal flex split of score vs feeding list. */
+      .perf-card-body {
+        display: block;
       }
       .perf-building-baseline {
         display: flex;
@@ -5498,10 +5859,37 @@
         background: var(--amber-soft);
         color: var(--amber);
       }
+      /* ACWR zone band + marker — mirrors the readiness .lrx-rband treatment.
+         Scale 0 → 2.0; zone stops: 0.8 = 40%, 1.3 = 65%, 1.5 = 75%.
+         detraining (amber) | optimal (green) | caution (amber) | high risk (red) */
+      .perf-acwr-bandbar {
+        margin: 4px 0 2px;
+      }
+      .perf-acwr-rband {
+        background: linear-gradient(
+          90deg,
+          #f59e0b 0%,
+          #f59e0b 40%,
+          #22c55e 40%,
+          #22c55e 65%,
+          #f59e0b 65%,
+          #f59e0b 75%,
+          #ef4444 75%,
+          #ef4444 100%
+        );
+      }
+      .perf-acwr-scale {
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--text-tertiary);
+        margin-top: 3px;
+      }
       .perf-acwr-guidance {
         font-size: 12.5px;
         color: var(--text-secondary);
-        margin: 0;
+        margin: 8px 0 0;
         line-height: 1.5;
       }
       .perf-acwr-baseline {
@@ -5516,74 +5904,80 @@
         margin-top: 4px;
       }
 
-      /* Personal Records strip */
-      .perf-pr-card {
-        padding: 16px 18px;
-      }
-      .perf-pr-strip {
+      /* Personal records grid */
+      .perf-prgrid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 10px;
-        margin-top: 4px;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
       }
-      .perf-pr-item {
-        background: var(--shell-1);
-        border-radius: 10px;
-        padding: 10px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
+      .perf-prtile {
+        background: var(--perf-tile);
+        border: 1px solid var(--perf-line);
+        border-radius: 12px;
+        padding: 13px 15px;
       }
-      .perf-pr-name {
-        font-size: 10px;
-        font-weight: 700;
+      .perf-prtile .perf-pr-name {
+        font-size: 9px;
+        font-weight: 800;
+        color: var(--perf-faint);
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-tertiary);
       }
-      .perf-pr-val {
-        font-family: var(--mono);
-        font-size: 17px;
+      .perf-prtile .perf-pr-val {
+        font-size: 22px;
         font-weight: 700;
-        color: var(--text-primary);
+        font-family: var(--mono);
+        margin-top: 7px;
+        line-height: 1;
+        color: var(--text-primary, #1b2340);
       }
-      .perf-pr-date {
-        font-size: 10.5px;
-        color: var(--text-secondary);
+      .perf-prtile .perf-pr-val small {
+        font-size: 11px;
+        color: var(--perf-muted);
+        font-weight: 600;
       }
-      .perf-pr-link {
-        font-size: 10.5px;
-        color: var(--bg-1);
+      .perf-prtile .perf-pr-date {
+        font-size: 11px;
+        color: var(--perf-muted);
+        font-family: var(--mono);
+        margin-top: 6px;
+      }
+      .perf-prtile .perf-pr-link {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--perf-lavHi);
+        margin-top: 5px;
+        display: inline-block;
         text-decoration: none;
-        margin-top: 2px;
       }
-      .perf-pr-link:hover {
+      .perf-prtile .perf-pr-link:hover {
         text-decoration: underline;
       }
       .perf-pr-empty,
       .perf-pr-loading {
         font-size: 12.5px;
-        color: var(--text-tertiary);
+        color: var(--perf-faint);
         margin: 0;
       }
-      .perf-pr-item--unavailable {
+      .perf-prtile--unavailable {
         opacity: 0.55;
       }
       .perf-pr-reason {
         font-size: 10px;
-        color: var(--text-tertiary);
+        color: var(--perf-faint);
         line-height: 1.35;
         margin-top: 2px;
       }
 
-      /* ── Mobile: single column at 480px ─────────────────────────────────── */
-      @media (max-width: 480px) {
-        .perf-scores-row {
+      /* ── Responsive collapse ────────────────────────────────────────────── */
+      @media (max-width: 900px) {
+        .perf-scorewrap,
+        .perf-row2 {
           grid-template-columns: 1fr;
         }
-        .perf-card-body {
-          flex-wrap: wrap;
-        }
+      }
+      @media (max-width: 480px) {
         .perf-range-selector {
           overflow-x: auto;
           max-width: 100%;
@@ -5872,10 +6266,17 @@
     }
 
     /* ── Sticky enlarged-tab nav ─────────────────────────────────────────── */
+    /* <main> now holds ONLY the sticky header — the tab content lives in the
+       sibling #layout-wrapper. As a normal flex box <main> collapsed to the
+       header's height (~78px), so the header's containing block was only 78px
+       tall and position:sticky scrolled away past that. display:contents makes
+       <main> generate no box, so the header's containing block becomes <body>
+       (full scroll height) and it sticks under the 60px global nav on all three
+       sub-tabs. The full-bleed header hack (100vw + margin-left:calc(50%-50vw))
+       is viewport-relative so it still works; body{overflow-x:clip} still trims
+       the scrollbar sliver. */
     main.log-page {
-      max-width: 1120px;
-      padding: 0;
-      gap: 0;
+      display: contents;
     }
     .log-page-header {
       position: sticky;
@@ -6141,6 +6542,9 @@
     .lrx-tbadge { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
     .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
     .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
+    /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
+       [run] [interval]. Still run-family (blue) but visually secondary. */
+    .lrx-subtag { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
     .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 12px; }
     .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }
@@ -6330,6 +6734,30 @@
               <button id="dp-menu-edit" type="button" role="menuitem">
                 Edit
               </button>
+              <div
+                id="dp-subtype-group"
+                class="dp-subtype-group"
+                role="group"
+                aria-label="Run subtype"
+                style="display: none"
+              >
+                <div class="dp-subtype-label">Run type</div>
+                <button type="button" role="menuitemradio" data-subtype="interval">
+                  Interval
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="longrun">
+                  Long run
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="easy">
+                  Easy
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="tempo">
+                  Tempo
+                </button>
+                <button type="button" role="menuitemradio" data-subtype="">
+                  None
+                </button>
+              </div>
               <button id="dp-menu-duplicate" type="button" role="menuitem">
                 Duplicate
               </button>
@@ -7092,7 +7520,7 @@
     <script src="js/lib/run-detail-view.js"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js"></script>
-    <script src="js/training-plan.js"></script>
+    <script src="js/training-projection.js"></script>
     <script src="js/training-performance.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
@@ -7100,11 +7528,11 @@
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "plan", "performance"];
+        var TABS = ["log", "projection", "performance"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
-        var panelPlan = document.getElementById("training-panel-plan");
+        var panelPlan = document.getElementById("training-panel-projection");
         var panelPerf = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
@@ -7129,9 +7557,13 @@
           });
           if (layoutWrapper) layoutWrapper.style.display = isLog ? "" : "none";
           // Show/hide placeholder panels
-          if (panelPlan) panelPlan.hidden = tab !== "plan";
-          if (tab === "plan" && window.TrainingPlan && window.TrainingPlan.init)
-            window.TrainingPlan.init();
+          if (panelPlan) panelPlan.hidden = tab !== "projection";
+          if (
+            tab === "projection" &&
+            window.TrainingProjection &&
+            window.TrainingProjection.init
+          )
+            window.TrainingProjection.init();
           if (panelPerf) panelPerf.hidden = tab !== "performance";
           if (
             tab === "performance" &&

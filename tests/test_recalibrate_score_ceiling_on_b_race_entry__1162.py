@@ -64,7 +64,7 @@ def test_ac5_py_compile_projection():
 
 
 def test_ac5_py_compile_plan_router():
-    import backend.routers.plan as mod
+    import backend.routers.projection as mod
     path = mod.__file__
     if path.endswith(".pyc"):
         path = path[:-1]

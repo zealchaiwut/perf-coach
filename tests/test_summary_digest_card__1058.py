@@ -186,8 +186,8 @@ def test_monthly_view_renders_call_to_action(training_log_js):
 def test_monthly_view_has_plan_tab_link(training_log_js):
     """AC4: Monthly view contains a link/reference to the Plan tab."""
     has_plan_link = (
-        '#plan' in training_log_js or
-        "plan" in training_log_js.lower() and "tab" in training_log_js.lower()
+        '#projection' in training_log_js or
+        "projection" in training_log_js.lower() and "tab" in training_log_js.lower()
     )
     assert has_plan_link, (
         "JS monthly view must include a link to the Plan tab"

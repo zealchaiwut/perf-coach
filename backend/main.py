@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -90,7 +90,7 @@ from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _pr
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
-from backend.routers.plan import router as _plan_router
+from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
@@ -5119,8 +5119,9 @@ app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=Fa
 
 
 def _serve_projection_redirect():
-    # Projection was merged into the Training → Plan sub-tab (issue #1226).
-    return RedirectResponse(url="/log#plan", status_code=302)
+    # Projection was merged into the Training → Projection sub-tab
+    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework).
+    return RedirectResponse(url="/log#projection", status_code=302)
 
 app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
 app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
@@ -5288,6 +5289,7 @@ class WorkoutPatch(BaseModel):
     name: Optional[str] = None
     workout_date: Optional[str] = None
     workout_type: Optional[str] = None
+    run_subtype: Optional[str] = None
     remarks: Optional[str] = None
     tss: Optional[float] = None
     distance_km: Optional[float] = None
@@ -5390,6 +5392,9 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
     Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
     guardrail) match. Other types are passed through trimmed, unchanged.
+    Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
+    (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
+    pipeline (detail layout, decoupling, PRs, run counts).
     """
     if t is None:
         return None
@@ -5397,6 +5402,10 @@ def _normalize_workout_type(t: str | None) -> str | None:
     if t.lower() in ("run", "running"):
         return "run"
     return t
+
+
+# Allowed run-subtype values (issue: run subtype as its own column). None clears it.
+_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -5696,6 +5705,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "name": w.name,
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": int(w.tss) if w.tss is not None else None,
         "tss_source": w.tss_source,
@@ -5923,6 +5933,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "workout_date": str(w.workout_date),
         "name": w.name,
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
@@ -6585,6 +6596,19 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if not t:
                 raise HTTPException(status_code=422, detail="workout_type is required")
             workout.workout_type = _normalize_workout_type(t)
+        if 'run_subtype' in body.model_fields_set:
+            # None/empty clears it; otherwise must be one of the allowed values.
+            rs = body.run_subtype
+            if rs is None or (isinstance(rs, str) and rs.strip() == ""):
+                workout.run_subtype = None
+            else:
+                rs = rs.strip().lower()
+                if rs not in _RUN_SUBTYPE_VALUES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="run_subtype must be one of: " + ", ".join(sorted(_RUN_SUBTYPE_VALUES)),
+                    )
+                workout.run_subtype = rs
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -6638,6 +6662,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        # Stamp updated_at so edits (e.g. marking a run as an interval) change the
+        # workout-set fingerprint — the summary/performance cache signature
+        # includes MAX(updated_at), so a type edit busts the cache and the
+        # Performance Speed feed refreshes without waiting for a new sync.
+        workout.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -8612,6 +8641,7 @@ def get_training_log(
         {
             "date": str(w.workout_date),
             "type": w.workout_type,
+            "run_subtype": w.run_subtype,
             "id": str(w.id),
             "title": w.name,
             "duration_seconds": w.duration_seconds,
@@ -11871,6 +11901,7 @@ def admin_user_recent_activities(user_id: str):
                 "date": w.workout_date.isoformat() if w.workout_date else None,
                 "name": w.name,
                 "type": w.workout_type,
+                "run_subtype": w.run_subtype,
                 "distance_km": float(w.distance_km) if w.distance_km is not None else None,
                 "duration_seconds": int(w.duration_seconds) if w.duration_seconds is not None else None,
             }
@@ -14148,6 +14179,16 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             if preferences is not None:
                 preferences["duration_curve_bests"] = curve_data or {}
 
+            # Performance-score cache (issue: cacheable scores, same model as the
+            # weekly/monthly summaries). Recompute only when a new workout is
+            # synced (signature changes) or a threshold/preference input the
+            # score depends on changes — not on every page load.
+            _perf_sig = _performance_signature(session, uid, prefs_row)
+            _perf_cached = _summary_cache_get(uid, "performance", _perf_sig)
+            if _perf_cached is not None:
+                _performance_log.info("performance cache hit for %s", uid)
+                return JSONResponse(_perf_cached)
+
             # Load all run workouts in chronological order (oldest first)
             run_workouts = (
                 session.query(Workout)
@@ -14279,14 +14320,17 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                 )
             )
 
-        return JSONResponse(
-            _build_performance_response(
-                state="scored",
-                endurance=endurance,
-                speed=speed,
-                generated_at=generated_at,
-            )
+        _scored_payload = _build_performance_response(
+            state="scored",
+            endurance=endurance,
+            speed=speed,
+            generated_at=generated_at,
         )
+        # Cache the computed scored payload; the signature invalidates it when a
+        # sync inserts/updates workouts or a relevant threshold changes.
+        _summary_cache_put(uid, "performance", _perf_sig, _scored_payload)
+        _performance_log.info("performance cache miss (computed) for %s", uid)
+        return JSONResponse(_scored_payload)
 
     except HTTPException:
         raise
@@ -14357,20 +14401,103 @@ _SUMMARY_CACHE: dict = {}
 def _summary_signature(session, user_id) -> str:
     from sqlalchemy import func as _sf
     row = (
-        session.query(_sf.max(Workout.created_at), _sf.count(Workout.id))
+        session.query(
+            _sf.max(Workout.created_at),
+            _sf.count(Workout.id),
+            _sf.max(Workout.updated_at),
+        )
         .filter(Workout.user_id == user_id)
         .one()
     )
-    return "%s|%s" % (row[0], row[1])
+    # Include MAX(updated_at) so an in-place edit (e.g. marking a run as an
+    # interval) — which changes updated_at but not created_at/count — still
+    # busts the cache and refreshes the derived scores/feeds.
+    return "%s|%s|%s" % (row[0], row[1], row[2])
 
 
 def _summary_cache_get(user_id, key, sig):
+    """Two-level cache read: in-memory L1, then durable Neon L2.
+
+    L1 (``_SUMMARY_CACHE``) is the fast per-process path. On an L1 miss (e.g. the
+    first request after a restart wiped L1) fall back to the ``summary_cache``
+    table: if a row exists whose stored signature matches, hydrate L1 and return
+    it — no recompute. Any DB error degrades gracefully to a miss (recompute).
+    """
     ent = _SUMMARY_CACHE.get((str(user_id), key))
-    return ent[1] if ent and ent[0] == sig else None
+    if ent and ent[0] == sig:
+        return ent[1]
+
+    # L2: durable Neon-backed cache. A restart clears L1 but not this table.
+    try:
+        with Session(engine) as _s:
+            row = (
+                _s.query(SummaryCache.signature, SummaryCache.payload)
+                .filter(
+                    SummaryCache.user_id == user_id,
+                    SummaryCache.cache_key == key,
+                )
+                .first()
+            )
+        if row is not None and row[0] == sig:
+            payload = row[1]
+            _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
+            return payload
+    except Exception:
+        _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
+    return None
 
 
 def _summary_cache_put(user_id, key, sig, payload):
+    """Two-level cache write: set L1, then UPSERT the durable L2 row.
+
+    A DB failure on the L2 write must not break the request — L1 still serves
+    within the process; the durable row simply refreshes on the next compute.
+    """
     _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+    try:
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+        stmt = _pg_insert(SummaryCache.__table__).values(
+            user_id=user_id,
+            cache_key=key,
+            signature=sig,
+            payload=payload,
+            updated_at=_datetime.now(_timezone.utc),
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["user_id", "cache_key"],
+            set_={
+                "signature": stmt.excluded.signature,
+                "payload": stmt.excluded.payload,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        with Session(engine) as _s:
+            _s.execute(stmt)
+            _s.commit()
+    except Exception:
+        _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
+
+
+def _performance_signature(session, user_id, prefs_row) -> str:
+    """Cache signature for the Endurance/Speed performance scores.
+
+    Combines the workout-set signature (MAX(created_at) + count for the athlete —
+    a sync that inserts/updates any workout bumps created_at) with the
+    threshold/preference inputs the score compute depends on (FTP, threshold HR,
+    threshold pace, aerobic-decoupling threshold). Any of these changing
+    recomputes the scores; otherwise repeat loads reuse the cached payload.
+    """
+    base = _summary_signature(session, user_id)
+    if prefs_row is not None:
+        prefs_part = "%s|%s|%s|%s" % (
+            getattr(prefs_row, "ftp_w", None),
+            getattr(prefs_row, "threshold_hr", None),
+            getattr(prefs_row, "threshold_pace_seconds_per_km", None),
+            getattr(prefs_row, "aerobic_decoupling_threshold", None),
+        )
+    else:
+        prefs_part = "no-prefs"
+    return base + "|" + prefs_part
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
@@ -14904,7 +15031,7 @@ def _compute_plan_bundle(user) -> dict:
     in-process (no HTTP) and decoding their JSON, then attaching per-race
     computed scores/estimates. Reused by GET /api/plan/computed and
     POST /api/plan/recompute."""
-    from backend.services.plan_service import race_to_dict as _race_to_dict
+    from backend.services.projection_service import race_to_dict as _race_to_dict
 
     def _decode(resp):
         try:
