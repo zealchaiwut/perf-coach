@@ -11994,6 +11994,7 @@ def get_training_daily_load(
 
 @app.get("/api/athletes/{athlete_id}/daily-load")
 def get_athlete_daily_load(
+    athlete_id: str,
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     current_user: User = Depends(resolve_user),
@@ -12003,6 +12004,11 @@ def get_athlete_daily_load(
     Validates date params first (400 on failure), then checks athlete
     exists (404 if not), then delegates computation to daily_load_series.
     """
+    try:
+        if _uuid.UUID(athlete_id) != current_user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     if start_date is None or end_date is None:
         missing = []
         if start_date is None:
@@ -14178,7 +14184,7 @@ def get_device_zones(user: User = Depends(resolve_user)):
 # ── Athlete duration curve ────────────────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/duration-curve")
-def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
+def get_athlete_duration_curve(athlete_id: str, current_user: User = Depends(resolve_user)):
     """Return the per-athlete best-effort duration curve across all run workouts.
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
@@ -14187,6 +14193,11 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
     Each curve entry includes duration, best_value, source_workout_id, source_date,
     and a debug object identifying the source workout.
     """
+    try:
+        if _uuid.UUID(athlete_id) != current_user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     uid = current_user.id
 
     with Session(engine) as session:
@@ -14251,7 +14262,7 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
 # ── Athlete detected personal records ─────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/detected-prs")
-def get_athlete_detected_prs(user: User = Depends(resolve_user)):
+def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)):
     """Return automatically detected personal records for the authenticated athlete.
 
     Computes speed, power, and volume records on the fly from run history and
@@ -14264,6 +14275,11 @@ def get_athlete_detected_prs(user: User = Depends(resolve_user)):
 
     Returns 200 with ``speedRecords``, ``powerRecords``, and ``volumeRecords`` keys.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.pr_detection import fetch_and_detect_records
 
     uid = user.id
@@ -14469,7 +14485,7 @@ def _build_performance_diagnostic(preferences, runs):
 
 
 @app.get("/api/athletes/{athlete_id}/performance")
-def get_athlete_performance(user: User = Depends(resolve_user)):
+def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete (issue #1020).
 
     Every response includes exactly these top-level keys: state, endurance, speed,
@@ -14480,6 +14496,11 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     HTTP 500 for unexpected server-side failures (state='error').
     HTTP 404 when the athlete ID does not exist.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
@@ -14844,7 +14865,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
-def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
+def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_user)):
     """Return a flat weekly summary for the current ISO week.
 
     Aggregates volume (distance_km, total_tss, session_count), fitness signal
@@ -14856,6 +14877,12 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
     numeric fields and null for weight when no data exists.  Returns 404
     when the session user does not exist in the database.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
@@ -15203,7 +15230,7 @@ def _build_run_pr_pre_detection_log_entry(duration_curve_populated, runs_conside
 
 
 @app.get("/api/athletes/{athlete_id}/run-personal-records")
-def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
+def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resolve_user)):
     """Return auto-detected personal records from the athlete's run history.
 
     Reads completed run workouts and the stored best-effort duration curve,
@@ -15214,6 +15241,11 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
 
     Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.pr_detection import fetch_and_detect_records
     from backend.models import AthleteDurationCurve as _AthleteDurationCurve
 
