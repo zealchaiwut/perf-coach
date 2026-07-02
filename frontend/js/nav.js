@@ -122,6 +122,30 @@
     ensureCsrfReady().catch(function () {});
   }
 
+  // ── Shared /api/auth/me (perf/hot-paths Task 7) ────────────────────────
+  // nav.js loads first on every page (before user.js, home.js,
+  // training-plan.js, projection.js), so the single cached fetch lives
+  // here — every consumer awaits this same promise instead of issuing its
+  // own /api/auth/me request. Resolves to null specifically for 401/403
+  // (not authenticated) so callers can redirect; rejects for other
+  // failures (5xx/network) so callers can distinguish "not logged in"
+  // from "request failed" the way each page did before consolidation.
+  var _currentUserPromise = null;
+  window.fetchCurrentUser = function () {
+    if (_currentUserPromise) return _currentUserPromise;
+    var ready = window.ensureCsrfReady ? window.ensureCsrfReady() : Promise.resolve();
+    _currentUserPromise = ready
+      .then(function () {
+        return fetch("/api/auth/me");
+      })
+      .then(function (res) {
+        if (res.status === 401 || res.status === 403) return null;
+        if (!res.ok) throw new Error("auth/me error " + res.status);
+        return res.json();
+      });
+    return _currentUserPromise;
+  };
+
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
@@ -492,10 +516,8 @@
     });
     // Self-fetch identity so the avatar initial is correct even on pages that
     // do not load user.js / dispatch userReady (e.g. the weight page).
-    fetch("/api/auth/me")
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
+    window
+      .fetchCurrentUser()
       .then(function (u) {
         if (!u) return;
         _navUserName = u.name || _navUserName || "";

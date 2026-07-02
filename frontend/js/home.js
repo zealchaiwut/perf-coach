@@ -1284,10 +1284,8 @@
     setGreetingDate();
     var userId = null;
     try {
-      var res = await fetch('/api/auth/me');
-      if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-      if (!res.ok) throw new Error('auth/me failed');
-      var user = await res.json();
+      var user = await window.fetchCurrentUser();
+      if (!user) { window.location.href = '/login'; return; }
       var name = user.name || '';
       userId = user.id;
       setGreetingText(name);
