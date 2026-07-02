@@ -2047,6 +2047,11 @@
                 </div>
               </div>
             </div>
+            <!-- EWMA weekly rate indicator -->
+            <div class="ewma-rate-row" id="ewma-rate-row" hidden>
+              <span class="ewma-rate-label">EWMA trend</span>
+              <span class="delta-pill neutral" id="ewma-rate-pill">-- kg/wk</span>
+            </div>
             <!-- Coach strip: single instance, re-evaluates on each log/edit -->
             <div class="coach-strip coach-grey" id="coach-strip">
               <span id="coach-text"
@@ -2055,11 +2060,19 @@
             </div>
             <div class="merged-sep"></div>
             <div class="hcb-top">
-              <span class="hcb-label">LOG TODAY</span>
+              <span class="hcb-label">LOG WEIGHT</span>
               <span class="hcb-date" id="hcb-date"></span>
             </div>
             <!-- Stepper (shown when not yet logged today, or while editing) -->
             <div id="stepper-wrap">
+              <div class="et-field" style="margin-bottom:8px">
+                <input
+                  type="date"
+                  id="log-date-input"
+                  aria-label="Entry date"
+                  style="width:100%;box-sizing:border-box"
+                />
+              </div>
               <div class="stepper">
                 <button
                   class="stepper-btn"
@@ -2301,6 +2314,9 @@
             <span class="legend-line" style="background: #2563eb"></span>7-day
             avg
           </span>
+          <span class="legend-chip">
+            <span class="legend-line" style="background: #f59e0b"></span>EWMA
+          </span>
           <span class="legend-chip" id="legend-plan" hidden>
             <span class="legend-dashed" style="border-color: #16a34a"></span
             >Plan
@@ -2504,6 +2520,8 @@
         </button>
       </div>
     </div>
+
+    <script src="js/lib/sync-poller.js"></script>
 
     <script src="js/nav.js"></script>
     <script src="js/ui-states.js"></script>

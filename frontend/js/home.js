@@ -9,19 +9,6 @@
       .replace(/"/g, "&quot;");
   }
 
-  /* ---- Centralized fetch helper ---- */
-
-  async function _homeFetch(url) {
-    try {
-      var r = await fetch(url);
-      if (!r.ok) return { ok: false, data: null, status: r.status };
-      var data = await r.json();
-      return { ok: true, data: data, status: r.status };
-    } catch (_) {
-      return { ok: false, data: null, status: 0 };
-    }
-  }
-
   /* ---- Greeting ---- */
 
   function getGreetingPrefix() {
@@ -67,23 +54,10 @@
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
   }
 
-  // Returns a Date object whose local year/month/day matches Bangkok's current date.
-  function bangkokToday() {
-    var s = bangkokTodayStr();
-    var p = s.split('-');
-    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-  }
-
   function addISODays(isoStr, n) {
     var d = new Date(isoStr + 'T00:00:00');
     d.setDate(d.getDate() + n);
     return isoDate(d);
-  }
-
-  function avgOf(arr) {
-    var vals = arr.filter(function (v) { return v != null && !isNaN(v); });
-    if (!vals.length) return null;
-    return vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
   }
 
   /* ---- Performance card helpers ---- */
@@ -290,58 +264,6 @@
           '<div class="mc-value" title="Prediction model not yet built">—</div>' +
         '</div>' +
       '</div>' +
-    '</div>';
-  }
-
-  /* ── PR track icon map ── */
-  var _PR_TRACK_ICON = {
-    'half_marathon': { cls: 'run',   icon: 'ti-run',     sub: '21.1 km' },
-    '10k':           { cls: 'run',   icon: 'ti-run',     sub: '10.0 km' },
-    'squat_1rm':     { cls: 'lift',  icon: 'ti-barbell', sub: '1-rep max' },
-  };
-
-  function _prTrendIcon(trend) {
-    if (trend === 'improving') {
-      return '<span class="pr-trend pr-trend--green"><i class="ti ti-arrow-up"></i></span>';
-    }
-    if (trend === 'declining') {
-      return '<span class="pr-trend pr-trend--red"><i class="ti ti-arrow-down"></i></span>';
-    }
-    /* stable or no_data */
-    return '<span class="pr-trend pr-trend--flat" data-trend="' + (trend === 'stable' ? 'stable' : trend) + '">—</span>';
-  }
-
-  function _prFmtAchievedOn(isoStr) {
-    if (!isoStr) return '';
-    var parts = isoStr.split('-');
-    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
-  }
-
-  function _buildPrRow(track, isLast) {
-    var ic = _PR_TRACK_ICON[track.track_key] || { cls: 'run', icon: 'ti-run', sub: '' };
-    var predictedHTML = track.predicted_value_formatted
-      ? track.predicted_value_formatted
-      : '<span class="pr-dash">—</span>';
-
-    return '<div class="perf-row' + (isLast ? ' perf-row-last' : '') + '" data-pr-row>' +
-      '<div class="perf-track">' +
-        '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
-        '<div>' +
-          '<div class="trk-name">' + esc(track.track_name) + '</div>' +
-          '<div class="trk-sub">' + ic.sub + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div>' +
-        '<span class="pc-value">' + (track.current_value_formatted || '—') + '</span>' +
-        (track.achieved_on
-          ? '<div class="pc-trophy"><i class="ti ti-trophy-filled"></i>' +
-            _prFmtAchievedOn(track.achieved_on) + '</div>'
-          : '') +
-      '</div>' +
-      '<div>' + predictedHTML + '</div>' +
-      '<div>' + _prTrendIcon(track.trend) + '</div>' +
     '</div>';
   }
 
@@ -739,16 +661,18 @@
   var _autoSaveTimer = null;
 
   var _FM_STEPPERS = [
-    { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120, step: 1   },
-    { inputId: 'fm-hrv',    minusId: 'fm-hrv-minus',    plusId: 'fm-hrv-plus',    min: 0,   max: 200, step: 1   },
-    { inputId: 'fm-sleep',  minusId: 'fm-sleep-minus',  plusId: 'fm-sleep-plus',  min: 0,   max: 12,  step: 0.5 },
-    { inputId: 'fm-weight', minusId: 'fm-weight-minus', plusId: 'fm-weight-plus', min: 30,  max: 200, step: 1   },
+    { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120,   step: 1   },
+    { inputId: 'fm-hrv',    minusId: 'fm-hrv-minus',    plusId: 'fm-hrv-plus',    min: 0,   max: 200,   step: 1   },
+    { inputId: 'fm-sleep',  minusId: 'fm-sleep-minus',  plusId: 'fm-sleep-plus',  min: 0,   max: 12,    step: 0.5 },
+    { inputId: 'fm-kcal',   minusId: 'fm-kcal-minus',   plusId: 'fm-kcal-plus',   min: 1,   max: 10000, step: 50  },
+    { inputId: 'fm-weight', minusId: 'fm-weight-minus', plusId: 'fm-weight-plus', min: 30,  max: 200,   step: 1   },
   ];
 
   function _fmBuildPayload() {
     var rhr    = document.getElementById('fm-rhr')   ? document.getElementById('fm-rhr').value.trim()   : '';
     var hrv    = document.getElementById('fm-hrv')   ? document.getElementById('fm-hrv').value.trim()   : '';
     var sleep  = document.getElementById('fm-sleep') ? document.getElementById('fm-sleep').value.trim() : '';
+    var kcal   = document.getElementById('fm-kcal')  ? document.getElementById('fm-kcal').value.trim()  : '';
     var energy = document.getElementById('fm-energy-val') ? document.getElementById('fm-energy-val').value : '';
     var mood   = document.getElementById('fm-mood-val')   ? document.getElementById('fm-mood-val').value   : '';
     var notes  = document.getElementById('fm-notes') ? document.getElementById('fm-notes').value.trim()  : '';
@@ -757,6 +681,7 @@
     if (rhr    !== '') payload.resting_hr  = parseInt(rhr, 10);
     if (hrv    !== '') payload.hrv         = parseInt(hrv, 10);
     if (sleep  !== '') payload.sleep_hours = parseFloat(sleep);
+    if (kcal   !== '') payload.kcal_intake = parseInt(kcal, 10);
     if (energy !== '') payload.energy      = parseInt(energy, 10);
     if (mood   !== '') payload.mood        = parseInt(mood, 10);
     if (notes  !== '') payload.notes       = notes;
@@ -863,6 +788,7 @@
     if (existing.resting_hr  != null) { var el = document.getElementById('fm-rhr');   if (el) el.value = existing.resting_hr; }
     if (existing.hrv         != null) { var el = document.getElementById('fm-hrv');   if (el) el.value = existing.hrv; }
     if (existing.sleep_hours != null) { var el = document.getElementById('fm-sleep'); if (el) el.value = existing.sleep_hours; }
+    if (existing.kcal_intake != null) { var el = document.getElementById('fm-kcal');  if (el) el.value = existing.kcal_intake; }
     if (existing.energy != null) {
       var hidden = document.getElementById('fm-energy-val'); if (hidden) hidden.value = existing.energy;
       var group  = document.getElementById('fm-energy-pills'); if (group) _fmSelectPill(group, existing.energy);
@@ -903,55 +829,6 @@
         _fmDoSave(userId, todayStr, false);
       });
     }
-  }
-
-  /* ---- Log today banner (issue #394) ---- */
-
-  async function loadLogTodayBanner(userId) {
-    var banner = document.getElementById('log-today-banner');
-    if (!banner) return;
-    var todayStr = bangkokTodayStr();
-    var hasRow = false;
-    try {
-      var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
-      hasRow = r.ok;
-    } catch (_) { /* network error, hasRow stays false */ }
-    banner.style.display = hasRow ? 'none' : 'block';
-
-    var ctaBtn = document.getElementById('log-today-cta-btn');
-    if (ctaBtn) {
-      ctaBtn.addEventListener('click', function () {
-        var section = document.getElementById('fast-log-section');
-        if (section) {
-          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          var firstInput = section.querySelector('.fm-input, .fm-textarea');
-          if (firstInput) setTimeout(function () { firstInput.focus(); }, 400);
-        }
-        banner.style.display = 'none';
-      });
-    }
-  }
-
-  async function loadLogTodayCard(userId) {
-    var rowLog = document.getElementById('row-log');
-    if (!rowLog) return;
-
-    var card = document.getElementById('log-today-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'log-today-card';
-      card.className = 'card log-today';
-      rowLog.appendChild(card);
-    }
-
-    var todayStr = bangkokTodayStr();
-    var existing = null;
-    try {
-      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
-      if (res.ok) existing = await res.json();
-    } catch (_) { /* network error, render with no existing data */ }
-
-    renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
 
   /* ---- Threshold banner ---- */
@@ -1176,6 +1053,37 @@
     _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
   }
 
+  async function _renderBodyModifierGuardrail() {
+    var el = document.getElementById('body-modifier-guardrail');
+    if (!el) return;
+    try {
+      var res = await fetch('/api/body-modifier/guardrail');
+      if (!res.ok) { el.innerHTML = ''; return; }
+      var data = await res.json();
+      if (data.guardrail_state !== 'warn') {
+        el.innerHTML = '';
+        return;
+      }
+      var msg = data.guardrail_message || 'You are in the penalty region — this is a performance and health risk.';
+      el.innerHTML =
+        '<div class="bm-guardrail">' +
+          '<span class="bm-guardrail-icon" aria-hidden="true">&#9888;</span>' +
+          '<span><span class="bm-guardrail-label">Performance risk:</span>' +
+          '<span class="bm-guardrail-msg"> ' + _escHtml(msg) + '</span></span>' +
+        '</div>';
+    } catch (_) {
+      el.innerHTML = '';
+    }
+  }
+
+  function _escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function _weightSummaryAdapter(wBlock) {
     if (!wBlock) return null;
     return {
@@ -1248,11 +1156,17 @@
   async function init() {
     setGreetingDate();
     var userId = null;
+
+    // /api/home/summary resolves the user from the session cookie, not a
+    // userId param, so it doesn't actually depend on fetchCurrentUser()'s
+    // result — fire both immediately instead of waiting on auth first.
+    var summaryPromise = fetch('/api/home/summary')
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .catch(function () { return {}; });
+
     try {
-      var res = await fetch('/api/auth/me');
-      if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-      if (!res.ok) throw new Error('auth/me failed');
-      var user = await res.json();
+      var user = await window.fetchCurrentUser();
+      if (!user) { window.location.href = '/login'; return; }
       var name = user.name || '';
       userId = user.id;
       setGreetingText(name);
@@ -1266,8 +1180,7 @@
       _checkStravaStaleBanner();
 
       /* Single summary fetch — distribute to all widget renderers */
-      var _sumRes = await fetch('/api/home/summary');
-      var summary = _sumRes.ok ? await _sumRes.json() : {};
+      var summary = await summaryPromise;
 
       /* Habits strip + log-today strip */
       if (window.HomeStripHabits) {
@@ -1278,6 +1191,9 @@
       if (window.HomeRTS) {
         HomeRTS.render(summary);
       }
+
+      /* Body-modifier guardrail warning (issue #1161) */
+      _renderBodyModifierGuardrail();
 
       /* Weight widget (using summary.weight block) */
       _renderHomeWeightWidget(summary.weight, userId);

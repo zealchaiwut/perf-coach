@@ -24,10 +24,17 @@ from backend.services.zone_constants import make_zone_constants, MIN_QUALIFYING_
 # ---------------------------------------------------------------------------
 
 def _make_easy_run(run_id, efficiency_hint=1.5, decoupling_pct=5.0, workout_date="2026-01-01"):
-    """Single-lap easy run for endurance score tests."""
-    # Power-based: efficiency = avg_power / avg_hr
-    # efficiency_hint = power / 140, so power = efficiency_hint * 140
-    power = efficiency_hint * 140
+    """Single-lap easy run for endurance score tests (VDOT re-anchor).
+
+    The score is now pace/HR based (VDOT), not power/HR. ``efficiency_hint``
+    drives the lap PACE: a higher hint = faster = shorter duration over a fixed
+    2 km lap, so an "improving efficiency" series maps to an improving score.
+    Baseline 1.5 → 360 s/km (a genuinely easy pace); scales inversely.
+    """
+    distance_km = 2.0
+    pace_s_per_km = 360.0 / (efficiency_hint / 1.5)  # faster as hint rises
+    duration = pace_s_per_km * distance_km
+    power = efficiency_hint * 140  # retained for any power-path consumers
     return {
         "run_id": run_id,
         "workout_date": workout_date,
@@ -36,8 +43,8 @@ def _make_easy_run(run_id, efficiency_hint=1.5, decoupling_pct=5.0, workout_date
                 "band": "easy",
                 "avg_power": power,
                 "avg_hr": 140.0,
-                "distance_km": 2.0,
-                "duration_seconds": 600.0,
+                "distance_km": distance_km,
+                "duration_seconds": duration,
             }
         ],
         "decoupling_pct": decoupling_pct,
@@ -49,7 +56,15 @@ def _make_easy_run(run_id, efficiency_hint=1.5, decoupling_pct=5.0, workout_date
 
 
 def _make_hard_run(run_id, efficiency_hint=1.8, avg_hard_power=270.0, workout_date="2026-01-01"):
-    """Single-lap hard run for speed score tests."""
+    """Single-lap hard run for speed score tests (VDOT re-anchor).
+
+    Speed is now pace/duration based. ``efficiency_hint`` drives the hard-lap
+    PACE: higher hint = faster over a fixed 1 km lap. Baseline 1.8 → 240 s/km
+    (a 4:00/km hard effort); scales inversely.
+    """
+    distance_km = 1.0
+    pace_s_per_km = 240.0 / (efficiency_hint / 1.8)  # faster as hint rises
+    duration = pace_s_per_km * distance_km
     power = efficiency_hint * 150
     return {
         "run_id": run_id,
@@ -59,8 +74,8 @@ def _make_hard_run(run_id, efficiency_hint=1.8, avg_hard_power=270.0, workout_da
                 "band": "hard",
                 "avg_power": power,
                 "avg_hr": 150.0,
-                "distance_km": 1.0,
-                "duration_seconds": 300.0,
+                "distance_km": distance_km,
+                "duration_seconds": duration,
             }
         ],
         "decoupling_pct": None,
@@ -469,20 +484,38 @@ class TestComputeSpeedDurationCurveBests:
 # ---------------------------------------------------------------------------
 
 class TestScoreNormalization:
-    """AC6: Scores are normalized to athlete's own historical range."""
+    """AC6 (re-anchor): scores are ABSOLUTE VDOT-band values, not window-relative.
 
-    def test_score_with_identical_efficiencies_is_50(self):
-        """When all runs have the same efficiency, normalized score is 50."""
+    The old min-max normalization (identical efficiencies → 50) is gone. The new
+    contract: identical efforts produce a stable, flat score; an improving pace
+    series trends up.
+    """
+
+    def test_score_with_identical_efforts_is_stable_and_flat(self):
+        """Identical efforts → the same VDOT-band value every day, direction flat.
+
+        (Replaces the old 'normalized to 50' assertion — the scale is now
+        absolute, so identical runs sit at their true band value, not the
+        window midpoint.)
+        """
         runs = [
             _make_easy_run(f"r{i}", efficiency_hint=1.6, decoupling_pct=5.0,
                            workout_date=f"2026-01-{i:02d}")
             for i in range(1, MIN_QUALIFYING_RUNS + 1)
         ]
         result = compute_endurance_score(runs, _minimal_prefs(), _make_zone_constants())
-        assert result.get("score") == 50.0
+        assert 0 <= result.get("score") <= 100
+        assert result.get("direction") == "flat"
+        # Every trend point is the same absolute value (no window rescale).
+        trend = result["trend"]
+        assert max(trend) - min(trend) < 0.01
 
-    def test_highest_efficiency_run_scores_100(self):
-        """The most recent run with the best efficiency should score 100."""
+    def test_improving_series_yields_score_in_range_and_improving_direction(self):
+        """An improving (faster) pace series yields a valid score and 'improving'.
+
+        Re-anchor: score is the absolute VDOT band; a genuinely faster series
+        (shorter duration per km) trends up.
+        """
         runs = [
             _make_easy_run("r1", efficiency_hint=1.50, decoupling_pct=5.0, workout_date="2026-01-01"),
             _make_easy_run("r2", efficiency_hint=1.55, decoupling_pct=5.0, workout_date="2026-01-08"),
@@ -491,8 +524,9 @@ class TestScoreNormalization:
             _make_easy_run("r5", efficiency_hint=1.70, decoupling_pct=5.0, workout_date="2026-01-29"),
         ]
         result = compute_endurance_score(runs, _minimal_prefs(), _make_zone_constants())
-        # Most recent run has highest efficiency, so it should score 100
-        assert result.get("score") == 100.0
+        assert 0 <= result.get("score") <= 100
+        assert result.get("direction") == "improving"
+        assert result.get("direction") == "improving"
 
 
 # ---------------------------------------------------------------------------

@@ -355,10 +355,6 @@
     if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
-  function rowIndex(tr) {
-    return Array.from(tr.parentElement.children).indexOf(tr);
-  }
-
   function escapeAttr(s) {
     return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -1067,29 +1063,6 @@
     recomputeRunBodyTotals();
   }
 
-  // Populate sync fields from device data (called when a device sync provides data)
-  function rbFillSync(data) {
-    function fillField(id, val, unit) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      if (val != null) {
-        el.textContent = val + ' ' + unit;
-        el.classList.remove('rb-sync-placeholder');
-        el.classList.add('has-value');
-      } else {
-        el.textContent = '— ' + unit;
-        el.classList.add('rb-sync-placeholder');
-        el.classList.remove('has-value');
-      }
-    }
-    if (data) {
-      fillField('rb-sync-hr', data.hr, 'bpm');
-      fillField('rb-sync-power', data.power, 'W');
-      fillField('rb-sync-cadence', data.cadence, 'spm');
-      fillField('rb-sync-stride', data.stride, 'm');
-    }
-  }
-
   function rbGetSplitsPayload() {
     var lapMode = document.getElementById('rb-lap-mode');
     var isManual = lapMode && lapMode.value === 'manual';
@@ -1170,11 +1143,6 @@
 
     // Restore any saved draft
     rbRestoreDraft();
-  }
-
-  function resetRunBody() {
-    // Save draft before clearing so it persists
-    rbSaveDraft();
   }
 
   // ── Form reset / fill ─────────────────────────────────────────────────────────

@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sessions – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      background: var(--page-bg);
+      background-color: #1f3b8a;
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    /* ── Page layout ─────────────────────────────────────────────────────── */
+    .se-main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 16px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* ── Page header ─────────────────────────────────────────────────────── */
+    .se-page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      color: #fff;
+    }
+    .se-page-title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      margin: 0;
+    }
+    .se-add-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent, #e4ff52);
+      color: #0b1530;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+      transition: opacity 0.15s;
+    }
+    .se-add-btn:hover { opacity: 0.88; }
+
+    /* ── Card ────────────────────────────────────────────────────────────── */
+    .se-card {
+      background: var(--card-bg, #fff);
+      border-radius: 14px;
+      border: 1px solid var(--card-border, rgba(13,30,67,0.06));
+      box-shadow: var(--card-shadow);
+      padding: 20px;
+    }
+    .se-card-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary, #5c6886);
+      margin: 0 0 14px;
+    }
+
+    /* ── Type picker ─────────────────────────────────────────────────────── */
+    .se-type-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .se-type-btn {
+      flex: 1;
+      min-width: 100px;
+      padding: 12px 16px;
+      border: 2px solid var(--card-border, rgba(13,30,67,0.06));
+      border-radius: 10px;
+      background: var(--card-bg, #fff);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary, #5c6886);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .se-type-btn:hover { border-color: #8b5cf6; color: #0b1530; }
+    .se-type-btn.is-active {
+      border-color: #8b5cf6;
+      background: #f5f3ff;
+      color: #5b21b6;
+    }
+    .se-type-btn.plyo.is-active {
+      border-color: #2563eb;
+      background: #eff6ff;
+      color: #1e40af;
+    }
+
+    /* ── Date row ────────────────────────────────────────────────────────── */
+    .se-date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .se-date-row label { font-size: 12px; font-weight: 600; color: var(--text-secondary, #5c6886); }
+    .se-date-input {
+      flex: 1;
+      min-width: 140px;
+      padding: 8px 12px;
+      border: 1px solid var(--border-input, #d1d5db);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text-primary, #0b1530);
+    }
+    .se-date-input:focus { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+
+    /* ── Exercise rows ───────────────────────────────────────────────────── */
+    .se-exercises { display: flex; flex-direction: column; gap: 10px; }
+    .se-ex-row {
+      display: grid;
+      gap: 8px;
+      background: #f7f9fd;
+      border-radius: 10px;
+      padding: 12px;
+      position: relative;
+    }
+    .se-ex-row.strength-grid {
+      grid-template-columns: 1fr 56px 56px 80px 72px;
+      grid-template-areas:
+        "name sets reps load unit"
+        "err  err  err  err  err";
+    }
+    .se-ex-row.plyo-grid {
+      grid-template-columns: 1fr 96px 120px;
+      grid-template-areas:
+        "name contacts phase"
+        "err  err      err";
+    }
+    .se-ex-field { display: flex; flex-direction: column; gap: 3px; }
+    .se-ex-field label { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary, #5c6886); }
+    .se-ex-input, .se-ex-select {
+      padding: 7px 9px;
+      border: 1px solid var(--border-input, #d1d5db);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text-primary, #0b1530);
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .se-ex-input[type="number"] {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 13px;
+    }
+    .se-ex-input:focus, .se-ex-select:focus { outline: 2px solid #8b5cf6; outline-offset: 1px; border-color: transparent; }
+    .se-ex-input.has-error, .se-ex-select.has-error { border-color: var(--danger, #dc2626); }
+    .se-ex-errors {
+      grid-area: err;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .se-ex-error-msg {
+      font-size: 11px;
+      color: var(--danger, #dc2626);
+      font-weight: 500;
+    }
+    .se-ex-field[data-area="name"] { grid-area: name; }
+    .se-ex-field[data-area="sets"] { grid-area: sets; }
+    .se-ex-field[data-area="reps"] { grid-area: reps; }
+    .se-ex-field[data-area="load"] { grid-area: load; }
+    .se-ex-field[data-area="unit"] { grid-area: unit; }
+    .se-ex-field[data-area="contacts"] { grid-area: contacts; }
+    .se-ex-field[data-area="phase"] { grid-area: phase; }
+
+    /* ── Delete row button ───────────────────────────────────────────────── */
+    .se-ex-delete {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      border: none;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: var(--text-secondary, #5c6886);
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.15s, background 0.15s;
+    }
+    .se-ex-delete:hover { color: var(--danger, #dc2626); background: var(--danger-soft, #fee2e2); }
+
+    /* ── Add exercise link ───────────────────────────────────────────────── */
+    .se-add-ex-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: none;
+      border: none;
+      padding: 6px 0;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: #5b21b6;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+    }
+    .se-add-ex-btn:hover { text-decoration: underline; }
+
+    /* ── Form actions ────────────────────────────────────────────────────── */
+    .se-form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-top: 4px;
+    }
+    .se-btn-cancel {
+      padding: 9px 18px;
+      border: 1px solid var(--border-input, #d1d5db);
+      border-radius: 8px;
+      background: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary, #5c6886);
+      cursor: pointer;
+    }
+    .se-btn-cancel:hover { background: #f7f9fd; }
+    .se-btn-submit {
+      padding: 9px 20px;
+      border: none;
+      border-radius: 8px;
+      background: #5b21b6;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .se-btn-submit:hover { opacity: 0.88; }
+    .se-btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Session list ────────────────────────────────────────────────────── */
+    .se-list { display: flex; flex-direction: column; gap: 12px; }
+    .se-session-card {
+      background: var(--card-bg, #fff);
+      border-radius: 14px;
+      border: 1px solid var(--card-border, rgba(13,30,67,0.06));
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+    }
+    .se-session-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--card-border, rgba(13,30,67,0.06));
+    }
+    .se-session-meta { display: flex; align-items: center; gap: 10px; }
+    .se-session-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: #fff;
+      background: #5b21b6;
+    }
+    .se-session-badge.strength { background: #5b21b6; }
+    .se-session-badge.plyo { background: #1d4ed8; }
+    .se-session-date {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary, #0b1530);
+    }
+    .se-session-actions { display: flex; gap: 6px; }
+    .se-session-btn {
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .se-session-btn.edit { background: #f7f9fd; color: #0b1530; }
+    .se-session-btn.edit:hover { background: #e8edfa; }
+    .se-session-btn.del { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
+    .se-session-btn.del:hover { background: #fca5a5; }
+
+    /* ── Exercise rows in list ───────────────────────────────────────────── */
+    .se-ex-list { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+    .se-ex-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      flex-wrap: wrap;
+      padding: 6px 0;
+      border-bottom: 1px solid #f0f2f7;
+    }
+    .se-ex-item:last-child { border-bottom: none; }
+    .se-ex-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .se-ex-dot.strength { background: #8b5cf6; }
+    .se-ex-dot.plyo { background: #2563eb; }
+    .se-ex-item-name { font-weight: 600; flex: 1; min-width: 80px; }
+    .se-ex-item-detail { color: var(--text-secondary, #5c6886); font-size: 12px; font-family: "JetBrains Mono", monospace; }
+    .se-ex-item-actions { display: flex; gap: 4px; margin-left: auto; }
+    .se-ex-item-btn {
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+    .se-ex-item-btn.edit { background: #f7f9fd; color: #0b1530; }
+    .se-ex-item-btn.edit:hover { background: #e8edfa; }
+    .se-ex-item-btn.del { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
+    .se-ex-item-btn.del:hover { background: #fca5a5; }
+
+    /* -- Empty state --------------------------------------------------------- */
+    .se-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-secondary, #5c6886);
+      font-size: 14px;
+    }
+    .se-empty strong { display: block; font-size: 15px; color: var(--text-primary, #0b1530); margin-bottom: 6px; }
+    .se-empty span { font-family: "JetBrains Mono", monospace; }
+
+    /* ── Toast ───────────────────────────────────────────────────────────── */
+    .se-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0b1530;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      z-index: 1000;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+    }
+    .se-toast.is-visible { opacity: 1; transform: translateY(0); }
+    .se-toast.success { background: #166534; }
+    .se-toast.error { background: #991b1b; }
+
+    /* ── Error banner ────────────────────────────────────────────────────── */
+    .se-error-banner {
+      background: var(--danger-soft, #fee2e2);
+      color: var(--danger, #dc2626);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .se-ex-row.strength-grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+          "name name"
+          "sets reps"
+          "load unit"
+          "err  err";
+      }
+      .se-ex-row.plyo-grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+          "name     name"
+          "contacts phase"
+          "err      err";
+      }
+      .se-session-actions { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <div id="nav-placeholder"></div>
+
+  <main class="se-main">
+    <div class="se-page-header">
+      <h1 class="se-page-title">Sessions</h1>
+      <button type="button" class="se-add-btn" id="se-add-btn">+ Add Session</button>
+    </div>
+
+    <!-- Entry form (hidden until Add Session clicked) -->
+    <div class="se-card" id="se-form-card" style="display:none">
+      <p class="se-card-label">New Session</p>
+
+      <!-- Type selector -->
+      <div class="se-type-row" id="se-type-row">
+        <button type="button" class="se-type-btn is-active" id="se-type-strength" data-type="strength">
+          🏋️ Strength
+        </button>
+        <button type="button" class="se-type-btn plyo" id="se-type-plyo" data-type="plyo">
+          🦘 Plyo
+        </button>
+      </div>
+
+      <!-- Date picker -->
+      <div class="se-date-row" style="margin-top:14px">
+        <label for="se-date">Date</label>
+        <input type="date" id="se-date" class="se-date-input">
+        <span id="se-date-err" class="se-ex-error-msg" style="display:none"></span>
+      </div>
+
+      <!-- Exercise list -->
+      <div style="margin-top:14px">
+        <p class="se-card-label">Exercises</p>
+        <div class="se-exercises" id="se-exercises"></div>
+        <button type="button" class="se-add-ex-btn" id="se-add-ex-btn" style="margin-top:10px">
+          + Add another exercise
+        </button>
+      </div>
+
+      <!-- Actions -->
+      <div class="se-form-actions" style="margin-top:18px">
+        <button type="button" class="se-btn-cancel" id="se-cancel-btn">Cancel</button>
+        <button type="button" class="se-btn-submit" id="se-submit-btn">Save Session</button>
+      </div>
+    </div>
+
+    <!-- Session list -->
+    <div id="se-list-container">
+      <div class="se-card se-empty" id="se-loading">
+        <span>Loading…</span>
+      </div>
+    </div>
+  </main>
+
+  <div class="se-toast" id="se-toast"></div>
+
+  <script src="js/lib/sync-poller.js"></script>
+
+  <script src="js/nav.js"></script>
+  <script src="js/sessions.js"></script>
+</body>
+</html>

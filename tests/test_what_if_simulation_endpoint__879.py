@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session as _OrmSess
 from backend.auth import CSRF_COOKIE_NAME as _CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.db import engine as _engine
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "")
 if not BASE_URL.startswith("http"):
@@ -67,7 +68,7 @@ def _create_user(client: httpx.Client) -> tuple[str, str, str]:
     """
     name = f"wt879_{uuid.uuid4().hex[:8]}"
     with httpx.Client(base_url=str(client.base_url), timeout=10.0) as bare:
-        r = bare.post("/api/users", json={"name": name})
+        r = bare.post("/api/users", json={"name": name}, cookies=_admin_cookies())
         assert r.status_code == 201, f"Failed to create test user: {r.text}"
         uid = r.json()["id"]
         pw_hash = _hash_pw(_PW)
@@ -83,7 +84,7 @@ def _create_user(client: httpx.Client) -> tuple[str, str, str]:
 
 
 def _delete_user(client: httpx.Client, user_id: str) -> None:
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 def _create_loss_target(client: httpx.Client, cookie: str, csrf_token: str) -> dict:

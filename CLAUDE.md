@@ -20,8 +20,10 @@ and a daily **readiness** score is computed from the wellness metrics.
 
 ## Project Structure
 
-    backend/main.py               FastAPI app — ALL API endpoints live here
-    backend/models.py             SQLAlchemy models (source of truth for schema)
+    backend/main.py               FastAPI app — most API endpoints live here
+    backend/routers/              Extracted routers (plan.py, strength_sessions.py)
+    backend/models.py             SQLAlchemy models (source of truth for schema;
+                                  human-readable reference: root SCHEMA.md)
     backend/auth.py               Password hashing (scrypt) + signed session cookie
     backend/db.py                 Engine, session, environment detection, check_db()
     backend/seed.py               Seed/sample data
@@ -38,6 +40,10 @@ and a daily **readiness** score is computed from the wellness metrics.
     frontend/pages/               Static HTML pages, each served by a
                                   FileResponse route in main.py
     resources/                    Non-code assets (e.g. resources/brand/ app icons)
+    docs/calculations/            Formula-level docs for every score/model
+                                  (TSS, CTL/ATL/TSB, readiness, projection, …)
+                                  with ML-future notes — read before touching
+                                  any calculation
     docs/                         Release/setup docs; docs/sprints/ holds sprint plans
 
 ## API Conventions (FOLLOW THESE EXACTLY)

@@ -386,3 +386,52 @@ def test_set_boundary_multiplier_at_2_0_suppresses_boundary(monkeypatch):
     monkeypatch.setattr(idet, "SET_BOUNDARY_MULTIPLIER", 2.0)
     updated_20, _ = detect_sets(dict(phase), laps)
     assert updated_20["sets_detected"] == 1
+
+
+# ── Balance guard: robust to a lone outlier recovery (issue #1228) ─────────────
+
+def test_detect_sets_single_outlier_recovery_stays_one_set():
+    """A plain N×reps block with one anomalously-long recovery must read as ONE
+    set of N, not an unbalanced [2, 6] split.
+
+    Mirrors the real 8×400m (c4af2aa3): 8 reps with one long jog mid-workout.
+    The lone long recovery trips a single boundary → candidate split [2, 6],
+    spread 4 > SET_BALANCE_TOLERANCE → REJECT → collapse to sets_detected=1,
+    reps_per_set=[8].
+    """
+    laps = []
+    for i in range(8):
+        laps.append(_hard(60))
+        # One outlier recovery after rep 2 (index 1); the rest are uniform.
+        laps.append(_easy(300 if i == 1 else 90))
+    phase, reason = detect_intervals(laps)
+    assert phase is not None, f"reason: {reason}"
+    updated, _ = detect_sets(phase, laps)
+    assert updated["sets_detected"] == 1
+    assert updated["reps_per_set"] == [8]
+    assert updated["reps_detected"] == 8
+
+
+def test_detect_sets_regular_three_by_four_splits_into_three_balanced_sets():
+    """A genuine 3×4 with regular, evenly-spaced long recoveries must still split
+    into three balanced sets of 4 (balance guard does NOT suppress real structure).
+    """
+    laps = []
+    for s in range(3):
+        for i in range(4):
+            laps.append(_hard(60))
+            # Long recovery only after the 4th rep of each set (except the last).
+            is_set_end = (i == 3) and (s < 2)
+            laps.append(_easy(300 if is_set_end else 90))
+    phase, reason = detect_intervals(laps)
+    assert phase is not None, f"reason: {reason}"
+    updated, _ = detect_sets(phase, laps)
+    assert updated["sets_detected"] == 3
+    assert updated["reps_per_set"] == [4, 4, 4]
+    assert updated["reps_detected"] == 4
+
+
+def test_set_balance_tolerance_defined_at_module_scope():
+    """The balance tolerance is a documented module-scope constant (no inline literal)."""
+    assert hasattr(idet, "SET_BALANCE_TOLERANCE")
+    assert isinstance(idet.SET_BALANCE_TOLERANCE, int)

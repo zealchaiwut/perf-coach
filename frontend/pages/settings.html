@@ -55,7 +55,7 @@
     /* ── Content area ── */
     .settings-content {
       flex: 1;
-      padding: 32px 40px;
+      padding: 28px 32px 36px;
       max-width: 720px;
     }
 
@@ -115,7 +115,7 @@
       }
 
       .settings-content {
-        padding: 20px 16px;
+        padding: 22px 20px 28px;
       }
     }
 
@@ -216,6 +216,24 @@
       color: #8b95ad;
       cursor: default;
     }
+
+    /* Copyable User ID row */
+    .profile-id-row { display: flex; gap: 8px; align-items: stretch; }
+    .profile-id-row .profile-input { flex: 1; min-width: 0; }
+    .profile-id-copy {
+      flex-shrink: 0;
+      padding: 0 14px;
+      border: 1px solid rgba(13, 30, 67, 0.15);
+      border-radius: 8px;
+      background: #fff;
+      color: #5c6886;
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .profile-id-copy:hover { background: #f4f7fc; color: #0b1530; }
+    .profile-id-copy.copied { color: #15803d; border-color: #15803d; }
 
     .profile-field-error {
       font-size: 12px;
@@ -1013,6 +1031,7 @@
   </style>
 </head>
 <body>
+  <script src="/js/lib/sync-poller.js"></script>
   <script src="/js/nav.js"></script>
   <script src="/js/env.js"></script>
 
@@ -1020,9 +1039,10 @@
     <aside class="settings-sidebar">
       <nav>
         <button class="settings-nav-item" data-section="profile">Profile</button>
-        <button class="settings-nav-item" data-section="thresholds">Performance Thresholds</button>
-        <button class="settings-nav-item" data-section="device-zones">Zones</button>
-        <button class="settings-nav-item" data-section="personal-records">Personal Records</button>
+        <button class="settings-nav-item" data-section="thresholds">Thresholds</button>
+        <!-- Zones / Personal Records retired from the nav (unused) — kept hidden so deep links/sections still resolve. -->
+        <button class="settings-nav-item" data-section="device-zones" hidden style="display:none">Zones</button>
+        <button class="settings-nav-item" data-section="personal-records" hidden style="display:none">Personal Records</button>
         <button class="settings-nav-item" data-section="integrations">Integrations</button>
         <button class="settings-nav-item" data-section="about">About</button>
       </nav>
@@ -1039,6 +1059,14 @@
         </div>
 
         <div class="profile-form-group">
+          <label class="profile-label" for="profile-user-id">User ID</label>
+          <div class="profile-id-row">
+            <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
+            <button type="button" class="profile-id-copy" id="profile-user-id-copy" aria-label="Copy user ID" title="Copy user ID">Copy</button>
+          </div>
+        </div>
+
+        <div class="profile-form-group">
           <label class="profile-label" for="profile-display-name">Display name</label>
           <input type="text" id="profile-display-name" class="profile-input" placeholder="Loading…" autocomplete="name" maxlength="100">
           <div class="profile-field-error" id="profile-display-name-error" aria-live="polite"></div>
@@ -1048,11 +1076,6 @@
           <label class="profile-label" for="profile-email">Email</label>
           <input type="email" id="profile-email" class="profile-input" readonly>
           <div class="profile-field-error" id="profile-email-error" aria-live="polite"></div>
-        </div>
-
-        <div class="profile-form-group">
-          <label class="profile-label" for="profile-user-id">User ID</label>
-          <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true">
         </div>
 
         <div class="profile-form-group">
@@ -1442,6 +1465,38 @@
           <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
         </div>
 
+        <!-- Google Drive Sleep -->
+        <div class="integration-card" id="drive-sleep-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#f8f9fc"/>
+                  <path d="M4 17l3.5-6h9L20 17H4z" fill="#4285F4" opacity=".85"/>
+                  <path d="M8.5 7h7L20 17h-4.5L8.5 7z" fill="#34A853" opacity=".85"/>
+                  <path d="M4 17l4.5-10H13l-4.5 10H4z" fill="#FBBC05" opacity=".85"/>
+                </svg>
+              </span>
+              <span class="integration-name">Google Drive (Sleep)</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="drive-sleep-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="drive-sleep-meta">
+            <span style="font-size:13px;color:#6b7280;">Read-only access to the Drive folder where Health Sync exports sleep CSVs.</span>
+          </div>
+          <div class="integration-actions" id="drive-sleep-actions"></div>
+          <div id="drive-sleep-folder-wrap" style="display:none;margin-top:12px;">
+            <label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Sleep CSV folder ID or URL</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" id="drive-sleep-folder-input" placeholder="Paste folder ID or Drive URL…"
+                style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;">
+              <button type="button" id="drive-sleep-folder-save" class="integration-btn integration-btn--primary">Save</button>
+            </div>
+            <div id="drive-sleep-folder-feedback" style="margin-top:6px;font-size:12px;min-height:16px;"></div>
+          </div>
+          <div class="integration-feedback" id="drive-sleep-feedback" aria-live="polite"></div>
+        </div>
+
         <!-- Google (placeholder) -->
         <div class="integration-card integration-card--placeholder" id="google-card">
           <div class="integration-header">
@@ -1579,6 +1634,25 @@
 
             var uidEl = document.getElementById('profile-user-id');
             if (uidEl) uidEl.value = row.user_id || '';
+            var uidCopy = document.getElementById('profile-user-id-copy');
+            if (uidCopy && !uidCopy._wired) {
+              uidCopy._wired = true;
+              uidCopy.addEventListener('click', function () {
+                var v = uidEl ? uidEl.value : '';
+                if (!v) return;
+                var done = function () {
+                  uidCopy.classList.add('copied');
+                  uidCopy.textContent = 'Copied';
+                  setTimeout(function () { uidCopy.classList.remove('copied'); uidCopy.textContent = 'Copy'; }, 1500);
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(v).then(done).catch(done);
+                } else {
+                  try { uidEl.removeAttribute('readonly'); uidEl.select(); document.execCommand('copy'); uidEl.setAttribute('readonly', ''); } catch (e) {}
+                  done();
+                }
+              });
+            }
 
             var tzEl = document.getElementById('profile-timezone');
             if (tzEl) tzEl.value = _baseline.timezone;
@@ -2330,7 +2404,7 @@
       // ── Strava ─────────────────────────────────────────────────────────────
 
       var _stravaUserId = null;
-      var _stravaSyncPollTimer = null;
+      var _stravaSyncPollUnsub = null;
       var _stravaSyncPanelOpen = false;
       var _stravaHistoryOpen = false;
       var _stravaSinceDateValue = null;
@@ -2372,9 +2446,9 @@
       }
 
       function _clearStravaSyncPoll() {
-        if (_stravaSyncPollTimer) {
-          clearTimeout(_stravaSyncPollTimer);
-          _stravaSyncPollTimer = null;
+        if (_stravaSyncPollUnsub) {
+          _stravaSyncPollUnsub();
+          _stravaSyncPollUnsub = null;
         }
       }
 
@@ -2511,7 +2585,7 @@
           })
           .then(function () {
             if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Sync running…</div>';
-            _pollStravaSync(0);
+            _startStravaSyncPoll();
           })
           .catch(function (err) {
             var msg = err.message || 'Sync failed';
@@ -2523,58 +2597,54 @@
           });
       }
 
-      function _pollStravaSync(attempt) {
+      function _startStravaSyncPoll() {
+        if (_stravaSyncPollUnsub) return;
+        _stravaSyncPollUnsub = window.SyncPoller.subscribe(_onStravaSyncPoll);
+        window.SyncPoller.checkNow();
+      }
+
+      function _onStravaSyncPoll(job) {
         var resultEl = document.getElementById('strava-panel-result');
-        fetch('/api/sync/status')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (job) {
-            if (!job || !resultEl) return;
-            var status = job.status || 'idle';
-            if (status === 'running') {
-              var phase = job.phase || '';
-              var fetched = job.current || 0;
-              var msg = phase === 'reconciling'
-                ? 'Reconciling activities…'
-                : 'Fetching activities… ' + fetched + ' fetched';
-              resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
-              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-            } else if (status === 'success') {
-              loadStravaSyncLatest();
-              fetch('/api/sync/strava/latest')
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (d) {
-                  var n = d && d.new_workouts ? d.new_workouts : 0;
-                  window.intLog('strava', 'success', 'Sync complete', {
-                    activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
-                  });
-                  if (resultEl) {
-                    resultEl.innerHTML =
-                      '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
-                      '<a href="/log">View them →</a></div>';
-                  }
-                });
-            } else if (status === 'error') {
-              var errMsg = job.error || 'Sync failed';
-              window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
+        if (!job || !resultEl) { _clearStravaSyncPoll(); return; }
+        var status = job.status || 'idle';
+        if (status === 'running') {
+          var phase = job.phase || '';
+          var fetched = job.current || 0;
+          var msg = phase === 'reconciling'
+            ? 'Reconciling activities…'
+            : 'Fetching activities… ' + fetched + ' fetched';
+          resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
+        } else if (status === 'success') {
+          _clearStravaSyncPoll();
+          loadStravaSyncLatest();
+          fetch('/api/sync/strava/latest')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+              var n = d && d.new_workouts ? d.new_workouts : 0;
+              window.intLog('strava', 'success', 'Sync complete', {
+                activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
+              });
               if (resultEl) {
                 resultEl.innerHTML =
-                  '<div class="strava-sync-error">' + errMsg + '</div>' +
-                  '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
-                var retryBtn = document.getElementById('strava-retry-btn');
-                if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+                  '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
+                  '<a href="/log">View them →</a></div>';
               }
-            } else {
-              // idle - maybe just finished, poll once more briefly
-              if (attempt < 3) {
-                _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-              }
-            }
-          })
-          .catch(function () {
-            if (attempt < 10) {
-              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-            }
-          });
+            });
+        } else if (status === 'error') {
+          _clearStravaSyncPoll();
+          var errMsg = job.error || 'Sync failed';
+          window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
+          if (resultEl) {
+            resultEl.innerHTML =
+              '<div class="strava-sync-error">' + errMsg + '</div>' +
+              '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
+            var retryBtn = document.getElementById('strava-retry-btn');
+            if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+          }
+        } else {
+          // idle
+          _clearStravaSyncPoll();
+        }
       }
 
       function stravaReconcile() {
@@ -3044,7 +3114,7 @@
             if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
             return r.json();
           })
-          .then(function () { _pollStrydSync(0); })
+          .then(function () { _startStrydSyncPoll(); })
           .catch(function (err) {
             window.intLog('stryd', 'error', _strydErrMsg(err, 'Sync failed'));
             _strydSetSyncBusy(false);
@@ -3054,31 +3124,39 @@
       function strydSyncNew() { _strydStartSync(false); }
       function strydSyncAll() { _strydStartSync(true); }
 
-      function _pollStrydSync(attempt) {
-        fetch('/api/sync/status')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (job) {
-            var status = job && job.status || 'idle';
-            if (status === 'running') {
-              window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
-              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            } else if (status === 'success') {
-              window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
-              loadStrydSyncLatest(); loadStrydDataQuality();
-              _strydSetSyncBusy(false);
-            } else if (status === 'error') {
-              window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
-              _strydSetSyncBusy(false);
-            } else if (attempt < 4) {
-              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            } else {
-              _strydSetSyncBusy(false);
-            }
-          })
-          .catch(function () {
-            if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            else _strydSetSyncBusy(false);
-          });
+      var _strydSyncPollUnsub = null;
+
+      function _clearStrydSyncPoll() {
+        if (_strydSyncPollUnsub) {
+          _strydSyncPollUnsub();
+          _strydSyncPollUnsub = null;
+        }
+      }
+
+      function _startStrydSyncPoll() {
+        if (_strydSyncPollUnsub) return;
+        _strydSyncPollUnsub = window.SyncPoller.subscribe(_onStrydSyncPoll);
+        window.SyncPoller.checkNow();
+      }
+
+      function _onStrydSyncPoll(job) {
+        var status = (job && job.status) || 'idle';
+        if (status === 'running') {
+          window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
+        } else if (status === 'success') {
+          _clearStrydSyncPoll();
+          window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
+          loadStrydSyncLatest(); loadStrydDataQuality();
+          _strydSetSyncBusy(false);
+        } else if (status === 'error') {
+          _clearStrydSyncPoll();
+          window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
+          _strydSetSyncBusy(false);
+        } else {
+          // idle
+          _clearStrydSyncPoll();
+          _strydSetSyncBusy(false);
+        }
       }
 
       function renderStrydConnected(email, expiresAt) {
@@ -3229,11 +3307,159 @@
           });
       }
 
+      // ── Google Drive Sleep ─────────────────────────────────────────────────
+
+      function _driveSleepBadge(status) {
+        var el = document.getElementById('drive-sleep-badge');
+        if (!el) return;
+        if (status === 'connected') {
+          el.className = 'integration-badge integration-badge--connected';
+          el.textContent = 'Connected';
+        } else if (status === 'error') {
+          el.className = 'integration-badge integration-badge--disconnected';
+          el.textContent = 'Error';
+        } else {
+          el.className = 'integration-badge integration-badge--disconnected';
+          el.textContent = 'Not connected';
+        }
+      }
+
+      function _driveSleepActions(status) {
+        var wrap = document.getElementById('drive-sleep-actions');
+        var folderWrap = document.getElementById('drive-sleep-folder-wrap');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        if (status === 'connected') {
+          if (folderWrap) folderWrap.style.display = '';
+          var disc = document.createElement('button');
+          disc.type = 'button';
+          disc.id = 'drive-sleep-disconnect-btn';
+          disc.className = 'integration-btn integration-btn--danger';
+          disc.textContent = 'Disconnect';
+          disc.addEventListener('click', driveSleepDisconnect);
+          wrap.appendChild(disc);
+        } else {
+          if (folderWrap) folderWrap.style.display = 'none';
+          var conn = document.createElement('button');
+          conn.type = 'button';
+          conn.id = 'drive-sleep-connect-btn';
+          conn.className = 'integration-btn integration-btn--primary';
+          conn.textContent = 'Connect';
+          conn.addEventListener('click', driveSleepConnect);
+          wrap.appendChild(conn);
+        }
+      }
+
+      function loadDriveSleepStatus() {
+        fetch('/api/drive-sleep/status')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var status = data.status || 'not_connected';
+            _driveSleepBadge(status);
+            _driveSleepActions(status);
+            if (status === 'connected' && data.folder_id) {
+              var inp = document.getElementById('drive-sleep-folder-input');
+              if (inp) inp.value = data.folder_id;
+            }
+            if (status === 'error') {
+              intFeedback('drive-sleep-feedback', 'Connection error — please reconnect.', 'error');
+            }
+          })
+          .catch(function () {
+            _driveSleepBadge('not_connected');
+            _driveSleepActions('not_connected');
+          });
+      }
+
+      function driveSleepConnect() {
+        var btn = document.getElementById('drive-sleep-connect-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
+        fetch('/api/drive-sleep/connect')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.authorize_url) {
+              window.location.href = data.authorize_url;
+            }
+          })
+          .catch(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+            intFeedback('drive-sleep-feedback', 'Could not initiate connection. Try again.', 'error');
+          });
+      }
+
+      function driveSleepDisconnect() {
+        var btn = document.getElementById('drive-sleep-disconnect-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
+        var csrf = document.cookie.split('; ').reduce(function (v, c) {
+          var p = c.split('='); return p[0] === 'csrf-token' ? decodeURIComponent(p[1]) : v;
+        }, '');
+        fetch('/api/drive-sleep/disconnect', { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } })
+          .then(function () {
+            intFeedback('drive-sleep-feedback', 'Disconnected from Google Drive.', 'success');
+            loadDriveSleepStatus();
+          })
+          .catch(function () {
+            if (btn) { btn.disabled = false; btn.textContent = 'Disconnect'; }
+            intFeedback('drive-sleep-feedback', 'Disconnect failed. Try again.', 'error');
+          });
+      }
+
+      (function () {
+        var saveBtn = document.getElementById('drive-sleep-folder-save');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', function () {
+            var inp = document.getElementById('drive-sleep-folder-input');
+            var fb = document.getElementById('drive-sleep-folder-feedback');
+            var raw = (inp && inp.value.trim()) || '';
+            // Accept full URL or bare ID
+            var folderId = raw;
+            var m = raw.match(/\/folders\/([^/?#]+)/);
+            if (m) folderId = m[1];
+            if (!folderId) {
+              if (fb) { fb.textContent = 'Enter a folder ID or Drive URL.'; fb.style.color = '#b91c1c'; }
+              return;
+            }
+            var csrf = document.cookie.split('; ').reduce(function (v, c) {
+              var p = c.split('='); return p[0] === 'csrf-token' ? decodeURIComponent(p[1]) : v;
+            }, '');
+            saveBtn.disabled = true;
+            fetch('/api/drive-sleep/folder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+              body: JSON.stringify({ folder_id: folderId }),
+            })
+              .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+              .then(function (res) {
+                if (res.ok) {
+                  if (fb) { fb.textContent = 'Folder saved.'; fb.style.color = '#15803d'; }
+                } else {
+                  if (fb) { fb.textContent = (res.d && res.d.detail) || 'Save failed.'; fb.style.color = '#b91c1c'; }
+                }
+              })
+              .catch(function () {
+                if (fb) { fb.textContent = 'Save failed.'; fb.style.color = '#b91c1c'; }
+              })
+              .finally(function () { saveBtn.disabled = false; });
+          });
+        }
+      }());
+
+      // Handle Drive Sleep OAuth return
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('drive_sleep') === 'connected') {
+          intFeedback('drive-sleep-feedback', 'Google Drive connected!', 'success');
+        } else if (params.get('drive_sleep') === 'error') {
+          intFeedback('drive-sleep-feedback', 'Connection failed. Please try again.', 'error');
+        }
+      }());
+
       window.addEventListener('userReady', function (e) {
         _stravaUserId = e.detail && e.detail.userId;
         _handleStravaOAuthReturn();
         loadStravaStatus();
         loadStrydStatus();
+        loadDriveSleepStatus();
       });
     }());
   </script>

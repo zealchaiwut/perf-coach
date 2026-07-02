@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
@@ -219,6 +220,39 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
     }
 
 
+def _already_enriched_ids(session: Session, ids: list) -> set:
+    """IDs (among ``ids``) whose row already has BOTH per-km splits and per-point
+    streams. Evaluated server-side with jsonb_path_exists so the (large)
+    streams_payload JSONB never leaves Postgres — pulling it client-side just to
+    check timestamp_list presence costs ~600 MB of heap per sync."""
+    from sqlalchemy import func, select
+
+    return set(session.execute(
+        select(StrydActivity.stryd_activity_id)
+        .where(StrydActivity.stryd_activity_id.in_(ids))
+        .where(func.jsonb_path_exists(StrydActivity.splits, '$[0] ? (@.type() == "object")'))
+        .where(func.jsonb_path_exists(StrydActivity.streams_payload, "$.timestamp_list[0]"))
+    ).scalars().all())
+
+
+def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
+    """IDs of this user's activities still missing per-point streams, newest
+    first, excluding ``processed``. Same server-side predicate rationale as
+    _already_enriched_ids."""
+    from sqlalchemy import func, select
+
+    rows = session.execute(
+        select(StrydActivity.stryd_activity_id)
+        .where(StrydActivity.user_id == uid)
+        .where(func.coalesce(
+            func.jsonb_path_exists(StrydActivity.streams_payload, "$.timestamp_list[0]"),
+            False,
+        ).is_(False))
+        .order_by(StrydActivity.start_time.desc())
+    ).scalars().all()
+    return [sid for sid in rows if sid not in processed]
+
+
 # Max streams-less activities to backfill per full-sync heal pass (rate-limit guard).
 _STREAM_HEAL_CAP = 60
 # Parallel workers for per-activity stream fetches (each is an independent HTTP call).
@@ -330,10 +364,23 @@ def sync_stryd_activities(
         fetched = len(raw_acts)
         mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
+        # The calendar API ignores srtDate/endDate and returns the full lifetime
+        # list. Drop rows older than since_date here so an incremental sync only
+        # upserts (and considers for enrichment) the requested window instead of
+        # rewriting all history rows on every "Sync new". Full jobs (including a
+        # user's first-ever sync, which resolves to job_type "full") keep the
+        # whole list — storing all available history there is intentional.
+        if since_date is not None and job_type in ("incremental", "manual"):
+            cutoff = datetime(since_date.year, since_date.month, since_date.day, tzinfo=timezone.utc)
+            mapped = [m for m in mapped if m["start_time"] >= cutoff]
         # Dedup by stryd_activity_id (keep last). A duplicate id in a single batch
         # makes ON CONFLICT DO UPDATE raise "cannot affect row a second time".
         _deduped = {m["stryd_activity_id"]: m for m in mapped}
         mapped = list(_deduped.values())
+        # The Stryd calendar API ignores srtDate/endDate and always returns the full
+        # lifetime activity list, newest-first. Sort ascending so that ids[-N:] in
+        # the caller's _DAILY_RECONCILE_LIMIT slice reliably picks the most recent N.
+        mapped.sort(key=lambda m: m["start_time"])
         ids = [m["stryd_activity_id"] for m in mapped]
 
         if mapped:
@@ -371,25 +418,13 @@ def sync_stryd_activities(
             # 2) Enrich each activity (per-km splits + NP + max power) with a
             #    direct per-row UPDATE. Skip rows already enriched (splits is a
             #    list of dicts) so re-syncs stay cheap.
-            with Session(engine) as session:
-                rows = session.execute(
-                    select(
-                        StrydActivity.stryd_activity_id,
-                        StrydActivity.splits,
-                        StrydActivity.streams_payload,
-                    )
-                    .where(StrydActivity.stryd_activity_id.in_(ids))
-                ).all()
             # Skip only when BOTH per-km splits AND per-point streams are present.
             # Activities enriched before streams capture have splits but no
             # streams; requiring streams here makes every sync self-heal them
             # (so manual laps / interval stats become available without a
             # separate backfill). New activities still enrich on first sync.
-            already = {
-                sid for sid, sp, st in rows
-                if isinstance(sp, list) and sp and isinstance(sp[0], dict)
-                and isinstance(st, dict) and st.get("timestamp_list")
-            }
+            with Session(engine) as session:
+                already = _already_enriched_ids(session, ids)
             base_form = {m["stryd_activity_id"]: (m.get("form_metrics") or {}) for m in mapped}
             to_enrich = [aid for aid in ids if aid not in already]
             if to_enrich:
@@ -401,18 +436,9 @@ def sync_stryd_activities(
         # (e.g. enriched before streams capture). Only runs on full syncs to
         # keep incremental "Sync new" fast. Bounded per run to respect rate limits.
         if heal:
-            with Session(engine) as session:
-                heal_rows = session.execute(
-                    select(StrydActivity.stryd_activity_id, StrydActivity.streams_payload)
-                    .where(StrydActivity.user_id == uid)
-                    .order_by(StrydActivity.start_time.desc())
-                ).all()
             processed = set(ids)
-            heal_ids = [
-                sid for sid, st in heal_rows
-                if sid not in processed
-                and not (isinstance(st, dict) and st.get("timestamp_list"))
-            ]
+            with Session(engine) as session:
+                heal_ids = _heal_candidate_ids(session, uid, processed)
             remaining = len(heal_ids)
             _enrich_many(token, heal_ids[:_STREAM_HEAL_CAP])
             if remaining > _STREAM_HEAL_CAP:

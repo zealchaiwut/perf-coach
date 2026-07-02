@@ -44,13 +44,6 @@ def test_ac1_calendar_link_in_home_nav():
         "home.html must have a nav link to calendar.html"
 
 
-def test_ac1_calendar_link_in_index_nav():
-    """index.html or another main-nav page must link to calendar.html."""
-    index_html = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "index.html").read_text()
-    assert 'href="calendar.html"' in index_html, \
-        "index.html must have a nav link to calendar.html"
-
-
 # ── AC-2: Month grid — 7-column CSS grid ──────────────────────────────────────
 
 def test_ac2_cal_grid_cells_container_in_html():

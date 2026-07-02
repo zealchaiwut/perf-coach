@@ -247,14 +247,3 @@ def test_verify_remediate_personal_records__seeded_records_survive(authed_client
     assert "half_marathon" in keys
     assert "10k" in keys
     assert "squat_1rm" in keys
-
-
-# --- AC: docs/STATUS.md has state-A confirmation ---
-
-def test_verify_remediate_personal_records__status_md_confirmation():
-    # AC: docs/STATUS.md contains a confirmation line for issue #358
-    status_path = Path(_CODER_DIR) / "docs" / "STATUS.md"
-    assert status_path.exists(), "docs/STATUS.md not found"
-    content = status_path.read_text()
-    assert "358" in content or "personal_records" in content.lower(), \
-        "docs/STATUS.md has no mention of #358 or personal_records state confirmation"

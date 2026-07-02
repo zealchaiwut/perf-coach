@@ -275,6 +275,66 @@
       min-height: 260px;
     }
 
+    /* ── Polarized-check indicator ── */
+    .polarized-check-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      margin-top: 0.5rem;
+      padding: 0.3125rem 0.625rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      line-height: 1.3;
+      border: 1px solid transparent;
+    }
+
+    .polarized-check-indicator[hidden] { display: none; }
+
+    .polarized-check-indicator--on-target {
+      background: #dcfce7;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+
+    .polarized-check-indicator--grey-zone {
+      background: #fef3c7;
+      color: #92400e;
+      border-color: #fde68a;
+    }
+
+    .polarized-check-indicator__icon {
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+
+    .polarized-check-indicator__body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
+    .polarized-check-indicator__label {
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .polarized-check-indicator__split {
+      font-weight: 400;
+      opacity: 0.85;
+    }
+
+    .polarized-check-indicator__off-band {
+      font-weight: 500;
+    }
+
+    @media (max-width: 479px) {
+      .polarized-check-indicator {
+        width: 100%;
+        box-sizing: border-box;
+      }
+    }
+
     /* ── Slot subtitle ── */
     .chart-slot-subtitle {
       margin: 0.2rem 0 0;
@@ -516,12 +576,39 @@
         </div>
       </div>
 
+      <div class="chart-slot chart-slot--full" id="slot-intensity">
+        <div class="chart-slot-header">
+          <h2 class="chart-slot-title">Intensity Distribution</h2>
+          <p class="chart-slot-subtitle">Stacked bars per session &nbsp;·&nbsp; Rolling-window aggregate on the right</p>
+          <div class="polarized-check-indicator" id="polarized-check-indicator" hidden aria-live="polite">
+            <span class="polarized-check-indicator__icon" id="polcheck-icon"></span>
+            <div class="polarized-check-indicator__body">
+              <span class="polarized-check-indicator__label" id="polcheck-label"></span>
+              <span class="polarized-check-indicator__split" id="polcheck-split"></span>
+              <span class="polarized-check-indicator__off-band" id="polcheck-off-band"></span>
+            </div>
+          </div>
+        </div>
+        <div class="chart-slot-body" id="slot-intensity-body">
+          <div class="slot-loading">
+            <div class="skeleton-spinner"></div>
+            <div class="skeleton-bar-wrap">
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+              <div class="skeleton-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /chart-grid -->
   </main>
 
+  <script src="js/lib/sync-poller.js"></script>
+
   <script src="js/nav.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="js/mock-data.js"></script>
   <script src="js/user.js"></script>
   <script src="js/trends.js"></script>
   <script src="js/env.js"></script>

@@ -107,6 +107,25 @@
 
     _renderPill('hca-pill-week', stats ? stats.delta_7d_kg : null, 'This wk', activeTarget);
     _renderPill('hca-pill-month', stats ? stats.delta_30d_kg : null, 'This mo', activeTarget);
+
+    // EWMA weekly rate indicator — show/hide based on data availability
+    var rateRow = document.getElementById('ewma-rate-row');
+    var ratePill = document.getElementById('ewma-rate-pill');
+    var rate = stats ? stats.weekly_rate_ewma_kg : null;
+    if (rateRow && ratePill) {
+      if (rate == null) {
+        rateRow.hidden = true;
+      } else {
+        rateRow.hidden = false;
+        var isFlat = Math.abs(rate) < 0.01;
+        var arrow = isFlat ? '→' : (rate < 0 ? '↓' : '↑');
+        var sign = rate > 0 ? '+' : '';
+        ratePill.textContent = arrow + ' ' + sign + rate.toFixed(2) + ' kg/wk';
+        var isLossGoal = !activeTarget || activeTarget.target_weight_kg < activeTarget.start_weight_kg;
+        var cls = isFlat ? 'neutral' : (rate < 0 ? (isLossGoal ? 'toward' : 'away') : (isLossGoal ? 'away' : 'toward'));
+        ratePill.className = 'delta-pill ' + cls;
+      }
+    }
   }
 
   function renderCoachStrip(chartData, activeTarget) {

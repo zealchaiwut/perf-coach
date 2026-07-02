@@ -65,7 +65,7 @@ def test_nav_label_not_training_log(nav_js):
 def test_training_page_has_three_subtabs(training_log_html):
     """AC2: The training page contains three sub-tab buttons: Log, Plan, Performance."""
     assert 'data-tab="log"' in training_log_html, "Log sub-tab button with data-tab='log' must be present"
-    assert 'data-tab="plan"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
+    assert 'data-tab="projection"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
     assert 'data-tab="performance"' in training_log_html, \
         "Performance sub-tab button with data-tab='performance' must be present"
 
@@ -73,12 +73,12 @@ def test_training_page_has_three_subtabs(training_log_html):
 def test_training_page_subtabs_label_text(training_log_html):
     """AC2: Sub-tabs are labeled Log, Plan, Performance in that order."""
     log_pos = training_log_html.find('>Log<')
-    plan_pos = training_log_html.find('>Plan<')
+    plan_pos = training_log_html.find('>Projection<')
     perf_pos = training_log_html.find('>Performance<')
     assert log_pos != -1, "Log tab label text not found"
-    assert plan_pos != -1, "Plan tab label text not found"
+    assert plan_pos != -1, "Projection tab label text not found"
     assert perf_pos != -1, "Performance tab label text not found"
-    assert log_pos < plan_pos < perf_pos, "Tabs must appear in order: Log, Plan, Performance"
+    assert log_pos < plan_pos < perf_pos, "Tabs must appear in order: Log, Projection, Performance"
 
 
 def test_training_page_has_subtab_container(training_log_html):
@@ -103,10 +103,10 @@ def test_log_subtab_is_active_by_default(training_log_html):
 def test_log_panel_visible_by_default(training_log_html):
     """AC3: The Log panel is not hidden by default (no hidden attribute on it)."""
     # Plan and Performance panels should be hidden; Log content should not have hidden
-    assert 'id="training-panel-plan"' in training_log_html, "Panel for Plan must exist"
+    assert 'id="training-panel-projection"' in training_log_html, "Panel for Plan must exist"
     assert 'id="training-panel-performance"' in training_log_html, "Panel for Performance must exist"
     # Those panels should have 'hidden' attribute
-    assert re.search(r'id="training-panel-plan"[^>]*hidden|hidden[^>]*id="training-panel-plan"', training_log_html), \
+    assert re.search(r'id="training-panel-projection"[^>]*hidden|hidden[^>]*id="training-panel-projection"', training_log_html), \
         "Plan panel should be hidden by default"
     assert re.search(r'id="training-panel-performance"[^>]*hidden|hidden[^>]*id="training-panel-performance"', training_log_html), \
         "Performance panel should be hidden by default"
@@ -136,8 +136,8 @@ def test_log_dot_html_route_still_works(client):
 
 def test_plan_panel_has_coming_soon(training_log_html):
     """AC5: Plan panel contains a 'Coming soon' placeholder text."""
-    plan_section_start = training_log_html.find('id="training-panel-plan"')
-    assert plan_section_start != -1, "training-panel-plan element must exist"
+    plan_section_start = training_log_html.find('id="training-panel-projection"')
+    assert plan_section_start != -1, "training-panel-projection element must exist"
     # Find the next occurrence of the Performance panel (to bound our search)
     perf_section_start = training_log_html.find('id="training-panel-performance"')
     if perf_section_start > plan_section_start:
@@ -231,7 +231,7 @@ def test_uat_step1_nav_item_reads_training(nav_js):
 def test_uat_step2_page_has_three_subtabs(training_log_html):
     """UAT Step 2: Training page HTML has three sub-tabs visible."""
     assert 'data-tab="log"' in training_log_html
-    assert 'data-tab="plan"' in training_log_html
+    assert 'data-tab="projection"' in training_log_html
     assert 'data-tab="performance"' in training_log_html
 
 

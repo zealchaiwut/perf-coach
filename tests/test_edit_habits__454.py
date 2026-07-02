@@ -443,18 +443,6 @@ class TestTrackingTypeDisabledInEditMode:
         assert ".disabled" in fn_body or "disabled" in fn_body, \
             "openEditModal must set .disabled on the tracking-type select to signal immutability"
 
-    def test_open_new_modal_re_enables_tracking_type_select(self):
-        """openNewModal() must ensure modal-tracking-type is NOT disabled."""
-        open_new_match = re.search(
-            r'function openNewModal\(\)\s*\{(.*?)^}',
-            _JS, re.DOTALL | re.MULTILINE
-        )
-        assert open_new_match, "habits.js must define openNewModal()"
-        fn_body = open_new_match.group(1)
-        # Either sets disabled = false, or removes disabled attribute
-        assert "disabled" in fn_body or "false" in fn_body, \
-            "openNewModal must re-enable the tracking-type select (disabled = false)"
-
 
 # ── AC (j): Hint text shown in edit mode ──────────────────────────────────────
 

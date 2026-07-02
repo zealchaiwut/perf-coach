@@ -1,5 +1,85 @@
 # Changelog
 
+## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
+
+- #1162: Recalibrate score ceiling on B race entry
+- #1163: Implement post-race confidence band tightening
+- #1164: Track qualifying-signal density for speed score
+- #1165: Surface calibration status: recency, sufficiency, and confidence
+- #1166: Build fit-data collector with minimum-data gate
+- #1168: Normalize training load for heat and humidity
+- #1169: Normalize treadmill incline and NGP into activity signals
+- #1170: Add periodic refit with versioning and rollback
+- #1203: Implement Banister parameter fitting function with data gate and fallback
+- #1204: Add per-user Banister parameter storage with versioned history
+- #1205: Implement held-out MSE validation comparing fitted vs population Banister params
+
+## Sprint 95 — Bodyweight EWMA trend, energy-availability proxy, and body-composition modifier
+
+- #1153: Add daily bodyweight logging by date
+- #1154: Compute bodyweight trend via EWMA smoothing
+- #1155: Compute weekly percent bodyweight rate of change from EWMA
+- #1157: Compute energy availability proxy and flag low state
+- #1158: Model body-modifier sign-flip around deficit threshold
+- #1159: Wire body modifier into power-to-weight score term
+- #1160: Build weight-trend view with EWMA and weekly rate
+- #1161: Surface guardrail warning when loss is excessive or EA is low
+
+## Sprint 94 — Strength & plyo session logging and the economy ceiling model
+
+- #1142: Add strength session logging table and model
+- #1143: Add plyometric session logging with foot-contacts
+- #1144: Add strength and plyo session CRUD API
+- #1145: Build strength and plyo session entry UI
+- #1146: Compute economy stimulus from strength and plyo load
+- #1147: Model delayed ceiling lift via lagged stimulus ramp
+- #1148: Wire economy ceiling bonus into projection score-ceiling hook
+- #1149: Backfill economy model across historical sessions
+- #1150: Show economy contribution in projection/score view
+- #1151: Make economy priors tunable via config
+
+## Sprint 93 — Intensity-band classification, distribution chart, and polarized-split check
+
+- #1128: Classify each lap by intensity band
+- #1129: Aggregate session time-in-band into low/moderate/high percentages
+- #1130: Add rolling intensity distribution over trailing windows
+- #1131: Add polarized-split target-band deviation check
+- #1133: Build intensity-distribution stacked bar chart
+- #1134: Add polarized-check indicator for on-target vs grey-zone
+
+## Sprint 92 — Training plan model, projection engine, and race time-curve chart
+
+- #1099: Add migration for races_checkpoints and planned_load tables
+- #1100: Add races/checkpoints CRUD API to plan router
+- #1101: Add ramp and taper parameters to plan model
+- #1102: Generate planned-load schedule from ramp/taper params
+- #1103: Build plan editor UI for races and checkpoints
+- #1104: Add ramp/taper controls with schedule preview to plan editor
+- #1105: Scaffold projection.py and roll CTL/ATL/TSB forward
+- #1106: Map projected CTL to Endurance/Speed score ceiling
+- #1107: Derive expressible score from TSB form factor
+- #1108: Convert expressible score to estimated race finish time
+- #1109: Add Riegel cross-distance equivalence for race entries
+- #1110: Add widening confidence band to projection horizon
+- #1111: Add B-race tightening hook to confidence band
+- #1112: Expose training projection via plan API endpoint
+- #1113: Render projected time-curve chart with confidence band
+- #1114: Assemble projection screen with markers and scores
+## Sprint 91 — Weekly/monthly summaries, rate guardrail, and summary digest card
+
+- #1055: Add weekly summary aggregation endpoint
+- #1056: Add monthly summary endpoint with supercompensation detection
+- #1057: Add rate guardrail and stressor ramp check
+- #1058: Add summary digest card to Log tab with weekly/monthly toggle
+- #1060: Surface guardrail warning in summary cards
+
+## Sprint 89 — Google Drive / Health Sync sleep file import
+
+- #1032: Add sleep_records table and idempotent Alembic migration
+- #1034: Parse Health Sync sleep CSV into sleep_records
+- #1035: Add scheduled and on-demand sleep file sync from Google Drive
+- #1038: Backfill historical sleep data on first Google Drive connect
+
 ## Sprint 88.1 — Lap classification order, frontend four-state rendering, and thresholds editor polish
 
 - #1019: Classify laps before scoring in performance endpoint (fixes classification order so band is assigned before score computation)
@@ -467,3 +547,314 @@ Features included in this sprint:
 - #72: Add weekly digest summary card to home dashboard
 - #73: Add HRV and RHR trend chart with baseline band
 - #74: Add Sleep, Energy, and Mood Trend Chart
+
+## Sprint 82.2 — Habit adherence analytics and nudges
+
+- #886: Add build_nudges pure function for habit adherence coaching
+- #889: Add compute_adherence_breakdown pure function for habit stats
+- #890: Add detect_slipping_habits pure function for trend detection
+- #892: Build Habits page adherence and nudges UI
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Sprint 84 — Coaching voice, focus-aware habits, compact run view, and weekly check-in
+
+- #915: Compact run detail view for higher information density
+- #916: Add Snapshot mode to Run detail view
+- #920: Apply coaching copy to habit logging surfaces; `GET /api/habits/summary` now returns `week_done` and `total_logs` per habit
+- #922: Add shared coaching voice module (`backend/services/coaching_voice.py`) for consistent tone across all coaching surfaces
+- #923: Apply coaching copy to weight chart surfaces; verdict banner references 7-day trend with concrete next-lever; projection line framed as forward path; what-if panel headline frames scenario as still-winnable; `frontend/js/lib/weight-voice.js` is the single copy source
+- #925: Add focus-aware coaching: slipping warnings, minimum version, anchoring, keystone; adds `minimum_version` and `anchor_event` columns to `habits`
+- #926: Build standalone weekly check-in view (`/weekly-check-in`); new `GET /api/weekly-check-in` endpoint
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

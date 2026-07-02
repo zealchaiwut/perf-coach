@@ -14,11 +14,6 @@ function isoDateStr(date) {
   );
 }
 
-function nowHHMM() {
-  const d = new Date();
-  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-}
-
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + n);
@@ -29,33 +24,6 @@ function addDays(dateStr, n) {
 function rangeFromDate(range) {
   const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
   return addDays(todayISO(), offsets[range] ?? -29);
-}
-
-// Format a date string for the x-axis, adapting by range
-function fmtDateForRange(dateStr, range) {
-  const d = new Date(dateStr + 'T00:00:00');
-  if (range === '30d' || range === '90d') {
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-}
-
-// Format date for display in entries list
-function fmtDisplayDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-// Linear interpolation: weight at atDate between (fromDate, fromWeight) and (toDate, toWeight)
-function interpolateWeight(fromDate, fromWeight, toDate, toWeight, atDate) {
-  const t0 = new Date(fromDate + 'T00:00:00').getTime();
-  const t1 = new Date(toDate + 'T00:00:00').getTime();
-  const ta = new Date(atDate + 'T00:00:00').getTime();
-  if (t1 === t0) return toWeight;
-  if (ta <= t0) return fromWeight;
-  if (ta >= t1) return toWeight;
-  const frac = (ta - t0) / (t1 - t0);
-  return fromWeight + (toWeight - fromWeight) * frac;
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -118,12 +86,6 @@ async function fetchActiveTarget() {
 
 async function fetchTargetHistorySummary() {
   return apiFetch(`/api/weight-targets/history-summary`);
-}
-
-async function fetchTargetHistory(status) {
-  let url = `/api/weight-targets/history`;
-  if (status) url += `?status=${encodeURIComponent(status)}`;
-  return apiFetch(url);
 }
 
 // ── Streak & Adherence ────────────────────────────────────────────────────────
@@ -325,6 +287,26 @@ function renderProgress(target) {
   const microPlanEl = document.getElementById('pgbar-micro-plan');
   if (microPlanEl) microPlanEl.style.left = `${planPct}%`;
 
+  // ── Near-milestone short-horizon copy (AC6) ─────────────────────
+  // When within ~4 weeks of the next milestone at current rate, replace
+  // the milestone date with "About N weeks at this rate".
+  const nearMsEl = document.getElementById('pstat-next-date');
+  if (nearMsEl && nextMs && nextMs.plan_kg != null && _chartData && _chartData.stats) {
+    const weeklyRate = _chartData.stats.delta_7d_kg != null
+      ? Math.abs(_chartData.stats.delta_7d_kg)
+      : 0;
+    if (weeklyRate > 0.001 && currentBasisKg != null) {
+      const kgToNext = Math.abs(currentBasisKg - nextMs.plan_kg);
+      const weeksAway = kgToNext / weeklyRate;
+      const nearCopy = typeof WeightVoice !== 'undefined'
+        ? WeightVoice.nearMilestoneCopy(weeksAway)
+        : null;
+      if (nearCopy) {
+        nearMsEl.textContent = nearCopy;
+      }
+    }
+  }
+
   // ── Summary row ─────────────────────────────────────────────────
 
   const pctBigEl = document.getElementById('progress-pct-big');
@@ -370,6 +352,33 @@ function renderProgress(target) {
 
     pillEl.textContent = pillText;
     pillEl.className   = `pgstatus-pill ${pillClass}`;
+  }
+
+  // ── What-if prompt (AC5): surface when behind plan with winnable framing ──
+  const whatifPrompt    = document.getElementById('whatif-prompt');
+  const whatifHeadline  = document.getElementById('whatif-headline');
+  const whatifOpenBtn   = document.getElementById('whatif-open-btn');
+
+  if (whatifPrompt) {
+    if (gapDir === 'behind') {
+      if (whatifHeadline && typeof WeightVoice !== 'undefined') {
+        whatifHeadline.textContent = WeightVoice.whatIfHeadline(target.target_date || null);
+      }
+      whatifPrompt.hidden = false;
+      if (whatifOpenBtn && !whatifOpenBtn._wired923) {
+        whatifOpenBtn._wired923 = true;
+        whatifOpenBtn.addEventListener('click', () => {
+          const panel = document.getElementById('edit-panel');
+          const scrim = document.getElementById('edit-scrim');
+          if (panel) panel.hidden = false;
+          if (scrim) scrim.hidden = false;
+          const goalInput = document.getElementById('et-goal-weight');
+          if (goalInput) goalInput.focus();
+        });
+      }
+    } else {
+      whatifPrompt.hidden = true;
+    }
   }
 }
 
@@ -973,9 +982,12 @@ async function _submitCardB(weightKg) {
 
   if (btn) btn.disabled = true;
 
+  const dateInput = document.getElementById('log-date-input');
+  const selectedDate = (dateInput && dateInput.value) ? dateInput.value : todayISO();
+
   try {
     if (_cardBEntryId) {
-      // Edit mode: PATCH the existing entry
+      // Edit mode: PATCH the specific entry the user previously logged
       const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(_cardBEntryId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -983,35 +995,15 @@ async function _submitCardB(weightKg) {
       });
       if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
     } else {
-      // New log: attempt POST
-      const postRes = await fetch('/api/weight-entries', {
-        method: 'POST',
+      // New log: upsert via PUT so same-date resubmission updates in place
+      const putRes = await fetch('/api/weight-entries/by-date', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entry_date: todayISO(),
-          entry_time: nowHHMM(),
-          weight_kg: weightKg,
-        }),
+        body: JSON.stringify({ entry_date: selectedDate, weight_kg: weightKg }),
       });
-
-      if (postRes.status === 409) {
-        // Race condition: entry already exists — fall back to PATCH using existing_id
-        const conflict = await postRes.json();
-        const existingId = conflict.existing_id;
-        if (!existingId) throw new Error('409 with no existing_id');
-        const patchRes = await fetch(`/api/weight-entries/${encodeURIComponent(existingId)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weight_kg: weightKg }),
-        });
-        if (!patchRes.ok) throw new Error(`HTTP ${patchRes.status}`);
-        _cardBEntryId = existingId;
-      } else if (!postRes.ok) {
-        throw new Error(`HTTP ${postRes.status}`);
-      } else {
-        const created = await postRes.json();
-        _cardBEntryId = created.id;
-      }
+      if (!putRes.ok) throw new Error(`HTTP ${putRes.status}`);
+      const saved = await putRes.json();
+      _cardBEntryId = saved.id;
     }
 
     UIStates.showToast('Logged!');
@@ -1029,18 +1021,35 @@ async function _submitCardB(weightKg) {
 }
 
 function _initCardB() {
-  const decBtn  = document.getElementById('stepper-dec');
-  const incBtn  = document.getElementById('stepper-inc');
-  const input   = document.getElementById('stepper-input');
-  const logBtn  = document.getElementById('log-submit-btn');
-  const editBtn = document.getElementById('edit-link');
-  const dateEl  = document.getElementById('hcb-date');
+  const decBtn   = document.getElementById('stepper-dec');
+  const incBtn   = document.getElementById('stepper-inc');
+  const input    = document.getElementById('stepper-input');
+  const logBtn   = document.getElementById('log-submit-btn');
+  const editBtn  = document.getElementById('edit-link');
+  const dateEl   = document.getElementById('hcb-date');
+  const dateInput = document.getElementById('log-date-input');
 
   if (!input || !logBtn) return;
 
+  // Initialise date picker to today and keep hcb-date label in sync
+  const todayStr = todayISO();
+  if (dateInput) {
+    dateInput.value = todayStr;
+    dateInput.max = todayStr;
+    dateInput.addEventListener('change', () => {
+      if (dateEl) {
+        const d = new Date((dateInput.value || todayStr) + 'T00:00:00');
+        dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      }
+      // Reset edit-mode guard so the new date uses upsert path
+      _cardBEntryId = null;
+      _showStepperMode();
+    });
+  }
+
   // Show today's date in Card B label row
   if (dateEl) {
-    const d = new Date(todayISO() + 'T00:00:00');
+    const d = new Date(todayStr + 'T00:00:00');
     dateEl.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 

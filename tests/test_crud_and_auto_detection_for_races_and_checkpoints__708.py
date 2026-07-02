@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import Race as _Race, RaceCheckpoint as _RaceCheckpoint, User as _UserModel, Workout as _Workout
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "races708-test-pw"
@@ -61,7 +62,7 @@ def client():
 @pytest.fixture(scope="module")
 def user_id(client):
     name = f"tester708_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, r.text
     uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)
@@ -101,7 +102,7 @@ def authed(user_id):
 @pytest.fixture(scope="module")
 def other_user_id(client):
     name = f"other708_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, r.text
     uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)

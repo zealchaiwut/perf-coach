@@ -25,6 +25,7 @@ from backend.services.strength_pr import (  # noqa: E402
     beats_record,
     compare_sets_to_records,
 )
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Integration tests need a live server ──────────────────────────────────────
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
@@ -298,7 +299,7 @@ def authed_client(client):
     from backend.models import User as _User
 
     username = f"tester705_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": username})
+    r = client.post("/api/users", json={"name": username}, cookies=_admin_cookies())
     assert r.status_code == 201, f"Could not create test user: {r.text}"
     uid = r.json()["id"]
 

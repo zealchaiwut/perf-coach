@@ -145,6 +145,12 @@ class Habit(Base):
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True), nullable=True)
+    # Focus-aware coaching fields (issue #925)
+    minimum_version = Column(Text, nullable=True)
+    anchor_event = Column(Text, nullable=True)
+    # Three-focus-habit model (issue #924)
+    is_focus = Column(Boolean, nullable=True)
+    focus_since = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -226,6 +232,10 @@ class Workout(Base):
     workout_date = Column(Date, nullable=False)
     name = Column(String(200), nullable=False)
     workout_type = Column(String(50), nullable=False)
+    # Optional run subtype (interval | longrun | easy | tempo | NULL). Runs keep
+    # workout_type='run' so they stay in the full run pipeline; this labels the
+    # kind of run for the Performance Speed feed / "what's moving".
+    run_subtype = Column(String(20), nullable=True)
     remarks = Column(Text, nullable=True)
     tss = Column(Float, nullable=True)
     tss_source = Column(String(20), nullable=True)
@@ -248,7 +258,24 @@ class Workout(Base):
     np = Column(Integer, nullable=True)
     avg_cadence_spm = Column(Integer, nullable=True)
     avg_stride_m = Column(Numeric(4, 2), nullable=True)
+    # Computed speed signal (issue #1048): best short-effort ratio vs threshold.
+    speed_signal = Column(Float, nullable=True)
+    speed_signal_basis = Column(String(20), nullable=True)
+    speed_signal_window_seconds = Column(Integer, nullable=True)
+    speed_signal_source = Column(Text, nullable=True)
+    # Environmental conditions at time of run (issue #1168).
+    temperature_c = Column(Float, nullable=True)
+    humidity_pct = Column(Float, nullable=True)
+    # Computed endurance signal (issue #1049): aerobic durability metric; runs ≥ 40 min only.
+    endurance_signal = Column(Float, nullable=True)
+    decoupling_percent = Column(Float, nullable=True)
+    efficiency_first_half = Column(Float, nullable=True)
+    efficiency_second_half = Column(Float, nullable=True)
+    endurance_signal_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    # Column already exists in the DB; map it so edits can stamp it and the
+    # summary/performance cache signature can include MAX(updated_at).
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
@@ -258,6 +285,9 @@ class Workout(Base):
         CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workouts_duration_non_negative"),
         CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
         CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
+        # Matches alembic/versions/c3d4e5f6a7b8_create_workouts_table.py's raw-SQL
+        # index (already in the DB) — declared here so autogenerate stays quiet.
+        Index("ix_workouts_user_id_workout_date", "user_id", workout_date.desc()),
     )
 
     exercises = relationship(
@@ -330,12 +360,17 @@ class WorkoutSplit(Base):
     cadence_spm = Column(Integer, nullable=True)
     stride_length_m = Column(Numeric(4, 2), nullable=True)
     lap_type = Column(String(10), nullable=False, server_default=text("'auto'"))
+    intensity_band = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
         UniqueConstraint("workout_id", "split_index", name="uq_workout_splits_workout_split_index"),
         CheckConstraint("lap_type IN ('auto', 'manual')", name="ck_workout_splits_lap_type_values"),
+        CheckConstraint(
+            "intensity_band IS NULL OR intensity_band IN ('easy', 'steady', 'tempo', 'threshold', 'hard')",
+            name="ck_workout_splits_intensity_band_values",
+        ),
     )
 
     workout = relationship("Workout", back_populates="splits")
@@ -354,6 +389,7 @@ class DailyMetric(Base):
     energy = Column(Integer, nullable=True)
     mood = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+    kcal_intake = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -382,6 +418,10 @@ class DailyMetric(Base):
         CheckConstraint(
             "mood IS NULL OR (mood >= 1 AND mood <= 5)",
             name="ck_daily_metrics_mood",
+        ),
+        CheckConstraint(
+            "kcal_intake IS NULL OR kcal_intake > 0",
+            name="ck_daily_metrics_kcal_intake",
         ),
     )
 
@@ -494,6 +534,20 @@ class GoogleOAuthCredentials(Base):
     refresh_token = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     id_token_payload = Column(JSONB, nullable=True)
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class DriveSleepConnection(Base):
+    __tablename__ = "drive_sleep_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    refresh_token_encrypted = Column(Text, nullable=True)
+    folder_id = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, server_default=text("'not_connected'"))
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -564,6 +618,11 @@ class DailyReadiness(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_daily_readiness_user_date"),
         CheckConstraint("score >= 0 AND score <= 100", name="ck_daily_readiness_score_range"),
+        # Matches the raw-SQL index already in the DB (created by
+        # 59a1b2c3d4e5_create_daily_readiness_table.py and its duplicate-head
+        # counterpart) — declared here so autogenerate stays quiet. Queried
+        # per-day per-user throughout readiness/training-load code.
+        Index("ix_daily_readiness_user_date", "user_id", date.desc()),
     )
 
 
@@ -853,8 +912,11 @@ class Race(Base):
     """Human-readable event name (e.g. 'Boston Marathon 2026')."""
     race_date = Column(Date, nullable=False)
     """Scheduled or actual date of the race."""
-    distance_km = Column(Numeric(8, 3), nullable=False)
-    """Official race distance in kilometres (must be positive)."""
+    distance_km = Column(Numeric(8, 3), nullable=True)
+    """Distance in km. NULL only for a duration-defined checkpoint (issue #1226)."""
+    duration_seconds = Column(Integer, nullable=True)
+    """Target duration in seconds — set instead of distance for a duration-defined
+    checkpoint; NULL for distance-defined races/checkpoints."""
     goal_time_seconds = Column(Integer, nullable=True)
     """Target finish time in seconds; NULL if no goal is set."""
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
@@ -945,6 +1007,7 @@ class RaceCheckpoint(Base):
     updated_at = Column(
         DateTime(timezone=True),
         server_default=text("now()"),
+        onupdate=text("now()"),
         nullable=False,
     )
 
@@ -1049,4 +1112,256 @@ class WeightPlan(Base):
 
     __table_args__ = (
         Index("ix_weight_plans_user_id", "user_id"),
+    )
+
+
+class SleepRecord(Base):
+    """One night of sleep data from an external source (e.g. health_sync_csv)."""
+
+    __tablename__ = "sleep_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    sleep_date = Column(Date, nullable=False)
+    start_at = Column(DateTime(timezone=True), nullable=False)
+    end_at = Column(DateTime(timezone=True), nullable=False)
+    total_sleep_minutes = Column(Integer, nullable=False)
+    time_in_bed_minutes = Column(Integer, nullable=False)
+    awake_minutes = Column(Integer, nullable=True)
+    light_minutes = Column(Integer, nullable=True)
+    deep_minutes = Column(Integer, nullable=True)
+    rem_minutes = Column(Integer, nullable=True)
+    sleep_score = Column(Integer, nullable=True)
+    sleep_efficiency = Column(Numeric(5, 2), nullable=True)
+    source = Column(Text, nullable=False)
+    device = Column(Text, nullable=True)
+    external_id = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "external_id", name="uq_sleep_records_user_external_id"),
+        Index("ix_sleep_records_user_sleep_date", "user_id", "sleep_date"),
+    )
+
+
+TAPER_SHAPE_VALUES = ("linear", "step", "exponential")
+
+
+class TrainingPlan(Base):
+    """Training plan with ramp-up and taper-down configuration parameters."""
+
+    __tablename__ = "training_plans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    ramp_rate = Column(Numeric(6, 2), nullable=True)
+    taper_start = Column(Numeric(6, 2), nullable=True)
+    taper_length = Column(Numeric(6, 2), nullable=True)
+    taper_shape = Column(Text, nullable=True)
+    # Cached computed Plan-tab bundle + the signature it was computed for
+    # (see GET /api/plan/computed). Recomputed when the signature changes.
+    computed_cache = Column(JSONB, nullable=True)
+    computed_signature = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+    __table_args__ = (
+        Index("ix_training_plans_user_id", "user_id"),
+        CheckConstraint(
+            "taper_shape IS NULL OR taper_shape IN ('linear', 'step', 'exponential')",
+            name="ck_training_plans_taper_shape",
+        ),
+    )
+
+
+class PlannedLoad(Base):
+    """One planned-TSS value per calendar date (issue #1102)."""
+
+    __tablename__ = "planned_load"
+
+    date = Column(Date, primary_key=True)
+    planned_tss = Column(Numeric(8, 2), nullable=False)
+
+
+class StrengthSession(Base):
+    """A logged heavy-strength training session (issue #1142).
+
+    Supports two load-capture patterns:
+    - sets × reps × load: provide sets, reps, load; leave session_rpe/duration_minutes null.
+    - session-RPE × duration: provide session_rpe, duration_minutes; leave sets/reps/load null.
+    Both patterns may coexist in the same row.
+    """
+
+    __tablename__ = "strength_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_date = Column(Date, nullable=False)
+    exercise_name = Column(String(200), nullable=True)
+    sets = Column(Integer, nullable=True)
+    reps = Column(Integer, nullable=True)
+    load = Column(Numeric(8, 2), nullable=True)
+    load_unit = Column(String(10), nullable=True)
+    session_rpe = Column(Integer, nullable=True)
+    duration_minutes = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_strength_sessions_user_date", "user_id", "session_date"),
+        CheckConstraint("sets IS NULL OR sets > 0", name="ck_strength_sessions_sets_positive"),
+        CheckConstraint("reps IS NULL OR reps > 0", name="ck_strength_sessions_reps_positive"),
+        CheckConstraint("load IS NULL OR load >= 0", name="ck_strength_sessions_load_non_negative"),
+        CheckConstraint(
+            "session_rpe IS NULL OR (session_rpe >= 1 AND session_rpe <= 10)",
+            name="ck_strength_sessions_rpe_range",
+        ),
+        CheckConstraint(
+            "duration_minutes IS NULL OR duration_minutes > 0",
+            name="ck_strength_sessions_duration_positive",
+        ),
+        CheckConstraint(
+            "load_unit IS NULL OR load_unit IN ('kg', 'lbs')",
+            name="ck_strength_sessions_load_unit_values",
+        ),
+    )
+
+
+class PlyoSession(Base):
+    """Plyometric training session with foot-contact volume tracking (issue #1143)."""
+
+    __tablename__ = "plyo_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_date = Column(Date, nullable=False)
+    exercise_name = Column(String(200), nullable=True)
+    foot_contacts = Column(Integer, nullable=False)
+    plyo_phase = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "foot_contacts >= 0",
+            name="ck_plyo_sessions_foot_contacts_non_negative",
+        ),
+        CheckConstraint(
+            "plyo_phase IN ('intro', 'build', 'maintain')",
+            name="ck_plyo_sessions_plyo_phase_values",
+        ),
+    )
+
+
+class EconomyCeilingSnapshot(Base):
+    """Per-user per-date economy stimulus and lagged ceiling bonus (issue #1149)."""
+
+    __tablename__ = "economy_ceiling_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    economy_stimulus = Column(Float, nullable=False, server_default=text("0.0"))
+    ceiling_bonus = Column(Float, nullable=False, server_default=text("0.0"))
+    computed_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_economy_ceiling_snapshots_user_date"),
+        Index("ix_economy_ceiling_snapshots_user_date", "user_id", "snapshot_date"),
+        CheckConstraint("economy_stimulus >= 0", name="ck_economy_ceiling_snapshots_stimulus_non_negative"),
+        CheckConstraint("ceiling_bonus >= 0", name="ck_economy_ceiling_snapshots_bonus_non_negative"),
+    )
+
+
+class UserBanisterParams(Base):
+    """Per-user fitted Banister model parameters with versioned history (issue #1204).
+
+    Each call to save_banister_params inserts a new row; old rows are never
+    overwritten, enabling a full audit trail of refits.
+    """
+
+    __tablename__ = "user_banister_params"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    tau1 = Column(Float, nullable=False)
+    tau2 = Column(Float, nullable=False)
+    k1 = Column(Float, nullable=False)
+    k2 = Column(Float, nullable=False)
+    fitted_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_user_banister_params_user_fitted_at", "user_id", "fitted_at"),
+    )
+
+
+class SummaryCache(Base):
+    """Durable (Neon-backed) L2 cache for computed summary/performance payloads.
+
+    Mirrors the in-memory ``_SUMMARY_CACHE`` (L1) in ``backend/main.py``: one row
+    per ``(user_id, cache_key)``, invalidated when the stored ``signature`` no
+    longer matches the recomputed signature. Persisting to Neon means a server
+    restart (which wipes L1) does not force a cold recompute — the first request
+    after restart reads straight from this table.
+
+    ``cache_key`` values in use: ``"weekly"``, ``"monthly:<...>"``,
+    ``"performance"`` — the same keys the callers already pass to get/put.
+    """
+
+    __tablename__ = "summary_cache"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    cache_key = Column(Text, primary_key=True, nullable=False)
+    signature = Column(Text, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class PlannedSession(Base):
+    """A hand-entered planned training session for the new Plan tab.
+
+    Distinct from Projection's synthetic ramp/taper load model (TrainingPlan /
+    PlannedLoad). Link-only: ``matched_workout_id`` points at the reconciled
+    ``workouts`` row that fulfilled this planned session — the workout stays its
+    own row and the Log tab is unchanged.
+    """
+
+    __tablename__ = "planned_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    planned_date = Column(Date, nullable=False, index=True)
+    # run | strength | plyo | rest
+    session_type = Column(String(20), nullable=False)
+    name = Column(String(200), nullable=True)
+    # blocks[] for runs / exercises[] for strength·plyo; null for rest
+    structure = Column(JSONB, nullable=True)
+    notes = Column(Text, nullable=True)
+    # planned | missed | needs_review | done_auto | done_manual
+    status = Column(String(20), nullable=False, server_default=text("'planned'"))
+    matched_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_planned_sessions_user_date", "user_id", "planned_date"),
     )

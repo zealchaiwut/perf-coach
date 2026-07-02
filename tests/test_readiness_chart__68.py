@@ -12,7 +12,6 @@ BASE = "http://127.0.0.1:9001"
 
 HTML = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
 JS   = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
-MOCK = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -129,15 +128,6 @@ def test_ac4_null_scores_not_zeroed():
         "trends.js must preserve null for missing readiness days (not coerce to 0)"
 
 
-def test_ac4_null_values_in_mock_series():
-    """Mock data must include null readiness entries to exercise gap rendering."""
-    null_scores = re.findall(r"readiness_score:\s*null", MOCK)
-    assert len(null_scores) >= 1, \
-        "js/mock-data.js must contain at least one null readiness_score to test gap rendering"
-
-
-# ── AC-5: Color-coded background bands ───────────────────────────────────────
-
 def test_ac5_band_plugin_registered():
     """trends.js must register a Chart.js plugin that draws background color bands."""
     assert "beforeDraw" in JS, \
@@ -217,23 +207,6 @@ def test_ac7_reads_readiness_series_from_summary():
     assert "readiness.series" in JS or ("readiness" in JS and "series" in JS), \
         "trends.js must consume summary.readiness.series for readiness chart data"
 
-
-def test_ac7_mock_get_trends_summary_in_mock_data():
-    """js/mock-data.js must define mockGetTrendsSummary with a readiness.series field."""
-    assert "mockGetTrendsSummary" in MOCK, \
-        "js/mock-data.js must define mockGetTrendsSummary (the /trends/summary mock)"
-    assert "readiness" in MOCK and "series" in MOCK, \
-        "mockGetTrendsSummary must return an object with a readiness.series array"
-
-
-def test_ac7_no_direct_readiness_api_call():
-    """Readiness chart must NOT call /api/readiness directly — only via /trends/summary."""
-    # Ensure the data path goes through the summary mock, not a separate endpoint
-    assert "mockGetTrendsSummary" in JS or "fetchSummary" in JS, \
-        "trends.js must fetch readiness data through mockGetTrendsSummary / fetchSummary"
-
-
-# ── AC-8: Mobile responsiveness ──────────────────────────────────────────────
 
 def test_ac8_responsive_true():
     """Chart.js config must set responsive: true."""

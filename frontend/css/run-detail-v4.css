@@ -31,6 +31,8 @@
   gap: 8px;
 }
 
+.rd4-typebadges { display: inline-flex; align-items: center; gap: 6px; }
+
 .rd4-typebadge {
   font-size: 0.6875rem;
   font-weight: 800;
@@ -39,6 +41,14 @@
   background: #dbeafe;
   padding: 4px 10px;
   border-radius: 999px;
+  text-transform: uppercase;
+}
+
+/* Run-subtype tag — secondary/outlined variant of the RUN badge. */
+.rd4-subtypebadge {
+  background: transparent;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
 }
 
 .rd4-srcbadges { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -488,6 +498,34 @@
 .rd4-lap-row--z2 td { background: #ecfdf5; }
 .rd4-lap-row--break td { background: #f1f5f9; color: #64748b; }
 
+/* ── Interval work/rest pairs in the lap table ──
+   Work rows carry a "Set N" (or "S1·R3") badge; the paired recovery row shows
+   "↳ rest". A shared left accent + alternating tint brackets each pair so the
+   reps are countable. Degrades to normal rows when no lap_roles are present. */
+.rd4-lap-row--pair td:first-child { border-left: 3px solid #c7d2fe; }
+.rd4-lap-row--pair.rd4-lap-row--pair-alt td:first-child { border-left-color: #fbcfe8; }
+.rd4-lap-row--work td { background: #eef2ff; }
+.rd4-lap-row--rest td { background: #f8fafc; color: #64748b; }
+.rd4-lap-row--pair-alt.rd4-lap-row--work td { background: #fdf2f8; }
+.rd4-lap-idcell { display: flex; align-items: center; gap: 6px; }
+.rd4-lap-num { font-weight: 700; }
+.rd4-set-badge {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  color: #fff;
+  background: #6366f1;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.rd4-lap-row--pair-alt.rd4-lap-row--work .rd4-set-badge { background: #ec4899; }
+.rd4-rest-badge {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+
 .rd4-z2-pill {
   font-size: 0.5625rem;
   font-weight: 800;
@@ -498,15 +536,8 @@
   margin-left: 4px;
 }
 
-.rd4-break-pill {
-  font-size: 0.5625rem;
-  font-weight: 800;
-  color: #475569;
-  background: #e2e8f0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  margin-left: 4px;
-}
+/* .rd4-break-pill removed — the "break" pill was redundant with the "↳ rest"
+   marker; the gray recovery-row tint (.rd4-lap-row--break) still dims rest laps. */
 
 .rd4-fastest { color: #15803d; font-weight: 700; }
 
@@ -665,15 +696,66 @@
 
 .rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; }
 .rd4-chart2-bars { position: relative; z-index: 1; height: 100%; }
-.rd4-cbar2 { display: block; margin: 0 3px; border-radius: 4px 4px 0 0; min-height: 4px; }
+.rd4-cbar2 { display: block; margin: 0 1.5px; border-radius: 3px 3px 0 0; min-height: 4px; }
+/* Labeled value gridlines (pace / power) for the combined laps chart. */
+.rd4-gl { position: absolute; left: 0; right: 0; border-top: 1px dotted rgba(13,30,67,0.14); }
+.rd4-gl-lbl {
+  position: absolute; left: 0; top: -7px;
+  font-size: 9px; line-height: 1; color: #8b95ad;
+  background: rgba(255,255,255,0.82); padding: 0 3px;
+  font-variant-numeric: tabular-nums;
+}
 .rd4-cbar2--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
 .rd4-cbar2--break { background: #94a3b8 !important; opacity: 0.85; }
+
+/* ── Interval work/rest pairs on the lap chart ──
+   Work bars carry a subtle accent + a floating rep number so the reps are
+   countable (8 numbered work bars for an 8×400m). Alternating tint separates
+   adjacent reps; recovery bars dim so the eye groups each work+rest pair. */
+.rd4-cbar2--work { box-shadow: inset 0 0 0 1.5px rgba(99,102,241,0.55); }
+.rd4-cell2--work-alt .rd4-cbar2--work { box-shadow: inset 0 0 0 1.5px rgba(236,72,153,0.55); }
+.rd4-cbar2--rest { opacity: 0.5; }
+.rd4-cell2--work { position: relative; }
+.rd4-cbar-rep {
+  position: absolute; top: 1px; left: 0; right: 0; z-index: 3;
+  text-align: center; font-size: 9px; line-height: 1; font-weight: 700;
+  color: #4338ca; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.rd4-cell2--work-alt .rd4-cbar-rep { color: #be185d; }
+
 .rd4-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .rd4-axis2 { margin-top: 4px; }
 .rd4-axis2 .rd4-cell2 { text-align: center; font-size: 10px; color: #8b95ad; }
 .rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; font-size: 12px; color: #5c6886; }
 .rd4-chart2-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .rd4-swatch2 { width: 14px; height: 10px; border-radius: 2px; }
+
+/* Lap-bar hover: frame the hovered bar + floating value tooltip. */
+.rd4-chart2-bars .rd4-cell2 { cursor: pointer; }
+.rd4-cell2--hover .rd4-cbar2 {
+  outline: 2px solid #0b1530;
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.rd4-lap-tip {
+  position: absolute;
+  top: 2px;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  gap: 9px;
+  white-space: nowrap;
+  background: #0b1530;
+  color: #fff;
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(13,30,67,0.25);
+}
+.rd4-lap-tip[hidden] { display: none; }
+.rd4-lap-tip-h { font-weight: 700; }
 .rd4-hr-key2 { width: 16px; height: 0; border-top: 3px solid #ef4444; border-radius: 2px; }
 
 /* Inline name editing */
@@ -733,4 +815,135 @@
 @media (max-width: 599px) {
   .rd4-int-table { font-size: 0.6875rem; }
   .rd4-int-table th, .rd4-int-table td { padding: 5px 4px; }
+}
+
+/* Session signal block (#1052) */
+/* Session-signal card — indigo/lavender treatment (matches design mock). */
+.rd4-signal {
+  background: #eef1fe;
+  border: 1px solid #dde2fb;
+}
+
+.rd4-new-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #dfe3fd;
+  color: #4f46e5;
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
+
+.rd4-signal--link { cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.rd4-signal--link:hover { background: #e6eafe; border-color: #cdd4fb; }
+.rd4-signal--link:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+.rd4-signal .rd4-sec-title { display: flex; align-items: center; }
+.rd4-signal-go {
+  margin-left: auto;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #4f46e5;
+}
+
+.rd4-signal-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rd4-signal-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rd4-signal-lbl {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #0b1530);
+  flex-shrink: 0;
+}
+
+.rd4-signal-vwrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  text-align: right;
+}
+
+.rd4-signal-val {
+  font-family: var(--mono, "JetBrains Mono", monospace);
+  font-size: 1rem;
+  font-weight: 700;
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* The shared current athlete score (today's, = Performance tab). */
+.rd4-signal-cur {
+  font-weight: 700;
+  color: #1b2340;
+  font-size: 1.05rem;
+}
+
+/* This session's signed contribution to the score (the per-session figure). */
+.rd4-signal-contrib {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.rd4-signal-contrib--up {
+  color: #16a34a;
+  background: #dcfce7;
+}
+.rd4-signal-contrib--down {
+  color: #dc2626;
+  background: #fee2e2;
+}
+.rd4-signal-contrib--flat {
+  color: #6b7280;
+  background: #f1f4fa;
+}
+
+/* Sub-label under the signal card title. */
+.rd4-signal-sub {
+  margin: 2px 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #9aa3b8);
+  font-weight: 500;
+}
+
+.rd4-signal-note {
+  font-size: 0.8125rem;
+  color: #6366f1;
+  font-style: normal;
+}
+
+.rd4-signal-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #3d4a6a);
+  line-height: 1.45;
+  border-top: 1px solid #dde2fb;
+  padding-top: 10px;
+}
+
+.rd4-signal-none {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #3d4a6a);
+}
+
+@media (max-width: 599px) {
+  .rd4-signal-lbl { min-width: 68px; }
 }

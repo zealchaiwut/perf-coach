@@ -11,12 +11,15 @@ UAT_BASE_URL = os.environ.get("UAT_BASE_URL", "http://localhost:9001")
 STATIC_ROOT = pathlib.Path(__file__).parent.parent / "frontend" / "pages"
 
 # Pages listed in acceptance criteria
+# index.html removed as dead code (perf-coach dead-code sweep): "/" redirects
+# to /home and nothing served index.html by path (no static mount over
+# frontend/pages/).
+# users.html removed (fix-loopholes Task 1): it was a fake-security "user
+# switcher" that called now admin-gated /api/users endpoints with no real auth.
 NAV_PAGES = [
-    "index.html",
     "home.html",
     "weight.html",
     "habits.html",
-    "users.html",
     "calendar.html",
     "training-log.html",
     "trends.html",

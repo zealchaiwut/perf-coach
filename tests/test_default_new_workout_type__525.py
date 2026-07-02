@@ -41,6 +41,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Source under test ────────────────────────────────────────────────────────
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -235,7 +236,7 @@ def _make_authed_user(label):
     """
     name = f"DefType525_{label}_{_RUN}"
     with httpx.Client(base_url=BASE, timeout=10) as bare:
-        res = bare.post("/api/users", json={"name": name})
+        res = bare.post("/api/users", json={"name": name}, cookies=_admin_cookies())
         assert res.status_code == 201, res.text
         user_id = res.json()["id"]
 
@@ -268,7 +269,7 @@ def _make_authed_user(label):
 def auth_user():
     u = _make_authed_user("main")
     yield u
-    u["client"].delete(f"/api/users/{u['id']}")
+    u["client"].delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
     u["client"].close()
 
 
@@ -325,7 +326,7 @@ def test_ac2_no_history_returns_null():
             "a user with no workout history must get null (built-in default)"
         )
     finally:
-        fresh["client"].delete(f"/api/users/{fresh['id']}")
+        fresh["client"].delete(f"/api/users/{fresh['id']}", cookies=_admin_cookies())
         fresh["client"].close()
 
 
@@ -346,8 +347,8 @@ def test_ac4_recent_type_is_per_user():
         assert res_a.json()["workout_type"] == "bike"
         user_a["client"].delete(f"/api/workouts/{wa['id']}")
     finally:
-        user_a["client"].delete(f"/api/users/{user_a['id']}")
-        user_b["client"].delete(f"/api/users/{user_b['id']}")
+        user_a["client"].delete(f"/api/users/{user_a['id']}", cookies=_admin_cookies())
+        user_b["client"].delete(f"/api/users/{user_b['id']}", cookies=_admin_cookies())
         user_a["client"].close()
         user_b["client"].close()
 

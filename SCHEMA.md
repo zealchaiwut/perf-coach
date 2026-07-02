@@ -60,7 +60,7 @@ Partial unique index: one active target per user.
 
 ---
 
-## habits _(updated Sprint 50; v2 columns added Sprint 77)_
+## habits _(updated Sprint 50; v2 columns added Sprint 77; focus coaching fields added Sprint 84)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -85,6 +85,8 @@ Partial unique index: one active target per user.
 | sort_order | int | default 0 |
 | is_archived | bool | default false |
 | archived_at | timestamptz | nullable |
+| minimum_version | text | nullable — minimum viable version of the habit for struggling days (focus coaching, Sprint 84) |
+| anchor_event | text | nullable — existing action to pair the habit with as an implementation intention (focus coaching, Sprint 84) |
 
 ---
 
@@ -110,7 +112,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90; temperature/humidity added Sprint 96)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -139,6 +141,17 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | np | int | nullable — normalized power (watts), computed at ingest |
 | avg_cadence_spm | int | nullable — average cadence (steps per minute) |
 | avg_stride_m | numeric(4,2) | nullable — average stride length (metres) |
+| speed_signal | float | nullable — best 1–6 min effort ratio vs threshold (Sprint 90 / #1048) |
+| speed_signal_basis | varchar(20) | nullable — `power` / `pace` / `heart_rate` |
+| speed_signal_window_seconds | int | nullable — duration of the best window used |
+| speed_signal_source | text | nullable — descriptive computation path string |
+| endurance_signal | float | nullable — aerobic durability score (0–100+); runs ≥ 40 min only (Sprint 90 / #1049) |
+| decoupling_percent | float | nullable — `((e1 - e2) / e1) * 100`; positive = fade |
+| efficiency_first_half | float | nullable — power/HR or speed/HR for first half of run |
+| efficiency_second_half | float | nullable — same metric for second half |
+| endurance_signal_source | varchar(20) | nullable — `power_hr` / `speed_hr` |
+| temperature_c | float | nullable — ambient temperature (°C) for heat/humidity normalization (Sprint 96 / #1168) |
+| humidity_pct | float | nullable — relative humidity (0–100) for heat/humidity normalization (Sprint 96 / #1168) |
 | created_at | timestamptz | |
 
 Child tables: `workout_exercises`, `workout_splits`.
@@ -164,7 +177,7 @@ Child tables: `workout_exercises`, `workout_splits`.
 
 ---
 
-## workout_splits _(lap_type added Sprint 63; power/cadence/stride added Sprint 70; lap_type tightened to NOT NULL Sprint 70)_
+## workout_splits _(lap_type added Sprint 63; power/cadence/stride added Sprint 70; lap_type tightened to NOT NULL Sprint 70; intensity_band added Sprint 93)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -178,9 +191,10 @@ Child tables: `workout_exercises`, `workout_splits`.
 | cadence_spm | int | nullable — cadence in steps per minute |
 | stride_length_m | numeric(4,2) | nullable — stride length in metres |
 | lap_type | varchar(10) | NOT NULL; `auto` (1-km auto-split) or `manual`; default `auto`; check constraint enforces `IN ('auto', 'manual')` |
+| intensity_band | varchar(20) | nullable — per-lap intensity band classified from power → pace → HR vs user thresholds; `easy` / `steady` / `tempo` / `threshold` / `hard`; persisted on PUT splits; check constraint `ck_workout_splits_intensity_band_values` (Sprint 93) |
 | created_at / updated_at | timestamptz | |
 
-Unique: `(workout_id, split_index)`. Check: `ck_workout_splits_lap_type_values`.
+Unique: `(workout_id, split_index)`. Checks: `ck_workout_splits_lap_type_values`, `ck_workout_splits_intensity_band_values`. Migration: `e3f1c0da097c` (intensity_band column).
 
 ---
 
@@ -420,7 +434,7 @@ Unique: `(user_id, snapshot_date)`.
 
 ---
 
-## google_oauth_credentials
+## google_oauth_credentials _(last_sync_at added Sprint 89)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -433,6 +447,7 @@ Unique: `(user_id, snapshot_date)`.
 | refresh_token | text | nullable |
 | expires_at | timestamptz | |
 | id_token_payload | jsonb | nullable |
+| last_sync_at | timestamptz | nullable — stamped after each Drive sleep sync run |
 | created_at / updated_at | timestamptz | |
 
 ---
@@ -452,6 +467,35 @@ Unique: `(user_id, snapshot_date)`.
 | created_at / updated_at | timestamptz | |
 
 Unique: `(user_id, source, source_identifier)`.
+
+---
+
+## sleep_records _(added Sprint 89)_
+
+Structured nightly sleep records imported from external sources (e.g. Health Sync CSV exported from Google Drive). One row per night per user. Idempotent upsert on `(user_id, external_id)`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| sleep_date | date | NOT NULL — date of the sleep night (the morning date) |
+| start_at | timestamptz | NOT NULL |
+| end_at | timestamptz | NOT NULL |
+| total_sleep_minutes | int | NOT NULL |
+| time_in_bed_minutes | int | NOT NULL |
+| awake_minutes | int | nullable |
+| light_minutes | int | nullable |
+| deep_minutes | int | nullable |
+| rem_minutes | int | nullable |
+| sleep_score | int | nullable |
+| sleep_efficiency | numeric(5,2) | nullable |
+| source | text | NOT NULL; e.g. `health_sync_csv` |
+| device | text | nullable |
+| external_id | text | NOT NULL — dedup key; SHA-256 of `{user_id}:{sleep_date}:{start_at}` when the source has no native ID |
+| created_at / updated_at | timestamptz | |
+
+Unique: `(user_id, external_id)`. Index: `ix_sleep_records_user_sleep_date` on `(user_id, sleep_date)`.
+Migrations: `ec0e2c456452` (initial table), `53b033936666` (make stage cols nullable).
 
 ---
 
@@ -578,6 +622,56 @@ Index: `ix_weight_plans_user_id`. Migration: `64d8ad2d9a42`.
 
 ---
 
+## training_plans _(added Sprint 92)_
+
+Per-user training plan configuration with ramp-up and taper-down parameters. One plan per user at a time is typical; multiple are allowed. Accessed via `POST /api/plans`, `GET /api/plans/{id}`, `PATCH /api/plans/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE; indexed |
+| name | text | NOT NULL |
+| ramp_rate | numeric(6,2) | nullable — weekly CTL ramp rate target |
+| taper_start | numeric(6,2) | nullable — CTL value at which taper begins |
+| taper_length | numeric(6,2) | nullable — taper duration in days |
+| taper_shape | text | nullable; `linear` / `step` / `exponential`; check constraint `ck_training_plans_taper_shape` |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | server default now(), onupdate now() |
+
+Index: `ix_training_plans_user_id`. Migration: `3f9e1b2c4a7d`.
+
+---
+
+## races_checkpoints _(added Sprint 92, schema-only)_
+
+Standalone event table for named race or checkpoint entries used by the projection system. Distinct from `race_checkpoints` (which are milestones within an existing `races` row). The `type` column is constrained to `race` or `checkpoint`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| name | text | NOT NULL |
+| date | date | NOT NULL |
+| distance_km | numeric(8,3) | nullable |
+| type | text | NOT NULL; `race` or `checkpoint`; check constraint `ck_races_checkpoints_type` |
+| goal_time | int | nullable — goal finish time in seconds |
+
+Migration: `017a12a2a6f5`.
+
+---
+
+## planned_load _(added Sprint 92, schema-only)_
+
+One planned-TSS value per calendar date for projection planning. The `date` column is the primary key so each date has exactly one value.
+
+| column | type | notes |
+|--------|------|-------|
+| date | date PK | |
+| planned_tss | numeric(8,2) | NOT NULL |
+
+Migration: `017a12a2a6f5`.
+
+---
+
 ## strength_record_achievements _(added Sprint 74)_
 
 Append-only log of every PR-beating event. Written at workout-ingest time; used to populate the achievements feed without re-deriving history on read.
@@ -600,3 +694,166 @@ Append-only log of every PR-beating event. Written at workout-ingest time; used 
 | created_at | timestamptz | |
 
 Migration: `a1607bab81de`.
+
+---
+
+## strength_sessions _(added Sprint 94)_
+
+A logged heavy-strength training session. Each row is one exercise entry; the UI groups entries by `session_date` to form a multi-exercise session view. Supports two load-capture patterns that may coexist in the same row: **sets × reps × load** (provide `sets`, `reps`, `load`) and **session-RPE × duration** (provide `session_rpe`, `duration_minutes`). CRUD via `GET/POST /api/strength-sessions`, `PUT/DELETE /api/strength-sessions/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| session_date | date | NOT NULL |
+| exercise_name | varchar(200) | nullable; required by the API on create |
+| sets | int | nullable; check `> 0` |
+| reps | int | nullable; check `> 0` |
+| load | numeric(8,2) | nullable; check `>= 0` |
+| load_unit | varchar(10) | nullable; `kg` / `lbs`; check `ck_strength_sessions_load_unit_values` |
+| session_rpe | int | nullable; 1–10; check `ck_strength_sessions_rpe_range` |
+| duration_minutes | int | nullable; check `> 0` |
+| created_at / updated_at | timestamptz | server default now() |
+
+Index: `ix_strength_sessions_user_date` on `(user_id, session_date)`. Checks: `ck_strength_sessions_sets_positive`, `ck_strength_sessions_reps_positive`, `ck_strength_sessions_load_non_negative`, `ck_strength_sessions_rpe_range`, `ck_strength_sessions_duration_positive`, `ck_strength_sessions_load_unit_values`. Migrations: `6de228e34220` (initial table), `b1dc2caab43e` (add `exercise_name` / `load_unit`).
+
+---
+
+## plyo_sessions _(added Sprint 94)_
+
+A plyometric training session with foot-contact volume tracking. Each row is one exercise entry; the UI groups entries by `session_date`. CRUD via `GET/POST /api/plyo-sessions`, `PUT/DELETE /api/plyo-sessions/{id}`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| session_date | date | NOT NULL |
+| exercise_name | varchar(200) | nullable; required by the API on create |
+| foot_contacts | int | NOT NULL; check `>= 0` |
+| plyo_phase | varchar(20) | NOT NULL; `intro` / `build` / `maintain`; check `ck_plyo_sessions_plyo_phase_values` |
+| created_at | timestamptz | nullable; server default now() |
+
+Checks: `ck_plyo_sessions_foot_contacts_non_negative`, `ck_plyo_sessions_plyo_phase_values`. Migration: `6a4bc101eef3`.
+
+---
+
+## economy_ceiling_snapshots _(added Sprint 94)_
+
+Per-user, per-date economy stimulus and lagged score-ceiling bonus, derived from `strength_sessions` and `plyo_sessions` by `backend/services/backfill_economy.py`. Idempotent upsert on `(user_id, snapshot_date)`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| snapshot_date | date | NOT NULL |
+| economy_stimulus | float | NOT NULL; default 0.0; check `>= 0` |
+| ceiling_bonus | float | NOT NULL; default 0.0; check `>= 0` |
+| computed_at | timestamptz | server default now() |
+
+Unique: `(user_id, snapshot_date)` (`uq_economy_ceiling_snapshots_user_date`). Index: `ix_economy_ceiling_snapshots_user_date` on `(user_id, snapshot_date)`. Checks: `ck_economy_ceiling_snapshots_stimulus_non_negative`, `ck_economy_ceiling_snapshots_bonus_non_negative`. Migration: `02ea347c3bd1`.
+
+---
+
+## user_banister_params _(added Sprint 96)_
+
+Per-user fitted Banister impulse-response model parameters (τ₁, τ₂, k₁, k₂) with versioned history (`backend/services/banister_params.py`). Each fit is an immutable version snapshot — `save_banister_params` always inserts a new row and prior rows are never overwritten, giving a full audit trail of refits. Users with no stored fit fall back to population defaults (τ1=50.0, τ2=11.0, k1=1.0, k2=2.0).
+
+| column | type | notes |
+|--------|------|-------|
+| id | int PK | autoincrement |
+| user_id | UUID FK→users | CASCADE |
+| tau1 | float | NOT NULL — fitness time constant (days) |
+| tau2 | float | NOT NULL — fatigue time constant (days) |
+| k1 | float | NOT NULL — fitness gain |
+| k2 | float | NOT NULL — fatigue gain |
+| fitted_at | timestamptz | NOT NULL |
+
+---
+
+## drive_sleep_connections
+
+Per-user Google Drive OAuth connection used to pull sleep-export CSVs from a linked Drive folder (Settings → Integrations → Google Drive (Sleep)). One row per user (`user_id` unique).
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users, unique | CASCADE |
+| refresh_token_encrypted | text | nullable |
+| folder_id | text | nullable — Drive folder to watch |
+| status | varchar(20) | NOT NULL, default `'not_connected'` |
+| last_sync_at | timestamptz | nullable |
+| created_at / updated_at | timestamptz | server default now() |
+
+Migration: `6b7db3c38f43_add_drive_sleep_connections_table`.
+
+---
+
+## removed_activities
+
+Tombstone for a synced Strava/Stryd activity the user removed from their log. Keyed by the external activity id so `reconcile.py` skips it on future syncs instead of recreating the workout; deleting the row (restore) lets the next reconcile rebuild it.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| source | varchar(10) | NOT NULL — `strava` \| `stryd` |
+| external_id | varchar(255) | NOT NULL |
+| workout_name | varchar(255) | nullable — snapshot for the Removed list |
+| workout_date | date | nullable — snapshot for the Removed list |
+| removed_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, source, external_id)` (`uq_removed_activities_user_source_external`). Index: `ix_removed_activities_user` on `user_id`. Migration: `932ba10c0d09_add_removed_activities_tombstone_table`.
+
+---
+
+## athlete_duration_curves
+
+Per-user cache of best-effort duration curves (best value achieved for each duration bucket, e.g. 5s/1min/5min/20min power or pace), keyed by `user_id` alone (one row per user, upserted in place as new bests arrive).
+
+| column | type | notes |
+|--------|------|-------|
+| user_id | UUID PK, FK→users | CASCADE |
+| curve_data | JSONB | NOT NULL, default `{}` — per-duration best-value entries (`best_value`, `workout_id`, `date`, `confidence`) |
+| updated_at | timestamptz | server default now(), onupdate now() |
+
+Migration: `kk1f2a3b4c5e_add_athlete_duration_curves_table`.
+
+---
+
+## summary_cache
+
+Durable (L2) mirror of the in-memory `_SUMMARY_CACHE` (L1) in `backend/main.py`: one row per `(user_id, cache_key)`, invalidated when the stored `signature` no longer matches the recomputed signature. Persisting to Neon means a server restart (which wipes L1) doesn't force a cold recompute — the first request after restart reads straight from this table. `cache_key` values in use: `weekly`, `monthly:<...>`, `performance`.
+
+| column | type | notes |
+|--------|------|-------|
+| user_id | UUID PK, FK→users | CASCADE |
+| cache_key | text PK | |
+| signature | text | NOT NULL |
+| payload | JSONB | NOT NULL |
+| updated_at | timestamptz | NOT NULL, server default now() |
+
+Migration: `c348d3b407f6_add_summary_cache_table_for_durable_`.
+
+---
+
+## planned_sessions
+
+A hand-entered planned training session for the Plan tab. Distinct from Projection's synthetic ramp/taper load model (`training_plans` / `planned_load`). Link-only: `matched_workout_id` points at the reconciled `workouts` row that fulfilled this planned session — the workout stays its own row and the Log tab is unchanged.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE; indexed |
+| planned_date | date | NOT NULL; indexed |
+| session_type | varchar(20) | NOT NULL — `run` \| `strength` \| `plyo` \| `rest` |
+| name | varchar(200) | nullable |
+| structure | JSONB | nullable — `blocks[]` for runs / `exercises[]` for strength·plyo; null for rest |
+| notes | text | nullable |
+| status | varchar(20) | NOT NULL, default `'planned'` — `planned` \| `missed` \| `needs_review` \| `done_auto` \| `done_manual` |
+| matched_workout_id | UUID FK→workouts | SET NULL |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | nullable |
+
+Index: `ix_planned_sessions_user_date` on `(user_id, planned_date)`. Migration: `6ce18fda0701_add_planned_sessions`.
+
+Index: `ix_user_banister_params_user_fitted_at` on `(user_id, fitted_at)`. Migration: `5552a8d45c57`.

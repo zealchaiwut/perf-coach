@@ -135,17 +135,6 @@
     return `${y}-${m}-${day}`;
   }
 
-  function buildDateRange(from, to) {
-    const dates = [];
-    const cur = new Date(from + 'T00:00:00');
-    const end = new Date(to + 'T00:00:00');
-    while (cur <= end) {
-      dates.push(toLocalDateStr(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return dates;
-  }
-
   function formatLabel(dateStr) {
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -344,17 +333,6 @@
     },
   };
 
-  function computeStats(values) {
-    const valid = values.filter(v => v !== null && v !== undefined);
-    if (valid.length === 0) return { mean: null, sd: null };
-    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
-    const variance = valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length;
-    return {
-      mean: Math.round(mean * 10) / 10,
-      sd: Math.round(Math.sqrt(variance) * 10) / 10,
-    };
-  }
-
   function buildSubChartTooltipCallbacks(series, label, unit, mean, sd) {
     return {
       title(items) { return series[items[0].dataIndex]?.date || items[0].label; },
@@ -376,7 +354,7 @@
     };
   }
 
-  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+  function _subChartDerived(series, color, mean, sd, today) {
     const dates = series.map(s => s.date);
     const values = series.map(s => s.value);
     const labels = dates.map(formatLabel);
@@ -394,22 +372,28 @@
     );
     const pointBorderWidths = values.map((_, i) => (i === todayIdx ? 2 : 0));
 
+    return { labels, values, pointBgColors, pointRadii, pointHoverRadii, pointBorderColors, pointBorderWidths };
+  }
+
+  function buildSubChart(ctx, series, label, unit, color, mean, sd, today) {
+    const d = _subChartDerived(series, color, mean, sd, today);
+
     return new Chart(ctx, {
       type: 'line',
       plugins: [baselineBandPlugin],
       data: {
-        labels,
+        labels: d.labels,
         datasets: [{
           label,
-          data: values,
+          data: d.values,
           borderColor: color,
           backgroundColor: 'transparent',
           borderWidth: 2,
-          pointRadius: pointRadii,
-          pointHoverRadius: pointHoverRadii,
-          pointBackgroundColor: pointBgColors,
-          pointBorderColor: pointBorderColors,
-          pointBorderWidth: pointBorderWidths,
+          pointRadius: d.pointRadii,
+          pointHoverRadius: d.pointHoverRadii,
+          pointBackgroundColor: d.pointBgColors,
+          pointBorderColor: d.pointBorderColors,
+          pointBorderWidth: d.pointBorderWidths,
           spanGaps: false,
           tension: 0.3,
         }],
@@ -436,8 +420,27 @@
     });
   }
 
+  // Update an existing sub-chart's data/point-styling/baseline in place
+  // instead of destroy+recreate (avoids flicker on every range change).
+  function updateSubChart(chart, series, label, unit, color, mean, sd, today) {
+    const d = _subChartDerived(series, color, mean, sd, today);
+    chart.data.labels = d.labels;
+    const ds = chart.data.datasets[0];
+    ds.data = d.values;
+    ds.pointRadius = d.pointRadii;
+    ds.pointHoverRadius = d.pointHoverRadii;
+    ds.pointBackgroundColor = d.pointBgColors;
+    ds.pointBorderColor = d.pointBorderColors;
+    ds.pointBorderWidth = d.pointBorderWidths;
+    chart.options.plugins.tooltip.callbacks = buildSubChartTooltipCallbacks(series, label, unit, mean, sd);
+    chart.options.plugins.baselineBand.mean = mean;
+    chart.options.plugins.baselineBand.sd = sd;
+    chart.update();
+  }
+
   function renderHrvChart(bodyEl, info, today) {
     if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
       showEmpty(bodyEl); return;
     }
     const baseline_mean = info.baseline_mean ?? null;
@@ -446,6 +449,10 @@
     if (labelEl && info.is_approximate) {
       labelEl.innerHTML = 'HRV (ms) <span class="hrv-rhr-approx">approximate</span>';
     }
+    if (hrvSubChart) {
+      updateSubChart(hrvSubChart, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
+      return;
+    }
     bodyEl.innerHTML = '<canvas></canvas>';
     const ctx = bodyEl.querySelector('canvas').getContext('2d');
     hrvSubChart = buildSubChart(ctx, info.series, 'HRV', 'ms', '#0070f3', baseline_mean, baseline_sd, today);
@@ -453,6 +460,7 @@
 
   function renderRhrChart(bodyEl, info, today) {
     if (!info || !info.series || !info.series.some(s => s.value !== null)) {
+      if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
       showEmpty(bodyEl); return;
     }
     const baseline_mean = info.baseline_mean ?? null;
@@ -460,6 +468,10 @@
     const labelEl = document.getElementById('rhr-sub-label');
     if (labelEl && info.is_approximate) {
       labelEl.innerHTML = 'Resting HR (bpm) <span class="hrv-rhr-approx">approximate</span>';
+    }
+    if (rhrSubChart) {
+      updateSubChart(rhrSubChart, info.series, 'Resting HR', 'bpm', '#ef4444', baseline_mean, baseline_sd, today);
+      return;
     }
     bodyEl.innerHTML = '<canvas></canvas>';
     const ctx = bodyEl.querySelector('canvas').getContext('2d');
@@ -530,7 +542,11 @@
     const hasAnyEnergy = energyData.some(v => v !== null);
     const hasAnyMood   = moodData.some(v => v !== null);
 
-    if (!hasAnySleep && !hasAnyEnergy && !hasAnyMood) { showEmpty(bodyEl); return; }
+    if (!hasAnySleep && !hasAnyEnergy && !hasAnyMood) {
+      if (semChart) { semChart.destroy(); semChart = null; }
+      showEmpty(bodyEl);
+      return;
+    }
 
     const energyBtn  = document.getElementById('btn-toggle-energy');
     const moodBtn    = document.getElementById('btn-toggle-mood');
@@ -593,6 +609,18 @@
         order: 2,
         hidden: !_semMoodVisible,
       });
+    }
+
+    // Update in place when possible — the dataset count can still change
+    // (e.g. energy/mood data appearing for the first time in a new range),
+    // which Chart.js handles fine via a full data.datasets reassignment.
+    if (semChart) {
+      semChart.data.labels = labels;
+      semChart.data.datasets = datasets;
+      semChart.options.plugins.tooltip.callbacks.title = items => dates[items[0].dataIndex];
+      semChart.options.plugins.weeklyAvgAnnotations = { enabled: _semWeeklyAvgVisible, dates, sleepData };
+      semChart.update();
+      return;
     }
 
     bodyEl.innerHTML = '<canvas id="chart-sem"></canvas>';
@@ -783,88 +811,210 @@
     renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
   }
 
-  // ── Mock fallback helpers ─────────────────────────────────────────────────────
+  // ── Intensity distribution stacked bar chart ─────────────────────────────────
 
-  function filterMockReadiness(from, to) {
-    return (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : [])
-      .filter(r => r.date >= from && r.date <= to);
-  }
+  let intensityChart = null;
 
-  function filterMockTSS(from, to) {
-    return (typeof MOCK_TSS !== 'undefined' ? MOCK_TSS : [])
-      .filter(r => r.date >= from && r.date <= to);
-  }
+  // Design-system colours: low=green (#16a34a), moderate=amber (#d97706), high=red (#dc2626)
+  const INTENSITY_COLOURS = {
+    low:      { bg: 'rgba(22, 163, 74, 0.80)',  border: '#16a34a' },
+    moderate: { bg: 'rgba(217, 119, 6, 0.80)',  border: '#d97706' },
+    high:     { bg: 'rgba(220, 38, 38, 0.80)',  border: '#dc2626' },
+  };
 
-  function buildTSSByDate(entries) {
-    const byDate = {};
-    entries.forEach(({ date, tss }) => { byDate[date] = (byDate[date] || 0) + tss; });
-    return byDate;
-  }
+  function renderIntensityChart(bodyEl, data) {
+    if (!bodyEl) return;
 
-  function renderMockFallback(state) {
-    const win = resolveDateWindow(state);
-    if (!win.from || !win.to) return;
+    var sessions = (data && data.sessions) || [];
+    var rollingWindow = (data && data.rolling_window) || {};
 
-    const dates = buildDateRange(win.from, win.to);
-    const readinessBodyEl = document.getElementById('slot-readiness-body');
-    const mockReadiness = filterMockReadiness(win.from, win.to);
-    const scoreByDate = Object.fromEntries(mockReadiness.map(r => [r.date, r.readiness_score]));
-    const scores = dates.map(d => d in scoreByDate ? scoreByDate[d] : null);
-    if (scores.some(v => v !== null)) {
-      emptyBanner.hidden = true;
-      renderReadinessChart(readinessBodyEl, dates, scores, dates.length >= 7);
-    } else {
-      showEmpty(readinessBodyEl);
-      emptyBanner.hidden = false;
+    // Show empty state when no sessions have band data
+    var hasBandData = sessions.some(function (s) { return s.low_pct !== null; });
+    var hasRollingData = rollingWindow.low_pct !== null;
+    if (!hasBandData && !hasRollingData) {
+      showEmpty(bodyEl);
+      return;
     }
 
-    const hrvBodyEl = document.getElementById('slot-hrv-body');
-    const rhrBodyEl = document.getElementById('slot-rhr-body');
-    const allHrvRhr = typeof MOCK_HRV_RHR !== 'undefined' ? MOCK_HRV_RHR : [];
-    const filteredHrvRhr = allHrvRhr.filter(r => r.date >= win.from && r.date <= win.to);
-    const today = toLocalDateStr(new Date());
-    if (filteredHrvRhr.length > 0) {
-      const { mean: hrvMean, sd: hrvSd } = computeStats(allHrvRhr.map(r => r.hrv));
-      const { mean: rhrMean, sd: rhrSd } = computeStats(allHrvRhr.map(r => r.rhr));
-      const isApprox = allHrvRhr.length < 30;
-      renderHrvChart(hrvBodyEl,
-        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
-          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox },
-        today);
-      renderRhrChart(rhrBodyEl,
-        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
-          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox },
-        today);
-    } else {
-      showEmpty(hrvBodyEl);
-      showEmpty(rhrBodyEl);
+    bodyEl.innerHTML = '<canvas id="chart-intensity" style="display:block;width:100%;"></canvas>';
+    var canvas = document.getElementById('chart-intensity');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    // Build labels: one per session + separator + rolling window label
+    var labels = sessions.map(function (s) { return formatLabel(s.date); });
+    var sessionCount = sessions.length;
+    labels.push('');           // visual gap
+    labels.push('28-day avg'); // rolling window bar
+
+    function buildDataset(band, label) {
+      var vals = sessions.map(function (s) { return s[band + '_pct'] || 0; });
+      vals.push(0); // gap bar
+      vals.push(rollingWindow[band + '_pct'] || 0);
+      return {
+        label: label,
+        data: vals,
+        backgroundColor: INTENSITY_COLOURS[band].bg,
+        borderColor: INTENSITY_COLOURS[band].border,
+        borderWidth: 1,
+        borderRadius: 2,
+        maxBarThickness: 40,
+        stack: 'intensity',
+      };
     }
 
-    const semBodyEl = document.getElementById('slot-sem-body');
-    const mockFallbackSummary = typeof mockGetTrendsSummary === 'function'
-      ? mockGetTrendsSummary({ range: state.type === 'preset' ? state.preset : '30d' })
-      : null;
-    if (mockFallbackSummary) {
-      const filteredSleep  = (mockFallbackSummary.sleep?.series  || []).filter(s => s.date >= win.from && s.date <= win.to);
-      const filteredEnergy = (mockFallbackSummary.energy?.series || []).filter(s => s.date >= win.from && s.date <= win.to);
-      const filteredMood   = (mockFallbackSummary.mood?.series   || []).filter(s => s.date >= win.from && s.date <= win.to);
-      if (filteredSleep.length > 0 || filteredEnergy.length > 0 || filteredMood.length > 0) {
-        if (semChart) { semChart.destroy(); semChart = null; }
-        renderSEMChart(semBodyEl, filteredSleep, filteredEnergy, filteredMood);
-      } else {
-        showEmpty(semBodyEl);
-      }
-    } else {
-      showEmpty(semBodyEl);
+    var datasets = [
+      buildDataset('low',      'Low'),
+      buildDataset('moderate', 'Moderate'),
+      buildDataset('high',     'High'),
+    ];
+
+    if (intensityChart) { intensityChart.destroy(); intensityChart = null; }
+    intensityChart = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 3,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 12 }, color: '#6b7280' },
+          },
+          tooltip: {
+            backgroundColor: '#1f2937',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            cornerRadius: 4,
+            padding: 8,
+            callbacks: {
+              title: function (items) {
+                var idx = items[0].dataIndex;
+                if (idx === sessionCount) return '';       // gap
+                if (idx === sessionCount + 1) return '28-day rolling window';
+                var s = sessions[idx];
+                return s ? (s.name + ' · ' + s.date) : '';
+              },
+              label: function (item) {
+                var val = item.raw;
+                if (val === 0) return null;
+                return item.dataset.label + ': ' + val.toFixed(1) + '%';
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: '#6b7280',
+              font: { size: 11 },
+              maxRotation: 45,
+              callback: function (value, index) {
+                // Hide the gap-bar label
+                return index === sessionCount ? '' : this.getLabelForValue(index);
+              },
+            },
+          },
+          y: {
+            stacked: true,
+            min: 0,
+            max: 100,
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 11 }, callback: function (v) { return v + '%'; } },
+            title: { display: true, text: 'Time in zone (%)', color: '#6b7280', font: { size: 12 } },
+          },
+        },
+      },
+    });
+  }
+
+  function loadIntensityChart(win) {
+    var bodyEl = document.getElementById('slot-intensity-body');
+    if (!bodyEl) return;
+    showLoading(bodyEl);
+    if (intensityChart) { intensityChart.destroy(); intensityChart = null; }
+    hidePolarizedCheckIndicator();
+    if (!win.from || !win.to) { showEmpty(bodyEl); return; }
+
+    fetch('/api/workouts/intensity-distribution?from=' + win.from + '&to=' + win.to)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) { renderIntensityChart(bodyEl, data); })
+      .catch(function () {
+        bodyEl.innerHTML = '<div class="slot-empty"><div class="slot-empty-text">Could not load intensity data</div></div>';
+      });
+
+    fetch('/api/workouts/polarized-check?from=' + win.from + '&to=' + win.to)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) { renderPolarizedCheckIndicator(data); })
+      .catch(function () { hidePolarizedCheckIndicator(); });
+  }
+
+  // ── Polarized-check indicator ─────────────────────────────────────────────────
+
+  function hidePolarizedCheckIndicator() {
+    var el = document.getElementById('polarized-check-indicator');
+    if (el) el.hidden = true;
+  }
+
+  function renderPolarizedCheckIndicator(data) {
+    var el        = document.getElementById('polarized-check-indicator');
+    var iconEl    = document.getElementById('polcheck-icon');
+    var labelEl   = document.getElementById('polcheck-label');
+    var splitEl   = document.getElementById('polcheck-split');
+    var offBandEl = document.getElementById('polcheck-off-band');
+    if (!el || !iconEl || !labelEl || !splitEl || !offBandEl) return;
+
+    var verdict = data && data.verdict;
+    if (!verdict) { hidePolarizedCheckIndicator(); return; }
+
+    var actual  = data.actual  || {};
+    var targets = data.targets || {};
+    var deviations = data.deviations || [];
+
+    // Build actual split display string
+    var splitStr = '';
+    if (actual.low != null) {
+      splitStr = 'Low ' + actual.low.toFixed(1) + '% · Mod ' + actual.moderate.toFixed(1) + '% · High ' + actual.high.toFixed(1) + '%';
     }
 
-    const tssBodyEl = document.getElementById('slot-tss-body');
-    const mockWorkouts = filterMockTSS(win.from, win.to);
-    const tssByDate = buildTSSByDate(mockWorkouts);
-    const mockReadinessByDate = Object.fromEntries(
-      (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : []).map(r => [r.date, r.readiness_score])
-    );
-    renderTSSOverlayChart(tssBodyEl, dates, tssByDate, mockReadinessByDate);
+    // Remove previous state classes
+    el.classList.remove('polarized-check-indicator--on-target', 'polarized-check-indicator--grey-zone');
+
+    if (verdict === 'on-target') {
+      el.classList.add('polarized-check-indicator--on-target');
+      iconEl.textContent  = '✓';
+      labelEl.textContent = 'On Target';
+      splitEl.textContent = splitStr;
+      offBandEl.textContent = '';
+      offBandEl.hidden = true;
+    } else {
+      el.classList.add('polarized-check-indicator--grey-zone');
+      iconEl.textContent  = '⚠';
+      labelEl.textContent = 'Grey Zone';
+      splitEl.textContent = splitStr;
+
+      // Identify the off-target bands with their target range
+      var offParts = deviations.map(function (dev) {
+        var band = dev.band;
+        var dir  = dev.direction;
+        var tgt  = targets[band];
+        var tgtStr = tgt ? tgt[0] + '–' + tgt[1] + '%' : '';
+        return band.charAt(0).toUpperCase() + band.slice(1) + ' band ' + dir + ' target' + (tgtStr ? ' (' + tgtStr + ')' : '');
+      });
+
+      offBandEl.textContent = offParts.join('; ');
+      offBandEl.hidden = offParts.length === 0;
+    }
+
+    el.hidden = false;
   }
 
   // ── Main data loader ──────────────────────────────────────────────────────────
@@ -881,26 +1031,33 @@
     const semBodyEl = document.getElementById('slot-sem-body');
     const tssBodyEl = document.getElementById('slot-tss-body');
 
+    // Only show the loading skeleton for slots without a live chart to reuse —
+    // showLoading() replaces the body's innerHTML (destroying the <canvas>),
+    // which would orphan an existing Chart.js instance we intend to update
+    // in place once the new range's data arrives.
     showLoading(readinessBodyEl);
-    showLoading(hrvBodyEl);
-    showLoading(rhrBodyEl);
-    showLoading(semBodyEl);
-    showLoading(tssBodyEl);
-    if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
-    if (semChart) { semChart.destroy(); semChart = null; }
-    if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
-    if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
+    if (!hrvSubChart) showLoading(hrvBodyEl);
+    if (!rhrSubChart) showLoading(rhrBodyEl);
+    if (!semChart) showLoading(semBodyEl);
+    if (!tssOverlayChart) showLoading(tssBodyEl);
     emptyBanner.hidden = true;
 
     if (!hasValidWindow) {
+      if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+      if (semChart) { semChart.destroy(); semChart = null; }
+      if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+      if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
       showEmpty(readinessBodyEl);
       showEmpty(hrvBodyEl);
       showEmpty(rhrBodyEl);
       showEmpty(semBodyEl);
       showTSSEmpty(tssBodyEl);
+      showEmpty(document.getElementById('slot-intensity-body'));
       emptyBanner.hidden = false;
       return;
     }
+
+    loadIntensityChart(win);
 
     fetchSummary(state)
       .then(summary => {
@@ -911,7 +1068,18 @@
         renderSEMFromSummary(semBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })
-      .catch(() => renderMockFallback(state));
+      .catch(() => {
+        if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+        if (semChart) { semChart.destroy(); semChart = null; }
+        if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+        if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
+        showEmpty(readinessBodyEl);
+        showEmpty(hrvBodyEl);
+        showEmpty(rhrBodyEl);
+        showEmpty(semBodyEl);
+        showTSSEmpty(tssBodyEl);
+        emptyBanner.hidden = false;
+      });
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────────

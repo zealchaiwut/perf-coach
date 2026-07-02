@@ -8,6 +8,7 @@ import re
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -24,7 +25,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -33,11 +34,11 @@ def alice_id(client):
 
 @pytest.fixture(scope="module")
 def new_user_id(client):
-    res = client.post("/api/users", json={"name": "DigestTestUser49"})
+    res = client.post("/api/users", json={"name": "DigestTestUser49"}, cookies=_admin_cookies())
     assert res.status_code in (200, 201)
     uid = res.json()["id"]
     yield uid
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -256,26 +257,6 @@ def test_ac_tss_delta_format(client, alice_id):
 
 
 # ── AC: JS helpers (tested via mock data shape) ───────────────────────────────
-
-def test_ac_mock_data_shape_matches_api():
-    """MOCK_TRENDS_SUMMARY in mock-data.js must have keys matching the real API shape."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
-    for key in ("range", "readiness", "sleep", "hrv", "rhr", "tss", "deltas"):
-        assert key in mock_js, f"MOCK_TRENDS_SUMMARY must include key '{key}'"
-
-
-def test_ac_mock_data_deltas_are_strings():
-    """MOCK_TRENDS_SUMMARY deltas must be quoted strings (not raw numbers)."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
-    # Keys may be unquoted or quoted in JS object literals
-    for key in ("readiness", "hrv", "rhr", "sleep", "tss"):
-        # Match: `key: '+4'` or `'key': '+4'` or `"key": "+4"` etc.
-        pattern = rf"""['"]?{key}['"]?\s*:\s*['"][^'"]+['"]"""
-        assert re.search(pattern, mock_js), \
-            f"MOCK delta for '{key}' must be a quoted string"
-
-
-# ── AC: max 5 lines in JS (structural check) ─────────────────────────────────
 
 def test_ac_home_js_slices_to_5_lines():
     """home.js must limit digest lines to at most 5 (slice(0, 5) or equivalent)."""

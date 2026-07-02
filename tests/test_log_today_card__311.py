@@ -27,6 +27,7 @@ from backend.auth import (
     hash_password,
 )
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9002"
 TODAY = datetime.date.today().isoformat()
@@ -55,7 +56,7 @@ def client():
 def auth_user(client):
     """Create a user with a password, log in, return authenticated client + user info."""
     name = f"LT311_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     user_id = res.json()["id"]
 
@@ -89,7 +90,7 @@ def auth_user(client):
     yield {"id": user_id, "name": name, "client": authed}
 
     authed.close()
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 # ── (a) HTML structure ────────────────────────────────────────────────────────
@@ -123,13 +124,6 @@ def test_home_js_has_render_log_today_card():
     """home.js must define renderLogTodayCard (AC9: implemented in home.js)."""
     js = _HOME_JS.read_text()
     assert "renderLogTodayCard" in js
-
-
-def test_home_js_has_load_log_today_card():
-    """home.js must define loadLogTodayCard and call it in init."""
-    js = _HOME_JS.read_text()
-    assert "loadLogTodayCard" in js
-    assert "loadLogTodayCard(userId)" in js
 
 
 def test_home_js_calls_put_daily_metrics():

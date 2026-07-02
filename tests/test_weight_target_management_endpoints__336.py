@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as _OrmSess
 from backend.auth import hash_password as _hash_pw
 from backend.db import engine as _engine
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "")
 if not BASE_URL.startswith("http"):
@@ -25,7 +26,7 @@ _WM336_PW = "wt336-test-pw"
 
 def _create_user(client: httpx.Client) -> tuple[str, str]:
     name = f"wt336_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"Failed to create test user: {r.text}"
     uid = r.json()["id"]
     pw_hash = _hash_pw(_WM336_PW)
@@ -40,7 +41,7 @@ def _create_user(client: httpx.Client) -> tuple[str, str]:
 
 
 def _delete_user(client: httpx.Client, user_id: str) -> None:
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 def _create_target(client: httpx.Client, cookie: str, **overrides) -> dict:

@@ -391,6 +391,40 @@
       </tbody>
     </table>
   </div>
+
+  <div class="section" id="db-backup-section">
+    <div class="section-title">
+      <i class="ti ti-database-export" aria-hidden="true"></i>
+      Database Backup
+    </div>
+    <p style="color:#5c6886;margin:0 0 12px;">
+      Download a full pg_dump of the current environment's database. Restore is
+      CLI-only for safety — use <code>scripts/db_restore.py</code>.
+    </p>
+    <button class="btn-primary" id="db-backup-btn">Download backup</button>
+    <div id="db-backup-feedback" class="form-feedback"></div>
+  </div>
+
+  <div class="section" id="copy-user-section">
+    <div class="section-title">
+      <i class="ti ti-copy" aria-hidden="true"></i>
+      Copy User (PRD → UAT)
+    </div>
+    <p style="color:#5c6886;margin:0 0 12px;">
+      Clone a PRD user's full data (workouts, activities, habits, metrics,
+      integrations) into UAT. Preserves ids; safe to re-run.
+    </p>
+    <div class="form-group">
+      <label for="copy-user-select">PRD user</label>
+      <select id="copy-user-select"><option value="">Loading…</option></select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:8px 0;">
+      <input id="copy-user-overwrite" type="checkbox">
+      Re-run if already in UAT (adds missing rows only)
+    </label>
+    <button class="btn-primary" id="copy-user-btn" disabled>Copy to UAT</button>
+    <div id="copy-user-feedback" class="form-feedback"></div>
+  </div>
 </div>
 
 <!-- Reset Password Modal -->
@@ -821,6 +855,94 @@
         btn.disabled = false;
       });
   });
+
+  // ── Database Backup ────────────────────────────────────────────────────────
+
+  (function () {
+    var btn = document.getElementById('db-backup-btn');
+    var fb = document.getElementById('db-backup-feedback');
+    function show(msg, type) {
+      fb.textContent = msg; fb.className = 'form-feedback ' + type; fb.style.display = 'block';
+    }
+    btn.addEventListener('click', function () {
+      fb.style.display = 'none';
+      btn.disabled = true;
+      var orig = btn.textContent; btn.textContent = 'Building backup…';
+      fetch('/api/admin/db/backup', { headers: { 'Accept': 'application/octet-stream' } })
+        .then(function (r) {
+          if (!r.ok) { return r.json().then(function (d) { throw new Error(d.detail || ('Error ' + r.status)); }); }
+          var name = 'backup.dump';
+          var cd = r.headers.get('Content-Disposition') || '';
+          var m = cd.match(/filename="?([^"]+)"?/); if (m) { name = m[1]; }
+          return r.blob().then(function (blob) { return { blob: blob, name: name }; });
+        })
+        .then(function (res) {
+          var url = URL.createObjectURL(res.blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = res.name; document.body.appendChild(a); a.click();
+          a.remove(); URL.revokeObjectURL(url);
+          show('Backup downloaded: ' + res.name, 'success');
+        })
+        .catch(function (err) { show(err.message || 'Backup failed.', 'error'); })
+        .finally(function () { btn.disabled = false; btn.textContent = orig; });
+    });
+  })();
+
+  // ── Copy User (PRD → UAT) ──────────────────────────────────────────────────
+
+  (function () {
+    var sel = document.getElementById('copy-user-select');
+    var btn = document.getElementById('copy-user-btn');
+    var fb = document.getElementById('copy-user-feedback');
+    function show(msg, type) {
+      fb.textContent = msg; fb.className = 'form-feedback ' + type; fb.style.display = 'block';
+    }
+    fetch('/api/admin/prd-users', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) { return r.json().then(function (d) { throw new Error(d.detail || ('Error ' + r.status)); }); }
+        return r.json();
+      })
+      .then(function (data) {
+        var users = data.users || [];
+        if (!users.length) { sel.innerHTML = '<option value="">No PRD users</option>'; return; }
+        sel.innerHTML = '<option value="">Select a user…</option>';
+        users.forEach(function (u) {
+          var o = document.createElement('option');
+          o.value = u.id;
+          o.textContent = u.name + (u.is_admin ? ' (admin)' : '') + (u.is_active ? '' : ' [inactive]');
+          sel.appendChild(o);
+        });
+        btn.disabled = false;
+      })
+      .catch(function (err) {
+        sel.innerHTML = '<option value="">Unavailable</option>';
+        show(err.message || 'Failed to load PRD users.', 'error');
+      });
+    btn.addEventListener('click', function () {
+      var id = sel.value;
+      if (!id) { show('Pick a PRD user first.', 'error'); return; }
+      fb.style.display = 'none';
+      btn.disabled = true;
+      var orig = btn.textContent; btn.textContent = 'Copying…';
+      fetch('/api/admin/users/copy-to-uat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ identifier: id, overwrite: document.getElementById('copy-user-overwrite').checked })
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (!res.ok) { throw new Error(res.data.detail || 'Copy failed.'); }
+          var c = res.data.copied || {};
+          var total = Object.keys(c).reduce(function (s, k) { return s + (c[k] || 0); }, 0);
+          show('Copied "' + res.data.user.name + '" to UAT — ' + total + ' rows ('
+            + (c.workouts || 0) + ' workouts, ' + (c.strava_activities || 0) + ' strava, '
+            + (c.habit_logs || 0) + ' habit logs).', 'success');
+          loadUsers();
+        })
+        .catch(function (err) { show(err.message || 'Network error.', 'error'); })
+        .finally(function () { btn.disabled = false; btn.textContent = orig; });
+    });
+  })();
 
   loadUsers();
 }());

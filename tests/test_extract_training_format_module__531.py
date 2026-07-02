@@ -29,6 +29,7 @@ from datetime import date
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 LIB = REPO / "frontend" / "js" / "lib" / "training-format.js"
@@ -248,7 +249,7 @@ def auth_client():
     password = "fmt-531-pw"
 
     base_client = httpx.Client(base_url=BASE, timeout=10)
-    res = base_client.post("/api/users", json={"name": name})
+    res = base_client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     if res.status_code not in (201, 200):
         pytest.skip(f"server at {BASE} unavailable for integration test: {res.status_code}")
     user_id = res.json()["id"]
@@ -271,7 +272,7 @@ def auth_client():
     )
     yield {"client": authed, "id": user_id, "run": run}
     authed.close()
-    base_client.delete(f"/api/users/{user_id}")
+    base_client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
     base_client.close()
 
 

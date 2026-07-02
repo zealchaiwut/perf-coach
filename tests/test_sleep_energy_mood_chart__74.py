@@ -9,10 +9,8 @@ than all three series are returned.
 
 Server under test: http://127.0.0.1:9001
 """
-import json
 import pathlib
 import re
-import subprocess
 
 import httpx
 import pytest
@@ -22,7 +20,6 @@ ROOT = pathlib.Path(__file__).parent.parent
 
 HTML = (ROOT / "frontend" / "pages" / "trends.html").read_text()
 JS   = (ROOT / "frontend" / "js" / "trends.js").read_text()
-MOCK = (ROOT / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -32,14 +29,6 @@ def client():
     with httpx.Client(base_url=BASE, timeout=10) as c:
         yield c
 
-
-# ── Node.js helper ────────────────────────────────────────────────────────────
-
-def _node(script: str) -> object:
-    src = f"{MOCK}\n{script}"
-    r = subprocess.run(["node", "-e", src], capture_output=True, text=True, timeout=15)
-    assert r.returncode == 0, f"node exited non-zero:\n{r.stderr}"
-    return json.loads(r.stdout)
 
 
 # ── Regression guards ─────────────────────────────────────────────────────────
@@ -201,25 +190,6 @@ def test_ac3_span_gaps_false_prevents_zero_interpolation():
         f"trends.js sets spanGaps: false {span_gaps_count} time(s) but needs at least 3 — " \
         "one per series (sleep, energy, mood) so null values render as gaps"
 
-
-def test_ac3_null_values_in_mock_data():
-    """mockGetTrendsSummary must return null entries in sleep/energy/mood series."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "const sleepNulls  = r.sleep.series.filter(s => s.value === null).length;"
-        "const energyNulls = r.energy.series.filter(s => s.value === null).length;"
-        "const moodNulls   = r.mood.series.filter(s => s.value === null).length;"
-        "process.stdout.write(JSON.stringify({sleepNulls, energyNulls, moodNulls}));"
-    )
-    assert result["sleepNulls"] > 0, \
-        "mockGetTrendsSummary sleep.series must include at least one null value to exercise gap rendering"
-    assert result["energyNulls"] > 0, \
-        "mockGetTrendsSummary energy.series must include at least one null value to exercise gap rendering"
-    assert result["moodNulls"] > 0, \
-        "mockGetTrendsSummary mood.series must include at least one null value to exercise gap rendering"
-
-
-# ── AC-4: Tooltip shows all available values for the hovered day ──────────────
 
 def test_ac4_tooltip_callback_present():
     """trends.js must define a tooltip callback for the sleep/energy/mood chart."""
@@ -434,35 +404,3 @@ def test_ac9_no_extra_fetch_in_render_function():
         "from the single /trends/summary response already loaded by loadChartData (AC-9)"
 
 
-def test_ac9_summary_endpoint_provides_all_three_series():
-    """mockGetTrendsSummary must return sleep, energy, and mood series in a single call."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'7d'});"
-        "process.stdout.write(JSON.stringify({"
-        "  hasSleep:  Array.isArray(r.sleep.series),"
-        "  hasEnergy: Array.isArray(r.energy.series),"
-        "  hasMood:   Array.isArray(r.mood.series)"
-        "}));"
-    )
-    assert result["hasSleep"],  "mockGetTrendsSummary must return sleep.series as an array"
-    assert result["hasEnergy"], "mockGetTrendsSummary must return energy.series as an array"
-    assert result["hasMood"],   "mockGetTrendsSummary must return mood.series as an array"
-
-
-def test_ac9_series_have_date_value_shape():
-    """All three series must use the {date, value} shape the chart code expects."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'7d'});"
-        "const s = r.sleep.series[0]; const e = r.energy.series[0]; const m = r.mood.series[0];"
-        "process.stdout.write(JSON.stringify({"
-        "  sleepHasDate:  'date' in s, sleepHasValue:  'value' in s,"
-        "  energyHasDate: 'date' in e, energyHasValue: 'value' in e,"
-        "  moodHasDate:   'date' in m, moodHasValue:   'value' in m"
-        "}));"
-    )
-    assert result["sleepHasDate"]  and result["sleepHasValue"],  \
-        "sleep.series entries must have {date, value} shape"
-    assert result["energyHasDate"] and result["energyHasValue"], \
-        "energy.series entries must have {date, value} shape"
-    assert result["moodHasDate"]   and result["moodHasValue"],   \
-        "mood.series entries must have {date, value} shape"

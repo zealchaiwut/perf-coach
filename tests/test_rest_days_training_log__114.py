@@ -13,6 +13,7 @@ import pathlib
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = os.environ.get("UAT_BASE_URL") or f"http://localhost:{os.environ.get('UAT_PORT', '9001')}"
 if not BASE.startswith("http"):
@@ -37,13 +38,13 @@ def client():
 
 @pytest.fixture(scope="module")
 def test_user(client):
-    res = client.post("/api/users", json={"name": "RestDayTester114"})
+    res = client.post("/api/users", json={"name": "RestDayTester114"}, cookies=_admin_cookies())
     assert res.status_code in (200, 201), f"Failed to create test user: {res.text}"
     uid = res.json()["id"]
     yield uid
     for d in [_REST_DATE, _BOTH_DATE]:
         client.delete(f"/api/daily-metrics/{uid}/{d}")
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 def _put_metric(client, user_id, date_str, **fields):
@@ -258,34 +259,4 @@ def test_training_log_js_rest_row_has_no_click_listener(training_log_js):
     )
 
 
-# ── Mock data: MOCK_REST_DAYS has top-level fields ────────────────────────────
 
-@pytest.fixture(scope="module")
-def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
-    assert path.exists(), "js/mock-data.js not found"
-    return path.read_text(encoding="utf-8")
-
-
-def test_mock_rest_days_have_top_level_sleep_hours(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block, "MOCK_REST_DAYS not found in mock-data.js"
-    block = rest_block.group(0)
-    assert "sleep_hours:" in block, "MOCK_REST_DAYS entries must have top-level sleep_hours"
-
-
-def test_mock_rest_days_have_top_level_energy(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block
-    block = rest_block.group(0)
-    assert "energy:" in block, "MOCK_REST_DAYS entries must have top-level energy"
-
-
-def test_mock_rest_days_have_top_level_mood(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block
-    block = rest_block.group(0)
-    assert "mood:" in block, "MOCK_REST_DAYS entries must have top-level mood"

@@ -8,6 +8,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _RUN = str(uuid.uuid4())[:8]
@@ -24,9 +25,9 @@ def client():
 @pytest.fixture(scope="module")
 def user_id(client):
     name = f"FeelSchema_{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next(u for u in users if u["name"] == name)
     return u["id"]
 
@@ -116,9 +117,9 @@ def test_cascade_delete_user_removes_feel_rows(client):
 
     # create isolated user
     cascade_name = f"CascadeUser_{_RUN}"
-    res = client.post("/api/users", json={"name": cascade_name})
+    res = client.post("/api/users", json={"name": cascade_name}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     u = next(u for u in users if u["name"] == cascade_name)
     uid_str = u["id"]
 
@@ -137,7 +138,7 @@ def test_cascade_delete_user_removes_feel_rows(client):
     assert before == 2
 
     # delete user
-    del_res = client.delete(f"/api/users/{uid_str}")
+    del_res = client.delete(f"/api/users/{uid_str}", cookies=_admin_cookies())
     assert del_res.status_code == 204
 
     # confirm cascade: feel rows are gone

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth import generate_csrf_token, hash_password
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _TEST_PASSWORD = "dsbadge601-int-pw"
@@ -56,7 +57,7 @@ def _make_authed_client(username: str, user_id: str) -> httpx.Client:
 def authed_client():
     username = f"s601_{uuid.uuid4().hex[:8]}"
     temp = httpx.Client(base_url=BASE, timeout=15, follow_redirects=True)
-    res = temp.post("/api/users", json={"name": username})
+    res = temp.post("/api/users", json={"name": username}, cookies=_admin_cookies())
     assert res.status_code == 201, f"User create failed: {res.text}"
     user_id = res.json()["id"]
     temp.close()
@@ -67,7 +68,7 @@ def authed_client():
         db.commit()
     c = _make_authed_client(username, user_id)
     yield c
-    c.delete(f"/api/users/{user_id}")
+    c.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
     c.close()
 
 

@@ -19,6 +19,7 @@ import re
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -38,7 +39,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -48,7 +49,7 @@ def alice_id(client):
 @pytest.fixture(scope="module")
 def sparse_user_id(client):
     """User with only 3 days of data — below the 7-day threshold."""
-    res = client.post("/api/users", json={"name": "DigestTestUser72Sparse"})
+    res = client.post("/api/users", json={"name": "DigestTestUser72Sparse"}, cookies=_admin_cookies())
     assert res.status_code in (200, 201)
     uid = res.json()["id"]
     dates = []
@@ -64,7 +65,7 @@ def sparse_user_id(client):
     yield uid
     for d in dates:
         client.delete(f"/api/daily-metrics/{uid}/{d}")
-    client.delete(f"/api/users/{uid}")
+    client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 # ── AC: HTML positioning — digest must come immediately before check-in ───────
@@ -203,23 +204,6 @@ def test_ac_no_llm_endpoint_in_home_js():
 
 
 # ── AC: Mock data — HRV demonstrable (last 3 days below baseline) ────────────
-
-def test_ac_mock_data_hrv_last_3_days_below_avg():
-    """MOCK_TRENDS_SUMMARY must have last 3 HRV values below the reported avg."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
-    # Extract HRV block specifically
-    hrv_match = re.search(r"hrv:\s*\{.*?avg:\s*([\d.]+)", mock_js, re.DOTALL)
-    hrv_series_match = re.search(r"hrv:\s*\{[^}]*series:\s*\[(.*?)\]", mock_js, re.DOTALL)
-    if hrv_match and hrv_series_match:
-        avg = float(hrv_match.group(1))
-        values = [float(v) for v in re.findall(r"value:\s*(\d+)", hrv_series_match.group(1))]
-        if len(values) >= 3:
-            last_3 = values[-3:]
-            assert all(v < avg for v in last_3), \
-                f"MOCK_TRENDS_SUMMARY: last 3 HRV values {last_3} must all be below avg {avg}"
-
-
-# ── AC: API — fewer than 7 days yields null averages ─────────────────────────
 
 def test_ac_sparse_user_has_null_readiness_avg(client, sparse_user_id):
     """A user with only 3 days of data must get null readiness.avg (triggers fallback)."""

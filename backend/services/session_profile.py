@@ -281,6 +281,8 @@ def detect_session_profile(splits, prefs):
     # Step 4: attempt interval detection — looks for repeating hard/easy cycles
     reps_detected = None
     sets_detected = None
+    reps_per_set = None
+    lap_roles = None
     interval_phase, _ = detect_intervals(merged_laps)
     if interval_phase is not None:
         # Interval pattern found — refine by splitting on long recoveries
@@ -288,12 +290,77 @@ def detect_session_profile(splits, prefs):
         if updated_phase is not None:
             reps_detected = updated_phase.get("reps_detected")
             sets_detected = updated_phase.get("sets_detected")
+            reps_per_set = updated_phase.get("reps_per_set")
+            # Derive the per-lap work/recovery role map so the frontend can
+            # number pairs (Set 1..N). Purely derived from the detector output.
+            lap_roles = _build_lap_roles(
+                interval_phase, updated_phase, len(merged_laps)
+            )
 
     return {
         "phases": phases,
         "reps_detected": reps_detected,
         "sets_detected": sets_detected,
+        "reps_per_set": reps_per_set,
+        "lap_roles": lap_roles,
         "basis": basis,
         "confident": True,
         "debug": {"laps": debug_laps},
     }
+
+
+def _build_lap_roles(interval_phase, updated_phase, lap_count):
+    """Build a per-lap role map from the detector output — pure/derived.
+
+    ``interval_phase["lap_indexes"]`` is the ordered list of laps in the block,
+    interleaved [work0, recovery0, work1, recovery1, …]. Each work rep gets a
+    ``rep`` number (1..N across the whole block) and a ``set`` number; the
+    recovery lap immediately following a work rep pairs to the SAME set/rep so
+    the frontend can draw them as one unit. Reps are assigned to sets using
+    ``updated_phase["reps_per_set"]`` (e.g. [4, 4] → reps 1–4 = set 1, reps 5–8
+    = set 2); a single set → set=1 for every rep. Laps outside the interval
+    block, or a trailing work rep with no following recovery, get role="other".
+
+    Returns ``{ "<lap_index>": {"role", "set", "rep"} }`` keyed by 0-based lap
+    index (matching the position in the merged/split list), or None when there
+    is nothing confident to annotate.
+    """
+    if not isinstance(interval_phase, dict):
+        return None
+    lap_indexes = interval_phase.get("lap_indexes") or []
+    if len(lap_indexes) < 4:  # need ≥2 complete work+recovery cycles
+        return None
+
+    reps_per_set = None
+    if isinstance(updated_phase, dict):
+        reps_per_set = updated_phase.get("reps_per_set")
+
+    # Map a 1-based rep number → its set number using reps_per_set cumulatively.
+    def _set_for_rep(rep_number):
+        if not reps_per_set:
+            return 1
+        cumulative = 0
+        for set_idx, count in enumerate(reps_per_set):
+            cumulative += count
+            if rep_number <= cumulative:
+                return set_idx + 1
+        return len(reps_per_set)  # fall back to the last set
+
+    roles = {}
+    # Walk pairs: even positions are work reps, the odd position after each is
+    # its paired recovery.
+    rep_number = 0
+    pos = 0
+    n = len(lap_indexes)
+    while pos < n:
+        work_lap = lap_indexes[pos]
+        rep_number += 1
+        set_number = _set_for_rep(rep_number)
+        roles[str(work_lap)] = {"role": "work", "set": set_number, "rep": rep_number}
+        # Pair the following recovery (if present) to the same set/rep.
+        if pos + 1 < n:
+            rec_lap = lap_indexes[pos + 1]
+            roles[str(rec_lap)] = {"role": "recovery", "set": set_number, "rep": rep_number}
+        pos += 2
+
+    return roles or None
