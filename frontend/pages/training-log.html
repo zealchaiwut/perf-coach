@@ -6170,15 +6170,18 @@
     <div id="list-main" class="log-page-body">
       <!-- Summary digest card (issue #1058) -->
       <div id="summary-digest-card" class="log-card" hidden>
-        <div class="sd-header">
-          <span class="sd-title">Summary<span class="sd-new-badge">NEW</span></span>
-          <div class="sd-toggle" role="group" aria-label="Summary period">
-            <button type="button" class="sd-toggle-btn is-active" data-period="week" aria-pressed="true">This week</button>
+        <div class="lrx-chead">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="lrx-sectitle">Summary</span>
+            <span class="lrx-scope" id="lrx-scope">This week</span>
+          </div>
+          <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
+            <button type="button" class="sd-toggle-btn on" data-period="week" aria-pressed="true">This week</button>
             <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">This month</button>
           </div>
         </div>
         <div id="sd-body">
-          <!-- Populated by JS: skeleton → tiles + chips + note (→ supercomp on month) -->
+          <!-- Populated by JS: sumtiles + chips + note (→ supercomp on month) -->
         </div>
       </div>
 

@@ -4881,9 +4881,24 @@
 
   var _athleteId   = null;
   var _activePeriod = 'week';
+  // Displayed calendar month (YYYY-MM) the monthly summary should follow, and
+  // whether a calendar week-scope is currently pinned (summary-only).
+  var _scopeMonth = null;
 
-  // Cache: keyed by 'week' or 'month', value = fetched data object
+  // Cache: keyed by 'week' or 'month' (+ month key), value = fetched data
   var _summaryCache = {};
+
+  function _setScopeLabel(text) {
+    var el = document.getElementById('lrx-scope');
+    if (el) el.textContent = text;
+  }
+  function _monthLabel(ym) {
+    // ym = 'YYYY-MM' → 'July 2026'
+    if (!ym) return '';
+    var parts = ym.split('-');
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -4940,23 +4955,38 @@
 
   // ── Shared tiles + chips (weekly and monthly share the same top block) ───────
 
-  // Named metric tiles: label on top, value + unit below (design mock).
+  // Mock sumtiles: label, big value+unit, and a delta line. The summary
+  // endpoint has no volume/session week-over-week deltas, so the delta line is
+  // driven by the available *_change fields where meaningful: Load ← form TSB
+  // change (form trend); Volume/Sessions have no comparable delta → flat "—".
+  function _sdDelta(change, unit, noun) {
+    if (change == null || !isFinite(Number(change))) {
+      return '<div class="lrx-delta flat">—</div>';
+    }
+    var n = Number(change);
+    var cls = n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
+    var arrow = n > 0 ? '▲ ' : n < 0 ? '▼ ' : '= ';
+    var txt = arrow + (n > 0 ? '+' : '') + n.toFixed(1) + (unit ? ' ' + unit : '') +
+              (noun ? ' ' + noun : '');
+    return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + '</div>';
+  }
   function _sdTiles(data) {
-    function tile(label, val, unit) {
+    function tile(label, val, unit, deltaHtml) {
       return (
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-label">' + label + '</div>' +
-          '<div class="sd-tile-val">' + _esc(val) +
-            (unit ? ' <span class="sd-tile-unit">' + unit + '</span>' : '') +
-          '</div>' +
+        '<div class="lrx-sumtile">' +
+          '<div class="lab">' + label + '</div>' +
+          '<div class="val">' + _esc(val) +
+            (unit ? ' <small>' + unit + '</small>' : '') +
+          '</div>' + (deltaHtml || '<div class="lrx-delta flat">—</div>') +
         '</div>'
       );
     }
     return (
-      '<div class="sd-tiles">' +
-        tile('Volume', (data.distance_km || 0).toFixed(1), 'km') +
-        tile('Load', Math.round(data.total_tss || 0), 'TSS') +
-        tile('Sessions', data.session_count || 0, '') +
+      '<div class="lrx-sumgrid">' +
+        tile('Volume', (data.distance_km || 0).toFixed(1), 'km', null) +
+        tile('Load', Math.round(data.total_tss || 0), 'TSS',
+             _sdDelta(data.form_tsb_change, null, 'form')) +
+        tile('Sessions', data.session_count || 0, '', null) +
       '</div>'
     );
   }
@@ -4974,32 +5004,41 @@
   }
 
   // Separate Endurance / Speed / Weight / Form chips (design mock).
+  // chip colour: g = good/up, r = bad/down, b = neutral/info (mock classes).
+  function _lrxChipClass(val) {
+    if (val == null) return 'b';
+    var n = Number(val);
+    if (n > 0) return 'g';
+    if (n < 0) return 'r';
+    return 'b';
+  }
   function _sdChips(data) {
     var chips = '';
     var has = false;
     function add(label, val, cls, suffix) {
       chips +=
-        '<span class="sd-chip ' + cls + '">' + label + ' ' + _esc(val) +
+        '<span class="lrx-chip ' + cls + '">' + label + ' ' + _esc(val) +
         (suffix ? ' · ' + _esc(suffix) : '') + '</span>';
       has = true;
     }
     if (data.endurance_score_change != null && data.endurance_score_change !== 0) {
       var eStr = _fmtDelta(data.endurance_score_change, '');
-      if (eStr) add('Endurance', eStr, _chipClass(data.endurance_score_change));
+      if (eStr) add('Endurance', eStr, _lrxChipClass(data.endurance_score_change));
     }
     if (data.speed_score_change != null && data.speed_score_change !== 0) {
       var sStr = _fmtDelta(data.speed_score_change, '');
-      if (sStr) add('Speed', sStr, _chipClass(data.speed_score_change));
+      if (sStr) add('Speed', sStr, _lrxChipClass(data.speed_score_change));
     }
     if (data.weight_change_kg != null) {
       var wStr = _fmtDelta(data.weight_change_kg, 'kg');
-      if (wStr) add('Weight', wStr, _chipClass(data.weight_change_kg));
+      // Weight up is neutral-ish; keep the mock's green for a logged change.
+      if (wStr) add('Weight', wStr, 'g');
     }
     if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
       var fStr = _fmtDelta(data.form_tsb_change, '');
-      if (fStr) add('Form', fStr, 'sd-chip--form', _formBand(data.form_tsb_change));
+      if (fStr) add('Form', fStr, 'b', _formBand(data.form_tsb_change));
     }
-    return has ? '<div class="sd-chips">' + chips + '</div>' : '';
+    return has ? '<div class="lrx-chips">' + chips + '</div>' : '';
   }
 
   // ── Render weekly view ───────────────────────────────────────────────────────
@@ -5062,9 +5101,11 @@
   function _fetchSummary(period) {
     if (!_athleteId) return;
 
-    // AC6: use cache if already loaded
-    if (_summaryCache[period]) {
-      _applyData(period, _summaryCache[period]);
+    // Cache key includes the scoped month so paging months fetches each.
+    var cacheKey = period === 'month' && _scopeMonth ? 'month:' + _scopeMonth : period;
+
+    if (_summaryCache[cacheKey]) {
+      _applyData(period, _summaryCache[cacheKey]);
       return;
     }
 
@@ -5076,20 +5117,21 @@
 
     var endpoint = period === 'week'
       ? '/api/athletes/' + _athleteId + '/summary/weekly'
-      : '/api/athletes/' + _athleteId + '/summary/monthly';
+      : '/api/athletes/' + _athleteId + '/summary/monthly' +
+        (_scopeMonth ? '?month=' + _scopeMonth : '');
 
     fetch(endpoint)
       .then(function (res) {
         if (!res.ok) {
           // Monthly returns 424 when no training data; treat as empty rather than crash
           if (period === 'month' && res.status === 424) {
-            _summaryCache[period] = {
+            _summaryCache[cacheKey] = {
               distance_km: 0, total_tss: 0, session_count: 0,
               supercompensation_state: 'flat', call_to_action: null,
               weight_change_kg: null, endurance_score_change: 0,
               speed_score_change: 0
             };
-            _applyData(period, _summaryCache[period]);
+            _applyData(period, _summaryCache[cacheKey]);
             return null;
           }
           throw new Error('HTTP ' + res.status);
@@ -5098,7 +5140,7 @@
       })
       .then(function (data) {
         if (!data) return;
-        _summaryCache[period] = data;
+        _summaryCache[cacheKey] = data;
         if (_activePeriod === period) _applyData(period, data);
       })
       .catch(function () {
@@ -5108,15 +5150,79 @@
 
   // ── Toggle ───────────────────────────────────────────────────────────────────
 
-  function _setActivePeriod(period) {
-    _activePeriod = period;
+  function _syncSeg(period) {
     document.querySelectorAll('.sd-toggle-btn').forEach(function (btn) {
       var active = btn.getAttribute('data-period') === period;
       btn.classList.toggle('is-active', active);
+      btn.classList.toggle('on', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+  }
+
+  function _setActivePeriod(period) {
+    _activePeriod = period;
+    _syncSeg(period);
+    if (period === 'week') {
+      // Manual "This week" clears any calendar month/week scope.
+      _scopeMonth = null;
+      _setScopeLabel('This week');
+      if (window.LogCalendar && window.LogCalendar.clearScope) window.LogCalendar.clearScope();
+    } else {
+      // Follow the displayed calendar month (decision 3).
+      if (window.LogCalendar && window.LogCalendar.getDisplayedMonth) {
+        _scopeMonth = window.LogCalendar.getDisplayedMonth();
+      }
+      _setScopeLabel(_monthLabel(_scopeMonth) || 'This month');
+      if (window.LogCalendar && window.LogCalendar.markMonthScoped) window.LogCalendar.markMonthScoped();
+    }
     _fetchSummary(period);
   }
+
+  // ── Public API for calendar binding ───────────────────────────────────────────
+  // scopeWeek: render a specific week's totals into the summary (summary-only;
+  // does NOT filter the log list — decision 2).
+  function _scopeWeek(w) {
+    _activePeriod = 'week';
+    _syncSeg(null); // no seg lit while a specific week is scoped
+    _setScopeLabel('Week of ' + w.label);
+    var body = document.getElementById('sd-body');
+    var card = document.getElementById('summary-digest-card');
+    if (card) card.hidden = false;
+    if (body) {
+      var data = {
+        distance_km: w.distance_km || 0,
+        total_tss: w.total_tss || 0,
+        session_count: w.session_count || 0,
+      };
+      body.innerHTML =
+        '<div class="lrx-sumgrid">' +
+        '<div class="lrx-sumtile"><div class="lab">Volume</div><div class="val">' +
+          data.distance_km.toFixed(1) + ' <small>km</small></div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '<div class="lrx-sumtile"><div class="lab">Load</div><div class="val">' +
+          Math.round(data.total_tss) + ' <small>TSS</small></div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '<div class="lrx-sumtile"><div class="lab">Sessions</div><div class="val">' +
+          data.session_count + '</div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '</div>';
+    }
+  }
+
+  // scopeMonth: switch the summary to the displayed calendar month.
+  function _scopeMonthFor(ym) {
+    _scopeMonth = ym;
+    _activePeriod = 'month';
+    _syncSeg('month');
+    _setScopeLabel(_monthLabel(ym) || 'This month');
+    _fetchSummary('month');
+  }
+
+  window.LogSummary = {
+    scopeWeek: _scopeWeek,
+    scopeMonth: _scopeMonthFor,
+    showThisWeek: function () { _setActivePeriod('week'); },
+  };
 
   // ── Init ─────────────────────────────────────────────────────────────────────
 
@@ -5129,7 +5235,7 @@
         var btn = e.target.closest('.sd-toggle-btn');
         if (!btn) return;
         var period = btn.getAttribute('data-period');
-        if (period && period !== _activePeriod) _setActivePeriod(period);
+        if (period) _setActivePeriod(period);
       });
     }
 
