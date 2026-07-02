@@ -182,6 +182,28 @@
 
   function _famClass(t) { return (t === 'run') ? 'run' : 'lift'; }
 
+  // Quick-tag effort feeling row (😩 hard / 😐 ok / 😊 easy). Untagged → all
+  // three faint; tagged → only the selected icon shown filled, others hidden.
+  // Writes PATCH /api/workouts/{workoutId} feeling. workoutId="" → no row.
+  var _FEELINGS = [
+    { key: 'hard', icon: '😩', label: 'Hard' },
+    { key: 'ok', icon: '😐', label: 'OK' },
+    { key: 'easy', icon: '😊', label: 'Easy' }
+  ];
+  function _feelRowHtml(workoutId, current) {
+    if (!workoutId) return '';
+    var tagged = current === 'hard' || current === 'ok' || current === 'easy';
+    var btns = _FEELINGS.map(function (f) {
+      var on = current === f.key;
+      // When tagged, hide the non-selected icons; when untagged, show all faint.
+      var cls = 'pl-feel-btn' + (on ? ' is-on' : (tagged ? ' is-hidden' : ''));
+      return '<button type="button" class="' + cls + '" data-feel="' + workoutId +
+        '" data-feel-val="' + f.key + '" title="' + f.label + '" aria-label="' + f.label +
+        (on ? '" aria-pressed="true' : '') + '">' + f.icon + '</button>';
+    }).join('');
+    return '<div class="pl-feelrow" data-feelrow="' + workoutId + '">' + btns + '</div>';
+  }
+
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
     var draggable = (p.status === 'planned' || p.status === 'missed');
@@ -192,8 +214,11 @@
     var body = '';
     if (p.status === 'done_auto' || p.status === 'done_manual') {
       var actMeta = p.actual ? p.actual.meta : '';
+      var mwid = p.matched_workout_id || (p.actual && p.actual.id) || '';
+      var feel = p.actual ? p.actual.feeling : null;
       body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
         ' → Actual ' + esc(actMeta) + '</div>' +
+        _feelRowHtml(mwid, feel) +
         '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>';
     } else if (p.status === 'needs_review') {
       var day2 = day;
@@ -268,6 +293,18 @@
     });
     host.querySelectorAll('[data-missed]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-missed') + '/miss'); });
+    });
+    host.querySelectorAll('[data-feel]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var wid = b.getAttribute('data-feel');
+        var val = b.getAttribute('data-feel-val');
+        // Overwrite immediately, no confirm. Reload the week so the card
+        // re-renders from the server (matched actual carries the new feeling).
+        _api('PATCH', '/api/workouts/' + wid, { feeling: val })
+          .then(function () { _loadWeek(); })
+          .catch(function (err) { _toast(err.message || 'Could not save feeling', true); });
+      });
     });
     host.querySelectorAll('[data-map]').forEach(function (b) {
       b.addEventListener('click', function (e) {
@@ -952,6 +989,12 @@
     '.plan-panel .pl-diffline{font-size:9.5px;color:var(--pl-muted);font-family:var(--pl-mono);margin-top:6px;line-height:1.4;}',
     '.plan-panel .pl-unlink{margin-top:4px;font-size:9.5px;color:var(--pl-faint);background:none;border:none;cursor:pointer;padding:0;}',
     '.plan-panel .pl-unlink:hover{color:var(--pl-red);}',
+    // Quick-tag feeling row: faint icons until one is picked, then only it shows.
+    '.plan-panel .pl-feelrow{display:flex;gap:4px;margin-top:5px;align-items:center;}',
+    '.plan-panel .pl-feel-btn{background:none;border:none;padding:0 2px;font-size:14px;line-height:1;cursor:pointer;opacity:0.32;filter:grayscale(0.6);transition:opacity .12s,filter .12s,transform .12s;}',
+    '.plan-panel .pl-feel-btn:hover{opacity:0.75;filter:grayscale(0);}',
+    '.plan-panel .pl-feel-btn.is-on{opacity:1;filter:none;transform:scale(1.12);}',
+    '.plan-panel .pl-feel-btn.is-hidden{display:none;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',

@@ -815,6 +815,9 @@
       esc(fmtDateShort(w.workout_date)) +
       (startTime ? " · started " + esc(startTime) : "") +
       "</div>" +
+      // Quick-tag effort feeling — host div; the Log tab mounts the interactive
+      // row (needs listeners + shared patchFeeling) after render.
+      (w.id ? '<div class="rd4-feeling" id="rd4-feeling"></div>' : "") +
       '<div class="rd4-hero-tiles">' +
       '<div class="rd4-hero-tile"><div class="rd4-hero-val">' +
       (w.distance_km != null ? parseFloat((+w.distance_km).toFixed(2)) : "—") +

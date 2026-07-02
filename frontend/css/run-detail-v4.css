@@ -98,6 +98,10 @@
   color: var(--text-secondary);
 }
 
+/* Quick-tag feeling row in the run header (shares .feel-row/.feel-btn from the
+   log page's inline styles). */
+.rd4-feeling { margin-top: 8px; }
+
 .rd4-hero-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;

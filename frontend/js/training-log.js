@@ -476,6 +476,8 @@
       elevation_m: w.elevation_m,
       average_pace_seconds_per_km: _paceSecPerKm(w.workout_type, w.duration_seconds, w.distance_km),
       tss: w.tss != null ? w.tss : null,
+      run_subtype: w.run_subtype,
+      feeling: w.feeling != null ? w.feeling : null,
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
@@ -1296,6 +1298,75 @@
   // Reworked to the mock's .lrx-logrow (typed left accent, day block, name +
   // meta, TSS at right) while keeping ALL existing wiring: entry-row classes +
   // data-workout-* attrs (filtering/syncActiveRow), click/keydown → detail.
+  // ── Quick-tag effort feeling (😩 hard / 😐 ok / 😊 easy) ───────────────────
+  // Shared by the log list row and the detail drawer. Untagged → all three
+  // faint; tagged → only the selected icon shown filled. Tap overwrites
+  // immediately (PATCH workouts.feeling), then updates every feeling row for
+  // that workout in place so Plan/Log stay consistent after the next refresh.
+  var FEELINGS = [
+    { key: "hard", icon: "😩", label: "Hard" },
+    { key: "ok", icon: "😐", label: "OK" },
+    { key: "easy", icon: "😊", label: "Easy" },
+  ];
+
+  function buildFeelingRow(workoutId, current, extraClass) {
+    var wrap = document.createElement("div");
+    wrap.className = "feel-row" + (extraClass ? " " + extraClass : "");
+    wrap.dataset.feelWorkout = workoutId;
+    renderFeelingButtons(wrap, workoutId, current);
+    return wrap;
+  }
+
+  function renderFeelingButtons(wrap, workoutId, current) {
+    var tagged = current === "hard" || current === "ok" || current === "easy";
+    wrap.dataset.feelValue = tagged ? current : "";
+    wrap.innerHTML = "";
+    FEELINGS.forEach(function (f) {
+      var on = current === f.key;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "feel-btn" + (on ? " is-on" : tagged ? " is-hidden" : "");
+      btn.textContent = f.icon;
+      btn.title = f.label;
+      btn.setAttribute("aria-label", f.label);
+      if (on) btn.setAttribute("aria-pressed", "true");
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        patchFeeling(workoutId, f.key);
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function patchFeeling(workoutId, value) {
+    fetch("/api/workouts/" + workoutId, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feeling: value }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (updated) {
+        var val = updated && updated.feeling != null ? updated.feeling : value;
+        // Update every feeling row for this workout in place (list + drawer).
+        document
+          .querySelectorAll('.feel-row[data-feel-workout="' + workoutId + '"]')
+          .forEach(function (wrap) {
+            renderFeelingButtons(wrap, workoutId, val);
+          });
+        if (cachedDetailWorkout && cachedDetailWorkout.id === workoutId) {
+          cachedDetailWorkout.feeling = val;
+        }
+      })
+      .catch(function () {
+        if (window.UIStates && window.UIStates.showToast)
+          window.UIStates.showToast("Could not save feeling", true);
+      });
+  }
+
   function buildEntryRow(w) {
     var typeKey = normalizeTypeKey(w.type);
     // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
@@ -1374,6 +1445,10 @@
       metaEl.className = "meta";
       metaEl.textContent = metaParts.join(" · ");
       lname.appendChild(metaEl);
+    }
+    // Quick-tag effort feeling (compact) — only for real workouts (with an id).
+    if (w.id) {
+      lname.appendChild(buildFeelingRow(w.id, w.feeling, "lrx-feel"));
     }
 
     // Right-side stat: TSS (or em-dash for strength with no TSS).
@@ -2456,6 +2531,13 @@
       stravaLatest: stravaLatest,
       strydLatest: strydLatest,
     });
+    // Mount the quick-tag feeling row into the run view header (the view builds
+    // its own DOM string; we add the interactive row after render).
+    var w = full.workout || {};
+    var feelHost = document.getElementById("rd4-feeling");
+    if (feelHost && w.id) {
+      feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
+    }
   }
 
   function renderDetailContent(workout, splits) {
@@ -2529,6 +2611,8 @@
         ? '<span class="dp-hero-sources">' + sourceHtml + "</span>"
         : "") +
       "</div>" +
+      // Quick-tag effort feeling — populated after injection (needs listeners).
+      (workout.id ? '<div class="dp-feeling" id="dp-feeling"></div>' : "") +
       "</div>";
 
     // ── Stats ─────────────────────────────────────────────────────────────────
@@ -3073,6 +3157,13 @@
       exercisesHtml +
       notesHtml +
       "</div>";
+
+    // Quick-tag effort feeling in the drawer header (interactive → mount after
+    // the HTML string is injected). Shares patchFeeling with the log-list row.
+    var feelHost = document.getElementById("dp-feeling");
+    if (feelHost && workout.id) {
+      feelHost.appendChild(buildFeelingRow(workout.id, workout.feeling, "dp-feel"));
+    }
 
     // Workout-id copy button (dev/testing helper — grab the id for /api/workouts/{id}/full).
     var copyBtn = document.getElementById("dp-id-copy");
