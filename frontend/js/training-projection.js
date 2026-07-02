@@ -315,10 +315,6 @@
     }
   }
 
-  function loadCalibration() {
-    apiGet("/api/calibration/status", renderCalibration);
-  }
-
   // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────
   // Ported from mock #timecurve. Piecewise x compresses the pre-race lead-in
   // and expands the race window; y-range tightened around the projected times.
@@ -1068,27 +1064,6 @@
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────
-  function loadRaces(done) {
-    if (!_planId) {
-      _races = [];
-      _primaryRace = null;
-      if (done) done();
-      return;
-    }
-    apiGet(_planRaceUrl(), function (data) {
-      _races = Array.isArray(data) ? data : [];
-      _primaryRace =
-        _races.find(function (r) {
-          return r.type === "race" && r.priority === "A";
-        }) ||
-        _races.find(function (r) {
-          return r.type === "race";
-        }) ||
-        null;
-      if (done) done();
-    });
-  }
-
   function loadReadiness(done) {
     if (!_primaryRace) {
       _readiness = null;
@@ -1104,63 +1079,6 @@
     });
   }
 
-  // Fetch per-race readiness for EVERY upcoming (not-done) race in parallel and
-  // cache each under its raceId. Each response carries its own estimate, so all
-  // upcoming cards can show an Estimated column — not just the primary. Cards
-  // are re-rendered as results arrive.
-  function loadAllReadiness() {
-    var todayStr = todayISO();
-    var targets = _races.filter(function (r) {
-      var done = r.status === "done" && r.actual_time_seconds != null;
-      var upcoming = r.date >= todayStr;
-      // Skip the primary — loadReadiness already fetched it — and done races.
-      return (
-        !done &&
-        upcoming &&
-        !(_primaryRace && r.id === _primaryRace.id) &&
-        !(r.id in _raceReadiness)
-      );
-    });
-    if (targets.length === 0) return;
-    targets.forEach(function (r) {
-      apiGet("/api/races/" + r.id + "/readiness", function (data) {
-        _raceReadiness[r.id] = data;
-        // Re-render so the newly-arrived estimate shows on this card.
-        renderRaceCards();
-      });
-    });
-  }
-
-  function loadProjection(done) {
-    apiGet("/api/projection", function (data) {
-      _projection = data;
-      if (done) done();
-    });
-  }
-
-  // Athlete current performance scores (End/Spd) for upcoming cards. Cached in
-  // _athletePerf; re-renders cards on arrival. Uses the user id as athlete id.
-  function loadAthletePerformance() {
-    var aid = _planId || (window.getCurrentUserId ? window.getCurrentUserId() : null);
-    if (!aid) return;
-    apiGet("/api/athletes/" + aid + "/performance", function (data) {
-      _athletePerf = data;
-      renderRaceCards();
-    });
-  }
-
-  // Threshold pace (sec/km) used to compute completed races' demonstrated
-  // fitness score. Cached in _thresholdPace; re-renders cards on arrival.
-  function loadThresholdPace() {
-    apiGet("/api/user-preferences", function (data) {
-      var row = data && data.row ? data.row : null;
-      _thresholdPace =
-        row && typeof row.threshold_pace_seconds_per_km === "number"
-          ? row.threshold_pace_seconds_per_km
-          : null;
-      renderRaceCards();
-    });
-  }
 
   // ── Plan settings ─────────────────────────────────────────────────────────
   function _validateSettingsInputs() {

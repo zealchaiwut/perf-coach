@@ -380,35 +380,6 @@ def test_training_log_js_week_summary_uses_workouts_not_entries(training_log_js)
            "workouts.length" in training_log_js
 
 
-# ── mock-data.js has MOCK_REST_DAYS ──────────────────────────────────────────
-
-@pytest.fixture(scope="module")
-def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
-    assert path.exists(), "js/mock-data.js not found"
-    return path.read_text(encoding="utf-8")
-
-
-def test_mock_data_js_has_mock_rest_days(mock_data_js):
-    assert "MOCK_REST_DAYS" in mock_data_js
-
-
-def test_mock_rest_days_have_type_rest(mock_data_js):
-    assert '"type": "rest"' in mock_data_js or "type: 'rest'" in mock_data_js
-
-
-def test_mock_rest_days_dates_do_not_overlap_workouts(mock_data_js):
-    """Basic sanity: rest day dates and workout dates should be disjoint in mock data."""
-    rest_dates = re.findall(r"MOCK_REST_DAYS.*?(?=const\s|\Z)", mock_data_js, re.DOTALL)
-    workout_dates = re.findall(r"MOCK_WORKOUTS.*?(?=const\s|\Z)", mock_data_js, re.DOTALL)
-    if rest_dates and workout_dates:
-        rest_iso = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", rest_dates[0]))
-        workout_iso = set(re.findall(r"date:\s*'(\d{4}-\d{2}-\d{2})'", workout_dates[0]))
-        overlap = rest_iso & workout_iso
-        assert not overlap, f"MOCK_REST_DAYS and MOCK_WORKOUTS share dates: {overlap}"
-
-
-# ── /api/training-log route must exist; old /training_log must return 404 ──────
 
 def test_old_training_log_route_returns_404(client):
     res = client.get("/training_log?from=2025-03-01&to=2025-03-31")

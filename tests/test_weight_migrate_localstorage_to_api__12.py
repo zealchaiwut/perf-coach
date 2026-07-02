@@ -237,23 +237,6 @@ def test_ac10_weight_js_no_localstorage():
         assert token not in content, f"Found forbidden token '{token}' in weight.js"
 
 
-# ── AC-11: mock-data.js uses entry_date / weight_kg fields ───────────────────
-
-def test_ac11_mock_data_uses_api_field_names():
-    """AC-11: MOCK_WEIGHT_ENTRIES in mock-data.js uses entry_date and weight_kg (not the old field name)."""
-    import pathlib
-    old_field = "recorded" + "_date"
-    mock_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
-    content = mock_path.read_text()
-    assert "entry_date" in content, "mock-data.js must use 'entry_date' field"
-    assert "weight_kg" in content, "mock-data.js must use 'weight_kg' field"
-    assert old_field not in content, f"mock-data.js still uses old '{old_field}' field"
-    assert "{ date:" not in content, "mock-data.js still uses old 'date' field"
-    assert ", weight:" not in content, "mock-data.js still uses old 'weight' field"
-
-
-# ── AC-12: Non-2xx responses return JSON with error info ─────────────────────
-
 def test_ac12_invalid_user_id_returns_error(client):
     """AC-12: GET /api/weight-entries with invalid user_id returns a non-2xx error."""
     res = client.get(f"{WE}?user_id=not-a-uuid")

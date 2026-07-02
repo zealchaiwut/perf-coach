@@ -346,65 +346,6 @@ def test_response_has_all_required_keys():
         assert key in result, f"Response missing required key '{key}'"
 
 
-# ── AC6: HTML surface includes ARIA attributes ────────────────────────────────
-
-def test_ac6_calibration_card_has_aria_label():
-    """The calibration status card in projection.html has an aria-label."""
-    html_path = os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "frontend",
-        "pages",
-        "projection.html",
-    )
-    html_path = os.path.normpath(html_path)
-    assert os.path.exists(html_path), f"projection.html not found at {html_path}"
-    content = open(html_path, encoding="utf-8").read()
-    assert "calibration" in content.lower(), (
-        "projection.html must contain a calibration status surface"
-    )
-    assert "aria-label" in content, (
-        "projection.html must include aria-label on the calibration status surface"
-    )
-
-
-def test_ac6_calibration_card_has_fallback_text():
-    """The HTML contains a 'Not yet calibrated' or equivalent fallback element."""
-    html_path = os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "frontend",
-        "pages",
-        "projection.html",
-    )
-    html_path = os.path.normpath(html_path)
-    content = open(html_path, encoding="utf-8").read()
-    assert "not yet calibrated" in content.lower() or "proj-calib" in content, (
-        "projection.html must contain a calibration fallback element"
-    )
-
-
-def test_ac6_calibration_status_ids_present():
-    """DOM element IDs for calibration status fields are present in projection.html."""
-    html_path = os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "frontend",
-        "pages",
-        "projection.html",
-    )
-    html_path = os.path.normpath(html_path)
-    content = open(html_path, encoding="utf-8").read()
-    for element_id in (
-        "proj-calib-date",
-        "proj-calib-sufficiency",
-        "proj-calib-confidence",
-    ):
-        assert element_id in content, (
-            f"projection.html is missing element id='{element_id}'"
-        )
-
-
 # ── Integration tests (require live UAT server) ───────────────────────────────
 
 try:

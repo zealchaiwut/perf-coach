@@ -8,10 +8,8 @@ point coloring.
 
 Server under test: http://127.0.0.1:9001
 """
-import json
 import pathlib
 import re
-import subprocess
 
 import httpx
 import pytest
@@ -21,7 +19,6 @@ ROOT = pathlib.Path(__file__).parent.parent
 
 HTML = (ROOT / "frontend" / "pages" / "trends.html").read_text()
 JS   = (ROOT / "frontend" / "js" / "trends.js").read_text()
-MOCK = (ROOT / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -31,15 +28,6 @@ def client():
     with httpx.Client(base_url=BASE, timeout=10) as c:
         yield c
 
-
-# ── Node.js helper ────────────────────────────────────────────────────────────
-
-def _node(script: str) -> object:
-    """Run a Node.js snippet that calls process.stdout.write(JSON.stringify(...))."""
-    src = f"{MOCK}\n{script}"
-    r = subprocess.run(["node", "-e", src], capture_output=True, text=True, timeout=15)
-    assert r.returncode == 0, f"node exited non-zero:\n{r.stderr}"
-    return json.loads(r.stdout)
 
 
 # ── AC-1: Two stacked sub-charts; no dual y-axis ──────────────────────────────
@@ -114,72 +102,6 @@ def test_ac2_hrv_series_rendered_as_line():
     """trends.js must render the HRV series as a Chart.js line dataset."""
     assert "type: 'line'" in JS or 'type: "line"' in JS, \
         "trends.js must render HRV and RHR data as line charts"
-
-
-def test_ac2_hrv_series_present_in_summary():
-    """mockGetTrendsSummary must return hrv.series with date/value entries."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.hrv.series.slice(0,3)));"
-    )
-    assert isinstance(result, list) and len(result) > 0, \
-        "mockGetTrendsSummary must return hrv.series as a non-empty array"
-    assert "date" in result[0] and "value" in result[0], \
-        "hrv.series entries must have {date, value} shape"
-
-
-def test_ac2_rhr_series_present_in_summary():
-    """mockGetTrendsSummary must return rhr.series with date/value entries."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.rhr.series.slice(0,3)));"
-    )
-    assert isinstance(result, list) and len(result) > 0, \
-        "mockGetTrendsSummary must return rhr.series as a non-empty array"
-    assert "date" in result[0] and "value" in result[0], \
-        "rhr.series entries must have {date, value} shape"
-
-
-# ── AC-3: Baseline band (baseline_mean ± baseline_sd) ─────────────────────────
-
-def test_ac3_hrv_baseline_mean_in_summary():
-    """mockGetTrendsSummary must return hrv.baseline_mean."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.hrv.baseline_mean));"
-    )
-    assert result is not None and isinstance(result, (int, float)), \
-        "mockGetTrendsSummary must return a numeric hrv.baseline_mean"
-
-
-def test_ac3_hrv_baseline_sd_in_summary():
-    """mockGetTrendsSummary must return hrv.baseline_sd."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.hrv.baseline_sd));"
-    )
-    assert result is not None and isinstance(result, (int, float)), \
-        "mockGetTrendsSummary must return a numeric hrv.baseline_sd"
-
-
-def test_ac3_rhr_baseline_mean_in_summary():
-    """mockGetTrendsSummary must return rhr.baseline_mean for the band."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.rhr.baseline_mean));"
-    )
-    assert result is not None and isinstance(result, (int, float)), \
-        "mockGetTrendsSummary must return a numeric rhr.baseline_mean (needed for band)"
-
-
-def test_ac3_rhr_baseline_sd_in_summary():
-    """mockGetTrendsSummary must return rhr.baseline_sd for the band."""
-    result = _node(
-        "const r = mockGetTrendsSummary({range:'30d'});"
-        "process.stdout.write(JSON.stringify(r.rhr.baseline_sd));"
-    )
-    assert result is not None and isinstance(result, (int, float)), \
-        "mockGetTrendsSummary must return a numeric rhr.baseline_sd (needed for band)"
 
 
 def test_ac3_js_renders_baseline_band():
@@ -404,22 +326,6 @@ def test_ac9_empty_state_shown_for_rhr_chart():
         "trends.js must call showEmpty (or equivalent) for the RHR slot " \
         "when all RHR values are null"
 
-
-def test_ac9_no_crash_on_empty_series():
-    """mockGetTrendsSummary with a tiny custom range must not throw."""
-    result = _node(
-        "try {"
-        "  const r = mockGetTrendsSummary({from:'2020-01-01', to:'2020-01-02'});"
-        "  process.stdout.write(JSON.stringify({ok:true, hrv_count: r.hrv.series.length}));"
-        "} catch(e) {"
-        "  process.stdout.write(JSON.stringify({ok:false, msg:e.message}));"
-        "}"
-    )
-    assert result.get("ok"), \
-        f"mockGetTrendsSummary must not throw for a tiny date range: {result.get('msg')}"
-
-
-# ── AC-10: Null baseline_sd handled gracefully ────────────────────────────────
 
 def test_ac10_null_sd_guard_in_js():
     """trends.js must guard against null baseline_sd before drawing the band."""

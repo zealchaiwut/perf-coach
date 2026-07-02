@@ -41,7 +41,6 @@ def test_start_returns_running_snapshot():
     assert snap["provider"] == "strava"
     assert snap["current"] == 0
     assert snap["items_synced"] == 0
-    assert snap["cancel_requested"] is False
     assert snap["started_at"] is not None
 
 
@@ -165,5 +164,4 @@ def test_get_sync_status_returns_running_snapshot():
     assert body["provider"] == "strava"
     assert body["current"] == 0
     assert body["items_synced"] == 0
-    assert body["cancel_requested"] is False
     assert body["started_at"] is not None

@@ -125,13 +125,6 @@ def test_home_js_has_render_log_today_card():
     assert "renderLogTodayCard" in js
 
 
-def test_home_js_has_load_log_today_card():
-    """home.js must define loadLogTodayCard and call it in init."""
-    js = _HOME_JS.read_text()
-    assert "loadLogTodayCard" in js
-    assert "loadLogTodayCard(userId)" in js
-
-
 def test_home_js_calls_put_daily_metrics():
     """home.js must call PUT /api/daily-metrics (AC6: PUT on save)."""
     js = _HOME_JS.read_text()

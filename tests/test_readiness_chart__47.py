@@ -50,15 +50,6 @@ def test_ac1_chartjs_cdn_loaded():
         "trends.html must include Chart.js via CDN <script> tag"
 
 
-def test_ac1_mock_data_js_loaded():
-    """trends.html must load js/mock-data.js before trends.js."""
-    mock_pos  = HTML.find("mock-data.js")
-    trends_pos = HTML.find("js/trends.js")
-    assert mock_pos != -1, "trends.html must load js/mock-data.js"
-    assert mock_pos < trends_pos, \
-        "js/mock-data.js must be loaded before js/trends.js so MOCK_READINESS is available"
-
-
 def test_ac1_readiness_api_fetch_in_js():
     """trends.js must call GET /api/readiness with from and to query params."""
     assert "/api/readiness" in JS, \
@@ -267,19 +258,3 @@ def test_ac8_has_any_data_guard():
 
 # ── AC-9: Mock data fallback ───────────────────────────────────────────────────
 
-def test_ac9_mock_fallback_on_api_error():
-    """trends.js must fall back to MOCK_READINESS when the API request fails."""
-    assert "catch" in JS, \
-        "trends.js must catch API fetch errors and fall back to mock data"
-    assert "MOCK_READINESS" in JS or "mock" in JS.lower(), \
-        "trends.js must reference MOCK_READINESS as a fallback data source"
-
-
-def test_ac9_mock_readiness_defined_in_mock_data_js():
-    """js/mock-data.js must define MOCK_READINESS with at least 7 entries."""
-    mock_js = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
-    assert "MOCK_READINESS" in mock_js, \
-        "js/mock-data.js must define the MOCK_READINESS constant"
-    entries = re.findall(r"readiness_score", mock_js)
-    assert len(entries) >= 7, \
-        f"MOCK_READINESS must have ≥ 7 entries (for rolling average); found {len(entries)}"

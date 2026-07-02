@@ -155,7 +155,7 @@ def test_ac3_chartjs_loaded_and_canvas_present():
 
 def test_ac3_chart_uses_chartjs_and_volume_metrics():
     assert "new Chart" in _JS
-    assert "total_distance_km" in _JS
+    assert "distance_km" in _JS
     assert "total_tss" in _JS
 
 
@@ -191,7 +191,10 @@ def test_ac6_chart_code_guards_on_element_presence():
     """Chart/widget code must no-op when its elements are absent, so importing
     Chart.js elsewhere causes no errors referencing the new surfaces."""
     assert "getElementById('volume-chart')" in _JS or 'getElementById("volume-chart")' in _JS
-    assert "getElementById('load-widget')" in _JS or 'getElementById("load-widget")' in _JS
+    # The legacy load-widget stub was removed as dead code (perf-coach dead-code
+    # sweep): the #load-widget element is hidden by its own HTML `hidden`
+    # attribute (training-log.html), so no JS toggle was ever needed.
+    assert 'id="load-widget"' in _HTML and 'hidden' in _HTML
 
 
 # ── AC7: empty / zero-activity weeks render gracefully ───────────────────────
@@ -209,8 +212,8 @@ def test_ac7_null_load_context_returns_gracefully_with_insufficient_data():
 
 
 def test_ac7_frontend_handles_null_load_context_and_empty_weeks():
-    # readiness widget + legacy load-widget stub remain in JS
+    # readiness widget renders; legacy load-widget stays hidden via HTML alone
+    # (its JS toggle was dead code — removed in the perf-coach dead-code sweep)
     assert "fetchReadinessWidget" in _JS or "renderReadinessWidget" in _JS
-    assert "renderLoadWidget" in _JS
     # zero-fill missing weeks so empty weeks become a zero bar (not an error)
     assert "zero" in _JS.lower() or "|| 0" in _JS

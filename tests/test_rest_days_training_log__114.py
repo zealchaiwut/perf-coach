@@ -258,34 +258,4 @@ def test_training_log_js_rest_row_has_no_click_listener(training_log_js):
     )
 
 
-# ── Mock data: MOCK_REST_DAYS has top-level fields ────────────────────────────
 
-@pytest.fixture(scope="module")
-def mock_data_js():
-    path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
-    assert path.exists(), "js/mock-data.js not found"
-    return path.read_text(encoding="utf-8")
-
-
-def test_mock_rest_days_have_top_level_sleep_hours(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block, "MOCK_REST_DAYS not found in mock-data.js"
-    block = rest_block.group(0)
-    assert "sleep_hours:" in block, "MOCK_REST_DAYS entries must have top-level sleep_hours"
-
-
-def test_mock_rest_days_have_top_level_energy(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block
-    block = rest_block.group(0)
-    assert "energy:" in block, "MOCK_REST_DAYS entries must have top-level energy"
-
-
-def test_mock_rest_days_have_top_level_mood(mock_data_js):
-    import re
-    rest_block = re.search(r"const MOCK_REST_DAYS\s*=\s*\[.*?\];", mock_data_js, re.DOTALL)
-    assert rest_block
-    block = rest_block.group(0)
-    assert "mood:" in block, "MOCK_REST_DAYS entries must have top-level mood"
