@@ -2100,6 +2100,13 @@
         background: #f1f4fa;
         color: var(--ink-2);
       }
+      /* Run subtype chip in the drawer header — secondary/outlined variant of
+         the type pill: [RUN] [INTERVAL]. */
+      .dp-subtype-pill {
+        background: transparent;
+        color: var(--bg-1, #4f6ef7);
+        border: 1px solid var(--bg-1, #4f6ef7);
+      }
 
       .dp-hero h1 {
         margin: 0;
@@ -6535,6 +6542,9 @@
     .lrx-tbadge { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
     .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
     .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
+    /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
+       [run] [interval]. Still run-family (blue) but visually secondary. */
+    .lrx-subtag { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
     .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 12px; }
     .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }

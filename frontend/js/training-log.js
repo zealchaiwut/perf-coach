@@ -157,6 +157,10 @@
   // shared normalizer, so the log and the editor detect runs identically).
   var normalizeTypeKey = TF.normalizeType;
 
+  // Run-subtype display labels (run_subtype is a run-only column; the run keeps
+  // workout_type='run'). Rendered as a separate tag next to the run type badge.
+  var SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+
   // Segment label → intensity key (timeline colors + segment dots), derived
   // from the shared segment definitions (issue #531).
   var RUN_SEGMENT_INTENSITY = TF.segmentIntensityByLabel;
@@ -1493,14 +1497,16 @@
     nEl.className = "n";
     var badge = document.createElement("span");
     badge.className = "lrx-tbadge " + fam;
-    // A run with a subtype shows the subtype label (e.g. "interval"); otherwise
-    // the family label. Subtype stays in the run family (blue) styling.
-    var SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
-    badge.textContent =
-      fam === "run" && SUBTYPE_LABELS[runSubtype]
-        ? SUBTYPE_LABELS[runSubtype]
-        : (fam === "run" ? "run" : "lift");
+    // The type badge always shows the family label ("run"/"lift"). A run with a
+    // subtype gets a SEPARATE outlined subtype tag right after it: [run] [interval].
+    badge.textContent = fam === "run" ? "run" : "lift";
     nEl.appendChild(badge);
+    if (fam === "run" && SUBTYPE_LABELS[runSubtype]) {
+      var subtag = document.createElement("span");
+      subtag.className = "lrx-subtag";
+      subtag.textContent = SUBTYPE_LABELS[runSubtype];
+      nEl.appendChild(subtag);
+    }
     nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
     lname.appendChild(nEl);
     if (metaParts.length) {
@@ -2659,6 +2665,13 @@
       '<span class="dp-type-pill">' +
       esc(typeLabel) +
       "</span>" +
+      // Separate subtype tag for run-family workouts with a run_subtype:
+      // [RUN] [INTERVAL]. Secondary/outlined variant of the type pill.
+      (isRun && SUBTYPE_LABELS[(workout.run_subtype || "").toLowerCase()]
+        ? '<span class="dp-type-pill dp-subtype-pill">' +
+          esc(SUBTYPE_LABELS[(workout.run_subtype || "").toLowerCase()]) +
+          "</span>"
+        : "") +
       "</div>" +
       '<h1 id="dp-title">' +
       esc(workout.name || "Workout") +
