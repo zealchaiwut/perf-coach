@@ -33,6 +33,10 @@
         min-height: 100vh;
         color: var(--text-primary);
         letter-spacing: -0.01em;
+        /* Trim the scrollbar-width sliver from the full-bleed sticky header's
+           100vw so it never induces horizontal scroll (which shifted the global
+           nav, cutting off Home + the profile avatar). clip keeps sticky working. */
+        overflow-x: clip;
       }
 
       main.log-page {
@@ -5863,12 +5867,14 @@
     }
     .log-page-header {
       position: sticky;
-      top: 60px;                   /* stack below the global nav (60px), not under it */
+      top: 60px;                   /* JS (_positionNav) sets the exact global-nav height */
       z-index: 60;
-      max-width: none;
-      margin: 0 -50vw;            /* stretch the blurred bar full-bleed … */
-      padding-left: 50vw;         /* … then re-inset the content to 1120 */
-      padding-right: 50vw;
+      /* Scrollbar-safe full-bleed: span the viewport width, pulled to its left
+         edge. body{overflow-x:clip} trims the scrollbar-width sliver so this
+         never creates horizontal scroll (which was shifting the global nav).
+         .log-page-header-inner re-insets the content to 1120. */
+      width: 100vw;
+      margin-left: calc(50% - 50vw);
       background: rgba(38, 48, 110, 0.82);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
