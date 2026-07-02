@@ -1163,23 +1163,27 @@
     var hint = w.contributes_to;
     var hasES = es != null;
     var hasSS = ss != null;
-    // Row shows the session's contribution (Δ) and the current athlete score:
-    // "+0.3 (90)". Δ is "—" when this session moved the score by nothing / the
-    // backend hasn't supplied it yet; the score in parens is omitted when null.
-    function sigVal(delta) {
-      if (delta == null) return "—";
-      var n = parseFloat(delta.toFixed(1));
-      return (n > 0 ? "+" : "") + n;
-    }
+    // "One score everywhere": the CURRENT athlete score (today's, matching the
+    // Performance tab) is the shared reference number; this session's own effect
+    // is the signed CONTRIBUTION (Δ). Rendered as "score · contribution", e.g.
+    // "90  +0.3". Δ is "—" when the session moved the score by nothing / the
+    // backend hasn't supplied it; the score is omitted only when null.
     function sigCur(current) {
-      return current == null ? "" : ' <span class="rd4-signal-cur">(' + Math.round(current) + ")</span>";
+      return current == null ? "" : '<span class="rd4-signal-cur">' + Math.round(current) + "</span>";
+    }
+    function sigDelta(delta) {
+      if (delta == null) return '<span class="rd4-signal-contrib rd4-signal-contrib--flat">—</span>';
+      var n = parseFloat(delta.toFixed(1));
+      var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
+      var txt = (n > 0 ? "+" : "") + n;
+      return '<span class="rd4-signal-contrib rd4-signal-contrib--' + cls + '" title="this session\'s contribution">' + txt + "</span>";
     }
     function sigRow(lbl, delta, current, note) {
       return (
         '<div class="rd4-signal-row">' +
         '<span class="rd4-signal-lbl">' + lbl + "</span>" +
         '<span class="rd4-signal-vwrap">' +
-        '<span class="rd4-signal-val">' + sigVal(delta) + sigCur(current) + "</span>" +
+        '<span class="rd4-signal-val">' + sigCur(current) + " " + sigDelta(delta) + "</span>" +
         (note ? '<span class="rd4-signal-note">· ' + esc(note) + "</span>" : "") +
         "</span>" +
         "</div>"
@@ -1190,9 +1194,10 @@
     var sDelta = w.speed_score_delta;
     var sCur = w.speed_score_current;
     var signalTitle =
-      '<h2 class="rd4-sec-title">This session\'s signal' +
+      '<h2 class="rd4-sec-title">Fitness signal' +
       '<span class="rd4-new-badge">NEW</span>' +
-      '<span class="rd4-signal-go">View in Performance →</span></h2>';
+      '<span class="rd4-signal-go">View in Performance →</span></h2>' +
+      '<p class="rd4-signal-sub">Current athlete score · this session’s contribution</p>';
     if (!hasES && !hasSS && !esNote && !ssNote) {
       signalBlock =
         '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +

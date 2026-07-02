@@ -5521,27 +5521,37 @@ def _workout_signal_scores(session, workout) -> dict:
         return runs
 
     d = workout.workout_date
-    # Race VDOT floor as-of this workout's date (and as-of the day before for
-    # the prev comparison) — score re-anchor.
-    _race_cur = _latest_race_perf(session, workout.user_id, as_of=d)
-    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
+    _today = _date.today()
 
     def _score(fn, runs, race_perf):
         r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
-    cur = _build(d)
+    # "One score everywhere": *_current is the athlete's score AS OF TODAY —
+    # identical to the Performance tab and identical on every workout card. The
+    # per-session distinction lives entirely in *_delta = the contribution this
+    # session's DATE made (score as-of-that-date minus score as-of the day
+    # before). Race VDOT floor is taken at the matching date for each.
+    _race_today = _latest_race_perf(session, workout.user_id, as_of=_today)
+    _race_asof = _latest_race_perf(session, workout.user_id, as_of=d)
+    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
+
+    today_runs = _build(_today)
+    e_cur = _score(compute_endurance_score, today_runs, _race_today)
+    s_cur = _score(compute_speed_score, today_runs, _race_today)
+
+    asof = _build(d)
     prev = _build(d, before_date=d)
-    e_cur = _score(compute_endurance_score, cur, _race_cur)
-    s_cur = _score(compute_speed_score, cur, _race_cur)
+    e_asof = _score(compute_endurance_score, asof, _race_asof)
+    s_asof = _score(compute_speed_score, asof, _race_asof)
     e_prev = _score(compute_endurance_score, prev, _race_prev)
     s_prev = _score(compute_speed_score, prev, _race_prev)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
-        "endurance_score_delta": round(e_cur - e_prev, 1) if e_cur is not None and e_prev is not None else None,
+        "endurance_score_delta": round(e_asof - e_prev, 1) if e_asof is not None and e_prev is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
-        "speed_score_delta": round(s_cur - s_prev, 1) if s_cur is not None and s_prev is not None else None,
+        "speed_score_delta": round(s_asof - s_prev, 1) if s_asof is not None and s_prev is not None else None,
     }
 
 
@@ -14929,8 +14939,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # Bump this token whenever the score FORMULA changes so the durable Neon
     # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
     # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
-    # exponent.
-    _FORMULA_VERSION = "vdot-v3"
+    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions.
+    _FORMULA_VERSION = "vdot-v4"
     base = _summary_signature(session, user_id)
     if prefs_row is not None:
         prefs_part = "%s|%s|%s|%s" % (
