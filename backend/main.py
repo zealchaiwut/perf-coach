@@ -113,6 +113,7 @@ def _derive_goal_pace(goal_time_seconds, distance_km):
 
 
 _start_time = time.monotonic()
+_log = _logging.getLogger(__name__)
 
 app = FastAPI()
 app.include_router(_plan_router)
@@ -5466,7 +5467,8 @@ def _workout_signal_scores(session, workout) -> dict:
             dpct = None
             if compute_decoupling is not None:
                 try:
-                    dres = compute_decoupling(
+                    dres, _ = compute_decoupling(
+                        {"workout_type": wk.workout_type},
                         [
                             {
                                 "split_index": s.split_index,
@@ -5477,10 +5479,13 @@ def _workout_signal_scores(session, workout) -> dict:
                             }
                             for s in splits
                         ],
-                        {"workout_type": wk.workout_type},
+                        prefs_dict.get("aerobic_decoupling_threshold"),
                     )
                     dpct = dres.get("decoupling_pct") if dres else None
                 except Exception:
+                    _log.warning(
+                        "compute_decoupling failed for workout %s", wk.id, exc_info=True
+                    )
                     dpct = None
             runs.append(
                 {
@@ -5593,7 +5598,8 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
         dpct = None
         if compute_decoupling is not None:
             try:
-                dres = compute_decoupling(
+                dres, _ = compute_decoupling(
+                    {"workout_type": wk.workout_type},
                     [
                         {
                             "split_index": s.split_index,
@@ -5604,10 +5610,13 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                         }
                         for s in splits
                     ],
-                    {"workout_type": wk.workout_type},
+                    prefs_dict.get("aerobic_decoupling_threshold"),
                 )
                 dpct = dres.get("decoupling_pct") if dres else None
             except Exception:
+                _log.warning(
+                    "compute_decoupling failed for workout %s", wk.id, exc_info=True
+                )
                 dpct = None
         runs.append(
             {
