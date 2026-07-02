@@ -1236,10 +1236,28 @@ information about.
     var s = p.structure || {}, exs = Array.isArray(s.exercises) ? s.exercises : [];
     var focus = s.focus || '';
     var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
-    var exHtml = exs.length ? exs.map(function (x) {
+    function _exRow(x) {
       var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
       return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
-    }).join('') : (focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>');
+    }
+    var exHtml;
+    if (!exs.length) {
+      exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
+    } else if (exs.some(function (x) { return x && x.block; })) {
+      // Group by the pasted-back `block` label (Warm-up / Heavy compound /
+      // Superset 1 / … / Accessories), preserving order of first appearance.
+      var order = [];
+      exs.forEach(function (x) {
+        var b = (x && x.block) ? x.block : 'Other';
+        if (order.indexOf(b) === -1) order.push(b);
+      });
+      exHtml = order.map(function (b) {
+        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
+        return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
+      }).join('');
+    } else {
+      exHtml = exs.map(_exRow).join('');
+    }
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
@@ -1429,6 +1447,9 @@ information about.
     '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    // Exercises grouped by pasted-back `block` label.
+    '.plan-panel .pl-exblock{margin-bottom:12px;}',
+    '.plan-panel .pl-exblock-h{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-faint);margin-bottom:5px;}',
     '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}'
   ].join('');
 
