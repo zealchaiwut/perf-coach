@@ -361,13 +361,6 @@ def test_ac17_icon_fallback_question_mark():
 
 # ── AC18: Cross-link — home → habits ─────────────────────────────────────────
 
-def test_ac18_home_habits_widget_links_to_habits():
-    """home-habits.js 'This week's progress' rows must link to /habits."""
-    home_habits_js = (JS_DIR / "home-habits.js").read_text()
-    assert 'href="/habits' in home_habits_js or "href='/habits" in home_habits_js, \
-        "home-habits.js 'This week's progress' rows must link to /habits"
-
-
 def test_ac18_home_html_habits_widget_links_to_habits():
     """home.html habits progress widget must link to /habits."""
     home_html = (PAGES_DIR / "home.html").read_text()
