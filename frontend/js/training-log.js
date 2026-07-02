@@ -1435,8 +1435,10 @@
   function buildEntryRow(w) {
     var typeKey = normalizeTypeKey(w.type);
     // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
-    var fam = (typeKey === "run" || typeKey === "bike") ? "run" : "lift";
-    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
+    // 'interval' is a run variant → run family (blue) with its own badge.
+    var isRunLike = typeKey === "run" || typeKey === "bike" || typeKey === "interval";
+    var fam = isRunLike ? "run" : "lift";
+    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike", interval: "Interval" };
     var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
 
     var row = document.createElement("div");
@@ -1452,7 +1454,7 @@
       ariaBits.push(TYPE_LABELS[typeKey] || w.type || "Workout");
       ariaBits.push(w.title || "Workout");
       if (w.date) ariaBits.push(fmtDate(w.date));
-      if (typeKey === "run" && w.distance_km != null)
+      if (isRunLike && w.distance_km != null)
         ariaBits.push((+w.distance_km).toFixed(1) + " kilometers");
       else if (w.duration_seconds)
         ariaBits.push(Math.round(w.duration_seconds / 60) + " minutes");
@@ -1476,9 +1478,9 @@
     // Name + type badge + meta line.
     var metaParts = [];
     if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
-    if (typeKey === "run" && w.distance_km != null)
+    if (isRunLike && w.distance_km != null)
       metaParts.push((+w.distance_km).toFixed(1) + " km");
-    if (typeKey === "run" && w.average_pace_seconds_per_km)
+    if (isRunLike && w.average_pace_seconds_per_km)
       metaParts.push(fmtPace(w.average_pace_seconds_per_km));
     if (w.avg_hr != null) metaParts.push("HR " + w.avg_hr);
     metaParts = metaParts.filter(Boolean);
@@ -1489,7 +1491,7 @@
     nEl.className = "n";
     var badge = document.createElement("span");
     badge.className = "lrx-tbadge " + fam;
-    badge.textContent = fam === "run" ? "run" : "lift";
+    badge.textContent = typeKey === "interval" ? "interval" : (fam === "run" ? "run" : "lift");
     nEl.appendChild(badge);
     nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
     lname.appendChild(nEl);
@@ -1696,6 +1698,38 @@
     setWorkoutURLParam(workoutId);
   }
 
+  // Toggle a run ↔ interval from the drawer. Marking sets workout_type to
+  // 'interval' (so the Performance Speed feed + "what's moving" pick it up);
+  // unmarking restores it to 'run'. Persists via the existing PATCH endpoint
+  // (window.fetch auto-attaches X-CSRF-Token) and refreshes the drawer + list.
+  function toggleIntervalType() {
+    if (!activeDetailWorkoutId) return;
+    var w = cachedDetailWorkout;
+    var curKey = w ? normalizeTypeKey(w.workout_type || w.type) : null;
+    var target = curKey === "interval" ? "run" : "interval";
+    fetch("/api/workouts/" + activeDetailWorkoutId, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workout_type: target }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function () {
+        UIStates.showToast(
+          target === "interval" ? "Marked as interval" : "Interval unmarked",
+        );
+        // Re-fetch the detail (updates cachedDetailWorkout + overflow label) and
+        // refresh the list so the row badge/family updates.
+        fetchAndRenderDetail(activeDetailWorkoutId);
+        fetchAndRender();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not update workout. Try again.", true);
+      });
+  }
+
   function createPresetDate() {
     if (filters.from && filters.from === filters.to) return filters.from;
     return todayISO();
@@ -1840,10 +1874,24 @@
     var menuDup = document.getElementById("dp-menu-duplicate");
     var menuStrava = document.getElementById("dp-menu-strava");
     var menuDelete = document.getElementById("dp-menu-delete");
+    var menuInterval = document.getElementById("dp-menu-interval");
 
     var hasWorkout = !!workout;
     if (menuEdit) menuEdit.style.display = hasWorkout ? "" : "none";
     if (menuDup) menuDup.style.display = hasWorkout ? "" : "none";
+
+    // Interval toggle: only for run-like workouts (a run, or an already-marked
+    // interval). Label flips between mark/unmark based on the current type.
+    if (menuInterval) {
+      var tk = hasWorkout ? normalizeTypeKey(workout.workout_type || workout.type) : null;
+      if (hasWorkout && (tk === "run" || tk === "interval")) {
+        menuInterval.style.display = "";
+        menuInterval.textContent =
+          tk === "interval" ? "Unmark interval" : "Mark as interval";
+      } else {
+        menuInterval.style.display = "none";
+      }
+    }
 
     var isStrava = hasWorkout && isStravaWorkout(workout);
     if (menuStrava) {
@@ -4139,6 +4187,13 @@
 
     var menuEdit = document.getElementById("dp-menu-edit");
     if (menuEdit) menuEdit.addEventListener("click", switchToEditMode);
+
+    var menuInterval = document.getElementById("dp-menu-interval");
+    if (menuInterval)
+      menuInterval.addEventListener("click", function () {
+        closeOverflowMenu();
+        toggleIntervalType();
+      });
 
     var menuDup = document.getElementById("dp-menu-duplicate");
     if (menuDup)

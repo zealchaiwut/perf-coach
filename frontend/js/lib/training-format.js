@@ -22,6 +22,9 @@
   function normalizeType(t) {
     t = (t || '').toLowerCase().trim();
     if (/^run(ning)?$|^race$/.test(t)) return 'run';
+    // 'interval'/'intervals' is a DISTINCT canonical key (must survive so the
+    // Performance Speed feed matches it) — keep it before the generic fallback.
+    if (/^intervals?$/.test(t)) return 'interval';
     if (/^(lift|strength)/.test(t)) return 'lift';
     if (/^(bike|ride|cycl)/.test(t)) return 'bike';
     if (/^(wod|crossfit)/.test(t)) return 'wod';

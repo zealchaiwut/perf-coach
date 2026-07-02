@@ -5387,16 +5387,22 @@ def _best_values_dict(w: Workout) -> dict:
 
 
 def _normalize_workout_type(t: str | None) -> str | None:
-    """Canonicalize run type casing on write ('Run'/'Running' → 'run').
+    """Canonicalize workout-type casing on write.
 
-    Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
-    guardrail) match. Other types are passed through trimmed, unchanged.
+    'Run'/'Running' → 'run' so run-scoped queries (scoring, guardrail) match.
+    'Interval'/'Intervals' → 'interval' so it survives as a DISTINCT type
+    end-to-end — the Performance Speed feed and "what's moving" match
+    workout_type 'interval'/'intervals', so it must NOT collapse back to 'run'.
+    Other types are passed through trimmed, unchanged.
     """
     if t is None:
         return None
     t = t.strip()
-    if t.lower() in ("run", "running"):
+    low = t.lower()
+    if low in ("run", "running"):
         return "run"
+    if low in ("interval", "intervals"):
+        return "interval"
     return t
 
 
@@ -6639,6 +6645,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        # Stamp updated_at so edits (e.g. marking a run as an interval) change the
+        # workout-set fingerprint — the summary/performance cache signature
+        # includes MAX(updated_at), so a type edit busts the cache and the
+        # Performance Speed feed refreshes without waiting for a new sync.
+        workout.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -14371,11 +14382,18 @@ _SUMMARY_CACHE: dict = {}
 def _summary_signature(session, user_id) -> str:
     from sqlalchemy import func as _sf
     row = (
-        session.query(_sf.max(Workout.created_at), _sf.count(Workout.id))
+        session.query(
+            _sf.max(Workout.created_at),
+            _sf.count(Workout.id),
+            _sf.max(Workout.updated_at),
+        )
         .filter(Workout.user_id == user_id)
         .one()
     )
-    return "%s|%s" % (row[0], row[1])
+    # Include MAX(updated_at) so an in-place edit (e.g. marking a run as an
+    # interval) — which changes updated_at but not created_at/count — still
+    # busts the cache and refreshes the derived scores/feeds.
+    return "%s|%s|%s" % (row[0], row[1], row[2])
 
 
 def _summary_cache_get(user_id, key, sig):
