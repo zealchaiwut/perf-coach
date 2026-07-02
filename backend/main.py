@@ -5517,18 +5517,23 @@ def _workout_signal_scores(session, workout) -> dict:
             )
         return runs
 
-    def _score(fn, runs):
-        r = fn(runs, prefs_dict or None, zone_constants)
+    d = workout.workout_date
+    # Race VDOT floor as-of this workout's date (and as-of the day before for
+    # the prev comparison) — score re-anchor.
+    _race_cur = _latest_race_perf(session, workout.user_id, as_of=d)
+    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
+
+    def _score(fn, runs, race_perf):
+        r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
-    d = workout.workout_date
     cur = _build(d)
     prev = _build(d, before_date=d)
-    e_cur = _score(compute_endurance_score, cur)
-    s_cur = _score(compute_speed_score, cur)
-    e_prev = _score(compute_endurance_score, prev)
-    s_prev = _score(compute_speed_score, prev)
+    e_cur = _score(compute_endurance_score, cur, _race_cur)
+    s_cur = _score(compute_speed_score, cur, _race_cur)
+    e_prev = _score(compute_endurance_score, prev, _race_prev)
+    s_prev = _score(compute_speed_score, prev, _race_prev)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
         "endurance_score_delta": round(e_cur - e_prev, 1) if e_cur is not None and e_prev is not None else None,
@@ -5643,8 +5648,10 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             }
         )
 
+    _race_perf = _latest_race_perf(session, user_id, as_of=as_of_date)
+
     def _score(fn):
-        r = fn(runs, prefs_dict or None, zone_constants)
+        r = fn(runs, prefs_dict or None, zone_constants, race_perf=_race_perf)
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
@@ -14334,6 +14341,43 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 _performance_log = _logging.getLogger(__name__)
 
 
+def _latest_race_perf(session, user_id, as_of=None) -> dict | None:
+    """Race VDOT-band perf point for the score re-anchor (proposal §4.3).
+
+    Latest finished race (status='done' AND actual_time_seconds NOT NULL, most
+    recently updated). Returns ``{"perf": float, "date": "YYYY-MM-DD"}`` on the
+    universal VDOT band, or None when there is no usable race. When ``as_of`` is
+    given, only races on/before that date are considered (for the as-of helper).
+    """
+    from backend.services.vdot import vdot_from_pace_duration, rescale_to_score
+
+    q = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "done",
+            Race.actual_time_seconds.isnot(None),
+            Race.distance_km.isnot(None),
+        )
+    )
+    if as_of is not None:
+        q = q.filter(Race.race_date <= as_of)
+    race = q.order_by(Race.updated_at.desc()).first()
+    if race is None:
+        return None
+    try:
+        dist_km = float(race.distance_km)
+        secs = int(race.actual_time_seconds)
+    except (TypeError, ValueError):
+        return None
+    if dist_km <= 0 or secs <= 0:
+        return None
+    velocity_m_per_min = (dist_km * 1000.0) / (secs / 60.0)
+    duration_min = secs / 60.0
+    perf = rescale_to_score(vdot_from_pace_duration(velocity_m_per_min, duration_min))
+    return {"perf": perf, "date": race.race_date.isoformat() if race.race_date else None}
+
+
 def _check_needs_thresholds(preferences) -> bool:
     """Return True when none of the three threshold values are set in preferences.
 
@@ -14667,8 +14711,11 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             )
 
         zone_constants = make_zone_constants()
-        endurance = compute_endurance_score(runs, preferences, zone_constants)
-        speed = compute_speed_score(runs, preferences, zone_constants)
+        # Race VDOT-band perf point (pool point + decayed floor) — score re-anchor.
+        with Session(engine) as _race_session:
+            _race_perf = _latest_race_perf(_race_session, uid)
+        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf)
+        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf)
 
         if _performance_log.isEnabledFor(_logging.DEBUG):
             log_entry = _build_performance_log_entry(
@@ -14678,6 +14725,18 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                 speed=speed,
             )
             _performance_log.debug("performance score request", extra=log_entry)
+
+        # Endurance requires threshold_hr (HR extrapolation); surface its
+        # needs_thresholds sub-state as the top-level state.
+        if isinstance(endurance, dict) and endurance.get("state") == "needs_thresholds":
+            return JSONResponse(
+                _build_performance_response(
+                    state="needs_thresholds",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
+                )
+            )
 
         top_state = _determine_performance_top_level_state(endurance, speed)
 
@@ -14858,6 +14917,9 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     threshold pace, aerobic-decoupling threshold). Any of these changing
     recomputes the scores; otherwise repeat loads reuse the cached payload.
     """
+    # Bump this token whenever the score FORMULA changes so the durable Neon
+    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA).
+    _FORMULA_VERSION = "vdot-v2"
     base = _summary_signature(session, user_id)
     if prefs_row is not None:
         prefs_part = "%s|%s|%s|%s" % (
@@ -14868,7 +14930,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
         )
     else:
         prefs_part = "no-prefs"
-    return base + "|" + prefs_part
+    return base + "|" + prefs_part + "|" + _FORMULA_VERSION
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
