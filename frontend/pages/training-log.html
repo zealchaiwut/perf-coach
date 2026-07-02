@@ -6197,10 +6197,17 @@
     }
 
     /* ── Sticky enlarged-tab nav ─────────────────────────────────────────── */
+    /* <main> now holds ONLY the sticky header — the tab content lives in the
+       sibling #layout-wrapper. As a normal flex box <main> collapsed to the
+       header's height (~78px), so the header's containing block was only 78px
+       tall and position:sticky scrolled away past that. display:contents makes
+       <main> generate no box, so the header's containing block becomes <body>
+       (full scroll height) and it sticks under the 60px global nav on all three
+       sub-tabs. The full-bleed header hack (100vw + margin-left:calc(50%-50vw))
+       is viewport-relative so it still works; body{overflow-x:clip} still trims
+       the scrollbar sliver. */
     main.log-page {
-      max-width: 1120px;
-      padding: 0;
-      gap: 0;
+      display: contents;
     }
     .log-page-header {
       position: sticky;
