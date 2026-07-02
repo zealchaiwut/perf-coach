@@ -5513,6 +5513,9 @@ def _workout_signal_scores(session, workout) -> dict:
                     "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
                     "duration_seconds": wk.duration_seconds,
                     "speed_signal": wk.speed_signal,
+                    "speed_signal_basis": wk.speed_signal_basis,
+                    "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                    "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 }
             )
         return runs
@@ -5645,6 +5648,9 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
                 "duration_seconds": wk.duration_seconds,
                 "speed_signal": wk.speed_signal,
+                "speed_signal_basis": wk.speed_signal_basis,
+                "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                "ftp_w": (prefs_dict or {}).get("ftp_w"),
             }
         )
 
@@ -14672,10 +14678,13 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                     "avg_hr": workout.avg_hr,
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
-                    # Pre-computed speed signal from issue #1048 (may be None for easy runs).
-                    # When non-None, compute_speed_score uses this directly instead of
-                    # recomputing efficiency from laps.
+                    # Pre-computed speed signal (issue #1048): the best hard-effort
+                    # intensity ratio + its basis/window, used by compute_speed_score
+                    # to derive the effort pace when the reps aren't in the splits.
                     "speed_signal": workout.speed_signal,
+                    "speed_signal_basis": workout.speed_signal_basis,
+                    "speed_signal_window_seconds": workout.speed_signal_window_seconds,
+                    "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.

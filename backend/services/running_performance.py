@@ -150,10 +150,12 @@ def compute_speed_score(
     body_modifier: float = 1.0,
     race_perf: dict | None = None,
 ) -> dict[str, Any]:
-    """Speed score on the VDOT band from hard/interval efforts.
+    """Speed score on the VDOT band from the best sustained hard effort.
 
-    The run's best sustained hard effort → its pace + duration → VDOT →
-    rescale. Basis-independent: pace comes from the run's own hard laps.
+    The effort's pace + duration → VDOT → rescale. Effort pace is resolved per
+    run by ``_speed_effort_pace_duration`` (hard laps → power/pace-basis
+    speed_signal fallback), so intervals whose real reps live in the Stryd
+    streams (not the 1 km auto-splits) still score.
     """
     zc = _resolve_zone_constants(zone_constants)
 
@@ -164,18 +166,18 @@ def compute_speed_score(
 
     runs = runs or []
     bands = zc["speed_bands"]
+    threshold_pace = preferences.get("threshold_pace_seconds_per_km")
 
     qualifying_meta: list[dict] = []
     per_run_perf: dict[str, float] = {}
 
     for run in runs:
         run_id = run.get("run_id", "")
-        laps = _qualifying_laps(run.get("laps") or [], bands)
-        lap_pace, effort_dur_s = _lap_pace_and_duration(laps)
-        if lap_pace is None or not effort_dur_s or effort_dur_s <= 0:
+        effort_pace, effort_dur_s = _speed_effort_pace_duration(run, bands, threshold_pace)
+        if effort_pace is None or not effort_dur_s or effort_dur_s <= 0:
             continue
 
-        velocity = 1000.0 / (lap_pace / 60.0)  # m/min
+        velocity = 1000.0 / (effort_pace / 60.0)  # m/min
         effort_min = effort_dur_s / 60.0
         vdot = vdot_from_pace_duration(velocity, effort_min)
         perf = rescale_to_score(vdot)
@@ -363,6 +365,71 @@ def _lap_pace_and_duration(laps: list[dict]) -> tuple[float | None, float | None
         return None, None
     pace_s_per_km = total_dur / total_dist
     return pace_s_per_km, total_dur
+
+
+def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> tuple[float | None, float | None]:
+    """Resolve the best hard-effort (pace_s_per_km, duration_s) for a run.
+
+    Precedence:
+      1. Qualifying hard/interval laps present → their real pace + total duration.
+      2. Else a persisted ``speed_signal`` (the real reps live in the Stryd
+         streams, not the 1 km auto-splits):
+         - pace basis:  effort_pace = threshold_pace / signal.
+         - power basis: convert power→pace via the run's own pace–power relation:
+             effort_pace ≈ avg_run_pace × (avg_run_power / effort_power),
+             effort_power = signal × ftp is proportional to avg_run_power × signal
+             ÷ (avg_run_power/ftp) — but we only need the RATIO, so use
+             effort_pace = avg_run_pace / (signal / (avg_run_power / ftp)).
+           Falls back to threshold_pace/signal-as-pace-proxy when the run lacks
+           the power/pace data needed for the relation.
+         - hr basis: no reliable pace mapping → skip (returns None).
+       Effort duration = ``speed_signal_window_seconds`` when present, else a
+       nominal 5 min (a typical hard-effort window).
+    """
+    laps = _qualifying_laps(run.get("laps") or [], bands)
+    lap_pace, lap_dur = _lap_pace_and_duration(laps)
+    if lap_pace is not None and lap_dur and lap_dur > 0:
+        return lap_pace, lap_dur
+
+    signal = run.get("speed_signal")
+    if not isinstance(signal, (int, float)) or isinstance(signal, bool) or signal <= 0:
+        return None, None
+
+    basis = (run.get("speed_signal_basis") or "").lower()
+    window_s = run.get("speed_signal_window_seconds")
+    duration_s = float(window_s) if isinstance(window_s, (int, float)) and window_s and window_s > 0 else 300.0
+
+    if basis == "pace":
+        if threshold_pace and threshold_pace > 0:
+            # signal = threshold_pace / lap_pace → lap_pace = threshold_pace / signal
+            return float(threshold_pace) / float(signal), duration_s
+        return None, None
+
+    if basis == "power":
+        # Run-level pace–power relation → convert the effort's power ratio to a
+        # pace. avg_run_pace corresponds to avg_run_power; running power scales
+        # ~linearly with speed, so effort_pace ≈ avg_run_pace × avg_run_power / effort_power.
+        dist = run.get("distance_km")
+        dur = run.get("duration_seconds")
+        avg_power = run.get("avg_power")
+        ftp = run.get("ftp_w")
+        if (isinstance(dist, (int, float)) and dist and dist > 0
+                and isinstance(dur, (int, float)) and dur and dur > 0
+                and isinstance(avg_power, (int, float)) and avg_power and avg_power > 0
+                and isinstance(ftp, (int, float)) and ftp and ftp > 0):
+            avg_run_pace = float(dur) / float(dist)         # s/km
+            effort_power = float(signal) * float(ftp)        # W
+            if effort_power > 0:
+                effort_pace = avg_run_pace * float(avg_power) / effort_power
+                if effort_pace > 0:
+                    return effort_pace, duration_s
+        # Fallback: treat the intensity ratio against threshold pace.
+        if threshold_pace and threshold_pace > 0:
+            return float(threshold_pace) / float(signal), duration_s
+        return None, None
+
+    # heart_rate basis or unknown → no reliable pace mapping.
+    return None, None
 
 
 def _weighted_lap_hr(laps: list[dict]) -> float | None:
