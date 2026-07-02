@@ -495,11 +495,15 @@
         background: rgba(255, 255, 255, 0.12);
       }
 
-      /* ── Placeholder panels (Plan / Performance) ── */
+      /* ── Placeholder panels (Projection / Performance) ──
+         Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
+         max-width 1120px, padding 20px 24px 60px) so all three sub-tabs share
+         the same content-left/right edge and _positionNav aligns the tab strip
+         to it on every tab. */
       .tab-panel-placeholder {
-        max-width: 1280px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 0 22px 40px;
+        padding: 20px 24px 60px;
         display: flex;
         flex-direction: column;
         gap: 12px;
