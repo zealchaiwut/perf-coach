@@ -177,9 +177,9 @@
     if (p.body) p.body.style.display = '';
     if (p.score) p.score.textContent = Math.round(score);
 
-    // Block-delta: derived from the trend series (last vs. ~8 points back).
+    // Block-delta: now − ~4 weeks ago (by date), on the absolute VDOT band.
     if (p.blk) {
-      var delta = _blockDelta(trend);
+      var delta = _blockDelta(trend, data.trend_dates);
       if (delta === null) {
         p.blk.hidden = true;
       } else {
@@ -208,13 +208,32 @@
     }
   }
 
-  // delta = round(last − value ~8 points back / start of the trend window).
-  function _blockDelta(trend) {
-    if (!Array.isArray(trend) || trend.length < 3) return null;
+  // Block delta = score(now) − score(~4 weeks ago), located by DATE using the
+  // parallel trend_dates array (the VDOT trend is step-like and irregular, so a
+  // fixed index offset is wrong). Returns null when there isn't a point at
+  // least ~4 weeks back (nothing sane to compare — hide the pill). This is only
+  // called in the scored state; building_baseline hides the card body entirely.
+  function _blockDelta(trend, trendDates) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
     var last = trend[trend.length - 1];
-    var backIdx = Math.max(0, trend.length - 1 - 8);
-    var base = trend[backIdx];
-    if (last == null || base == null) return null;
+    if (last == null) return null;
+
+    var base = null;
+    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
+      var lastMs = Date.parse(trendDates[trendDates.length - 1] + 'T00:00:00');
+      var cutoff = lastMs - 28 * 86400000; // ~4 weeks back
+      // The latest trend point whose date is on/before the 4-week cutoff.
+      for (var i = trend.length - 1; i >= 0; i--) {
+        var ms = Date.parse(trendDates[i] + 'T00:00:00');
+        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
+      }
+      // No point ≥4 weeks back → not enough history for a block delta.
+      if (base == null) return null;
+    } else {
+      // No dates available — fall back to the first trend point.
+      base = trend[0];
+    }
+    if (base == null) return null;
     return Math.round(last - base);
   }
 
