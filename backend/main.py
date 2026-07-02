@@ -15303,17 +15303,21 @@ def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resol
 def _plan_signature(session, user_id, plan) -> str:
     """Cheap fingerprint of everything the Plan bundle depends on.
 
-    Hash of: MAX(workouts.updated_at), MAX(races.updated_at),
+    Hash of: MAX(workouts.updated_at), MAX(workouts.created_at)+COUNT,
+    MAX(races.updated_at), MAX(race_checkpoints.updated_at),
     user_preferences.threshold_pace_seconds_per_km_updated_at (falls back to the
     prefs row's own updated_at), and the plan's updated_at. New training sync
-    bumps workouts; target/race edits bump races; ramp/taper edits bump the
-    plan — so any of those changes the signature and forces a recompute.
+    bumps workouts (created_at+count); editing an existing workout's fields
+    bumps workouts.updated_at; target/race edits bump races; checkpoint edits
+    bump race_checkpoints; ramp/taper edits bump the plan — so any of those
+    changes the signature and forces a recompute.
     """
     from sqlalchemy import func as _sa_func
 
-    # Workout has no updated_at; MAX(created_at)+COUNT catches new synced rows
-    # (the "new training bumps the signature" case) without a schema change.
-    # Single SELECT with scalar subqueries instead of 5 separate round trips.
+    # MAX(created_at)+COUNT catches new synced rows; MAX(updated_at) catches
+    # in-place edits to an existing workout (e.g. PATCH /api/workouts/{id}),
+    # which created_at+count alone would miss. Single SELECT with scalar
+    # subqueries instead of round trips per signal.
     row = session.query(
         session.query(_sa_func.max(Workout.created_at))
         .filter(Workout.user_id == user_id)
@@ -15323,6 +15327,10 @@ def _plan_signature(session, user_id, plan) -> str:
         .filter(Workout.user_id == user_id)
         .scalar_subquery()
         .label("wo_count"),
+        session.query(_sa_func.max(Workout.updated_at))
+        .filter(Workout.user_id == user_id)
+        .scalar_subquery()
+        .label("max_wo_updated"),
         session.query(_sa_func.max(Race.updated_at))
         .filter(Race.user_id == user_id)
         .scalar_subquery()
@@ -15331,6 +15339,10 @@ def _plan_signature(session, user_id, plan) -> str:
         .filter(Race.user_id == user_id)
         .scalar_subquery()
         .label("max_race_created"),
+        session.query(_sa_func.max(RaceCheckpoint.updated_at))
+        .filter(RaceCheckpoint.user_id == user_id)
+        .scalar_subquery()
+        .label("max_checkpoint_updated"),
         session.query(UserPreferences.threshold_pace_seconds_per_km_updated_at)
         .filter(UserPreferences.user_id == user_id)
         .scalar_subquery()
@@ -15340,11 +15352,16 @@ def _plan_signature(session, user_id, plan) -> str:
         .scalar_subquery()
         .label("prefs_updated_at"),
     ).one()
-    max_wo, wo_count, max_race, max_race_created, prefs_pace_stamp, prefs_updated_at = row
+    (
+        max_wo, wo_count, max_wo_updated,
+        max_race, max_race_created, max_checkpoint_updated,
+        prefs_pace_stamp, prefs_updated_at,
+    ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
     parts = [
-        str(max_wo), str(wo_count),
-        str(max_race), str(max_race_created), str(prefs_stamp),
+        str(max_wo), str(wo_count), str(max_wo_updated),
+        str(max_race), str(max_race_created), str(max_checkpoint_updated),
+        str(prefs_stamp),
         str(getattr(plan, "updated_at", None)),
     ]
     return _hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
