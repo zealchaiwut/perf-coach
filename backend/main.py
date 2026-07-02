@@ -43,6 +43,7 @@ from backend.services.training_load import (
     compute_fitness_series,
     readiness_label as training_readiness_label,
     project_form,
+    resolve_user_ewma_days,
     taper_recommendation,
     peak_tracking,
     compute_calibration_suggestions,
@@ -8567,7 +8568,8 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     today = _date.today()
     warmup_start = today - _timedelta(days=180)
     tss_series = daily_tss_series(str(user.id), warmup_start, today)
-    load_curves = compute_load_curves(tss_series)
+    _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+    load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
     # Require at least 7 workout days with non-zero TSS in the last 42 days.
     history_window_start = today - _timedelta(days=42)
@@ -13633,7 +13635,8 @@ def _race_readiness_impl(
         tss_series, load_curves = _shared_load_curves
     else:
         tss_series = daily_tss_series(str(user.id), warmup_start, today)
-        load_curves = compute_load_curves(tss_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
     # ── 4. Build form_curve with configurable zone labels ─────────────────────
     form_curve = [
@@ -13701,7 +13704,8 @@ def _race_readiness_impl(
     if not building_baseline and today >= taper_start:
         # Compute fitness state at taper_start by running load curves up to that date
         taper_start_series = daily_tss_series(str(user.id), warmup_start, taper_start)
-        taper_start_curves = compute_load_curves(taper_start_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        taper_start_curves = compute_load_curves(taper_start_series, ctl_days=_ctl_days, atl_days=_atl_days)
         taper_start_state = {
             "ctl": taper_start_curves[-1]["ctl"],
             "atl": taper_start_curves[-1]["atl"],
@@ -15460,7 +15464,10 @@ def _compute_plan_bundle(user) -> dict:
         # get_race_readiness() call would otherwise recompute this identically.
         _warmup_start = today - _timedelta(days=180)
         _shared_tss_series = daily_tss_series(str(user.id), _warmup_start, today)
-        _shared_load_curves = compute_load_curves(_shared_tss_series)
+        _shared_ctl_days, _shared_atl_days = resolve_user_ewma_days(str(user.id))
+        _shared_load_curves = compute_load_curves(
+            _shared_tss_series, ctl_days=_shared_ctl_days, atl_days=_shared_atl_days
+        )
         # Primary A race drives the time-curve chart; capture its readiness
         # time_curve for the frontend "Projected now" readout + chart.
         primary_race = next(
@@ -15649,7 +15656,8 @@ def get_projection(user: User = Depends(resolve_user)):
 
         # Compute form curve from training load history
         tss_series = daily_tss_series(str(user.id), warmup_start, today)
-        load_curves = compute_load_curves(tss_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
         buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
         fresh_floor = _rdns_cfg_float(_RDNS_CFG_FRESH_FLOOR, FORM_FRESH_FLOOR)
