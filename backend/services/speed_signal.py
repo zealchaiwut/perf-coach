@@ -227,7 +227,6 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
                     avg_hr=lap.get("avg_hr"),
                 )
             )
-    scan_splits = manual_laps if manual_laps else splits
 
     prefs_row = (
         session.query(UserPreferences)
@@ -243,7 +242,26 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
         ),
     }
 
-    result = compute_speed_signal(scan_splits, prefs)
+    # Prefer the manual-lap reps: they hold the real hard efforts (the 1 km
+    # auto-splits average reps+recovery together and sit below threshold). Use
+    # them only when they yield a qualifying (threshold/hard) window; otherwise
+    # fall back to the stored auto-splits so non-interval runs and manual-lap
+    # sets that don't qualify keep their existing behavior.
+    result = None
+    if manual_laps:
+        manual_result = compute_speed_signal(manual_laps, prefs)
+        if manual_result["speed_signal"] is not None:
+            # Note the manual-lap basis in the source string (pure core is
+            # source-agnostic; we annotate here in the DB caller).
+            src = manual_result.get("speed_signal_source")
+            if src:
+                manual_result["speed_signal_source"] = src.replace(
+                    " window", " manual-lap window", 1
+                )
+            result = manual_result
+
+    if result is None:
+        result = compute_speed_signal(splits, prefs)
 
     workout.speed_signal = result["speed_signal"]
     workout.speed_signal_basis = result["speed_signal_basis"]

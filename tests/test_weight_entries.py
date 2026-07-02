@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.db import engine
 from backend.models import WeightEntry
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _BASE = datetime.date(2099, 3, 1)  # far-future sentinel — avoids seed collisions
 
@@ -183,7 +184,7 @@ def api_user_id(http_client):
     """Create a test user with password for API tests; delete on teardown."""
     import uuid as _uuid_mod
     name = f"we_api_{_uuid_mod.uuid4().hex[:8]}"
-    res = http_client.post("/api/users", json={"name": name})
+    res = http_client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     uid = res.json()["id"]
     pw_hash = hash_password(_WE_TEST_PW)
@@ -192,7 +193,7 @@ def api_user_id(http_client):
         u.password_hash = pw_hash
         db.commit()
     yield uid
-    http_client.delete(f"/api/users/{uid}")
+    http_client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

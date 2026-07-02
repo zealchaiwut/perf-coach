@@ -3,6 +3,7 @@ import os
 import pytest
 import httpx
 from datetime import date as _date, timedelta
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = os.environ.get("UAT_BASE_URL") or f"http://localhost:{os.environ.get('UAT_PORT', '9001')}"
 if not BASE.startswith("http"):
@@ -19,7 +20,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"

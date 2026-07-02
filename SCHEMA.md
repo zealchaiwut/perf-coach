@@ -768,4 +768,92 @@ Per-user fitted Banister impulse-response model parameters (τ₁, τ₂, k₁, 
 | k2 | float | NOT NULL — fatigue gain |
 | fitted_at | timestamptz | NOT NULL |
 
+---
+
+## drive_sleep_connections
+
+Per-user Google Drive OAuth connection used to pull sleep-export CSVs from a linked Drive folder (Settings → Integrations → Google Drive (Sleep)). One row per user (`user_id` unique).
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users, unique | CASCADE |
+| refresh_token_encrypted | text | nullable |
+| folder_id | text | nullable — Drive folder to watch |
+| status | varchar(20) | NOT NULL, default `'not_connected'` |
+| last_sync_at | timestamptz | nullable |
+| created_at / updated_at | timestamptz | server default now() |
+
+Migration: `6b7db3c38f43_add_drive_sleep_connections_table`.
+
+---
+
+## removed_activities
+
+Tombstone for a synced Strava/Stryd activity the user removed from their log. Keyed by the external activity id so `reconcile.py` skips it on future syncs instead of recreating the workout; deleting the row (restore) lets the next reconcile rebuild it.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE |
+| source | varchar(10) | NOT NULL — `strava` \| `stryd` |
+| external_id | varchar(255) | NOT NULL |
+| workout_name | varchar(255) | nullable — snapshot for the Removed list |
+| workout_date | date | nullable — snapshot for the Removed list |
+| removed_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, source, external_id)` (`uq_removed_activities_user_source_external`). Index: `ix_removed_activities_user` on `user_id`. Migration: `932ba10c0d09_add_removed_activities_tombstone_table`.
+
+---
+
+## athlete_duration_curves
+
+Per-user cache of best-effort duration curves (best value achieved for each duration bucket, e.g. 5s/1min/5min/20min power or pace), keyed by `user_id` alone (one row per user, upserted in place as new bests arrive).
+
+| column | type | notes |
+|--------|------|-------|
+| user_id | UUID PK, FK→users | CASCADE |
+| curve_data | JSONB | NOT NULL, default `{}` — per-duration best-value entries (`best_value`, `workout_id`, `date`, `confidence`) |
+| updated_at | timestamptz | server default now(), onupdate now() |
+
+Migration: `kk1f2a3b4c5e_add_athlete_duration_curves_table`.
+
+---
+
+## summary_cache
+
+Durable (L2) mirror of the in-memory `_SUMMARY_CACHE` (L1) in `backend/main.py`: one row per `(user_id, cache_key)`, invalidated when the stored `signature` no longer matches the recomputed signature. Persisting to Neon means a server restart (which wipes L1) doesn't force a cold recompute — the first request after restart reads straight from this table. `cache_key` values in use: `weekly`, `monthly:<...>`, `performance`.
+
+| column | type | notes |
+|--------|------|-------|
+| user_id | UUID PK, FK→users | CASCADE |
+| cache_key | text PK | |
+| signature | text | NOT NULL |
+| payload | JSONB | NOT NULL |
+| updated_at | timestamptz | NOT NULL, server default now() |
+
+Migration: `c348d3b407f6_add_summary_cache_table_for_durable_`.
+
+---
+
+## planned_sessions
+
+A hand-entered planned training session for the Plan tab. Distinct from Projection's synthetic ramp/taper load model (`training_plans` / `planned_load`). Link-only: `matched_workout_id` points at the reconciled `workouts` row that fulfilled this planned session — the workout stays its own row and the Log tab is unchanged.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK→users | CASCADE; indexed |
+| planned_date | date | NOT NULL; indexed |
+| session_type | varchar(20) | NOT NULL — `run` \| `strength` \| `plyo` \| `rest` |
+| name | varchar(200) | nullable |
+| structure | JSONB | nullable — `blocks[]` for runs / `exercises[]` for strength·plyo; null for rest |
+| notes | text | nullable |
+| status | varchar(20) | NOT NULL, default `'planned'` — `planned` \| `missed` \| `needs_review` \| `done_auto` \| `done_manual` |
+| matched_workout_id | UUID FK→workouts | SET NULL |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | nullable |
+
+Index: `ix_planned_sessions_user_date` on `(user_id, planned_date)`. Migration: `6ce18fda0701_add_planned_sessions`.
+
 Index: `ix_user_banister_params_user_fitted_at` on `(user_id, fitted_at)`. Migration: `5552a8d45c57`.

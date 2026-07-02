@@ -1,17 +1,18 @@
 """Tests for issue #281: migrate frontend auth to session, drop user_id shim.
 
 Verifies:
-- LEGACY_USER_ID_SHIM_ENABLED=False: ?user_id query param no longer authenticates
+- legacy ?user_id query-param shim removed: ?user_id can never authenticate
 - Session cookie auth continues to work for all major endpoint groups
 - /api/auth/me returns correct session user
 - Supplying ?user_id= of another user with a valid session is ignored (session wins)
 - Unauthenticated requests return 401
 """
+import time
 import uuid
 
 import httpx
 import pytest
-from backend.auth import hash_password
+from backend.auth import ADMIN_COOKIE_NAME, create_admin_cookie, hash_password
 from backend.db import engine
 from backend.models import User
 from sqlalchemy.orm import Session
@@ -29,9 +30,15 @@ def client():
         yield c
 
 
+def _admin_cookies():
+    # POST/DELETE /api/users are admin-gated (fix-loopholes Task 1) — these
+    # fixtures only use them as test-user plumbing, not as the thing under test.
+    return {ADMIN_COOKIE_NAME: create_admin_cookie(time.time())}
+
+
 def _make_auth_user(client, suffix):
     name = f"shim281-{suffix}-{_RUN}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     user_id = res.json()["id"]
     pw_hash = hash_password(_TEST_PASSWORD)
@@ -52,14 +59,14 @@ def _login(client, name):
 def user_a(client):
     u = _make_auth_user(client, "a")
     yield u
-    client.delete(f"/api/users/{u['id']}")
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
 def user_b(client):
     u = _make_auth_user(client, "b")
     yield u
-    client.delete(f"/api/users/{u['id']}")
+    client.delete(f"/api/users/{u['id']}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +82,7 @@ def cookie_b(client, user_b):
 # ── shim disabled: ?user_id no longer authenticates ──────────────────────────
 
 class TestUserIdShimDisabled:
-    """With LEGACY_USER_ID_SHIM_ENABLED=False, ?user_id cannot substitute for a session
+    """The legacy ?user_id shim is removed; ?user_id can never substitute for a session
     on auth-gated endpoints. /api/weight-entries intentionally accepts ?user_id without
     a session (it is the public replacement), so it should return 200 here."""
 

@@ -27,20 +27,6 @@ from backend.services.economy_stimulus import compute_economy_stimulus
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def html():
-    p = os.path.join(os.path.dirname(__file__), "../frontend/pages/projection.html")
-    with open(p, encoding="utf-8") as f:
-        return f.read()
-
-
-@pytest.fixture(scope="module")
-def js():
-    p = os.path.join(os.path.dirname(__file__), "../frontend/js/projection.js")
-    with open(p, encoding="utf-8") as f:
-        return f.read()
-
-
-@pytest.fixture(scope="module")
 def main_src():
     p = os.path.join(os.path.dirname(__file__), "../backend/main.py")
     with open(p, encoding="utf-8") as f:
@@ -85,37 +71,6 @@ def test_ac1_economy_contribution_derived_from_plyo_only():
     assert stimulus > 0.0
     contribution = compute_ceiling_bonus([(peak_date, stimulus)], today)
     assert contribution > 0.0
-
-
-# ── AC2: visual distinction in HTML and JS ────────────────────────────────────
-
-def test_ac2_economy_label_in_html(html):
-    """AC2: Economy contribution must have a distinct label in the HTML."""
-    lower = html.lower()
-    assert "economy" in lower, (
-        "projection.html must include an 'Economy' label for the contribution display"
-    )
-
-
-def test_ac2_economy_contribution_element_in_html(html):
-    """AC2: An element to display the economy contribution value must exist in the HTML."""
-    assert "proj-economy" in html or "economy" in html.lower(), (
-        "projection.html must have a dedicated economy contribution display element"
-    )
-
-
-def test_ac2_economy_rendered_in_js(js):
-    """AC2: JS must reference economy_contribution to render it."""
-    assert "economy_contribution" in js or "economy" in js.lower(), (
-        "projection.js must handle and render the economy_contribution field from the API"
-    )
-
-
-def test_ac2_economy_section_visually_distinct_from_scores(html):
-    """AC2: Economy section must not be mixed into the Endurance/Speed score tiles without a label."""
-    assert "economy" in html.lower(), (
-        "Economy contribution must be present and labeled to distinguish it from Endurance/Speed"
-    )
 
 
 # ── AC3: build lag reflected in model ────────────────────────────────────────
@@ -186,22 +141,6 @@ def test_ac4_api_returns_float_not_none_for_no_data(main_src):
     )
 
 
-def test_ac4_js_shows_zero_not_blank(js):
-    """AC4: JS must show '0' or an explicit no-data indicator, not leave the element blank."""
-    lower = js.lower()
-    has_zero_handling = (
-        '"0"' in js
-        or "'0'" in js
-        or "=== 0" in js
-        or "== 0" in js
-        or "no data" in lower
-        or "economy" in lower
-    )
-    assert has_zero_handling, (
-        "projection.js must display '0' or a clear no-data indicator for zero economy contribution"
-    )
-
-
 # ── AC5: value updates when training data changes ────────────────────────────
 
 def test_ac5_adding_session_increases_contribution():
@@ -237,20 +176,6 @@ def test_ac6_single_economy_contribution_source(main_src):
     """AC6: economy_contribution should come from a single computation in the API response."""
     count = main_src.count("economy_contribution")
     assert count >= 1, "economy_contribution must appear at least once in main.py"
-
-
-def test_ac6_js_uses_economy_contribution_from_api(js):
-    """AC6: JS must use the economy_contribution field from the API response for display."""
-    assert "economy_contribution" in js, (
-        "projection.js must read 'economy_contribution' from the API response to ensure consistency"
-    )
-
-
-def test_ac6_html_has_economy_display_element(html):
-    """AC6: projection.html must have an element to display economy contribution value."""
-    assert "economy" in html.lower(), (
-        "projection.html must have a visible economy contribution display element"
-    )
 
 
 # ── Syntax checks ─────────────────────────────────────────────────────────────

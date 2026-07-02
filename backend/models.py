@@ -275,7 +275,7 @@ class Workout(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     # Column already exists in the DB; map it so edits can stamp it and the
     # summary/performance cache signature can include MAX(updated_at).
-    updated_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
@@ -1007,6 +1007,7 @@ class RaceCheckpoint(Base):
     updated_at = Column(
         DateTime(timezone=True),
         server_default=text("now()"),
+        onupdate=text("now()"),
         nullable=False,
     )
 

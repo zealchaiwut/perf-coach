@@ -39,7 +39,7 @@ def test_409_and_202_share_same_branch():
 def test_no_error_display_on_409():
     """No alert() or error element shown — 409 handled silently (status bar only)."""
     # Check there's no alert() in the sync click handler
-    handler_idx = JS.index("_onSyncStravaClick")
+    handler_idx = JS.index("function _onSyncAllClick")
     handler_body = JS[handler_idx: handler_idx + 500]
     assert "alert(" not in handler_body
 

@@ -32,6 +32,7 @@ import uuid
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 # ── Root detection ─────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def user_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     users = res.json()
     assert len(users) > 0, "No users found; seed the DB first"

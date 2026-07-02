@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://127.0.0.1:9001"
 _TEST_PW = "test864pw!"
@@ -36,7 +37,7 @@ def _make_auth_client(base_client: httpx.Client) -> tuple[httpx.Client, str]:
         pytest.skip("DATABASE_URL_UAT not set")
 
     user_name = f"wp_test_{uuid.uuid4().hex[:8]}"
-    r = base_client.post("/api/users", json={"name": user_name})
+    r = base_client.post("/api/users", json={"name": user_name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"Failed to create user: {r.text}"
     user_id = r.json()["id"]
 

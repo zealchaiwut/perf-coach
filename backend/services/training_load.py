@@ -31,13 +31,28 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import TrainingLoadSnapshot
+from backend.models import TrainingLoadSnapshot, UserPreferences
 
 # ── EWMA time constants ───────────────────────────────────────────────────────
 # Chronic Training Load time constant (days).  The standard Banister value.
 CTL_DAYS: int = 42
 # Acute Training Load time constant (days).  Must be less than CTL_DAYS.
 ATL_DAYS: int = 7
+
+
+def resolve_user_ewma_days(user_id: str) -> tuple[int, int]:
+    """Return (ctl_days, atl_days) for a user: their saved calibration prefs
+    if set, else the module defaults (CTL_DAYS, ATL_DAYS)."""
+    uid = _uuid_mod.UUID(str(user_id))
+    with Session(engine) as session:
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+    ctl_days = prefs.ctl_days if prefs and prefs.ctl_days else CTL_DAYS
+    atl_days = prefs.atl_days if prefs and prefs.atl_days else ATL_DAYS
+    return ctl_days, atl_days
 
 # ── Form-zone band constants ───────────────────────────────────────────────────
 # TSB (Training Stress Balance) below this threshold = overreached / buried.
@@ -183,6 +198,12 @@ def current_load(
     Falls back to the live recompute when the snapshot is missing or stale,
     and upserts the result via daily_update() so the next call hits the cache.
 
+    The snapshot cache doesn't record which ctl_days/atl_days it was computed
+    with, so a user with a custom calibration (UserPreferences.ctl_days /
+    atl_days) always bypasses the cache and recomputes live — otherwise a
+    snapshot cached under the default constants would silently outlive a
+    calibration change for the rest of that day.
+
     Args:
         user_id: the user's ID.
         as_of: restrict series to this date (default: today).
@@ -192,25 +213,29 @@ def current_load(
     """
     end = as_of if as_of is not None else date.today()
 
-    uid = _uuid_mod.UUID(str(user_id))
-    with Session(engine) as session:
-        snap = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == end,
-            )
-            .first()
-        )
-        if snap is not None:
-            return {
-                "date": snap.snapshot_date,
-                "ctl": snap.ctl,
-                "atl": snap.atl,
-                "tsb": snap.tsb,
-            }
+    ctl_days, atl_days = resolve_user_ewma_days(user_id)
+    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
-    computed = daily_update(user_id, target_date=end)
+    if not uses_custom_calibration:
+        uid = _uuid_mod.UUID(str(user_id))
+        with Session(engine) as session:
+            snap = (
+                session.query(TrainingLoadSnapshot)
+                .filter(
+                    TrainingLoadSnapshot.user_id == uid,
+                    TrainingLoadSnapshot.snapshot_date == end,
+                )
+                .first()
+            )
+            if snap is not None:
+                return {
+                    "date": snap.snapshot_date,
+                    "ctl": snap.ctl,
+                    "atl": snap.atl,
+                    "tsb": snap.tsb,
+                }
+
+    computed = daily_update(user_id, target_date=end, ctl_days=ctl_days, atl_days=atl_days)
     return {
         "date": computed["date"],
         "ctl": computed["ctl"],
@@ -222,23 +247,50 @@ def current_load(
 def daily_update(
     user_id: str,
     target_date: Optional[date] = None,
+    ctl_days: Optional[int] = None,
+    atl_days: Optional[int] = None,
 ) -> dict:
     """Compute CTL/ATL/TSB for target_date and UPSERT into training_load_snapshots.
 
     Uses a 6-month warmup window for EWMA convergence. Safe to re-run (idempotent).
 
+    ctl_days/atl_days default to the user's saved calibration (UserPreferences)
+    when not passed explicitly. The snapshot cache doesn't record which
+    constants produced a row, so a row computed under a custom calibration is
+    only ever written for that same user's own (user_id, snapshot_date) key —
+    it can't leak into another user's cache — but skip the write entirely when
+    a custom calibration is in play, so a same-day revert to the default
+    calibration can't read back a stale custom-computed snapshot.
+
     Args:
         user_id: the user's ID.
         target_date: date to compute and store (default: today).
+        ctl_days: EWMA time constant for CTL (default: user's calibration, or CTL_DAYS).
+        atl_days: EWMA time constant for ATL (default: user's calibration, or ATL_DAYS).
 
     Returns:
         dict with keys: date, tss, ctl, atl, tsb.
     """
     target = target_date if target_date is not None else date.today()
+    if ctl_days is None or atl_days is None:
+        default_ctl, default_atl = resolve_user_ewma_days(user_id)
+        ctl_days = ctl_days if ctl_days is not None else default_ctl
+        atl_days = atl_days if atl_days is not None else default_atl
+    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
+
     start = target - timedelta(days=180)
     series = daily_tss_series(user_id, start, target)
-    curves = compute_load_curves(series)
+    curves = compute_load_curves(series, ctl_days=ctl_days, atl_days=atl_days)
     last = curves[-1]
+
+    if uses_custom_calibration:
+        return {
+            "date": target,
+            "tss": last["tss"],
+            "ctl": round(last["ctl"], 2),
+            "atl": round(last["atl"], 2),
+            "tsb": round(last["tsb"], 2),
+        }
 
     uid = _uuid_mod.UUID(str(user_id))
     row = {

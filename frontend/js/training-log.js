@@ -80,13 +80,6 @@
     return TF.formatDuration(secs);
   }
 
-  function fmtTotalTime(totalMinutes) {
-    if (!totalMinutes || totalMinutes <= 0) return "";
-    var h = Math.floor(totalMinutes / 60);
-    var m = Math.round(totalMinutes % 60);
-    return h + ":" + pad(m);
-  }
-
   function fmtDuration(secs) {
     if (!secs) return "";
     var h = Math.floor(secs / 3600),
@@ -281,14 +274,6 @@
         }, 400);
       });
     });
-  }
-
-  // ── Date-range chip label ─────────────────────────────────────────────────
-  function drLabel() {
-    if (filters.from && filters.to) return filters.from + " – " + filters.to;
-    if (filters.from) return "From " + filters.from;
-    if (filters.to) return "To " + filters.to;
-    return "Last 30 days";
   }
 
   // ── Header stats subtitle ─────────────────────────────────────────────────
@@ -649,131 +634,9 @@
     return String(Math.round(v * 10) / 10);
   }
 
-  // Legacy load-widget (#528): superseded by readiness-widget (#640). Keep hidden.
-  function renderLoadWidget(lc) {
-    var el = document.getElementById("load-widget");
-    if (el) el.hidden = true;
-  }
-
   // ── Readiness widget (issue #697) ────────────────────────────────────────────
   // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles
   // with a readiness label and per-metric sparklines. Hidden on error.
-
-  function _renderSparkline(id, vals, color) {
-    var canvas = document.getElementById(id);
-    if (!canvas || !vals || !vals.length) return;
-
-    var wrap = canvas.parentElement;
-    var width = Math.max((wrap && wrap.clientWidth) || canvas.clientWidth || 80, 40);
-    var height = 28;
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
-
-    var nums = vals.map(function (v) {
-      return v == null ? null : Number(v);
-    }).filter(function (v) { return v !== null && isFinite(v); });
-    if (nums.length < 2) return;
-
-    var min = Math.min.apply(null, nums);
-    var max = Math.max.apply(null, nums);
-    if (min === max) {
-      min -= 1;
-      max += 1;
-    }
-
-    var ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, width, height);
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    var padX = 1;
-    var padY = 2;
-    var usableW = width - padX * 2;
-    var usableH = height - padY * 2;
-    var started = false;
-
-    vals.forEach(function (v, i) {
-      var n = v == null ? null : Number(v);
-      if (n === null || !isFinite(n)) return;
-      var x = padX + (i / Math.max(vals.length - 1, 1)) * usableW;
-      var y = padY + usableH - ((n - min) / (max - min)) * usableH;
-      if (!started) {
-        ctx.moveTo(x, y);
-        started = true;
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-
-    if (started) ctx.stroke();
-  }
-
-  // Readiness zone bar: three named zones + a marker at the current value, so
-  // you can read good/normal/caution at a glance. TSB uses the established form
-  // zones (Fatigued < -10 · Optimal -10..+5 · Fresh >= +5); CTL/ATL are zoned
-  // relative to the athlete's own recent range (low / mid / high third).
-  var RW_AMBER = '#f59e0b', RW_BLUE = '#3b82f6', RW_GREEN = '#22c55e';
-
-  function _zoneBarHtml(metric, val, series) {
-    if (val == null || isNaN(val)) return '';
-    var segs, lo, hi, name, color;
-
-    if (metric === 'tsb') {
-      lo = -30; hi = 25;
-      var b1 = -10, b2 = 5;  // FORM_BURIED_CEILING / FORM_FRESH_FLOOR
-      segs = [
-        { w: b1 - lo, c: RW_AMBER },   // Fatigued
-        { w: b2 - b1, c: RW_GREEN },   // Optimal
-        { w: hi - b2, c: RW_BLUE },    // Fresh
-      ];
-      if (val < b1) { name = 'Fatigued'; color = RW_AMBER; }
-      else if (val < b2) { name = 'Optimal'; color = RW_GREEN; }
-      else { name = 'Fresh'; color = RW_BLUE; }
-    } else {
-      var vals = (series || []).map(function (d) { return d[metric]; })
-        .filter(function (v) { return v != null && !isNaN(v); });
-      lo = vals.length ? Math.min.apply(null, vals) : val;
-      hi = vals.length ? Math.max.apply(null, vals) : val;
-      if (!(hi - lo > 1e-6)) {                    // flat/empty → pad around value
-        var pad = Math.max(5, Math.abs(val) * 0.3);
-        lo = val - pad; hi = val + pad;
-      }
-      var t1 = lo + (hi - lo) / 3, t2 = lo + 2 * (hi - lo) / 3;
-      var third = (hi - lo) / 3;
-      var labels, colors;
-      if (metric === 'ctl') {            // higher = fitter → top third is best
-        labels = ['Low', 'Building', 'Strong'];
-        colors = [RW_AMBER, RW_BLUE, RW_GREEN];
-      } else {                           // atl: lower = more recovered
-        labels = ['Light', 'Moderate', 'High'];
-        colors = [RW_GREEN, RW_BLUE, RW_AMBER];
-      }
-      segs = [
-        { w: third, c: colors[0] },
-        { w: third, c: colors[1] },
-        { w: third, c: colors[2] },
-      ];
-      var idx = val < t1 ? 0 : val < t2 ? 1 : 2;
-      name = labels[idx]; color = colors[idx];
-    }
-
-    var span = (hi - lo) || 1;
-    var markerPct = Math.max(0, Math.min(100, (val - lo) / span * 100));
-    var bar = segs.map(function (s) {
-      return '<span style="width:' + (s.w / span * 100).toFixed(2) + '%;background:' + s.c + '"></span>';
-    }).join('');
-    return '<div class="rw-zone">' +
-             '<div class="rw-zone-bar">' + bar +
-               '<i class="rw-zone-mark" style="left:' + markerPct.toFixed(1) + '%"></i></div>' +
-             '<div class="rw-zone-name" style="color:' + color + '">' + name + '</div>' +
-           '</div>';
-  }
 
   // Draw a small SVG trend line into an <svg> element from a numeric series.
   function _lrxTrendLine(svgId, pts, color) {
@@ -1405,136 +1268,6 @@
     renderDayGroupedList(container, weeks);
   }
 
-  function renderRestDayRow(entry) {
-    var row = document.createElement("div");
-    row.className = "rest-day-row";
-    row.setAttribute("aria-label", "Rest day");
-
-    var dateCol = document.createElement("div");
-    dateCol.className = "entry-date";
-    var d = new Date((entry.date || "") + "T00:00:00");
-    var dayNumEl = document.createElement("div");
-    dayNumEl.className = "entry-day-num";
-    dayNumEl.textContent = isNaN(d.getDate()) ? "" : d.getDate();
-    var dayNameEl = document.createElement("div");
-    dayNameEl.className = "entry-day-name";
-    dayNameEl.textContent = isNaN(d.getDay()) ? "" : DAY_ABBR[d.getDay()];
-    dateCol.appendChild(dayNumEl);
-    dateCol.appendChild(dayNameEl);
-    row.appendChild(dateCol);
-
-    var iconEl = document.createElement("span");
-    iconEl.className = "rest-moon-icon";
-    iconEl.setAttribute("aria-hidden", "true");
-    iconEl.textContent = "🌙";
-    row.appendChild(iconEl);
-
-    var info = document.createElement("div");
-    info.className = "rest-metrics";
-
-    var labelParts = [];
-    if (entry.sleep_hours != null)
-      labelParts.push("sleep " + entry.sleep_hours + "h");
-    if (entry.energy != null) labelParts.push("energy " + entry.energy + "/5");
-    if (entry.mood != null) labelParts.push("mood " + entry.mood + "/5");
-    if (entry.resting_hr != null) labelParts.push("RHR " + entry.resting_hr);
-
-    var label = document.createElement("span");
-    label.className = "rest-day-label";
-    label.textContent =
-      "Rest day" + (labelParts.length ? " \xb7 " + labelParts.join(", ") : "");
-    info.appendChild(label);
-
-    row.appendChild(info);
-    return row;
-  }
-
-  function weekDisplayLabel(week) {
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
-    var dow = today.getDay();
-    var diff = dow === 0 ? -6 : 1 - dow;
-    var thisMon = new Date(today);
-    thisMon.setDate(thisMon.getDate() + diff);
-    thisMon.setHours(0, 0, 0, 0);
-    var lastMon = new Date(thisMon);
-    lastMon.setDate(lastMon.getDate() - 7);
-    var weekStart = new Date(week.week_start + "T00:00:00");
-    weekStart.setHours(0, 0, 0, 0);
-    if (weekStart.getTime() === thisMon.getTime()) return "THIS WEEK";
-    if (weekStart.getTime() === lastMon.getTime()) return "LAST WEEK";
-    return week.label || "";
-  }
-
-  function buildWeekGroup(week) {
-    var s = week.summary || {};
-    var ws = week.workouts || [];
-
-    var dateRange = "";
-    if (week.week_start && week.week_end) {
-      dateRange =
-        fmtShortDate(week.week_start) + " – " + fmtShortDate(week.week_end);
-    }
-
-    var count = s.workout_count || ws.length;
-    var countStr = count + " workout" + (count !== 1 ? "s" : "");
-    var totalTime = fmtTotalTime(s.total_time_minutes);
-
-    var summaryParts = [countStr];
-    var dist = s.total_distance_km;
-    if (dist && dist > 0) summaryParts.push((+dist).toFixed(1) + " km");
-    if (s.total_tss > 0) summaryParts.push("TSS " + (+s.total_tss).toFixed(0));
-    if (totalTime) summaryParts.push(totalTime);
-
-    var groupEl = document.createElement("div");
-    groupEl.className = "week-group";
-
-    var header = document.createElement("div");
-    header.className = "week-header";
-
-    var titleEl = document.createElement("h2");
-    titleEl.className = "week-header-title";
-    titleEl.textContent = weekDisplayLabel(week);
-
-    var rangeEl = document.createElement("div");
-    rangeEl.className = "week-header-range";
-    rangeEl.textContent = dateRange;
-
-    var summaryEl = document.createElement("div");
-    summaryEl.className = "week-header-summary";
-    summaryParts.forEach(function (part, i) {
-      if (i > 0) {
-        var sep = document.createElement("span");
-        sep.className = "summary-sep";
-        sep.textContent = "\xb7";
-        summaryEl.appendChild(sep);
-      }
-      var span = document.createElement("span");
-      span.textContent = part;
-      summaryEl.appendChild(span);
-    });
-
-    header.appendChild(titleEl);
-    header.appendChild(rangeEl);
-    header.appendChild(summaryEl);
-    groupEl.appendChild(header);
-
-    var card = document.createElement("div");
-    card.className = "week-card";
-
-    var entries = (week.entries || []).slice().sort(function (a, b) {
-      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
-    });
-    entries.forEach(function (entry) {
-      card.appendChild(
-        entry.type === "rest" ? renderRestDayRow(entry) : buildEntryRow(entry),
-      );
-    });
-
-    groupEl.appendChild(card);
-    return groupEl;
-  }
-
   // issue #530: a workout is Strava-sourced if its `source` contains 'strava' OR it
   // carries a Strava activity URL (some imports leave `source` unset). Shared by
   // the list and detail views so both attribute the source identically.
@@ -1748,14 +1481,17 @@
 
     if (panel) panel.classList.add("is-open");
 
+    // Scrim + click-to-close is driven by the same overlay element on both
+    // desktop and mobile so clicking outside the drawer closes it everywhere.
+    if (overlay) {
+      overlay.classList.add("is-open");
+      overlay.removeAttribute("aria-hidden");
+    }
+
     if (isDesktop()) {
       if (wrapper) wrapper.classList.add("has-panel");
       reflowPanelCharts();
     } else {
-      if (overlay) {
-        overlay.classList.add("is-open");
-        overlay.removeAttribute("aria-hidden");
-      }
       document.body.style.overflow = "hidden";
     }
 
@@ -2456,32 +2192,6 @@
       return ex.weight_kg * ex.reps * ex.sets;
     }
     return 0;
-  }
-
-  function _formatStrengthExSub(ex) {
-    var sets = _parseSetsJson(ex);
-    if (sets && sets.length) {
-      var working = sets.filter(function (s) {
-        return s.type !== "warmup";
-      });
-      var use = working.length ? working : sets;
-      var n = use.length;
-      var top = use.reduce(function (best, s) {
-        return (s.weight || 0) > (best.weight || 0) ? s : best;
-      }, use[0]);
-      var w = top.weight != null ? top.weight + " kg" : "";
-      var reps = top.reps != null ? top.reps : "";
-      if (n && reps && w)
-        return n + " sets \u00d7 " + reps + " reps \u00b7 " + w;
-      if (n && reps) return n + " sets \u00d7 " + reps + " reps";
-    }
-    var sub = "";
-    if (ex.sets != null && ex.reps != null)
-      sub = ex.sets + " sets \u00d7 " + ex.reps + " reps";
-    else if (ex.sets != null) sub = ex.sets + " sets";
-    if (ex.weight_kg != null)
-      sub += (sub ? " \u00b7 " : "") + ex.weight_kg + " kg";
-    return sub || "\u2014";
   }
 
   function _avgRpeFromEx(ex) {
@@ -4117,10 +3827,6 @@
       });
   }
 
-  function _onSyncStravaClick() {
-    _onSyncAllClick();
-  }
-
   function _onSyncProviderClick(label, url) {
     _syncClearFeedback();
     _syncSetBusy(true);
@@ -4802,16 +4508,6 @@
     stripScrollToDate(dateStr);
   }
 
-  // Keep the date-range chip / inputs in sync when a pill drives the filter.
-  function syncDateRangeChip() {
-    var chip = document.getElementById("dr-chip");
-    if (chip) chip.textContent = drLabel() + " ▾";
-    var fromInput = document.getElementById("dr-from");
-    if (fromInput) fromInput.value = filters.from;
-    var toInput = document.getElementById("dr-to");
-    if (toInput) toInput.value = filters.to;
-  }
-
   document.addEventListener("DOMContentLoaded", function () {
     loadAndRender(currentMonday);
   });
@@ -5189,14 +4885,6 @@
     if (!isFinite(n)) return null;
     var sign = n > 0 ? '+' : '';
     return sign + n.toFixed(unit === 'kg' ? 1 : 1) + (unit ? ' ' + unit : '');
-  }
-
-  function _chipClass(val) {
-    if (val == null) return 'sd-chip--neu';
-    var n = Number(val);
-    if (n > 0) return 'sd-chip--pos';
-    if (n < 0) return 'sd-chip--neg';
-    return 'sd-chip--neu';
   }
 
   // ── Skeleton ─────────────────────────────────────────────────────────────────

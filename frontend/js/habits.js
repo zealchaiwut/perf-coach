@@ -316,20 +316,6 @@ function _showRowError(row, msg) {
   setTimeout(() => { if (errEl.parentNode) errEl.textContent = ''; }, 4000);
 }
 
-async function loadTodayCard() {
-  const card = document.getElementById('today-quick-log-card');
-  if (!card) return;
-
-  try {
-    const res = await fetch('/api/habits/summary');
-    if (!res.ok) return;
-    const data = await res.json();
-    renderTodayCard(data.habits || []);
-  } catch (_e) {
-    // non-critical: rest of the page loads normally
-  }
-}
-
 function renderTodayCard(habits) {
   const card = document.getElementById('today-quick-log-card');
   const list = document.getElementById('today-habits-list');
@@ -1718,30 +1704,6 @@ function buildColorPicker() {
     });
     container.appendChild(btn);
   });
-}
-
-function openNewModal() {
-  editingHabitId = null;
-  selectedIcon = ICONS[0];
-  selectedColor = COLORS[0];
-
-  document.getElementById('modal-title').textContent = 'New habit';
-  document.getElementById('modal-submit').textContent = 'Add habit';
-  document.getElementById('modal-name').value = '';
-  document.getElementById('modal-description').value = '';
-  document.getElementById('modal-tracking-type').value = 'daily_checkmark';
-  document.getElementById('modal-tracking-type').disabled = false;
-  document.getElementById('modal-tracking-type-hint').style.display = 'none';
-  document.getElementById('modal-weekly-target').value = '';
-  document.getElementById('modal-unit').value = '';
-  document.getElementById('modal-auto-fill').value = '';
-  document.getElementById('modal-error').textContent = '';
-
-  buildIconPicker();
-  buildColorPicker();
-
-  document.getElementById('habit-modal').classList.add('open');
-  document.getElementById('modal-name').focus();
 }
 
 function openEditModal(habit) {

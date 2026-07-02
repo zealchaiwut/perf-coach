@@ -22,6 +22,7 @@ from backend.db import engine
 from backend.models import WeightEntry, DailyMetric
 from backend.auth import hash_password
 from backend.models import User as _User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _API_BASE = "http://127.0.0.1:9001"
 _UPSERT_ENDPOINT = "/api/weight-entries/by-date"
@@ -40,7 +41,7 @@ def http_client():
 @pytest.fixture(scope="module")
 def test_user_id(http_client):
     name = f"bwlog_{uuid.uuid4().hex[:8]}"
-    res = http_client.post("/api/users", json={"name": name})
+    res = http_client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     uid = res.json()["id"]
     pw_hash = hash_password(_TEST_PW)
@@ -49,7 +50,7 @@ def test_user_id(http_client):
         u.password_hash = pw_hash
         db.commit()
     yield uid
-    http_client.delete(f"/api/users/{uid}")
+    http_client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")

@@ -29,6 +29,7 @@ from backend.services.projection import (
     RIEGEL_EXPONENT,
 )
 from backend.services.fitness_model import TSB_FRESH_MIN, TSB_OPTIMAL_MIN
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _TODAY = date(2026, 6, 29)
@@ -319,7 +320,7 @@ def plan_client_and_plan_id():
 
     uname = f"proj1112_{uuid.uuid4().hex[:8]}"
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-        r = bare.post("/api/users", json={"name": uname})
+        r = bare.post("/api/users", json={"name": uname}, cookies=_admin_cookies())
         assert r.status_code == 201, f"create user failed: {r.text}"
         user_id = r.json()["id"]
 

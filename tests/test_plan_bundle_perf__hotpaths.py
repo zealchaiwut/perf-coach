@@ -32,7 +32,7 @@ def test_plan_signature_is_one_round_trip():
 
         def _one():
             terminal_calls["one"] += 1
-            return ("wo_max", 3, "race_max", "race_created", "pace_stamp", "prefs_updated")
+            return ("wo_max", 3, "wo_updated", "race_max", "race_created", "checkpoint_updated", "pace_stamp", "prefs_updated")
 
         q.one = _one
         return q
@@ -55,7 +55,7 @@ def test_plan_signature_is_one_round_trip():
 def test_plan_signature_deterministic_for_same_inputs():
     def fake_query(*args, **kwargs):
         q = _FakeSubquery()
-        q.one = lambda: ("wo_max", 3, "race_max", "race_created", "pace_stamp", "prefs_updated")
+        q.one = lambda: ("wo_max", 3, "wo_updated", "race_max", "race_created", "checkpoint_updated", "pace_stamp", "prefs_updated")
         return q
 
     mock_session = MagicMock()

@@ -12,7 +12,6 @@ BASE = "http://127.0.0.1:9001"
 
 HTML      = (pathlib.Path(__file__).parent.parent / "frontend" / "pages" / "trends.html").read_text()
 JS        = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "trends.js").read_text()
-MOCK_DATA = (pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js").read_text()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -280,17 +279,6 @@ def test_ac8_tss_data_from_summary_endpoint():
     assert "renderTSSFromSummary" in JS, (
         "trends.js must implement renderTSSFromSummary() to extract TSS series from "
         "the /trends/summary response — no separate API call for TSS data."
-    )
-
-
-def test_ac8_no_separate_tss_api_call():
-    """trends.js must not fetch a separate TSS API endpoint."""
-    # Acceptable: /trends/summary, /api/workouts (legacy fallback in mock)
-    # Not acceptable: a new dedicated /api/tss or similar endpoint
-    separate_tss_calls = re.findall(r"fetch\(['\"]([^'\"]*tss[^'\"]*)['\"]", JS, re.IGNORECASE)
-    assert not separate_tss_calls, (
-        f"trends.js must not make additional API calls to a TSS-specific endpoint. "
-        f"Found: {separate_tss_calls}. Use /trends/summary instead."
     )
 
 

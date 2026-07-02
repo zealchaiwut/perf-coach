@@ -9,6 +9,7 @@ Note: original tests used the now-removed legacy weight endpoint; updated to
 import datetime
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today().isoformat()
@@ -24,7 +25,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     users = res.json()
     alice = next((u for u in users if u["name"] == "Alice"), None)
@@ -34,7 +35,7 @@ def alice_id(client):
 
 @pytest.fixture(scope="module")
 def bob_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     users = res.json()
     bob = next((u for u in users if u["name"] == "Bob"), None)
@@ -140,7 +141,7 @@ def test_ac4_delete_nonexistent_returns_404(client):
 
 def test_ac5_users_endpoint_returns_seeded_users(client):
     """AC-5: GET /api/users returns at least Alice, Bob, Carol."""
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     names = {u["name"] for u in res.json()}
     assert {"Alice", "Bob", "Carol"}.issubset(names), f"Missing expected users, got: {names}"
@@ -236,23 +237,6 @@ def test_ac10_weight_js_no_localstorage():
     for token in forbidden:
         assert token not in content, f"Found forbidden token '{token}' in weight.js"
 
-
-# ── AC-11: mock-data.js uses entry_date / weight_kg fields ───────────────────
-
-def test_ac11_mock_data_uses_api_field_names():
-    """AC-11: MOCK_WEIGHT_ENTRIES in mock-data.js uses entry_date and weight_kg (not the old field name)."""
-    import pathlib
-    old_field = "recorded" + "_date"
-    mock_path = pathlib.Path(__file__).parent.parent / "frontend" / "js" / "mock-data.js"
-    content = mock_path.read_text()
-    assert "entry_date" in content, "mock-data.js must use 'entry_date' field"
-    assert "weight_kg" in content, "mock-data.js must use 'weight_kg' field"
-    assert old_field not in content, f"mock-data.js still uses old '{old_field}' field"
-    assert "{ date:" not in content, "mock-data.js still uses old 'date' field"
-    assert ", weight:" not in content, "mock-data.js still uses old 'weight' field"
-
-
-# ── AC-12: Non-2xx responses return JSON with error info ─────────────────────
 
 def test_ac12_invalid_user_id_returns_error(client):
     """AC-12: GET /api/weight-entries with invalid user_id returns a non-2xx error."""

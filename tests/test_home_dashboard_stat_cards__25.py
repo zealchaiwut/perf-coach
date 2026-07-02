@@ -7,6 +7,7 @@ import pathlib
 import re
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 TODAY = datetime.date.today()
@@ -25,7 +26,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def alice_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     alice = next((u for u in res.json() if u["name"] == "Alice"), None)
     assert alice is not None, "Alice not found in /api/users"
@@ -34,7 +35,7 @@ def alice_id(client):
 
 @pytest.fixture(scope="module")
 def bob_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     bob = next((u for u in res.json() if u["name"] == "Bob"), None)
     assert bob is not None, "Bob not found in /api/users"
@@ -43,7 +44,7 @@ def bob_id(client):
 
 @pytest.fixture(scope="module")
 def carol_id(client):
-    res = client.get("/api/users")
+    res = client.get("/api/users", cookies=_admin_cookies())
     assert res.status_code == 200
     carol = next((u for u in res.json() if u["name"] == "Carol"), None)
     assert carol is not None, "Carol not found in /api/users"
@@ -587,9 +588,9 @@ def test_ac8_refresh_cards_function_exists():
 def test_ac9_new_user_weight_api_empty(client):
     """A brand-new user with no entries returns empty entries from /api/weight-entries."""
     # Create a temp user
-    res = client.post("/api/users", json={"name": "__test_empty_user_25__"})
+    res = client.post("/api/users", json={"name": "__test_empty_user_25__"}, cookies=_admin_cookies())
     assert res.status_code in (201, 409)
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     test_user = next((u for u in users if u["name"] == "__test_empty_user_25__"), None)
     assert test_user is not None
 
@@ -601,7 +602,7 @@ def test_ac9_new_user_weight_api_empty(client):
 
 def test_ac9_new_user_habits_api_returns_seeded_habits_or_empty(client):
     """A brand-new user may have seeded habits; habit logs for today must be empty."""
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     test_user = next((u for u in users if u["name"] == "__test_empty_user_25__"), None)
     if test_user is None:
         pytest.skip("Test user not found; skipping")
@@ -615,7 +616,7 @@ def test_ac9_new_user_habits_api_returns_seeded_habits_or_empty(client):
 
 def test_ac9_new_user_workouts_api_empty(client):
     """A brand-new user has no workouts; API returns [] for today's range."""
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     test_user = next((u for u in users if u["name"] == "__test_empty_user_25__"), None)
     if test_user is None:
         pytest.skip("Test user not found; skipping")
@@ -629,7 +630,7 @@ def test_ac9_new_user_workouts_api_empty(client):
 
 def test_ac9_new_user_streak_is_zero(client):
     """A brand-new user with no entries should have an active-streak of 0."""
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     test_user = next((u for u in users if u["name"] == "__test_empty_user_25__"), None)
     if test_user is None:
         pytest.skip("Test user not found; skipping")
@@ -643,10 +644,10 @@ def test_ac9_new_user_streak_is_zero(client):
 
 def test_ac9_cleanup_test_user(client):
     """Cleanup: remove the temporary test user created for empty-state tests."""
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     test_user = next((u for u in users if u["name"] == "__test_empty_user_25__"), None)
     if test_user:
-        res = client.delete(f"/api/users/{test_user['id']}")
+        res = client.delete(f"/api/users/{test_user['id']}", cookies=_admin_cookies())
         assert res.status_code in (204, 409), f"Cleanup failed: {res.status_code}"
 
 

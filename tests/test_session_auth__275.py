@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.auth import hash_password
 from backend.db import engine
 from backend.models import User
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 _TEST_PASSWORD = "correct-horse-battery-staple"
@@ -25,7 +26,7 @@ def client():
 @pytest.fixture(scope="module")
 def auth_user(client):
     name = f"auth-test-{uuid.uuid4().hex[:8]}"
-    res = client.post("/api/users", json={"name": name})
+    res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, f"Failed to create test user: {res.text}"
     user_id = res.json()["id"]
 
@@ -38,7 +39,7 @@ def auth_user(client):
 
     yield {"id": user_id, "name": name, "password": _TEST_PASSWORD}
 
-    client.delete(f"/api/users/{user_id}")
+    client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 def test_login_success(client, auth_user):
@@ -72,7 +73,7 @@ def test_lockout_after_5_failures(client):
 def test_lockout_resets_on_successful_login(client):
     """Successful login clears the failure counter (no lingering lockout)."""
     name = f"reset-test-{uuid.uuid4().hex[:8]}"
-    create_res = client.post("/api/users", json={"name": name})
+    create_res = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert create_res.status_code == 201
     user_id = create_res.json()["id"]
 
@@ -90,7 +91,7 @@ def test_lockout_resets_on_successful_login(client):
         res = client.post("/api/auth/login", json={"username": name, "password": _TEST_PASSWORD})
         assert res.status_code == 200, f"Expected 200 after reset, got {res.status_code}: {res.text}"
     finally:
-        client.delete(f"/api/users/{user_id}")
+        client.delete(f"/api/users/{user_id}", cookies=_admin_cookies())
 
 
 def test_logout_returns_204(client, auth_user):

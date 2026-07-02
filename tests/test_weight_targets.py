@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.db import engine
 from backend.models import WeightTarget
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 _BASE = datetime.date(2099, 4, 1)  # far-future sentinel — avoids seed collisions
 
@@ -168,7 +169,7 @@ def http_client():
 def api_user_id(http_client):
     """Create a dedicated test user with password; cascade-delete on teardown."""
     name = f"wt_api_{uuid.uuid4().hex[:8]}"
-    res = http_client.post("/api/users", json={"name": name})
+    res = http_client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     uid = res.json()["id"]
     pw_hash = _hash_pw(_WT_TEST_PW)
@@ -177,7 +178,7 @@ def api_user_id(http_client):
         u.password_hash = pw_hash
         db.commit()
     yield uid
-    http_client.delete(f"/api/users/{uid}")
+    http_client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
 
 
 @pytest.fixture(scope="module")
@@ -413,7 +414,7 @@ def test_api_j_new_target_after_ending_succeeds(http_client, api_session_cookie)
 def test_api_k_end_without_recent_weight_returns_422(http_client):
     """AC (k): POST /end when no weight_entries within 7 days → 422 with guidance message."""
     name = f"wt_k_{uuid.uuid4().hex[:8]}"
-    res = http_client.post("/api/users", json={"name": name})
+    res = http_client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert res.status_code == 201, res.text
     uid_k = res.json()["id"]
     pw_hash = _hash_pw(_WT_TEST_PW)
@@ -436,4 +437,4 @@ def test_api_k_end_without_recent_weight_returns_422(http_client):
         detail = res.json().get("detail", "")
         assert "Log a recent weight" in detail, f"Expected guidance message, got: {detail!r}"
     finally:
-        http_client.delete(f"/api/users/{uid_k}")
+        http_client.delete(f"/api/users/{uid_k}", cookies=_admin_cookies())

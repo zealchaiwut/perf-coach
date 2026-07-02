@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import Race as _Race, User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "test605pw"
@@ -31,7 +32,7 @@ def client():
 def user_id(client):
     """Create and cleanup a test user."""
     name = f"tester605_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, r.text
     uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)
@@ -73,7 +74,7 @@ def authed(user_id):
 def other_user_id(client):
     """Create a second test user for multi-user tests."""
     name = f"other605_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/users", json={"name": name})
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, r.text
     uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)

@@ -26,6 +26,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
+from backend.auth import require_admin
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
@@ -42,6 +43,7 @@ from backend.services.training_load import (
     compute_fitness_series,
     readiness_label as training_readiness_label,
     project_form,
+    resolve_user_ewma_days,
     taper_recommendation,
     peak_tracking,
     compute_calibration_suggestions,
@@ -111,6 +113,7 @@ def _derive_goal_pace(goal_time_seconds, distance_km):
 
 
 _start_time = time.monotonic()
+_log = _logging.getLogger(__name__)
 
 app = FastAPI()
 app.include_router(_plan_router)
@@ -280,7 +283,7 @@ def get_about():
     })
 
 
-@app.get("/api/users")
+@app.get("/api/users", dependencies=[Depends(require_admin)])
 def get_users():
     try:
         from sqlalchemy import func, select
@@ -349,7 +352,7 @@ class UserIn(BaseModel):
     name: str
 
 
-@app.post("/api/users", status_code=201)
+@app.post("/api/users", status_code=201, dependencies=[Depends(require_admin)])
 def create_user(body: UserIn):
     name = body.name.strip()
     if not (1 <= len(name) <= 100):
@@ -374,7 +377,7 @@ def create_user(body: UserIn):
         )
 
 
-@app.patch("/api/users/{user_id}")
+@app.patch("/api/users/{user_id}", dependencies=[Depends(require_admin)])
 def rename_user(user_id: str, body: UserIn):
     try:
         uid = _uuid.UUID(user_id)
@@ -401,7 +404,7 @@ def rename_user(user_id: str, body: UserIn):
         })
 
 
-@app.delete("/api/users/{user_id}", status_code=204)
+@app.delete("/api/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_user(user_id: str):
     try:
         uid = _uuid.UUID(user_id)
@@ -453,31 +456,10 @@ from backend.auth import (  # noqa: E402
     verify_password,
 )
 
-_resolve_user_log = _logging.getLogger(__name__)
-
-LEGACY_USER_ID_SHIM_ENABLED = False
-
-
-async def resolve_user(
-    request: Request,
-    user_id: Optional[str] = Query(None),
-) -> User:
+async def resolve_user(request: Request) -> User:
     token = request.cookies.get(COOKIE_NAME)
     if token:
         return await get_current_user(request)
-    if LEGACY_USER_ID_SHIM_ENABLED and user_id is not None:
-        _resolve_user_log.warning(
-            "Deprecated: user resolved via ?user_id query param. Migrate to session auth."
-        )
-        with Session(engine) as db:
-            try:
-                uid = _uuid.UUID(user_id)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid user_id")
-            user = db.get(User, uid)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        return user
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
@@ -5080,7 +5062,6 @@ _PAGES = {
     "home": "home.html",
     "weight": "weight.html",
     "habits": "habits.html",
-    "users": "users.html",
     "calendar": "calendar.html",
     "log": "training-log.html",
     "training": "training.html",
@@ -5506,6 +5487,9 @@ def _workout_signal_scores(session, workout) -> dict:
                     )
                     dpct = dres.get("decoupling_pct") if dres else None
                 except Exception:
+                    _log.warning(
+                        "compute_decoupling failed for workout %s", wk.id, exc_info=True
+                    )
                     dpct = None
             runs.append(
                 {
@@ -5654,6 +5638,9 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 )
                 dpct = dres.get("decoupling_pct") if dres else None
             except Exception:
+                _log.warning(
+                    "compute_decoupling failed for workout %s", wk.id, exc_info=True
+                )
                 dpct = None
         runs.append(
             {
@@ -6457,7 +6444,33 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
-        detected_profile = _get_session_profile(workout, split_rows, prefs)
+        # Manual lap presses (from the Stryd streams) expose real interval reps
+        # that the stored 1 km splits hide; pass them so detection/pairing runs
+        # on them. Keeps session_profile_caller DB-free — we load here.
+        _manual_laps_for_profile = None
+        try:
+            _sta = getattr(workout, "stryd_activity", None)
+            _streams = _sta.streams_payload if _sta is not None and isinstance(_sta.streams_payload, dict) else None
+            if _streams:
+                from backend.services.stryd_laps import compute_manual_laps as _cml
+                from types import SimpleNamespace as _SNS
+                _mlaps = _cml(_streams) or []
+                _manual_laps_for_profile = [
+                    _SNS(
+                        split_index=_i + 1,
+                        duration_seconds=_l.get("duration_seconds"),
+                        distance_km=_l.get("distance_km"),
+                        avg_power=_l.get("avg_power"),
+                        avg_hr=_l.get("avg_hr"),
+                        lap_type="manual",
+                    )
+                    for _i, _l in enumerate(_mlaps)
+                ]
+        except Exception:
+            _manual_laps_for_profile = None
+        detected_profile = _get_session_profile(
+            workout, split_rows, prefs, manual_laps=_manual_laps_for_profile
+        )
         _prefs_dict_for_zones = {
             "ftp_w": prefs.ftp_w if prefs is not None else None,
             "threshold_hr": prefs.threshold_hr if prefs is not None else None,
@@ -8619,7 +8632,8 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     today = _date.today()
     warmup_start = today - _timedelta(days=180)
     tss_series = daily_tss_series(str(user.id), warmup_start, today)
-    load_curves = compute_load_curves(tss_series)
+    _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+    load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
     # Require at least 7 workout days with non-zero TSS in the last 42 days.
     history_window_start = today - _timedelta(days=42)
@@ -9886,10 +9900,6 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
         page = 1
         synced_strava_ids: list[int] = []
         while True:
-            if _sync_jobs.is_cancel_requested(uid):
-                _sync_jobs.mark_error(uid, "cancelled")
-                return
-
             params: dict = {"per_page": _STRAVA_SYNC_PER_PAGE, "page": page}
             if since_epoch is not None:
                 params["after"] = since_epoch
@@ -9908,9 +9918,6 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
             now = _datetime.now(tz=_timezone.utc)
             rows = []
             for act in batch:
-                if _sync_jobs.is_cancel_requested(uid):
-                    _sync_jobs.mark_error(uid, "cancelled")
-                    return
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
@@ -10195,7 +10202,7 @@ def get_strava_sync_status(
     """Return full SyncJob row for the given job_id."""
     with Session(engine) as session:
         job = session.get(SyncJob, job_id)
-    if job is None:
+    if job is None or job.user_id != user.id:
         raise HTTPException(status_code=404, detail="Job not found")
     return JSONResponse({
         "id": str(job.id),
@@ -12053,6 +12060,7 @@ def get_training_daily_load(
 
 @app.get("/api/athletes/{athlete_id}/daily-load")
 def get_athlete_daily_load(
+    athlete_id: str,
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     current_user: User = Depends(resolve_user),
@@ -12062,6 +12070,11 @@ def get_athlete_daily_load(
     Validates date params first (400 on failure), then checks athlete
     exists (404 if not), then delegates computation to daily_load_series.
     """
+    try:
+        if _uuid.UUID(athlete_id) != current_user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     if start_date is None or end_date is None:
         missing = []
         if start_date is None:
@@ -13686,7 +13699,8 @@ def _race_readiness_impl(
         tss_series, load_curves = _shared_load_curves
     else:
         tss_series = daily_tss_series(str(user.id), warmup_start, today)
-        load_curves = compute_load_curves(tss_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
     # ── 4. Build form_curve with configurable zone labels ─────────────────────
     form_curve = [
@@ -13754,7 +13768,8 @@ def _race_readiness_impl(
     if not building_baseline and today >= taper_start:
         # Compute fitness state at taper_start by running load curves up to that date
         taper_start_series = daily_tss_series(str(user.id), warmup_start, taper_start)
-        taper_start_curves = compute_load_curves(taper_start_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        taper_start_curves = compute_load_curves(taper_start_series, ctl_days=_ctl_days, atl_days=_atl_days)
         taper_start_state = {
             "ctl": taper_start_curves[-1]["ctl"],
             "atl": taper_start_curves[-1]["atl"],
@@ -14237,7 +14252,7 @@ def get_device_zones(user: User = Depends(resolve_user)):
 # ── Athlete duration curve ────────────────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/duration-curve")
-def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
+def get_athlete_duration_curve(athlete_id: str, current_user: User = Depends(resolve_user)):
     """Return the per-athlete best-effort duration curve across all run workouts.
 
     Returns 200 with an empty curve and a ``reason`` field when the athlete exists
@@ -14246,6 +14261,11 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
     Each curve entry includes duration, best_value, source_workout_id, source_date,
     and a debug object identifying the source workout.
     """
+    try:
+        if _uuid.UUID(athlete_id) != current_user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     uid = current_user.id
 
     with Session(engine) as session:
@@ -14310,7 +14330,7 @@ def get_athlete_duration_curve(current_user: User = Depends(resolve_user)):
 # ── Athlete detected personal records ─────────────────────────────────────────
 
 @app.get("/api/athletes/{athlete_id}/detected-prs")
-def get_athlete_detected_prs(user: User = Depends(resolve_user)):
+def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)):
     """Return automatically detected personal records for the authenticated athlete.
 
     Computes speed, power, and volume records on the fly from run history and
@@ -14323,6 +14343,11 @@ def get_athlete_detected_prs(user: User = Depends(resolve_user)):
 
     Returns 200 with ``speedRecords``, ``powerRecords``, and ``volumeRecords`` keys.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.pr_detection import fetch_and_detect_records
 
     uid = user.id
@@ -14565,7 +14590,7 @@ def _build_performance_diagnostic(preferences, runs):
 
 
 @app.get("/api/athletes/{athlete_id}/performance")
-def get_athlete_performance(user: User = Depends(resolve_user)):
+def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete (issue #1020).
 
     Every response includes exactly these top-level keys: state, endurance, speed,
@@ -14576,6 +14601,11 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
     HTTP 500 for unexpected server-side failures (state='error').
     HTTP 404 when the athlete ID does not exist.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
@@ -14963,7 +14993,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
-def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
+def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_user)):
     """Return a flat weekly summary for the current ISO week.
 
     Aggregates volume (distance_km, total_tss, session_count), fitness signal
@@ -14975,6 +15005,12 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
     numeric fields and null for weight when no data exists.  Returns 404
     when the session user does not exist in the database.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
@@ -15322,7 +15358,7 @@ def _build_run_pr_pre_detection_log_entry(duration_curve_populated, runs_conside
 
 
 @app.get("/api/athletes/{athlete_id}/run-personal-records")
-def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
+def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resolve_user)):
     """Return auto-detected personal records from the athlete's run history.
 
     Reads completed run workouts and the stored best-effort duration curve,
@@ -15333,6 +15369,11 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
 
     Returns 200 with keys ``speedRecords``, ``powerRecords``, ``volumeRecords``.
     """
+    try:
+        if _uuid.UUID(athlete_id) != user.id:
+            raise HTTPException(status_code=404, detail="Athlete not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Athlete not found")
     from backend.services.pr_detection import fetch_and_detect_records
     from backend.models import AthleteDurationCurve as _AthleteDurationCurve
 
@@ -15377,17 +15418,21 @@ def get_athlete_run_personal_records(user: User = Depends(resolve_user)):
 def _plan_signature(session, user_id, plan) -> str:
     """Cheap fingerprint of everything the Plan bundle depends on.
 
-    Hash of: MAX(workouts.updated_at), MAX(races.updated_at),
+    Hash of: MAX(workouts.updated_at), MAX(workouts.created_at)+COUNT,
+    MAX(races.updated_at), MAX(race_checkpoints.updated_at),
     user_preferences.threshold_pace_seconds_per_km_updated_at (falls back to the
     prefs row's own updated_at), and the plan's updated_at. New training sync
-    bumps workouts; target/race edits bump races; ramp/taper edits bump the
-    plan — so any of those changes the signature and forces a recompute.
+    bumps workouts (created_at+count); editing an existing workout's fields
+    bumps workouts.updated_at; target/race edits bump races; checkpoint edits
+    bump race_checkpoints; ramp/taper edits bump the plan — so any of those
+    changes the signature and forces a recompute.
     """
     from sqlalchemy import func as _sa_func
 
-    # Workout has no updated_at; MAX(created_at)+COUNT catches new synced rows
-    # (the "new training bumps the signature" case) without a schema change.
-    # Single SELECT with scalar subqueries instead of 5 separate round trips.
+    # MAX(created_at)+COUNT catches new synced rows; MAX(updated_at) catches
+    # in-place edits to an existing workout (e.g. PATCH /api/workouts/{id}),
+    # which created_at+count alone would miss. Single SELECT with scalar
+    # subqueries instead of round trips per signal.
     row = session.query(
         session.query(_sa_func.max(Workout.created_at))
         .filter(Workout.user_id == user_id)
@@ -15397,6 +15442,10 @@ def _plan_signature(session, user_id, plan) -> str:
         .filter(Workout.user_id == user_id)
         .scalar_subquery()
         .label("wo_count"),
+        session.query(_sa_func.max(Workout.updated_at))
+        .filter(Workout.user_id == user_id)
+        .scalar_subquery()
+        .label("max_wo_updated"),
         session.query(_sa_func.max(Race.updated_at))
         .filter(Race.user_id == user_id)
         .scalar_subquery()
@@ -15405,6 +15454,10 @@ def _plan_signature(session, user_id, plan) -> str:
         .filter(Race.user_id == user_id)
         .scalar_subquery()
         .label("max_race_created"),
+        session.query(_sa_func.max(RaceCheckpoint.updated_at))
+        .filter(RaceCheckpoint.user_id == user_id)
+        .scalar_subquery()
+        .label("max_checkpoint_updated"),
         session.query(UserPreferences.threshold_pace_seconds_per_km_updated_at)
         .filter(UserPreferences.user_id == user_id)
         .scalar_subquery()
@@ -15414,11 +15467,16 @@ def _plan_signature(session, user_id, plan) -> str:
         .scalar_subquery()
         .label("prefs_updated_at"),
     ).one()
-    max_wo, wo_count, max_race, max_race_created, prefs_pace_stamp, prefs_updated_at = row
+    (
+        max_wo, wo_count, max_wo_updated,
+        max_race, max_race_created, max_checkpoint_updated,
+        prefs_pace_stamp, prefs_updated_at,
+    ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
     parts = [
-        str(max_wo), str(wo_count),
-        str(max_race), str(max_race_created), str(prefs_stamp),
+        str(max_wo), str(wo_count), str(max_wo_updated),
+        str(max_race), str(max_race_created), str(max_checkpoint_updated),
+        str(prefs_stamp),
         str(getattr(plan, "updated_at", None)),
     ]
     return _hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
@@ -15547,7 +15605,10 @@ def _compute_plan_bundle(user) -> dict:
         # get_race_readiness() call would otherwise recompute this identically.
         _warmup_start = today - _timedelta(days=180)
         _shared_tss_series = daily_tss_series(str(user.id), _warmup_start, today)
-        _shared_load_curves = compute_load_curves(_shared_tss_series)
+        _shared_ctl_days, _shared_atl_days = resolve_user_ewma_days(str(user.id))
+        _shared_load_curves = compute_load_curves(
+            _shared_tss_series, ctl_days=_shared_ctl_days, atl_days=_shared_atl_days
+        )
         # Primary A race drives the time-curve chart; capture its readiness
         # time_curve for the frontend "Projected now" readout + chart.
         primary_race = next(
@@ -15736,7 +15797,8 @@ def get_projection(user: User = Depends(resolve_user)):
 
         # Compute form curve from training load history
         tss_series = daily_tss_series(str(user.id), warmup_start, today)
-        load_curves = compute_load_curves(tss_series)
+        _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
+        load_curves = compute_load_curves(tss_series, ctl_days=_ctl_days, atl_days=_atl_days)
 
         buried_ceiling = _rdns_cfg_float(_RDNS_CFG_BURIED_CEILING, FORM_BURIED_CEILING)
         fresh_floor = _rdns_cfg_float(_RDNS_CFG_FRESH_FLOOR, FORM_FRESH_FLOOR)

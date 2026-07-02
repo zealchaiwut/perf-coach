@@ -7,6 +7,7 @@ from datetime import date
 
 import httpx
 import pytest
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE = "http://127.0.0.1:9001"
 
@@ -25,7 +26,7 @@ def client():
 @pytest.fixture(scope="module")
 def alice_id(client):
     """Return Alice's user_id (user with seeded daily_metrics data)."""
-    users = client.get("/api/users").json()
+    users = client.get("/api/users", cookies=_admin_cookies()).json()
     alice = next((u for u in users if u["name"].lower() == "alice"), None)
     assert alice, "Alice user not found in UAT database"
     return alice["id"]

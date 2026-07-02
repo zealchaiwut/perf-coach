@@ -135,17 +135,6 @@
     return `${y}-${m}-${day}`;
   }
 
-  function buildDateRange(from, to) {
-    const dates = [];
-    const cur = new Date(from + 'T00:00:00');
-    const end = new Date(to + 'T00:00:00');
-    while (cur <= end) {
-      dates.push(toLocalDateStr(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return dates;
-  }
-
   function formatLabel(dateStr) {
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -343,17 +332,6 @@
       ctx.restore();
     },
   };
-
-  function computeStats(values) {
-    const valid = values.filter(v => v !== null && v !== undefined);
-    if (valid.length === 0) return { mean: null, sd: null };
-    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
-    const variance = valid.reduce((a, v) => a + (v - mean) ** 2, 0) / valid.length;
-    return {
-      mean: Math.round(mean * 10) / 10,
-      sd: Math.round(Math.sqrt(variance) * 10) / 10,
-    };
-  }
 
   function buildSubChartTooltipCallbacks(series, label, unit, mean, sd) {
     return {
@@ -833,90 +811,6 @@
     renderTSSOverlayChart(bodyEl, dates, tssByDate, readinessByDate);
   }
 
-  // ── Mock fallback helpers ─────────────────────────────────────────────────────
-
-  function filterMockReadiness(from, to) {
-    return (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : [])
-      .filter(r => r.date >= from && r.date <= to);
-  }
-
-  function filterMockTSS(from, to) {
-    return (typeof MOCK_TSS !== 'undefined' ? MOCK_TSS : [])
-      .filter(r => r.date >= from && r.date <= to);
-  }
-
-  function buildTSSByDate(entries) {
-    const byDate = {};
-    entries.forEach(({ date, tss }) => { byDate[date] = (byDate[date] || 0) + tss; });
-    return byDate;
-  }
-
-  function renderMockFallback(state) {
-    const win = resolveDateWindow(state);
-    if (!win.from || !win.to) return;
-
-    const dates = buildDateRange(win.from, win.to);
-    const readinessBodyEl = document.getElementById('slot-readiness-body');
-    const mockReadiness = filterMockReadiness(win.from, win.to);
-    const scoreByDate = Object.fromEntries(mockReadiness.map(r => [r.date, r.readiness_score]));
-    const scores = dates.map(d => d in scoreByDate ? scoreByDate[d] : null);
-    if (scores.some(v => v !== null)) {
-      emptyBanner.hidden = true;
-      renderReadinessChart(readinessBodyEl, dates, scores, dates.length >= 7);
-    } else {
-      showEmpty(readinessBodyEl);
-      emptyBanner.hidden = false;
-    }
-
-    const hrvBodyEl = document.getElementById('slot-hrv-body');
-    const rhrBodyEl = document.getElementById('slot-rhr-body');
-    const allHrvRhr = typeof MOCK_HRV_RHR !== 'undefined' ? MOCK_HRV_RHR : [];
-    const filteredHrvRhr = allHrvRhr.filter(r => r.date >= win.from && r.date <= win.to);
-    const today = toLocalDateStr(new Date());
-    if (filteredHrvRhr.length > 0) {
-      const { mean: hrvMean, sd: hrvSd } = computeStats(allHrvRhr.map(r => r.hrv));
-      const { mean: rhrMean, sd: rhrSd } = computeStats(allHrvRhr.map(r => r.rhr));
-      const isApprox = allHrvRhr.length < 30;
-      renderHrvChart(hrvBodyEl,
-        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.hrv })),
-          baseline_mean: hrvMean, baseline_sd: hrvSd, is_approximate: isApprox },
-        today);
-      renderRhrChart(rhrBodyEl,
-        { series: filteredHrvRhr.map(r => ({ date: r.date, value: r.rhr })),
-          baseline_mean: rhrMean, baseline_sd: rhrSd, is_approximate: isApprox },
-        today);
-    } else {
-      showEmpty(hrvBodyEl);
-      showEmpty(rhrBodyEl);
-    }
-
-    const semBodyEl = document.getElementById('slot-sem-body');
-    const mockFallbackSummary = typeof mockGetTrendsSummary === 'function'
-      ? mockGetTrendsSummary({ range: state.type === 'preset' ? state.preset : '30d' })
-      : null;
-    if (mockFallbackSummary) {
-      const filteredSleep  = (mockFallbackSummary.sleep?.series  || []).filter(s => s.date >= win.from && s.date <= win.to);
-      const filteredEnergy = (mockFallbackSummary.energy?.series || []).filter(s => s.date >= win.from && s.date <= win.to);
-      const filteredMood   = (mockFallbackSummary.mood?.series   || []).filter(s => s.date >= win.from && s.date <= win.to);
-      if (filteredSleep.length > 0 || filteredEnergy.length > 0 || filteredMood.length > 0) {
-        if (semChart) { semChart.destroy(); semChart = null; }
-        renderSEMChart(semBodyEl, filteredSleep, filteredEnergy, filteredMood);
-      } else {
-        showEmpty(semBodyEl);
-      }
-    } else {
-      showEmpty(semBodyEl);
-    }
-
-    const tssBodyEl = document.getElementById('slot-tss-body');
-    const mockWorkouts = filterMockTSS(win.from, win.to);
-    const tssByDate = buildTSSByDate(mockWorkouts);
-    const mockReadinessByDate = Object.fromEntries(
-      (typeof MOCK_READINESS !== 'undefined' ? MOCK_READINESS : []).map(r => [r.date, r.readiness_score])
-    );
-    renderTSSOverlayChart(tssBodyEl, dates, tssByDate, mockReadinessByDate);
-  }
-
   // ── Intensity distribution stacked bar chart ─────────────────────────────────
 
   let intensityChart = null;
@@ -1174,7 +1068,18 @@
         renderSEMFromSummary(semBodyEl, summary);
         renderTSSFromSummary(tssBodyEl, summary);
       })
-      .catch(() => renderMockFallback(state));
+      .catch(() => {
+        if (tssOverlayChart) { tssOverlayChart.destroy(); tssOverlayChart = null; }
+        if (semChart) { semChart.destroy(); semChart = null; }
+        if (hrvSubChart) { hrvSubChart.destroy(); hrvSubChart = null; }
+        if (rhrSubChart) { rhrSubChart.destroy(); rhrSubChart = null; }
+        showEmpty(readinessBodyEl);
+        showEmpty(hrvBodyEl);
+        showEmpty(rhrBodyEl);
+        showEmpty(semBodyEl);
+        showTSSEmpty(tssBodyEl);
+        emptyBanner.hidden = false;
+      });
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────────
