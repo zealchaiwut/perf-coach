@@ -5863,7 +5863,7 @@
     }
     .log-page-header {
       position: sticky;
-      top: 0;
+      top: 60px;                   /* stack below the global nav (60px), not under it */
       z-index: 60;
       max-width: none;
       margin: 0 -50vw;            /* stretch the blurred bar full-bleed … */
@@ -6090,8 +6090,9 @@
     .lrx-wkcell .wkkm { font-size: 10px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
     .lrx-wkbar { height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
     .lrx-wkbar span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); border-radius: 3px; }
-    .lrx-calrow.sel td { background: #eef2ff; }
-    .lrx-calrow.sel .lrx-wkcell { background: #e0e7ff; }
+    .lrx-calrow.sel td { background: #dbe4ff; }
+    .lrx-calrow.sel td:first-child { box-shadow: inset 3px 0 0 var(--lrx-run); }
+    .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
     .lrx-calrow:hover td { background: #f6f8ff; }
     .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--lrx-muted); flex-wrap: wrap; }
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
@@ -6125,11 +6126,13 @@
     @keyframes lrxsp { to { transform: rotate(360deg); } }
 
     /* ── Detail drawer as overlay ────────────────────────────────────────── */
+    /* Start below the two stacked nav bars (global 60px + sticky training nav
+       ~56px) so the drawer's own top bar isn't hidden behind them. */
     #layout-wrapper .detail-panel {
       position: fixed;
-      top: 0;
+      top: 116px;
       right: 0;
-      height: 100vh;
+      height: calc(100vh - 116px);
       width: 440px;
       max-width: 94vw;
       background: #fff;
