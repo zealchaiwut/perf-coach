@@ -404,6 +404,119 @@
     });
   }
 
+  // ── In-memory single-workout patch (perf/hot-paths Task 4) ─────────────────
+  // Edit/delete mutations return the updated workout dict (or need no body for
+  // delete); patch lastWeeks directly instead of re-fetching the full history.
+  // Field names mirror GET /api/training-log's per-entry shape (main.py's
+  // workout_entries list comprehension), which differs from the workout
+  // detail dict returned by PATCH/POST (workout_type vs type, name vs title,
+  // workout_date vs date).
+  function _paceSecPerKm(type, durationSeconds, distanceKm) {
+    var t = (type || "").toLowerCase().trim();
+    var isPaced =
+      t === "run" || t === "running" || t === "race" ||
+      t.indexOf("bike") === 0 || t.indexOf("ride") === 0 || t.indexOf("cycl") === 0;
+    if (!isPaced) return null;
+    if (durationSeconds == null || distanceKm == null || +distanceKm === 0) return null;
+    return Math.round((durationSeconds / distanceKm) * 100) / 100;
+  }
+
+  function _workoutDictToEntry(w) {
+    var source = w.source || w.tss_source || "manual";
+    return {
+      date: w.workout_date,
+      type: w.workout_type,
+      id: w.id,
+      title: w.name,
+      duration_seconds: w.duration_seconds,
+      duration_minutes:
+        w.duration_seconds != null ? Math.round((w.duration_seconds / 60) * 100) / 100 : null,
+      distance_km: w.distance_km != null ? w.distance_km : null,
+      avg_hr: w.avg_hr,
+      elevation_m: w.elevation_m,
+      average_pace_seconds_per_km: _paceSecPerKm(w.workout_type, w.duration_seconds, w.distance_km),
+      tss: w.tss != null ? w.tss : null,
+      source: source,
+      strava_activity_url: w.strava_activity_url,
+      is_stryd_synced: !!w.stryd_activity_pk,
+      has_strava: source.indexOf("strava") !== -1 || !!w.strava_activity_pk,
+      has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
+      notes: w.remarks || "",
+      weight_context: w.remarks,
+    };
+  }
+
+  // Replace an existing entry's fields in place. Returns false (caller should
+  // fall back to fetchAndRender()) if the workout isn't in the loaded weeks —
+  // this only handles edits to already-visible workouts, not new ones that
+  // may need a new week bucket.
+  function patchWorkoutInPlace(workoutDict) {
+    if (!workoutDict || !workoutDict.id) return false;
+    for (var wi = 0; wi < lastWeeks.length; wi++) {
+      var week = lastWeeks[wi];
+      var entries = week.entries || [];
+      for (var ei = 0; ei < entries.length; ei++) {
+        if (entries[ei].id === workoutDict.id) {
+          var newEntry = _workoutDictToEntry(workoutDict);
+          entries[ei] = newEntry;
+          var workouts = week.workouts || [];
+          for (var wj = 0; wj < workouts.length; wj++) {
+            if (workouts[wj].id === workoutDict.id) {
+              workouts[wj] = newEntry;
+              break;
+            }
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Remove an entry in place (workout delete). Returns false if not found.
+  function removeWorkoutInPlace(workoutId) {
+    for (var wi = 0; wi < lastWeeks.length; wi++) {
+      var week = lastWeeks[wi];
+      var entries = week.entries || [];
+      var found = false;
+      for (var ei = 0; ei < entries.length; ei++) {
+        if (entries[ei].id === workoutId) {
+          entries.splice(ei, 1);
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        var workouts = week.workouts || [];
+        for (var wj = 0; wj < workouts.length; wj++) {
+          if (workouts[wj].id === workoutId) {
+            workouts.splice(wj, 1);
+            break;
+          }
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Re-render the list from the in-memory lastWeeks without re-fetching.
+  // Deliberately skips renderVolumeChart()/updateHeaderStats()/updateCalendar()/
+  // fetchReadinessWidget() — those depend on server-computed aggregates a
+  // single-workout patch can't cheaply reproduce; they refresh on the next
+  // full fetchAndRender() (sync completion, restore, or page load).
+  function rerenderListInPlace() {
+    buildFlatWorkouts();
+    var listEl = document.getElementById("log-list");
+    renderList(listEl, lastWeeks);
+    applyClientFilter();
+    if (activeDetailWorkoutId) {
+      activePosIndex = findPosIndex(activeDetailWorkoutId);
+      syncActiveRow();
+      updatePositionPill();
+    }
+  }
+
   // ── Fetch & render ────────────────────────────────────────────────────────
   // issue #637: load full history (from 2010-01-01 to today); filtering is
   // client-side via applyClientFilter() so no type/search params are sent.
@@ -3507,7 +3620,11 @@
           throw new Error("HTTP " + res.status);
         UIStates.showToast(isSynced ? "Removed from log" : "Workout deleted");
         closeDetailPanel();
-        fetchAndRender();
+        if (removeWorkoutInPlace(workoutId)) {
+          rerenderListInPlace();
+        } else {
+          fetchAndRender();
+        }
       })
       .catch(function () {
         UIStates.showToast("Could not remove workout. Please try again.", true);
@@ -4014,7 +4131,11 @@
     if (result.isEdit && activeDetailWorkoutId) {
       setPanelMode("view");
       fetchAndRenderDetail(activeDetailWorkoutId);
-      fetchAndRender();
+      if (result.data && patchWorkoutInPlace(result.data)) {
+        rerenderListInPlace();
+      } else {
+        fetchAndRender();
+      }
     } else {
       var newId = result.data && result.data.id;
       closeDetailPanel();
