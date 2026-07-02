@@ -607,6 +607,63 @@
            '</div>';
   }
 
+  // Draw a small SVG trend line into an <svg> element from a numeric series.
+  function _lrxTrendLine(svgId, pts, color) {
+    var svg = document.getElementById(svgId);
+    if (!svg || !pts || pts.length < 2) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = 120, H = 52;
+    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    var d = pts
+      .map(function (v, i) {
+        var x = (i / (pts.length - 1)) * W;
+        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 6) - 3;
+        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+      })
+      .join(" ");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var NS = "http://www.w3.org/2000/svg";
+    var path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", "1.8");
+    svg.appendChild(path);
+  }
+
+  // Readiness band model: [min,max] for marker placement + status thresholds.
+  // First-pass ranges (tunable): CTL/ATL 0–60, TSB −25..+15.
+  function _lrxReadStatus(metric, v) {
+    if (metric === "ctl") {
+      if (v < 20) return { word: "DETRAINING", color: "var(--lrx-amber)" };
+      if (v < 40) return { word: "STEADY", color: "var(--lrx-lavHi)" };
+      return { word: "STRONG", color: "var(--lrx-green)" };
+    }
+    if (metric === "atl") {
+      if (v < 25) return { word: "LOW", color: "var(--lrx-green)" };
+      if (v < 45) return { word: "MODERATE", color: "var(--lrx-lavHi)" };
+      return { word: "HIGH", color: "var(--lrx-amber)" };
+    }
+    // tsb
+    if (v < -10) return { word: "OVERREACHED", color: "var(--lrx-amber)" };
+    if (v <= 5) return { word: "OPTIMAL", color: "var(--lrx-green)" };
+    return { word: "FRESH", color: "var(--lrx-run)" };
+  }
+
+  function _lrxMarkerPct(metric, v) {
+    var min = metric === "tsb" ? -25 : 0;
+    var max = metric === "tsb" ? 15 : 60;
+    var pct = ((v - min) / (max - min)) * 100;
+    return Math.max(2, Math.min(98, pct));
+  }
+
+  var _LRX_BAND = {
+    ctl: "linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)",
+    atl: "linear-gradient(90deg,#22c55e,#eab308,#ef4444)",
+    tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
+  };
+  var _LRX_TREND_COLOR = { ctl: "#4f6ef7", atl: "#dc2626", tsb: "#16a34a" };
+
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
@@ -614,43 +671,42 @@
 
     if (data.building_baseline) {
       el.innerHTML =
-        '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+        '<div class="lrx-chead"><span class="lrx-sectitle">Readiness</span></div>' +
         '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Freshness scores.</p>';
       el.hidden = false;
       return;
     }
 
     var series = data.series || [];
+    var rlabel = data.readiness_label || '';
 
-    function tile(val, abbr, label, sparkId, metric) {
-      return '<div class="rw-tile">' +
-               '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
-               '<div class="rw-tile-label">' + abbr +
-                 ' <span class="rw-tile-sub">' + label + '</span></div>' +
-               _zoneBarHtml(metric, val, series) +
-               '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
-             '</div>';
+    function rcard(metric, val, abbr, label, chartId) {
+      var st = _lrxReadStatus(metric, val);
+      var pct = _lrxMarkerPct(metric, val);
+      return '<div class="lrx-rcard">' +
+        '<div class="rv">' + esc(fmtLoadNum(val)) + '</div>' +
+        '<div class="rl">' + abbr + ' · ' + label + '</div>' +
+        '<div class="lrx-rband" style="background:' + _LRX_BAND[metric] + '">' +
+          '<div class="mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
+        '<div class="lrx-rstatus" style="color:' + st.color + '">' + st.word + '</div>' +
+        '<svg class="lrx-rchart" id="' + chartId + '"></svg>' +
+      '</div>';
     }
 
-    var rlabel = data.readiness_label || '';
-    var rlabelClass = rlabel === 'Fresh' ? 'rw-label--fresh'
-                    : rlabel === 'Fatigued' ? 'rw-label--fatigued'
-                    : 'rw-label--optimal';
-
     el.innerHTML =
-      '<div class="rw-header">' +
-        '<span class="rw-title">Readiness</span>' +
-        (rlabel ? '<span class="rw-label ' + rlabelClass + '">' + esc(rlabel) + '</span>' : '') +
+      '<div class="lrx-chead">' +
+        '<span class="lrx-sectitle">Readiness</span>' +
+        (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + '</span>' : '') +
       '</div>' +
-      '<div class="rw-tiles">' +
-        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl', 'ctl') +
-        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl', 'atl') +
-        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb', 'tsb') +
+      '<div class="lrx-readfull">' +
+        rcard('ctl', data.ctl, 'CTL', 'Fitness',   'lrx-r-ctl') +
+        rcard('atl', data.atl, 'ATL', 'Fatigue',   'lrx-r-atl') +
+        rcard('tsb', data.tsb, 'TSB', 'Freshness', 'lrx-r-tsb') +
       '</div>';
     el.hidden = false;
-    _renderSparkline('rw-spark-ctl', series.map(function (d) { return d.ctl; }), '#3b82f6');
-    _renderSparkline('rw-spark-atl', series.map(function (d) { return d.atl; }), '#ef4444');
-    _renderSparkline('rw-spark-tsb', series.map(function (d) { return d.tsb; }), '#10b981');
+    _lrxTrendLine('lrx-r-ctl', series.map(function (d) { return d.ctl; }), _LRX_TREND_COLOR.ctl);
+    _lrxTrendLine('lrx-r-atl', series.map(function (d) { return d.atl; }), _LRX_TREND_COLOR.atl);
+    _lrxTrendLine('lrx-r-tsb', series.map(function (d) { return d.tsb; }), _LRX_TREND_COLOR.tsb);
   }
 
   function fetchReadinessWidget() {
