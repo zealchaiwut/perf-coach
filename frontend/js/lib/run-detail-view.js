@@ -1558,16 +1558,15 @@
           var cls = "rd4-cbar2";
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
-          // Interval-pair styling: alternate tint per work rep so the reps are
-          // visually countable; a rep number floats over each work bar, and the
-          // first work bar of each set also carries a "Set N" tag.
+          // Interval-pair styling: alternate tint per work rep so the reps stay
+          // visually countable. Rep numbers are NOT drawn on the chart (they
+          // clutter it and overlap the axis) — the table's "Set N" badges own
+          // the numbering.
           var cellCls = "rd4-cell2";
           var repLbl = "";
           if (lap.role === "work") {
             cls += " rd4-cbar2--work";
             cellCls += " rd4-cell2--work" + (lap.rep && lap.rep % 2 === 0 ? " rd4-cell2--work-alt" : "");
-            var bl = chMultiSet ? (lap.set + "·" + lap.rep) : String(lap.rep);
-            repLbl = '<span class="rd4-cbar-rep" title="rep ' + lap.rep + '">' + esc(bl) + "</span>";
           } else if (lap.role === "recovery") {
             cls += " rd4-cbar2--rest";
             cellCls += " rd4-cell2--rest";
