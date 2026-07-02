@@ -439,8 +439,8 @@
           if (isRec) rowCls += " rd4-lap-row--rest";
         }
 
-        var pills = "";
-        if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
+        // The "break" pill is redundant now that paired recovery laps show
+        // "↳ rest"; the gray row tint (.rd4-lap-row--break) still dims rest laps.
         // Set/rep badge in the LAP column.
         var badge = "";
         if (isWork) {
@@ -458,7 +458,6 @@
           '<td class="rd4-lap-idcell">' +
           "<span class=\"rd4-lap-num\">" + m.index + "</span>" +
           badge +
-          pills +
           "</td>" +
           "<td>" +
           (s.distance_km != null ? parseFloat(s.distance_km).toFixed(2) : "—") +

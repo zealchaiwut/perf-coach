@@ -536,15 +536,8 @@
   margin-left: 4px;
 }
 
-.rd4-break-pill {
-  font-size: 0.5625rem;
-  font-weight: 800;
-  color: #475569;
-  background: #e2e8f0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  margin-left: 4px;
-}
+/* .rd4-break-pill removed — the "break" pill was redundant with the "↳ rest"
+   marker; the gray recovery-row tint (.rd4-lap-row--break) still dims rest laps. */
 
 .rd4-fastest { color: #15803d; font-weight: 700; }
 
