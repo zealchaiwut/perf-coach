@@ -1283,6 +1283,14 @@
   async function init() {
     setGreetingDate();
     var userId = null;
+
+    // /api/home/summary resolves the user from the session cookie, not a
+    // userId param, so it doesn't actually depend on fetchCurrentUser()'s
+    // result — fire both immediately instead of waiting on auth first.
+    var summaryPromise = fetch('/api/home/summary')
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .catch(function () { return {}; });
+
     try {
       var user = await window.fetchCurrentUser();
       if (!user) { window.location.href = '/login'; return; }
@@ -1299,8 +1307,7 @@
       _checkStravaStaleBanner();
 
       /* Single summary fetch — distribute to all widget renderers */
-      var _sumRes = await fetch('/api/home/summary');
-      var summary = _sumRes.ok ? await _sumRes.json() : {};
+      var summary = await summaryPromise;
 
       /* Habits strip + log-today strip */
       if (window.HomeStripHabits) {
