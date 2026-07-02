@@ -190,6 +190,13 @@
     { key: 'ok', icon: '😐', label: 'OK' },
     { key: 'easy', icon: '😊', label: 'Easy' }
   ];
+  // "View full workout →" deep link on a matched (done_*) card. Navigates to
+  // the Log tab and opens that workout's existing detail drawer.
+  function _viewFullLinkHtml(workoutId) {
+    if (!workoutId) return '';
+    return '<button type="button" class="pl-viewfull" data-viewfull="' + workoutId + '">View full workout →</button>';
+  }
+
   function _feelRowHtml(workoutId, current) {
     if (!workoutId) return '';
     var tagged = current === 'hard' || current === 'ok' || current === 'easy';
@@ -218,6 +225,7 @@
       var feel = p.actual ? p.actual.feeling : null;
       body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
         ' → Actual ' + esc(actMeta) + '</div>' +
+        _viewFullLinkHtml(mwid) +
         _feelRowHtml(mwid, feel) +
         '<div class="pl-matchbtns">' +
           '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>' +
@@ -317,6 +325,15 @@
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         _togglePicker(host, b.getAttribute('data-pick'), b.getAttribute('data-pick-mode'));
+      });
+    });
+    host.querySelectorAll('[data-viewfull]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        // Hand off to the Log tab's deep-link path (inline script listener).
+        document.dispatchEvent(new CustomEvent('plan:view-workout', {
+          detail: { workoutId: b.getAttribute('data-viewfull') }
+        }));
       });
     });
     host.querySelectorAll('[data-map]').forEach(function (b) {
@@ -1104,6 +1121,9 @@
     '.plan-panel .pl-pickrow-meta{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;white-space:nowrap;}',
     '.plan-panel .pl-pickconfirm{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;color:var(--pl-muted);}',
     '.plan-panel .pl-picker-empty{font-size:10px;color:var(--pl-faint);font-style:italic;padding:4px 2px;}',
+    // "View full workout →" deep link.
+    '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',

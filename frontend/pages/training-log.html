@@ -7665,6 +7665,24 @@
           }
         });
 
+        // Plan card "View full workout →" → switch to Log, set ?workout=<id>,
+        // and open that workout's detail drawer (reuses the deep-link path).
+        document.addEventListener("plan:view-workout", function (e) {
+          var wid = e && e.detail && e.detail.workoutId;
+          if (!wid) return;
+          var params = new URLSearchParams(window.location.search);
+          params.set("workout", wid);
+          history.pushState(
+            { tab: "log" },
+            "",
+            window.location.pathname + "?" + params.toString()
+          );
+          activateTab("log");
+          if (window.TrainingLog && window.TrainingLog.openWorkout) {
+            window.TrainingLog.openWorkout(wid);
+          }
+        });
+
         // Restore tab on back/forward navigation
         window.addEventListener("popstate", function () {
           activateTab(getActiveTab());

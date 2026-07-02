@@ -230,6 +230,19 @@
     _scrollListToWorkout(wid);
   }
 
+  // Re-entrant open (for cross-tab "View full workout →" from the Plan card).
+  // Opens the drawer + scrolls to the row immediately; if the list hasn't
+  // rendered yet, the guarded handleDeepLink() picks up ?workout= on first
+  // render. Safe to call repeatedly.
+  function openWorkoutDeepLink(wid) {
+    if (!wid) return;
+    _deepLinkHandled = true; // suppress the one-shot init handler; we drive it here
+    openDetailPanel(wid, null);
+    _scrollListToWorkout(wid);
+  }
+  window.TrainingLog = window.TrainingLog || {};
+  window.TrainingLog.openWorkout = openWorkoutDeepLink;
+
   function _scrollListToWorkout(wid) {
     var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
     function rowFor() {
