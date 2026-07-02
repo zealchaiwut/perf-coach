@@ -153,15 +153,12 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
 
     for source_type, act in all_acts:
         try:
+            streams_payload = getattr(act, "streams_payload", None)
+            if not streams_payload:
+                continue
             if source_type == "strava":
-                streams_payload = getattr(act, "streams_payload", None)
-                if not streams_payload:
-                    continue
                 row_data, reason = extract_strava_streams(streams_payload, source="strava")
             else:
-                streams_payload = getattr(act, "streams_payload", None)
-                if not streams_payload:
-                    continue
                 row_data, reason = extract_stryd_streams(streams_payload, source="stryd")
 
             if reason:
@@ -189,6 +186,17 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
                 "activity_streams ingest failed",
                 extra={"source": source_type, "activity_id": getattr(act, "id", None), "error": str(exc)},
             )
+        finally:
+            # streams_payload is a deferred column lazy-loaded by the getattr
+            # above; without expiring it every payload stays in the session's
+            # identity map for the whole reconcile (~600 MB on a full sync).
+            # Expire keeps peak memory at one payload at a time. No-op for
+            # non-ORM stand-ins (unit tests pass SimpleNamespace activities).
+            if hasattr(act, "_sa_instance_state"):
+                try:
+                    session.expire(act, ["streams_payload"])
+                except Exception:  # noqa: BLE001 — cleanup must never fail ingest
+                    pass
 
 
 def _find_workout_for_activity(act, source_type: str, existing_workouts: list):
@@ -258,6 +266,10 @@ def reconcile_workouts(
                     StravaActivity.user_id == uid,
                     StravaActivity.strava_activity_id.in_(strava_activity_ids),
                 )
+                .options(
+                    _defer(StravaActivity.streams_payload),
+                    _defer(StravaActivity.detail_payload),
+                )
                 .all()
             )
         else:
@@ -280,6 +292,7 @@ def reconcile_workouts(
                         StrydActivity.user_id == uid,
                         StrydActivity.stryd_activity_id.in_(stryd_activity_ids),
                     )
+                    .options(_defer(StrydActivity.streams_payload))
                     .all()
                 )
             else:
@@ -300,11 +313,10 @@ def reconcile_workouts(
                 q = session.query(StravaActivity).filter(StravaActivity.user_id == uid)
                 if lo is not None:
                     q = q.filter(StravaActivity.start_time.between(lo, hi))
-                else:
-                    q = q.options(
-                        _defer(StravaActivity.streams_payload),
-                        _defer(StravaActivity.detail_payload),
-                    )
+                q = q.options(
+                    _defer(StravaActivity.streams_payload),
+                    _defer(StravaActivity.detail_payload),
+                )
                 strava_acts = q.all()
             except Exception:
                 strava_acts = []
@@ -315,8 +327,7 @@ def reconcile_workouts(
                 q = session.query(StrydActivity).filter(StrydActivity.user_id == uid)
                 if lo is not None:
                     q = q.filter(StrydActivity.start_time.between(lo, hi))
-                else:
-                    q = q.options(_defer(StrydActivity.streams_payload))
+                q = q.options(_defer(StrydActivity.streams_payload))
                 stryd_acts = q.all()
             except Exception:
                 stryd_acts = []
