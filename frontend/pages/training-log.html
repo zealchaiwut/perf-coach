@@ -6609,11 +6609,18 @@
     .detail-panel-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 20, 50, 0.35);
+      /* Darker scrim so the drawer clearly foregrounds the page behind it. */
+      background: rgba(0, 0, 0, 0.42);
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s;
-      z-index: 70;
+      z-index: 70;              /* below the drawer (z-index 80), above content */
+    }
+    /* Un-hide the scrim on desktop (an earlier mobile-only rule hid it ≥880px)
+       and show it whenever the drawer is open. Clicking it closes the detail
+       (wired in training-log.js). */
+    @media (min-width: 880px) {
+      .detail-panel-overlay { display: block; }
     }
     #layout-wrapper.has-panel .detail-panel-overlay,
     .detail-panel-overlay.is-open {

@@ -1541,16 +1541,9 @@
       laps.forEach(function (lap) { if (lap.set && lap.set > chMaxSet) chMaxSet = lap.set; });
       var chMultiSet = chMaxSet > 1;
 
-      // First work bar of each set — carries a "Set N" tag so the sets are
-      // countable on the chart, matching the table's "Set N" badges.
-      var chSetStart = {};
-      var chSeenSet = {};
-      laps.forEach(function (lap, i) {
-        if (lap.role === "work" && lap.set != null && !chSeenSet[lap.set]) {
-          chSeenSet[lap.set] = true;
-          chSetStart[i] = lap.set;
-        }
-      });
+      // (Set numbering lives on the table's "Set N" badges; the chart keeps
+      // per-bar rep numbers + paired work/recovery tinting only — no under-axis
+      // set chip, which overlapped the lap-number axis.)
 
       // Pixel heights against the chart's measured height — no CSS %-resolution.
       var CH = chart.clientHeight || 130;
@@ -1641,13 +1634,8 @@
       }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
-        axisEl.innerHTML = laps.map(function (lap, i) {
-          // Under the first work bar of each set, add a "Set N" tag so the sets
-          // (and thus the pairs) are countable on the chart, matching the table.
-          var setTag = chSetStart[i] != null
-            ? '<span class="rd4-axis-set" title="set ' + chSetStart[i] + '">Set ' + chSetStart[i] + "</span>"
-            : "";
-          return '<div class="rd4-cell2">' + lap.index + setTag + "</div>";
+        axisEl.innerHTML = laps.map(function (lap) {
+          return '<div class="rd4-cell2">' + lap.index + "</div>";
         }).join("");
       }
 

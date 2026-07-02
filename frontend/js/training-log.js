@@ -1481,14 +1481,17 @@
 
     if (panel) panel.classList.add("is-open");
 
+    // Scrim + click-to-close is driven by the same overlay element on both
+    // desktop and mobile so clicking outside the drawer closes it everywhere.
+    if (overlay) {
+      overlay.classList.add("is-open");
+      overlay.removeAttribute("aria-hidden");
+    }
+
     if (isDesktop()) {
       if (wrapper) wrapper.classList.add("has-panel");
       reflowPanelCharts();
     } else {
-      if (overlay) {
-        overlay.classList.add("is-open");
-        overlay.removeAttribute("aria-hidden");
-      }
       document.body.style.overflow = "hidden";
     }
 
