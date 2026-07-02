@@ -6,7 +6,7 @@ Create Date: 2026-05-27 00:00:04.000000
 
 Stores one readiness score row per (user_id, date). The score is derived
 from daily_metrics via the HRV CV approach documented in
-services/readiness/README.md.
+docs/calculations/readiness.md.
 
 Includes:
 - FK to users with CASCADE delete

@@ -408,7 +408,7 @@ verify the following:
 ### Docs
 
 - [ ] If the change adds a new endpoint, `docs/api-reference.md` is updated.
-- [ ] If the change adds a new table or column, `docs/data-model.md` is
+- [ ] If the change adds a new table or column, root `SCHEMA.md` is
       updated.
 - [ ] If the change affects local setup (new env var, new dependency, new
       migration step), `docs/local-dev.md` is updated.

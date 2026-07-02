@@ -23,6 +23,20 @@ chart, and the stored `daily_readiness` row can disagree for the same day.
   raw-SQL upsert on (user_id, date) (job.py:92-111).
 - **Invalidation gap:** editing a `daily_metrics` row does NOT recompute the
   stored readiness — stale until the compute endpoint is called again.
+- **Edge cases:** HRV omitted (weight redistributed) if fewer than 2 baseline
+  days; RHR omitted if fewer than 3; `sleep_quality`/`energy` NULL → that
+  signal omitted, weight redistributed proportionally; all signals absent →
+  `compute_readiness` returns `None`, no row written; baseline mean of 0 →
+  component score defaults to 50 (neutral); CV < 0.01 (near-constant
+  baseline) falls back to absolute std (floor 1) as the denominator.
+- **`components` JSONB shape:** `{"hrv_contribution", "rhr_contribution",
+  "sleep_contribution", "energy_contribution"}` — the four additive terms sum
+  to `score` (within float tolerance).
+- **Determinism:** `compute_readiness` is pure — no randomness, clock access,
+  or I/O — given the same `(hrv, resting_hr, sleep_quality, energy,
+  hrv_baseline, rhr_baseline)` tuple it always returns the same result.
+- **CLI backfill:** `python -m services.readiness.job --user-id <uuid>
+  --date <YYYY-MM-DD>` (or `--from`/`--to` for a range).
 
 ## 2. Home readiness — `GET /api/home/readiness` (main.py:2606-2760)
 

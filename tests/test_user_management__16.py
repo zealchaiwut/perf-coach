@@ -45,12 +45,6 @@ def test_ac1_users_html_returns_200(client):
     assert res.status_code == 200, f"Expected 200, got {res.status_code}"
 
 
-def test_ac1_nav_link_in_index():
-    """index.html must contain a link to users.html."""
-    html = (ROOT / "frontend" / "pages" / "index.html").read_text()
-    assert "users.html" in html, "index.html has no nav link to users.html"
-
-
 def test_ac1_nav_link_in_weight():
     """weight.html must contain a link to users.html."""
     html = (ROOT / "frontend" / "pages" / "weight.html").read_text()
