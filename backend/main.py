@@ -90,7 +90,7 @@ from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _pr
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
-from backend.routers.plan import router as _plan_router
+from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
@@ -5119,8 +5119,9 @@ app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=Fa
 
 
 def _serve_projection_redirect():
-    # Projection was merged into the Training → Plan sub-tab (issue #1226).
-    return RedirectResponse(url="/log#plan", status_code=302)
+    # Projection was merged into the Training → Projection sub-tab
+    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework).
+    return RedirectResponse(url="/log#projection", status_code=302)
 
 app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
 app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
@@ -14904,7 +14905,7 @@ def _compute_plan_bundle(user) -> dict:
     in-process (no HTTP) and decoding their JSON, then attaching per-race
     computed scores/estimates. Reused by GET /api/plan/computed and
     POST /api/plan/recompute."""
-    from backend.services.plan_service import race_to_dict as _race_to_dict
+    from backend.services.projection_service import race_to_dict as _race_to_dict
 
     def _decode(resp):
         try:

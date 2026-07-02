@@ -2025,5 +2025,5 @@
     refresh();
   }
 
-  window.TrainingPlan = { init: init };
+  window.TrainingProjection = { init: init };
 })();

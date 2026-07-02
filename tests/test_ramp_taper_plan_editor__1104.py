@@ -243,8 +243,8 @@ def test_ac4_schedule_preview_section_in_html():
 # ── AC8: JS contains no forecast or projection math ──────────────────────────
 
 def test_ac8_no_projection_api_call_in_plan_js():
-    """AC8: training-plan.js does not call a forecast or projection endpoint."""
-    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
+    """AC8: training-projection.js does not call a forecast or projection endpoint."""
+    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
     js = js_path.read_text(encoding="utf-8")
     assert "/api/projection" not in js, "plan JS must not call a projection endpoint"
     assert "/api/forecast" not in js, "plan JS must not call a forecast endpoint"
@@ -253,16 +253,16 @@ def test_ac8_no_projection_api_call_in_plan_js():
 # ── AC3 / AC5: JS wires input-change events for live preview ─────────────────
 
 def test_ac3_js_wires_input_change_events():
-    """AC3: training-plan.js contains event listeners for the ramp/taper inputs."""
-    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
+    """AC3: training-projection.js contains event listeners for the ramp/taper inputs."""
+    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
     js = js_path.read_text(encoding="utf-8")
     assert "plan-ramp-rate-input" in js, "JS must reference the ramp-rate input"
     assert "plan-taper-window-input" in js, "JS must reference the taper-window input"
 
 
 def test_ac3_js_has_schedule_preview_render_function():
-    """AC3: training-plan.js contains a function that renders the schedule preview."""
-    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
+    """AC3: training-projection.js contains a function that renders the schedule preview."""
+    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
     js = js_path.read_text(encoding="utf-8")
     assert "renderSchedulePreview" in js or "plan-schedule-canvas" in js, \
         "JS must reference the schedule preview canvas"

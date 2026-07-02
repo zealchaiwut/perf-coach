@@ -604,7 +604,7 @@
 
   function _loadProjection() {
     if (!_athleteId) return;
-    // Resolve the plan entity id (like training-plan.js) from /api/plans.
+    // Resolve the plan entity id (like training-projection.js) from /api/plans.
     fetch('/api/plans', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (plans) {

@@ -3942,11 +3942,11 @@
           </button>
           <button
             class="training-sub-tab"
-            data-tab="plan"
+            data-tab="projection"
             type="button"
             aria-selected="false"
           >
-            Plan
+            Projection
           </button>
           <button
             class="training-sub-tab"
@@ -4086,7 +4086,7 @@
     </main>
 
     <!-- Plan panel (issue #650) -->
-    <div id="training-panel-plan" class="tab-panel-placeholder" hidden>
+    <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
       <!-- ── Plan tab panel ─────────────────────────────────────────── -->
       <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
@@ -7448,7 +7448,7 @@
     <script src="js/lib/run-detail-view.js"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js"></script>
-    <script src="js/training-plan.js"></script>
+    <script src="js/training-projection.js"></script>
     <script src="js/training-performance.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
@@ -7456,11 +7456,11 @@
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "plan", "performance"];
+        var TABS = ["log", "projection", "performance"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
-        var panelPlan = document.getElementById("training-panel-plan");
+        var panelPlan = document.getElementById("training-panel-projection");
         var panelPerf = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
@@ -7485,9 +7485,13 @@
           });
           if (layoutWrapper) layoutWrapper.style.display = isLog ? "" : "none";
           // Show/hide placeholder panels
-          if (panelPlan) panelPlan.hidden = tab !== "plan";
-          if (tab === "plan" && window.TrainingPlan && window.TrainingPlan.init)
-            window.TrainingPlan.init();
+          if (panelPlan) panelPlan.hidden = tab !== "projection";
+          if (
+            tab === "projection" &&
+            window.TrainingProjection &&
+            window.TrainingProjection.init
+          )
+            window.TrainingProjection.init();
           if (panelPerf) panelPerf.hidden = tab !== "performance";
           if (
             tab === "performance" &&

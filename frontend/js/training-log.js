@@ -5119,7 +5119,7 @@
           (data.call_to_action ? '<span class="sd-supercomp-cta">' + _esc(data.call_to_action) + '</span>' : '') +
         '</div>' +
         '<div class="sd-supercomp-links">' +
-          '<a class="sd-supercomp-link" href="training-log.html#plan">&#8594; Plan</a>' +
+          '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
           '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
         '</div>' +
       '</div>';

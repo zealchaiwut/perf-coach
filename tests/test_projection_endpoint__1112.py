@@ -1,13 +1,13 @@
 """Tests for issue #1112: Expose training projection via plan API endpoint.
 
 Acceptance criteria verified:
-- AC1: GET /plans/{plan_id}/projection exists in routers/plan.py and is registered with app
+- AC1: GET /plans/{plan_id}/projection exists in routers/projection.py and is registered with app
 - AC2: Response includes projected CTL, ATL, TSB time series
 - AC3: Response includes per-race estimated finish times
 - AC4: Response includes half-equivalent values for each race
 - AC5: Response includes fitness band for the current plan
 - AC6: Route handler delegates to projection module only — no projection logic in router
-- AC7: python -m py_compile routers/plan.py exits with code 0
+- AC7: python -m py_compile routers/projection.py exits with code 0
 - AC8: 404 returned when the requested plan does not exist
 - AC9: Endpoint authenticated consistently with other plan endpoints (401 when unauthenticated)
 """
@@ -64,7 +64,7 @@ def _skip_no_db():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_ac7_plan_router_compiles():
-    """AC7: python -m py_compile on routers/plan.py exits with code 0."""
+    """AC7: python -m py_compile on routers/projection.py exits with code 0."""
     router_path = _ROOT / "backend" / "routers" / "plan.py"
     assert router_path.exists()
     py_compile.compile(str(router_path), doraise=True)
@@ -278,11 +278,11 @@ def test_payload_ctl_rises_toward_load():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_ac6_router_imports_projection_module():
-    """AC6: routers/plan.py must import from backend.services.projection."""
+    """AC6: routers/projection.py must import from backend.services.projection."""
     router_path = _ROOT / "backend" / "routers" / "plan.py"
     source = router_path.read_text()
     assert "projection" in source, (
-        "routers/plan.py must import from backend.services.projection"
+        "routers/projection.py must import from backend.services.projection"
     )
 
 
@@ -300,10 +300,10 @@ def test_ac6_router_handler_no_decay_math():
 
 
 def test_ac1_projection_endpoint_in_router():
-    """AC1: routers/plan.py must contain a /projection route."""
+    """AC1: routers/projection.py must contain a /projection route."""
     router_path = _ROOT / "backend" / "routers" / "plan.py"
     source = router_path.read_text()
-    assert "projection" in source, "routers/plan.py must define a /projection route"
+    assert "projection" in source, "routers/projection.py must define a /projection route"
     assert "@router.get" in source, "Plan router must have a GET handler"
 
 

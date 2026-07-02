@@ -35,7 +35,7 @@ if _uat_url:
 else:
     _engine = None
 
-from backend.services.plan_service import generate_planned_load_schedule  # noqa: E402
+from backend.services.projection_service import generate_planned_load_schedule  # noqa: E402
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ def test_ac6_records_persisted_to_planned_load_table(cleanup_test_dates):
         today + datetime.timedelta(days=i) for i in range(10)
     )
 
-    from backend.services.plan_service import persist_planned_load_schedule
+    from backend.services.projection_service import persist_planned_load_schedule
     schedule = generate_planned_load_schedule(
         today=today, race_date=race,
         base_tss=50.0, ramp_rate=1.0, taper_length=3,
@@ -324,7 +324,7 @@ def test_ac6_persisted_values_match_generated_values(cleanup_test_dates):
         today + datetime.timedelta(days=i) for i in range(5)
     )
 
-    from backend.services.plan_service import persist_planned_load_schedule
+    from backend.services.projection_service import persist_planned_load_schedule
     schedule = generate_planned_load_schedule(
         today=today, race_date=race,
         base_tss=40.0, ramp_rate=2.0, taper_length=2,
@@ -356,7 +356,7 @@ def test_ac4_second_call_does_not_create_duplicates(cleanup_test_dates):
         today + datetime.timedelta(days=i) for i in range(4)
     )
 
-    from backend.services.plan_service import persist_planned_load_schedule
+    from backend.services.projection_service import persist_planned_load_schedule
     kwargs = dict(
         today=today, race_date=race,
         base_tss=50.0, ramp_rate=1.5, taper_length=2, taper_shape="step",
@@ -401,7 +401,7 @@ def test_ac8_records_outside_range_not_modified(cleanup_test_dates):
         today + datetime.timedelta(days=i) for i in range(5)
     )
 
-    from backend.services.plan_service import persist_planned_load_schedule
+    from backend.services.projection_service import persist_planned_load_schedule
     schedule = generate_planned_load_schedule(
         today=today, race_date=race,
         base_tss=50.0, ramp_rate=1.0, taper_length=2,
@@ -421,9 +421,9 @@ def test_ac8_records_outside_range_not_modified(cleanup_test_dates):
 # ── AC7: py_compile ───────────────────────────────────────────────────────────
 
 def test_ac7_plan_service_compiles():
-    """AC7: backend/services/plan_service.py has no syntax errors."""
+    """AC7: backend/services/projection_service.py has no syntax errors."""
     py_compile.compile(
-        str(_ROOT / "backend" / "services" / "plan_service.py"), doraise=True
+        str(_ROOT / "backend" / "services" / "projection_service.py"), doraise=True
     )
 
 

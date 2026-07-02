@@ -51,7 +51,7 @@ def html():
 
 @pytest.fixture(scope="module")
 def plan_js():
-    p = os.path.join(os.path.dirname(__file__), "../frontend/js/training-plan.js")
+    p = os.path.join(os.path.dirname(__file__), "../frontend/js/training-projection.js")
     with open(p, encoding="utf-8") as f:
         return f.read()
 
@@ -60,8 +60,8 @@ def plan_js():
 
 def _plan_panel_html(html):
     """Extract the Plan panel section from the page HTML."""
-    start = html.find('id="training-panel-plan"')
-    assert start != -1, "training-panel-plan must exist in the page"
+    start = html.find('id="training-panel-projection"')
+    assert start != -1, "training-panel-projection must exist in the page"
     perf_start = html.find('id="training-panel-performance"', start)
     end = perf_start if perf_start != -1 else start + 20000
     return html[start:end]
