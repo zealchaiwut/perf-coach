@@ -582,12 +582,15 @@
     var bandEl     = document.getElementById('perf-acwr-band');
     var guidanceEl = document.getElementById('perf-acwr-guidance');
     var bbEl       = document.getElementById('perf-acwr-bb');
+    var bandbarEl  = document.getElementById('perf-acwr-bandbar');
+    var markerEl   = document.getElementById('perf-acwr-marker');
     if (!section) return;
 
     if (acwr.band === 'baseline_forming' || acwr.ratio === null) {
       if (ratioEl)    ratioEl.style.display = 'none';
       if (bandEl)     bandEl.style.display = 'none';
       if (guidanceEl) guidanceEl.style.display = 'none';
+      if (bandbarEl)  bandbarEl.hidden = true;
       if (bbEl)       bbEl.hidden = false;
       return;
     }
@@ -597,6 +600,12 @@
       bandEl.style.display = '';
       bandEl.textContent = acwr.band ? acwr.band.replace(/_/g, ' ') : '—';
       bandEl.className = 'perf-acwr-band-badge perf-acwr-band--' + (acwr.band || '');
+    }
+    // Position the marker on the 0 → 2.0 scale (clamp so it stays on the bar).
+    if (bandbarEl && markerEl) {
+      bandbarEl.hidden = false;
+      var pct = Math.max(2, Math.min(98, (acwr.ratio / 2.0) * 100));
+      markerEl.style.left = pct.toFixed(1) + '%';
     }
     if (guidanceEl) { guidanceEl.style.display = ''; guidanceEl.textContent = acwr.guidance || '—'; }
   }
