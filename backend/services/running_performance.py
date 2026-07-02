@@ -269,11 +269,24 @@ def _aggregate_and_shape(
     direction = _compute_direction(trend, zc["direction_slope_threshold"])
     score = max(0.0, min(100.0, raw_score * body_modifier))
 
+    # Per-date contribution: how much this date's effort(s) moved the score
+    # (score(date) − score(previous trend date)), on the same displayed scale.
+    # Free — the trend already holds score(t) per date. Keyed by ISO date so a
+    # feeding session can look up its own contribution (its *_delta).
+    contributions: dict[str, float] = {}
+    prev_val = None
+    for t, v in zip(trend_dates, trend):
+        disp = max(0.0, min(100.0, v * body_modifier))
+        if prev_val is not None:
+            contributions[t.isoformat()] = round(disp - prev_val, 2)
+        prev_val = disp
+
     result: dict[str, Any] = {
         "score": round(score, 2),
         "direction": direction,
         "trend": [round(v, 2) for v in trend],
         "trend_dates": [t.isoformat() for t in trend_dates],
+        "contributions": contributions,
         "qualifying_session_count": len(qualifying_meta),
         "debug": {"perRunEfficiency": per_run_perf},
     }

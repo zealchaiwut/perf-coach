@@ -34,6 +34,10 @@
   var _activeRange  = DEFAULT_RANGE;
   var _initialized  = false;
   var _planEntityId = null;
+  // Per-date score contributions from the Performance endpoint (endurance/speed),
+  // keyed by ISO date. Used to show each feeding session's contribution chip.
+  var _contribs     = { endurance: null, speed: null };
+  var _feedRows     = { endurance: null, speed: null };
 
   // ── Public API (mirrors the tab init pattern) ───────────────────────────────
   window.TrainingPerformance = {
@@ -115,6 +119,12 @@
         if (state === 'scored') {
           _renderScoreCard('endurance', data.endurance);
           _renderScoreCard('speed',     data.speed);
+          // Capture per-date contributions and (re)render feeds so each session
+          // shows its contribution chip.
+          _contribs.endurance = (data.endurance && data.endurance.contributions) || null;
+          _contribs.speed     = (data.speed && data.speed.contributions) || null;
+          if (_feedRows.endurance) _renderFeed('endurance', _feedRows.endurance);
+          if (_feedRows.speed)     _renderFeed('speed', _feedRows.speed);
           return;
         }
         if (state === 'needs_thresholds') {
@@ -356,6 +366,7 @@
   }
 
   function _renderFeed(type, rows) {
+    _feedRows[type] = rows;  // remembered so we can re-render when contributions arrive
     var host = document.getElementById('perf-feed-' + type);
     if (!host) return;
     if (!rows.length) {
@@ -364,6 +375,7 @@
         : 'No interval sessions in the last 120 days.');
       return;
     }
+    var contribMap = _contribs[type] || null;
     host.innerHTML = rows.map(function (w) {
       var meta = [];
       if (w.distance_km != null) meta.push(w.distance_km.toFixed(1) + ' km');
@@ -374,10 +386,22 @@
       var srcHtml = src
         ? '<span class="perf-src perf-src--' + src + '">' + (src === 's' ? 'S' : 'St') + '</span>'
         : '';
-      // Honest chip: session TSS (a real neutral figure), never a fabricated contribution.
-      var chipHtml = (w.tss != null)
-        ? '<span class="perf-dchip">' + Math.round(w.tss) + ' TSS</span>'
-        : '';
+      // Contribution chip: this session's real delta to the score (signed,
+      // green up / red down). This is the "which session changed the delta"
+      // figure — the same *_delta the Log signal card shows. Falls back to TSS
+      // only until the contributions map has loaded.
+      var chipHtml;
+      var contrib = (contribMap && w.date != null) ? contribMap[w.date] : undefined;
+      if (typeof contrib === 'number') {
+        var n = Math.round(contrib * 10) / 10;
+        var cls = n > 0 ? 'up' : (n < 0 ? 'down' : 'flat');
+        var txt = (n > 0 ? '+' : '') + n;
+        chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + '</span>';
+      } else {
+        chipHtml = (w.tss != null)
+          ? '<span class="perf-dchip">' + Math.round(w.tss) + ' TSS</span>'
+          : '';
+      }
       var href = '/log?workout=' + encodeURIComponent(w.id);
       return '<a class="perf-frow" href="' + href + '">' +
         '<span class="perf-fdate">' + _esc(_fmtMmmD(w.date)) + '</span>' +
