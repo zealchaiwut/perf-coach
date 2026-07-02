@@ -5290,6 +5290,8 @@ class WorkoutPatch(BaseModel):
     # Environmental conditions for heat/humidity normalization (issue #1168)
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
+    # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | null.
+    feeling: Optional[str] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -5387,6 +5389,8 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
 # Allowed run-subtype values (issue: run subtype as its own column). None clears it.
 _RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
+# Self-reported effort feeling (issue #1241).
+_FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -5747,6 +5751,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
         "temperature_c": w.temperature_c,
         "humidity_pct": w.humidity_pct,
+        "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -5966,6 +5971,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "elevation_m": w.elevation_m,
         "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
+        "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
     }
@@ -6706,6 +6712,19 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        if 'feeling' in body.model_fields_set:
+            # None/empty clears it; otherwise must be one of the allowed values.
+            fl = body.feeling
+            if fl is None or (isinstance(fl, str) and fl.strip() == ""):
+                workout.feeling = None
+            else:
+                fl = fl.strip().lower()
+                if fl not in _FEELING_VALUES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="feeling must be one of: " + ", ".join(sorted(_FEELING_VALUES)),
+                    )
+                workout.feeling = fl
         # Stamp updated_at so edits (e.g. marking a run as an interval) change the
         # workout-set fingerprint — the summary/performance cache signature
         # includes MAX(updated_at), so a type edit busts the cache and the
@@ -6865,6 +6884,7 @@ def _workout_actual_summary(w) -> dict:
         "distance_km": dist,
         "duration_seconds": w.duration_seconds,
         "tss": float(w.tss) if w.tss is not None else None,
+        "feeling": w.feeling,
         "meta": " · ".join(bits),
     }
 
