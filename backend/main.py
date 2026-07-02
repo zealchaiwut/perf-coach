@@ -6415,7 +6415,33 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
-        detected_profile = _get_session_profile(workout, split_rows, prefs)
+        # Manual lap presses (from the Stryd streams) expose real interval reps
+        # that the stored 1 km splits hide; pass them so detection/pairing runs
+        # on them. Keeps session_profile_caller DB-free — we load here.
+        _manual_laps_for_profile = None
+        try:
+            _sta = getattr(workout, "stryd_activity", None)
+            _streams = _sta.streams_payload if _sta is not None and isinstance(_sta.streams_payload, dict) else None
+            if _streams:
+                from backend.services.stryd_laps import compute_manual_laps as _cml
+                from types import SimpleNamespace as _SNS
+                _mlaps = _cml(_streams) or []
+                _manual_laps_for_profile = [
+                    _SNS(
+                        split_index=_i + 1,
+                        duration_seconds=_l.get("duration_seconds"),
+                        distance_km=_l.get("distance_km"),
+                        avg_power=_l.get("avg_power"),
+                        avg_hr=_l.get("avg_hr"),
+                        lap_type="manual",
+                    )
+                    for _i, _l in enumerate(_mlaps)
+                ]
+        except Exception:
+            _manual_laps_for_profile = None
+        detected_profile = _get_session_profile(
+            workout, split_rows, prefs, manual_laps=_manual_laps_for_profile
+        )
         _prefs_dict_for_zones = {
             "ftp_w": prefs.ftp_w if prefs is not None else None,
             "threshold_hr": prefs.threshold_hr if prefs is not None else None,

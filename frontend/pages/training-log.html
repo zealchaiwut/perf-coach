@@ -497,11 +497,11 @@
 
       /* ── Placeholder panels (Projection / Performance) ──
          Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
-         max-width 1120px, padding 20px 24px 60px) so all three sub-tabs share
+         max-width 1000px, padding 20px 24px 60px) so all three sub-tabs share
          the same content-left/right edge and _positionNav aligns the tab strip
          to it on every tab. */
       .tab-panel-placeholder {
-        max-width: 1120px;
+        max-width: 1000px;
         margin: 0 auto;
         padding: 20px 24px 60px;
         display: flex;
@@ -6300,7 +6300,8 @@
       /* Scrollbar-safe full-bleed: span the viewport width, pulled to its left
          edge. body{overflow-x:clip} trims the scrollbar-width sliver so this
          never creates horizontal scroll (which was shifting the global nav).
-         .log-page-header-inner re-insets the content to 1120. */
+         .log-page-header-inner re-insets the content (JS _positionNav follows
+         the content column's left edge for the 1000px shell). */
       width: 100vw;
       margin-left: calc(50% - 50vw);
       background: rgba(38, 48, 110, 0.82);
@@ -6378,15 +6379,18 @@
     }
 
     /* ── Centered shell, overlay drawer (no reserved column) ─────────────── */
+    /* 1000px (narrowed from 1120) so the wider 600px overlay drawer coexists
+       cleanly with the centered content on a 1440 viewport. Shared across all
+       four tabs (Log/Plan/Projection/Performance). */
     .log-layout {
-      max-width: 1120px;
+      max-width: 1000px;
       padding: 20px 24px 60px;
     }
     /* Kill the reserved 2-column grid — the drawer is now a fixed overlay. */
     @media (min-width: 880px) {
       #layout-wrapper.has-panel {
         display: block;
-        max-width: 1120px;
+        max-width: 1000px;
         margin: 0 auto;
         padding: 20px 24px 60px;
       }
@@ -6575,7 +6579,10 @@
       top: calc(var(--log-nav-total, 116px) + 16px);
       right: 12px;
       height: calc(100vh - var(--log-nav-total, 116px) - 16px - 12px);
-      width: 440px;
+      /* 600px so the full lap table (min-width 520px) fits without horizontal
+         scroll: 600 − 36 (dp-scroll pad) − 36 (rd4-card pad) = 528 ≥ 520, so all
+         7 columns (LAP·DIST·PACE·HR·PWR·CAD·STRIDE) show for a Stryd run. */
+      width: 600px;
       max-width: 94vw;
       background: #fff;
       border-radius: 16px;
@@ -6602,11 +6609,18 @@
     .detail-panel-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 20, 50, 0.35);
+      /* Darker scrim so the drawer clearly foregrounds the page behind it. */
+      background: rgba(0, 0, 0, 0.42);
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s;
-      z-index: 70;
+      z-index: 70;              /* below the drawer (z-index 80), above content */
+    }
+    /* Un-hide the scrim on desktop (an earlier mobile-only rule hid it ≥880px)
+       and show it whenever the drawer is open. Clicking it closes the detail
+       (wired in training-log.js). */
+    @media (min-width: 880px) {
+      .detail-panel-overlay { display: block; }
     }
     #layout-wrapper.has-panel .detail-panel-overlay,
     .detail-panel-overlay.is-open {

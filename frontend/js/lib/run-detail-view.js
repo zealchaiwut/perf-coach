@@ -416,22 +416,48 @@
   }
 
   function renderLapTableRows(lapMeta) {
+    // Are there multiple true sets? Governs "Set N" vs "S1·R3" wording.
+    var maxSet = 0;
+    lapMeta.forEach(function (m) { if (m.set && m.set > maxSet) maxSet = m.set; });
+    var multiSet = maxSet > 1;
+
     return lapMeta
       .map(function (m) {
         var s = m.split;
         var rowCls = "rd4-lap-row";
         if (m.zone2) rowCls += " rd4-lap-row--z2";
         if (m.anomaly) rowCls += " rd4-lap-row--break";
-        var pills = "";
-        if (m.anomaly) pills += '<span class="rd4-break-pill">break</span>';
+        // Pair tint: alternate the background per work+rest pair so each
+        // numbered pair reads as one unit. Recovery rows also carry the linked
+        // class so a shared left accent brackets the pair.
+        var isWork = m.role === "work";
+        var isRec = m.role === "recovery";
+        if (isWork || isRec) {
+          rowCls += " rd4-lap-row--pair";
+          if (m.rep && m.rep % 2 === 0) rowCls += " rd4-lap-row--pair-alt";
+          if (isWork) rowCls += " rd4-lap-row--work";
+          if (isRec) rowCls += " rd4-lap-row--rest";
+        }
+
+        // The "break" pill is redundant now that paired recovery laps show
+        // "↳ rest"; the gray row tint (.rd4-lap-row--break) still dims rest laps.
+        // Set/rep badge in the LAP column.
+        var badge = "";
+        if (isWork) {
+          var lbl = multiSet ? ("S" + m.set + "·R" + m.rep) : ("Set " + m.rep);
+          badge = '<span class="rd4-set-badge" title="interval rep ' + m.rep + '">' + esc(lbl) + "</span>";
+        } else if (isRec) {
+          badge = '<span class="rd4-rest-badge" title="rest after rep ' + m.rep + '">&#8627; rest</span>';
+        }
+
         var paceCls = m.fastest ? " rd4-fastest" : "";
         return (
           "<tr class=\"" +
           rowCls +
           '">' +
-          "<td>" +
-          m.index +
-          pills +
+          '<td class="rd4-lap-idcell">' +
+          "<span class=\"rd4-lap-num\">" + m.index + "</span>" +
+          badge +
           "</td>" +
           "<td>" +
           (s.distance_km != null ? parseFloat(s.distance_km).toFixed(2) : "—") +
@@ -458,7 +484,7 @@
       .join("");
   }
 
-  function buildLapMeta(splits, z2min, z2max) {
+  function buildLapMeta(splits, z2min, z2max, lapRoles) {
     var powers = splits.map(function (s) {
       return s.avg_power != null ? +s.avg_power : null;
     });
@@ -478,6 +504,7 @@
     });
     minPace = minPace.length ? Math.min.apply(null, minPace) : null;
 
+    var roles = lapRoles || null;
     return splits.map(function (s, i) {
       var d = parseFloat(s.distance_km);
       var paceSec = d && s.duration_seconds ? s.duration_seconds / d : null;
@@ -492,6 +519,8 @@
          medC != null && cad != null && cad < medC * 0.88) ||
         (q3P != null && pwr != null && pwr < q3P * 0.65 &&
          q3C != null && cad != null && cad < q3C * 0.86);
+      // Backend interval role for this lap (0-based index), when confident.
+      var role = roles ? roles[String(i)] : null;
       return {
         split: s,
         index: s.split_index != null ? s.split_index : i + 1,
@@ -503,6 +532,10 @@
         power: pwr,
         cadence: cad,
         stride: stride,
+        // set/rep pairing from the backend (source of truth for numbering).
+        role: role ? role.role : null,
+        set: role ? role.set : null,
+        rep: role ? role.rep : null,
       };
     });
   }
@@ -528,7 +561,7 @@
     return workLaps;
   }
 
-  function renderIntervalBlock(workLaps) {
+  function renderIntervalBlock(workLaps, repsPerSet) {
     if (!workLaps || !workLaps.length) return "";
     function avg(arr) {
       var vals = arr.filter(function (v) { return v != null && isFinite(v); });
@@ -540,7 +573,13 @@
     var avgHR = avg(workLaps.map(function (m) { return m.split.avg_hr ? +m.split.avg_hr : null; }));
     var avgPace = avg(workLaps.map(function (m) { return m.paceSec; }));
 
+    // Numbering: rep count is the work-lap count. When the backend detected
+    // multiple sets, break it down (e.g. "Set 1: 4 reps · Set 2: 4 reps").
+    var multiSet = Array.isArray(repsPerSet) && repsPerSet.length > 1;
     var summaryParts = [workLaps.length + " reps"];
+    if (multiSet) {
+      summaryParts.push(repsPerSet.map(function (n, i) { return "Set " + (i + 1) + ": " + n + " reps"; }).join(" · "));
+    }
     if (avgDist != null) summaryParts.push("avg " + (avgDist * 1000).toFixed(0) + " m");
     if (avgDur != null) {
       var m = Math.floor(avgDur / 60), s = Math.round(avgDur % 60);
@@ -556,7 +595,10 @@
       var pace = m.paceSec ? (function () { var mn = Math.floor(m.paceSec / 60), sc = Math.round(m.paceSec % 60); return mn + ":" + (sc < 10 ? "0" : "") + sc; })() : "—";
       var pwr = m.power != null ? Math.round(m.power) + " W" : "—";
       var hr = m.split.avg_hr != null ? m.split.avg_hr + " bpm" : "—";
-      return "<tr><td>" + (ri + 1) + "</td><td>" + d + "</td><td>" + dur + "</td><td>" + pace + "</td><td>" + pwr + "</td><td>" + hr + "</td></tr>";
+      // Prefer the backend rep number; fall back to positional index.
+      var repNum = (m.rep != null) ? m.rep : (ri + 1);
+      var repLbl = (multiSet && m.set != null) ? ("S" + m.set + "·R" + repNum) : ("Set " + repNum);
+      return "<tr><td>" + esc(repLbl) + "</td><td>" + d + "</td><td>" + dur + "</td><td>" + pace + "</td><td>" + pwr + "</td><td>" + hr + "</td></tr>";
     });
 
     var avgRow = "<tr class=\"rd4-int-avg-row\"><td>avg</td>"
@@ -707,9 +749,18 @@
     var tssOptions = buildTssOptions(full, w, strava, stryd);
     var defaultTssId = pickDefaultTssId(tssOptions);
 
-    var distanceLapMeta = buildLapMeta(splits, z2min, z2max);
+    // Backend per-lap interval roles: aligned by 0-based position with the lap
+    // set the backend ran detection on (detected.lap_source: "manual" laps for
+    // interval sessions, else the stored "splits").
+    var lapRoles =
+      detected && detected.confident && detected.lap_roles
+        ? detected.lap_roles
+        : null;
+    var rolesForManual = lapRoles && detected.lap_source === "manual" ? lapRoles : null;
+    var rolesForSplits = lapRoles && detected.lap_source !== "manual" ? lapRoles : null;
+    var distanceLapMeta = buildLapMeta(splits, z2min, z2max, rolesForSplits);
     var manualLapMeta = manualSplits.length
-      ? buildLapMeta(manualSplits, z2min, z2max)
+      ? buildLapMeta(manualSplits, z2min, z2max, rolesForManual)
       : [];
     var hasDistanceLaps = distanceLapMeta.length > 0;
     var hasManualLaps = manualLapMeta.length > 0;
@@ -1092,8 +1143,14 @@
     // ── 5b Interval set ──
     var intervalsBlock = "";
     if (activeLapMeta.length) {
-      var intervalWorkLaps = extractIntervalSet(activeLapMeta);
-      intervalsBlock = renderIntervalBlock(intervalWorkLaps);
+      // Prefer the backend's role-tagged work laps (numbered) when they apply to
+      // the active lap set; fall back to the frontend anomaly heuristic.
+      var activeHasRoles = activeLapMeta.some(function (m) { return m.role === "work"; });
+      var repsPerSet = (detected && detected.confident) ? detected.reps_per_set : null;
+      var intervalWorkLaps = activeHasRoles
+        ? activeLapMeta.filter(function (m) { return m.role === "work"; })
+        : extractIntervalSet(activeLapMeta);
+      intervalsBlock = renderIntervalBlock(intervalWorkLaps, activeHasRoles ? repsPerSet : null);
     }
 
     // ── 6 Aerobic decoupling ──
@@ -1479,6 +1536,15 @@
       var mx = nums.length ? Math.max.apply(null, nums) : 1;
       var rng = mx - mn || 1;
 
+      // Multiple true sets? Governs the bar set-label wording.
+      var chMaxSet = 0;
+      laps.forEach(function (lap) { if (lap.set && lap.set > chMaxSet) chMaxSet = lap.set; });
+      var chMultiSet = chMaxSet > 1;
+
+      // (Set numbering lives on the table's "Set N" badges; the chart keeps
+      // per-bar rep numbers + paired work/recovery tinting only — no under-axis
+      // set chip, which overlapped the lap-number axis.)
+
       // Pixel heights against the chart's measured height — no CSS %-resolution.
       var CH = chart.clientHeight || 130;
       chart.innerHTML = laps
@@ -1487,13 +1553,27 @@
           var cls = "rd4-cbar2";
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
+          // Interval-pair styling: alternate tint per work rep so the reps are
+          // visually countable; a rep number floats over each work bar, and the
+          // first work bar of each set also carries a "Set N" tag.
+          var cellCls = "rd4-cell2";
+          var repLbl = "";
+          if (lap.role === "work") {
+            cls += " rd4-cbar2--work";
+            cellCls += " rd4-cell2--work" + (lap.rep && lap.rep % 2 === 0 ? " rd4-cell2--work-alt" : "");
+            var bl = chMultiSet ? (lap.set + "·" + lap.rep) : String(lap.rep);
+            repLbl = '<span class="rd4-cbar-rep" title="rep ' + lap.rep + '">' + esc(bl) + "</span>";
+          } else if (lap.role === "recovery") {
+            cls += " rd4-cbar2--rest";
+            cellCls += " rd4-cell2--rest";
+          }
           if (v == null) {
-            return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+            return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
           var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
-          return '<div class="rd4-cell2" data-i="' + i + '" style="flex:1 0 0"><div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
+          return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
