@@ -529,3 +529,134 @@ class TestModelColumns:
     def test_workout_model_has_speed_signal_source_column(self):
         from backend.models import Workout
         assert hasattr(Workout, "speed_signal_source")
+
+
+# ---------------------------------------------------------------------------
+# Manual-laps path (issue #1240): a Stryd run whose 1 km auto-splits are
+# sub-threshold but whose manual-lap reps are hard → speed_signal populated
+# from the manual laps, source annotated "manual-lap window".
+# ---------------------------------------------------------------------------
+
+class _FakeQuery:
+    """Minimal SQLAlchemy-query stand-in: filter/order_by are no-ops, and
+    first()/all() return the rows this query was seeded with."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def filter(self, *a, **k):
+        return self
+
+    def order_by(self, *a, **k):
+        return self
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+    def all(self):
+        return list(self._rows)
+
+
+class _FakeSession:
+    """Dispatches session.query(Model) to seeded rows keyed by model name."""
+
+    def __init__(self, rows_by_model):
+        self._rows_by_model = rows_by_model
+
+    def query(self, model):
+        return _FakeQuery(self._rows_by_model.get(model.__name__, []))
+
+
+class TestManualLapsPath:
+    """The DB caller prefers manual-lap reps over sub-threshold auto-splits."""
+
+    def _run(self, monkeypatch, auto_splits, manual_laps, ftp_w=279):
+        from backend.models import (
+            Workout,
+            WorkoutSplit,
+            UserPreferences,
+            StrydActivity,
+        )
+        import backend.services.speed_signal as ss
+
+        workout = SimpleNamespace(
+            id="w-1",
+            user_id="u-1",
+            workout_type="run",
+            stryd_activity_pk="sa-1",
+            speed_signal="SENTINEL",
+            speed_signal_basis="SENTINEL",
+            speed_signal_window_seconds="SENTINEL",
+            speed_signal_source="SENTINEL",
+        )
+        sta = SimpleNamespace(id="sa-1", streams_payload={"any": "payload"})
+        prefs = SimpleNamespace(
+            user_id="u-1",
+            ftp_w=ftp_w,
+            threshold_hr=None,
+            threshold_pace_seconds_per_km=None,
+        )
+        session = _FakeSession({
+            Workout.__name__: [workout],
+            WorkoutSplit.__name__: auto_splits,
+            StrydActivity.__name__: [sta],
+            UserPreferences.__name__: [prefs],
+        })
+        # compute_manual_laps is imported inside the caller from
+        # backend.services.stryd_laps — patch it there.
+        monkeypatch.setattr(
+            "backend.services.stryd_laps.compute_manual_laps",
+            lambda streams: manual_laps,
+        )
+        ok, reason = ss.compute_and_store_speed_signal("w-1", session)
+        return ok, reason, workout
+
+    def test_manual_reps_hard_when_auto_splits_subthreshold(self, monkeypatch):
+        # Auto-splits: ~7 min at 0.96×FTP → tempo/below-hard, and out of the
+        # 6-min window anyway (avg reps+recovery). Manual reps: ~95 s at
+        # ~1.30×FTP (363W / 279W) → hard, inside the window.
+        auto = [
+            _split(duration_seconds=447, avg_power=249, distance_km=1.0),
+            _split(duration_seconds=414, avg_power=269, distance_km=1.0),
+        ]
+        manual = [
+            {"duration_seconds": 95, "distance_km": 0.31, "avg_power": 363, "avg_hr": 168},
+            {"duration_seconds": 90, "distance_km": 0.11, "avg_power": 150, "avg_hr": 130},
+            {"duration_seconds": 98, "distance_km": 0.32, "avg_power": 365, "avg_hr": 169},
+        ]
+        ok, reason, w = self._run(monkeypatch, auto, manual)
+        assert ok is True, reason
+        assert w.speed_signal is not None
+        assert w.speed_signal > 1.0
+        assert w.speed_signal_basis == "power"
+        assert 60 <= w.speed_signal_window_seconds <= 360
+        assert "manual-lap" in (w.speed_signal_source or "")
+
+    def test_falls_back_to_auto_splits_when_manual_reps_not_hard(self, monkeypatch):
+        # A qualifying hard auto-split (5 min at 1.15×FTP) but easy manual laps
+        # → the caller falls back to the auto-splits and still finds the signal.
+        auto = [_split(duration_seconds=300, avg_power=int(279 * 1.15), distance_km=1.0)]
+        manual = [
+            {"duration_seconds": 95, "distance_km": 0.3, "avg_power": 150, "avg_hr": 130},
+            {"duration_seconds": 90, "distance_km": 0.3, "avg_power": 148, "avg_hr": 128},
+        ]
+        ok, reason, w = self._run(monkeypatch, auto, manual)
+        assert ok is True, reason
+        assert w.speed_signal is not None
+        assert w.speed_signal_basis == "power"
+        # Auto-split fallback → source must NOT be tagged manual-lap.
+        assert "manual-lap" not in (w.speed_signal_source or "")
+
+    def test_easy_run_no_hard_anywhere_stays_null(self, monkeypatch):
+        # Neither auto-splits nor manual laps reach threshold → null (no false
+        # positive).
+        auto = [_split(duration_seconds=300, avg_power=150, distance_km=1.5)]
+        manual = [
+            {"duration_seconds": 95, "distance_km": 0.3, "avg_power": 145, "avg_hr": 125},
+        ]
+        ok, reason, w = self._run(monkeypatch, auto, manual)
+        assert ok is True, reason
+        assert w.speed_signal is None
+        assert w.speed_signal_basis is None
+        assert w.speed_signal_window_seconds is None
+        assert w.speed_signal_source is None
