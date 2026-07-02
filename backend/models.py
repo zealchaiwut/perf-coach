@@ -1316,3 +1316,43 @@ class SummaryCache(Base):
         nullable=False,
         server_default=text("now()"),
     )
+
+
+class PlannedSession(Base):
+    """A hand-entered planned training session for the new Plan tab.
+
+    Distinct from Projection's synthetic ramp/taper load model (TrainingPlan /
+    PlannedLoad). Link-only: ``matched_workout_id`` points at the reconciled
+    ``workouts`` row that fulfilled this planned session — the workout stays its
+    own row and the Log tab is unchanged.
+    """
+
+    __tablename__ = "planned_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    planned_date = Column(Date, nullable=False, index=True)
+    # run | strength | plyo | rest
+    session_type = Column(String(20), nullable=False)
+    name = Column(String(200), nullable=True)
+    # blocks[] for runs / exercises[] for strength·plyo; null for rest
+    structure = Column(JSONB, nullable=True)
+    notes = Column(Text, nullable=True)
+    # planned | missed | needs_review | done_auto | done_manual
+    status = Column(String(20), nullable=False, server_default=text("'planned'"))
+    matched_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_planned_sessions_user_date", "user_id", "planned_date"),
+    )

@@ -3978,6 +3978,14 @@
           </button>
           <button
             class="training-sub-tab"
+            data-tab="plan"
+            type="button"
+            aria-selected="false"
+          >
+            Plan
+          </button>
+          <button
+            class="training-sub-tab"
             data-tab="projection"
             type="button"
             aria-selected="false"
@@ -4121,9 +4129,16 @@
       </div>
     </main>
 
-    <!-- Plan panel (issue #650) -->
+    <!-- Plan panel (new weekly training schedule — window.TrainingPlan) -->
+    <div id="training-panel-plan" class="tab-panel-placeholder plan-panel" hidden>
+      <div id="plan-week-section"></div>
+      <div id="plan-add-section"></div>
+      <div id="plan-detail-section"></div>
+    </div>
+
+    <!-- Projection panel (issue #650) -->
     <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
-      <!-- ── Plan tab panel ─────────────────────────────────────────── -->
+      <!-- ── Projection tab panel ───────────────────────────────────── -->
       <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
@@ -7521,6 +7536,7 @@
     <script src="js/training.js"></script>
     <script src="js/training-log.js"></script>
     <script src="js/training-projection.js"></script>
+    <script src="js/training-plan.js"></script>
     <script src="js/training-performance.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
@@ -7528,11 +7544,12 @@
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "projection", "performance"];
+        var TABS = ["log", "plan", "projection", "performance"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
-        var panelPlan = document.getElementById("training-panel-projection");
+        var panelPlan = document.getElementById("training-panel-plan");
+        var panelProjection = document.getElementById("training-panel-projection");
         var panelPerf = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
@@ -7557,7 +7574,10 @@
           });
           if (layoutWrapper) layoutWrapper.style.display = isLog ? "" : "none";
           // Show/hide placeholder panels
-          if (panelPlan) panelPlan.hidden = tab !== "projection";
+          if (panelPlan) panelPlan.hidden = tab !== "plan";
+          if (tab === "plan" && window.TrainingPlan && window.TrainingPlan.init)
+            window.TrainingPlan.init();
+          if (panelProjection) panelProjection.hidden = tab !== "projection";
           if (
             tab === "projection" &&
             window.TrainingProjection &&
