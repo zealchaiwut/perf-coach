@@ -4613,6 +4613,25 @@
       "--log-nav-total",
       gh + hh + "px",
     );
+
+    // Align the two nav clusters with the columns below them: brand+tabs to the
+    // content column's left edge, actions to the detail drawer's left edge.
+    var inner = document.querySelector(".log-page-header-inner");
+    var col = document.getElementById("list-main");
+    var actions = document.querySelector(".log-page-header-actions");
+    if (inner) {
+      var innerLeft = inner.getBoundingClientRect().left;
+      if (col) {
+        var contentLeft = col.getBoundingClientRect().left;
+        inner.style.paddingLeft = Math.max(0, contentLeft - innerLeft) + "px";
+      }
+      if (actions) {
+        var DRAWER_W = 440, DRAWER_INSET = 12;
+        var drawerLeft = window.innerWidth - DRAWER_INSET - DRAWER_W;
+        actions.style.left = Math.max(0, drawerLeft - innerLeft) + "px";
+        actions.style.right = "auto";
+      }
+    }
   }
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);

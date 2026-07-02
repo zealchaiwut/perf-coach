@@ -110,11 +110,13 @@
         align-items: center;
         gap: 8px;
         flex-shrink: 0;
-        flex-wrap: wrap;
-        /* Width = detail drawer width; pinned right (header pad-right 12 = drawer
-           inset), so the actions' left edge lines up with the drawer's left edge. */
-        width: 440px;
-        margin-left: auto;
+        /* Absolutely positioned; JS (_positionNav) sets `left` to the detail
+           drawer's left edge so the two clusters line up with the columns below.
+           Falls back to right-aligned before JS runs. */
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
       }
       /* Equal HEIGHT action buttons (Sync / Removed / + Log workout). */
       .log-page-header-actions .sync-chip,
@@ -5893,9 +5895,9 @@
     .log-page-header-inner {
       max-width: none;
       margin: 0;
-      /* Left cluster starts at the content column's left edge (summary card left =
-         centered 1280 container + 22px pad). Right pad 12px = detail drawer inset. */
-      padding: 12px 12px 12px max(22px, calc((100vw - 1280px) / 2 + 22px));
+      position: relative;         /* anchor for the absolutely-positioned actions */
+      /* JS (_positionNav) sets padding-left to the content column's left edge. */
+      padding: 12px 24px;
       display: flex;
       align-items: center;
       gap: 22px;
@@ -6172,13 +6174,6 @@
     #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
     /* Inset the drawer top bar to match the card padding (item: "same as summary"). */
     #layout-wrapper .detail-panel .dp-topbar { padding: 0 18px; }
-    /* Responsive: when the drawer is open on a wide screen, shift the centered
-       content left to reserve room for the drawer instead of covering it. Below
-       the threshold there isn't enough width, so it falls back to an overlay. */
-    #layout-wrapper { transition: margin-right 0.24s ease; }
-    @media (min-width: 1200px) {
-      #layout-wrapper.has-panel { margin-right: 476px; }
-    }
     /* Highlight the log-list day-groups belonging to a calendar-selected week. */
     .day-group.lrx-week-hl {
       background: #eef2ff;
