@@ -1541,6 +1541,17 @@
       laps.forEach(function (lap) { if (lap.set && lap.set > chMaxSet) chMaxSet = lap.set; });
       var chMultiSet = chMaxSet > 1;
 
+      // First work bar of each set — carries a "Set N" tag so the sets are
+      // countable on the chart, matching the table's "Set N" badges.
+      var chSetStart = {};
+      var chSeenSet = {};
+      laps.forEach(function (lap, i) {
+        if (lap.role === "work" && lap.set != null && !chSeenSet[lap.set]) {
+          chSeenSet[lap.set] = true;
+          chSetStart[i] = lap.set;
+        }
+      });
+
       // Pixel heights against the chart's measured height — no CSS %-resolution.
       var CH = chart.clientHeight || 130;
       chart.innerHTML = laps
@@ -1550,7 +1561,8 @@
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
           // Interval-pair styling: alternate tint per work rep so the reps are
-          // visually countable; a small rep number floats over each work bar.
+          // visually countable; a rep number floats over each work bar, and the
+          // first work bar of each set also carries a "Set N" tag.
           var cellCls = "rd4-cell2";
           var repLbl = "";
           if (lap.role === "work") {
@@ -1629,8 +1641,13 @@
       }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
-        axisEl.innerHTML = laps.map(function (lap) {
-          return '<div class="rd4-cell2">' + lap.index + "</div>";
+        axisEl.innerHTML = laps.map(function (lap, i) {
+          // Under the first work bar of each set, add a "Set N" tag so the sets
+          // (and thus the pairs) are countable on the chart, matching the table.
+          var setTag = chSetStart[i] != null
+            ? '<span class="rd4-axis-set" title="set ' + chSetStart[i] + '">Set ' + chSetStart[i] + "</span>"
+            : "";
+          return '<div class="rd4-cell2">' + lap.index + setTag + "</div>";
         }).join("");
       }
 
