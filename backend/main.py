@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -6751,6 +6751,332 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
     return Response(status_code=204)
+
+
+# ── Planned sessions (new Plan tab — weekly training schedule) ────────────────
+# Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
+# Link-only: matched_workout_id → workouts.id; Log tab unchanged.
+
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
+
+
+class PlannedSessionIn(BaseModel):
+    planned_date: str
+    session_type: str
+    name: Optional[str] = None
+    structure: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class PlannedSessionPatch(BaseModel):
+    planned_date: Optional[str] = None
+    session_type: Optional[str] = None
+    name: Optional[str] = None
+    structure: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class PlannedSessionMatchIn(BaseModel):
+    workout_id: str
+
+
+def _validate_planned_type(t: str) -> str:
+    t = (t or "").strip().lower()
+    if t not in _PLANNED_SESSION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
+        )
+    return t
+
+
+def _validate_planned_date(s: str) -> _date:
+    try:
+        return _date.fromisoformat((s or "").strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "planned_date", "error": "must be ISO YYYY-MM-DD"},
+        )
+
+
+def _workout_actual_summary(w) -> dict:
+    """Compact actual-workout summary attached to a matched planned session."""
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if w.tss is not None:
+        bits.append(str(round(float(w.tss))) + " TSS")
+    elif dist:
+        bits.append(("%.1f" % dist) + " km")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "date": str(w.workout_date),
+        "distance_km": dist,
+        "duration_seconds": w.duration_seconds,
+        "tss": float(w.tss) if w.tss is not None else None,
+        "meta": " · ".join(bits),
+    }
+
+
+def _planned_session_dict(p, matched=None) -> dict:
+    return {
+        "id": str(p.id),
+        "planned_date": str(p.planned_date),
+        "session_type": p.session_type,
+        "name": p.name,
+        "structure": p.structure,
+        "notes": p.notes,
+        "status": p.status,
+        "matched_workout_id": str(p.matched_workout_id) if p.matched_workout_id else None,
+        "actual": _workout_actual_summary(matched) if matched is not None else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _ghost_workout_dict(w) -> dict:
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if dist:
+        bits.append(("%.1f" % dist) + " km")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "date": str(w.workout_date),
+        "meta": " · ".join(bits) or "—",
+    }
+
+
+def _get_planned_session_or_404(session, ps_id: str, user: User):
+    try:
+        pid = _uuid.UUID(ps_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid planned_session id")
+    row = session.get(PlannedSession, pid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Planned session not found")
+    if row.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return row
+
+
+@app.get("/api/planned-sessions")
+def get_planned_sessions(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Week bundle: planned sessions (each with status + matched actual summary)
+    plus unplanned/ghost workouts, grouped by day for the Plan tab.
+
+    Shape:
+      {"from","to","days":[{"date","dow","planned":[<session dict>...],
+        "unplanned":[<ghost dict>...]}]}
+    """
+    from datetime import timedelta as _td
+    from backend.services import plan_matching as _pm
+
+    today = _date.today()
+    # Default to the current Monday–Sunday ISO week.
+    if from_date:
+        start = _validate_planned_date(from_date)
+    else:
+        start = today - _td(days=today.weekday())
+    if to_date:
+        end = _validate_planned_date(to_date)
+    else:
+        end = start + _td(days=6)
+    if end < start:
+        raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be >= from"})
+
+    uid = user.id
+    with Session(engine) as session:
+        rows = (
+            session.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date >= start,
+                PlannedSession.planned_date <= end,
+            )
+            .order_by(PlannedSession.planned_date, PlannedSession.created_at)
+            .all()
+        )
+        matched_map = {}
+        wanted = [r.matched_workout_id for r in rows if r.matched_workout_id is not None]
+        if wanted:
+            for w in session.query(Workout).filter(Workout.id.in_(wanted)).all():
+                matched_map[w.id] = w
+
+        ghost_ids = _pm.unplanned_workout_ids(session, uid, start, end)
+        ghost_map = {}
+        if ghost_ids:
+            for w in session.query(Workout).filter(Workout.id.in_(list(ghost_ids))).all():
+                ghost_map[w.id] = w
+
+        # Group by day across the full range (empty days included → Rest day UI).
+        _DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+        by_day = {}
+        d = start
+        while d <= end:
+            by_day[d] = {"date": str(d), "dow": _DOW[d.weekday()], "planned": [], "unplanned": []}
+            d += _td(days=1)
+        for r in rows:
+            bucket = by_day.get(r.planned_date)
+            if bucket is None:
+                continue
+            matched = matched_map.get(r.matched_workout_id) if r.matched_workout_id else None
+            bucket["planned"].append(_planned_session_dict(r, matched))
+        for wid, w in ghost_map.items():
+            bucket = by_day.get(w.workout_date)
+            if bucket is not None:
+                bucket["unplanned"].append(_ghost_workout_dict(w))
+
+        days = [by_day[k] for k in sorted(by_day.keys())]
+        return JSONResponse({"from": str(start), "to": str(end), "days": days})
+
+
+@app.post("/api/planned-sessions", status_code=201)
+def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_user)):
+    ptype = _validate_planned_type(body.session_type)
+    pdate = _validate_planned_date(body.planned_date)
+    with Session(engine) as session:
+        row = PlannedSession(
+            user_id=user.id,
+            planned_date=pdate,
+            session_type=ptype,
+            name=(body.name or None),
+            structure=body.structure,
+            notes=(body.notes.strip() if body.notes else None),
+            status="planned",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(status_code=201, content=_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/bulk", status_code=201)
+def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depends(resolve_user)):
+    if not isinstance(body, list) or not body:
+        raise HTTPException(status_code=422, detail="Expected a non-empty array of sessions")
+    created = []
+    with Session(engine) as session:
+        for item in body:
+            ptype = _validate_planned_type(item.session_type)
+            pdate = _validate_planned_date(item.planned_date)
+            row = PlannedSession(
+                user_id=user.id,
+                planned_date=pdate,
+                session_type=ptype,
+                name=(item.name or None),
+                structure=item.structure,
+                notes=(item.notes.strip() if item.notes else None),
+                status="planned",
+            )
+            session.add(row)
+            created.append(row)
+        session.commit()
+        for row in created:
+            session.refresh(row)
+        return JSONResponse(status_code=201, content=[_planned_session_dict(r) for r in created])
+
+
+@app.patch("/api/planned-sessions/{ps_id}")
+def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        if body.planned_date is not None:
+            new_date = _validate_planned_date(body.planned_date)
+            # Rescheduling a missed session resets it to planned (mock behavior).
+            if row.status == "missed" and new_date != row.planned_date:
+                row.status = "planned"
+            row.planned_date = new_date
+        if body.session_type is not None:
+            row.session_type = _validate_planned_type(body.session_type)
+        if body.name is not None:
+            row.name = body.name or None
+        if "structure" in body.model_fields_set:
+            row.structure = body.structure
+        if body.notes is not None:
+            row.notes = body.notes.strip() or None
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        matched = session.get(Workout, row.matched_workout_id) if row.matched_workout_id else None
+        return JSONResponse(_planned_session_dict(row, matched))
+
+
+@app.delete("/api/planned-sessions/{ps_id}", status_code=204)
+def delete_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        session.delete(row)
+        session.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/planned-sessions/{ps_id}/match")
+def match_planned_session(ps_id: str, body: PlannedSessionMatchIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(body.workout_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        workout = session.get(Workout, wid)
+        if workout is None or workout.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        row.matched_workout_id = wid
+        row.status = "done_manual"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row, workout))
+
+
+@app.post("/api/planned-sessions/{ps_id}/unmatch")
+def unmatch_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "planned"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/{ps_id}/miss")
+def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "missed"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/reconcile")
+def reconcile_planned_sessions(user: User = Depends(resolve_user)):
+    """Run the planned-session matcher on demand for the current user."""
+    from backend.services import plan_matching as _pm
+    with Session(engine) as session:
+        result = _pm.reconcile_user(session, user.id)
+    return JSONResponse(result)
 
 
 @app.post("/api/workouts/{workout_id}/duplicate", status_code=201)
