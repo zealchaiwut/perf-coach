@@ -112,6 +112,13 @@
         flex-shrink: 0;
         flex-wrap: wrap;
       }
+      /* Equal-size action buttons (Sync / Removed / + Log workout). */
+      .log-page-header-actions .sync-chip,
+      .log-page-header .btn-secondary,
+      .log-page-header .btn-accent {
+        min-width: 132px;
+        justify-content: center;
+      }
 
       .log-page-header .btn-secondary {
         height: 36px;
@@ -6137,9 +6144,11 @@
        corners + a small right inset so it reads as a card, matching the layout. */
     #layout-wrapper .detail-panel {
       position: fixed;
-      top: var(--log-nav-total, 116px);
+      /* +16px so the drawer's top lines up with the content's top gap below the
+         nav (same top padding as the summary column). */
+      top: calc(var(--log-nav-total, 116px) + 16px);
       right: 12px;
-      height: calc(100vh - var(--log-nav-total, 116px) - 12px);
+      height: calc(100vh - var(--log-nav-total, 116px) - 16px - 12px);
       width: 440px;
       max-width: 94vw;
       background: #fff;
