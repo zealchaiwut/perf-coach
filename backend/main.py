@@ -14347,6 +14347,32 @@ def _generate_weekly_note(
     return ", ".join(parts) if parts else f"{session_count} session{'s' if session_count > 1 else ''} logged"
 
 
+# In-process cache for the log-tab summaries: recompute only when new workouts
+# arrive (a sync) or the period rolls over — otherwise reuse the last result
+# (summary was recomputed every load). Signature-invalidation like the plan
+# cache; in-memory (re-warms after a restart, which is fine — idempotent).
+_SUMMARY_CACHE: dict = {}
+
+
+def _summary_signature(session, user_id) -> str:
+    from sqlalchemy import func as _sf
+    row = (
+        session.query(_sf.max(Workout.created_at), _sf.count(Workout.id))
+        .filter(Workout.user_id == user_id)
+        .one()
+    )
+    return "%s|%s" % (row[0], row[1])
+
+
+def _summary_cache_get(user_id, key, sig):
+    ent = _SUMMARY_CACHE.get((str(user_id), key))
+    return ent[1] if ent and ent[0] == sig else None
+
+
+def _summary_cache_put(user_id, key, sig, payload):
+    _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+
+
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
 def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
     """Return a flat weekly summary for the current ISO week.
@@ -14378,6 +14404,11 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
         we = ws + _timedelta(days=6)                     # Sunday
         # Cap the load series end at today — daily_tss_series rejects future dates.
         load_end = min(we, today)
+
+        _sig = _summary_signature(session, uid) + "|" + ws.isoformat()
+        _cached = _summary_cache_get(uid, "weekly", _sig)
+        if _cached is not None:
+            return JSONResponse(_cached)
 
         # ── Weekly volume (AC8) ───────────────────────────────────────────────
         current_week_workouts = (
@@ -14572,7 +14603,7 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
 
     guardrail = get_guardrail_result(uid)
 
-    return JSONResponse({
+    _payload = {
         "week_start": ws.isoformat(),
         "week_end": we.isoformat(),
         "distance_km": distance_km,
@@ -14586,7 +14617,9 @@ def get_athlete_weekly_summary(user: User = Depends(resolve_user)):
         "readiness_next_week": readiness_next_week,
         "guardrail_state": guardrail["guardrail_state"],
         "guardrail_message": guardrail["guardrail_message"],
-    })
+    }
+    _summary_cache_put(uid, "weekly", _sig, _payload)
+    return JSONResponse(_payload)
 
 
 # ── Athlete run personal records ───────────────────────────────────────────────
@@ -15430,6 +15463,12 @@ def get_athlete_monthly_summary(
         if athlete is None:
             raise HTTPException(status_code=404, detail="Athlete not found")
 
+        _mkey = "monthly:" + month_start.isoformat()
+        _msig = _summary_signature(session, uid)
+        _mcached = _summary_cache_get(uid, _mkey, _msig)
+        if _mcached is not None:
+            return JSONResponse(_mcached)
+
         workouts = (
             session.query(Workout)
             .filter(
@@ -15565,7 +15604,7 @@ def get_athlete_monthly_summary(
 
     guardrail = get_guardrail_result(uid)
 
-    return JSONResponse({
+    _mpayload = {
         "month_start": month_start.isoformat(),
         "month_end": month_end.isoformat(),
         "distance_km": distance_km,
@@ -15582,7 +15621,9 @@ def get_athlete_monthly_summary(
         "next_checkpoint": next_checkpoint,
         "guardrail_state": guardrail["guardrail_state"],
         "guardrail_message": guardrail["guardrail_message"],
-    })
+    }
+    _summary_cache_put(uid, _mkey, _msig, _mpayload)
+    return JSONResponse(_mpayload)
 
 
 # ── Intensity Distribution ───────────────────────────────────────────────────

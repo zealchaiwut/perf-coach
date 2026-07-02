@@ -607,6 +607,63 @@
            '</div>';
   }
 
+  // Draw a small SVG trend line into an <svg> element from a numeric series.
+  function _lrxTrendLine(svgId, pts, color) {
+    var svg = document.getElementById(svgId);
+    if (!svg || !pts || pts.length < 2) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = 120, H = 52;
+    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    var d = pts
+      .map(function (v, i) {
+        var x = (i / (pts.length - 1)) * W;
+        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 6) - 3;
+        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+      })
+      .join(" ");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var NS = "http://www.w3.org/2000/svg";
+    var path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", "1.8");
+    svg.appendChild(path);
+  }
+
+  // Readiness band model: [min,max] for marker placement + status thresholds.
+  // First-pass ranges (tunable): CTL/ATL 0–60, TSB −25..+15.
+  function _lrxReadStatus(metric, v) {
+    if (metric === "ctl") {
+      if (v < 20) return { word: "DETRAINING", color: "var(--lrx-amber)" };
+      if (v < 40) return { word: "STEADY", color: "var(--lrx-lavHi)" };
+      return { word: "STRONG", color: "var(--lrx-green)" };
+    }
+    if (metric === "atl") {
+      if (v < 25) return { word: "LOW", color: "var(--lrx-green)" };
+      if (v < 45) return { word: "MODERATE", color: "var(--lrx-lavHi)" };
+      return { word: "HIGH", color: "var(--lrx-amber)" };
+    }
+    // tsb
+    if (v < -10) return { word: "OVERREACHED", color: "var(--lrx-amber)" };
+    if (v <= 5) return { word: "OPTIMAL", color: "var(--lrx-green)" };
+    return { word: "FRESH", color: "var(--lrx-run)" };
+  }
+
+  function _lrxMarkerPct(metric, v) {
+    var min = metric === "tsb" ? -25 : 0;
+    var max = metric === "tsb" ? 15 : 60;
+    var pct = ((v - min) / (max - min)) * 100;
+    return Math.max(2, Math.min(98, pct));
+  }
+
+  var _LRX_BAND = {
+    ctl: "linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)",
+    atl: "linear-gradient(90deg,#22c55e,#eab308,#ef4444)",
+    tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
+  };
+  var _LRX_TREND_COLOR = { ctl: "#4f6ef7", atl: "#dc2626", tsb: "#16a34a" };
+
   function renderReadinessWidget(data) {
     var el = document.getElementById('readiness-widget');
     if (!el) return;
@@ -614,43 +671,42 @@
 
     if (data.building_baseline) {
       el.innerHTML =
-        '<div class="rw-header"><span class="rw-title">Readiness</span></div>' +
+        '<div class="lrx-chead"><span class="lrx-sectitle">Readiness</span></div>' +
         '<p class="rw-baseline-msg">Building baseline — log more workouts to unlock your Fitness, Fatigue, and Freshness scores.</p>';
       el.hidden = false;
       return;
     }
 
     var series = data.series || [];
+    var rlabel = data.readiness_label || '';
 
-    function tile(val, abbr, label, sparkId, metric) {
-      return '<div class="rw-tile">' +
-               '<div class="rw-tile-val">' + esc(fmtLoadNum(val)) + '</div>' +
-               '<div class="rw-tile-label">' + abbr +
-                 ' <span class="rw-tile-sub">' + label + '</span></div>' +
-               _zoneBarHtml(metric, val, series) +
-               '<div class="rw-spark-wrap"><canvas class="rw-tile-sparkline" id="' + sparkId + '"></canvas></div>' +
-             '</div>';
+    function rcard(metric, val, abbr, label, chartId) {
+      var st = _lrxReadStatus(metric, val);
+      var pct = _lrxMarkerPct(metric, val);
+      return '<div class="lrx-rcard">' +
+        '<div class="rv">' + esc(fmtLoadNum(val)) + '</div>' +
+        '<div class="rl">' + abbr + ' · ' + label + '</div>' +
+        '<div class="lrx-rband" style="background:' + _LRX_BAND[metric] + '">' +
+          '<div class="mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
+        '<div class="lrx-rstatus" style="color:' + st.color + '">' + st.word + '</div>' +
+        '<svg class="lrx-rchart" id="' + chartId + '"></svg>' +
+      '</div>';
     }
 
-    var rlabel = data.readiness_label || '';
-    var rlabelClass = rlabel === 'Fresh' ? 'rw-label--fresh'
-                    : rlabel === 'Fatigued' ? 'rw-label--fatigued'
-                    : 'rw-label--optimal';
-
     el.innerHTML =
-      '<div class="rw-header">' +
-        '<span class="rw-title">Readiness</span>' +
-        (rlabel ? '<span class="rw-label ' + rlabelClass + '">' + esc(rlabel) + '</span>' : '') +
+      '<div class="lrx-chead">' +
+        '<span class="lrx-sectitle">Readiness</span>' +
+        (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + '</span>' : '') +
       '</div>' +
-      '<div class="rw-tiles">' +
-        tile(data.ctl, 'CTL', 'Fitness',   'rw-spark-ctl', 'ctl') +
-        tile(data.atl, 'ATL', 'Fatigue',   'rw-spark-atl', 'atl') +
-        tile(data.tsb, 'TSB', 'Freshness', 'rw-spark-tsb', 'tsb') +
+      '<div class="lrx-readfull">' +
+        rcard('ctl', data.ctl, 'CTL', 'Fitness',   'lrx-r-ctl') +
+        rcard('atl', data.atl, 'ATL', 'Fatigue',   'lrx-r-atl') +
+        rcard('tsb', data.tsb, 'TSB', 'Freshness', 'lrx-r-tsb') +
       '</div>';
     el.hidden = false;
-    _renderSparkline('rw-spark-ctl', series.map(function (d) { return d.ctl; }), '#3b82f6');
-    _renderSparkline('rw-spark-atl', series.map(function (d) { return d.atl; }), '#ef4444');
-    _renderSparkline('rw-spark-tsb', series.map(function (d) { return d.tsb; }), '#10b981');
+    _lrxTrendLine('lrx-r-ctl', series.map(function (d) { return d.ctl; }), _LRX_TREND_COLOR.ctl);
+    _lrxTrendLine('lrx-r-atl', series.map(function (d) { return d.atl; }), _LRX_TREND_COLOR.atl);
+    _lrxTrendLine('lrx-r-tsb', series.map(function (d) { return d.tsb; }), _LRX_TREND_COLOR.tsb);
   }
 
   function fetchReadinessWidget() {
@@ -951,6 +1007,25 @@
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
   // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
   function buildSeparator(titleText, agg, variant) {
+    // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
+    // Month separators are rendered as a light label row (kept minimal so the
+    // week headers carry the totals, matching the mock's week-grouped list).
+    if (variant === 'week-sep') {
+      var sep = document.createElement('div');
+      sep.className = 'lrx-wkhdr';
+      var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
+      var km = agg ? (Math.round(agg.km * 10) / 10) : 0;
+      var wl = document.createElement('span');
+      wl.className = 'wl';
+      wl.textContent = (titleText || '').replace(/^Week of\s*/, '');
+      var wr = document.createElement('span');
+      wr.className = 'wr';
+      wr.textContent = tss + ' TSS · ' + km + ' km';
+      sep.appendChild(wl);
+      sep.appendChild(wr);
+      return sep;
+    }
+
     var sep = document.createElement('div');
     sep.className = 'month-sep' + (variant ? ' ' + variant : '');
 
@@ -1117,8 +1192,8 @@
 
     if (st.cursor < st.days.length) {
       var sentinel = document.createElement('div');
-      sentinel.className = 'log-load-more-sentinel';
-      sentinel.setAttribute('aria-hidden', 'true');
+      sentinel.className = 'log-load-more-sentinel lrx-sentinel';
+      sentinel.innerHTML = '<span class="lrx-spin"></span> Loading older weeks…';
       st.container.appendChild(sentinel);
       st.sentinel = sentinel;
       if ('IntersectionObserver' in window) {
@@ -1129,13 +1204,18 @@
         }
         st.observer.observe(sentinel);
       } else {
-        sentinel.className = 'log-load-more';
+        sentinel.className = 'log-load-more lrx-sentinel';
         sentinel.textContent = 'Load more';
         sentinel.addEventListener('click', renderNextBatch);
       }
     } else {
       st.sentinel = null;
       if (st.observer) st.observer.disconnect();
+      // End-of-log marker (mock: "— end of log —").
+      var endEl = document.createElement('div');
+      endEl.className = 'lrx-sentinel';
+      endEl.textContent = '— end of log —';
+      st.container.appendChild(endEl);
     }
   }
 
@@ -1298,158 +1378,87 @@
     );
   }
 
+  // Reworked to the mock's .lrx-logrow (typed left accent, day block, name +
+  // meta, TSS at right) while keeping ALL existing wiring: entry-row classes +
+  // data-workout-* attrs (filtering/syncActiveRow), click/keydown → detail.
   function buildEntryRow(w) {
+    var typeKey = normalizeTypeKey(w.type);
+    // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
+    var fam = (typeKey === "run" || typeKey === "bike") ? "run" : "lift";
+    var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
+    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
+
     var row = document.createElement("div");
-    row.className = "entry-row";
-    if (w.id && activeDetailWorkoutId === w.id) {
-      row.classList.add("is-active");
-    }
+    row.className = "entry-row lrx-logrow " + fam + " entry-row--" + typeSlug;
+    if (w.id && activeDetailWorkoutId === w.id) row.classList.add("is-active");
+    row.dataset.workoutType = typeKey;
+    row.dataset.workoutTitle = (w.title || "").toLowerCase();
 
     if (w.id) {
       row.setAttribute("tabindex", "0");
       row.setAttribute("role", "button");
-      // Accessible name: type, title, date, and primary metric.
       var ariaBits = [];
-      var tk = normalizeTypeKey(w.type);
-      ariaBits.push(
-        { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" }[tk] ||
-          w.type ||
-          "Workout",
-      );
+      ariaBits.push(TYPE_LABELS[typeKey] || w.type || "Workout");
       ariaBits.push(w.title || "Workout");
       if (w.date) ariaBits.push(fmtDate(w.date));
-      if (tk === "run" && w.distance_km != null)
+      if (typeKey === "run" && w.distance_km != null)
         ariaBits.push((+w.distance_km).toFixed(1) + " kilometers");
       else if (w.duration_seconds)
         ariaBits.push(Math.round(w.duration_seconds / 60) + " minutes");
       row.setAttribute("aria-label", ariaBits.join(", ") + ". Open details");
       row.dataset.workoutId = w.id;
       var rowRef = row;
-      row.addEventListener("click", function () {
-        openDetailPanel(w.id, rowRef);
-      });
+      row.addEventListener("click", function () { openDetailPanel(w.id, rowRef); });
       row.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openDetailPanel(w.id, rowRef);
-        }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetailPanel(w.id, rowRef); }
       });
     }
 
-    var dateCol = document.createElement("div");
-    dateCol.className = "entry-date";
+    // Day block (number + month abbr).
     var d = new Date((w.date || "") + "T00:00:00");
-    var dayNumEl = document.createElement("div");
-    dayNumEl.className = "entry-day-num";
-    dayNumEl.textContent = isNaN(d.getDate()) ? "" : d.getDate();
-    var dayNameEl = document.createElement("div");
-    dayNameEl.className = "entry-day-name";
-    dayNameEl.textContent = isNaN(d.getDay()) ? "" : DAY_ABBR[d.getDay()];
-    dateCol.appendChild(dayNumEl);
-    dateCol.appendChild(dayNameEl);
+    var lday = document.createElement("div");
+    lday.className = "lday";
+    lday.innerHTML =
+      '<div class="d">' + (isNaN(d.getDate()) ? "" : d.getDate()) + "</div>" +
+      '<div class="m">' + (isNaN(d.getMonth()) ? "" : MONTHS[d.getMonth()]) + "</div>";
 
-    var typeKey = normalizeTypeKey(w.type);
-    var TYPE_LABELS = { run: 'Run', lift: 'Lift', wod: 'WOD', bike: 'Bike' };
-    var typeSlug = TYPE_LABELS[typeKey] ? typeKey : 'other';
-    row.classList.add('entry-row--' + typeSlug);
-    // issue #637: data attributes for client-side filtering
-    row.dataset.workoutType  = typeKey;
-    row.dataset.workoutTitle = (w.title || '').toLowerCase();
-    var badge = document.createElement('span');
-    badge.className = 'entry-type entry-type--' + typeSlug;
-    var dot = document.createElement('span');
-    dot.className = 'entry-type-dot';
-    badge.appendChild(dot);
-    var typeLbl = document.createElement("span");
-    typeLbl.className = "entry-type-label";
-    typeLbl.textContent = (TYPE_LABELS[typeKey] || w.type || "").toUpperCase();
-    badge.appendChild(typeLbl);
-
-    var body = document.createElement("div");
-    body.className = "entry-body";
-
-    var titleEl = document.createElement("div");
-    titleEl.className = "entry-title";
-    titleEl.textContent = w.title || "Workout";
-    body.appendChild(titleEl);
-
+    // Name + type badge + meta line.
     var metaParts = [];
     if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
-    if (typeKey === "run" && w.average_pace_seconds_per_km) {
+    if (typeKey === "run" && w.distance_km != null)
+      metaParts.push((+w.distance_km).toFixed(1) + " km");
+    if (typeKey === "run" && w.average_pace_seconds_per_km)
       metaParts.push(fmtPace(w.average_pace_seconds_per_km));
-    }
     if (w.avg_hr != null) metaParts.push("HR " + w.avg_hr);
     metaParts = metaParts.filter(Boolean);
 
+    var lname = document.createElement("div");
+    lname.className = "lname";
+    var nEl = document.createElement("div");
+    nEl.className = "n";
+    var badge = document.createElement("span");
+    badge.className = "lrx-tbadge " + fam;
+    badge.textContent = fam === "run" ? "run" : "lift";
+    nEl.appendChild(badge);
+    nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
+    lname.appendChild(nEl);
     if (metaParts.length) {
       var metaEl = document.createElement("div");
-      metaEl.className = "entry-meta";
+      metaEl.className = "meta";
       metaEl.textContent = metaParts.join(" · ");
-      body.appendChild(metaEl);
+      lname.appendChild(metaEl);
     }
 
-    var metricEl = document.createElement("div");
-    metricEl.className = "entry-metric";
-    var metricPrimary = document.createElement("div");
-    metricPrimary.className = "entry-metric-primary";
-    var metricSecondary = document.createElement("div");
-    metricSecondary.className = "entry-metric-secondary";
-    if (typeKey === "run" && w.distance_km != null) {
-      metricPrimary.textContent = (+w.distance_km).toFixed(1) + " km";
-      if (w.duration_seconds)
-        metricSecondary.textContent = fmtDurationRow(w.duration_seconds);
-    } else if (w.duration_seconds) {
-      var mins = Math.round(w.duration_seconds / 60);
-      metricPrimary.textContent = mins + " min";
-    }
-    metricEl.appendChild(metricPrimary);
-    if (metricSecondary.textContent) metricEl.appendChild(metricSecondary);
+    // Right-side stat: TSS (or em-dash for strength with no TSS).
+    var lstat = document.createElement("div");
+    lstat.className = "lstat";
+    var b = document.createElement("b");
+    b.textContent = w.tss != null ? Math.round(w.tss) + " TSS" : "—";
+    lstat.appendChild(b);
 
-    var tssEl = null;
-    if (w.tss != null) {
-      tssEl = document.createElement("span");
-      var tc = w.tss > 80 ? "tss-high" : w.tss > 50 ? "tss-mid" : "tss-low";
-      tssEl.className = "tss-pill " + tc;
-      tssEl.textContent = "TSS " + Math.round(w.tss);
-    }
-
-    var sourcesWrap = document.createElement("div");
-    sourcesWrap.className = "source-badges-wrap";
-    var isStrava = !!w.has_strava;
-    var isStryd = !!w.has_stryd;
-    if (isStrava) {
-      var sbadge = document.createElement("span");
-      sbadge.className = "source-badge source-badge--strava";
-      sbadge.textContent = "St";
-      sourcesWrap.appendChild(sbadge);
-    }
-    if (isStryd) {
-      var sbadgeStryd = document.createElement("span");
-      sbadgeStryd.className = "source-badge source-badge--stryd";
-      sbadgeStryd.textContent = "S";
-      sourcesWrap.appendChild(sbadgeStryd);
-    }
-    if (!isStrava && !isStryd) {
-      var sbadgeM = document.createElement("span");
-      sbadgeM.className = "source-badge source-badge--manual";
-      sbadgeM.setAttribute("aria-label", "Manual");
-      sbadgeM.innerHTML = "&#9998;";
-      sourcesWrap.appendChild(sbadgeM);
-    }
-
-    var chevron = document.createElement("span");
-    chevron.className = "entry-chevron";
-    chevron.setAttribute("aria-hidden", "true");
-    chevron.innerHTML = "&#8250;";
-
-    row.appendChild(dateCol);
-    row.appendChild(badge);
-    row.appendChild(body);
-    row.appendChild(metricEl);
-    if (tssEl) row.appendChild(tssEl);
-    row.appendChild(sourcesWrap);
-    row.appendChild(chevron);
-
+    row.appendChild(lday);
+    row.appendChild(lname);
+    row.appendChild(lstat);
     return row;
   }
 
@@ -4584,11 +4593,49 @@
 
   window.addEventListener("userReady", function () {
     loadAndRender(currentMonday);
+    _positionNav();
   });
 
   window.addEventListener("userChanged", function () {
     loadAndRender(currentMonday);
   });
+
+  // Measure the two stacked nav bars (global nav + sticky training header) so the
+  // detail-drawer overlay starts exactly below them, and the training header
+  // sticks right under the global nav — robust across breakpoints/heights.
+  function _positionNav() {
+    var gnav = document.querySelector(".global-nav");
+    var hdr = document.querySelector(".log-page-header");
+    var gh = gnav ? gnav.offsetHeight : 60;
+    if (hdr) hdr.style.top = gh + "px";
+    var hh = hdr ? hdr.offsetHeight : 56;
+    document.documentElement.style.setProperty(
+      "--log-nav-total",
+      gh + hh + "px",
+    );
+
+    // Align the two nav clusters with the columns below them: brand+tabs to the
+    // content column's left edge, actions to the detail drawer's left edge.
+    var inner = document.querySelector(".log-page-header-inner");
+    var col = document.getElementById("list-main");
+    var actions = document.querySelector(".log-page-header-actions");
+    if (inner) {
+      var innerLeft = inner.getBoundingClientRect().left;
+      if (col) {
+        var contentLeft = col.getBoundingClientRect().left;
+        inner.style.paddingLeft = Math.max(0, contentLeft - innerLeft) + "px";
+      }
+      if (actions) {
+        var DRAWER_W = 440, DRAWER_INSET = 12;
+        var drawerLeft = window.innerWidth - DRAWER_INSET - DRAWER_W;
+        actions.style.left = Math.max(0, drawerLeft - innerLeft) + "px";
+        actions.style.right = "auto";
+      }
+    }
+  }
+  window.addEventListener("load", _positionNav);
+  window.addEventListener("resize", _positionNav);
+  _positionNav();
 
   // ── Month Calendar (issue #638) ───────────────────────────────────────────
   // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
@@ -4611,186 +4658,246 @@
       (week.entries || []).forEach(function (entry) {
         if (entry.type === 'rest' || !entry.date) return;
         var d = calDayData[entry.date];
-        if (!d) { d = { types: [], totalTss: 0 }; calDayData[entry.date] = d; }
+        if (!d) { d = { types: [], totalTss: 0, km: 0 }; calDayData[entry.date] = d; }
         var t = (entry.type || '').toLowerCase();
         if (t && d.types.indexOf(t) === -1) d.types.push(t);
         if (entry.tss > 0) d.totalTss += entry.tss;
+        if (entry.distance_km > 0) d.km += entry.distance_km;
       });
     });
+  }
+
+  // Normalize a raw workout_type to the two calendar dot families.
+  function _calDotType(t) {
+    t = (t || '').toLowerCase();
+    if (t === 'run' || t === 'bike') return 'run';
+    return 'lift'; // strength/lift/wod → violet
+  }
+
+  // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
+  function _calMonthKey() {
+    if (!calCurrentMonth) return null;
+    return calCurrentMonth.getFullYear() + '-' + pad(calCurrentMonth.getMonth() + 1);
+  }
+  function _calMarkMonthScoped() {
+    var t = document.getElementById('log-cal-title');
+    if (t) t.classList.add('scoped');
+    _calClearWeekSel();
+  }
+  function _calClearScope() {
+    var t = document.getElementById('log-cal-title');
+    if (t) t.classList.remove('scoped');
+    _calClearWeekSel();
+  }
+  function _calClearWeekSel() {
+    var el = document.getElementById('log-calendar');
+    if (el) el.querySelectorAll('.lrx-calrow.sel').forEach(function (r) { r.classList.remove('sel'); });
+    _clearLogWeekHl();
+  }
+  function _clearLogWeekHl() {
+    document.querySelectorAll('#log-list .day-group.lrx-week-hl')
+      .forEach(function (g) { g.classList.remove('lrx-week-hl'); });
+  }
+  // Highlight the log-list day-groups within [ws, we] (ISO dates) and scroll the
+  // first into view, so clicking a calendar week points at it in the list too.
+  function _highlightLogWeek(ws, we) {
+    if (!ws || !we) return;
+    var first = null;
+    document.querySelectorAll('#log-list .day-group').forEach(function (g) {
+      var d = g.dataset.date;
+      var inWk = d && d >= ws && d <= we;
+      g.classList.toggle('lrx-week-hl', inWk);
+      if (inWk && !first) first = g;
+    });
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function renderCalendar() {
     var el = document.getElementById('log-calendar');
     if (!el) return;
 
-    var now   = new Date();
+    var now = new Date();
     if (!calCurrentMonth) {
       calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
     var year  = calCurrentMonth.getFullYear();
     var month = calCurrentMonth.getMonth();
-    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    var todayStr = pad(today.getFullYear()) + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
-
-    // Last day of month
+    var todayStr = pad(now.getFullYear()) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     var lastDayNum = new Date(year, month + 1, 0).getDate();
+    var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
 
-    // Compute max TSS in this month for bar scaling
-    var maxTss = 0;
-    for (var d = 1; d <= lastDayNum; d++) {
-      var ds = year + '-' + pad(month + 1) + '-' + pad(d);
-      var dd = calDayData[ds];
-      if (dd && dd.totalTss > maxTss) maxTss = dd.totalTss;
-    }
-    if (maxTss < 1) maxTss = 1;
-
-    // Week starts Monday: offset = (firstDay.getDay() + 6) % 7
+    // Week starts Monday.
     var firstDow    = new Date(year, month, 1).getDay();
     var startOffset = (firstDow + 6) % 7;
     var totalCells  = startOffset + lastDayNum;
     var rows        = Math.ceil(totalCells / 7);
 
-    var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
-
-    var html = '<div class="cal-nav">' +
-      '<button type="button" id="log-cal-prev" class="cal-nav-btn" aria-label="Previous month">&#8249;</button>' +
-      '<span id="log-cal-title" class="cal-month-label">' + CAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
-      '<button type="button" id="log-cal-today" class="cal-nav-btn cal-nav-btn--today"' +
-        (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
-      '<button type="button" id="log-cal-next" class="cal-nav-btn" aria-label="Next month">&#8250;</button>' +
-    '</div>' +
-    '<div class="cal-grid" role="grid" aria-label="' + CAL_MONTH_NAMES[month] + ' ' + year + '">';
-
-    // Weekday headers
-    CAL_WEEKDAY_ABBR.forEach(function (abbr) {
-      html += '<div class="cal-weekday" role="columnheader">' + esc(abbr) + '</div>';
-    });
-
-    // Day cells
+    // Build per-week aggregates (Mon–Sun rows over this month's cells).
+    var weekAgg = [];
     var dayNum = 1;
     for (var row = 0; row < rows; row++) {
+      var w = { tss: 0, km: 0, sessions: 0, startDate: null, endDate: null };
       for (var col = 0; col < 7; col++) {
         var cellIdx = row * 7 + col;
-        if (cellIdx < startOffset || dayNum > lastDayNum) {
-          html += '<div class="cal-cell cal-cell--empty" aria-hidden="true"></div>';
-        } else {
-          var dStr       = year + '-' + pad(month + 1) + '-' + pad(dayNum);
-          var dd2        = calDayData[dStr];
-          var isToday    = dStr === todayStr;
-          var isSel      = dStr === calSelectedDate;
-          var isFuture   = dStr > todayStr;
-
-          var cls = 'cal-cell';
-          if (isToday)  cls += ' cal-cell--today';
-          if (isSel)    cls += ' is-selected';
-          if (isFuture) cls += ' cal-cell--future';
-
-          var ariaLbl = new Date(year, month, dayNum).toLocaleDateString('en-US', {
-            weekday: 'long', month: 'long', day: 'numeric'
-          });
-          if (dd2 && dd2.types.length) ariaLbl += '. Workouts: ' + dd2.types.join(', ');
-
-          html += '<button type="button" class="' + cls + '"' +
-            ' data-date="' + dStr + '"' +
-            ' aria-label="' + esc(ariaLbl) + '"' +
-            ' aria-pressed="' + (isSel ? 'true' : 'false') + '">';
-
-          html += '<span class="cal-day-num">' + dayNum + '</span>';
-
-          // Type dots
-          html += '<div class="cal-dots">';
-          if (dd2 && dd2.types.length) {
-            TYPE_ORDER
-              .filter(function (t) { return dd2.types.indexOf(t) !== -1; })
-              .forEach(function (t) {
-                var col2 = TYPE_COLORS[t] || '#888';
-                html += '<span class="cal-dot" style="background:' + col2 + '" aria-hidden="true"></span>';
-              });
-          }
-          html += '</div>';
-
-          // Load bar
-          html += '<div class="cal-load">';
-          if (dd2 && dd2.totalTss > 0) {
-            var barPct = Math.min(100, Math.round(dd2.totalTss / maxTss * 100));
-            html += '<div class="cal-load-bar" style="width:' + barPct + '%" aria-hidden="true"></div>';
-          }
-          html += '</div>';
-
-          html += '</button>';
+        if (cellIdx >= startOffset && dayNum <= lastDayNum) {
+          var ds = year + '-' + pad(month + 1) + '-' + pad(dayNum);
+          if (!w.startDate) w.startDate = ds;
+          w.endDate = ds;
+          var dd = calDayData[ds];
+          if (dd) { w.tss += dd.totalTss; w.km += dd.km; if (dd.totalTss > 0 || dd.types.length) w.sessions += 1; }
           dayNum++;
         }
       }
+      weekAgg.push(w);
     }
+    var maxWk = Math.max.apply(null, weekAgg.map(function (w) { return w.tss; }).concat([1]));
 
-    html += '</div>'; // .cal-grid
+    var html =
+      '<div class="lrx-chead">' +
+        '<div class="lrx-calnav">' +
+          '<button type="button" id="log-cal-prev" class="lrx-arw" aria-label="Previous month">&#8249;</button>' +
+          '<span id="log-cal-title" class="mtitle" role="button" tabindex="0">' +
+            CAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
+          '<button type="button" id="log-cal-next" class="lrx-arw" aria-label="Next month">&#8250;</button>' +
+        '</div>' +
+        '<button type="button" id="log-cal-today" class="lrx-today"' +
+          (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
+      '</div>' +
+      '<table class="lrx-cal"><thead><tr>';
+    CAL_WEEKDAY_ABBR.forEach(function (a) { html += '<th>' + esc(a) + '</th>'; });
+    html += '<th class="wk">Week</th></tr></thead><tbody>';
+
+    dayNum = 1;
+    for (var r2 = 0; r2 < rows; r2++) {
+      var wa = weekAgg[r2];
+      html += '<tr class="lrx-calrow" data-wk-start="' + esc(wa.startDate || '') +
+              '" data-wk-end="' + esc(wa.endDate || '') + '">';
+      for (var c2 = 0; c2 < 7; c2++) {
+        var ci = r2 * 7 + c2;
+        if (ci < startOffset || dayNum > lastDayNum) {
+          html += '<td class="out"></td>';
+        } else {
+          var dStr = year + '-' + pad(month + 1) + '-' + pad(dayNum);
+          var dd2  = calDayData[dStr];
+          var dots = '';
+          if (dd2 && dd2.types.length) {
+            var fam = {};
+            dd2.types.forEach(function (t) { fam[_calDotType(t)] = 1; });
+            ['run', 'lift'].forEach(function (f) {
+              if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
+            });
+          }
+          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots + '</td>';
+          dayNum++;
+        }
+      }
+      var barPct = wa.tss > 0 ? (wa.tss / maxWk * 100) : 0;
+      html += '<td class="lrx-wkcell">' +
+                '<div class="wt">' + Math.round(wa.tss) + ' TSS</div>' +
+                '<div class="wkkm">' + wa.km.toFixed(1) + ' km</div>' +
+                '<div class="lrx-wkbar"><span style="width:' + barPct.toFixed(0) + '%"></span></div>' +
+              '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>' +
+      '<div class="lrx-callegend">' +
+        '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
+        '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
+        '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
+      '</div>';
     el.innerHTML = html;
 
-    // Wire navigation buttons
-    var prevBtn  = document.getElementById('log-cal-prev');
-    var nextBtn  = document.getElementById('log-cal-next');
+    // Nav
+    var prevBtn = document.getElementById('log-cal-prev');
+    var nextBtn = document.getElementById('log-cal-next');
     var todayBtn = document.getElementById('log-cal-today');
-
+    var title = document.getElementById('log-cal-title');
     if (prevBtn) prevBtn.addEventListener('click', function () {
-      calCurrentMonth = new Date(year, month - 1, 1);
-      renderCalendar();
+      calCurrentMonth = new Date(year, month - 1, 1); renderCalendar(); _calSyncScopeFollow();
     });
-
     if (nextBtn) nextBtn.addEventListener('click', function () {
-      calCurrentMonth = new Date(year, month + 1, 1);
-      renderCalendar();
+      calCurrentMonth = new Date(year, month + 1, 1); renderCalendar(); _calSyncScopeFollow();
     });
-
     if (todayBtn) todayBtn.addEventListener('click', function () {
-      var t = new Date();
-      var tStr = pad(t.getFullYear()) + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
-      calCurrentMonth = new Date(t.getFullYear(), t.getMonth(), 1);
-      if (calDayData[tStr]) calSelectedDate = tStr;
+      calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       renderCalendar();
-      if (calSelectedDate === tStr) calScrollToDate(tStr);
+      if (window.LogSummary && window.LogSummary.showThisWeek) window.LogSummary.showThisWeek();
     });
-
-    // Wire day cell clicks via delegation
-    var grid = el.querySelector('.cal-grid');
-    if (grid) {
-      grid.addEventListener('click', function (e) {
-        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
-        if (!cell) return;
-        var date = cell.getAttribute('data-date');
-        if (!date) return;
-        calSelectedDate = date;
-        // Update highlight in place (no full re-render)
-        el.querySelectorAll('.cal-cell').forEach(function (c) {
-          var sel = c.getAttribute('data-date') === date;
-          c.classList.toggle('is-selected', sel);
-          c.setAttribute('aria-pressed', sel ? 'true' : 'false');
-        });
-        calScrollToDate(date);
-      });
-
-      // Keyboard: Enter/Space triggers click; arrows move focus within grid
-      grid.addEventListener('keydown', function (e) {
-        var cell = e.target.closest('.cal-cell:not(.cal-cell--empty)');
-        if (!cell) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          cell.click();
-          return;
+    // Month title → scope summary to the displayed whole month (decision 3).
+    if (title) {
+      var scopeMonth = function () {
+        _calMarkMonthScoped();
+        if (window.LogSummary && window.LogSummary.scopeMonth) {
+          window.LogSummary.scopeMonth(_calMonthKey());
         }
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
-            e.key !== 'ArrowUp'   && e.key !== 'ArrowDown') return;
-        e.preventDefault();
-        var cells = Array.prototype.slice.call(
-          grid.querySelectorAll('.cal-cell:not(.cal-cell--empty)')
-        );
-        var idx = cells.indexOf(cell);
-        var delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[e.key];
-        var newIdx = idx + delta;
-        if (newIdx >= 0 && newIdx < cells.length) cells[newIdx].focus();
+      };
+      title.addEventListener('click', scopeMonth);
+      title.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scopeMonth(); }
+      });
+    }
+
+    // Week-row click → scope the summary to that week ONLY (decision 2). Day
+    // cells inside still scroll the log list to that date (keep existing UX).
+    var tbody = el.querySelector('tbody');
+    if (tbody) {
+      tbody.addEventListener('click', function (e) {
+        var cell = e.target.closest('td[data-date]');
+        var rowEl = e.target.closest('.lrx-calrow');
+        if (cell && cell.getAttribute('data-date')) {
+          calScrollToDate(cell.getAttribute('data-date'));
+        }
+        if (!rowEl) return;
+        _calClearScope();
+        rowEl.classList.add('sel');
+        var ws = rowEl.getAttribute('data-wk-start');
+        var we = rowEl.getAttribute('data-wk-end');
+        // Aggregate this row's totals from calDayData.
+        var tss = 0, km = 0, sess = 0;
+        el.querySelectorAll('.lrx-calrow.sel td[data-date]').forEach(function (td) {
+          var dd = calDayData[td.getAttribute('data-date')];
+          if (dd) { tss += dd.totalTss; km += dd.km; if (dd.totalTss > 0 || dd.types.length) sess += 1; }
+        });
+        var label = _calWkLabel(ws, we);
+        if (window.LogSummary && window.LogSummary.scopeWeek) {
+          window.LogSummary.scopeWeek({
+            label: label, distance_km: km, total_tss: tss, session_count: sess,
+          });
+        }
+        // Also highlight + scroll to that week's groups in the log list below.
+        _highlightLogWeek(ws, we);
       });
     }
   }
+
+  // "Jun 29 – Jul 5" style label from ISO start/end dates.
+  function _calWkLabel(startIso, endIso) {
+    function short(iso) {
+      if (!iso) return '';
+      var p = iso.split('-');
+      var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    return short(startIso) + ' – ' + short(endIso);
+  }
+
+  // When paging months while the month-scope is active, keep the summary on
+  // the newly displayed month (decision 3).
+  function _calSyncScopeFollow() {
+    var title = document.getElementById('log-cal-title');
+    if (title && title.classList.contains('scoped') &&
+        window.LogSummary && window.LogSummary.scopeMonth) {
+      window.LogSummary.scopeMonth(_calMonthKey());
+    }
+  }
+
+  // Public API for the summary card to query/mark scope.
+  window.LogCalendar = {
+    getDisplayedMonth: _calMonthKey,
+    markMonthScoped: _calMarkMonthScoped,
+    clearScope: _calClearScope,
+  };
 
   function calScrollToDate(dateStr) {
     var listEl = document.getElementById('log-list');
@@ -4825,9 +4932,24 @@
 
   var _athleteId   = null;
   var _activePeriod = 'week';
+  // Displayed calendar month (YYYY-MM) the monthly summary should follow, and
+  // whether a calendar week-scope is currently pinned (summary-only).
+  var _scopeMonth = null;
 
-  // Cache: keyed by 'week' or 'month', value = fetched data object
+  // Cache: keyed by 'week' or 'month' (+ month key), value = fetched data
   var _summaryCache = {};
+
+  function _setScopeLabel(text) {
+    var el = document.getElementById('lrx-scope');
+    if (el) el.textContent = text;
+  }
+  function _monthLabel(ym) {
+    // ym = 'YYYY-MM' → 'July 2026'
+    if (!ym) return '';
+    var parts = ym.split('-');
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -4884,23 +5006,38 @@
 
   // ── Shared tiles + chips (weekly and monthly share the same top block) ───────
 
-  // Named metric tiles: label on top, value + unit below (design mock).
+  // Mock sumtiles: label, big value+unit, and a delta line. The summary
+  // endpoint has no volume/session week-over-week deltas, so the delta line is
+  // driven by the available *_change fields where meaningful: Load ← form TSB
+  // change (form trend); Volume/Sessions have no comparable delta → flat "—".
+  function _sdDelta(change, unit, noun) {
+    if (change == null || !isFinite(Number(change))) {
+      return '<div class="lrx-delta flat">—</div>';
+    }
+    var n = Number(change);
+    var cls = n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
+    var arrow = n > 0 ? '▲ ' : n < 0 ? '▼ ' : '= ';
+    var txt = arrow + (n > 0 ? '+' : '') + n.toFixed(1) + (unit ? ' ' + unit : '') +
+              (noun ? ' ' + noun : '');
+    return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + '</div>';
+  }
   function _sdTiles(data) {
-    function tile(label, val, unit) {
+    function tile(label, val, unit, deltaHtml) {
       return (
-        '<div class="sd-tile">' +
-          '<div class="sd-tile-label">' + label + '</div>' +
-          '<div class="sd-tile-val">' + _esc(val) +
-            (unit ? ' <span class="sd-tile-unit">' + unit + '</span>' : '') +
-          '</div>' +
+        '<div class="lrx-sumtile">' +
+          '<div class="lab">' + label + '</div>' +
+          '<div class="val">' + _esc(val) +
+            (unit ? ' <small>' + unit + '</small>' : '') +
+          '</div>' + (deltaHtml || '<div class="lrx-delta flat">—</div>') +
         '</div>'
       );
     }
     return (
-      '<div class="sd-tiles">' +
-        tile('Volume', (data.distance_km || 0).toFixed(1), 'km') +
-        tile('Load', Math.round(data.total_tss || 0), 'TSS') +
-        tile('Sessions', data.session_count || 0, '') +
+      '<div class="lrx-sumgrid">' +
+        tile('Volume', (data.distance_km || 0).toFixed(1), 'km', null) +
+        tile('Load', Math.round(data.total_tss || 0), 'TSS',
+             _sdDelta(data.form_tsb_change, null, 'form')) +
+        tile('Sessions', data.session_count || 0, '', null) +
       '</div>'
     );
   }
@@ -4918,32 +5055,41 @@
   }
 
   // Separate Endurance / Speed / Weight / Form chips (design mock).
+  // chip colour: g = good/up, r = bad/down, b = neutral/info (mock classes).
+  function _lrxChipClass(val) {
+    if (val == null) return 'b';
+    var n = Number(val);
+    if (n > 0) return 'g';
+    if (n < 0) return 'r';
+    return 'b';
+  }
   function _sdChips(data) {
     var chips = '';
     var has = false;
     function add(label, val, cls, suffix) {
       chips +=
-        '<span class="sd-chip ' + cls + '">' + label + ' ' + _esc(val) +
+        '<span class="lrx-chip ' + cls + '">' + label + ' ' + _esc(val) +
         (suffix ? ' · ' + _esc(suffix) : '') + '</span>';
       has = true;
     }
     if (data.endurance_score_change != null && data.endurance_score_change !== 0) {
       var eStr = _fmtDelta(data.endurance_score_change, '');
-      if (eStr) add('Endurance', eStr, _chipClass(data.endurance_score_change));
+      if (eStr) add('Endurance', eStr, _lrxChipClass(data.endurance_score_change));
     }
     if (data.speed_score_change != null && data.speed_score_change !== 0) {
       var sStr = _fmtDelta(data.speed_score_change, '');
-      if (sStr) add('Speed', sStr, _chipClass(data.speed_score_change));
+      if (sStr) add('Speed', sStr, _lrxChipClass(data.speed_score_change));
     }
     if (data.weight_change_kg != null) {
       var wStr = _fmtDelta(data.weight_change_kg, 'kg');
-      if (wStr) add('Weight', wStr, _chipClass(data.weight_change_kg));
+      // Weight up is neutral-ish; keep the mock's green for a logged change.
+      if (wStr) add('Weight', wStr, 'g');
     }
     if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
       var fStr = _fmtDelta(data.form_tsb_change, '');
-      if (fStr) add('Form', fStr, 'sd-chip--form', _formBand(data.form_tsb_change));
+      if (fStr) add('Form', fStr, 'b', _formBand(data.form_tsb_change));
     }
-    return has ? '<div class="sd-chips">' + chips + '</div>' : '';
+    return has ? '<div class="lrx-chips">' + chips + '</div>' : '';
   }
 
   // ── Render weekly view ───────────────────────────────────────────────────────
@@ -5006,9 +5152,11 @@
   function _fetchSummary(period) {
     if (!_athleteId) return;
 
-    // AC6: use cache if already loaded
-    if (_summaryCache[period]) {
-      _applyData(period, _summaryCache[period]);
+    // Cache key includes the scoped month so paging months fetches each.
+    var cacheKey = period === 'month' && _scopeMonth ? 'month:' + _scopeMonth : period;
+
+    if (_summaryCache[cacheKey]) {
+      _applyData(period, _summaryCache[cacheKey]);
       return;
     }
 
@@ -5020,20 +5168,21 @@
 
     var endpoint = period === 'week'
       ? '/api/athletes/' + _athleteId + '/summary/weekly'
-      : '/api/athletes/' + _athleteId + '/summary/monthly';
+      : '/api/athletes/' + _athleteId + '/summary/monthly' +
+        (_scopeMonth ? '?month=' + _scopeMonth : '');
 
     fetch(endpoint)
       .then(function (res) {
         if (!res.ok) {
           // Monthly returns 424 when no training data; treat as empty rather than crash
           if (period === 'month' && res.status === 424) {
-            _summaryCache[period] = {
+            _summaryCache[cacheKey] = {
               distance_km: 0, total_tss: 0, session_count: 0,
               supercompensation_state: 'flat', call_to_action: null,
               weight_change_kg: null, endurance_score_change: 0,
               speed_score_change: 0
             };
-            _applyData(period, _summaryCache[period]);
+            _applyData(period, _summaryCache[cacheKey]);
             return null;
           }
           throw new Error('HTTP ' + res.status);
@@ -5042,7 +5191,7 @@
       })
       .then(function (data) {
         if (!data) return;
-        _summaryCache[period] = data;
+        _summaryCache[cacheKey] = data;
         if (_activePeriod === period) _applyData(period, data);
       })
       .catch(function () {
@@ -5052,15 +5201,79 @@
 
   // ── Toggle ───────────────────────────────────────────────────────────────────
 
-  function _setActivePeriod(period) {
-    _activePeriod = period;
+  function _syncSeg(period) {
     document.querySelectorAll('.sd-toggle-btn').forEach(function (btn) {
       var active = btn.getAttribute('data-period') === period;
       btn.classList.toggle('is-active', active);
+      btn.classList.toggle('on', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+  }
+
+  function _setActivePeriod(period) {
+    _activePeriod = period;
+    _syncSeg(period);
+    if (period === 'week') {
+      // Manual "This week" clears any calendar month/week scope.
+      _scopeMonth = null;
+      _setScopeLabel('This week');
+      if (window.LogCalendar && window.LogCalendar.clearScope) window.LogCalendar.clearScope();
+    } else {
+      // Follow the displayed calendar month (decision 3).
+      if (window.LogCalendar && window.LogCalendar.getDisplayedMonth) {
+        _scopeMonth = window.LogCalendar.getDisplayedMonth();
+      }
+      _setScopeLabel(_monthLabel(_scopeMonth) || 'This month');
+      if (window.LogCalendar && window.LogCalendar.markMonthScoped) window.LogCalendar.markMonthScoped();
+    }
     _fetchSummary(period);
   }
+
+  // ── Public API for calendar binding ───────────────────────────────────────────
+  // scopeWeek: render a specific week's totals into the summary (summary-only;
+  // does NOT filter the log list — decision 2).
+  function _scopeWeek(w) {
+    _activePeriod = 'week';
+    _syncSeg(null); // no seg lit while a specific week is scoped
+    _setScopeLabel('Week of ' + w.label);
+    var body = document.getElementById('sd-body');
+    var card = document.getElementById('summary-digest-card');
+    if (card) card.hidden = false;
+    if (body) {
+      var data = {
+        distance_km: w.distance_km || 0,
+        total_tss: w.total_tss || 0,
+        session_count: w.session_count || 0,
+      };
+      body.innerHTML =
+        '<div class="lrx-sumgrid">' +
+        '<div class="lrx-sumtile"><div class="lab">Volume</div><div class="val">' +
+          data.distance_km.toFixed(1) + ' <small>km</small></div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '<div class="lrx-sumtile"><div class="lab">Load</div><div class="val">' +
+          Math.round(data.total_tss) + ' <small>TSS</small></div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '<div class="lrx-sumtile"><div class="lab">Sessions</div><div class="val">' +
+          data.session_count + '</div>' +
+          '<div class="lrx-delta flat">selected week</div></div>' +
+        '</div>';
+    }
+  }
+
+  // scopeMonth: switch the summary to the displayed calendar month.
+  function _scopeMonthFor(ym) {
+    _scopeMonth = ym;
+    _activePeriod = 'month';
+    _syncSeg('month');
+    _setScopeLabel(_monthLabel(ym) || 'This month');
+    _fetchSummary('month');
+  }
+
+  window.LogSummary = {
+    scopeWeek: _scopeWeek,
+    scopeMonth: _scopeMonthFor,
+    showThisWeek: function () { _setActivePeriod('week'); },
+  };
 
   // ── Init ─────────────────────────────────────────────────────────────────────
 
@@ -5073,7 +5286,7 @@
         var btn = e.target.closest('.sd-toggle-btn');
         if (!btn) return;
         var period = btn.getAttribute('data-period');
-        if (period && period !== _activePeriod) _setActivePeriod(period);
+        if (period) _setActivePeriod(period);
       });
     }
 
