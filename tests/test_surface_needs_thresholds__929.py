@@ -167,12 +167,14 @@ class TestNeedsThresholdsState:
 class TestBuildingBaselineState:
     """AC2, AC7: building_baseline returned when ≥1 threshold set but too few runs."""
 
-    def test_no_runs_with_one_threshold_returns_building_baseline(self):
-        """AC2: ftp_w alone + zero runs → building_baseline, not needs_thresholds."""
+    def test_no_runs_ftp_only_endurance_needs_thresholds_speed_baseline(self):
+        """VDOT re-anchor: endurance requires threshold_hr, so ftp-only prefs →
+        endurance needs_thresholds; speed with no runs → building_baseline.
+        (Was 'both building_baseline' before endurance became HR-extrapolated.)"""
         zc = make_zone_constants()
         endurance = compute_endurance_score([], _prefs_with_ftp_only(), zc)
         speed = compute_speed_score([], _prefs_with_ftp_only(), zc)
-        assert endurance.get("state") == "building_baseline"
+        assert endurance.get("state") == "needs_thresholds"
         assert speed.get("state") == "building_baseline"
 
     def test_insufficient_runs_returns_building_baseline(self):

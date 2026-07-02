@@ -134,16 +134,16 @@ class TestStateExclusivity:
         }
         assert _check_needs_thresholds(prefs_no_thresh) is True
 
-        # With thresholds but no runs, score function returns building_baseline
-        prefs_with_ftp = {
+        # VDOT re-anchor: endurance needs threshold_hr. With threshold_hr set but
+        # no runs, the score function returns building_baseline.
+        prefs_with_hr = {
             "ftp_w": 220,
-            "threshold_hr": None,
+            "threshold_hr": 165,
             "threshold_pace_seconds_per_km": None,
         }
         zc = make_zone_constants()
-        score = compute_endurance_score([], prefs_with_ftp, zc)
+        score = compute_endurance_score([], prefs_with_hr, zc)
         assert score.get("state") == "building_baseline"
-        # Never needs_thresholds
 
 
 # --- Integration tests: HTTP endpoint behavior ---

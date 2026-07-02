@@ -883,11 +883,44 @@
   font-size: 1rem;
   font-weight: 700;
   color: #4f46e5;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
+/* The shared current athlete score (today's, = Performance tab). */
 .rd4-signal-cur {
-  font-weight: 600;
-  color: #6366f1;
+  font-weight: 700;
+  color: #1b2340;
+  font-size: 1.05rem;
+}
+
+/* This session's signed contribution to the score (the per-session figure). */
+.rd4-signal-contrib {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.rd4-signal-contrib--up {
+  color: #16a34a;
+  background: #dcfce7;
+}
+.rd4-signal-contrib--down {
+  color: #dc2626;
+  background: #fee2e2;
+}
+.rd4-signal-contrib--flat {
+  color: #6b7280;
+  background: #f1f4fa;
+}
+
+/* Sub-label under the signal card title. */
+.rd4-signal-sub {
+  margin: 2px 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #9aa3b8);
+  font-weight: 500;
 }
 
 .rd4-signal-note {

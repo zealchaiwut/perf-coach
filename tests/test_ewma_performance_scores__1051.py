@@ -42,7 +42,14 @@ def _prefs():
 
 def _easy_run(run_id, efficiency_hint=1.6, decoupling_pct=5.0,
               workout_date="2026-01-01", duration_seconds=3600):
-    """Single-lap easy run for endurance tests."""
+    """Single-lap easy run for endurance tests (VDOT re-anchor).
+
+    ``efficiency_hint`` drives the lap PACE (higher = faster) so an improving
+    series maps to an improving VDOT-band score. Baseline 1.6 → 337.5 s/km.
+    """
+    distance_km = 2.0
+    pace = 540.0 / efficiency_hint  # faster as hint rises
+    lap_dur = pace * distance_km
     power = efficiency_hint * 140
     return {
         "run_id": run_id,
@@ -52,8 +59,8 @@ def _easy_run(run_id, efficiency_hint=1.6, decoupling_pct=5.0,
                 "band": "easy",
                 "avg_power": power,
                 "avg_hr": 140.0,
-                "distance_km": 2.0,
-                "duration_seconds": 600.0,
+                "distance_km": distance_km,
+                "duration_seconds": lap_dur,
             }
         ],
         "decoupling_pct": decoupling_pct,
@@ -66,7 +73,16 @@ def _easy_run(run_id, efficiency_hint=1.6, decoupling_pct=5.0,
 
 def _hard_run(run_id, efficiency_hint=1.8, speed_signal=1.15,
               workout_date="2026-01-01", duration_seconds=1800):
-    """Single-lap hard run for speed tests."""
+    """Single-lap hard run for speed tests (VDOT re-anchor).
+
+    Speed is now pace/duration based. ``speed_signal`` maps to the hard-lap PACE
+    (higher signal = faster effort) so signal-quality differences still move the
+    score — via pace, the real driver now — not the ignored stored ratio.
+    Baseline signal 1.15 → ~276 s/km.
+    """
+    distance_km = 1.0
+    pace = 318.0 / speed_signal  # faster as the effort ratio rises
+    lap_dur = pace * distance_km
     power = efficiency_hint * 150
     return {
         "run_id": run_id,
@@ -76,8 +92,8 @@ def _hard_run(run_id, efficiency_hint=1.8, speed_signal=1.15,
                 "band": "hard",
                 "avg_power": power,
                 "avg_hr": 150.0,
-                "distance_km": 1.0,
-                "duration_seconds": 300.0,
+                "distance_km": distance_km,
+                "duration_seconds": lap_dur,
             }
         ],
         "decoupling_pct": None,
@@ -123,27 +139,24 @@ class TestConfigBlock:
     def test_performance_config_is_dict(self):
         assert isinstance(PERFORMANCE_CONFIG, dict)
 
-    def test_endurance_ewma_alpha_present(self):
-        assert "endurance_ewma_alpha" in PERFORMANCE_CONFIG
-        alpha = PERFORMANCE_CONFIG["endurance_ewma_alpha"]
-        assert 0 < alpha < 1, f"alpha must be in (0,1), got {alpha}"
-
-    def test_speed_ewma_alpha_present(self):
-        assert "speed_ewma_alpha" in PERFORMANCE_CONFIG
-        alpha = PERFORMANCE_CONFIG["speed_ewma_alpha"]
-        assert 0 < alpha < 1, f"alpha must be in (0,1), got {alpha}"
-
     def test_trailing_window_days_present(self):
         assert "trailing_window_days" in PERFORMANCE_CONFIG
         assert PERFORMANCE_CONFIG["trailing_window_days"] > 0
 
-    def test_endurance_reference_duration_present(self):
-        assert "endurance_reference_duration_seconds" in PERFORMANCE_CONFIG
-        assert PERFORMANCE_CONFIG["endurance_reference_duration_seconds"] > 0
+    def test_threshold_effort_minutes_present(self):
+        # Re-anchor: EWMA alphas / reference-duration / reference-signal are gone.
+        # The endurance HR-extrapolation reference duration lives here now.
+        assert "threshold_effort_minutes" in PERFORMANCE_CONFIG
+        assert PERFORMANCE_CONFIG["threshold_effort_minutes"] > 0
 
-    def test_speed_reference_signal_present(self):
-        assert "speed_reference_signal" in PERFORMANCE_CONFIG
-        assert PERFORMANCE_CONFIG["speed_reference_signal"] > 0
+    def test_speed_sparse_config_present(self):
+        assert "speed_sparse_effort_threshold" in PERFORMANCE_CONFIG
+        assert "speed_sparse_band_multiplier" in PERFORMANCE_CONFIG
+
+    def test_ewma_alphas_removed(self):
+        # The relative min/max + EWMA pipeline was removed in the VDOT re-anchor.
+        assert "endurance_ewma_alpha" not in PERFORMANCE_CONFIG
+        assert "speed_ewma_alpha" not in PERFORMANCE_CONFIG
 
 
 # ---------------------------------------------------------------------------
@@ -320,11 +333,11 @@ class TestSpeedEffortQualityWeighting:
     """AC2: Speed score is an effort-quality-weighted EWMA of per-run speed signals."""
 
     def test_higher_speed_signal_has_more_ewma_influence(self):
-        """A run with higher speed_signal should push the EWMA more."""
-        # Scenario A: run2 has low speed_signal (low quality effort)
-        # Scenario B: run2 has high speed_signal (high quality effort)
-        # In scenario B, run2 exerts more weight → score closer to run2's normalised value.
+        """A faster (higher-signal→faster-pace) effort should raise the score.
 
+        Re-anchor: signal quality now maps to hard-lap PACE (the real driver),
+        so a faster last effort produces a higher absolute VDOT-band score.
+        """
         low_signal_run2 = _hard_run("a2", speed_signal=1.05, workout_date="2026-02-08")
         high_signal_run2 = _hard_run("b2", speed_signal=1.35, workout_date="2026-02-08")
 
@@ -412,9 +425,12 @@ class TestBoundaryBehavior:
         # qualifying count should only include the recent ones
         assert result_with_old["qualifying_session_count"] == MIN_QUALIFYING_RUNS
 
-    def test_ewma_bootstraps_correctly_on_first_session(self):
-        """With exactly one qualifying session, EWMA = signal (no prior value to blend)."""
-        # Use MIN_QUALIFYING_RUNS runs all identical efficiency; EWMA = normalised signal = 50
+    def test_identical_sessions_yield_stable_absolute_score(self):
+        """Identical efforts → a stable absolute VDOT-band score (no window rescale).
+
+        Re-anchor: the old EWMA-bootstrap-to-50 behaviour is gone; identical
+        runs now sit at their true band value with a flat trend.
+        """
         runs = [
             _easy_run(f"r{i}", efficiency_hint=1.6, workout_date=f"2026-01-{i+1:02d}")
             for i in range(MIN_QUALIFYING_RUNS)
@@ -422,8 +438,9 @@ class TestBoundaryBehavior:
         result = compute_endurance_score(runs, _prefs(), _zc())
         if result.get("state") == "building_baseline":
             pytest.skip("building baseline")
-        # All identical signals → normalised to 50; EWMA stays 50 at each step
-        assert result["score"] == pytest.approx(50.0, abs=1.0)
+        assert 0 <= result["score"] <= 100
+        trend = result["trend"]
+        assert max(trend) - min(trend) < 0.01  # flat — identical efforts
 
     def test_endurance_zero_runs_no_crash_and_building_baseline(self):
         """Zero runs → building_baseline, no exception, count is absent or 0."""

@@ -34,6 +34,10 @@
   var _activeRange  = DEFAULT_RANGE;
   var _initialized  = false;
   var _planEntityId = null;
+  // Per-date score contributions from the Performance endpoint (endurance/speed),
+  // keyed by ISO date. Used to show each feeding session's contribution chip.
+  var _contribs     = { endurance: null, speed: null };
+  var _feedRows     = { endurance: null, speed: null };
 
   // ── Public API (mirrors the tab init pattern) ───────────────────────────────
   window.TrainingPerformance = {
@@ -115,6 +119,12 @@
         if (state === 'scored') {
           _renderScoreCard('endurance', data.endurance);
           _renderScoreCard('speed',     data.speed);
+          // Capture per-date contributions and (re)render feeds so each session
+          // shows its contribution chip.
+          _contribs.endurance = (data.endurance && data.endurance.contributions) || null;
+          _contribs.speed     = (data.speed && data.speed.contributions) || null;
+          if (_feedRows.endurance) _renderFeed('endurance', _feedRows.endurance);
+          if (_feedRows.speed)     _renderFeed('speed', _feedRows.speed);
           return;
         }
         if (state === 'needs_thresholds') {
@@ -177,9 +187,9 @@
     if (p.body) p.body.style.display = '';
     if (p.score) p.score.textContent = Math.round(score);
 
-    // Block-delta: derived from the trend series (last vs. ~8 points back).
+    // Block-delta: now − ~4 weeks ago (by date), on the absolute VDOT band.
     if (p.blk) {
-      var delta = _blockDelta(trend);
+      var delta = _blockDelta(trend, data.trend_dates);
       if (delta === null) {
         p.blk.hidden = true;
       } else {
@@ -208,13 +218,32 @@
     }
   }
 
-  // delta = round(last − value ~8 points back / start of the trend window).
-  function _blockDelta(trend) {
-    if (!Array.isArray(trend) || trend.length < 3) return null;
+  // Block delta = score(now) − score(~4 weeks ago), located by DATE using the
+  // parallel trend_dates array (the VDOT trend is step-like and irregular, so a
+  // fixed index offset is wrong). Returns null when there isn't a point at
+  // least ~4 weeks back (nothing sane to compare — hide the pill). This is only
+  // called in the scored state; building_baseline hides the card body entirely.
+  function _blockDelta(trend, trendDates) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
     var last = trend[trend.length - 1];
-    var backIdx = Math.max(0, trend.length - 1 - 8);
-    var base = trend[backIdx];
-    if (last == null || base == null) return null;
+    if (last == null) return null;
+
+    var base = null;
+    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
+      var lastMs = Date.parse(trendDates[trendDates.length - 1] + 'T00:00:00');
+      var cutoff = lastMs - 28 * 86400000; // ~4 weeks back
+      // The latest trend point whose date is on/before the 4-week cutoff.
+      for (var i = trend.length - 1; i >= 0; i--) {
+        var ms = Date.parse(trendDates[i] + 'T00:00:00');
+        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
+      }
+      // No point ≥4 weeks back → not enough history for a block delta.
+      if (base == null) return null;
+    } else {
+      // No dates available — fall back to the first trend point.
+      base = trend[0];
+    }
+    if (base == null) return null;
     return Math.round(last - base);
   }
 
@@ -337,6 +366,7 @@
   }
 
   function _renderFeed(type, rows) {
+    _feedRows[type] = rows;  // remembered so we can re-render when contributions arrive
     var host = document.getElementById('perf-feed-' + type);
     if (!host) return;
     if (!rows.length) {
@@ -345,6 +375,7 @@
         : 'No interval sessions in the last 120 days.');
       return;
     }
+    var contribMap = _contribs[type] || null;
     host.innerHTML = rows.map(function (w) {
       var meta = [];
       if (w.distance_km != null) meta.push(w.distance_km.toFixed(1) + ' km');
@@ -355,10 +386,22 @@
       var srcHtml = src
         ? '<span class="perf-src perf-src--' + src + '">' + (src === 's' ? 'S' : 'St') + '</span>'
         : '';
-      // Honest chip: session TSS (a real neutral figure), never a fabricated contribution.
-      var chipHtml = (w.tss != null)
-        ? '<span class="perf-dchip">' + Math.round(w.tss) + ' TSS</span>'
-        : '';
+      // Contribution chip: this session's real delta to the score (signed,
+      // green up / red down). This is the "which session changed the delta"
+      // figure — the same *_delta the Log signal card shows. Falls back to TSS
+      // only until the contributions map has loaded.
+      var chipHtml;
+      var contrib = (contribMap && w.date != null) ? contribMap[w.date] : undefined;
+      if (typeof contrib === 'number') {
+        var n = Math.round(contrib * 10) / 10;
+        var cls = n > 0 ? 'up' : (n < 0 ? 'down' : 'flat');
+        var txt = (n > 0 ? '+' : '') + n;
+        chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + '</span>';
+      } else {
+        chipHtml = (w.tss != null)
+          ? '<span class="perf-dchip">' + Math.round(w.tss) + ' TSS</span>'
+          : '';
+      }
       var href = '/log?workout=' + encodeURIComponent(w.id);
       return '<a class="perf-frow" href="' + href + '">' +
         '<span class="perf-fdate">' + _esc(_fmtMmmD(w.date)) + '</span>' +

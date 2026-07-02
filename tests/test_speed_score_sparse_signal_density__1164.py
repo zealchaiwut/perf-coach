@@ -42,7 +42,11 @@ def _prefs():
 
 def _hard_run(run_id, efficiency_hint=1.8, speed_signal=1.15,
               workout_date="2026-01-01", duration_seconds=1800):
-    """Single-lap hard run for speed tests."""
+    """Single-lap hard run for speed tests (VDOT re-anchor).
+
+    Lap paced to land the absolute score mid-band (~42) so the confidence band
+    is unclamped and its centering can be asserted. 1.2 km in 240 s = 200 s/km.
+    """
     power = efficiency_hint * 150
     return {
         "run_id": run_id,
@@ -52,8 +56,8 @@ def _hard_run(run_id, efficiency_hint=1.8, speed_signal=1.15,
                 "band": "hard",
                 "avg_power": power,
                 "avg_hr": 150.0,
-                "distance_km": 1.0,
-                "duration_seconds": 300.0,
+                "distance_km": 1.2,
+                "duration_seconds": 240.0,
             }
         ],
         "decoupling_pct": None,

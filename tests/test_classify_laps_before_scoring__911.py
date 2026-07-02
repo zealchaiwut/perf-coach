@@ -213,19 +213,21 @@ class TestScoreFunctionSignaturesUnchanged:
     """AC4: Pure score functions must not be modified."""
 
     def test_endurance_score_signature(self):
-        """compute_endurance_score must accept (runs, preferences, zone_constants)."""
+        """compute_endurance_score keeps the core (runs, preferences, zone_constants)
+        contract; optional trailing params were added over time (body_modifier
+        #1159, race_perf VDOT re-anchor)."""
         sig = inspect.signature(compute_endurance_score)
         params = list(sig.parameters.keys())
-        assert params == ["runs", "preferences", "zone_constants"], (
-            f"compute_endurance_score signature changed: {params}"
+        assert params[:3] == ["runs", "preferences", "zone_constants"], (
+            f"compute_endurance_score core signature changed: {params}"
         )
 
     def test_speed_score_signature(self):
-        """compute_speed_score must accept (runs, preferences, zone_constants)."""
+        """compute_speed_score keeps the core (runs, preferences, zone_constants) contract."""
         sig = inspect.signature(compute_speed_score)
         params = list(sig.parameters.keys())
-        assert params == ["runs", "preferences", "zone_constants"], (
-            f"compute_speed_score signature changed: {params}"
+        assert params[:3] == ["runs", "preferences", "zone_constants"], (
+            f"compute_speed_score core signature changed: {params}"
         )
 
     def test_endurance_score_is_callable(self):

@@ -5542,6 +5542,19 @@
         border-radius: 6px;
         flex-shrink: 0;
       }
+      /* Signed contribution chips (this session's delta to the score). */
+      .perf-dchip--up {
+        color: var(--perf-green, #16a34a);
+        background: var(--perf-greenSoft, #dcfce7);
+      }
+      .perf-dchip--down {
+        color: var(--red, #dc2626);
+        background: var(--redSoft, #fee2e2);
+      }
+      .perf-dchip--flat {
+        color: var(--perf-muted, #6b7280);
+        background: var(--perf-tile, #f6f7fb);
+      }
       .perf-farr {
         color: var(--perf-faint);
         font-size: 12px;

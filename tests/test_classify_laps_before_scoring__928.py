@@ -138,7 +138,7 @@ class TestClassifyLapsCalledForEveryRun:
 
         workouts = [_workout(1), _workout(2), _workout(3)]
         splits_by_id = {w.id: [_split()] for w in workouts}
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
 
         call_count = 0
         original = classify_laps
@@ -163,7 +163,7 @@ class TestClassifyLapsCalledForEveryRun:
         """classify_laps result has one entry per split."""
         from backend.services.lap_classify import classify_laps
         splits = [_split(avg_power=160 + i * 10) for i in range(4)]
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
         result = classify_laps(splits, prefs)
         assert len(result) == len(splits)
 
@@ -251,7 +251,7 @@ class TestLapDictHasRequiredFields:
         """Lap dicts assembled by the endpoint contain all five required fields."""
         workouts = [_workout(1)]
         splits_by_id = {1: [_split()]}
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
 
         runs = _assemble_runs(workouts, splits_by_id, prefs)
         lap = runs[0]["laps"][0]
@@ -264,7 +264,7 @@ class TestLapDictHasRequiredFields:
         workouts = [_workout(1)]
         splits_by_id = {1: [_split(avg_power=170)]}
         # ftp_w=200, avg_power=170 → ratio=0.85 → "steady"
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
 
         runs = _assemble_runs(workouts, splits_by_id, prefs)
         lap = runs[0]["laps"][0]
@@ -280,7 +280,7 @@ class TestLapDictHasRequiredFields:
         splits_by_id = {1: [_split(avg_power=240)]}
 
         # ftp_w=200 → ratio=1.20 → hard
-        runs_low = _assemble_runs(workouts_low, splits_by_id, {"ftp_w": 200})
+        runs_low = _assemble_runs(workouts_low, splits_by_id, {"ftp_w": 200, "threshold_hr": 165})
         # ftp_w=350 → ratio=0.69 → easy
         runs_high = _assemble_runs(workouts_high, splits_by_id, {"ftp_w": 350})
 
@@ -291,7 +291,7 @@ class TestLapDictHasRequiredFields:
         """Lap dict field types match what running_performance.py expects."""
         workouts = [_workout(1)]
         splits_by_id = {1: [_split(avg_power=180, avg_hr=140, distance_km=2.0, duration_seconds=600)]}
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
 
         runs = _assemble_runs(workouts, splits_by_id, prefs)
         lap = runs[0]["laps"][0]
@@ -328,13 +328,13 @@ class TestRunDictHasRequiredFields:
 
     def test_run_dict_has_laps_key(self):
         workouts = [_workout(1)]
-        runs = _assemble_runs(workouts, {1: [_split()]}, {"ftp_w": 200})
+        runs = _assemble_runs(workouts, {1: [_split()]}, {"ftp_w": 200, "threshold_hr": 165})
         assert "laps" in runs[0]
         assert isinstance(runs[0]["laps"], list)
 
     def test_run_dict_has_decoupling_pct(self):
         workouts = [_workout(1)]
-        runs = _assemble_runs(workouts, {1: [_split()]}, {"ftp_w": 200})
+        runs = _assemble_runs(workouts, {1: [_split()]}, {"ftp_w": 200, "threshold_hr": 165})
         assert "decoupling_pct" in runs[0]
 
     def test_run_dict_decoupling_pct_is_numeric_or_none(self):
@@ -346,7 +346,7 @@ class TestRunDictHasRequiredFields:
                 _split(avg_power=175, avg_hr=145, distance_km=2.0, duration_seconds=620, split_index=1),
             ]
         }
-        prefs = {"ftp_w": 200, "aerobic_decoupling_threshold": 8.0}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "aerobic_decoupling_threshold": 8.0}
         runs = _assemble_runs(workouts, splits_by_id, prefs)
         dp = runs[0]["decoupling_pct"]
         assert dp is None or isinstance(dp, (int, float))
@@ -355,7 +355,7 @@ class TestRunDictHasRequiredFields:
         """All run dicts in a multi-workout list have required keys."""
         workouts = [_workout(i, date_str=f"2026-01-{i:02d}") for i in range(1, 4)]
         splits_by_id = {w.id: [_split()] for w in workouts}
-        runs = _assemble_runs(workouts, splits_by_id, {"ftp_w": 200})
+        runs = _assemble_runs(workouts, splits_by_id, {"ftp_w": 200, "threshold_hr": 165})
 
         for run in runs:
             for key in ("run_id", "workout_date", "laps", "decoupling_pct"):
@@ -369,12 +369,14 @@ class TestRunDictHasRequiredFields:
 class TestScoreFunctionSignaturesUnchanged:
 
     def test_endurance_score_signature_unchanged(self):
+        # Core positional contract preserved; optional trailing params added over
+        # time (body_modifier #1159, race_perf VDOT re-anchor).
         sig = inspect.signature(compute_endurance_score)
-        assert list(sig.parameters.keys()) == ["runs", "preferences", "zone_constants"]
+        assert list(sig.parameters.keys())[:3] == ["runs", "preferences", "zone_constants"]
 
     def test_speed_score_signature_unchanged(self):
         sig = inspect.signature(compute_speed_score)
-        assert list(sig.parameters.keys()) == ["runs", "preferences", "zone_constants"]
+        assert list(sig.parameters.keys())[:3] == ["runs", "preferences", "zone_constants"]
 
     def test_score_functions_are_pure_callables(self):
         assert callable(compute_endurance_score)
@@ -390,7 +392,7 @@ class TestScoreFunctionSignaturesUnchanged:
 
     def test_speed_score_accepts_runs_prefs_zc(self):
         runs = []
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
         zc = make_zone_constants()
         result = compute_speed_score(runs, prefs, zc)
         assert isinstance(result, dict)
@@ -406,7 +408,7 @@ class TestNoHardcodedThresholds:
         """Two prefs with different ftp_w produce different bands for the same lap."""
         from backend.services.lap_classify import classify_laps
         splits = [_split(avg_power=200)]
-        band_ftp200 = classify_laps(splits, {"ftp_w": 200})[0]["band"]
+        band_ftp200 = classify_laps(splits, {"ftp_w": 200, "threshold_hr": 165})[0]["band"]
         band_ftp400 = classify_laps(splits, {"ftp_w": 400})[0]["band"]
         assert band_ftp200 != band_ftp400
 
@@ -440,7 +442,7 @@ class TestNoHardcodedThresholds:
             }
             for i in range(1, MIN_QUALIFYING_RUNS + 2)
         ]
-        prefs = {"ftp_w": 200}
+        prefs = {"ftp_w": 200, "threshold_hr": 165}
         result = compute_endurance_score(runs, prefs, zc_custom)
         # "hard" laps qualify under the custom zone — should produce numeric score
         assert "score" in result and isinstance(result["score"], (int, float))
@@ -530,7 +532,7 @@ class TestNumericScoresWithClassifiedRuns:
         This confirms that classify_laps must be called — without it, laps have
         band=None and no qualifying runs exist, so scores are building_baseline.
         """
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [
             {
                 "run_id": f"r{i}",
@@ -622,7 +624,7 @@ class TestGracefulEmptyResponse:
 
     def test_score_functions_handle_empty_runs_gracefully(self):
         """Score functions return building_baseline, not an exception, when runs=[]."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         zc = make_zone_constants()
         endurance = compute_endurance_score([], prefs, zc)
         speed = compute_speed_score([], prefs, zc)
@@ -637,7 +639,7 @@ class TestGracefulEmptyResponse:
 
     def test_score_functions_handle_no_qualifying_laps(self):
         """Runs with all laps band=None produce building_baseline, not a crash."""
-        prefs = {"ftp_w": 200, "duration_curve_bests": None}
+        prefs = {"ftp_w": 200, "threshold_hr": 165, "duration_curve_bests": None}
         runs = [
             {
                 "run_id": "r1",
@@ -660,7 +662,7 @@ class TestGracefulEmptyResponse:
 
     def test_no_runs_no_exception(self):
         """Assembly with zero workouts returns empty list without raising."""
-        runs = _assemble_runs([], {}, {"ftp_w": 200})
+        runs = _assemble_runs([], {}, {"ftp_w": 200, "threshold_hr": 165})
         assert runs == []
 
     def test_none_prefs_row_gives_none_preferences(self):

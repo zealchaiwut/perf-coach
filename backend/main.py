@@ -5467,6 +5467,10 @@ def _workout_signal_scores(session, workout) -> dict:
             dpct = None
             if compute_decoupling is not None:
                 try:
+                    # Correct signature (workout, splits, threshold) → tuple,
+                    # matching get_athlete_performance so the scores reconcile.
+                    # (The old swapped-arg call silently produced dpct=None here,
+                    #  making this path's endurance disagree with Performance.)
                     dres, _ = compute_decoupling(
                         {"workout_type": wk.workout_type},
                         [
@@ -5479,7 +5483,7 @@ def _workout_signal_scores(session, workout) -> dict:
                             }
                             for s in splits
                         ],
-                        prefs_dict.get("aerobic_decoupling_threshold"),
+                        (prefs_dict or {}).get("aerobic_decoupling_threshold"),
                     )
                     dpct = dres.get("decoupling_pct") if dres else None
                 except Exception:
@@ -5498,27 +5502,45 @@ def _workout_signal_scores(session, workout) -> dict:
                     "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
                     "duration_seconds": wk.duration_seconds,
                     "speed_signal": wk.speed_signal,
+                    "speed_signal_basis": wk.speed_signal_basis,
+                    "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                    "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 }
             )
         return runs
 
-    def _score(fn, runs):
-        r = fn(runs, prefs_dict or None, zone_constants)
+    d = workout.workout_date
+    _today = _date.today()
+
+    def _score(fn, runs, race_perf):
+        r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
-    d = workout.workout_date
-    cur = _build(d)
+    # "One score everywhere": *_current is the athlete's score AS OF TODAY —
+    # identical to the Performance tab and identical on every workout card. The
+    # per-session distinction lives entirely in *_delta = the contribution this
+    # session's DATE made (score as-of-that-date minus score as-of the day
+    # before). Race VDOT floor is taken at the matching date for each.
+    _race_today = _latest_race_perf(session, workout.user_id, as_of=_today)
+    _race_asof = _latest_race_perf(session, workout.user_id, as_of=d)
+    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
+
+    today_runs = _build(_today)
+    e_cur = _score(compute_endurance_score, today_runs, _race_today)
+    s_cur = _score(compute_speed_score, today_runs, _race_today)
+
+    asof = _build(d)
     prev = _build(d, before_date=d)
-    e_cur = _score(compute_endurance_score, cur)
-    s_cur = _score(compute_speed_score, cur)
-    e_prev = _score(compute_endurance_score, prev)
-    s_prev = _score(compute_speed_score, prev)
+    e_asof = _score(compute_endurance_score, asof, _race_asof)
+    s_asof = _score(compute_speed_score, asof, _race_asof)
+    e_prev = _score(compute_endurance_score, prev, _race_prev)
+    s_prev = _score(compute_speed_score, prev, _race_prev)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
-        "endurance_score_delta": round(e_cur - e_prev, 1) if e_cur is not None and e_prev is not None else None,
+        "endurance_score_delta": round(e_asof - e_prev, 1) if e_asof is not None and e_prev is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
-        "speed_score_delta": round(s_cur - s_prev, 1) if s_cur is not None and s_prev is not None else None,
+        "speed_score_delta": round(s_asof - s_prev, 1) if s_asof is not None and s_prev is not None else None,
     }
 
 
@@ -5598,6 +5620,8 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
         dpct = None
         if compute_decoupling is not None:
             try:
+                # Correct signature (workout, splits, threshold) → tuple, matching
+                # get_athlete_performance so the as-of scores reconcile with it.
                 dres, _ = compute_decoupling(
                     {"workout_type": wk.workout_type},
                     [
@@ -5610,7 +5634,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                         }
                         for s in splits
                     ],
-                    prefs_dict.get("aerobic_decoupling_threshold"),
+                    (prefs_dict or {}).get("aerobic_decoupling_threshold"),
                 )
                 dpct = dres.get("decoupling_pct") if dres else None
             except Exception:
@@ -5629,11 +5653,16 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "distance_km": float(wk.distance_km) if wk.distance_km is not None else None,
                 "duration_seconds": wk.duration_seconds,
                 "speed_signal": wk.speed_signal,
+                "speed_signal_basis": wk.speed_signal_basis,
+                "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                "ftp_w": (prefs_dict or {}).get("ftp_w"),
             }
         )
 
+    _race_perf = _latest_race_perf(session, user_id, as_of=as_of_date)
+
     def _score(fn):
-        r = fn(runs, prefs_dict or None, zone_constants)
+        r = fn(runs, prefs_dict or None, zone_constants, race_perf=_race_perf)
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
@@ -14361,6 +14390,43 @@ def _trigger_curve_rebuild_background(user_id) -> None:
 _performance_log = _logging.getLogger(__name__)
 
 
+def _latest_race_perf(session, user_id, as_of=None) -> dict | None:
+    """Race VDOT-band perf point for the score re-anchor (proposal §4.3).
+
+    Latest finished race (status='done' AND actual_time_seconds NOT NULL, most
+    recently updated). Returns ``{"perf": float, "date": "YYYY-MM-DD"}`` on the
+    universal VDOT band, or None when there is no usable race. When ``as_of`` is
+    given, only races on/before that date are considered (for the as-of helper).
+    """
+    from backend.services.vdot import vdot_from_pace_duration, rescale_to_score
+
+    q = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "done",
+            Race.actual_time_seconds.isnot(None),
+            Race.distance_km.isnot(None),
+        )
+    )
+    if as_of is not None:
+        q = q.filter(Race.race_date <= as_of)
+    race = q.order_by(Race.updated_at.desc()).first()
+    if race is None:
+        return None
+    try:
+        dist_km = float(race.distance_km)
+        secs = int(race.actual_time_seconds)
+    except (TypeError, ValueError):
+        return None
+    if dist_km <= 0 or secs <= 0:
+        return None
+    velocity_m_per_min = (dist_km * 1000.0) / (secs / 60.0)
+    duration_min = secs / 60.0
+    perf = rescale_to_score(vdot_from_pace_duration(velocity_m_per_min, duration_min))
+    return {"perf": perf, "date": race.race_date.isoformat() if race.race_date else None}
+
+
 def _check_needs_thresholds(preferences) -> bool:
     """Return True when none of the three threshold values are set in preferences.
 
@@ -14660,10 +14726,13 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     "avg_hr": workout.avg_hr,
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
-                    # Pre-computed speed signal from issue #1048 (may be None for easy runs).
-                    # When non-None, compute_speed_score uses this directly instead of
-                    # recomputing efficiency from laps.
+                    # Pre-computed speed signal (issue #1048): the best hard-effort
+                    # intensity ratio + its basis/window, used by compute_speed_score
+                    # to derive the effort pace when the reps aren't in the splits.
                     "speed_signal": workout.speed_signal,
+                    "speed_signal_basis": workout.speed_signal_basis,
+                    "speed_signal_window_seconds": workout.speed_signal_window_seconds,
+                    "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -14699,8 +14768,11 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             )
 
         zone_constants = make_zone_constants()
-        endurance = compute_endurance_score(runs, preferences, zone_constants)
-        speed = compute_speed_score(runs, preferences, zone_constants)
+        # Race VDOT-band perf point (pool point + decayed floor) — score re-anchor.
+        with Session(engine) as _race_session:
+            _race_perf = _latest_race_perf(_race_session, uid)
+        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf)
+        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf)
 
         if _performance_log.isEnabledFor(_logging.DEBUG):
             log_entry = _build_performance_log_entry(
@@ -14710,6 +14782,18 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 speed=speed,
             )
             _performance_log.debug("performance score request", extra=log_entry)
+
+        # Endurance requires threshold_hr (HR extrapolation); surface its
+        # needs_thresholds sub-state as the top-level state.
+        if isinstance(endurance, dict) and endurance.get("state") == "needs_thresholds":
+            return JSONResponse(
+                _build_performance_response(
+                    state="needs_thresholds",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
+                )
+            )
 
         top_state = _determine_performance_top_level_state(endurance, speed)
 
@@ -14890,6 +14974,11 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     threshold pace, aerobic-decoupling threshold). Any of these changing
     recomputes the scores; otherwise repeat loads reuse the cached payload.
     """
+    # Bump this token whenever the score FORMULA changes so the durable Neon
+    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
+    # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
+    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions.
+    _FORMULA_VERSION = "vdot-v4"
     base = _summary_signature(session, user_id)
     if prefs_row is not None:
         prefs_part = "%s|%s|%s|%s" % (
@@ -14900,7 +14989,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
         )
     else:
         prefs_part = "no-prefs"
-    return base + "|" + prefs_part
+    return base + "|" + prefs_part + "|" + _FORMULA_VERSION
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
