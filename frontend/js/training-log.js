@@ -226,6 +226,57 @@
     if (!wid) return;
     _deepLinkHandled = true;
     openDetailPanel(wid, null);
+    // Rows are lazy-rendered in batches (IntersectionObserver). The target row
+    // may not be in the DOM yet — force successive batches until it exists,
+    // then scroll it into view and mark it active. Fall back gracefully (drawer
+    // only) if the workout isn't in the loaded range.
+    _scrollListToWorkout(wid);
+  }
+
+  function _scrollListToWorkout(wid) {
+    var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
+    function rowFor() {
+      return document.querySelector('.entry-row[data-workout-id="' + wid + '"]');
+    }
+    // Force-render successive batches SYNCHRONOUSLY until the row is in the DOM
+    // (or all days are rendered). Rendering everything up front means the
+    // document height is final before we scroll, so the target position is
+    // stable — a smooth scroll fired mid-render would undershoot as more rows
+    // append below.
+    var row = rowFor();
+    var batches = 0;
+    while (
+      !row &&
+      _listState &&
+      _listState.cursor < _listState.days.length &&
+      batches < MAX_BATCHES
+    ) {
+      renderNextBatch();
+      batches++;
+      row = rowFor();
+    }
+    if (!row) return; // not in the loaded range — drawer stays open, nothing to scroll
+
+    // Reuse the existing active-row styling + tracking.
+    if (activeRowEl && activeRowEl !== row) activeRowEl.classList.remove("is-active");
+    activeRowEl = row;
+    row.classList.add("is-active");
+
+    // Scroll after layout settles (two rAFs: one for the just-appended batches,
+    // one for the drawer-open reflow). Use INSTANT scroll, not smooth: a smooth
+    // scroll animating down the long list passes lazy-load sentinels, which
+    // append more rows mid-animation and interrupt/undershoot it. A deferred
+    // re-scroll corrects for the drawer-open reflow.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        var r = rowFor();
+        if (r) r.scrollIntoView({ behavior: "auto", block: "center" });
+        setTimeout(function () {
+          var r2 = rowFor();
+          if (r2) r2.scrollIntoView({ behavior: "auto", block: "center" });
+        }, 400);
+      });
+    });
   }
 
   // ── Date-range chip label ─────────────────────────────────────────────────
