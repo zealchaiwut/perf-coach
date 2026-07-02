@@ -14,11 +14,6 @@ function isoDateStr(date) {
   );
 }
 
-function nowHHMM() {
-  const d = new Date();
-  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-}
-
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + n);
@@ -29,33 +24,6 @@ function addDays(dateStr, n) {
 function rangeFromDate(range) {
   const offsets = { '7d': -6, '30d': -29, '90d': -89, '6m': -180, '1y': -364, 'all': -364 };
   return addDays(todayISO(), offsets[range] ?? -29);
-}
-
-// Format a date string for the x-axis, adapting by range
-function fmtDateForRange(dateStr, range) {
-  const d = new Date(dateStr + 'T00:00:00');
-  if (range === '30d' || range === '90d') {
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-}
-
-// Format date for display in entries list
-function fmtDisplayDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-// Linear interpolation: weight at atDate between (fromDate, fromWeight) and (toDate, toWeight)
-function interpolateWeight(fromDate, fromWeight, toDate, toWeight, atDate) {
-  const t0 = new Date(fromDate + 'T00:00:00').getTime();
-  const t1 = new Date(toDate + 'T00:00:00').getTime();
-  const ta = new Date(atDate + 'T00:00:00').getTime();
-  if (t1 === t0) return toWeight;
-  if (ta <= t0) return fromWeight;
-  if (ta >= t1) return toWeight;
-  const frac = (ta - t0) / (t1 - t0);
-  return fromWeight + (toWeight - fromWeight) * frac;
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -118,12 +86,6 @@ async function fetchActiveTarget() {
 
 async function fetchTargetHistorySummary() {
   return apiFetch(`/api/weight-targets/history-summary`);
-}
-
-async function fetchTargetHistory(status) {
-  let url = `/api/weight-targets/history`;
-  if (status) url += `?status=${encodeURIComponent(status)}`;
-  return apiFetch(url);
 }
 
 // ── Streak & Adherence ────────────────────────────────────────────────────────

@@ -9,19 +9,6 @@
       .replace(/"/g, "&quot;");
   }
 
-  /* ---- Centralized fetch helper ---- */
-
-  async function _homeFetch(url) {
-    try {
-      var r = await fetch(url);
-      if (!r.ok) return { ok: false, data: null, status: r.status };
-      var data = await r.json();
-      return { ok: true, data: data, status: r.status };
-    } catch (_) {
-      return { ok: false, data: null, status: 0 };
-    }
-  }
-
   /* ---- Greeting ---- */
 
   function getGreetingPrefix() {
@@ -67,23 +54,10 @@
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
   }
 
-  // Returns a Date object whose local year/month/day matches Bangkok's current date.
-  function bangkokToday() {
-    var s = bangkokTodayStr();
-    var p = s.split('-');
-    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-  }
-
   function addISODays(isoStr, n) {
     var d = new Date(isoStr + 'T00:00:00');
     d.setDate(d.getDate() + n);
     return isoDate(d);
-  }
-
-  function avgOf(arr) {
-    var vals = arr.filter(function (v) { return v != null && !isNaN(v); });
-    if (!vals.length) return null;
-    return vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
   }
 
   /* ---- Performance card helpers ---- */
@@ -290,58 +264,6 @@
           '<div class="mc-value" title="Prediction model not yet built">—</div>' +
         '</div>' +
       '</div>' +
-    '</div>';
-  }
-
-  /* ── PR track icon map ── */
-  var _PR_TRACK_ICON = {
-    'half_marathon': { cls: 'run',   icon: 'ti-run',     sub: '21.1 km' },
-    '10k':           { cls: 'run',   icon: 'ti-run',     sub: '10.0 km' },
-    'squat_1rm':     { cls: 'lift',  icon: 'ti-barbell', sub: '1-rep max' },
-  };
-
-  function _prTrendIcon(trend) {
-    if (trend === 'improving') {
-      return '<span class="pr-trend pr-trend--green"><i class="ti ti-arrow-up"></i></span>';
-    }
-    if (trend === 'declining') {
-      return '<span class="pr-trend pr-trend--red"><i class="ti ti-arrow-down"></i></span>';
-    }
-    /* stable or no_data */
-    return '<span class="pr-trend pr-trend--flat" data-trend="' + (trend === 'stable' ? 'stable' : trend) + '">—</span>';
-  }
-
-  function _prFmtAchievedOn(isoStr) {
-    if (!isoStr) return '';
-    var parts = isoStr.split('-');
-    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
-  }
-
-  function _buildPrRow(track, isLast) {
-    var ic = _PR_TRACK_ICON[track.track_key] || { cls: 'run', icon: 'ti-run', sub: '' };
-    var predictedHTML = track.predicted_value_formatted
-      ? track.predicted_value_formatted
-      : '<span class="pr-dash">—</span>';
-
-    return '<div class="perf-row' + (isLast ? ' perf-row-last' : '') + '" data-pr-row>' +
-      '<div class="perf-track">' +
-        '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
-        '<div>' +
-          '<div class="trk-name">' + esc(track.track_name) + '</div>' +
-          '<div class="trk-sub">' + ic.sub + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div>' +
-        '<span class="pc-value">' + (track.current_value_formatted || '—') + '</span>' +
-        (track.achieved_on
-          ? '<div class="pc-trophy"><i class="ti ti-trophy-filled"></i>' +
-            _prFmtAchievedOn(track.achieved_on) + '</div>'
-          : '') +
-      '</div>' +
-      '<div>' + predictedHTML + '</div>' +
-      '<div>' + _prTrendIcon(track.trend) + '</div>' +
     '</div>';
   }
 
@@ -907,55 +829,6 @@
         _fmDoSave(userId, todayStr, false);
       });
     }
-  }
-
-  /* ---- Log today banner (issue #394) ---- */
-
-  async function loadLogTodayBanner(userId) {
-    var banner = document.getElementById('log-today-banner');
-    if (!banner) return;
-    var todayStr = bangkokTodayStr();
-    var hasRow = false;
-    try {
-      var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
-      hasRow = r.ok;
-    } catch (_) { /* network error, hasRow stays false */ }
-    banner.style.display = hasRow ? 'none' : 'block';
-
-    var ctaBtn = document.getElementById('log-today-cta-btn');
-    if (ctaBtn) {
-      ctaBtn.addEventListener('click', function () {
-        var section = document.getElementById('fast-log-section');
-        if (section) {
-          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          var firstInput = section.querySelector('.fm-input, .fm-textarea');
-          if (firstInput) setTimeout(function () { firstInput.focus(); }, 400);
-        }
-        banner.style.display = 'none';
-      });
-    }
-  }
-
-  async function loadLogTodayCard(userId) {
-    var rowLog = document.getElementById('row-log');
-    if (!rowLog) return;
-
-    var card = document.getElementById('log-today-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'log-today-card';
-      card.className = 'card log-today';
-      rowLog.appendChild(card);
-    }
-
-    var todayStr = bangkokTodayStr();
-    var existing = null;
-    try {
-      var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + todayStr);
-      if (res.ok) existing = await res.json();
-    } catch (_) { /* network error, render with no existing data */ }
-
-    renderLogTodayCard(card, existing, userId, todayStr, todayStr);
   }
 
   /* ---- Threshold banner ---- */

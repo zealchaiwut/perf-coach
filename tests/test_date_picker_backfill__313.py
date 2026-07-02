@@ -123,12 +123,6 @@ def test_home_js_has_render_log_today_card():
     assert "renderLogTodayCard" in js
 
 
-def test_home_js_has_load_log_today_card():
-    js = _HOME_JS.read_text()
-    assert "loadLogTodayCard" in js
-    assert "loadLogTodayCard(userId)" in js
-
-
 def test_home_js_has_date_picker_input():
     js = _HOME_JS.read_text()
     assert 'lt-date-picker' in js, "Expected lt-date-picker element id in home.js"

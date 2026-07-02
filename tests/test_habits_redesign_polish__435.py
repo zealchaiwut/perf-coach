@@ -153,7 +153,7 @@ def test_modal_css_present_in_html():
 
 
 def test_modal_js_present():
-    assert "openNewModal" in _JS, "habits.js must retain openNewModal() for the create flow"
+    assert "openHabitForm" in _JS, "habits.js must retain openHabitForm() for the create flow"
     assert "openEditModal" in _JS, "habits.js must retain openEditModal() for the edit flow"
     assert "archiveHabit" in _JS, "habits.js must retain archiveHabit() for the archive flow"
 
