@@ -46,17 +46,6 @@ Stryd activities conflict on `stryd_activity_id`. Running the same sync
 twice inserts missing rows and updates changed fields — it never creates
 duplicates.
 
-## Cancel hook
-
-Each worker loop checks `sync_jobs.is_cancel_requested(uid)` at the top of
-every page-fetch iteration and before processing each individual activity.
-When `cancel_requested` is truthy the loop exits immediately and records
-`status = "error"` with `error = "cancelled"`.
-
-Setting `cancel_requested` on the job dict is the only mechanism; there is
-no HTTP endpoint for cancellation yet. A future stop endpoint will set this
-flag and return — the worker will notice it on the next loop tick.
-
 ## Global status bar
 
 `frontend/js/nav.js` injects a `#sync-status-bar` element into every page

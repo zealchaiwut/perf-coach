@@ -38,7 +38,6 @@ def start(user_id: uuid.UUID, provider: Literal["strava", "stryd"]) -> dict:
             "started_at": datetime.now(timezone.utc),
             "finished_at": None,
             "error": None,
-            "cancel_requested": False,
         }
         _registry[user_id] = job
         return job
@@ -77,12 +76,6 @@ def mark_error(user_id: uuid.UUID, error: str) -> None:
             _registry[user_id]["status"] = "error"
             _registry[user_id]["error"] = error
             _registry[user_id]["finished_at"] = datetime.now(timezone.utc)
-
-
-def is_cancel_requested(user_id: uuid.UUID) -> bool:
-    with _lock:
-        job = _registry.get(user_id)
-        return bool(job and job.get("cancel_requested"))
 
 
 def snapshot(user_id: uuid.UUID) -> Optional[dict]:

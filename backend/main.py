@@ -9855,10 +9855,6 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
         page = 1
         synced_strava_ids: list[int] = []
         while True:
-            if _sync_jobs.is_cancel_requested(uid):
-                _sync_jobs.mark_error(uid, "cancelled")
-                return
-
             params: dict = {"per_page": _STRAVA_SYNC_PER_PAGE, "page": page}
             if since_epoch is not None:
                 params["after"] = since_epoch
@@ -9877,9 +9873,6 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
             now = _datetime.now(tz=_timezone.utc)
             rows = []
             for act in batch:
-                if _sync_jobs.is_cancel_requested(uid):
-                    _sync_jobs.mark_error(uid, "cancelled")
-                    return
                 start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
                     tzinfo=_timezone.utc
                 )
