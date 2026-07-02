@@ -219,7 +219,14 @@
       body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
         ' → Actual ' + esc(actMeta) + '</div>' +
         _feelRowHtml(mwid, feel) +
-        '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>';
+        '<div class="pl-matchbtns">' +
+          '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>' +
+          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">Change matched workout</button>' +
+        '</div>' +
+        '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
+    } else if (p.status === 'planned' || p.status === 'missed') {
+      body = '<button class="pl-pickbtn pl-pick-attach" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach a recent workout</button>' +
+        '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
     } else if (p.status === 'needs_review') {
       var day2 = day;
       var cands = _reviewCandidates(p, day2);
@@ -306,6 +313,12 @@
           .catch(function (err) { _toast(err.message || 'Could not save feeling', true); });
       });
     });
+    host.querySelectorAll('[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _togglePicker(host, b.getAttribute('data-pick'), b.getAttribute('data-pick-mode'));
+      });
+    });
     host.querySelectorAll('[data-map]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -355,6 +368,86 @@
     _api(method, url, body)
       .then(function () { _loadWeek(); })
       .catch(function (err) { _toast(err.message || 'Update failed', true); });
+  }
+
+  // ── 24h workout history picker (attach / override) ──────────────────────────
+  function _togglePicker(host, sessId, mode) {
+    var box = host.querySelector('.pl-picker[data-pickerfor="' + sessId + '"]');
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; box.innerHTML = ''; return; }
+    // Close any other open picker first.
+    host.querySelectorAll('.pl-picker').forEach(function (b) { if (b !== box) { b.hidden = true; b.innerHTML = ''; } });
+    box.hidden = false;
+    box.innerHTML = '<div class="pl-loading">Loading recent workouts…</div>';
+    _api('GET', '/api/workouts/recent?hours=24')
+      .then(function (list) { _renderPickerList(box, sessId, mode, list || []); })
+      .catch(function () { box.innerHTML = '<div class="pl-loading">Could not load recent workouts.</div>'; });
+  }
+
+  function _pickWhen(w) {
+    var iso = w.created_at || w.start_time;
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var hh = d.getHours(), mm = d.getMinutes();
+    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1, 3).toLowerCase() +
+      ' ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  function _renderPickerList(box, sessId, mode, list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="pl-picker-empty">No workouts logged in the last 24 hours.</div>';
+      return;
+    }
+    var rows = list.map(function (w) {
+      var type = (w.workout_type || '').toLowerCase() === 'run' ? 'run' : 'lift';
+      var metaBits = [_pickWhen(w)];
+      if (w.meta) metaBits.push(w.meta);
+      if (w.source === 'manual') metaBits.push('manual');
+      return '<button type="button" class="pl-pickrow" data-pickrow="' + sessId + '" data-workout="' + w.id + '">' +
+        '<span class="pl-pickrow-badge ' + type + '">' + type + '</span>' +
+        '<span class="pl-pickrow-name">' + esc(w.name || '(untitled)') + '</span>' +
+        '<span class="pl-pickrow-meta">' + esc(metaBits.filter(Boolean).join(' · ')) + '</span>' +
+        '</button>';
+    }).join('');
+    box.innerHTML = '<div class="pl-pickerlist">' + rows + '</div>' +
+      // Override needs a lightweight inline confirm before applying.
+      (mode === 'override'
+        ? '<div class="pl-pickconfirm" hidden><span>Replace the current match?</span>' +
+          '<button type="button" class="pl-btn pl-lime pl-tiny" data-pickyes="' + sessId + '">Yes</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-pickcancel="' + sessId + '">Cancel</button></div>'
+        : '');
+
+    var pending = { workoutId: null };
+    box.querySelectorAll('[data-pickrow]').forEach(function (r) {
+      r.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var wid = r.getAttribute('data-workout');
+        if (mode === 'override') {
+          pending.workoutId = wid;
+          box.querySelectorAll('.pl-pickrow').forEach(function (x) { x.classList.remove('is-sel'); });
+          r.classList.add('is-sel');
+          var conf = box.querySelector('.pl-pickconfirm');
+          if (conf) conf.hidden = false;
+        } else {
+          _mutate('POST', '/api/planned-sessions/' + sessId + '/match', { workout_id: wid });
+        }
+      });
+    });
+    var yes = box.querySelector('[data-pickyes]');
+    if (yes) yes.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!pending.workoutId) return;
+      _mutate('POST', '/api/planned-sessions/' + sessId + '/match', { workout_id: pending.workoutId });
+    });
+    var cancel = box.querySelector('[data-pickcancel]');
+    if (cancel) cancel.addEventListener('click', function (e) {
+      e.stopPropagation();
+      pending.workoutId = null;
+      box.querySelectorAll('.pl-pickrow').forEach(function (x) { x.classList.remove('is-sel'); });
+      var conf = box.querySelector('.pl-pickconfirm');
+      if (conf) conf.hidden = true;
+    });
   }
 
   // ══ ADD PANEL ═══════════════════════════════════════════════════════════════
@@ -995,6 +1088,22 @@
     '.plan-panel .pl-feel-btn:hover{opacity:0.75;filter:grayscale(0);}',
     '.plan-panel .pl-feel-btn.is-on{opacity:1;filter:none;transform:scale(1.12);}',
     '.plan-panel .pl-feel-btn.is-hidden{display:none;}',
+    // 24h attach/override picker.
+    '.plan-panel .pl-matchbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px;}',
+    '.plan-panel .pl-pickbtn{font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-pickbtn:hover{text-decoration:underline;}',
+    '.plan-panel .pl-pick-attach{margin-top:6px;font-weight:600;}',
+    '.plan-panel .pl-picker{margin-top:6px;}',
+    '.plan-panel .pl-pickerlist{display:flex;flex-direction:column;gap:4px;}',
+    '.plan-panel .pl-pickrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;text-align:left;width:100%;}',
+    '.plan-panel .pl-pickrow:hover{border-color:var(--pl-run);}',
+    '.plan-panel .pl-pickrow.is-sel{border-color:var(--pl-run);background:#eef3ff;}',
+    '.plan-panel .pl-pickrow-badge{font-size:8px;font-weight:800;text-transform:uppercase;padding:1px 4px;border-radius:4px;color:#fff;}',
+    '.plan-panel .pl-pickrow-badge.run{background:var(--pl-run);}.plan-panel .pl-pickrow-badge.lift{background:var(--pl-lift);}',
+    '.plan-panel .pl-pickrow-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.plan-panel .pl-pickrow-meta{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;white-space:nowrap;}',
+    '.plan-panel .pl-pickconfirm{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;color:var(--pl-muted);}',
+    '.plan-panel .pl-picker-empty{font-size:10px;color:var(--pl-faint);font-style:italic;padding:4px 2px;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',

@@ -6025,6 +6025,56 @@ def get_workouts(
         return JSONResponse(result)
 
 
+def _recent_workout_dict(w) -> dict:
+    """Compact recent-workout row for the 24h attach/override picker (issue #1242)."""
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if dist:
+        bits.append(("%.1f" % dist) + " km")
+    if w.tss is not None:
+        bits.append(str(round(float(w.tss))) + " TSS")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "source": w.source,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+        "start_time": w.start_time.isoformat() if w.start_time else None,
+        "duration_seconds": w.duration_seconds,
+        "distance_km": dist,
+        "meta": " · ".join(bits),
+    }
+
+
+@app.get("/api/workouts/recent")
+def get_recent_workouts(
+    hours: int = Query(24, ge=1, le=168),
+    user: User = Depends(resolve_user),
+):
+    """Workouts logged/synced in the last ``hours`` (default 24) for the user.
+
+    Ordered newest-first by created_at (when it was logged or synced — catches a
+    just-synced run and a just-entered manual workout alike). Includes manual
+    entries (source='manual'). Powers the Plan card's attach/override picker.
+    """
+    cutoff = _datetime.now(_timezone.utc) - _timedelta(hours=hours)
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == user.id,
+                Workout.created_at >= cutoff,
+            )
+            .order_by(Workout.created_at.desc())
+            .all()
+        )
+        return JSONResponse([_recent_workout_dict(w) for w in workouts])
+
+
 @app.get("/api/workouts/recent-type")
 def get_recent_workout_type(user: User = Depends(resolve_user)):
     """Most recently logged workout_type for the session user (issue #525).
