@@ -1031,6 +1031,7 @@
   </style>
 </head>
 <body>
+  <script src="/js/lib/sync-poller.js"></script>
   <script src="/js/nav.js"></script>
   <script src="/js/env.js"></script>
 
@@ -2403,7 +2404,7 @@
       // ── Strava ─────────────────────────────────────────────────────────────
 
       var _stravaUserId = null;
-      var _stravaSyncPollTimer = null;
+      var _stravaSyncPollUnsub = null;
       var _stravaSyncPanelOpen = false;
       var _stravaHistoryOpen = false;
       var _stravaSinceDateValue = null;
@@ -2445,9 +2446,9 @@
       }
 
       function _clearStravaSyncPoll() {
-        if (_stravaSyncPollTimer) {
-          clearTimeout(_stravaSyncPollTimer);
-          _stravaSyncPollTimer = null;
+        if (_stravaSyncPollUnsub) {
+          _stravaSyncPollUnsub();
+          _stravaSyncPollUnsub = null;
         }
       }
 
@@ -2584,7 +2585,7 @@
           })
           .then(function () {
             if (resultEl) resultEl.innerHTML = '<div class="strava-sync-progress">Sync running…</div>';
-            _pollStravaSync(0);
+            _startStravaSyncPoll();
           })
           .catch(function (err) {
             var msg = err.message || 'Sync failed';
@@ -2596,58 +2597,54 @@
           });
       }
 
-      function _pollStravaSync(attempt) {
+      function _startStravaSyncPoll() {
+        if (_stravaSyncPollUnsub) return;
+        _stravaSyncPollUnsub = window.SyncPoller.subscribe(_onStravaSyncPoll);
+        window.SyncPoller.checkNow();
+      }
+
+      function _onStravaSyncPoll(job) {
         var resultEl = document.getElementById('strava-panel-result');
-        fetch('/api/sync/status')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (job) {
-            if (!job || !resultEl) return;
-            var status = job.status || 'idle';
-            if (status === 'running') {
-              var phase = job.phase || '';
-              var fetched = job.current || 0;
-              var msg = phase === 'reconciling'
-                ? 'Reconciling activities…'
-                : 'Fetching activities… ' + fetched + ' fetched';
-              resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
-              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-            } else if (status === 'success') {
-              loadStravaSyncLatest();
-              fetch('/api/sync/strava/latest')
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (d) {
-                  var n = d && d.new_workouts ? d.new_workouts : 0;
-                  window.intLog('strava', 'success', 'Sync complete', {
-                    activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
-                  });
-                  if (resultEl) {
-                    resultEl.innerHTML =
-                      '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
-                      '<a href="/log">View them →</a></div>';
-                  }
-                });
-            } else if (status === 'error') {
-              var errMsg = job.error || 'Sync failed';
-              window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
+        if (!job || !resultEl) { _clearStravaSyncPoll(); return; }
+        var status = job.status || 'idle';
+        if (status === 'running') {
+          var phase = job.phase || '';
+          var fetched = job.current || 0;
+          var msg = phase === 'reconciling'
+            ? 'Reconciling activities…'
+            : 'Fetching activities… ' + fetched + ' fetched';
+          resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
+        } else if (status === 'success') {
+          _clearStravaSyncPoll();
+          loadStravaSyncLatest();
+          fetch('/api/sync/strava/latest')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+              var n = d && d.new_workouts ? d.new_workouts : 0;
+              window.intLog('strava', 'success', 'Sync complete', {
+                activities_synced: d && d.activities_synced, new_workouts: n, synced_at: d && d.synced_at,
+              });
               if (resultEl) {
                 resultEl.innerHTML =
-                  '<div class="strava-sync-error">' + errMsg + '</div>' +
-                  '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
-                var retryBtn = document.getElementById('strava-retry-btn');
-                if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+                  '<div class="strava-sync-success">Synced ' + n + ' new workouts. ' +
+                  '<a href="/log">View them →</a></div>';
               }
-            } else {
-              // idle - maybe just finished, poll once more briefly
-              if (attempt < 3) {
-                _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-              }
-            }
-          })
-          .catch(function () {
-            if (attempt < 10) {
-              _stravaSyncPollTimer = setTimeout(function () { _pollStravaSync(attempt + 1); }, 2000);
-            }
-          });
+            });
+        } else if (status === 'error') {
+          _clearStravaSyncPoll();
+          var errMsg = job.error || 'Sync failed';
+          window.intLog('strava', 'error', 'Sync failed', { error: errMsg });
+          if (resultEl) {
+            resultEl.innerHTML =
+              '<div class="strava-sync-error">' + errMsg + '</div>' +
+              '<button class="integration-btn integration-btn--secondary" id="strava-retry-btn" style="margin-top:8px">Retry</button>';
+            var retryBtn = document.getElementById('strava-retry-btn');
+            if (retryBtn) retryBtn.addEventListener('click', stravaRunSync);
+          }
+        } else {
+          // idle
+          _clearStravaSyncPoll();
+        }
       }
 
       function stravaReconcile() {
@@ -3117,7 +3114,7 @@
             if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Sync failed to start'); });
             return r.json();
           })
-          .then(function () { _pollStrydSync(0); })
+          .then(function () { _startStrydSyncPoll(); })
           .catch(function (err) {
             window.intLog('stryd', 'error', _strydErrMsg(err, 'Sync failed'));
             _strydSetSyncBusy(false);
@@ -3127,31 +3124,39 @@
       function strydSyncNew() { _strydStartSync(false); }
       function strydSyncAll() { _strydStartSync(true); }
 
-      function _pollStrydSync(attempt) {
-        fetch('/api/sync/status')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (job) {
-            var status = job && job.status || 'idle';
-            if (status === 'running') {
-              window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
-              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            } else if (status === 'success') {
-              window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
-              loadStrydSyncLatest(); loadStrydDataQuality();
-              _strydSetSyncBusy(false);
-            } else if (status === 'error') {
-              window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
-              _strydSetSyncBusy(false);
-            } else if (attempt < 4) {
-              setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            } else {
-              _strydSetSyncBusy(false);
-            }
-          })
-          .catch(function () {
-            if (attempt < 10) setTimeout(function () { _pollStrydSync(attempt + 1); }, 2000);
-            else _strydSetSyncBusy(false);
-          });
+      var _strydSyncPollUnsub = null;
+
+      function _clearStrydSyncPoll() {
+        if (_strydSyncPollUnsub) {
+          _strydSyncPollUnsub();
+          _strydSyncPollUnsub = null;
+        }
+      }
+
+      function _startStrydSyncPoll() {
+        if (_strydSyncPollUnsub) return;
+        _strydSyncPollUnsub = window.SyncPoller.subscribe(_onStrydSyncPoll);
+        window.SyncPoller.checkNow();
+      }
+
+      function _onStrydSyncPoll(job) {
+        var status = (job && job.status) || 'idle';
+        if (status === 'running') {
+          window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
+        } else if (status === 'success') {
+          _clearStrydSyncPoll();
+          window.intLog('stryd', 'success', 'Sync complete', { items_synced: job.items_synced });
+          loadStrydSyncLatest(); loadStrydDataQuality();
+          _strydSetSyncBusy(false);
+        } else if (status === 'error') {
+          _clearStrydSyncPoll();
+          window.intLog('stryd', 'error', 'Sync failed', { error: job.error });
+          _strydSetSyncBusy(false);
+        } else {
+          // idle
+          _clearStrydSyncPoll();
+          _strydSetSyncBusy(false);
+        }
       }
 
       function renderStrydConnected(email, expiresAt) {

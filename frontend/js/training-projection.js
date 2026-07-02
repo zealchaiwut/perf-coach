@@ -148,11 +148,8 @@
       cb();
       return;
     }
-    fetch("/api/auth/me", { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok) return null;
-        return r.json();
-      })
+    window
+      .fetchCurrentUser()
       .then(function (u) {
         if (u) _planId = u.id;
         cb();

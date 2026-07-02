@@ -285,6 +285,9 @@ class Workout(Base):
         CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0", name="ck_workouts_duration_non_negative"),
         CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
         CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
+        # Matches alembic/versions/c3d4e5f6a7b8_create_workouts_table.py's raw-SQL
+        # index (already in the DB) — declared here so autogenerate stays quiet.
+        Index("ix_workouts_user_id_workout_date", "user_id", workout_date.desc()),
     )
 
     exercises = relationship(
@@ -615,6 +618,11 @@ class DailyReadiness(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_daily_readiness_user_date"),
         CheckConstraint("score >= 0 AND score <= 100", name="ck_daily_readiness_score_range"),
+        # Matches the raw-SQL index already in the DB (created by
+        # 59a1b2c3d4e5_create_daily_readiness_table.py and its duplicate-head
+        # counterpart) — declared here so autogenerate stays quiet. Queried
+        # per-day per-user throughout readiness/training-load code.
+        Index("ix_daily_readiness_user_date", "user_id", date.desc()),
     )
 
 

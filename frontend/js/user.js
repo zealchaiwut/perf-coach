@@ -1,5 +1,6 @@
 (function () {
-  // CSRF fetch patching lives in nav.js (loaded before this script on every page).
+  // CSRF fetch patching + the shared /api/auth/me fetch both live in nav.js
+  // (loaded before this script on every page).
 
   var _currentUser = null;
 
@@ -7,24 +8,13 @@
     return _currentUser ? _currentUser.id : null;
   }
 
-  var authReady = window.ensureCsrfReady
-    ? window.ensureCsrfReady()
-    : Promise.resolve();
-
-  authReady
-    .then(function () {
-      return fetch("/api/auth/me");
-    })
-    .then(function (res) {
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = "/login";
-        return null;
-      }
-      if (!res.ok) throw new Error("auth/me error " + res.status);
-      return res.json();
-    })
+  window
+    .fetchCurrentUser()
     .then(function (user) {
-      if (!user) return;
+      if (!user) {
+        window.location.href = "/login";
+        return;
+      }
       _currentUser = user;
       window.dispatchEvent(
         new CustomEvent("userReady", {
