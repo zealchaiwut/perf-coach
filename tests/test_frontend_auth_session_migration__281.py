@@ -1,7 +1,7 @@
 """Tests for issue #281: migrate frontend auth to session, drop user_id shim.
 
 Verifies:
-- LEGACY_USER_ID_SHIM_ENABLED=False: ?user_id query param no longer authenticates
+- legacy ?user_id query-param shim removed: ?user_id can never authenticate
 - Session cookie auth continues to work for all major endpoint groups
 - /api/auth/me returns correct session user
 - Supplying ?user_id= of another user with a valid session is ignored (session wins)
@@ -82,7 +82,7 @@ def cookie_b(client, user_b):
 # ── shim disabled: ?user_id no longer authenticates ──────────────────────────
 
 class TestUserIdShimDisabled:
-    """With LEGACY_USER_ID_SHIM_ENABLED=False, ?user_id cannot substitute for a session
+    """The legacy ?user_id shim is removed; ?user_id can never substitute for a session
     on auth-gated endpoints. /api/weight-entries intentionally accepts ?user_id without
     a session (it is the public replacement), so it should return 200 here."""
 
