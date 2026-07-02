@@ -20,3 +20,4 @@ snapshots/
 dashboard.db
 uat.pid
 uat.log
+commander.db

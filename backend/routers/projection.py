@@ -1,7 +1,9 @@
-"""plan.py — routes for /plans/{plan_id}/races, checkpoints, and projection.
+"""projection.py — routes for /plans/{plan_id}/races, checkpoints, and projection.
 
-All business logic and DB interaction is delegated to plan_service or the
-projection module; no domain logic lives in this router.
+Route paths, the ``training_plans`` table, and the ``TrainingPlan`` model are
+UNCHANGED — this file was renamed from ``plan.py`` (feature/performance-tab-rework).
+All business logic and DB interaction is delegated to projection_service or the
+projection payload module; no domain logic lives in this router.
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ from backend.models import (
     UserPreferences as _UserPreferences,
     RACE_TYPE_VALUES as _RACE_TYPE_VALUES,
 )
-from backend.services import plan_service as _svc
+from backend.services import projection_service as _svc
 from backend.services import projection as _proj
 from backend.services.training_load import (
     current_load as _current_load,

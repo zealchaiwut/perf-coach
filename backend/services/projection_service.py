@@ -1,6 +1,8 @@
-"""plan_service — DB operations for the plan router (issue #1100).
+"""projection_service — DB operations for the projection router (issue #1100).
 
-All DB interaction for /plans/{plan_id}/races and nested checkpoints
+Renamed from ``plan_service`` (feature/performance-tab-rework); function names,
+route paths, the ``training_plans`` table, and the ``TrainingPlan`` model are
+UNCHANGED. All DB interaction for /plans/{plan_id}/races and nested checkpoints
 lives here; the router itself contains no business logic.
 """
 from __future__ import annotations

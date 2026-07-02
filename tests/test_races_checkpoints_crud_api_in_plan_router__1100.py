@@ -92,23 +92,23 @@ def user_and_client():
 # ── AC10: py_compile check ────────────────────────────────────────────────────
 
 def test_plan_router_compiles_without_syntax_error():
-    """AC10: backend/routers/plan.py has no syntax errors."""
+    """AC10: backend/routers/projection.py has no syntax errors."""
     router_path = _ROOT / "backend" / "routers" / "plan.py"
     assert router_path.exists(), f"router file not found at {router_path}"
     try:
         py_compile.compile(str(router_path), doraise=True)
     except py_compile.PyCompileError as exc:
-        pytest.fail(f"Syntax error in routers/plan.py: {exc}")
+        pytest.fail(f"Syntax error in routers/projection.py: {exc}")
 
 
 def test_plan_service_compiles_without_syntax_error():
-    """AC10: backend/services/plan_service.py has no syntax errors."""
-    svc_path = _ROOT / "backend" / "services" / "plan_service.py"
+    """AC10: backend/services/projection_service.py has no syntax errors."""
+    svc_path = _ROOT / "backend" / "services" / "projection_service.py"
     assert svc_path.exists(), f"service file not found at {svc_path}"
     try:
         py_compile.compile(str(svc_path), doraise=True)
     except py_compile.PyCompileError as exc:
-        pytest.fail(f"Syntax error in plan_service.py: {exc}")
+        pytest.fail(f"Syntax error in projection_service.py: {exc}")
 
 
 # ── AC2: POST /plans/{plan_id}/races ─────────────────────────────────────────

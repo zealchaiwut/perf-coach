@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -90,7 +90,7 @@ from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _pr
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
-from backend.routers.plan import router as _plan_router
+from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
@@ -5119,8 +5119,9 @@ app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=Fa
 
 
 def _serve_projection_redirect():
-    # Projection was merged into the Training → Plan sub-tab (issue #1226).
-    return RedirectResponse(url="/log#plan", status_code=302)
+    # Projection was merged into the Training → Projection sub-tab
+    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework).
+    return RedirectResponse(url="/log#projection", status_code=302)
 
 app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
 app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
@@ -5288,6 +5289,7 @@ class WorkoutPatch(BaseModel):
     name: Optional[str] = None
     workout_date: Optional[str] = None
     workout_type: Optional[str] = None
+    run_subtype: Optional[str] = None
     remarks: Optional[str] = None
     tss: Optional[float] = None
     distance_km: Optional[float] = None
@@ -5390,6 +5392,9 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
     Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
     guardrail) match. Other types are passed through trimmed, unchanged.
+    Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
+    (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
+    pipeline (detail layout, decoupling, PRs, run counts).
     """
     if t is None:
         return None
@@ -5397,6 +5402,10 @@ def _normalize_workout_type(t: str | None) -> str | None:
     if t.lower() in ("run", "running"):
         return "run"
     return t
+
+
+# Allowed run-subtype values (issue: run subtype as its own column). None clears it.
+_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -5696,6 +5705,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "name": w.name,
         "workout_date": str(w.workout_date),
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": int(w.tss) if w.tss is not None else None,
         "tss_source": w.tss_source,
@@ -5923,6 +5933,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "workout_date": str(w.workout_date),
         "name": w.name,
         "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
@@ -6585,6 +6596,19 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if not t:
                 raise HTTPException(status_code=422, detail="workout_type is required")
             workout.workout_type = _normalize_workout_type(t)
+        if 'run_subtype' in body.model_fields_set:
+            # None/empty clears it; otherwise must be one of the allowed values.
+            rs = body.run_subtype
+            if rs is None or (isinstance(rs, str) and rs.strip() == ""):
+                workout.run_subtype = None
+            else:
+                rs = rs.strip().lower()
+                if rs not in _RUN_SUBTYPE_VALUES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="run_subtype must be one of: " + ", ".join(sorted(_RUN_SUBTYPE_VALUES)),
+                    )
+                workout.run_subtype = rs
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -6638,6 +6662,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        # Stamp updated_at so edits (e.g. marking a run as an interval) change the
+        # workout-set fingerprint — the summary/performance cache signature
+        # includes MAX(updated_at), so a type edit busts the cache and the
+        # Performance Speed feed refreshes without waiting for a new sync.
+        workout.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -6722,6 +6751,338 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
     return Response(status_code=204)
+
+
+# ── Planned sessions (new Plan tab — weekly training schedule) ────────────────
+# Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
+# Link-only: matched_workout_id → workouts.id; Log tab unchanged.
+
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
+
+
+class PlannedSessionIn(BaseModel):
+    planned_date: str
+    session_type: str
+    name: Optional[str] = None
+    structure: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class PlannedSessionPatch(BaseModel):
+    planned_date: Optional[str] = None
+    session_type: Optional[str] = None
+    name: Optional[str] = None
+    structure: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class PlannedSessionMatchIn(BaseModel):
+    workout_id: str
+
+
+def _validate_planned_type(t: str) -> str:
+    t = (t or "").strip().lower()
+    if t not in _PLANNED_SESSION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
+        )
+    return t
+
+
+def _validate_planned_date(s: str) -> _date:
+    try:
+        return _date.fromisoformat((s or "").strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "planned_date", "error": "must be ISO YYYY-MM-DD"},
+        )
+
+
+def _workout_actual_summary(w) -> dict:
+    """Compact actual-workout summary attached to a matched planned session."""
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if w.tss is not None:
+        bits.append(str(round(float(w.tss))) + " TSS")
+    elif dist:
+        bits.append(("%.1f" % dist) + " km")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "date": str(w.workout_date),
+        "distance_km": dist,
+        "duration_seconds": w.duration_seconds,
+        "tss": float(w.tss) if w.tss is not None else None,
+        "meta": " · ".join(bits),
+    }
+
+
+def _planned_session_dict(p, matched=None) -> dict:
+    return {
+        "id": str(p.id),
+        "planned_date": str(p.planned_date),
+        "session_type": p.session_type,
+        "name": p.name,
+        "structure": p.structure,
+        "notes": p.notes,
+        "status": p.status,
+        "matched_workout_id": str(p.matched_workout_id) if p.matched_workout_id else None,
+        "actual": _workout_actual_summary(matched) if matched is not None else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+def _ghost_workout_dict(w) -> dict:
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if dist:
+        bits.append(("%.1f" % dist) + " km")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "date": str(w.workout_date),
+        "meta": " · ".join(bits) or "—",
+    }
+
+
+def _get_planned_session_or_404(session, ps_id: str, user: User):
+    try:
+        pid = _uuid.UUID(ps_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid planned_session id")
+    row = session.get(PlannedSession, pid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Planned session not found")
+    if row.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return row
+
+
+@app.get("/api/planned-sessions")
+def get_planned_sessions(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Week bundle: planned sessions (each with status + matched actual summary)
+    plus unplanned/ghost workouts, grouped by day for the Plan tab.
+
+    Shape:
+      {"from","to","days":[{"date","dow","planned":[<session dict>...],
+        "unplanned":[<ghost dict>...]}]}
+    """
+    from datetime import timedelta as _td
+    from backend.services import plan_matching as _pm
+
+    today = _date.today()
+    # Default to the current Monday–Sunday ISO week.
+    if from_date:
+        start = _validate_planned_date(from_date)
+    else:
+        start = today - _td(days=today.weekday())
+    if to_date:
+        end = _validate_planned_date(to_date)
+    else:
+        end = start + _td(days=6)
+    if end < start:
+        raise HTTPException(status_code=422, detail={"field": "to", "error": "to must be >= from"})
+
+    uid = user.id
+    with Session(engine) as session:
+        rows = (
+            session.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date >= start,
+                PlannedSession.planned_date <= end,
+            )
+            .order_by(PlannedSession.planned_date, PlannedSession.created_at)
+            .all()
+        )
+        matched_map = {}
+        wanted = [r.matched_workout_id for r in rows if r.matched_workout_id is not None]
+        if wanted:
+            for w in session.query(Workout).filter(Workout.id.in_(wanted)).all():
+                matched_map[w.id] = w
+
+        ghost_ids = _pm.unplanned_workout_ids(session, uid, start, end)
+        ghost_map = {}
+        if ghost_ids:
+            for w in session.query(Workout).filter(Workout.id.in_(list(ghost_ids))).all():
+                ghost_map[w.id] = w
+
+        # Group by day across the full range (empty days included → Rest day UI).
+        _DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+        by_day = {}
+        d = start
+        while d <= end:
+            by_day[d] = {"date": str(d), "dow": _DOW[d.weekday()], "planned": [], "unplanned": []}
+            d += _td(days=1)
+        for r in rows:
+            bucket = by_day.get(r.planned_date)
+            if bucket is None:
+                continue
+            matched = matched_map.get(r.matched_workout_id) if r.matched_workout_id else None
+            d = _planned_session_dict(r, matched)
+            # Attach the ±1-day candidate pool so the UI can offer a confirm list
+            # for a needs_review session even when the candidate is on an
+            # adjacent day (ghosts only surface same-day workouts).
+            if r.status == "needs_review":
+                d["candidates"] = [_ghost_workout_dict(w) for w in _pm.review_candidates(session, uid, r)]
+            bucket["planned"].append(d)
+        for wid, w in ghost_map.items():
+            bucket = by_day.get(w.workout_date)
+            if bucket is not None:
+                bucket["unplanned"].append(_ghost_workout_dict(w))
+
+        days = [by_day[k] for k in sorted(by_day.keys())]
+        return JSONResponse({"from": str(start), "to": str(end), "days": days})
+
+
+@app.post("/api/planned-sessions", status_code=201)
+def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_user)):
+    ptype = _validate_planned_type(body.session_type)
+    pdate = _validate_planned_date(body.planned_date)
+    with Session(engine) as session:
+        row = PlannedSession(
+            user_id=user.id,
+            planned_date=pdate,
+            session_type=ptype,
+            name=(body.name or None),
+            structure=body.structure,
+            notes=(body.notes.strip() if body.notes else None),
+            status="planned",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(status_code=201, content=_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/bulk", status_code=201)
+def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depends(resolve_user)):
+    if not isinstance(body, list) or not body:
+        raise HTTPException(status_code=422, detail="Expected a non-empty array of sessions")
+    created = []
+    with Session(engine) as session:
+        for item in body:
+            ptype = _validate_planned_type(item.session_type)
+            pdate = _validate_planned_date(item.planned_date)
+            row = PlannedSession(
+                user_id=user.id,
+                planned_date=pdate,
+                session_type=ptype,
+                name=(item.name or None),
+                structure=item.structure,
+                notes=(item.notes.strip() if item.notes else None),
+                status="planned",
+            )
+            session.add(row)
+            created.append(row)
+        session.commit()
+        for row in created:
+            session.refresh(row)
+        return JSONResponse(status_code=201, content=[_planned_session_dict(r) for r in created])
+
+
+@app.patch("/api/planned-sessions/{ps_id}")
+def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        if body.planned_date is not None:
+            new_date = _validate_planned_date(body.planned_date)
+            # Rescheduling a missed session resets it to planned (mock behavior).
+            if row.status == "missed" and new_date != row.planned_date:
+                row.status = "planned"
+            row.planned_date = new_date
+        if body.session_type is not None:
+            row.session_type = _validate_planned_type(body.session_type)
+        if body.name is not None:
+            row.name = body.name or None
+        if "structure" in body.model_fields_set:
+            row.structure = body.structure
+        if body.notes is not None:
+            row.notes = body.notes.strip() or None
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        matched = session.get(Workout, row.matched_workout_id) if row.matched_workout_id else None
+        return JSONResponse(_planned_session_dict(row, matched))
+
+
+@app.delete("/api/planned-sessions/{ps_id}", status_code=204)
+def delete_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        session.delete(row)
+        session.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/planned-sessions/{ps_id}/match")
+def match_planned_session(ps_id: str, body: PlannedSessionMatchIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(body.workout_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        workout = session.get(Workout, wid)
+        if workout is None or workout.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        row.matched_workout_id = wid
+        row.status = "done_manual"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row, workout))
+
+
+@app.post("/api/planned-sessions/{ps_id}/unmatch")
+def unmatch_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "planned"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/{ps_id}/miss")
+def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "missed"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/reconcile")
+def reconcile_planned_sessions(user: User = Depends(resolve_user)):
+    """Run the planned-session matcher on demand for the current user."""
+    from backend.services import plan_matching as _pm
+    with Session(engine) as session:
+        result = _pm.reconcile_user(session, user.id)
+    return JSONResponse(result)
 
 
 @app.post("/api/workouts/{workout_id}/duplicate", status_code=201)
@@ -8612,6 +8973,7 @@ def get_training_log(
         {
             "date": str(w.workout_date),
             "type": w.workout_type,
+            "run_subtype": w.run_subtype,
             "id": str(w.id),
             "title": w.name,
             "duration_seconds": w.duration_seconds,
@@ -9450,6 +9812,21 @@ def _default_strava_since_date(user_id: _uuid.UUID) -> str:
     return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
 
 
+def _run_plan_matcher(uid) -> None:
+    """Post-sync pass: match planned_sessions against the freshly reconciled
+    workouts. Runs after reconcile_workouts, before mark_success. Failures never
+    fail the sync — the on-demand /api/planned-sessions/reconcile is the backstop.
+    """
+    try:
+        from backend.services import plan_matching as _pm
+        with Session(engine) as _s:
+            _pm.reconcile_user(_s, uid)
+    except Exception as _pm_exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning(
+            "plan matcher failed for user %s: %s", uid, _pm_exc, exc_info=True
+        )
+
+
 def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Strava activities (optionally since since_date) and upsert."""
     import calendar as _calendar
@@ -9562,6 +9939,7 @@ def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full:
                 uid,
                 strava_activity_ids=synced_strava_ids[-_DAILY_RECONCILE_LIMIT:],
             )
+        _run_plan_matcher(uid)
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -9623,6 +10001,7 @@ def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: 
                 uid,
                 stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
             )
+        _run_plan_matcher(uid)
         _sync_jobs.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         _sync_jobs.mark_error(uid, str(exc))
@@ -11871,6 +12250,7 @@ def admin_user_recent_activities(user_id: str):
                 "date": w.workout_date.isoformat() if w.workout_date else None,
                 "name": w.name,
                 "type": w.workout_type,
+                "run_subtype": w.run_subtype,
                 "distance_km": float(w.distance_km) if w.distance_km is not None else None,
                 "duration_seconds": int(w.duration_seconds) if w.duration_seconds is not None else None,
             }
@@ -14170,6 +14550,16 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
             if preferences is not None:
                 preferences["duration_curve_bests"] = curve_data or {}
 
+            # Performance-score cache (issue: cacheable scores, same model as the
+            # weekly/monthly summaries). Recompute only when a new workout is
+            # synced (signature changes) or a threshold/preference input the
+            # score depends on changes — not on every page load.
+            _perf_sig = _performance_signature(session, uid, prefs_row)
+            _perf_cached = _summary_cache_get(uid, "performance", _perf_sig)
+            if _perf_cached is not None:
+                _performance_log.info("performance cache hit for %s", uid)
+                return JSONResponse(_perf_cached)
+
             # Load all run workouts in chronological order (oldest first)
             run_workouts = (
                 session.query(Workout)
@@ -14301,14 +14691,17 @@ def get_athlete_performance(user: User = Depends(resolve_user)):
                 )
             )
 
-        return JSONResponse(
-            _build_performance_response(
-                state="scored",
-                endurance=endurance,
-                speed=speed,
-                generated_at=generated_at,
-            )
+        _scored_payload = _build_performance_response(
+            state="scored",
+            endurance=endurance,
+            speed=speed,
+            generated_at=generated_at,
         )
+        # Cache the computed scored payload; the signature invalidates it when a
+        # sync inserts/updates workouts or a relevant threshold changes.
+        _summary_cache_put(uid, "performance", _perf_sig, _scored_payload)
+        _performance_log.info("performance cache miss (computed) for %s", uid)
+        return JSONResponse(_scored_payload)
 
     except HTTPException:
         raise
@@ -14379,20 +14772,103 @@ _SUMMARY_CACHE: dict = {}
 def _summary_signature(session, user_id) -> str:
     from sqlalchemy import func as _sf
     row = (
-        session.query(_sf.max(Workout.created_at), _sf.count(Workout.id))
+        session.query(
+            _sf.max(Workout.created_at),
+            _sf.count(Workout.id),
+            _sf.max(Workout.updated_at),
+        )
         .filter(Workout.user_id == user_id)
         .one()
     )
-    return "%s|%s" % (row[0], row[1])
+    # Include MAX(updated_at) so an in-place edit (e.g. marking a run as an
+    # interval) — which changes updated_at but not created_at/count — still
+    # busts the cache and refreshes the derived scores/feeds.
+    return "%s|%s|%s" % (row[0], row[1], row[2])
 
 
 def _summary_cache_get(user_id, key, sig):
+    """Two-level cache read: in-memory L1, then durable Neon L2.
+
+    L1 (``_SUMMARY_CACHE``) is the fast per-process path. On an L1 miss (e.g. the
+    first request after a restart wiped L1) fall back to the ``summary_cache``
+    table: if a row exists whose stored signature matches, hydrate L1 and return
+    it — no recompute. Any DB error degrades gracefully to a miss (recompute).
+    """
     ent = _SUMMARY_CACHE.get((str(user_id), key))
-    return ent[1] if ent and ent[0] == sig else None
+    if ent and ent[0] == sig:
+        return ent[1]
+
+    # L2: durable Neon-backed cache. A restart clears L1 but not this table.
+    try:
+        with Session(engine) as _s:
+            row = (
+                _s.query(SummaryCache.signature, SummaryCache.payload)
+                .filter(
+                    SummaryCache.user_id == user_id,
+                    SummaryCache.cache_key == key,
+                )
+                .first()
+            )
+        if row is not None and row[0] == sig:
+            payload = row[1]
+            _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
+            return payload
+    except Exception:
+        _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
+    return None
 
 
 def _summary_cache_put(user_id, key, sig, payload):
+    """Two-level cache write: set L1, then UPSERT the durable L2 row.
+
+    A DB failure on the L2 write must not break the request — L1 still serves
+    within the process; the durable row simply refreshes on the next compute.
+    """
     _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+    try:
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+        stmt = _pg_insert(SummaryCache.__table__).values(
+            user_id=user_id,
+            cache_key=key,
+            signature=sig,
+            payload=payload,
+            updated_at=_datetime.now(_timezone.utc),
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["user_id", "cache_key"],
+            set_={
+                "signature": stmt.excluded.signature,
+                "payload": stmt.excluded.payload,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        with Session(engine) as _s:
+            _s.execute(stmt)
+            _s.commit()
+    except Exception:
+        _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
+
+
+def _performance_signature(session, user_id, prefs_row) -> str:
+    """Cache signature for the Endurance/Speed performance scores.
+
+    Combines the workout-set signature (MAX(created_at) + count for the athlete —
+    a sync that inserts/updates any workout bumps created_at) with the
+    threshold/preference inputs the score compute depends on (FTP, threshold HR,
+    threshold pace, aerobic-decoupling threshold). Any of these changing
+    recomputes the scores; otherwise repeat loads reuse the cached payload.
+    """
+    base = _summary_signature(session, user_id)
+    if prefs_row is not None:
+        prefs_part = "%s|%s|%s|%s" % (
+            getattr(prefs_row, "ftp_w", None),
+            getattr(prefs_row, "threshold_hr", None),
+            getattr(prefs_row, "threshold_pace_seconds_per_km", None),
+            getattr(prefs_row, "aerobic_decoupling_threshold", None),
+        )
+    else:
+        prefs_part = "no-prefs"
+    return base + "|" + prefs_part
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
@@ -14924,7 +15400,7 @@ def _compute_plan_bundle(user) -> dict:
     in-process (no HTTP) and decoding their JSON, then attaching per-race
     computed scores/estimates. Reused by GET /api/plan/computed and
     POST /api/plan/recompute."""
-    from backend.services.plan_service import race_to_dict as _race_to_dict
+    from backend.services.projection_service import race_to_dict as _race_to_dict
 
     def _decode(resp):
         try:

@@ -232,6 +232,10 @@ class Workout(Base):
     workout_date = Column(Date, nullable=False)
     name = Column(String(200), nullable=False)
     workout_type = Column(String(50), nullable=False)
+    # Optional run subtype (interval | longrun | easy | tempo | NULL). Runs keep
+    # workout_type='run' so they stay in the full run pipeline; this labels the
+    # kind of run for the Performance Speed feed / "what's moving".
+    run_subtype = Column(String(20), nullable=True)
     remarks = Column(Text, nullable=True)
     tss = Column(Float, nullable=True)
     tss_source = Column(String(20), nullable=True)
@@ -269,6 +273,9 @@ class Workout(Base):
     efficiency_second_half = Column(Float, nullable=True)
     endurance_signal_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    # Column already exists in the DB; map it so edits can stamp it and the
+    # summary/performance cache signature can include MAX(updated_at).
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("tss IS NULL OR tss >= 0", name="ck_workouts_tss_non_negative"),
@@ -1285,4 +1292,75 @@ class UserBanisterParams(Base):
 
     __table_args__ = (
         Index("ix_user_banister_params_user_fitted_at", "user_id", "fitted_at"),
+    )
+
+
+class SummaryCache(Base):
+    """Durable (Neon-backed) L2 cache for computed summary/performance payloads.
+
+    Mirrors the in-memory ``_SUMMARY_CACHE`` (L1) in ``backend/main.py``: one row
+    per ``(user_id, cache_key)``, invalidated when the stored ``signature`` no
+    longer matches the recomputed signature. Persisting to Neon means a server
+    restart (which wipes L1) does not force a cold recompute — the first request
+    after restart reads straight from this table.
+
+    ``cache_key`` values in use: ``"weekly"``, ``"monthly:<...>"``,
+    ``"performance"`` — the same keys the callers already pass to get/put.
+    """
+
+    __tablename__ = "summary_cache"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    cache_key = Column(Text, primary_key=True, nullable=False)
+    signature = Column(Text, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class PlannedSession(Base):
+    """A hand-entered planned training session for the new Plan tab.
+
+    Distinct from Projection's synthetic ramp/taper load model (TrainingPlan /
+    PlannedLoad). Link-only: ``matched_workout_id`` points at the reconciled
+    ``workouts`` row that fulfilled this planned session — the workout stays its
+    own row and the Log tab is unchanged.
+    """
+
+    __tablename__ = "planned_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    planned_date = Column(Date, nullable=False, index=True)
+    # run | strength | plyo | rest
+    session_type = Column(String(20), nullable=False)
+    name = Column(String(200), nullable=True)
+    # blocks[] for runs / exercises[] for strength·plyo; null for rest
+    structure = Column(JSONB, nullable=True)
+    notes = Column(Text, nullable=True)
+    # planned | missed | needs_review | done_auto | done_manual
+    status = Column(String(20), nullable=False, server_default=text("'planned'"))
+    matched_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_planned_sessions_user_date", "user_id", "planned_date"),
     )

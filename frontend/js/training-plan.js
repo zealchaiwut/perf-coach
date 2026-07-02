@@ -1,2026 +1,1032 @@
+/* Training > Plan sub-tab — weekly training schedule (window.TrainingPlan).
+ *
+ * Ported from the interactive mock (plan-tab-mock.html): a single scrolling
+ * page with three regions — Week plan (always), Add panel (collapsed), Detail
+ * panel (collapsed) as a mutually-exclusive accordion. Wired to the live
+ * /api/planned-sessions endpoints. Distinct from Projection's ramp/taper model.
+ *
+ * CSS is injected once, scoped under .plan-panel with a pl- prefix so it never
+ * clashes with the Log/Projection/Performance styles. All glyphs are clean UTF-8.
+ */
 (function () {
-  "use strict";
+  'use strict';
 
   // ── State ─────────────────────────────────────────────────────────────────
   var _initialized = false;
-  var _races = [];
-  var _primaryRace = null;
-  var _readiness = null;
-  var _projection = null;
-  var _editingRaceId = null;
-  var _editingRaceType = "race";
-  var _modalPriority = "A";
-  var _confirmCallback = null;
-  var _planId = null;
-  // Distinct from _planId (the user id used in /plans/{userId}/races): this is the
-  // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
-  // savePlanSettings then POSTs to create one (fixes "Training plan not found").
-  var _planEntityId = null;
-  // Per-race readiness cache: raceId -> readiness response (or null if none).
-  var _raceReadiness = {};
-  // Athlete current performance scores (GET /api/athletes/{id}/performance).
-  // Null until loaded; only rendered when .state === "scored".
-  var _athletePerf = null;
-  // Threshold pace (seconds/km) from /api/user-preferences — used to compute the
-  // demonstrated "Fitness" score of a completed race. Null when unset.
-  var _thresholdPace = null;
-  // Completed-race (Pick-from-history) state. When a past run is selected while
-  // ADDING a race, we stash its finish time here and POST status:"done".
-  var _pickedActualSeconds = null;
-  var _historyLoaded = false;
-  var _historyRuns = [];
-  // Goal input mode: "time" (HH:MM:SS) or "pace" (M:SS /km, derived via distance).
-  var _goalMode = "time";
-  // Checkpoint measure mode: "distance" or "duration" (duration = stubbed).
-  var _checkpointMeasure = "distance";
-  // Last computed Plan bundle (GET /api/plan/computed).
-  var _bundle = null;
+  var _weekStart = null;          // Date (Monday) of the visible week
+  var _bundle = null;             // last GET bundle
+  var _panel = { open: null };    // null | 'add' | 'detail'
+  var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
+  var _detail = null;             // the planned session dict being viewed
+  var _dismissedGhosts = {};      // client-side Ignore
 
-  var NS = "http://www.w3.org/2000/svg";
+  var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function pad(n) {
-    return String(n).padStart(2, "0");
+  // ── Public API ──────────────────────────────────────────────────────────────
+  window.TrainingPlan = {
+    init: function () {
+      _injectStyles();
+      if (!_weekStart) _weekStart = _mondayOf(new Date());
+      // Idempotent: always re-render the shell + reload the current week.
+      _renderAll();
+      _loadWeek();
+    }
+  };
+
+  // ── Date helpers ──────────────────────────────────────────────────────────
+  function _mondayOf(d) {
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dow = (x.getDay() + 6) % 7; // 0=Mon
+    x.setDate(x.getDate() - dow);
+    return x;
   }
-
+  function _iso(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function _parseISO(s) {
+    var p = String(s).split('-');
+    return new Date(+p[0], +p[1] - 1, +p[2]);
+  }
+  function _addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function _todayISO() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  }
+  function _fmtWeekTitle(start) {
+    var end = _addDays(start, 6);
+    return 'Week of ' + MON[start.getMonth()] + ' ' + start.getDate() +
+      ' – ' + MON[end.getMonth()] + ' ' + end.getDate() + ', ' + end.getFullYear();
+  }
+  function _fmtDayDate(iso) {
+    var d = _parseISO(iso);
+    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1).toLowerCase() +
+      ', ' + MON[d.getMonth()] + ' ' + d.getDate();
+  }
   function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function todayISO() {
-    var d = new Date();
-    return (
-      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
-    );
+  // ── CSRF-safe fetch (window.fetch is patched by nav.js to attach X-CSRF) ────
+  function _api(method, url, body) {
+    var opts = { method: method, credentials: 'same-origin', headers: {} };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(function (r) {
+      if (r.status === 204) return null;
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error((d && (d.detail && (d.detail.error || d.detail)) ) || ('HTTP ' + r.status));
+        return d;
+      });
+    });
   }
 
-  function formatDate(iso) {
-    if (!iso) return "—";
-    var d = new Date(iso + "T00:00:00");
-    var months = [
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
+  function _toast(msg, isErr) {
+    if (window.UIStates && window.UIStates.showToast) window.UIStates.showToast(msg, !!isErr);
   }
 
-  function weeksUntil(isoDate) {
-    if (!isoDate) return null;
-    var now = new Date();
-    now.setHours(0, 0, 0, 0);
-    var race = new Date(isoDate + "T00:00:00");
-    var diff = race - now;
-    if (diff <= 0) return 0;
-    return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000));
-  }
-
-  function fmtPace(secPerKm) {
-    if (!secPerKm) return "—";
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + pad(s) + " /km";
-  }
-
-  function fmtTime(totalSec) {
-    if (!totalSec) return "—";
-    var h = Math.floor(totalSec / 3600);
-    var m = Math.floor((totalSec % 3600) / 60);
-    var s = Math.round(totalSec % 60);
-    if (h > 0) return h + ":" + pad(m) + ":" + pad(s);
-    return m + ":" + pad(s);
-  }
-
-  function parseGoalTime(str) {
-    if (!str || !str.trim()) return null;
-    var parts = str.split(":").map(Number);
-    if (parts.some(isNaN)) return null;
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    return null;
-  }
-
-  function goalTimeToStr(sec) {
-    if (!sec) return "";
-    var h = Math.floor(sec / 3600);
-    var m = Math.floor((sec % 3600) / 60);
-    var s = sec % 60;
-    if (h > 0) return h + ":" + pad(m) + ":" + pad(s);
-    return m + ":" + pad(s);
-  }
-
-  function fmtKm(v) {
-    if (v == null) return "—";
-    return parseFloat(v).toFixed(2);
-  }
-
-  // SVG builders
-  function E(t, a) {
-    var e = document.createElementNS(NS, t);
-    for (var k in a) e.setAttribute(k, a[k]);
-    return e;
-  }
-  function Path(pts, close) {
-    return (
-      pts
-        .map(function (p, i) {
-          return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
-        })
-        .join(" ") + (close ? "Z" : "")
-    );
-  }
-  function clearSvg(svg) {
-    while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
-  }
-
-  // ── Plan ID ───────────────────────────────────────────────────────────────
-  function _ensurePlanId(cb) {
-    if (_planId) {
-      cb();
-      return;
-    }
-    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    if (uid) {
-      _planId = uid;
-      cb();
-      return;
-    }
-    window
-      .fetchCurrentUser()
-      .then(function (u) {
-        if (u) _planId = u.id;
-        cb();
-      })
+  // ── Load / reload the week ──────────────────────────────────────────────────
+  function _loadWeek() {
+    var from = _iso(_weekStart), to = _iso(_addDays(_weekStart, 6));
+    var host = document.getElementById('plan-week-list');
+    if (host) host.innerHTML = '<div class="pl-loading">Loading week…</div>';
+    _api('GET', '/api/planned-sessions?from=' + from + '&to=' + to)
+      .then(function (data) { _bundle = data; _renderWeekList(); })
       .catch(function () {
-        cb();
+        if (host) host.innerHTML = '<div class="pl-loading">Could not load the week.</div>';
       });
   }
 
-  function _planRaceUrl(raceId) {
-    return "/plans/" + _planId + "/races" + (raceId ? "/" + raceId : "");
+  // ── Render shell ────────────────────────────────────────────────────────────
+  function _renderAll() {
+    _renderWeekSection();
+    _renderAddSection();
+    _renderDetailSection();
   }
 
-  // ── API calls ─────────────────────────────────────────────────────────────
-  function apiGet(url, cb) {
-    fetch(url, { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(cb)
-      .catch(function (e) {
-        console.warn("[plan] GET", url, e);
-        cb(null);
-      });
-  }
-
-  function apiPost(url, body, cb) {
-    fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(function (r) {
-        return r.json().then(function (d) {
-          return { ok: r.ok, status: r.status, data: d };
-        });
-      })
-      .then(cb)
-      .catch(function (e) {
-        cb({ ok: false, status: 0, data: { detail: e.message } });
-      });
-  }
-
-  function apiPatch(url, body, cb) {
-    fetch(url, {
-      method: "PATCH",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(function (r) {
-        return r.json().then(function (d) {
-          return { ok: r.ok, status: r.status, data: d };
-        });
-      })
-      .then(cb)
-      .catch(function (e) {
-        cb({ ok: false, status: 0, data: { detail: e.message } });
-      });
-  }
-
-  function apiDelete(url, cb) {
-    fetch(url, { method: "DELETE", credentials: "same-origin" })
-      .then(function (r) {
-        cb({ ok: r.ok, status: r.status });
-      })
-      .catch(function () {
-        cb({ ok: false, status: 0 });
-      });
-  }
-
-  // ── 1. A-race header ──────────────────────────────────────────────────────
-  function renderRaceHeader() {
-    var el = document.getElementById("plan-race-header-content");
-    if (!el) return;
-
-    if (!_primaryRace) {
-      el.innerHTML =
-        '<div class="pm-no-race">' +
-        "<span>No A-priority race set. Add your main race to start planning.</span>" +
-        '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">+ Add Race</button>' +
-        "</div>";
-      var addBtn = document.getElementById("plan-header-add-btn");
-      if (addBtn)
-        addBtn.addEventListener("click", function () {
-          openModal(null, "race");
-        });
-      return;
-    }
-
-    var r = _primaryRace;
-    var distKm = parseFloat(r.distance || 0);
-    var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : "—";
-    var goalPaceSec =
-      r.goal_time_seconds && distKm ? r.goal_time_seconds / distKm : null;
-    var goalPace = goalPaceSec ? fmtPace(goalPaceSec) : "";
-
-    el.innerHTML =
-      '<div class="pm-hdrbar">' +
-      '<span class="pm-hdrlet">A</span>' +
-      '<div class="pm-hdrid">' +
-      '<div class="pm-hdrname">' + esc(r.name || "Unnamed") + "</div>" +
-      '<div class="pm-hdrmeta">' +
-      esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km · A-priority" +
-      "</div>" +
-      "</div>" +
-      '<div class="pm-hdrdiv"></div>' +
-      '<div class="pm-hdrgoalbox">' +
-      '<div class="pm-glab">Goal</div>' +
-      '<div class="pm-gval">' + esc(goalTime) + "</div>" +
-      (goalPace
-        ? '<div class="pm-gsub">' + esc(goalPace) + " · target pace</div>"
-        : "") +
-      "</div>" +
-      '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">Change race</button>' +
-      "</div>";
-
-    var chBtn = document.getElementById("plan-header-add-btn");
-    if (chBtn)
-      chBtn.addEventListener("click", function () {
-        openModal(_primaryRace, "race");
-      });
-  }
-
-  // ── 2. Calibration status ─────────────────────────────────────────────────
-  var _SUFF_BADGE = { Sufficient: "good", Low: "low", Insufficient: "low" };
-  var _CONF_BADGE = { High: "good", Medium: "med", Low: "low" };
-
-  function renderCalibration(data) {
-    var dateEl = document.getElementById("plan-calib-date");
-    var suffEl = document.getElementById("plan-calib-sufficiency");
-    var confEl = document.getElementById("plan-calib-confidence");
-
-    if (dateEl) {
-      if (data && data.calibrated && data.last_calibration_date) {
-        dateEl.textContent = formatDate(data.last_calibration_date);
-      } else {
-        dateEl.innerHTML =
-          '<span class="pm-italic">Not yet calibrated</span>';
-      }
-    }
-    if (suffEl) {
-      if (data && data.data_sufficiency) {
-        suffEl.innerHTML =
-          '<span class="pm-badge ' +
-          (_SUFF_BADGE[data.data_sufficiency] || "med") +
-          '">' + esc(data.data_sufficiency) + "</span>";
-      } else {
-        suffEl.innerHTML = '<span class="pm-italic">—</span>';
-      }
-    }
-    if (confEl) {
-      if (data && data.band_confidence) {
-        confEl.innerHTML =
-          '<span class="pm-badge ' +
-          (_CONF_BADGE[data.band_confidence] || "med") +
-          '">' + esc(data.band_confidence) + "</span>";
-      } else {
-        confEl.innerHTML = '<span class="pm-italic">—</span>';
-      }
-    }
-  }
-
-  function loadCalibration() {
-    apiGet("/api/calibration/status", renderCalibration);
-  }
-
-  // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────
-  // Ported from mock #timecurve. Piecewise x compresses the pre-race lead-in
-  // and expands the race window; y-range tightened around the projected times.
-  function renderTimeCurve() {
-    var svg = document.getElementById("plan-timecurve");
-    var emptyEl = document.getElementById("plan-time-curve-empty");
-    var loadingEl = document.getElementById("plan-time-curve-loading");
-    var projNow = document.getElementById("plan-projected-now");
-    if (!svg) return;
-    if (loadingEl) loadingEl.style.display = "none";
-    clearSvg(svg);
-
-    function _hideProjNow() {
-      if (projNow) projNow.style.display = "none";
-    }
-
-    var tc = _readiness && _readiness.time_curve;
-    var history = (tc && tc.history) || [];
-    var projection = (tc && tc.projection) || [];
-    var goalSec = tc && tc.goal_finish_seconds != null
-      ? tc.goal_finish_seconds
-      : (_primaryRace && _primaryRace.goal_time_seconds) || null;
-
-    if (!_primaryRace || (history.length === 0 && projection.length === 0)) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "";
-      _hideProjNow();
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = "none";
-    svg.style.display = "";
-
-    // Current projected finish readout (first projection sample, else the last
-    // history sample). Gives the user a directly readable prediction.
-    var estInfo = _currentEstimate(_readiness);
-    var valEl = document.getElementById("plan-projected-now-val");
-    var metaEl = document.getElementById("plan-projected-now-meta");
-    if (estInfo && projNow) {
-      projNow.style.display = "";
-      if (valEl) valEl.textContent = fmtTime(estInfo.est);
-      if (metaEl) {
-        var parts = [];
-        var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
-        if (distKm) parts.push(fmtPace(estInfo.est / distKm));
-        if (estInfo.band != null)
-          parts.push("±" + Math.max(1, Math.round(estInfo.band / 60)) + " min");
-        if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
-        metaEl.textContent = parts.join(" · ");
-      }
-    } else {
-      _hideProjNow();
-    }
-
-    var W = 1140, H = 200, p = { l: 54, r: 30, t: 14, b: 26 };
-
-    // ── Tight y-domain ────────────────────────────────────────────────────────
-    // Early low-fitness history estimates can be wildly large (e.g. 7h for a
-    // half), which blows up an all-samples auto-scale and makes the current
-    // projection unreadable. Anchor the domain on the values that matter — the
-    // projection band, the goal, and only the RECENT tail of history — then
-    // clamp outliers to that window instead of letting them stretch the axis.
-    var coreSamples = [];
-    projection.forEach(function (e) {
-      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
-      if (e.upper_seconds != null) coreSamples.push(e.upper_seconds);
-      if (e.lower_seconds != null) coreSamples.push(e.lower_seconds);
-    });
-    if (goalSec != null) coreSamples.push(goalSec);
-    // Recent history tail (last ~21 points) to show the approach without the
-    // noisy early ramp.
-    var recentHist = history.slice(-21);
-    recentHist.forEach(function (e) {
-      if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
-    });
-    // Fallback: if the projection was empty, use whatever history we have.
-    if (coreSamples.length === 0) {
-      history.forEach(function (e) {
-        if (e.estimated_finish_seconds != null) coreSamples.push(e.estimated_finish_seconds);
-      });
-    }
-    if (coreSamples.length === 0) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "";
-      _hideProjNow();
-      return;
-    }
-    var vmin = Math.min.apply(null, coreSamples);
-    var vmax = Math.max.apply(null, coreSamples);
-    // Guarantee a sensible minimum span (5 min) so a nearly-flat series still
-    // reads, and pad ~8% on each side.
-    var span = Math.max(vmax - vmin, 300);
-    var padY = span * 0.08;
-    vmin -= padY;
-    vmax += padY;
-    function y(v) {
-      // Clamp so outlier history points render at the axis edge instead of
-      // rescaling the whole chart.
-      var cv = Math.max(vmin, Math.min(vmax, v));
-      return p.t + (1 - (cv - vmin) / (vmax - vmin || 1)) * (H - p.t - p.b);
-    }
-
-    // Piecewise x: history 0..nowT, projection nowT..1 (expanded).
-    var nHist = history.length;
-    var nProj = projection.length;
-    var total = nHist + nProj;
-    var nowT = total > 0 ? Math.max(0.08, Math.min(0.5, nHist / total)) : 0.15;
-    function xHist(i) {
-      return p.l + (nHist > 1 ? i / (nHist - 1) : 0) * (nowT) * (W - p.l - p.r);
-    }
-    function xProj(i) {
-      var u = nProj > 1 ? i / (nProj - 1) : 1;
-      return p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
-    }
-
-    // gridlines + labels
-    var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
-    ticks.forEach(function (v) {
-      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
-      var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10,
-        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
-      });
-      lab.textContent = fmtTime(Math.round(v));
-      svg.appendChild(lab);
-    });
-
-    // projection shaded window
-    var nowX = p.l + nowT * (W - p.l - p.r);
-    svg.appendChild(E("rect", {
-      x: nowX, y: p.t, width: W - p.r - nowX, height: H - p.t - p.b,
-      fill: "#f4f7ff", "fill-opacity": 0.7,
-    }));
-
-    // confidence band
-    var top = [], bot = [];
-    projection.forEach(function (e, i) {
-      if (e.upper_seconds != null) top.push([xProj(i), y(e.upper_seconds)]);
-      if (e.lower_seconds != null) bot.push([xProj(i), y(e.lower_seconds)]);
-    });
-    if (top.length && bot.length) {
-      svg.appendChild(E("path", {
-        d: Path(top.concat(bot.reverse()), true),
-        fill: "#4f6ef7", "fill-opacity": 0.12,
-      }));
-    }
-
-    // history line
-    var histPts = history
-      .filter(function (e) { return e.estimated_finish_seconds != null; })
-      .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
-    if (histPts.length)
-      svg.appendChild(E("path", {
-        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": 2.4,
-      }));
-
-    // projection center (dashed)
-    var projPts = projection
-      .map(function (e, i) {
-        return e.estimated_finish_seconds != null
-          ? [xProj(i), y(e.estimated_finish_seconds)]
-          : null;
-      })
-      .filter(Boolean);
-    if (projPts.length)
-      svg.appendChild(E("path", {
-        d: Path(projPts), fill: "none", stroke: "#4f6ef7",
-        "stroke-width": 2.4, "stroke-dasharray": "5 4",
-      }));
-
-    // goal line
-    if (goalSec != null) {
-      svg.appendChild(E("line", {
-        x1: p.l, x2: W - p.r, y1: y(goalSec), y2: y(goalSec),
-        stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
-      }));
-      var gl = E("text", {
-        x: p.l + 4, y: y(goalSec) - 5, "font-size": 9,
-        "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
-      });
-      gl.textContent = "A goal " + fmtTime(goalSec);
-      svg.appendChild(gl);
-    }
-
-    // NOW line
-    svg.appendChild(E("line", {
-      x1: nowX, x2: nowX, y1: p.t, y2: H - p.b,
-      stroke: "#cbd5e1", "stroke-dasharray": "3 3",
-    }));
-    var nt = E("text", {
-      x: nowX + 3, y: p.t + 8, "font-size": 8, "font-family": "JetBrains Mono",
-      fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
-    });
-    nt.textContent = "NOW";
-    svg.appendChild(nt);
-
-    // race markers along the projection window
-    var markers = (_projection && _projection.race_markers) || [];
-    var COL = { A: "#1b2340", B: "#d97706", C: "#6b7280" };
-    var todayStr = todayISO();
-    markers.forEach(function (m) {
-      if (m.date < todayStr) return;
-      var w = weeksUntil(m.date);
-      var maxW = weeksUntil(_primaryRace && _primaryRace.date) || 1;
-      var u = maxW > 0 ? 1 - Math.min(1, w / maxW) : 1;
-      var mx = p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
-      var c = COL[m.priority] || "#6b7280";
-      svg.appendChild(E("line", {
-        x1: mx, x2: mx, y1: p.t, y2: H - p.b, stroke: c,
-        "stroke-width": m.priority === "A" ? 1.5 : 1,
-        "stroke-dasharray": m.priority === "A" ? "none" : "2 3",
-        "stroke-opacity": 0.6,
-      }));
-      var t = E("text", {
-        x: mx, y: H - 7, "font-size": 9, "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
-      });
-      t.textContent = m.priority || "•";
-      svg.appendChild(t);
-    });
-  }
-
-  // ── 3b. Race/checkpoint cards ─────────────────────────────────────────────
-  var _LET_BG = { A: "#1b2340", B: "#3b4ba8", C: "#6b7280" };
-
-  // Extract the current projected finish (seconds), band (seconds), and status
-  // from a readiness response's time_curve + on_track blocks. Returns null when
-  // no usable estimate is present.
-  function _currentEstimate(rd) {
-    if (!rd || !rd.time_curve) return null;
-    var tc = rd.time_curve;
-    var proj = tc.projection || [];
-    var hist = tc.history || [];
-    var est = null,
-      band = null;
-    if (proj.length > 0) {
-      est = proj[0].estimated_finish_seconds;
-      band = proj[0].confidence_band_seconds != null
-        ? proj[0].confidence_band_seconds
-        : null;
-    } else if (hist.length > 0) {
-      est = hist[hist.length - 1].estimated_finish_seconds;
-    }
-    if (est == null) return null;
-    var goalSec = tc.goal_finish_seconds != null ? tc.goal_finish_seconds : null;
-    var status = rd.on_track && rd.on_track.status_summary;
-    return { est: est, band: band, goalSec: goalSec, status: status };
-  }
-
-  // Map a readiness on_track result to a status pill (label + ok/watch class).
-  function _statusPill(estInfo) {
-    if (!estInfo) return "";
-    var status = estInfo.status;
-    var cls, label;
-    if (status === "on track" || status === "ahead") {
-      cls = "ok";
-      label = status === "ahead" ? "ahead" : "on track";
-    } else if (status === "behind") {
-      cls = "watch";
-      // If we know goal + est, express the gap in minutes over.
-      if (estInfo.goalSec != null && estInfo.est != null && estInfo.est > estInfo.goalSec) {
-        var overMin = Math.round((estInfo.est - estInfo.goalSec) / 60);
-        label = "~" + overMin + " min over";
-      } else {
-        label = "behind";
-      }
-    } else {
-      return "";
-    }
-    return '<span class="pm-stat ' + cls + '">' + esc(label) + "</span>";
-  }
-
-  function _clamp01_100(v) {
-    return Math.max(0, Math.min(100, v));
-  }
-
-  // Signed integer as "(+N)" / "(−N)" for a score delta.
-  function _signed(n) {
-    return "(" + (n >= 0 ? "+" : "−") + Math.abs(n) + ")";
-  }
-
-  // ── Score model (FIRST-PASS heuristic — tunable) ──────────────────────────
-  // The required-/demonstrated-score model below is a first-pass distance
-  // weighting: reference distance 21.1 km (half), speed/endurance split slope
-  // 0.18 for required scores and 0.06 for demonstrated. Short races demand more
-  // speed, long races more endurance. The operator may recalibrate these
-  // constants and the overall scale later — nothing downstream depends on them.
-
-  // Per-race REQUIRED End/Spd tags for UPCOMING cards. Scores are computed
-  // server-side and delivered in the bundle as r.computed.scores (kind:
-  // "required" with end/spd + d_end/d_spd). Returns "" when absent.
-  function _requiredScoreFoot(r) {
-    var sc = r.computed && r.computed.scores;
-    if (!sc || sc.kind !== "required") return "";
-    var tags =
-      '<span class="pm-sc req">End ' + sc.end + " " + _signed(sc.d_end) + "</span>" +
-      '<span class="pm-sc req">Spd ' + sc.spd + " " + _signed(sc.d_spd) + "</span>";
-    return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
-  }
-
-  // DEMONSTRATED End/Spd for a COMPLETED race — the athlete-scale score as of
-  // the race date, computed server-side (bundle r.computed.scores, kind
-  // "demonstrated"). Returns null when absent.
-  function _demonstratedScores(r) {
-    var sc = r.computed && r.computed.scores;
-    if (!sc || sc.kind !== "demonstrated") return null;
-    return { end: sc.end, spd: sc.spd };
-  }
-
-  // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
-  // (under). Returns "" when there is no goal.
-  function _actualDelta(actualSec, goalSec) {
-    if (!goalSec || actualSec == null) return "";
-    var diff = actualSec - goalSec;
-    var sign = diff >= 0 ? "+" : "−";
-    var abs = Math.abs(diff);
-    var m = Math.floor(abs / 60);
-    var s = Math.round(abs % 60);
-    return sign + m + ":" + pad(s);
-  }
-
-  function _metaText(r, distKm) {
-    return (
-      formatDate(r.date) +
-      " · " +
-      (r.distance != null
-        ? distKm.toFixed(2) + " km"
-        : r.duration_seconds
-          ? fmtTime(r.duration_seconds)
-          : "—")
-    );
-  }
-
-  // Build a full-width UPCOMING card (Goal + Estimated columns).
-  function _buildUpcomingCard(r) {
-    var isCheckpoint = r.type === "checkpoint";
-    var priority = isCheckpoint ? "C" : r.priority || "A";
-    var isTarget = _primaryRace && r.id === _primaryRace.id;
-    var distKm = parseFloat(r.distance || 0);
-    var goalSec = r.goal_time_seconds || null;
-    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
-
-    var card = document.createElement("div");
-    card.className = "pm-rc" + (isTarget ? " target" : "");
-    card.setAttribute("data-race-id", r.id);
-
-    var recalHtml =
-      _projection &&
-      _projection.b_race_recalibration_date === r.date &&
-      priority === "B"
-        ? '<span class="pm-recal">↻ recalibrates here</span>'
-        : "";
-    var rightTag = isTarget ? '<span class="pm-tgt">TARGET</span>' : recalHtml;
-
-    var head =
-      '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
-      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-      '<span class="pm-typetag">' +
-      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
-      '<span class="pm-upc">UPCOMING</span>' +
-      rightTag +
-      '<span class="pm-rcactions">' +
-      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
-      "</span>" +
-      "</div>";
-
-    // Estimated column from the bundle's precomputed per-race estimate.
-    var secondCol = "";
-    var est = r.computed && r.computed.estimate;
-    if (est && est.est != null) {
-      var estPace = distKm ? fmtPace(est.est / distKm) : "";
-      var bandTxt =
-        est.band != null
-          ? " · ±" + Math.max(1, Math.round(est.band / 60)) + " min"
-          : "";
-      secondCol =
-        '<div class="pm-col est">' +
-        '<div class="pm-coll">Estimated</div>' +
-        '<div class="pm-colt">' + esc(fmtTime(est.est)) + "</div>" +
-        '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
-    }
-
-    var grid =
-      '<div class="pm-rcgrid">' +
-      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
-      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
-      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-      secondCol +
-      "</div>";
-
-    // Per-race REQUIRED End/Spd scores for this race's goal, plus delta vs
-    // current (shown only when goal + estimate + scores + tp are all present).
-    var foot = _requiredScoreFoot(r);
-
-    card.innerHTML = head + grid + foot;
-    _wireCardActions(card, r);
-    return card;
-  }
-
-  // Build a compact COMPLETED card (Goal + Actual columns, ~30% smaller). Shows
-  // the actual-vs-goal delta next to Actual when a goal exists.
-  function _buildCompletedCard(r) {
-    var isCheckpoint = r.type === "checkpoint";
-    var priority = isCheckpoint ? "C" : r.priority || "A";
-    var distKm = parseFloat(r.distance || 0);
-    var goalSec = r.goal_time_seconds || null;
-    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
-    var actualSec = r.actual_time_seconds;
-    var actualPace = actualSec != null && distKm ? fmtPace(actualSec / distKm) : "";
-    var delta = _actualDelta(actualSec, goalSec);
-    var deltaCls = delta && delta.charAt(0) === "+" ? "over" : "under";
-
-    var card = document.createElement("div");
-    card.className = "pm-rc pm-rc--done";
-    card.setAttribute("data-race-id", r.id);
-
-    // Demonstrated End/Spd scores from this race's own result (distance-split).
-    var demo = _demonstratedScores(r);
-    var demoTags = demo
-      ? '<span class="pm-sc req">End ' + demo.end + "</span>" +
-        '<span class="pm-sc req">Spd ' + demo.spd + "</span>"
-      : "";
-
-    var head =
-      '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
-      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-      '<span class="pm-typetag">' +
-      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-      '<span class="pm-upc pm-done">DONE</span>' +
-      demoTags +
-      '<span class="pm-rcactions">' +
-      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
-      "</span>" +
-      "</div>" +
-      '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
-
-    var actualLabel =
-      "Actual" +
-      (delta
-        ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
-        : "");
-
-    var grid =
-      '<div class="pm-rcgrid">' +
-      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
-      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
-      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-      '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
-      '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
-      '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
-      "</div>";
-
-    card.innerHTML = head + grid;
-    _wireCardActions(card, r);
-    return card;
-  }
-
-  function _wireCardActions(card, r) {
-    var editBtn = card.querySelector('[data-act="edit"]');
-    if (editBtn)
-      editBtn.addEventListener("click", function () {
-        openModal(r, r.type || "race");
-      });
-    var delBtn = card.querySelector('[data-act="del"]');
-    if (delBtn)
-      delBtn.addEventListener("click", function () {
-        _deleteRow(r.id, r.name || "entry");
-      });
-  }
-
-  function renderRaceCards() {
-    var container = document.getElementById("plan-races");
-    var loadingEl = document.getElementById("plan-races-loading");
-    var emptyEl = document.getElementById("plan-races-empty");
-    if (!container) return;
-    if (loadingEl) loadingEl.style.display = "none";
-
-    // Remove previously rendered section wrapper (headers + grids + cards).
-    var prev = container.querySelector(".pm-races-sections");
-    if (prev) prev.remove();
-
-    if (_races.length === 0) {
-      if (emptyEl) emptyEl.style.display = "";
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = "none";
-
-    function byDate(a, b) {
-      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
-    }
-    var completed = _races
-      .filter(function (r) {
-        return r.status === "done" && r.actual_time_seconds != null;
-      })
-      .sort(byDate);
-    var upcoming = _races
-      .filter(function (r) {
-        return !(r.status === "done" && r.actual_time_seconds != null);
-      })
-      .sort(byDate);
-
-    var sections = document.createElement("div");
-    sections.className = "pm-races-sections";
-
-    // COMPLETED first — a two-per-row grid of compact cards.
-    if (completed.length > 0) {
-      var chdr = document.createElement("div");
-      chdr.className = "pm-races-hdr";
-      chdr.textContent = "Completed";
-      sections.appendChild(chdr);
-
-      var grid = document.createElement("div");
-      grid.className = "pm-completed-grid";
-      completed.forEach(function (r) {
-        grid.appendChild(_buildCompletedCard(r));
-      });
-      sections.appendChild(grid);
-    }
-
-    // UPCOMING — full-width cards.
-    if (upcoming.length > 0) {
-      var uhdr = document.createElement("div");
-      uhdr.className = "pm-races-hdr";
-      uhdr.textContent = "Upcoming";
-      sections.appendChild(uhdr);
-
-      upcoming.forEach(function (r) {
-        sections.appendChild(_buildUpcomingCard(r));
-      });
-    }
-
-    container.appendChild(sections);
-  }
-
-  // ── 4. Form curve SVG (TSB) ───────────────────────────────────────────────
-  // Ported from mock #pacecurve: recent-emphasis x (pow 1.55), fresh/overreach
-  // zones. Fed the real daily TSB series from form_curve.
-  function renderFormCurve() {
-    var svg = document.getElementById("plan-pacecurve");
-    var emptyEl = document.getElementById("plan-curve-empty");
-    var bbEl = document.getElementById("plan-building-baseline");
-    if (!svg) return;
-    clearSvg(svg);
-
-    if (_readiness && _readiness.building_baseline) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "none";
-      if (bbEl) bbEl.style.display = "";
-      return;
-    }
-    if (bbEl) bbEl.style.display = "none";
-
-    var formCurve =
-      (_readiness && _readiness.form_curve) ||
-      (_projection && _projection.form_curve) ||
-      [];
-
-    if (formCurve.length < 2) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "";
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = "none";
-    svg.style.display = "";
-
-    var W = 1140, H = 300, p = { l: 44, r: 20, t: 12, b: 28 };
-    var vmin = -25, vmax = 10;
-    // widen range if data exceeds defaults
-    formCurve.forEach(function (pt) {
-      if (pt.form < vmin) vmin = Math.floor(pt.form);
-      if (pt.form > vmax) vmax = Math.ceil(pt.form);
-    });
-    function y(v) {
-      return p.t + (1 - (v - vmin) / (vmax - vmin)) * (H - p.t - p.b);
-    }
-    function xf(u) {
-      return Math.pow(u, 1.55);
-    }
-    function x(i, n) {
-      return p.l + xf(n > 1 ? i / (n - 1) : 0) * (W - p.l - p.r);
-    }
-
-    // fresh (green) and overreach (red) zones
-    svg.appendChild(E("rect", {
-      x: p.l, y: y(vmax), width: W - p.l - p.r, height: y(5) - y(vmax),
-      fill: "#dcfce7", "fill-opacity": 0.55,
-    }));
-    svg.appendChild(E("rect", {
-      x: p.l, y: y(-18), width: W - p.l - p.r, height: y(vmin) - y(-18),
-      fill: "#fee2e2", "fill-opacity": 0.55,
-    }));
-
-    [vmax, 0, -10, vmin].forEach(function (v) {
-      svg.appendChild(E("line", {
-        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
-      }));
-      var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10, "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "end",
-      });
-      lab.textContent = Math.round(v);
-      svg.appendChild(lab);
-    });
-
-    var N = formCurve.length;
-    var pts = formCurve.map(function (pt, i) {
-      return [x(i, N), y(pt.form)];
-    });
-    svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": 1.8,
-      "stroke-linejoin": "round",
-    }));
-
-    // date ticks: first, ~mid, last
-    var idxs = [0, Math.floor(N * 0.6), N - 1];
-    idxs.forEach(function (i, k) {
-      var xx = x(i, N);
-      var t = E("text", {
-        x: xx, y: H - 8, "font-size": 10, "font-family": "JetBrains Mono",
-        fill: "#9aa3b8",
-        "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
-      });
-      var d = new Date(formCurve[i].date + "T00:00:00");
-      var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      t.textContent = months[d.getMonth()] + " " + d.getDate();
-      svg.appendChild(t);
-    });
-  }
-
-  // ── 5. Schedule preview bars ──────────────────────────────────────────────
-  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
-    weeks = weeks || 20;
-    var BASE_TSS = 55;
-    var PLATEAU = 100;
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
-    var arr = [];
-    for (var w = 1; w <= weeks; w++) {
-      var tss;
-      if (w <= weeks - taper) {
-        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
-      } else {
-        var into = w - (weeks - taper);
-        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
-      }
-      arr.push(tss);
-    }
-    return arr;
-  }
-
-  function renderSchedulePreview() {
-    var host = document.getElementById("plan-sched");
-    var labs = document.getElementById("plan-wklabels");
+  function _renderWeekSection() {
+    var host = document.getElementById('plan-week-section');
     if (!host) return;
-    host.innerHTML = "";
-    if (labs) labs.innerHTML = "";
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
-    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
-
-    // Prefer planned_load from the plan projection when available.
-    var weeks = 20;
-    var series;
-    var planned = _projection && _projection.planned_load;
-    if (Array.isArray(planned) && planned.length > 0) {
-      // aggregate daily planned load into weeks
-      var byWeek = [];
-      for (var i = 0; i < planned.length; i += 7) {
-        var chunk = planned.slice(i, i + 7);
-        var sum = chunk.reduce(function (a, b) { return a + (b || 0); }, 0);
-        byWeek.push(sum);
-      }
-      series = byWeek.length ? byWeek : _computeScheduleSeries(rampRate, taperWindow, weeks);
-    } else {
-      series = _computeScheduleSeries(rampRate, taperWindow, weeks);
-    }
-
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
-    var max = Math.max.apply(null, series.concat([1]));
-
-    series.forEach(function (tss, i) {
-      var bar = document.createElement("div");
-      bar.className = "pm-bar" + (i >= series.length - taper ? " taper" : "");
-      bar.style.height = (tss / max) * 100 + "%";
-      bar.title = "Wk " + (i + 1) + " · " + Math.round(tss) + " TSS";
-      host.appendChild(bar);
-      if (labs) {
-        var s = document.createElement("span");
-        s.textContent = (i + 1) % 2 === 1 ? "Wk " + (i + 1) : "";
-        labs.appendChild(s);
-      }
-    });
+    host.innerHTML =
+      '<div class="pl-card">' +
+        '<div class="pl-chead"><div class="pl-wknav">' +
+          '<button class="pl-arw" id="pl-prev" aria-label="Previous week">‹</button>' +
+          '<span class="pl-wktitle" id="pl-wktitle">' + esc(_fmtWeekTitle(_weekStart)) + '</span>' +
+          '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
+        '</div>' +
+        '<div class="pl-btnrow">' +
+          '<button class="pl-btn pl-ghost pl-soonbtn" disabled title="Coming soon — will use your current performance + training history">Suggest sessions<span class="pl-soontag">Soon</span></button>' +
+          '<button class="pl-btn pl-ghost" id="pl-addweek">+ Add week</button>' +
+          '<button class="pl-btn pl-dark" id="pl-addsession">+ Add session</button>' +
+        '</div></div>' +
+        '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
+        '<div class="pl-weeklist" id="plan-week-list"></div>' +
+        '<div class="pl-legend">' +
+          '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength / Plyo</span>' +
+          '<span style="color:var(--pl-faint);margin:0 2px;">·</span>' +
+          '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
+        '</div>' +
+      '</div>';
+    document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
+    document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
+    document.getElementById('pl-addweek').onclick = function () { _openAdd('bulk'); };
+    document.getElementById('pl-addsession').onclick = function () { _openAdd('single'); };
+    if (_bundle) _renderWeekList();
   }
 
-  // ── 6. Specificity bars ───────────────────────────────────────────────────
-  function renderSpecBars() {
-    var host = document.getElementById("plan-spec-bars");
-    var emptyEl = document.getElementById("plan-spec-empty");
+  function _renderWeekList() {
+    var host = document.getElementById('plan-week-list');
+    if (!host || !_bundle) return;
+    var todayStr = _todayISO();
+    host.innerHTML = (_bundle.days || []).map(function (day) {
+      var cls = day.date === todayStr ? 'today' : (day.date < todayStr ? 'past' : '');
+      var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
+      var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
+        .map(function (u) { return _ghostCardHtml(u, day); }).join('');
+      var hasContent = (day.planned || []).length || ghosts;
+      var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
+      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
+        '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
+        '<div class="pl-daybody">' + cards + ghosts + rest +
+          '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    _wireWeekEvents();
+  }
+
+  function _statusTag(status) {
+    if (status === 'missed') return '<span class="pl-stat-tag missed">MISSED</span>';
+    if (status === 'needs_review') return '<span class="pl-stat-tag review">NEEDS REVIEW</span>';
+    if (status === 'done_auto') return '<span class="pl-stat-tag done">AUTO-MATCHED</span>';
+    if (status === 'done_manual') return '<span class="pl-stat-tag done">MANUALLY LINKED</span>';
+    return '';
+  }
+
+  function _plannedMeta(p) {
+    // Prefer a short structure-derived summary; fall back to notes.
+    var s = p.structure || {};
+    if (Array.isArray(s.blocks) && s.blocks.length) {
+      var tot = 0;
+      s.blocks.forEach(function (b) {
+        var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
+        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+      });
+      var tgt = (s.blocks.find(function (b) { return b.target; }) || {}).target;
+      return (tot ? tot + 'min' : '') + (tgt ? ' · ' + tgt : '');
+    }
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      return s.exercises.length + ' exercise' + (s.exercises.length > 1 ? 's' : '');
+    }
+    return p.notes ? String(p.notes).slice(0, 40) : '';
+  }
+
+  function _famClass(t) { return (t === 'run') ? 'run' : 'lift'; }
+
+  function _plannedCardHtml(p, day) {
+    var fam = _famClass(p.session_type);
+    var draggable = (p.status === 'planned' || p.status === 'missed');
+    var clickable = (p.status !== 'needs_review');
+    var handle = draggable ? '<span class="pl-dhandle">⠿⠿</span>' : '';
+    var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
+      ? _plannedMeta(p) : _plannedMeta(p);
+    var body = '';
+    if (p.status === 'done_auto' || p.status === 'done_manual') {
+      var actMeta = p.actual ? p.actual.meta : '';
+      body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
+        ' → Actual ' + esc(actMeta) + '</div>' +
+        '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>';
+    } else if (p.status === 'needs_review') {
+      var day2 = day;
+      var cands = _reviewCandidates(p, day2);
+      body = '<div class="pl-candlist">' + cands.map(function (c, ci) {
+          return '<label class="pl-candrow"><input type="radio" name="pl-cand-' + p.id + '" value="' + c.id + '"' + (ci === 0 ? ' checked' : '') + '/>' +
+            '<span class="pl-cn">' + esc(c.name) + '</span><span class="pl-cm">' + esc(c.meta) + '</span></label>';
+        }).join('') +
+        '<div class="pl-candbtns">' +
+          (cands.length ? '<button class="pl-btn pl-lime pl-tiny" data-confirm="' + p.id + '">Confirm match</button>' : '') +
+          '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">None → missed</button>' +
+        '</div></div>';
+    }
+    return '<div class="pl-sess ' + fam + ' status-' + p.status + '"' +
+        (draggable ? ' draggable="true"' : '') +
+        ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
+      handle +
+      '<div class="pl-sesstop"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _statusTag(p.status) + '</div>' +
+      '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
+      '<div class="pl-sm">' + esc(meta) + '</div>' + body +
+    '</div>';
+  }
+
+  // Candidate list for a needs_review card. Prefer the server-attached
+  // `candidates` (the matcher's own ±1-day / type / ≤±40% pool — single source
+  // of truth, and includes adjacent-day candidates). Fall back to same-day
+  // ghosts if the field is absent.
+  function _reviewCandidates(p, day) {
+    if (Array.isArray(p.candidates)) {
+      return p.candidates.map(function (c) { return { id: c.id, name: c.name, meta: c.meta }; });
+    }
+    var runLike = p.session_type === 'run';
+    return (day.unplanned || []).filter(function (u) {
+      var isRun = (u.workout_type || '').toLowerCase() === 'run';
+      return runLike ? isRun : !isRun;
+    }).map(function (u) { return { id: u.id, name: u.name, meta: u.meta }; });
+  }
+
+  function _ghostCardHtml(u, day) {
+    var opts = (day.planned || []).filter(function (p) {
+      return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
+    }).map(function (p) { return '<option value="' + p.id + '">' + esc(p.name || '(untitled)') + '</option>'; }).join('');
+    var mapper = opts
+      ? '<select class="pl-ghostsel" data-ghostsel="' + u.id + '"><option value="">Map to…</option>' + opts + '</select>' +
+        '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-map="' + u.id + '">Map</button><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>'
+      : '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>';
+    return '<div class="pl-ghost"><div class="pl-gtop"><span class="pl-gtag">UNPLANNED</span></div>' +
+      '<div class="pl-sn" style="font-style:italic;">' + esc(u.name) + '</div><div class="pl-sm">' + esc(u.meta) + '</div>' + mapper +
+    '</div>';
+  }
+
+  // ── Week event wiring (delegated) ───────────────────────────────────────────
+  var _dragCtx = null;
+  function _wireWeekEvents() {
+    var host = document.getElementById('plan-week-list');
     if (!host) return;
 
-    var sp = _readiness && _readiness.specificity_progress;
-    if (!sp || sp.reason) {
-      host.innerHTML = "";
-      if (emptyEl) emptyEl.style.display = "";
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = "none";
-
-    var rows = [];
-    function pct(cur, tgt) {
-      return tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0;
-    }
-    if (sp.volume_at_pace)
-      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target)]);
-    if (sp.longest_pace_effort)
-      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target)]);
-    if (sp.longest_run_by_distance)
-      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target)]);
-    if (sp.longest_run_by_duration)
-      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target)]);
-
-    if (rows.length === 0) {
-      host.innerHTML = "";
-      if (emptyEl) emptyEl.style.display = "";
-      return;
-    }
-
-    host.innerHTML = rows
-      .map(function (r) {
-        return (
-          '<div class="pm-specrow">' +
-          '<div class="pm-specname">' + esc(r[0]) + "</div>" +
-          '<div class="pm-spectrack"><div class="pm-specfill" style="width:' +
-          r[1] + '%"></div></div>' +
-          '<div class="pm-specpct">' + r[1] + "%</div>" +
-          "</div>"
-        );
-      })
-      .join("");
-  }
-
-  // ── Data loading ──────────────────────────────────────────────────────────
-  function loadRaces(done) {
-    if (!_planId) {
-      _races = [];
-      _primaryRace = null;
-      if (done) done();
-      return;
-    }
-    apiGet(_planRaceUrl(), function (data) {
-      _races = Array.isArray(data) ? data : [];
-      _primaryRace =
-        _races.find(function (r) {
-          return r.type === "race" && r.priority === "A";
-        }) ||
-        _races.find(function (r) {
-          return r.type === "race";
-        }) ||
-        null;
-      if (done) done();
+    host.querySelectorAll('.pl-sess[data-click="1"]').forEach(function (el) {
+      el.addEventListener('click', function () { _openDetailById(el.getAttribute('data-sess')); });
     });
-  }
-
-  function loadReadiness(done) {
-    if (!_primaryRace) {
-      _readiness = null;
-      if (done) done();
-      return;
-    }
-    apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
-      _readiness = data;
-      // Cache under the race id so renderRaceCards can surface the Estimated
-      // column for the primary race (also drives the form/time curves).
-      _raceReadiness[_primaryRace.id] = data;
-      if (done) done();
+    host.querySelectorAll('[data-unlink]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-unlink') + '/unmatch'); });
     });
-  }
-
-  // Fetch per-race readiness for EVERY upcoming (not-done) race in parallel and
-  // cache each under its raceId. Each response carries its own estimate, so all
-  // upcoming cards can show an Estimated column — not just the primary. Cards
-  // are re-rendered as results arrive.
-  function loadAllReadiness() {
-    var todayStr = todayISO();
-    var targets = _races.filter(function (r) {
-      var done = r.status === "done" && r.actual_time_seconds != null;
-      var upcoming = r.date >= todayStr;
-      // Skip the primary — loadReadiness already fetched it — and done races.
-      return (
-        !done &&
-        upcoming &&
-        !(_primaryRace && r.id === _primaryRace.id) &&
-        !(r.id in _raceReadiness)
-      );
+    host.querySelectorAll('[data-confirm]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = b.getAttribute('data-confirm');
+        var checked = host.querySelector('input[name="pl-cand-' + id + '"]:checked');
+        if (!checked) { _toast('Pick a candidate first', true); return; }
+        _mutate('POST', '/api/planned-sessions/' + id + '/match', { workout_id: checked.value });
+      });
     });
-    if (targets.length === 0) return;
-    targets.forEach(function (r) {
-      apiGet("/api/races/" + r.id + "/readiness", function (data) {
-        _raceReadiness[r.id] = data;
-        // Re-render so the newly-arrived estimate shows on this card.
-        renderRaceCards();
+    host.querySelectorAll('[data-missed]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-missed') + '/miss'); });
+    });
+    host.querySelectorAll('[data-map]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var gid = b.getAttribute('data-map');
+        var sel = host.querySelector('[data-ghostsel="' + gid + '"]');
+        var target = sel ? sel.value : '';
+        if (!target) { _toast('Choose a session to map to', true); return; }
+        _mutate('POST', '/api/planned-sessions/' + target + '/match', { workout_id: gid });
+      });
+    });
+    host.querySelectorAll('[data-ignore]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _dismissedGhosts[b.getAttribute('data-ignore')] = true;
+        _renderWeekList();
+      });
+    });
+    host.querySelectorAll('.pl-addday').forEach(function (el) {
+      el.addEventListener('click', function () { _openAdd('single', el.getAttribute('data-add-date')); });
+    });
+
+    // Drag & drop reschedule (planned/missed only).
+    host.querySelectorAll('.pl-sess[draggable="true"]').forEach(function (el) {
+      el.addEventListener('dragstart', function (e) {
+        _dragCtx = el.getAttribute('data-sess');
+        el.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', _dragCtx); } catch (_) {}
+      });
+      el.addEventListener('dragend', function () { el.classList.remove('dragging'); });
+    });
+    host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+      row.addEventListener('dragover', function (e) { e.preventDefault(); row.classList.add('dragover'); });
+      row.addEventListener('dragleave', function () { row.classList.remove('dragover'); });
+      row.addEventListener('drop', function (e) {
+        e.preventDefault(); row.classList.remove('dragover');
+        if (!_dragCtx) return;
+        var newDate = row.getAttribute('data-date');
+        _mutate('PATCH', '/api/planned-sessions/' + _dragCtx, { planned_date: newDate });
+        _dragCtx = null;
       });
     });
   }
 
-  function loadProjection(done) {
-    apiGet("/api/projection", function (data) {
-      _projection = data;
-      if (done) done();
+  // Run a mutation then reload the week from the server.
+  function _mutate(method, url, body) {
+    _api(method, url, body)
+      .then(function () { _loadWeek(); })
+      .catch(function (err) { _toast(err.message || 'Update failed', true); });
+  }
+
+  // ══ ADD PANEL ═══════════════════════════════════════════════════════════════
+  function _openAdd(topMode, presetDate) {
+    _panel.open = 'add';
+    _addState.top = topMode; _addState.sub = 'form';
+    _addState.presetDate = presetDate || _iso(_weekStart);
+    _renderAddSection(); _renderDetailSection();
+    var el = document.getElementById('plan-add-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function _closeAdd() { _panel.open = null; _renderAddSection(); }
+
+  function _renderAddSection() {
+    var host = document.getElementById('plan-add-section');
+    if (!host) return;
+    if (_panel.open !== 'add') { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="pl-card pl-panelcard">' +
+      '<div class="pl-panelhead"><span class="pl-sectitle">Add session(s)</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
+      '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>' +
+      '<div id="pl-addbody"></div>' +
+    '</div>';
+    document.getElementById('pl-addclose').onclick = _closeAdd;
+    _renderAddBody();
+  }
+
+  function _renderAddBody() {
+    var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON']]
+      : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
+    var subHtml = '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
+      return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
+    }).join('') + '</div>';
+    var content;
+    if (_addState.top === 'single') content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
+    else content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
+    document.getElementById('pl-addbody').innerHTML = subHtml + content;
+    [].forEach.call(document.getElementById('pl-addmode').children, function (b) {
+      b.classList.toggle('on', b.dataset.m === _addState.top);
     });
+    _wireAddBody();
   }
 
-  // Athlete current performance scores (End/Spd) for upcoming cards. Cached in
-  // _athletePerf; re-renders cards on arrival. Uses the user id as athlete id.
-  function loadAthletePerformance() {
-    var aid = _planId || (window.getCurrentUserId ? window.getCurrentUserId() : null);
-    if (!aid) return;
-    apiGet("/api/athletes/" + aid + "/performance", function (data) {
-      _athletePerf = data;
-      renderRaceCards();
-    });
+  // ── Single Form (adaptive: run block builder vs strength exercise rows) ─────
+  function _singleFormHtml() {
+    return '<div class="pl-frow">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type"><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option><option value="rest">Rest</option></select></div>' +
+        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo"/></div>' +
+      '</div>' +
+      '<div id="pl-sf-structure"></div>' +
+      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep"></textarea></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
   }
 
-  // Threshold pace (sec/km) used to compute completed races' demonstrated
-  // fitness score. Cached in _thresholdPace; re-renders cards on arrival.
-  function loadThresholdPace() {
-    apiGet("/api/user-preferences", function (data) {
-      var row = data && data.row ? data.row : null;
-      _thresholdPace =
-        row && typeof row.threshold_pace_seconds_per_km === "number"
-          ? row.threshold_pace_seconds_per_km
-          : null;
-      renderRaceCards();
-    });
-  }
+  // Run block builder rows
+  var _sfBlocks = [
+    { phase: 'warmup', duration_min: 10 },
+    { phase: 'main', duration_min: 10, repeat: 3, rest_min: 2, target: '92% CP' },
+    { phase: 'cooldown', duration_min: 8 }
+  ];
+  var _sfExercises = [
+    { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
+    { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
+  ];
+  var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed'
 
-  // ── Plan settings ─────────────────────────────────────────────────────────
-  function _validateSettingsInputs() {
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var rampErr = document.getElementById("plan-ramp-rate-error");
-    var taperErr = document.getElementById("plan-taper-window-error");
-    var valid = true;
-
-    if (rampErr) rampErr.textContent = "";
-    if (taperErr) taperErr.textContent = "";
-    if (rampIn) rampIn.classList.remove("is-invalid");
-    if (taperIn) taperIn.classList.remove("is-invalid");
-
-    var rampVal = rampIn ? rampIn.value.trim() : "";
-    var taperVal = taperIn ? taperIn.value.trim() : "";
-
-    if (rampVal === "" || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
-      if (rampErr) rampErr.textContent = "Enter a number ≥ 0.";
-      if (rampIn) rampIn.classList.add("is-invalid");
-      valid = false;
-    }
-    if (taperVal === "" || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
-      if (taperErr) taperErr.textContent = "Enter a number ≥ 0.";
-      if (taperIn) taperIn.classList.add("is-invalid");
-      valid = false;
-    }
-    return valid;
-  }
-
-  function loadPlanSettings() {
-    apiGet("/api/plans", function (data) {
-      var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
-      var rampIn = document.getElementById("plan-ramp-rate-input");
-      var taperIn = document.getElementById("plan-taper-window-input");
-
-      if (plan) {
-        _planEntityId = plan.id;
-        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
-        if (taperIn)
-          taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
-      } else {
-        if (rampIn) rampIn.value = 0;
-        if (taperIn) taperIn.value = 0;
-      }
-      renderSchedulePreview();
-    });
-  }
-
-  function savePlanSettings() {
-    if (!_validateSettingsInputs()) return;
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var savedEl = document.getElementById("plan-settings-saved");
-
-    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
-    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
-
-    function onSaved(res) {
-      if (!res.ok) {
-        var rampErr = document.getElementById("plan-ramp-rate-error");
-        if (rampErr)
-          rampErr.textContent =
-            res.data && res.data.detail ? res.data.detail : "Save failed.";
-        return;
-      }
-      _planEntityId = res.data.id;
-      if (savedEl) {
-        savedEl.style.display = "";
-        setTimeout(function () {
-          savedEl.style.display = "none";
-        }, 2000);
-      }
-    }
-
-    if (_planEntityId) {
-      apiPatch(
-        "/api/plans/" + _planEntityId,
-        { ramp_rate: rampRate, taper_length: taperLength },
-        onSaved,
-      );
+  function _renderStructureBuilder() {
+    var host = document.getElementById('pl-sf-structure');
+    if (!host) return;
+    var type = document.getElementById('pl-sf-type').value;
+    if (type === 'rest') { host.innerHTML = '<div class="pl-infobanner">Rest day — no structure.</div>'; return; }
+    if (type === 'run') {
+      host.innerHTML = '<div class="pl-infobanner" style="margin-bottom:14px;">Block template: <b>Warmup → Main set (repeatable) → Cooldown</b>, each with a Power or Pace target. Stryd doesn’t accept HR-based blocks, so skip HR here.</div>' +
+        '<div class="pl-fld" style="margin-bottom:6px;"><label>Structure</label></div>' +
+        '<div class="pl-blocklist" id="pl-blocklist">' + _sfBlocks.map(_blockRowHtml).join('') + '</div>' +
+        '<button class="pl-addblock" id="pl-addblock">+ Add block</button>';
+      _wireBlockBuilder();
     } else {
-      apiPost(
-        "/api/plans",
-        { name: "Training Plan", ramp_rate: rampRate, taper_length: taperLength },
-        onSaved,
-      );
+      // strength / plyo
+      host.innerHTML = '<div class="pl-subtoggle" id="pl-strmode" style="margin-bottom:12px;">' +
+          '<button class="' + (_sfStrengthMode === 'simple' ? 'on' : '') + '" data-str="simple">Simple</button>' +
+          '<button class="' + (_sfStrengthMode === 'detailed' ? 'on' : '') + '" data-str="detailed">Detailed</button>' +
+        '</div>' +
+        (_sfStrengthMode === 'simple'
+          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain"/></div>'
+          : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
+            '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
+            '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
+      _wireStrengthBuilder();
     }
   }
 
-  // ── Render orchestration ──────────────────────────────────────────────────
-  function renderAll() {
-    renderRaceHeader();
-    renderTimeCurve();
-    renderRaceCards();
-    renderFormCurve();
-    renderSpecBars();
-    renderSchedulePreview();
+  function _blockRowHtml(b, i) {
+    var cls = b.phase === 'warmup' ? 'warm' : (b.phase === 'main' ? 'main' : 'cool');
+    var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'main' ? 'Main set' : (b.phase === 'cooldown' ? 'Cooldown' : b.phase));
+    return '<div class="pl-block" data-bi="' + i + '"><span class="pl-btag ' + cls + '">' + label + '</span>' +
+      '<input class="pl-bdur" data-f="duration_min" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
+      '<input class="pl-btgt" data-f="repeat" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
+      '<input class="pl-btgt" data-f="target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
+      '<button class="pl-rm" data-rm-block="' + i + '">✕</button></div>';
+  }
+  function _exRowHtml(x, i) {
+    return '<div class="pl-block" data-xi="' + i + '">' +
+      '<input class="pl-exname" data-f="name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
+      '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>' +
+      '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>' +
+      '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>' +
+      '<button class="pl-rm" data-rm-ex="' + i + '">✕</button></div>';
   }
 
-  // Map the single /api/plan/computed bundle into local state, then render
-  // everything from it. No per-race fan-out or separate perf/calibration/
-  // projection/prefs fetches on the render path — one call feeds all of it.
-  function applyBundle(bundle) {
-    if (!bundle) return;
-    _bundle = bundle;
-
-    _races = Array.isArray(bundle.races) ? bundle.races : [];
-    _primaryRace =
-      _races.find(function (r) {
-        return r.type === "race" && r.priority === "A";
-      }) ||
-      _races.find(function (r) {
-        return r.type === "race";
-      }) ||
-      null;
-
-    var cs = bundle.current_scores || {};
-    _athletePerf =
-      cs.state === "scored"
-        ? {
-            state: "scored",
-            endurance: { score: cs.endurance, direction: cs.endurance_dir },
-            speed: { score: cs.speed, direction: cs.speed_dir },
-          }
-        : { state: cs.state };
-    _thresholdPace =
-      bundle.prefs && typeof bundle.prefs.threshold_pace === "number"
-        ? bundle.prefs.threshold_pace
-        : null;
-
-    var proj = bundle.projection || {};
-    _projection = {
-      form_curve: proj.form_curve,
-      projected_form: proj.projected_form,
-      race_markers: proj.race_markers,
-      b_race_recalibration_date: proj.b_race_recalibration_date,
-      building_baseline: proj.building_baseline,
-    };
-    // Synthetic readiness for the primary race — drives the time/form curves.
-    _readiness = {
-      building_baseline: proj.building_baseline,
-      form_curve: proj.form_curve,
-      projected_form: proj.projected_form,
-      time_curve: proj.time_curve,
-    };
-
-    renderCalibration(bundle.calibration || {});
-    renderAll();
-  }
-
-  function refresh() {
-    // Ensure _planId (user id) is set for Add/Edit/Delete mutation URLs, then
-    // pull the single computed bundle and render everything from it.
-    _ensurePlanId(function () {
-      apiGet("/api/plan/computed", function (bundle) {
-        applyBundle(bundle);
-      });
-    });
-    // Plan settings (ramp/taper + schedule preview) is a separate concern from
-    // the computed bundle; load it independently so Save keeps working.
-    loadPlanSettings();
-  }
-
-  // Force a server-side recompute (ignores cache), then re-render. Shows a
-  // brief disabled/spinning state on the Recalculate button.
-  function recompute() {
-    var btn = document.getElementById("plan-recalc-btn");
-    if (btn) {
-      btn.disabled = true;
-      btn.classList.add("is-loading");
-    }
-    apiPost("/api/plan/recompute", {}, function (res) {
-      if (btn) {
-        btn.disabled = false;
-        btn.classList.remove("is-loading");
-      }
-      if (res && res.ok && res.data) applyBundle(res.data);
-    });
-  }
-
-  // ── Modal ─────────────────────────────────────────────────────────────────
-  // The type segmented control has three tabs: race | checkpoint | history.
-  // "history" is a UI-only mode for picking a past run; the actual entry it
-  // creates is still a race (_editingRaceType), so we track the active tab
-  // separately from the entry type.
-  var _activeTab = "race";
-
-  function _show(id, on) {
-    var el = document.getElementById(id);
-    if (el) el.style.display = on ? "" : "none";
-  }
-
-  // Set the active type tab and reconfigure which fields are visible.
-  function _setModalType(tab) {
-    if (["race", "checkpoint", "history"].indexOf(tab) < 0) tab = "race";
-    // History is only offered when ADDING (not editing an existing entry).
-    if (tab === "history" && _editingRaceId) tab = "race";
-    _activeTab = tab;
-    _editingRaceType = tab === "checkpoint" ? "checkpoint" : "race";
-
-    var seg = document.getElementById("plan-modal-typeseg");
-    if (seg) {
-      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
-        function (b) {
-          var active = b.getAttribute("data-type") === tab;
-          b.classList.toggle("active", active);
-          b.setAttribute("aria-selected", active ? "true" : "false");
-          // The History tab is hidden while editing.
-          if (b.getAttribute("data-type") === "history")
-            b.style.display = _editingRaceId ? "none" : "";
-        },
-      );
-    }
-
-    var isHistory = tab === "history";
-    var isCheckpoint = tab === "checkpoint";
-
-    // History tab: show only the preloaded run list; hide the entry form.
-    _show("plan-modal-history-tab", isHistory);
-    // Entry form fields (hidden on the History tab until a run is picked).
-    _show("plan-modal-name-field", !isHistory);
-    _show("plan-modal-date-field", !isHistory);
-    _show("plan-modal-goal-field", !isHistory && !isCheckpoint);
-    _show("plan-modal-priority-field", !isHistory && !isCheckpoint);
-    // Checkpoint measure toggle + distance/duration fields.
-    _show("plan-modal-measure-field", isCheckpoint);
-    if (isHistory) {
-      _show("plan-modal-distance-field", false);
-      _show("plan-modal-duration-field", false);
-    } else {
-      _applyCheckpointMeasure();
-    }
-
-    // Switching away from a completed-race context clears picked state.
-    if (isCheckpoint && _pickedActualSeconds != null) _setActualState(null);
-
-    if (isHistory) _loadHistory();
-
-    var title = document.getElementById("plan-modal-title");
-    if (title) {
-      var editing = !!_editingRaceId;
-      title.textContent =
-        (editing ? "Edit " : "Add ") + (isCheckpoint ? "Checkpoint" : "Race");
-    }
-  }
-
-  // ── Checkpoint measure (distance | duration) ──────────────────────────────
-  function _applyCheckpointMeasure() {
-    var isCheckpoint = _activeTab === "checkpoint";
-    var byDuration = isCheckpoint && _checkpointMeasure === "duration";
-    // Races always use distance; checkpoints follow the toggle.
-    _show("plan-modal-distance-field", !byDuration);
-    _show("plan-modal-duration-field", byDuration);
-  }
-
-  function _setCheckpointMeasure(measure) {
-    _checkpointMeasure = measure === "duration" ? "duration" : "distance";
-    var seg = document.getElementById("plan-modal-measureseg");
-    if (seg)
-      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
-        function (b) {
-          var active = b.getAttribute("data-measure") === _checkpointMeasure;
-          b.classList.toggle("active", active);
-          b.setAttribute("aria-checked", active ? "true" : "false");
-        },
-      );
-    _applyCheckpointMeasure();
-  }
-
-  // Set the active priority (A|B|C) in the priority segmented control.
-  function _setModalPriority(priority) {
-    _modalPriority = ["A", "B", "C"].indexOf(priority) >= 0 ? priority : "A";
-    var seg = document.getElementById("plan-modal-priorityseg");
-    if (!seg) return;
-    Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
-      function (b) {
-        var active = b.getAttribute("data-priority") === _modalPriority;
-        b.classList.toggle("active", active);
-        b.setAttribute("aria-checked", active ? "true" : "false");
-      },
-    );
-  }
-
-  // ── Goal input mode (time | pace) ─────────────────────────────────────────
-  // Parse a pace string "M:SS" (or "MM:SS") into seconds-per-km. Returns null
-  // when blank/invalid.
-  function _parsePace(str) {
-    if (!str || !str.trim()) return null;
-    var parts = str.trim().split(":").map(Number);
-    if (parts.some(isNaN)) return null;
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    if (parts.length === 1) return parts[0] * 60;
-    return null;
-  }
-
-  function _paceToStr(secPerKm) {
-    if (secPerKm == null) return "";
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + pad(s);
-  }
-
-  // Read the current distance from the input (NaN-safe).
-  function _currentDistance() {
-    var distIn = document.getElementById("plan-modal-distance");
-    var d = distIn ? parseFloat(distIn.value) : NaN;
-    return isNaN(d) || d <= 0 ? null : d;
-  }
-
-  // Recompute the derived-value hint under the goal input for the active mode.
-  function _updateGoalDerived() {
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    var hint = document.getElementById("plan-modal-goal-derived");
-    if (!goalIn || !hint) return;
-    var dist = _currentDistance();
-    var raw = goalIn.value.trim();
-    if (!raw) {
-      hint.textContent = dist ? "" : "Set distance to derive pace/time.";
-      return;
-    }
-    if (_goalMode === "time") {
-      var goalSec = parseGoalTime(raw);
-      if (goalSec == null) {
-        hint.textContent = "Enter time as HH:MM:SS or MM:SS.";
-      } else if (dist) {
-        hint.textContent = "= " + fmtPace(goalSec / dist);
-      } else {
-        hint.textContent = "Set distance to see pace.";
-      }
-    } else {
-      var paceSec = _parsePace(raw);
-      if (paceSec == null) {
-        hint.textContent = "Enter pace as M:SS /km.";
-      } else if (dist) {
-        hint.textContent = "= goal " + fmtTime(Math.round(paceSec * dist));
-      } else {
-        hint.textContent = "Set distance to see goal time.";
-      }
-    }
-  }
-
-  // Switch goal input mode, converting the current value between time and pace
-  // so the field stays consistent for the user.
-  function _setGoalMode(mode) {
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    var next = mode === "pace" ? "pace" : "time";
-    var dist = _currentDistance();
-    if (goalIn && next !== _goalMode && goalIn.value.trim() && dist) {
-      if (next === "pace") {
-        var gs = parseGoalTime(goalIn.value);
-        if (gs != null) goalIn.value = _paceToStr(gs / dist);
-      } else {
-        var ps = _parsePace(goalIn.value);
-        if (ps != null) goalIn.value = goalTimeToStr(Math.round(ps * dist));
-      }
-    }
-    _goalMode = next;
-    var seg = document.getElementById("plan-modal-goalmodeseg");
-    if (seg)
-      Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
-        function (b) {
-          var active = b.getAttribute("data-goalmode") === _goalMode;
-          b.classList.toggle("active", active);
-          b.setAttribute("aria-checked", active ? "true" : "false");
-        },
-      );
-    if (goalIn)
-      goalIn.placeholder = _goalMode === "pace" ? "M:SS /km" : "HH:MM:SS or MM:SS";
-    _updateGoalDerived();
-  }
-
-  // Resolve the goal-time seconds from the field regardless of mode. Returns
-  // { seconds, error } — error is a user-facing string when parsing fails.
-  function _resolveGoalSeconds(dist) {
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    var raw = goalIn ? goalIn.value.trim() : "";
-    if (!raw) return { seconds: null, error: null };
-    if (_goalMode === "pace") {
-      var paceSec = _parsePace(raw);
-      if (paceSec == null) return { seconds: null, error: "Enter pace as M:SS /km." };
-      if (!dist) return { seconds: null, error: "Set a distance to convert pace to a goal time." };
-      return { seconds: Math.round(paceSec * dist), error: null };
-    }
-    var gs = parseGoalTime(raw);
-    if (gs == null) return { seconds: null, error: "Enter goal time as HH:MM:SS or MM:SS." };
-    return { seconds: gs, error: null };
-  }
-
-  // ── Pick from history (completed-race picker) ─────────────────────────────
-  // Reset picker + completed-race state (called on open/close).
-  function _resetPicker() {
-    _pickedActualSeconds = null;
-    var actualField = document.getElementById("plan-modal-actual-field");
-    if (actualField) actualField.style.display = "none";
-  }
-
-  // Show/hide the completed-race "Actual time" banner and remember the seconds.
-  function _setActualState(seconds) {
-    _pickedActualSeconds = seconds;
-    var actualField = document.getElementById("plan-modal-actual-field");
-    var valEl = document.getElementById("plan-modal-actual-val");
-    if (seconds != null) {
-      if (valEl) valEl.textContent = fmtTime(seconds);
-      if (actualField) actualField.style.display = "";
-    } else {
-      if (actualField) actualField.style.display = "none";
-    }
-  }
-
-  function _isoDaysAgo(days) {
-    var d = new Date();
-    d.setDate(d.getDate() - days);
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-  }
-
-  function _loadHistory() {
-    var listEl = document.getElementById("plan-modal-history-list");
-    var loadingEl = document.getElementById("plan-modal-history-loading");
-    var emptyEl = document.getElementById("plan-modal-history-empty");
-
-    function _renderHistoryList() {
-      if (loadingEl) loadingEl.style.display = "none";
-      if (!listEl) return;
-      if (_historyRuns.length === 0) {
-        if (emptyEl) emptyEl.style.display = "";
-        listEl.innerHTML = "";
-        return;
-      }
-      if (emptyEl) emptyEl.style.display = "none";
-      listEl.innerHTML = "";
-      _historyRuns.forEach(function (r, idx) {
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "plan-modal-history-row";
-        btn.setAttribute("data-idx", idx);
-        var distKm = parseFloat(r.distance_km || 0).toFixed(2);
-        btn.innerHTML =
-          '<span class="plan-modal-history-row-top">' +
-          esc(formatDate(r.workout_date)) +
-          " · " + distKm + " km · " + esc(fmtTime(r.duration_seconds)) +
-          "</span>" +
-          '<span class="plan-modal-history-row-name">' +
-          esc(r.name || "Run") + "</span>";
-        btn.addEventListener("click", function () {
-          _pickRun(r);
+  function _wireBlockBuilder() {
+    var list = document.getElementById('pl-blocklist');
+    if (!list) return;
+    list.querySelectorAll('.pl-block').forEach(function (row) {
+      var i = +row.getAttribute('data-bi');
+      row.querySelectorAll('input[data-f]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          var f = inp.getAttribute('data-f'), v = inp.value;
+          if (f === 'duration_min' || f === 'repeat') v = v === '' ? undefined : Number(v);
+          if (v === undefined) delete _sfBlocks[i][f]; else _sfBlocks[i][f] = v;
         });
-        listEl.appendChild(btn);
       });
-    }
-
-    if (_historyLoaded) {
-      _renderHistoryList();
-      return;
-    }
-    if (loadingEl) loadingEl.style.display = "";
-    if (emptyEl) emptyEl.style.display = "none";
-
-    // Last 3 months (90 days) of runs.
-    var from = _isoDaysAgo(90);
-    var to = todayISO();
-    apiGet(
-      "/api/workouts?from=" + from + "&to=" + to,
-      function (data) {
-        var rows = Array.isArray(data) ? data : [];
-        // Runs only, > 10 km, with a usable finish time. Server does not filter
-        // by distance, so filter client-side. Sort most-recent first.
-        _historyRuns = rows
-          .filter(function (w) {
-            return (
-              (w.workout_type || "").toLowerCase() === "run" &&
-              w.distance_km != null &&
-              parseFloat(w.distance_km) > 10 &&
-              w.duration_seconds
-            );
-          })
-          .sort(function (a, b) {
-            return a.workout_date < b.workout_date ? 1 : a.workout_date > b.workout_date ? -1 : 0;
+    });
+    list.querySelectorAll('[data-rm-block]').forEach(function (b) {
+      b.addEventListener('click', function () { _sfBlocks.splice(+b.getAttribute('data-rm-block'), 1); _renderStructureBuilder(); });
+    });
+    var add = document.getElementById('pl-addblock');
+    if (add) add.onclick = function () { _sfBlocks.push({ phase: 'main', duration_min: 10 }); _renderStructureBuilder(); };
+  }
+  function _wireStrengthBuilder() {
+    document.querySelectorAll('#pl-strmode button').forEach(function (b) {
+      b.addEventListener('click', function () { _sfStrengthMode = b.getAttribute('data-str'); _renderStructureBuilder(); });
+    });
+    var list = document.getElementById('pl-exlist');
+    if (list) {
+      list.querySelectorAll('.pl-block').forEach(function (row) {
+        var i = +row.getAttribute('data-xi');
+        row.querySelectorAll('input[data-f]').forEach(function (inp) {
+          inp.addEventListener('input', function () {
+            var f = inp.getAttribute('data-f'), v = inp.value;
+            if (f === 'sets' || f === 'reps') v = v === '' ? undefined : Number(v);
+            if (v === undefined) delete _sfExercises[i][f]; else _sfExercises[i][f] = v;
           });
-        _historyLoaded = true;
-        _renderHistoryList();
-      },
-    );
-  }
-
-  // Prefill the form from a picked past run and switch to completed-race mode.
-  function _pickRun(run) {
-    var nameIn = document.getElementById("plan-modal-name");
-    var dateIn = document.getElementById("plan-modal-date");
-    var distIn = document.getElementById("plan-modal-distance");
-    var distKm = parseFloat(run.distance_km || 0);
-
-    if (nameIn)
-      nameIn.value =
-        run.name && run.name.trim()
-          ? run.name.trim()
-          : Math.round(distKm) + "K race";
-    if (dateIn) dateIn.value = run.workout_date || "";
-    if (distIn) distIn.value = distKm ? distKm.toFixed(2) : "";
-
-    // Leave the History tab and reveal the Race entry form pre-filled.
-    _setModalType("race");
-    // Past races are usually B-priority; default the selector to B.
-    _setModalPriority("B");
-    _setActualState(run.duration_seconds || null);
-    // Refresh the goal-pace hint now that distance is set.
-    _updateGoalDerived();
-  }
-
-  function openModal(race, raceType) {
-    _editingRaceId = race ? race.id : null;
-
-    var modal = document.getElementById("plan-race-modal");
-    var nameIn = document.getElementById("plan-modal-name");
-    var dateIn = document.getElementById("plan-modal-date");
-    var distIn = document.getElementById("plan-modal-distance");
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    var deleteBtn = document.getElementById("plan-modal-delete-btn");
-    var errEl = document.getElementById("plan-modal-error");
-
-    if (!modal) return;
-
-    var type = race ? race.type || "race" : raceType || "race";
-    if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
-    if (errEl) errEl.textContent = "";
-
-    if (race) {
-      if (nameIn) nameIn.value = race.name || "";
-      if (dateIn) dateIn.value = race.date || "";
-      if (distIn) distIn.value = race.distance || "";
-      if (goalIn) goalIn.value = goalTimeToStr(race.goal_time_seconds);
-    } else {
-      if (nameIn) nameIn.value = "";
-      if (dateIn) dateIn.value = "";
-      if (distIn) distIn.value = "";
-      if (goalIn) goalIn.value = "";
+        });
+      });
+      list.querySelectorAll('[data-rm-ex]').forEach(function (b) {
+        b.addEventListener('click', function () { _sfExercises.splice(+b.getAttribute('data-rm-ex'), 1); _renderStructureBuilder(); });
+      });
+      var add = document.getElementById('pl-addex');
+      if (add) add.onclick = function () { _sfExercises.push({ name: '', sets: 3, reps: 10, load: '' }); _renderStructureBuilder(); };
     }
-
-    // Reset picker/completed-race state every time the modal opens.
-    _resetPicker();
-    // Reset goal mode to Time and checkpoint measure to Distance on each open.
-    _goalMode = "time";
-    _setGoalMode("time");
-    _setCheckpointMeasure("distance");
-
-    // Tab + priority state (must run after _editingRaceId is set for the title).
-    _setModalType(type);
-    _setModalPriority(race && race.priority ? race.priority : "A");
-    _updateGoalDerived();
-
-    // Preload the history list up front so the History tab is instant.
-    if (!_editingRaceId) _loadHistory();
-
-    modal.style.display = "";
-    if (nameIn && type !== "history") nameIn.focus();
   }
 
-  function closeModal() {
-    var modal = document.getElementById("plan-race-modal");
-    if (modal) modal.style.display = "none";
-    _resetPicker();
-  }
-
-  function saveModal() {
-    var nameIn = document.getElementById("plan-modal-name");
-    var dateIn = document.getElementById("plan-modal-date");
-    var distIn = document.getElementById("plan-modal-distance");
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    var errEl = document.getElementById("plan-modal-error");
-
-    var name = nameIn ? nameIn.value.trim() : "";
-    var date = dateIn ? dateIn.value : "";
-    var dist = distIn ? parseFloat(distIn.value) : NaN;
-    // Type comes from the active segmented tab, not a <select>.
-    var type = _editingRaceType === "checkpoint" ? "checkpoint" : "race";
-
-    if (!name) {
-      if (errEl) errEl.textContent = "Name is required.";
-      return;
-    }
-    if (!date) {
-      if (errEl) errEl.textContent = "Date is required.";
-      return;
-    }
-
-    var body;
-    if (type === "checkpoint" && _checkpointMeasure === "duration") {
-      // Duration-defined checkpoint (issue #1226): no distance, no goal pace.
-      var durIn = document.getElementById("plan-modal-duration");
-      var durSec = durIn ? parseGoalTime(durIn.value) : null;
-      if (durSec === null || durSec <= 0) {
-        if (errEl) errEl.textContent = "Enter a valid duration (H:MM:SS).";
-        return;
-      }
-      body = {
-        name: name, date: date, type: "checkpoint",
-        duration_seconds: durSec, status: "planned",
-      };
-    } else {
-      if (isNaN(dist) || dist <= 0) {
-        if (errEl) errEl.textContent = "Distance must be a positive number.";
-        return;
-      }
-
-      // Resolve goal seconds from whichever mode (time or pace) is active.
-      var goalRes = _resolveGoalSeconds(dist);
-      if (goalRes.error) {
-        if (errEl) errEl.textContent = goalRes.error;
-        return;
-      }
-      var goalSec = goalRes.seconds;
-
-      // Plausibility guard: reject goals whose implied pace is outside a realistic
-      // 2:30–15:00 /km band (catches "4:30" typed for 4:30:00). Measured actual
-      // times bypass this — they are real data.
-      if (goalSec !== null && dist > 0) {
-        var paceSec = goalSec / dist;
-        if (paceSec < 150 || paceSec > 900) {
-          if (errEl)
-            errEl.textContent =
-              "Goal implies " + fmtPace(paceSec) + " over " + dist +
-              " km — not a realistic pace. For longer races use HH:MM:SS " +
-              "(e.g. 4:30:00), or switch to Pace mode.";
-          return;
-        }
-      }
-
-      body = { name: name, date: date, distance: dist, type: type };
-      if (goalSec !== null) body.goal_time_seconds = goalSec;
-      // Priority is only meaningful for races (checkpoints are forced to C by the
-      // backend). Send it from the priority segmented control on the Race tab.
-      if (type === "race") body.priority = _modalPriority;
-      // Completed-race mode: a past run was picked from history → mark done and
-      // send the real finish time (calibration data). actual_time is measured, so
-      // the goal-pace plausibility guard above does not apply to it.
-      if (type === "race" && _pickedActualSeconds != null) {
-        body.status = "done";
-        body.actual_time_seconds = _pickedActualSeconds;
+  function _collectSingleForm() {
+    var type = document.getElementById('pl-sf-type').value;
+    var out = {
+      planned_date: document.getElementById('pl-sf-date').value,
+      session_type: type,
+      name: document.getElementById('pl-sf-name').value || null,
+      notes: document.getElementById('pl-sf-notes').value || null,
+      structure: null
+    };
+    if (type === 'run') {
+      out.structure = { blocks: _sfBlocks.slice() };
+    } else if (type === 'strength' || type === 'plyo') {
+      if (_sfStrengthMode === 'simple') {
+        var focusEl = document.getElementById('pl-str-focus');
+        out.structure = { focus: focusEl ? focusEl.value : '' };
       } else {
-        body.status = "planned";
+        out.structure = { exercises: _sfExercises.slice() };
       }
     }
-    if (errEl) errEl.textContent = "";
+    return out;
+  }
 
-    if (_editingRaceId) {
-      apiPatch(_planRaceUrl(_editingRaceId), body, function (res) {
-        if (!res.ok) {
-          if (errEl)
-            errEl.textContent =
-              res.data && res.data.detail
-                ? JSON.stringify(res.data.detail)
-                : "Save failed.";
-          return;
-        }
-        closeModal();
-        refresh();
-      });
-    } else {
-      apiPost(_planRaceUrl(), body, function (res) {
-        if (!res.ok) {
-          if (errEl)
-            errEl.textContent =
-              res.data && res.data.detail
-                ? JSON.stringify(res.data.detail)
-                : "Save failed.";
-          return;
-        }
-        closeModal();
-        refresh();
-      });
+  function _wireAddBody() {
+    // mode / sub toggles
+    var modeEl = document.getElementById('pl-addmode');
+    if (modeEl) modeEl.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () { _addState.top = b.dataset.m; _addState.sub = 'form'; _renderAddBody(); });
+    });
+    var subEl = document.getElementById('pl-addsub');
+    if (subEl) subEl.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () { _addState.sub = b.dataset.sm; _renderAddBody(); });
+    });
+
+    if (_addState.top === 'single' && _addState.sub === 'form') {
+      _renderStructureBuilder();
+      document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
+      document.getElementById('pl-sf-cancel').onclick = _closeAdd;
+      document.getElementById('pl-sf-save').onclick = function () {
+        var payload = _collectSingleForm();
+        if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
+        _api('POST', '/api/planned-sessions', payload)
+          .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+          .catch(function (e) { _toast(e.message || 'Save failed', true); });
+      };
+    } else if (_addState.top === 'single' && _addState.sub === 'json') {
+      _wireSingleJSON();
+    } else if (_addState.top === 'bulk' && _addState.sub === 'form') {
+      _wireBulkForm();
+    } else if (_addState.top === 'bulk' && _addState.sub === 'json') {
+      _wireBulkJSON();
+    } else if (_addState.top === 'bulk' && _addState.sub === 'sep') {
+      _wireBulkSep();
     }
   }
 
-  // ── Confirm dialog ────────────────────────────────────────────────────────
-  function showConfirm(title, msg, onConfirm) {
-    var overlay = document.getElementById("plan-confirm-modal");
-    var titleEl = document.getElementById("plan-confirm-title");
-    var msgEl = document.getElementById("plan-confirm-msg");
-    if (!overlay) return;
-    _confirmCallback = onConfirm;
-    if (titleEl) titleEl.textContent = title;
-    if (msgEl) msgEl.textContent = msg;
-    overlay.style.display = "";
+  // ── JSON templates ──────────────────────────────────────────────────────────
+  var tplSingleRun = {
+    date: '2026-07-03', type: 'run', name: 'Sustained Tempo',
+    notes: 'Hold 92% CP even on the 3rd rep — don’t fade.',
+    blocks: [
+      { phase: 'warmup', duration_min: 10 },
+      { phase: 'main', duration_min: 10, repeat: 3, rest_min: 2, target: '92% CP' },
+      { phase: 'cooldown', duration_min: 8 }
+    ]
+  };
+  var tplSingleStrength = {
+    date: '2026-07-02', type: 'strength', name: 'Lower body strength',
+    notes: 'Keep in the 6-12wk economy window.',
+    exercises: [
+      { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
+      { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
+    ]
+  };
+  var tplBulkWeek = [
+    { date: '2026-06-29', type: 'rest' },
+    { date: '2026-06-30', type: 'run', name: 'Easy + strides', blocks: [{ phase: 'main', duration_min: 45, target: 'Z2' }] },
+    { date: '2026-07-01', type: 'run', name: 'Sustained Tempo', notes: tplSingleRun.notes, blocks: tplSingleRun.blocks },
+    { date: '2026-07-02', type: 'strength', name: 'Lower body strength', notes: tplSingleStrength.notes, exercises: tplSingleStrength.exercises },
+    { date: '2026-07-03', type: 'run', name: 'Recovery jog', blocks: [{ phase: 'main', duration_min: 30, target: 'easy' }] },
+    { date: '2026-07-04', type: 'run', name: 'Long run', blocks: [{ phase: 'main', duration_min: 110, target: 'Z2, last 20min @ MP' }] },
+    { date: '2026-07-05', type: 'rest' }
+  ];
+
+  // Map a template object {date,type,name,notes,blocks|exercises} → API payload.
+  function _tplToPayload(o) {
+    var p = { planned_date: o.date, session_type: (o.type || '').toLowerCase(), name: o.name || null, notes: o.notes || null, structure: null };
+    if (o.blocks) p.structure = { blocks: o.blocks };
+    else if (o.exercises) p.structure = { exercises: o.exercises };
+    else if (o.focus) p.structure = { focus: o.focus };
+    return p;
   }
 
-  function closeConfirm() {
-    var overlay = document.getElementById("plan-confirm-modal");
-    if (overlay) overlay.style.display = "none";
-    _confirmCallback = null;
+  function _downloadFile(name, content, mime) {
+    var blob = new Blob([content], { type: mime || 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
   }
 
-  function deleteEditing() {
-    if (!_editingRaceId) return;
-    var rid = _editingRaceId;
-    var race = _races.find(function (r) {
-      return r.id === rid;
+  function _singleJSONHtml() {
+    return '<div class="pl-jsontools">' +
+        '<button class="pl-btn pl-ghost" id="pl-sj-dl">⬇ Download template</button>' +
+        '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-sj-up" style="display:none"/></label>' +
+      '</div>' +
+      '<div class="pl-infobanner" style="margin-bottom:10px;">Paste a session as JSON — same shape as the template.</div>' +
+      '<textarea class="pl-jsonta" id="pl-sj-ta">' + esc(JSON.stringify(tplSingleRun, null, 2)) + '</textarea>' +
+      '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sj-val">Validate &amp; preview</button></div>' +
+      '<div id="pl-sj-prev"></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sj-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sj-cancel">Cancel</button></div>';
+  }
+  function _wireSingleJSON() {
+    document.getElementById('pl-sj-dl').onclick = function () { _downloadFile('perf-coach-session-template.json', JSON.stringify(tplSingleRun, null, 2)); };
+    document.getElementById('pl-sj-up').onchange = function () { _readFileInto(this, 'pl-sj-ta'); };
+    document.getElementById('pl-sj-cancel').onclick = _closeAdd;
+    document.getElementById('pl-sj-val').onclick = function () { _previewSingleJSON(); };
+    document.getElementById('pl-sj-save').onclick = function () {
+      var obj = _previewSingleJSON();
+      if (!obj) return;
+      _api('POST', '/api/planned-sessions', _tplToPayload(obj))
+        .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+        .catch(function (e) { _toast(e.message || 'Save failed', true); });
+    };
+  }
+  function _previewSingleJSON() {
+    var ta = document.getElementById('pl-sj-ta'), out = document.getElementById('pl-sj-prev');
+    try {
+      var obj = JSON.parse(ta.value);
+      if (!obj.date || !obj.type) throw new Error('Missing required field: date and type are required.');
+      var parts = [obj.date + ' · ' + String(obj.type).toUpperCase() + ' · ' + (obj.name || '(untitled)')];
+      if (obj.blocks) parts.push(obj.blocks.length + ' block(s)');
+      if (obj.exercises) parts.push(obj.exercises.length + ' exercise(s)');
+      out.innerHTML = '<div class="pl-previewbox ok">Valid — ' + esc(parts.join(' · ')) + '</div>';
+      return obj;
+    } catch (e) { out.innerHTML = '<div class="pl-previewbox err">Invalid JSON — ' + esc(e.message) + '</div>'; return null; }
+  }
+
+  function _bulkFormHtml() {
+    var rows = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d, i) {
+      return '<tr data-bulk-i="' + i + '"><td class="pl-bd">' + d + '</td>' +
+        '<td><select data-bf="type"><option value="rest">Rest</option><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option></select></td>' +
+        '<td><input data-bf="name" placeholder="session name"/></td>' +
+        '<td><input data-bf="duration" placeholder="—"/></td></tr>';
+    }).join('');
+    return '<div class="pl-infobanner" style="margin-bottom:14px;">Quickly stub out the whole week. Open any session afterward to add block/exercise detail.</div>' +
+      '<table class="pl-bulktbl"><thead><tr><th></th><th>Type</th><th>Session name</th><th>Duration</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-bf-save">Save week</button><button class="pl-btn pl-ghost" id="pl-bf-cancel">Cancel</button></div>';
+  }
+  function _wireBulkForm() {
+    document.getElementById('pl-bf-cancel').onclick = _closeAdd;
+    document.getElementById('pl-bf-save').onclick = function () {
+      var payloads = [];
+      document.querySelectorAll('#pl-addbody tr[data-bulk-i]').forEach(function (tr) {
+        var i = +tr.getAttribute('data-bulk-i');
+        var type = tr.querySelector('[data-bf="type"]').value;
+        var name = tr.querySelector('[data-bf="name"]').value;
+        var dur = tr.querySelector('[data-bf="duration"]').value;
+        if (type === 'rest' && !name) { payloads.push({ planned_date: _iso(_addDays(_weekStart, i)), session_type: 'rest' }); return; }
+        var structure = null;
+        var m = /(\d+)/.exec(dur || '');
+        if (type === 'run' && m) structure = { blocks: [{ phase: 'main', duration_min: Number(m[1]) }] };
+        payloads.push({ planned_date: _iso(_addDays(_weekStart, i)), session_type: type, name: name || null, structure: structure });
+      });
+      _api('POST', '/api/planned-sessions/bulk', payloads)
+        .then(function () { _toast('Week saved'); _closeAdd(); _loadWeek(); })
+        .catch(function (e) { _toast(e.message || 'Save failed', true); });
+    };
+  }
+
+  function _bulkJSONHtml() {
+    return '<div class="pl-jsontools">' +
+        '<button class="pl-btn pl-ghost" id="pl-bj-dl">⬇ Download template</button>' +
+        '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-bj-up" style="display:none"/></label>' +
+      '</div>' +
+      '<div class="pl-infobanner" style="margin-bottom:10px;">Paste an array of sessions — one file for the whole week, full block/exercise detail.</div>' +
+      '<textarea class="pl-jsonta" id="pl-bj-ta">' + esc(JSON.stringify(tplBulkWeek, null, 2)) + '</textarea>' +
+      '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-bj-val">Validate &amp; preview</button></div>' +
+      '<div id="pl-bj-prev"></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-bj-save">Save week</button><button class="pl-btn pl-ghost" id="pl-bj-cancel">Cancel</button></div>';
+  }
+  function _wireBulkJSON() {
+    document.getElementById('pl-bj-dl').onclick = function () { _downloadFile('perf-coach-week-template.json', JSON.stringify(tplBulkWeek, null, 2)); };
+    document.getElementById('pl-bj-up').onchange = function () { _readFileInto(this, 'pl-bj-ta'); };
+    document.getElementById('pl-bj-cancel').onclick = _closeAdd;
+    document.getElementById('pl-bj-val').onclick = function () { _previewBulkJSON(); };
+    document.getElementById('pl-bj-save').onclick = function () {
+      var arr = _previewBulkJSON();
+      if (!arr) return;
+      _api('POST', '/api/planned-sessions/bulk', arr.map(_tplToPayload))
+        .then(function () { _toast('Week saved'); _closeAdd(); _loadWeek(); })
+        .catch(function (e) { _toast(e.message || 'Save failed', true); });
+    };
+  }
+  function _previewBulkJSON() {
+    var ta = document.getElementById('pl-bj-ta'), out = document.getElementById('pl-bj-prev');
+    try {
+      var arr = JSON.parse(ta.value);
+      if (!Array.isArray(arr)) throw new Error('Expected a JSON array of sessions.');
+      var rows = arr.map(function (o) {
+        var det = o.blocks ? o.blocks.length + ' blocks' : (o.exercises ? o.exercises.length + ' exercises' : '—');
+        return '<div class="pl-previewrow"><span style="width:92px">' + esc(o.date || '?') + '</span><span style="width:72px">' + esc(o.type || '?') + '</span><span style="flex:1">' + esc(o.name || '') + '</span><span style="color:var(--pl-faint)">' + esc(det) + '</span></div>';
+      }).join('');
+      out.innerHTML = '<div class="pl-previewbox ok">' + arr.length + ' sessions parsed<div class="pl-previewlist">' + rows + '</div></div>';
+      return arr;
+    } catch (e) { out.innerHTML = '<div class="pl-previewbox err">Invalid JSON — ' + esc(e.message) + '</div>'; return null; }
+  }
+
+  function _delimChar(code) { return code === 'comma' ? ',' : (code === 'tab' ? '\t' : '|'); }
+  function _sepTemplate(code) {
+    var d = _delimChar(code);
+    return [
+      ['date', 'type', 'name', 'duration', 'notes'],
+      ['2026-06-29', 'rest', '', '', ''],
+      ['2026-06-30', 'run', 'Easy + strides', '45min', ''],
+      ['2026-07-01', 'run', 'Sustained Tempo', '60min', 'Hold 92% CP'],
+      ['2026-07-02', 'strength', 'Lower body strength', '50min', ''],
+      ['2026-07-03', 'run', 'Recovery jog', '30min', ''],
+      ['2026-07-04', 'run', 'Long run', '110min', 'last 20min @ MP'],
+      ['2026-07-05', 'rest', '', '', '']
+    ].map(function (r) { return r.join(d); }).join('\n');
+  }
+  function _bulkSepHtml() {
+    var code = _addState.delim, dc = _delimChar(code);
+    return '<div class="pl-jsontools">' +
+        '<span style="font-size:11px;font-weight:700;color:var(--pl-muted);">Delimiter:</span>' +
+        '<select class="pl-delimsel" id="pl-delim">' +
+          '<option value="pipe"' + (code === 'pipe' ? ' selected' : '') + '>Pipe  |</option>' +
+          '<option value="comma"' + (code === 'comma' ? ' selected' : '') + '>Comma  ,</option>' +
+          '<option value="tab"' + (code === 'tab' ? ' selected' : '') + '>Tab</option>' +
+        '</select>' +
+        '<button class="pl-btn pl-ghost" id="pl-sep-dl">⬇ Download template</button>' +
+      '</div>' +
+      '<div class="pl-infobanner" style="margin-bottom:10px;">One session per line: <b>date' + dc + 'type' + dc + 'name' + dc + 'duration' + dc + 'notes</b>. Simple fields only; open a session afterward for block/exercise detail.</div>' +
+      '<textarea class="pl-jsonta" id="pl-sep-ta">' + esc(_sepTemplate(code)) + '</textarea>' +
+      '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sep-val">Parse &amp; preview</button></div>' +
+      '<div id="pl-sep-prev"></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sep-save">Save week</button><button class="pl-btn pl-ghost" id="pl-sep-cancel">Cancel</button></div>';
+  }
+  function _parseSep() {
+    var ta = document.getElementById('pl-sep-ta'), out = document.getElementById('pl-sep-prev'), d = _delimChar(_addState.delim);
+    var lines = ta.value.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l.length; });
+    if (lines.length < 2) { out.innerHTML = '<div class="pl-previewbox err">No data rows found below the header.</div>'; return null; }
+    var rows = lines.slice(1).map(function (l) {
+      var c = l.split(d);
+      return { date: (c[0] || '').trim(), type: (c[1] || '').trim().toLowerCase(), name: (c[2] || '').trim(), duration: (c[3] || '').trim(), notes: (c[4] || '').trim() };
     });
-    var label = race
-      ? race.type === "checkpoint"
-        ? "checkpoint"
-        : "race"
-      : "entry";
-    closeModal();
-    showConfirm(
-      "Delete this " + label + "?",
-      "This action cannot be undone.",
-      function () {
-        apiDelete(_planRaceUrl(rid), function (res) {
-          if (res.ok) refresh();
-        });
-      },
-    );
+    var html = rows.map(function (r) {
+      return '<div class="pl-previewrow"><span style="width:92px">' + esc(r.date || '?') + '</span><span style="width:72px">' + esc(r.type || '?') + '</span><span style="flex:1">' + esc(r.name || '—') + '</span><span style="color:var(--pl-faint)">' + esc(r.duration || '—') + '</span></div>';
+    }).join('');
+    out.innerHTML = '<div class="pl-previewbox ok">' + rows.length + ' sessions parsed<div class="pl-previewlist">' + html + '</div></div>';
+    return rows;
+  }
+  function _wireBulkSep() {
+    document.getElementById('pl-delim').onchange = function () { _addState.delim = this.value; _renderAddBody(); };
+    document.getElementById('pl-sep-dl').onclick = function () { _downloadFile('perf-coach-week-template.csv', _sepTemplate(_addState.delim), 'text/csv'); };
+    document.getElementById('pl-sep-cancel').onclick = _closeAdd;
+    document.getElementById('pl-sep-val').onclick = function () { _parseSep(); };
+    document.getElementById('pl-sep-save').onclick = function () {
+      var rows = _parseSep();
+      if (!rows) return;
+      var payloads = rows.map(function (r) {
+        var structure = null, m = /(\d+)/.exec(r.duration || '');
+        if (r.type === 'run' && m) structure = { blocks: [{ phase: 'main', duration_min: Number(m[1]) }] };
+        return { planned_date: r.date, session_type: r.type, name: r.name || null, notes: r.notes || null, structure: structure };
+      });
+      _api('POST', '/api/planned-sessions/bulk', payloads)
+        .then(function () { _toast('Week saved'); _closeAdd(); _loadWeek(); })
+        .catch(function (e) { _toast(e.message || 'Save failed', true); });
+    };
   }
 
-  function _deleteRow(raceId, raceName) {
-    var race = _races.find(function (r) {
-      return r.id === raceId;
+  function _readFileInto(input, targetId) {
+    var f = input.files[0]; if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function (e) { var t = document.getElementById(targetId); if (t) t.value = e.target.result; };
+    reader.readAsText(f);
+  }
+
+  // ══ DETAIL PANEL ══════════════════════════════════════════════════════════════
+  function _openDetailById(id) {
+    var found = null;
+    (_bundle.days || []).forEach(function (d) {
+      (d.planned || []).forEach(function (p) { if (p.id === id) found = p; });
     });
-    var label = race
-      ? race.type === "checkpoint"
-        ? "checkpoint"
-        : "race"
-      : "entry";
-    showConfirm(
-      "Delete this " + label + "?",
-      "This action cannot be undone.",
-      function () {
-        apiDelete(_planRaceUrl(raceId), function (res) {
-          if (res.ok) refresh();
-        });
-      },
-    );
+    if (!found) return;
+    _detail = found;
+    _panel.open = 'detail';
+    _renderDetailSection(); _renderAddSection();
+    var el = document.getElementById('plan-detail-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
+
+  function _renderDetailSection() {
+    var host = document.getElementById('plan-detail-section');
+    if (!host) return;
+    if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
+    var p = _detail;
+    var isRun = p.session_type === 'run';
+    host.innerHTML = '<div class="pl-card pl-panelcard">' +
+      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Session detail</span><button class="pl-closepanel" id="pl-detclose">✕</button></div>' +
+      (isRun ? _runDetailHtml(p) : _liftDetailHtml(p)) +
+    '</div>';
+    document.getElementById('pl-detclose').onclick = _closeDetail;
+    var editBtn = document.getElementById('pl-det-edit');
+    if (editBtn) editBtn.onclick = function () { _openAdd('single', p.planned_date); };
+    var copyBtn = document.getElementById('pl-det-copy');
+    if (copyBtn) copyBtn.onclick = function () {
+      var pre = document.getElementById('pl-stryd-pre');
+      var text = pre ? pre.textContent : '';
+      _copyText(text, copyBtn);
+    };
   }
 
-  // ── Event wiring ──────────────────────────────────────────────────────────
-  function wireEvents() {
-    // Single "+ Add" button opens the modal defaulting to the Race tab.
-    var addBtn = document.getElementById("plan-add-btn");
-    if (addBtn)
-      addBtn.addEventListener("click", function () {
-        openModal(null, "race");
-      });
+  function _fmtDur(min) { return min != null ? (min + ' min') : '—'; }
 
-    // Recalculate: force a fresh server-side compute of the bundle.
-    var recalcBtn = document.getElementById("plan-recalc-btn");
-    if (recalcBtn) recalcBtn.addEventListener("click", recompute);
-
-    // Modal type tabs (Race | Checkpoint).
-    var typeSeg = document.getElementById("plan-modal-typeseg");
-    if (typeSeg)
-      typeSeg.addEventListener("click", function (e) {
-        var b = e.target.closest(".plan-modal-seg-btn");
-        if (!b) return;
-        _setModalType(b.getAttribute("data-type"));
-      });
-
-    // Modal priority segmented control (A | B | C).
-    var prSeg = document.getElementById("plan-modal-priorityseg");
-    if (prSeg)
-      prSeg.addEventListener("click", function (e) {
-        var b = e.target.closest(".plan-modal-seg-btn");
-        if (!b) return;
-        _setModalPriority(b.getAttribute("data-priority"));
-      });
-
-    // Checkpoint measure toggle (Distance | Duration).
-    var measureSeg = document.getElementById("plan-modal-measureseg");
-    if (measureSeg)
-      measureSeg.addEventListener("click", function (e) {
-        var b = e.target.closest(".plan-modal-seg-btn");
-        if (!b) return;
-        _setCheckpointMeasure(b.getAttribute("data-measure"));
-      });
-
-    // Goal mode toggle (Time | Pace).
-    var goalModeSeg = document.getElementById("plan-modal-goalmodeseg");
-    if (goalModeSeg)
-      goalModeSeg.addEventListener("click", function (e) {
-        var b = e.target.closest(".plan-modal-seg-btn");
-        if (!b) return;
-        _setGoalMode(b.getAttribute("data-goalmode"));
-      });
-
-    // Recompute the goal-derived hint as the user types goal or distance.
-    var goalIn = document.getElementById("plan-modal-goal-time");
-    if (goalIn) goalIn.addEventListener("input", _updateGoalDerived);
-    var distIn = document.getElementById("plan-modal-distance");
-    if (distIn) distIn.addEventListener("input", _updateGoalDerived);
-
-    // Clear completed-race state (revert to a normal planned race).
-    var actualClear = document.getElementById("plan-modal-actual-clear");
-    if (actualClear)
-      actualClear.addEventListener("click", function () {
-        _setActualState(null);
-      });
-
-    // Distance quick-fill buttons.
-    var distQuick = document.getElementById("plan-modal-distance-quick");
-    if (distQuick)
-      distQuick.addEventListener("click", function (e) {
-        var b = e.target.closest(".plan-modal-quick-btn");
-        if (!b) return;
-        var distIn = document.getElementById("plan-modal-distance");
-        if (distIn) distIn.value = b.getAttribute("data-km");
-        _updateGoalDerived();
-      });
-
-    var modalClose = document.getElementById("plan-modal-close");
-    if (modalClose) modalClose.addEventListener("click", closeModal);
-
-    var modalCancel = document.getElementById("plan-modal-cancel");
-    if (modalCancel) modalCancel.addEventListener("click", closeModal);
-
-    var modalSave = document.getElementById("plan-modal-save");
-    if (modalSave) modalSave.addEventListener("click", saveModal);
-
-    var modalDelete = document.getElementById("plan-modal-delete-btn");
-    if (modalDelete) modalDelete.addEventListener("click", deleteEditing);
-
-    var confirmCancel = document.getElementById("plan-confirm-cancel");
-    if (confirmCancel) confirmCancel.addEventListener("click", closeConfirm);
-
-    var confirmDelete = document.getElementById("plan-confirm-delete");
-    if (confirmDelete)
-      confirmDelete.addEventListener("click", function () {
-        var cb = _confirmCallback;
-        closeConfirm();
-        if (cb) cb();
-      });
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var saveSettingsBtn = document.getElementById("plan-save-settings-btn");
-
-    if (rampIn) rampIn.addEventListener("input", renderSchedulePreview);
-    if (taperIn) taperIn.addEventListener("input", renderSchedulePreview);
-    if (saveSettingsBtn)
-      saveSettingsBtn.addEventListener("click", savePlanSettings);
-
-    var planModal = document.getElementById("plan-race-modal");
-    if (planModal)
-      planModal.addEventListener("click", function (e) {
-        if (e.target === planModal) closeModal();
-      });
-    var confirmModal = document.getElementById("plan-confirm-modal");
-    if (confirmModal)
-      confirmModal.addEventListener("click", function (e) {
-        if (e.target === confirmModal) closeConfirm();
-      });
+  function _runTiles(p) {
+    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
+    var tot = 0;
+    blocks.forEach(function (b) {
+      var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
+      tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+    });
+    var tss = tot ? Math.round(tot * 1.2) : null;   // rough planned-TSS heuristic
+    var distKm = tot ? (tot / 6).toFixed(1) : null; // ~6 min/km placeholder
+    return '<div class="pl-dettiles">' +
+      '<div class="pl-dettile"><div class="l">Planned duration</div><div class="v">' + _fmtDur(tot || null) + '</div></div>' +
+      '<div class="pl-dettile"><div class="l">Planned TSS</div><div class="v">' + (tss != null ? '~' + tss : '—') + '</div></div>' +
+      '<div class="pl-dettile"><div class="l">Planned distance</div><div class="v">' + (distKm != null ? '~' + distKm + ' km' : '—') + '</div></div>' +
+    '</div>';
   }
 
-  // ── Public init ───────────────────────────────────────────────────────────
-  function init() {
-    if (!_initialized) {
-      _initialized = true;
-      wireEvents();
-    }
-    refresh();
+  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
+  function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
+
+  function _runDetailHtml(p) {
+    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
+    var segs = blocks.map(function (b) {
+      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+      var rep = (b.repeat && b.repeat > 1) ? ('<span class="pl-repeatlbl">×' + b.repeat + '</span>') : '';
+      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
+      return '<div class="pl-segblk"><span class="pl-sbtag ' + _phaseCls(b.phase) + '">' + _phaseLabel(b.phase) + '</span>' +
+        '<span class="pl-sbmain">' + esc(main) + rep + '</span><span class="pl-sbtgt">' + esc(tgt) + '</span></div>';
+    }).join('') || '<div class="pl-segblk"><span class="pl-sbmain" style="color:var(--pl-faint)">No structure yet.</span></div>';
+
+    return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
+        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      (p.notes ? '' : '') +
+      _runTiles(p) +
+      '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Structure</div><div class="pl-seg2">' + segs + '</div></div>' +
+      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
+      '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Copy for Stryd Workout Builder</span><button class="pl-copybtn" id="pl-det-copy">Copy</button></div>' +
+        '<div class="pl-ewarn">Stryd doesn’t accept structured workouts pushed from third-party apps — only synced from TrainingPeaks/Final Surge. Paste this into PowerCenter’s own Workout Builder to rebuild it. Power-or-pace targets only, no nested repeats, no ramps — matches Stryd’s import rules.</div>' +
+        '<pre id="pl-stryd-pre">' + esc(_strydText(p)) + '</pre>' +
+      '</div>';
   }
 
-  window.TrainingPlan = { init: init };
-})();
+  // Build the flat Stryd paste block from the run structure (no nested repeats/ramps).
+  function _strydText(p) {
+    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
+    var out = [];
+    function pad(label) { return (label + '        ').slice(0, 9); }
+    function mmss(min) { var m = Math.floor(min), sec = Math.round((min - m) * 60); return m + ':' + String(sec).padStart(2, '0'); }
+    blocks.forEach(function (b) {
+      var dur = Number(b.duration_min) || 0;
+      var tgt = b.target || 'easy';
+      if (b.phase === 'main' && b.repeat && b.repeat > 1) {
+        out.push('Repeat x' + b.repeat + ':');
+        out.push('  Work    ' + pad(mmss(dur)) + tgt);
+        if (b.rest_min) out.push('  Rest    ' + pad(mmss(Number(b.rest_min))) + 'easy jog');
+      } else {
+        var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Work');
+        out.push(pad(label) + ' ' + pad(mmss(dur)) + tgt);
+      }
+    });
+    return out.join('\n') || '(no structure)';
+  }
+
+  function _liftDetailHtml(p) {
+    var s = p.structure || {}, exs = Array.isArray(s.exercises) ? s.exercises : [];
+    var focus = s.focus || '';
+    var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
+    var exHtml = exs.length ? exs.map(function (x) {
+      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
+    }).join('') : (focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>');
+
+    return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
+        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      '<div class="pl-dettiles">' +
+        '<div class="pl-dettile"><div class="l">Type</div><div class="v" style="font-size:14px;">' + typeLabel + '</div></div>' +
+        (focus ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
+      '</div>' +
+      (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
+      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
+      '<div class="pl-infobanner" style="margin-top:16px;">No Stryd export here — power-based workout export only applies to runs. This session logs into the Economy model once completed.</div>';
+  }
+
+  function _copyText(text, btn) {
+    function done() { if (btn) { var o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = o; }, 1400); } }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { _fallbackCopy(text); done(); });
+    } else { _fallbackCopy(text); done(); }
+  }
+  function _fallbackCopy(text) {
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+
+  // ── Scoped styles (injected once) ───────────────────────────────────────────
+  function _injectStyles() {
+    if (document.getElementById('plan-tab-styles')) return;
+    var css = document.createElement('style');
+    css.id = 'plan-tab-styles';
+    css.textContent = PLAN_CSS;
+    document.head.appendChild(css);
+  }
+
+  var PLAN_CSS = [
+    '.plan-panel{',
+    '--pl-ink:#1b2340;--pl-muted:#6b7280;--pl-faint:#9aa3b8;--pl-line:#eceef4;--pl-tile:#f6f7fb;',
+    '--pl-blue:#4f6ef7;--pl-blueSoft:#e6ebfe;--pl-lavHi:#6366f1;--pl-green:#16a34a;--pl-greenSoft:#dcfce7;',
+    '--pl-amber:#d97706;--pl-amberSoft:#fdf3da;--pl-red:#dc2626;--pl-redSoft:#fee2e2;',
+    '--pl-run:#4f6ef7;--pl-lift:#8b5cf6;--pl-liftSoft:#ede9fe;--pl-lime:#cff245;--pl-mono:"JetBrains Mono",monospace;',
+    'display:flex;flex-direction:column;gap:16px;color:var(--pl-ink);}',
+    '.plan-panel .pl-card{background:#fff;border-radius:16px;padding:18px 20px;box-shadow:0 8px 24px rgba(20,28,70,0.16);}',
+    '.plan-panel .pl-sectitle{font-size:11px;font-weight:800;letter-spacing:0.07em;color:var(--pl-faint);text-transform:uppercase;}',
+    '.plan-panel .pl-chead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}',
+    '.plan-panel .pl-btn{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);font-family:inherit;}',
+    '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
+    '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
+    '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
+    '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
+    '.plan-panel .pl-loading{font-size:12.5px;color:var(--pl-faint);padding:14px 0;}',
+    '.plan-panel .pl-infobanner{background:#f2f5ff;border:1px solid #e0e7ff;border-radius:11px;padding:10px 14px;font-size:12px;color:#3f4a7a;}',
+    '.plan-panel .pl-infobanner b{color:var(--pl-lavHi);}',
+    '.plan-panel .pl-panelcard{animation:plPanelIn .18s ease;}',
+    '@keyframes plPanelIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}',
+    '.plan-panel .pl-panelhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}',
+    '.plan-panel .pl-closepanel{width:27px;height:27px;flex-shrink:0;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;color:var(--pl-muted);font-size:13px;}',
+    '.plan-panel .pl-closepanel:hover{color:var(--pl-red);border-color:#fecaca;}',
+    '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
+    '.plan-panel .pl-arw{width:26px;height:26px;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--pl-muted);}',
+    '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
+    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:10px;margin-top:14px;}',
+    '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:12px 14px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
+    '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
+    '.plan-panel .pl-dayrow.past{opacity:0.94;}',
+    '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--pl-lavHi);outline-offset:-2px;background:#eef2ff;}',
+    '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
+    '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;display:block;}',
+    '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--pl-mono);color:var(--pl-ink);font-weight:700;display:block;margin-top:2px;}',
+    '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
+    '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
+    '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;border-left:3px solid transparent;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
+    '.plan-panel .pl-sess.dragging{opacity:0.4;}',
+    '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
+    '.plan-panel .pl-sess.run{border-left-color:var(--pl-run);}.plan-panel .pl-sess.lift{border-left-color:var(--pl-lift);}',
+    '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--pl-muted);font-family:var(--pl-mono);font-size:10px;margin-top:2px;}',
+    '.plan-panel .pl-stypetag{font-size:8px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;display:inline-block;}',
+    '.plan-panel .pl-stypetag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-stypetag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
+    '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:9px;color:var(--pl-faint);letter-spacing:-1px;}',
+    '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
+    '.plan-panel .pl-stat-tag{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
+    '.plan-panel .pl-stat-tag.missed{background:var(--pl-redSoft);color:var(--pl-red);}',
+    '.plan-panel .pl-stat-tag.review{background:var(--pl-amberSoft);color:var(--pl-amber);}',
+    '.plan-panel .pl-stat-tag.done{background:var(--pl-greenSoft);color:var(--pl-green);}',
+    '.plan-panel .pl-sess.status-missed{opacity:0.55;}',
+    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;border-left-color:var(--pl-green)!important;}',
+    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;border-left-color:var(--pl-amber)!important;cursor:default;}',
+    '.plan-panel .pl-diffline{font-size:9.5px;color:var(--pl-muted);font-family:var(--pl-mono);margin-top:6px;line-height:1.4;}',
+    '.plan-panel .pl-unlink{margin-top:4px;font-size:9.5px;color:var(--pl-faint);background:none;border:none;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-unlink:hover{color:var(--pl-red);}',
+    '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
+    '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
+    '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
+    '.plan-panel .pl-candbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}',
+    '.plan-panel .pl-ghost{border:1.5px dashed #d7dcec;border-radius:8px;padding:8px 9px;background:#fbfcff;}',
+    '.plan-panel .pl-gtop{margin-bottom:3px;}',
+    '.plan-panel .pl-gtag{font-size:8px;font-weight:800;letter-spacing:0.03em;color:var(--pl-faint);background:var(--pl-tile);padding:1px 5px;border-radius:4px;}',
+    '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
+    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
+    '.plan-panel .pl-addday:hover{color:var(--pl-lavHi);border-color:#c7d2fe;}',
+    '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
+    '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
+    '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
+    '.plan-panel .pl-soonbtn{position:relative;opacity:0.7;cursor:not-allowed;}',
+    '.plan-panel .pl-soontag{font-size:8px;font-weight:800;background:var(--pl-amberSoft);color:var(--pl-amber);padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle;}',
+    '.plan-panel .pl-modetoggle{display:flex;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:9px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;}',
+    '.plan-panel .pl-modetoggle button{font-size:12px;font-weight:600;color:var(--pl-muted);background:none;border:none;padding:6px 13px;border-radius:7px;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-modetoggle button.on{background:#fff;color:var(--pl-ink);box-shadow:0 1px 2px rgba(0,0,0,0.06);}',
+    '.plan-panel .pl-subtoggle{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}',
+    '.plan-panel .pl-subtoggle button{font-size:11.5px;font-weight:700;color:var(--pl-muted);background:var(--pl-tile);border:1px solid var(--pl-line);padding:6px 12px;border-radius:7px;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-subtoggle button.on{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
+    '.plan-panel .pl-jsontools{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}',
+    '.plan-panel .pl-jsonta{width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;}',
+    '.plan-panel .pl-previewbox{margin-top:12px;border-radius:10px;padding:12px 14px;font-size:12.5px;}',
+    '.plan-panel .pl-previewbox.ok{background:var(--pl-greenSoft);color:#14532d;}',
+    '.plan-panel .pl-previewbox.err{background:var(--pl-redSoft);color:#7f1d1d;font-family:var(--pl-mono);white-space:pre-wrap;}',
+    '.plan-panel .pl-previewlist{margin-top:9px;display:flex;flex-direction:column;gap:5px;}',
+    '.plan-panel .pl-previewrow{display:flex;gap:10px;font-family:var(--pl-mono);font-size:11.5px;background:rgba(255,255,255,0.55);border-radius:6px;padding:6px 10px;}',
+    '.plan-panel .pl-delimsel{font-size:12px;font-weight:600;border:1px solid var(--pl-line);border-radius:7px;padding:7px 10px;background:var(--pl-tile);color:var(--pl-ink);}',
+    '.plan-panel .pl-uploadlbl{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);}',
+    '.plan-panel .pl-frow{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;}',
+    '.plan-panel .pl-fld{flex:1;min-width:150px;}',
+    '.plan-panel .pl-fld label{font-size:10px;font-weight:800;letter-spacing:0.05em;color:var(--pl-faint);text-transform:uppercase;display:block;margin-bottom:5px;}',
+    '.plan-panel .pl-fld input,.plan-panel .pl-fld select,.plan-panel .pl-fld textarea{width:100%;font-family:inherit;font-size:13px;color:var(--pl-ink);border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;padding:9px 11px;}',
+    '.plan-panel .pl-fld textarea{resize:vertical;min-height:54px;}',
+    '.plan-panel .pl-notebox{font-size:13px;color:var(--pl-muted);background:var(--pl-tile);border-radius:9px;padding:10px 13px;}',
+    '.plan-panel .pl-blocklist{display:flex;flex-direction:column;gap:8px;margin-top:6px;}',
+    '.plan-panel .pl-block{display:flex;gap:8px;align-items:center;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:9px 11px;flex-wrap:wrap;}',
+    '.plan-panel .pl-block .pl-btag{font-size:9px;font-weight:800;padding:3px 8px;border-radius:6px;flex-shrink:0;width:74px;text-align:center;}',
+    '.plan-panel .pl-btag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-btag.main{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-btag.cool{background:var(--pl-greenSoft);color:var(--pl-green);}',
+    '.plan-panel .pl-block input{border:1px solid var(--pl-line);background:#fff;border-radius:6px;padding:6px 8px;font-size:11.5px;font-family:var(--pl-mono);}',
+    '.plan-panel .pl-block .pl-bdur{width:70px;}.plan-panel .pl-block .pl-btgt{width:96px;}.plan-panel .pl-block .pl-exname{flex:1;min-width:120px;font-family:inherit;}',
+    '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--pl-faint);cursor:pointer;font-size:13px;background:none;border:none;}',
+    '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
+    '.plan-panel .pl-bulktbl{width:100%;border-collapse:separate;border-spacing:0 8px;}',
+    '.plan-panel .pl-bulktbl th{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:0 8px 4px;}',
+    '.plan-panel .pl-bulktbl td{background:var(--pl-tile);border-top:1px solid var(--pl-line);border-bottom:1px solid var(--pl-line);padding:8px;}',
+    '.plan-panel .pl-bulktbl td:first-child{border-left:1px solid var(--pl-line);border-radius:9px 0 0 9px;}',
+    '.plan-panel .pl-bulktbl td:last-child{border-right:1px solid var(--pl-line);border-radius:0 9px 9px 0;}',
+    '.plan-panel .pl-bulktbl input,.plan-panel .pl-bulktbl select{width:100%;border:none;background:none;font-size:12px;font-family:inherit;color:var(--pl-ink);}',
+    '.plan-panel .pl-bulktbl .pl-bd{font-size:11px;font-weight:800;color:var(--pl-faint);width:40px;}',
+    '.plan-panel .pl-dethead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-dettag{font-size:9px;font-weight:800;letter-spacing:0.04em;padding:3px 8px;border-radius:6px;text-transform:uppercase;}',
+    '.plan-panel .pl-dettag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-dettag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
+    '.plan-panel .pl-dettitle{font-size:19px;font-weight:800;margin-top:10px;}',
+    '.plan-panel .pl-dettiles{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}',
+    '.plan-panel .pl-dettile{flex:1;min-width:120px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:11px;padding:11px 13px;}',
+    '.plan-panel .pl-dettile .l{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;}.plan-panel .pl-dettile .v{font-size:18px;font-weight:700;font-family:var(--pl-mono);margin-top:4px;}',
+    '.plan-panel .pl-segwrap{margin-top:18px;}',
+    '.plan-panel .pl-seg2{border-radius:11px;overflow:hidden;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-segblk{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--pl-line);}',
+    '.plan-panel .pl-segblk:first-child{border-top:none;}',
+    '.plan-panel .pl-segblk .pl-sbtag{font-size:9px;font-weight:800;padding:4px 9px;border-radius:6px;width:76px;text-align:center;flex-shrink:0;}',
+    '.plan-panel .pl-segblk .pl-sbtag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-segblk .pl-sbtag.main{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-segblk .pl-sbtag.cool{background:var(--pl-greenSoft);color:var(--pl-green);}',
+    '.plan-panel .pl-segblk .pl-sbmain{flex:1;font-size:13px;font-weight:600;}',
+    '.plan-panel .pl-segblk .pl-sbtgt{font-size:12px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    '.plan-panel .pl-repeatlbl{font-size:10.5px;color:var(--pl-lavHi);font-weight:700;background:var(--pl-blueSoft);padding:2px 8px;border-radius:6px;margin-left:6px;}',
+    '.plan-panel .pl-exportbox{background:#0f1330;color:#e3e6ff;border-radius:12px;padding:15px 17px;margin-top:18px;}',
+    '.plan-panel .pl-exportbox .pl-eh{display:flex;justify-content:space-between;align-items:center;gap:10px;}',
+    '.plan-panel .pl-exportbox .pl-et{font-size:12px;font-weight:800;color:#fff;}.plan-panel .pl-exportbox .pl-ewarn{font-size:10.5px;color:#a5abe0;margin-top:5px;line-height:1.5;}',
+    '.plan-panel .pl-exportbox pre{background:rgba(255,255,255,0.06);border-radius:9px;padding:12px 13px;margin-top:11px;font-family:var(--pl-mono);font-size:11px;color:#cfe0ff;line-height:1.7;overflow-x:auto;white-space:pre;}',
+    '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
+    '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
+    '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}'
+  ].join('');
+
+}());

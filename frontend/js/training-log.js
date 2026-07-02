@@ -157,6 +157,10 @@
   // shared normalizer, so the log and the editor detect runs identically).
   var normalizeTypeKey = TF.normalizeType;
 
+  // Run-subtype display labels (run_subtype is a run-only column; the run keeps
+  // workout_type='run'). Rendered as a separate tag next to the run type badge.
+  var SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+
   // Segment label → intensity key (timeline colors + segment dots), derived
   // from the shared segment definitions (issue #531).
   var RUN_SEGMENT_INTENSITY = TF.segmentIntensityByLabel;
@@ -226,6 +230,57 @@
     if (!wid) return;
     _deepLinkHandled = true;
     openDetailPanel(wid, null);
+    // Rows are lazy-rendered in batches (IntersectionObserver). The target row
+    // may not be in the DOM yet — force successive batches until it exists,
+    // then scroll it into view and mark it active. Fall back gracefully (drawer
+    // only) if the workout isn't in the loaded range.
+    _scrollListToWorkout(wid);
+  }
+
+  function _scrollListToWorkout(wid) {
+    var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
+    function rowFor() {
+      return document.querySelector('.entry-row[data-workout-id="' + wid + '"]');
+    }
+    // Force-render successive batches SYNCHRONOUSLY until the row is in the DOM
+    // (or all days are rendered). Rendering everything up front means the
+    // document height is final before we scroll, so the target position is
+    // stable — a smooth scroll fired mid-render would undershoot as more rows
+    // append below.
+    var row = rowFor();
+    var batches = 0;
+    while (
+      !row &&
+      _listState &&
+      _listState.cursor < _listState.days.length &&
+      batches < MAX_BATCHES
+    ) {
+      renderNextBatch();
+      batches++;
+      row = rowFor();
+    }
+    if (!row) return; // not in the loaded range — drawer stays open, nothing to scroll
+
+    // Reuse the existing active-row styling + tracking.
+    if (activeRowEl && activeRowEl !== row) activeRowEl.classList.remove("is-active");
+    activeRowEl = row;
+    row.classList.add("is-active");
+
+    // Scroll after layout settles (two rAFs: one for the just-appended batches,
+    // one for the drawer-open reflow). Use INSTANT scroll, not smooth: a smooth
+    // scroll animating down the long list passes lazy-load sentinels, which
+    // append more rows mid-animation and interrupt/undershoot it. A deferred
+    // re-scroll corrects for the drawer-open reflow.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        var r = rowFor();
+        if (r) r.scrollIntoView({ behavior: "auto", block: "center" });
+        setTimeout(function () {
+          var r2 = rowFor();
+          if (r2) r2.scrollIntoView({ behavior: "auto", block: "center" });
+        }, 400);
+      });
+    });
   }
 
   // ── Date-range chip label ─────────────────────────────────────────────────
@@ -1511,9 +1566,13 @@
   function buildEntryRow(w) {
     var typeKey = normalizeTypeKey(w.type);
     // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
-    var fam = (typeKey === "run" || typeKey === "bike") ? "run" : "lift";
+    var isRunLike = typeKey === "run" || typeKey === "bike";
+    var fam = isRunLike ? "run" : "lift";
     var TYPE_LABELS = { run: "Run", lift: "Lift", wod: "WOD", bike: "Bike" };
     var typeSlug = TYPE_LABELS[typeKey] ? typeKey : "other";
+    // Run subtype (interval | longrun | easy | tempo) labels a run row while it
+    // stays in the run family — it is NOT a separate workout_type.
+    var runSubtype = (w.run_subtype || "").toLowerCase();
 
     var row = document.createElement("div");
     row.className = "entry-row lrx-logrow " + fam + " entry-row--" + typeSlug;
@@ -1528,7 +1587,7 @@
       ariaBits.push(TYPE_LABELS[typeKey] || w.type || "Workout");
       ariaBits.push(w.title || "Workout");
       if (w.date) ariaBits.push(fmtDate(w.date));
-      if (typeKey === "run" && w.distance_km != null)
+      if (isRunLike && w.distance_km != null)
         ariaBits.push((+w.distance_km).toFixed(1) + " kilometers");
       else if (w.duration_seconds)
         ariaBits.push(Math.round(w.duration_seconds / 60) + " minutes");
@@ -1552,9 +1611,9 @@
     // Name + type badge + meta line.
     var metaParts = [];
     if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
-    if (typeKey === "run" && w.distance_km != null)
+    if (isRunLike && w.distance_km != null)
       metaParts.push((+w.distance_km).toFixed(1) + " km");
-    if (typeKey === "run" && w.average_pace_seconds_per_km)
+    if (isRunLike && w.average_pace_seconds_per_km)
       metaParts.push(fmtPace(w.average_pace_seconds_per_km));
     if (w.avg_hr != null) metaParts.push("HR " + w.avg_hr);
     metaParts = metaParts.filter(Boolean);
@@ -1565,8 +1624,16 @@
     nEl.className = "n";
     var badge = document.createElement("span");
     badge.className = "lrx-tbadge " + fam;
+    // The type badge always shows the family label ("run"/"lift"). A run with a
+    // subtype gets a SEPARATE outlined subtype tag right after it: [run] [interval].
     badge.textContent = fam === "run" ? "run" : "lift";
     nEl.appendChild(badge);
+    if (fam === "run" && SUBTYPE_LABELS[runSubtype]) {
+      var subtag = document.createElement("span");
+      subtag.className = "lrx-subtag";
+      subtag.textContent = SUBTYPE_LABELS[runSubtype];
+      nEl.appendChild(subtag);
+    }
     nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
     lname.appendChild(nEl);
     if (metaParts.length) {
@@ -1772,6 +1839,41 @@
     setWorkoutURLParam(workoutId);
   }
 
+  // Set (or clear) a run's subtype from the drawer. workout_type stays 'run' so
+  // the row keeps the full run pipeline (detail layout, decoupling, PRs, run
+  // counts); run_subtype just labels it and feeds the Performance Speed card.
+  // Persists via the existing PATCH endpoint (window.fetch auto-attaches
+  // X-CSRF-Token) and refreshes the drawer + list.
+  var _RUN_SUBTYPE_TOAST = {
+    interval: "Marked as interval",
+    longrun: "Marked as long run",
+    easy: "Marked as easy run",
+    tempo: "Marked as tempo",
+  };
+  function setRunSubtype(subtype) {
+    if (!activeDetailWorkoutId) return;
+    // subtype === null clears it.
+    fetch("/api/workouts/" + activeDetailWorkoutId, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_subtype: subtype }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function () {
+        UIStates.showToast(subtype ? (_RUN_SUBTYPE_TOAST[subtype] || "Subtype set") : "Subtype cleared");
+        // Re-fetch the detail (updates cachedDetailWorkout + menu state) and
+        // refresh the list so the row badge updates.
+        fetchAndRenderDetail(activeDetailWorkoutId);
+        fetchAndRender();
+      })
+      .catch(function () {
+        UIStates.showToast("Could not update workout. Try again.", true);
+      });
+  }
+
   function createPresetDate() {
     if (filters.from && filters.from === filters.to) return filters.from;
     return todayISO();
@@ -1916,10 +2018,30 @@
     var menuDup = document.getElementById("dp-menu-duplicate");
     var menuStrava = document.getElementById("dp-menu-strava");
     var menuDelete = document.getElementById("dp-menu-delete");
+    var subtypeGroup = document.getElementById("dp-subtype-group");
 
     var hasWorkout = !!workout;
     if (menuEdit) menuEdit.style.display = hasWorkout ? "" : "none";
     if (menuDup) menuDup.style.display = hasWorkout ? "" : "none";
+
+    // Run-subtype group: only for run-family workouts (workout_type 'run'). Each
+    // option PATCHes run_subtype; the current subtype is marked. workout_type is
+    // never changed, so the run stays in the full run pipeline.
+    if (subtypeGroup) {
+      var tk = hasWorkout ? normalizeTypeKey(workout.workout_type || workout.type) : null;
+      var isRun = hasWorkout && tk === "run";
+      subtypeGroup.style.display = isRun ? "" : "none";
+      if (isRun) {
+        var cur = (workout.run_subtype || "").toLowerCase();
+        var btns = subtypeGroup.querySelectorAll("[data-subtype]");
+        Array.prototype.forEach.call(btns, function (b) {
+          var v = b.getAttribute("data-subtype"); // "" means clear/none
+          var selected = (v === "" && !cur) || v === cur;
+          b.setAttribute("aria-checked", selected ? "true" : "false");
+          b.classList.toggle("is-selected", selected);
+        });
+      }
+    }
 
     var isStrava = hasWorkout && isStravaWorkout(workout);
     if (menuStrava) {
@@ -2670,6 +2792,13 @@
       '<span class="dp-type-pill">' +
       esc(typeLabel) +
       "</span>" +
+      // Separate subtype tag for run-family workouts with a run_subtype:
+      // [RUN] [INTERVAL]. Secondary/outlined variant of the type pill.
+      (isRun && SUBTYPE_LABELS[(workout.run_subtype || "").toLowerCase()]
+        ? '<span class="dp-type-pill dp-subtype-pill">' +
+          esc(SUBTYPE_LABELS[(workout.run_subtype || "").toLowerCase()]) +
+          "</span>"
+        : "") +
       "</div>" +
       '<h1 id="dp-title">' +
       esc(workout.name || "Workout") +
@@ -4175,6 +4304,16 @@
     var menuEdit = document.getElementById("dp-menu-edit");
     if (menuEdit) menuEdit.addEventListener("click", switchToEditMode);
 
+    var subtypeGroup = document.getElementById("dp-subtype-group");
+    if (subtypeGroup)
+      subtypeGroup.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-subtype]");
+        if (!btn) return;
+        closeOverflowMenu();
+        var v = btn.getAttribute("data-subtype"); // "" clears
+        setRunSubtype(v === "" ? null : v);
+      });
+
     var menuDup = document.getElementById("dp-menu-duplicate");
     if (menuDup)
       menuDup.addEventListener("click", function () {
@@ -4386,9 +4525,8 @@
         else closeDetailPanel();
         return;
       }
-      if (panelMode !== "view") return;
-      if (e.key === "ArrowUp" || e.key === "ArrowLeft") navigateDetail(-1);
-      if (e.key === "ArrowDown" || e.key === "ArrowRight") navigateDetail(1);
+      // Arrow-key navigation between workouts is intentionally disabled — the
+      // on-screen prev/next pager ("N of M" ‹ ›) still works by click.
     });
   });
 
@@ -5206,7 +5344,7 @@
           (data.call_to_action ? '<span class="sd-supercomp-cta">' + _esc(data.call_to_action) + '</span>' : '') +
         '</div>' +
         '<div class="sd-supercomp-links">' +
-          '<a class="sd-supercomp-link" href="training-log.html#plan">&#8594; Plan</a>' +
+          '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
           '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
         '</div>' +
       '</div>';

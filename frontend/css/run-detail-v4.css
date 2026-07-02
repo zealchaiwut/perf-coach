@@ -31,6 +31,8 @@
   gap: 8px;
 }
 
+.rd4-typebadges { display: inline-flex; align-items: center; gap: 6px; }
+
 .rd4-typebadge {
   font-size: 0.6875rem;
   font-weight: 800;
@@ -39,6 +41,14 @@
   background: #dbeafe;
   padding: 4px 10px;
   border-radius: 999px;
+  text-transform: uppercase;
+}
+
+/* Run-subtype tag — secondary/outlined variant of the RUN badge. */
+.rd4-subtypebadge {
+  background: transparent;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
 }
 
 .rd4-srcbadges { display: flex; gap: 6px; flex-wrap: wrap; }
