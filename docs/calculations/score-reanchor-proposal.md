@@ -1,9 +1,9 @@
 # Endurance/Speed score re-anchor — analysis & proposal
 
-Status: **PARKED** (to be revised later). This captures why the current
+Status: **DECIDED, not yet implemented** (design settled 2026-07-02 in an
+operator discussion; see §4 decision log). This captures why the current
 Endurance/Speed scores don't reflect current fitness, the machinery already
-available to fix it, and a concrete proposed design. It is a decision record,
-not yet implemented.
+available to fix it, and the agreed design.
 
 See also: [`performance-scores.md`](performance-scores.md) (current reference),
 [`projection.md`](projection.md), [`training-load.md`](training-load.md).
@@ -103,63 +103,108 @@ The Projection tab already speaks an **absolute** score↔pace scale:
 - Thresholds in `UserPreferences`: `threshold_pace_seconds_per_km`, `ftp_w`,
   `threshold_hr`, `aerobic_decoupling_threshold`.
 
-The Performance tab scores should live on this **same** absolute scale so the
-number on Log / Performance / Projection all mean the same thing
-("one score everywhere").
+**Estimator rework is deferred.** The linear `(2 − ratio)` scale above stays in
+place for the Projection tab for now; the new Performance scores use a
+**universal, non-linear (VDOT-based) band** instead (see §4.1). Once real data
+accumulates, the estimator/ceiling formulas get reworked onto the same VDOT
+scale so "one score everywhere" is restored — the band is universal precisely
+so the two can be mixed later without another migration.
 
-## 4. Proposed re-anchor design (for later implementation)
+## 4. Agreed re-anchor design (decided 2026-07-02)
 
-Goal: score reflects **current demonstrated fitness on an absolute scale**,
-calibrated to the latest race, that (a) does not fall from a single bad/aborted
-session, and (b) decays with detraining.
+Goal: score reflects **current demonstrated fitness on a universal absolute
+scale**, calibrated to the latest race, that (a) does not fall from a single
+bad/aborted session, and (b) decays with detraining.
 
-### 4.1 Absolute per-run performance
+Decision log (each point discussed and chosen explicitly):
 
-Replace the relative `_normalise_values` step with an absolute map anchored on
-threshold, identical in scale to the race formula:
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Anchor curve | Non-linear, universal band (not the linear estimator formula); estimator reworked later |
+| 2 | Universal reference | **VDOT** (Daniels VO2-equivalent from pace + duration) |
+| 3 | Band rescale | Linear: `score = (VDOT − 30) / 55 × 100`, clamped 0–100 |
+| 4 | Aggregate | **Decayed top-3 mean** (not single max) |
+| 5 | Decay | 2-week grace, then **1.5 pts/week** |
+| 6 | Endurance mapping | HR-extrapolated VDOT × decoupling durability factor |
+| 7 | Race calibration | Race VDOT is a perf point **and** a decayed floor |
+| 8 | Window | Keep the existing 90-day trailing window (decay applies inside it) |
+| 9 | Trend & delta | True `score(t)` per date; delta = now − 4 weeks ago |
+
+### 4.1 Universal per-run performance (VDOT)
+
+Replace the relative `_normalise_values` step with a per-run **VDOT**
+(Daniels/Gilbert): from the run's velocity `v` (m/min) and effort duration,
 
 ```
-perf_i = clamp( (2 − effort_ratio_i) × 100 , 0, 100 )
+VO2       = −4.60 + 0.182258·v + 0.000104·v²
+%VO2max   = 0.8 + 0.1894393·e^(−0.012778·t) + 0.2989558·e^(−0.1932605·t)   # t in min
+VDOT_i    = VO2 / %VO2max
 ```
 
-where `effort_ratio_i = demonstrated_pace_i / threshold_pace`
-(power analogue: `threshold_power / demonstrated_power`), computed from:
+then rescale to the displayed band:
 
-- **Speed:** the run's best sustained hard effort (use `speed_signal` /
-  duration-curve best). Confirm `speed_signal` basis (power vs pace) and what
-  value equals threshold before mapping.
-- **Endurance:** the durability-adjusted aerobic effort expressed as an
-  equivalent threshold-relative pace at controlled HR (keep the decoupling
-  durability factor).
+```
+perf_i = clamp( (VDOT_i − 30) / 55 × 100 , 0, 100 )      # VDOT 30 → 0, 85 → 100
+```
 
-Requires threshold_pace (and/or ftp_w). Missing → keep the existing
+The band is **universal** (athlete-independent): score ~45 ≈ VDOT 55, and any
+athlete's runs land on the same scale. Per score:
+
+- **Speed:** the run's best sustained hard effort (from `speed_signal` /
+  duration-curve best) → pace + duration → VDOT as above. Confirm
+  `speed_signal` basis (power vs pace) before mapping; if power, convert via
+  the athlete's pace–power relation or fall back to lap pace.
+- **Endurance:** **HR-extrapolated VDOT** — take the aerobic lap's pace and
+  extrapolate to threshold intensity via heart rate,
+  `equivalent_threshold_pace ≈ lap_pace × (avg_hr / threshold_hr)`
+  (i.e. equivalent speed `= lap_speed / (avg_hr / threshold_hr)`), feed that
+  through the VDOT formula at a threshold-effort duration, then multiply by the
+  existing decoupling `durability_factor`. Same universal band as Speed.
+
+Requires `threshold_hr` (endurance) and pace data. Missing → keep the existing
 `needs_thresholds` state.
 
-### 4.2 Aggregate = recency-decayed demonstrated peak
+### 4.2 Aggregate = decayed top-3 mean
 
 ```
-score(t) = max over runs i with date ≤ t of
-           ( perf_i − decay_points(days_since_i) )        # clamp ≥ 0
+decayed_i  = perf_i − decay_points(days_since_i)          # clamp ≥ 0
+decay_points(d) = 1.5 × max(0, d/7 − 2)                   # 2wk grace, 1.5 pts/wk
+score(t)   = mean of the 3 largest decayed_i over runs with date ≤ t
+             (within the 90-day window)
 ```
 
-- Best recent effort sets the score → **an aborted/slow session (low perf_i)
-  can never lower the max** (fixes the a1d6a936 complaint).
-- `decay_points(d) = DECAY_PER_WEEK × max(0, d/7 − GRACE_WEEKS)` → if training
-  stops, the best effort ages and its decayed contribution falls → **detraining
-  lowers the score**. Suggested starting constants: `GRACE_WEEKS ≈ 2`,
-  `DECAY_PER_WEEK ≈ 2–3` pts (tune against real data / CTL 42-day half-life).
+- Top-3 mean, not max: **outlier-resistant** — one GPS blip / downhill segment
+  can't set the score for weeks, while an aborted/slow session (low `perf_i`)
+  still **can never lower it** (fixes the a1d6a936 complaint).
+- Decay: if training stops, the best efforts age and their decayed values fall
+  → **detraining lowers the score**. 1.5 pts/week after a 2-week grace tracks
+  VO2max detraining literature (~5–7% after 3–4 weeks ≈ ~6 pts/month on this
+  band). Tune against real data.
+- Fewer than 3 qualifying runs → existing `building_baseline` state.
+- The 90-day window stays as the qualifying cutoff; decay operates inside it.
+  (Known artifact: a peak effort ages out entirely at day 91 — accepted.)
 
-### 4.3 Race calibration
+### 4.3 Race calibration — perf point + floor
 
-Inject the latest finished race as a high-confidence perf data point at its
-date: `perf_race = ceiling_from_b_race_result(actual_time, distance, threshold_pace)`.
-The race then directly anchors the demonstrated peak and keeps Performance
-consistent with the Projection tab's estimate for that race.
+The latest finished race converts to VDOT directly (Daniels' native use — the
+highest-confidence data point available):
+
+```
+perf_race = rescale( vdot(actual_time_seconds, distance_km) )
+```
+
+It enters the score in **two** ways:
+
+1. As an ordinary perf point in the top-3 pool at its date.
+2. As a **decayed floor**: `score(t) ≥ perf_race − decay_points(days_since_race)`
+   → a couple of mediocre training weeks can't drag the score below what was
+   actually raced; only time (decay) erodes the race anchor.
 
 ### 4.4 Trend & block delta
 
 - `trend[]` = `score(t)` recomputed per date over the window (a real trajectory,
-  not an EWMA of normalized values).
+  not an EWMA of normalized values). The line is step-like — steps are real
+  (new peak effort entering the top-3, or decay ticking) — no smoothing.
 - Block delta = `score(now) − score(4 weeks ago)`; hide while building baseline.
   This kills the "+43 this block" artifact.
 
@@ -168,9 +213,16 @@ consistent with the Projection tab's estimate for that race.
 - Preserve return shapes: `score`, `direction`, `trend`, `qualifying_session_count`,
   `confidence_band` (speed), `debug`; and the `scored` / `building_baseline` /
   `needs_thresholds` / `missing` states.
-- Keep "one score everywhere": `/api/athletes/{id}/performance`,
-  `_workout_signal_scores`, `_athlete_scores_as_of`, and the Projection tab must
-  all read the same absolute scale.
+- "One score everywhere" is **phased**: `/api/athletes/{id}/performance`,
+  `_workout_signal_scores`, `_athlete_scores_as_of` all move to the VDOT band
+  together in this change; the Projection tab (`race_finish_estimator.py`,
+  `score_ceiling.py`) keeps its linear threshold scale for now and is reworked
+  onto the VDOT band later, once real data exists to validate the mapping.
+  Until then the two tabs are on different scales — surface that in the UI or
+  docs, don't silently mix them.
+- Implement the VDOT math in one shared helper (e.g.
+  `backend/services/vdot.py`: `vdot_from_pace_duration`, `rescale_to_score`)
+  so the later estimator rework reuses it.
 - Cache: bump a VERSION token inside `_performance_signature` (main.py ~14481)
   when the formula changes so the durable `summary_cache` (Neon) busts.
 - Tests that assert the old relative behavior must be **updated to the new
@@ -183,8 +235,16 @@ consistent with the Projection tab's estimate for that race.
 ## 6. Validation targets (sanity-check with real data)
 
 - Athlete `zeal` (id `4a07e4f2-69a6-4123-b77e-b1f7dce758cf`): resulting
-  Endurance/Speed should feel current and be consistent with the Projection
-  race estimate.
-- Aborted intervals `a1d6a936-…`: must **not** lower Speed.
-- A simulated training gap must **lower** the score over time (detraining).
+  Endurance/Speed should feel current; sanity-check the raw VDOT behind the
+  score against a recent race (Daniels tables) before trusting the band.
+- Aborted intervals `a1d6a936-…`: must **not** lower Speed (top-3 mean ignores
+  low perf points).
+- One outlier-fast lap (GPS blip) must move the score by at most ~⅓ of its
+  perf excess (top-3 mean, not max).
+- A simulated training gap must **lower** the score: flat for 2 weeks (grace),
+  then ~1.5 pts/week.
+- A finished race must set a floor: mediocre training afterwards can't pull
+  the score below `perf_race − decay`.
+- Endurance vs Speed should land in a similar band for a balanced athlete
+  (HR extrapolation calibrated so easy runs don't systematically read low).
 - Confirm the block delta reads sensibly small (no "+43").
