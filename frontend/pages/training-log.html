@@ -4112,6 +4112,9 @@
             <div class="pm-ckhead">
               <span class="pm-sectitle">Races &amp; projections</span>
               <div class="pm-ckbtns">
+                <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
+                  ↻ Recalculate
+                </button>
                 <button id="plan-add-btn" class="pm-ckbtn dark" type="button">
                   + Add
                 </button>
@@ -4500,6 +4503,14 @@
         background: var(--pm-ink);
         color: #fff;
         border-color: var(--pm-ink);
+      }
+      .plan-merged .pm-ckbtn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .plan-merged .pm-ckbtn.is-loading {
+        opacity: 0.6;
+        pointer-events: none;
       }
       .plan-merged .pm-csub {
         font-size: 12px;

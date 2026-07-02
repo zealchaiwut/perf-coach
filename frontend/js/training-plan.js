@@ -33,6 +33,8 @@
   var _goalMode = "time";
   // Checkpoint measure mode: "distance" or "duration" (duration = stubbed).
   var _checkpointMeasure = "distance";
+  // Last computed Plan bundle (GET /api/plan/computed).
+  var _bundle = null;
 
   var NS = "http://www.w3.org/2000/svg";
 
@@ -607,60 +609,25 @@
   // speed, long races more endurance. The operator may recalibrate these
   // constants and the overall scale later — nothing downstream depends on them.
 
-  // Per-race REQUIRED End/Spd tags for UPCOMING cards: the endurance/speed
-  // scores this race's GOAL implies, distance-weighted, plus the delta vs the
-  // athlete's current scores. Rendered only when the race has a goal, distance,
-  // a readiness estimate, current "scored" performance, and tp>0; otherwise ""
-  // (no fake scores).
+  // Per-race REQUIRED End/Spd tags for UPCOMING cards. Scores are computed
+  // server-side and delivered in the bundle as r.computed.scores (kind:
+  // "required" with end/spd + d_end/d_spd). Returns "" when absent.
   function _requiredScoreFoot(r) {
-    if (!_athletePerf || _athletePerf.state !== "scored") return "";
-    var cE = _athletePerf.endurance && _athletePerf.endurance.score;
-    var cS = _athletePerf.speed && _athletePerf.speed.score;
-    if (typeof cE !== "number" || typeof cS !== "number") return "";
-
-    var tp = _thresholdPace;
-    var distKm = parseFloat(r.distance || 0);
-    var goalSec = r.goal_time_seconds || null;
-    if (!tp || tp <= 0 || !distKm || distKm <= 0 || !goalSec) return "";
-
-    // REQUIRED score to hit the goal, on the SAME absolute scale as the
-    // demonstrated score of a completed race: base = (2 − goal_pace/tp)*100,
-    // split by distance (long → more endurance, short → more speed). This keeps
-    // upcoming and completed comparable — a faster goal always needs a higher
-    // score. Delta = required − current athlete score.
-    var goalPace = goalSec / distKm;
-    var base = _clamp01_100((2 - goalPace / tp) * 100);
-    var le = Math.log(distKm / 21.1); // <0 short, >0 long (half = 0)
-    var reqEnd = _clamp01_100(Math.round(base * (1 + 0.06 * le)));
-    var reqSpd = _clamp01_100(Math.round(base * (1 - 0.06 * le)));
-    var dEnd = Math.round(reqEnd - cE);
-    var dSpd = Math.round(reqSpd - cS);
-
-    // All score tags share the amber "req" treatment for a consistent look.
-    var endCls = "pm-sc req";
-    var spdCls = "pm-sc req";
-
+    var sc = r.computed && r.computed.scores;
+    if (!sc || sc.kind !== "required") return "";
     var tags =
-      '<span class="' + endCls + '">End ' + reqEnd + " " + _signed(dEnd) + "</span>" +
-      '<span class="' + spdCls + '">Spd ' + reqSpd + " " + _signed(dSpd) + "</span>";
+      '<span class="pm-sc req">End ' + sc.end + " " + _signed(sc.d_end) + "</span>" +
+      '<span class="pm-sc req">Spd ' + sc.spd + " " + _signed(sc.d_spd) + "</span>";
     return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
   }
 
-  // DEMONSTRATED End/Spd for a COMPLETED race, from its own result. A single
-  // race yields one base fitness (clamp((2 - pace/tp)*100)), split by distance:
-  // longer races demonstrate more endurance, shorter more speed. Returns null
-  // when tp / distance / actual are missing.
+  // DEMONSTRATED End/Spd for a COMPLETED race — the athlete-scale score as of
+  // the race date, computed server-side (bundle r.computed.scores, kind
+  // "demonstrated"). Returns null when absent.
   function _demonstratedScores(r) {
-    var tp = _thresholdPace;
-    var distKm = parseFloat(r.distance || 0);
-    var actualSec = r.actual_time_seconds;
-    if (!tp || tp <= 0 || !distKm || distKm <= 0 || actualSec == null) return null;
-    var pace = actualSec / distKm;
-    var dem = _clamp01_100((2 - pace / tp) * 100);
-    var le = Math.log(distKm / 21.1);
-    var demEnd = _clamp01_100(Math.round(dem * (1 + 0.06 * le)));
-    var demSpd = _clamp01_100(Math.round(dem * (1 - 0.06 * le)));
-    return { end: demEnd, spd: demSpd };
+    var sc = r.computed && r.computed.scores;
+    if (!sc || sc.kind !== "demonstrated") return null;
+    return { end: sc.end, spd: sc.spd };
   }
 
   // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
@@ -724,19 +691,19 @@
       "</span>" +
       "</div>";
 
-    // Estimated column from this race's own readiness (if projection exists).
+    // Estimated column from the bundle's precomputed per-race estimate.
     var secondCol = "";
-    var estInfo = _currentEstimate(_raceReadiness[r.id]);
-    if (estInfo) {
-      var estPace = distKm ? fmtPace(estInfo.est / distKm) : "";
+    var est = r.computed && r.computed.estimate;
+    if (est && est.est != null) {
+      var estPace = distKm ? fmtPace(est.est / distKm) : "";
       var bandTxt =
-        estInfo.band != null
-          ? " · ±" + Math.max(1, Math.round(estInfo.band / 60)) + " min"
+        est.band != null
+          ? " · ±" + Math.max(1, Math.round(est.band / 60)) + " min"
           : "";
       secondCol =
         '<div class="pm-col est">' +
-        '<div class="pm-coll">Estimated ' + _statusPill(estInfo) + "</div>" +
-        '<div class="pm-colt">' + esc(fmtTime(estInfo.est)) + "</div>" +
+        '<div class="pm-coll">Estimated</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(est.est)) + "</div>" +
         '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
     }
 
@@ -1298,26 +1265,85 @@
     renderSchedulePreview();
   }
 
+  // Map the single /api/plan/computed bundle into local state, then render
+  // everything from it. No per-race fan-out or separate perf/calibration/
+  // projection/prefs fetches on the render path — one call feeds all of it.
+  function applyBundle(bundle) {
+    if (!bundle) return;
+    _bundle = bundle;
+
+    _races = Array.isArray(bundle.races) ? bundle.races : [];
+    _primaryRace =
+      _races.find(function (r) {
+        return r.type === "race" && r.priority === "A";
+      }) ||
+      _races.find(function (r) {
+        return r.type === "race";
+      }) ||
+      null;
+
+    var cs = bundle.current_scores || {};
+    _athletePerf =
+      cs.state === "scored"
+        ? {
+            state: "scored",
+            endurance: { score: cs.endurance, direction: cs.endurance_dir },
+            speed: { score: cs.speed, direction: cs.speed_dir },
+          }
+        : { state: cs.state };
+    _thresholdPace =
+      bundle.prefs && typeof bundle.prefs.threshold_pace === "number"
+        ? bundle.prefs.threshold_pace
+        : null;
+
+    var proj = bundle.projection || {};
+    _projection = {
+      form_curve: proj.form_curve,
+      projected_form: proj.projected_form,
+      race_markers: proj.race_markers,
+      b_race_recalibration_date: proj.b_race_recalibration_date,
+      building_baseline: proj.building_baseline,
+    };
+    // Synthetic readiness for the primary race — drives the time/form curves.
+    _readiness = {
+      building_baseline: proj.building_baseline,
+      form_curve: proj.form_curve,
+      projected_form: proj.projected_form,
+      time_curve: proj.time_curve,
+    };
+
+    renderCalibration(bundle.calibration || {});
+    renderAll();
+  }
+
   function refresh() {
-    // Drop cached readiness so edits/adds re-fetch fresh estimates.
-    _raceReadiness = {};
+    // Ensure _planId (user id) is set for Add/Edit/Delete mutation URLs, then
+    // pull the single computed bundle and render everything from it.
     _ensurePlanId(function () {
-      // Athlete scores + threshold pace load in parallel; each re-renders cards
-      // on arrival (upcoming End/Spd tags, completed Fitness tags).
-      loadAthletePerformance();
-      loadThresholdPace();
-      loadProjection(function () {
-        loadRaces(function () {
-          loadReadiness(function () {
-            renderAll();
-            // Fetch estimates for the remaining upcoming races in parallel;
-            // each updates its card as it arrives.
-            loadAllReadiness();
-          });
-        });
+      apiGet("/api/plan/computed", function (bundle) {
+        applyBundle(bundle);
       });
     });
-    loadCalibration();
+    // Plan settings (ramp/taper + schedule preview) is a separate concern from
+    // the computed bundle; load it independently so Save keeps working.
+    loadPlanSettings();
+  }
+
+  // Force a server-side recompute (ignores cache), then re-render. Shows a
+  // brief disabled/spinning state on the Recalculate button.
+  function recompute() {
+    var btn = document.getElementById("plan-recalc-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add("is-loading");
+    }
+    apiPost("/api/plan/recompute", {}, function (res) {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("is-loading");
+      }
+      if (res && res.ok && res.data) applyBundle(res.data);
+    });
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
@@ -1882,6 +1908,10 @@
         openModal(null, "race");
       });
 
+    // Recalculate: force a fresh server-side compute of the bundle.
+    var recalcBtn = document.getElementById("plan-recalc-btn");
+    if (recalcBtn) recalcBtn.addEventListener("click", recompute);
+
     // Modal type tabs (Race | Checkpoint).
     var typeSeg = document.getElementById("plan-modal-typeseg");
     if (typeSeg)
@@ -1992,7 +2022,6 @@
       _initialized = true;
       wireEvents();
     }
-    loadPlanSettings();
     refresh();
   }
 
