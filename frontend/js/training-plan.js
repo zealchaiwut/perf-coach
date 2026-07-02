@@ -23,6 +23,114 @@
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+  // Verbatim canonical weekly-plan kickoff prompt (scratchpad source of
+  // truth). Embedded EXACTLY as written; only backticks are backslash-escaped
+  // for the template literal. Do not paraphrase.
+  var KICKOFF_PROMPT_TEMPLATE = `# Weekly Training Plan — Kickoff Prompt
+
+Paste this as the first message in a new conversation to plan next week's
+perf-coach training (running + strength). It tells Claude what to ask, what
+defaults/preferences to apply, and the exact JSON format to hand back.
+
+---
+
+I want to plan next week's training and get it into a bulk-create JSON I can
+paste into perf-coach's Plan tab. Please ask me the following before producing
+anything:
+
+1. **What did my coach give me for next week?** — paste the raw plan/notes as I
+   have them (running sessions, paces, distances, any prescribed strength work).
+2. **Any scheduling blockers or day preferences?** — days I can't train, a
+   preferred day for the long run, travel, etc.
+3. **How many sessions total this week?** — running + strength combined, so the
+   week isn't over- or under-built relative to what I actually have time for.
+4. *(Optional)* **Paste last week's plan and how it felt** — so you can adjust
+   load, exercise selection, or scheduling based on what actually happened
+   (soreness, missed sessions, sessions that felt too easy/hard).
+
+Ask these one at a time or as a batch, whichever your interface supports. Don't
+generate the plan until I've answered.
+
+## Design principles to apply automatically (don't re-ask about these)
+
+**Strength sessions** follow my usual 5-phase structure:
+- **Warm-up** — ~10 minutes, only 2–4 exercises, building toward *today's*
+  specific movement patterns (e.g. bodyweight squats + a light hinge drill
+  before a squat/deadlift day) — not generic full-body mobility.
+- **Heavy compound** — the day's main lift (squat/deadlift/front squat variant).
+- **Superset 1** and **Superset 2** — each superset must pair **opposing muscle
+  groups** (e.g. a lower-body pull paired with an upper-body push) so one side
+  can rest while the other works. Never pair two exercises that hit the same
+  muscle group back-to-back.
+- Any exercise without a clean non-overlapping partner (e.g. hip thrust) gets
+  its own standalone block rather than being forced into a bad pairing.
+- **Accessories** — low-load finishers (plank, superman, stretching).
+
+**Load and exercise selection:**
+- If I give you a stated 1RM, **cross-check it against my recent logged working
+  sets** before trusting it. If there's a big gap (e.g. a stated 1RM that's far
+  above what recent RPE-rated sets imply), flag the mismatch and default to the
+  more conservative, recent-data-based number — don't silently use the higher
+  one.
+- Prefer **dumbbells over barbell** for hinge-pattern accessory/superset work
+  (e.g. RDL) unless I ask for barbell specifically. Give a conservative starting
+  load for any DB variation I haven't done before, not a precise %1RM figure —
+  those don't transfer cleanly across implements.
+- Keep strength load **lighter/moderate** on any day adjacent to a long run,
+  even if my "usual" version of that session is heavier. Say so explicitly when
+  you dial something back for that reason.
+- For light accessory days, feel free to **suggest specific exercises** in the
+  style of my recent training (e.g. DB snatch, single-leg deadlift, glute
+  bridge, lateral band walk) rather than leaving it vague.
+
+**Running sessions** use Warmup → Main set (repeatable) → Cooldown blocks, each
+with a **power or pace** target — never HR-based, since Stryd's importer
+rejects HR blocks.
+
+## Output format
+
+Give me the final week as a single JSON array, one object per session (same
+date can have multiple sessions), ready to paste into perf-coach's bulk-create
+JSON input:
+
+\`\`\`json
+[
+  {
+    "date": "YYYY-MM-DD",
+    "type": "run",
+    "name": "Session name",
+    "notes": "Optional context, e.g. 'From coach.'",
+    "blocks": [
+      {"phase": "warmup", "duration_min": 10},
+      {"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "92% CP"},
+      {"phase": "cooldown", "duration_min": 8}
+    ]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "type": "strength",
+    "name": "Session name",
+    "notes": "Any load/structure caveats worth flagging",
+    "exercises": [
+      {"block": "Warm-up", "name": "...", "sets": 2, "reps": 15, "load": "..."},
+      {"block": "Heavy compound", "name": "...", "sets": 4, "reps": 8, "load": "..."},
+      {"block": "Superset 1", "name": "...", "sets": 3, "reps": 8, "load": "..."},
+      {"block": "Superset 1", "name": "...", "sets": 3, "reps": 12, "load": "..."},
+      {"block": "Accessories", "name": "...", "sets": 3, "reps": "40s hold", "load": "bodyweight"}
+    ]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "type": "rest"
+  }
+]
+\`\`\`
+
+\`type\` is one of \`run\` / \`strength\` / \`plyo\` / \`rest\`. Only include the days we
+actually discussed — don't invent sessions for days I didn't give you
+information about.
+`;
+
   // ── Public API ──────────────────────────────────────────────────────────────
   window.TrainingPlan = {
     init: function () {
@@ -114,7 +222,8 @@
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          '<button class="pl-btn pl-ghost pl-soonbtn" disabled title="Coming soon — will use your current performance + training history">Suggest sessions<span class="pl-soontag">Soon</span></button>' +
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="Assemble a planning prompt pre-filled with last week\'s results — copy it into a Claude chat">✨ Suggest sessions</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
           '<button class="pl-btn pl-ghost" id="pl-addweek">+ Add week</button>' +
           '<button class="pl-btn pl-dark" id="pl-addsession">+ Add session</button>' +
         '</div></div>' +
@@ -130,6 +239,10 @@
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-addweek').onclick = function () { _openAdd('bulk'); };
     document.getElementById('pl-addsession').onclick = function () { _openAdd('single'); };
+    document.getElementById('pl-suggest').onclick = function () { _openSuggest(); };
+    document.getElementById('pl-dlprompt').onclick = function () {
+      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
+    };
     if (_bundle) _renderWeekList();
   }
 
@@ -911,9 +1024,129 @@
   }
   function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
 
+  // ── ITEM 4: Suggest = assemble a copyable planning prompt (NO model call) ────
+  // Verbatim kickoff template with Q4 pre-filled from last week's real bundle.
+  var _suggestPrompt = null;   // assembled text (null → not open)
+
+  function _feelWord(f) {
+    return f === 'hard' ? 'felt hard' : f === 'ok' ? 'felt ok' : f === 'easy' ? 'felt easy' : '';
+  }
+  function _statusWord(status) {
+    if (status === 'done_auto' || status === 'done_manual') return 'done';
+    if (status === 'missed') return 'missed';
+    if (status === 'needs_review') return 'needs-review';
+    return 'planned';
+  }
+
+  // One compact line per planned session for the pre-filled Q4 block.
+  function _lastWeekLine(p) {
+    var when = _fmtDayDate(p.planned_date);
+    var label = (p.name || p.session_type || 'session');
+    var planned = (_plannedMeta(p) || '').trim();
+    var parts = ['- ' + when + ' — ' + label + (p.session_type ? ' (' + p.session_type + ')' : '')];
+    if (planned) parts.push('planned: ' + planned);
+    parts.push('status: ' + _statusWord(p.status));
+    var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
+    if (isDone && p.actual && p.actual.meta) parts.push('actual: ' + p.actual.meta);
+    if (isDone && p.actual && p.actual.feeling) parts.push(_feelWord(p.actual.feeling));
+    return parts.join('; ');
+  }
+
+  // Build the assembled prompt: template verbatim, with the Q4 line replaced by
+  // a pre-filled last-week block. Untagged completed sessions get an explicit
+  // "ask how it felt" instruction so the interview gap is filled only for them.
+  function _buildSuggestPrompt(lastBundle, lastMon, lastSun) {
+    var sessions = (lastBundle && Array.isArray(lastBundle.sessions)) ? lastBundle.sessions.slice() : [];
+    sessions.sort(function (a, b) { return String(a.planned_date).localeCompare(String(b.planned_date)); });
+
+    var lines = [];
+    var untaggedAsks = [];
+    sessions.forEach(function (p) {
+      lines.push(_lastWeekLine(p));
+      var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
+      if (isDone && !(p.actual && p.actual.feeling)) {
+        untaggedAsks.push('  - ' + _fmtDayDate(p.planned_date) + ' — ' + (p.name || p.session_type || 'session'));
+      }
+    });
+
+    var block = '4. **Last week\'s plan and how it felt** (pre-filled from perf-coach — ' +
+      _fmtDayDate(_iso(lastMon)) + ' to ' + _fmtDayDate(_iso(lastSun)) + '):\n';
+    if (lines.length) {
+      block += lines.join('\n') + '\n';
+    } else {
+      block += '- (no planned sessions recorded last week)\n';
+    }
+    if (untaggedAsks.length) {
+      block += '\n   Before finalizing, ASK me how each of these COMPLETED but un-rated ' +
+        'sessions felt (I have not tagged them yet):\n' + untaggedAsks.join('\n') + '\n';
+    }
+
+    // Substitute the template's optional Q4 line (item 4 of the intake list)
+    // with the pre-filled block. Anchor on the literal "4. *(Optional)*" line
+    // and replace through the end of its paragraph.
+    var tpl = KICKOFF_PROMPT_TEMPLATE;
+    var q4Re = /4\. \*\(Optional\)\* \*\*Paste last week's plan and how it felt\*\*[\s\S]*?too easy\/hard\)\.\n/;
+    if (q4Re.test(tpl)) {
+      return tpl.replace(q4Re, block);
+    }
+    // Fallback: if the anchor ever drifts, append the block rather than drop it.
+    return tpl + '\n\n' + block;
+  }
+
+  function _openSuggest() {
+    _panel.open = 'suggest';
+    _suggestPrompt = null;
+    _detail = null;
+    _renderDetailSection();
+    _renderAddSection();
+    var el = document.getElementById('plan-detail-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Previous week Mon–Sun relative to today.
+    var lastMon = _addDays(_mondayOf(new Date()), -7);
+    var lastSun = _addDays(lastMon, 6);
+    _api('GET', '/api/planned-sessions?from=' + _iso(lastMon) + '&to=' + _iso(lastSun))
+      .then(function (bundle) {
+        _suggestPrompt = _buildSuggestPrompt(bundle, lastMon, lastSun);
+        _renderDetailSection();
+      })
+      .catch(function () {
+        // Even on fetch failure, hand back the blank template so the user is
+        // never stuck (they can still fill Q4 by hand).
+        _suggestPrompt = KICKOFF_PROMPT_TEMPLATE;
+        _renderDetailSection();
+      });
+  }
+  function _closeSuggest() { _panel.open = null; _suggestPrompt = null; _renderDetailSection(); }
+
+  function _suggestHtml() {
+    var loading = _suggestPrompt == null;
+    return '<div class="pl-card pl-panelcard">' +
+      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Suggest sessions — planning prompt</span>' +
+        '<button class="pl-closepanel" id="pl-sug-close">✕</button></div>' +
+      '<div class="pl-infobanner" style="margin-bottom:12px;">This assembles a <b>copyable prompt</b> — the canonical kickoff template with last week’s results pre-filled. Copy it into a Claude chat, answer the questions, then paste the JSON it hands back into <b>+ Add week → Bulk JSON</b>. No plan is generated here.</div>' +
+      (loading
+        ? '<div class="pl-loading">Assembling prompt from last week’s plan…</div>'
+        : '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Planning prompt (copy into a new Claude chat)</span>' +
+            '<button class="pl-copybtn" id="pl-sug-copy">Copy</button></div>' +
+            '<pre id="pl-sug-pre">' + esc(_suggestPrompt) + '</pre></div>') +
+      '</div>';
+  }
+
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
+    if (_panel.open === 'suggest') {
+      host.innerHTML = _suggestHtml();
+      var sclose = document.getElementById('pl-sug-close');
+      if (sclose) sclose.onclick = _closeSuggest;
+      var scopy = document.getElementById('pl-sug-copy');
+      if (scopy) scopy.onclick = function () {
+        var pre = document.getElementById('pl-sug-pre');
+        _copyText(pre ? pre.textContent : (_suggestPrompt || ''), scopy);
+      };
+      return;
+    }
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
     var isRun = p.session_type === 'run';
@@ -1137,8 +1370,6 @@
     '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
     '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
     '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
-    '.plan-panel .pl-soonbtn{position:relative;opacity:0.7;cursor:not-allowed;}',
-    '.plan-panel .pl-soontag{font-size:8px;font-weight:800;background:var(--pl-amberSoft);color:var(--pl-amber);padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle;}',
     '.plan-panel .pl-modetoggle{display:flex;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:9px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;}',
     '.plan-panel .pl-modetoggle button{font-size:12px;font-weight:600;color:var(--pl-muted);background:none;border:none;padding:6px 13px;border-radius:7px;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-modetoggle button.on{background:#fff;color:var(--pl-ink);box-shadow:0 1px 2px rgba(0,0,0,0.06);}',
