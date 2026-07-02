@@ -5486,7 +5486,12 @@ def _workout_signal_scores(session, workout) -> dict:
             dpct = None
             if compute_decoupling is not None:
                 try:
-                    dres = compute_decoupling(
+                    # Correct signature (workout, splits, threshold) → tuple,
+                    # matching get_athlete_performance so the scores reconcile.
+                    # (The old swapped-arg call silently produced dpct=None here,
+                    #  making this path's endurance disagree with Performance.)
+                    dres, _ = compute_decoupling(
+                        {"workout_type": wk.workout_type},
                         [
                             {
                                 "split_index": s.split_index,
@@ -5497,7 +5502,7 @@ def _workout_signal_scores(session, workout) -> dict:
                             }
                             for s in splits
                         ],
-                        {"workout_type": wk.workout_type},
+                        (prefs_dict or {}).get("aerobic_decoupling_threshold"),
                     )
                     dpct = dres.get("decoupling_pct") if dres else None
                 except Exception:
@@ -5631,7 +5636,10 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
         dpct = None
         if compute_decoupling is not None:
             try:
-                dres = compute_decoupling(
+                # Correct signature (workout, splits, threshold) → tuple, matching
+                # get_athlete_performance so the as-of scores reconcile with it.
+                dres, _ = compute_decoupling(
+                    {"workout_type": wk.workout_type},
                     [
                         {
                             "split_index": s.split_index,
@@ -5642,7 +5650,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                         }
                         for s in splits
                     ],
-                    {"workout_type": wk.workout_type},
+                    (prefs_dict or {}).get("aerobic_decoupling_threshold"),
                 )
                 dpct = dres.get("decoupling_pct") if dres else None
             except Exception:
