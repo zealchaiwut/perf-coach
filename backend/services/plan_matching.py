@@ -97,6 +97,50 @@ def _duration_ratio(planned_secs: int | None, workout) -> float | None:
     return abs(actual - planned_secs) / float(planned_secs)
 
 
+def review_candidates(session: _Session, user_id, planned) -> list:
+    """Candidate workouts for a needs_review planned session — the ±1-day,
+    type-family, ≤±40% pool the matcher used, excluding workouts already claimed
+    by another session's match. Returns [] for non-review or rest sessions.
+
+    Used by the GET bundle so the UI can offer a confirm list even when the
+    candidate is on an adjacent day (the ghost logic only surfaces same-day
+    unmatched workouts).
+    """
+    from backend.models import PlannedSession, Workout
+
+    st = (planned.session_type or "").lower()
+    if st == "rest" or planned.planned_date is None:
+        return []
+
+    uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+    lo = planned.planned_date - _timedelta(days=DAY_WINDOW)
+    hi = planned.planned_date + _timedelta(days=DAY_WINDOW)
+
+    # Workouts already claimed by any resolved match are off the table.
+    claimed = {
+        r.matched_workout_id
+        for r in session.query(PlannedSession)
+        .filter(PlannedSession.user_id == uid, PlannedSession.matched_workout_id.isnot(None))
+        .all()
+    }
+    planned_secs = _planned_duration_seconds(planned.structure)
+    out = []
+    for w in (
+        session.query(Workout)
+        .filter(Workout.user_id == uid, Workout.workout_date >= lo, Workout.workout_date <= hi)
+        .all()
+    ):
+        if w.id in claimed:
+            continue
+        if not _type_family_matches(st, w):
+            continue
+        ratio = _duration_ratio(planned_secs, w)
+        if ratio is not None and ratio > DURATION_REVIEW:
+            continue
+        out.append(w)
+    return out
+
+
 def reconcile_user(session: _Session, user_id) -> dict:
     """Run the matcher for one user against their reconciled workouts.
 

@@ -217,9 +217,14 @@
     '</div>';
   }
 
-  // Candidate list for a needs_review card: the day's unplanned (ghost)
-  // workouts of a compatible type are the confirmable candidates.
+  // Candidate list for a needs_review card. Prefer the server-attached
+  // `candidates` (the matcher's own ±1-day / type / ≤±40% pool — single source
+  // of truth, and includes adjacent-day candidates). Fall back to same-day
+  // ghosts if the field is absent.
   function _reviewCandidates(p, day) {
+    if (Array.isArray(p.candidates)) {
+      return p.candidates.map(function (c) { return { id: c.id, name: c.name, meta: c.meta }; });
+    }
     var runLike = p.session_type === 'run';
     return (day.unplanned || []).filter(function (u) {
       var isRun = (u.workout_type || '').toLowerCase() === 'run';

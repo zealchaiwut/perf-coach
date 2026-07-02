@@ -6937,7 +6937,13 @@ def get_planned_sessions(
             if bucket is None:
                 continue
             matched = matched_map.get(r.matched_workout_id) if r.matched_workout_id else None
-            bucket["planned"].append(_planned_session_dict(r, matched))
+            d = _planned_session_dict(r, matched)
+            # Attach the ±1-day candidate pool so the UI can offer a confirm list
+            # for a needs_review session even when the candidate is on an
+            # adjacent day (ghosts only surface same-day workouts).
+            if r.status == "needs_review":
+                d["candidates"] = [_ghost_workout_dict(w) for w in _pm.review_candidates(session, uid, r)]
+            bucket["planned"].append(d)
         for wid, w in ghost_map.items():
             bucket = by_day.get(w.workout_date)
             if bucket is not None:
