@@ -3764,7 +3764,6 @@
   }
 
   // ── Sync button state ─────────────────────────────────────────────────────
-  var _syncPollTimer = null;
   var _syncLastTerminalStatus = null;
 
   function _relTime(isoStr) {
@@ -3864,38 +3863,16 @@
     }
   }
 
-  function _syncPollStatus() {
-    fetch("/api/sync/status")
-      .then(function (res) {
-        return res.ok ? res.json() : null;
-      })
-      .then(function (data) {
-        if (!data) {
-          _syncStopStatusPoll();
-          _syncSetBusy(false);
-          return;
-        }
-        if (data.status === "running") {
-          _syncSetBusy(true);
-          if (!_syncPollTimer) {
-            _syncPollTimer = setInterval(_syncPollStatus, 3000);
-          }
-        } else {
-          _syncStopStatusPoll();
-          _syncSetBusy(false);
-          _syncHandleTerminal(data, { toastSuccess: false });
-        }
-      })
-      .catch(function () {
-        _syncStopStatusPoll();
-        _syncSetBusy(false);
-      });
-  }
-
-  function _syncStopStatusPoll() {
-    if (_syncPollTimer) {
-      clearInterval(_syncPollTimer);
-      _syncPollTimer = null;
+  function _onSyncPollerUpdate(data) {
+    if (!data) {
+      _syncSetBusy(false);
+      return;
+    }
+    if (data.status === "running") {
+      _syncSetBusy(true);
+    } else {
+      _syncSetBusy(false);
+      _syncHandleTerminal(data, { toastSuccess: false });
     }
   }
 
@@ -3922,33 +3899,7 @@
   }
 
   function _syncWaitForComplete() {
-    return new Promise(function (resolve, reject) {
-      function poll() {
-        fetch("/api/sync/status")
-          .then(function (res) {
-            return res.ok ? res.json() : null;
-          })
-          .then(function (data) {
-            if (!data || data.status === "idle") {
-              resolve();
-              return;
-            }
-            if (data.status === "error") {
-              reject(new Error(data.error || "Sync failed"));
-              return;
-            }
-            if (data.status !== "running") {
-              resolve();
-              return;
-            }
-            setTimeout(poll, 2000);
-          })
-          .catch(function () {
-            resolve();
-          });
-      }
-      poll();
-    });
+    return window.SyncPoller.waitForIdle();
   }
 
   function _syncBuildBody(options) {
@@ -4356,7 +4307,8 @@
     initSwipe();
     refreshRepeatAvailability();
 
-    _syncPollStatus();
+    window.SyncPoller.subscribe(_onSyncPollerUpdate);
+    window.SyncPoller.checkNow();
 
     window.addEventListener("userChanged", function () {
       fetchAndRender();

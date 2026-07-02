@@ -371,7 +371,7 @@
     reconciling: "Reconciling activities…",
   };
 
-  var _syncTimer = null;
+  var _syncPollerUnsub = null;
 
   function buildSyncBar() {
     if (document.getElementById("sync-status-bar")) return;
@@ -426,7 +426,7 @@
     var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
     if (dismiss)
       dismiss.addEventListener("click", function () {
-        _syncStopPoll();
+        window.SyncPoller.stop();
         _ssbHide();
       });
   }
@@ -461,40 +461,19 @@
     if (dismiss) dismiss.addEventListener("click", _ssbHide);
   }
 
-  function _syncStopPoll() {
-    if (_syncTimer) {
-      clearInterval(_syncTimer);
-      _syncTimer = null;
+  function _onSyncPollerUpdate(data) {
+    if (!data) return;
+    if (data.status === "running") {
+      _ssbRunning(data);
+    } else if (data.status === "success") {
+      _ssbSuccess(data);
+    } else if (data.status === "error") {
+      _ssbError(data);
     }
   }
 
-  function _doPoll() {
-    fetch("/api/sync/status")
-      .then(function (res) {
-        return res.ok ? res.json() : null;
-      })
-      .then(function (data) {
-        if (!data) {
-          _syncStopPoll();
-          return;
-        }
-        if (data.status === "running") {
-          _ssbRunning(data);
-          if (!_syncTimer) _syncTimer = setInterval(_doPoll, 4000);
-        } else {
-          _syncStopPoll();
-          if (data.status === "success") _ssbSuccess(data);
-          else if (data.status === "error") _ssbError(data);
-        }
-      })
-      .catch(function () {
-        _syncStopPoll();
-      });
-  }
-
   window.syncBarRefresh = function () {
-    _syncStopPoll();
-    _doPoll();
+    window.SyncPoller.checkNow();
   };
 
   function init() {
@@ -502,7 +481,10 @@
     injectStyles();
     buildNav();
     buildSyncBar();
-    _doPoll();
+    // One initial status check on load (picks up a sync started elsewhere);
+    // SyncPoller only continues polling while a job is actually running.
+    _syncPollerUnsub = window.SyncPoller.subscribe(_onSyncPollerUpdate);
+    window.SyncPoller.checkNow();
     window.addEventListener("userReady", function (e) {
       _navUserName = (e.detail && e.detail.userName) || "";
       _navUserId = (e.detail && e.detail.userId) || null;
