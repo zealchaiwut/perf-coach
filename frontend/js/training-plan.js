@@ -23,6 +23,114 @@
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+  // Verbatim canonical weekly-plan kickoff prompt (scratchpad source of
+  // truth). Embedded EXACTLY as written; only backticks are backslash-escaped
+  // for the template literal. Do not paraphrase.
+  var KICKOFF_PROMPT_TEMPLATE = `# Weekly Training Plan — Kickoff Prompt
+
+Paste this as the first message in a new conversation to plan next week's
+perf-coach training (running + strength). It tells Claude what to ask, what
+defaults/preferences to apply, and the exact JSON format to hand back.
+
+---
+
+I want to plan next week's training and get it into a bulk-create JSON I can
+paste into perf-coach's Plan tab. Please ask me the following before producing
+anything:
+
+1. **What did my coach give me for next week?** — paste the raw plan/notes as I
+   have them (running sessions, paces, distances, any prescribed strength work).
+2. **Any scheduling blockers or day preferences?** — days I can't train, a
+   preferred day for the long run, travel, etc.
+3. **How many sessions total this week?** — running + strength combined, so the
+   week isn't over- or under-built relative to what I actually have time for.
+4. *(Optional)* **Paste last week's plan and how it felt** — so you can adjust
+   load, exercise selection, or scheduling based on what actually happened
+   (soreness, missed sessions, sessions that felt too easy/hard).
+
+Ask these one at a time or as a batch, whichever your interface supports. Don't
+generate the plan until I've answered.
+
+## Design principles to apply automatically (don't re-ask about these)
+
+**Strength sessions** follow my usual 5-phase structure:
+- **Warm-up** — ~10 minutes, only 2–4 exercises, building toward *today's*
+  specific movement patterns (e.g. bodyweight squats + a light hinge drill
+  before a squat/deadlift day) — not generic full-body mobility.
+- **Heavy compound** — the day's main lift (squat/deadlift/front squat variant).
+- **Superset 1** and **Superset 2** — each superset must pair **opposing muscle
+  groups** (e.g. a lower-body pull paired with an upper-body push) so one side
+  can rest while the other works. Never pair two exercises that hit the same
+  muscle group back-to-back.
+- Any exercise without a clean non-overlapping partner (e.g. hip thrust) gets
+  its own standalone block rather than being forced into a bad pairing.
+- **Accessories** — low-load finishers (plank, superman, stretching).
+
+**Load and exercise selection:**
+- If I give you a stated 1RM, **cross-check it against my recent logged working
+  sets** before trusting it. If there's a big gap (e.g. a stated 1RM that's far
+  above what recent RPE-rated sets imply), flag the mismatch and default to the
+  more conservative, recent-data-based number — don't silently use the higher
+  one.
+- Prefer **dumbbells over barbell** for hinge-pattern accessory/superset work
+  (e.g. RDL) unless I ask for barbell specifically. Give a conservative starting
+  load for any DB variation I haven't done before, not a precise %1RM figure —
+  those don't transfer cleanly across implements.
+- Keep strength load **lighter/moderate** on any day adjacent to a long run,
+  even if my "usual" version of that session is heavier. Say so explicitly when
+  you dial something back for that reason.
+- For light accessory days, feel free to **suggest specific exercises** in the
+  style of my recent training (e.g. DB snatch, single-leg deadlift, glute
+  bridge, lateral band walk) rather than leaving it vague.
+
+**Running sessions** use Warmup → Main set (repeatable) → Cooldown blocks, each
+with a **power or pace** target — never HR-based, since Stryd's importer
+rejects HR blocks.
+
+## Output format
+
+Give me the final week as a single JSON array, one object per session (same
+date can have multiple sessions), ready to paste into perf-coach's bulk-create
+JSON input:
+
+\`\`\`json
+[
+  {
+    "date": "YYYY-MM-DD",
+    "type": "run",
+    "name": "Session name",
+    "notes": "Optional context, e.g. 'From coach.'",
+    "blocks": [
+      {"phase": "warmup", "duration_min": 10},
+      {"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "92% CP"},
+      {"phase": "cooldown", "duration_min": 8}
+    ]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "type": "strength",
+    "name": "Session name",
+    "notes": "Any load/structure caveats worth flagging",
+    "exercises": [
+      {"block": "Warm-up", "name": "...", "sets": 2, "reps": 15, "load": "..."},
+      {"block": "Heavy compound", "name": "...", "sets": 4, "reps": 8, "load": "..."},
+      {"block": "Superset 1", "name": "...", "sets": 3, "reps": 8, "load": "..."},
+      {"block": "Superset 1", "name": "...", "sets": 3, "reps": 12, "load": "..."},
+      {"block": "Accessories", "name": "...", "sets": 3, "reps": "40s hold", "load": "bodyweight"}
+    ]
+  },
+  {
+    "date": "YYYY-MM-DD",
+    "type": "rest"
+  }
+]
+\`\`\`
+
+\`type\` is one of \`run\` / \`strength\` / \`plyo\` / \`rest\`. Only include the days we
+actually discussed — don't invent sessions for days I didn't give you
+information about.
+`;
+
   // ── Public API ──────────────────────────────────────────────────────────────
   window.TrainingPlan = {
     init: function () {
@@ -114,7 +222,8 @@
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          '<button class="pl-btn pl-ghost pl-soonbtn" disabled title="Coming soon — will use your current performance + training history">Suggest sessions<span class="pl-soontag">Soon</span></button>' +
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="Assemble a planning prompt pre-filled with last week\'s results — copy it into a Claude chat">✨ Suggest sessions</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
           '<button class="pl-btn pl-ghost" id="pl-addweek">+ Add week</button>' +
           '<button class="pl-btn pl-dark" id="pl-addsession">+ Add session</button>' +
         '</div></div>' +
@@ -130,6 +239,10 @@
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-addweek').onclick = function () { _openAdd('bulk'); };
     document.getElementById('pl-addsession').onclick = function () { _openAdd('single'); };
+    document.getElementById('pl-suggest').onclick = function () { _openSuggest(); };
+    document.getElementById('pl-dlprompt').onclick = function () {
+      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
+    };
     if (_bundle) _renderWeekList();
   }
 
@@ -182,6 +295,35 @@
 
   function _famClass(t) { return (t === 'run') ? 'run' : 'lift'; }
 
+  // Quick-tag effort feeling row (😩 hard / 😐 ok / 😊 easy). Untagged → all
+  // three faint; tagged → only the selected icon shown filled, others hidden.
+  // Writes PATCH /api/workouts/{workoutId} feeling. workoutId="" → no row.
+  var _FEELINGS = [
+    { key: 'hard', icon: '😩', label: 'Hard' },
+    { key: 'ok', icon: '😐', label: 'OK' },
+    { key: 'easy', icon: '😊', label: 'Easy' }
+  ];
+  // "View full workout →" deep link on a matched (done_*) card. Navigates to
+  // the Log tab and opens that workout's existing detail drawer.
+  function _viewFullLinkHtml(workoutId) {
+    if (!workoutId) return '';
+    return '<button type="button" class="pl-viewfull" data-viewfull="' + workoutId + '">View full workout →</button>';
+  }
+
+  function _feelRowHtml(workoutId, current) {
+    if (!workoutId) return '';
+    var tagged = current === 'hard' || current === 'ok' || current === 'easy';
+    var btns = _FEELINGS.map(function (f) {
+      var on = current === f.key;
+      // When tagged, hide the non-selected icons; when untagged, show all faint.
+      var cls = 'pl-feel-btn' + (on ? ' is-on' : (tagged ? ' is-hidden' : ''));
+      return '<button type="button" class="' + cls + '" data-feel="' + workoutId +
+        '" data-feel-val="' + f.key + '" title="' + f.label + '" aria-label="' + f.label +
+        (on ? '" aria-pressed="true' : '') + '">' + f.icon + '</button>';
+    }).join('');
+    return '<div class="pl-feelrow" data-feelrow="' + workoutId + '">' + btns + '</div>';
+  }
+
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
     var draggable = (p.status === 'planned' || p.status === 'missed');
@@ -192,9 +334,20 @@
     var body = '';
     if (p.status === 'done_auto' || p.status === 'done_manual') {
       var actMeta = p.actual ? p.actual.meta : '';
+      var mwid = p.matched_workout_id || (p.actual && p.actual.id) || '';
+      var feel = p.actual ? p.actual.feeling : null;
       body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
         ' → Actual ' + esc(actMeta) + '</div>' +
-        '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>';
+        _viewFullLinkHtml(mwid) +
+        _feelRowHtml(mwid, feel) +
+        '<div class="pl-matchbtns">' +
+          '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>' +
+          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">Change matched workout</button>' +
+        '</div>' +
+        '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
+    } else if (p.status === 'planned' || p.status === 'missed') {
+      body = '<button class="pl-pickbtn pl-pick-attach" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach a recent workout</button>' +
+        '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
     } else if (p.status === 'needs_review') {
       var day2 = day;
       var cands = _reviewCandidates(p, day2);
@@ -269,6 +422,33 @@
     host.querySelectorAll('[data-missed]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-missed') + '/miss'); });
     });
+    host.querySelectorAll('[data-feel]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var wid = b.getAttribute('data-feel');
+        var val = b.getAttribute('data-feel-val');
+        // Overwrite immediately, no confirm. Reload the week so the card
+        // re-renders from the server (matched actual carries the new feeling).
+        _api('PATCH', '/api/workouts/' + wid, { feeling: val })
+          .then(function () { _loadWeek(); })
+          .catch(function (err) { _toast(err.message || 'Could not save feeling', true); });
+      });
+    });
+    host.querySelectorAll('[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _togglePicker(host, b.getAttribute('data-pick'), b.getAttribute('data-pick-mode'));
+      });
+    });
+    host.querySelectorAll('[data-viewfull]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        // Hand off to the Log tab's deep-link path (inline script listener).
+        document.dispatchEvent(new CustomEvent('plan:view-workout', {
+          detail: { workoutId: b.getAttribute('data-viewfull') }
+        }));
+      });
+    });
     host.querySelectorAll('[data-map]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -318,6 +498,86 @@
     _api(method, url, body)
       .then(function () { _loadWeek(); })
       .catch(function (err) { _toast(err.message || 'Update failed', true); });
+  }
+
+  // ── 24h workout history picker (attach / override) ──────────────────────────
+  function _togglePicker(host, sessId, mode) {
+    var box = host.querySelector('.pl-picker[data-pickerfor="' + sessId + '"]');
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; box.innerHTML = ''; return; }
+    // Close any other open picker first.
+    host.querySelectorAll('.pl-picker').forEach(function (b) { if (b !== box) { b.hidden = true; b.innerHTML = ''; } });
+    box.hidden = false;
+    box.innerHTML = '<div class="pl-loading">Loading recent workouts…</div>';
+    _api('GET', '/api/workouts/recent?hours=24')
+      .then(function (list) { _renderPickerList(box, sessId, mode, list || []); })
+      .catch(function () { box.innerHTML = '<div class="pl-loading">Could not load recent workouts.</div>'; });
+  }
+
+  function _pickWhen(w) {
+    var iso = w.created_at || w.start_time;
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var hh = d.getHours(), mm = d.getMinutes();
+    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1, 3).toLowerCase() +
+      ' ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  function _renderPickerList(box, sessId, mode, list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="pl-picker-empty">No workouts logged in the last 24 hours.</div>';
+      return;
+    }
+    var rows = list.map(function (w) {
+      var type = (w.workout_type || '').toLowerCase() === 'run' ? 'run' : 'lift';
+      var metaBits = [_pickWhen(w)];
+      if (w.meta) metaBits.push(w.meta);
+      if (w.source === 'manual') metaBits.push('manual');
+      return '<button type="button" class="pl-pickrow" data-pickrow="' + sessId + '" data-workout="' + w.id + '">' +
+        '<span class="pl-pickrow-badge ' + type + '">' + type + '</span>' +
+        '<span class="pl-pickrow-name">' + esc(w.name || '(untitled)') + '</span>' +
+        '<span class="pl-pickrow-meta">' + esc(metaBits.filter(Boolean).join(' · ')) + '</span>' +
+        '</button>';
+    }).join('');
+    box.innerHTML = '<div class="pl-pickerlist">' + rows + '</div>' +
+      // Override needs a lightweight inline confirm before applying.
+      (mode === 'override'
+        ? '<div class="pl-pickconfirm" hidden><span>Replace the current match?</span>' +
+          '<button type="button" class="pl-btn pl-lime pl-tiny" data-pickyes="' + sessId + '">Yes</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-pickcancel="' + sessId + '">Cancel</button></div>'
+        : '');
+
+    var pending = { workoutId: null };
+    box.querySelectorAll('[data-pickrow]').forEach(function (r) {
+      r.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var wid = r.getAttribute('data-workout');
+        if (mode === 'override') {
+          pending.workoutId = wid;
+          box.querySelectorAll('.pl-pickrow').forEach(function (x) { x.classList.remove('is-sel'); });
+          r.classList.add('is-sel');
+          var conf = box.querySelector('.pl-pickconfirm');
+          if (conf) conf.hidden = false;
+        } else {
+          _mutate('POST', '/api/planned-sessions/' + sessId + '/match', { workout_id: wid });
+        }
+      });
+    });
+    var yes = box.querySelector('[data-pickyes]');
+    if (yes) yes.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!pending.workoutId) return;
+      _mutate('POST', '/api/planned-sessions/' + sessId + '/match', { workout_id: pending.workoutId });
+    });
+    var cancel = box.querySelector('[data-pickcancel]');
+    if (cancel) cancel.addEventListener('click', function (e) {
+      e.stopPropagation();
+      pending.workoutId = null;
+      box.querySelectorAll('.pl-pickrow').forEach(function (x) { x.classList.remove('is-sel'); });
+      var conf = box.querySelector('.pl-pickconfirm');
+      if (conf) conf.hidden = true;
+    });
   }
 
   // ══ ADD PANEL ═══════════════════════════════════════════════════════════════
@@ -764,9 +1024,129 @@
   }
   function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
 
+  // ── ITEM 4: Suggest = assemble a copyable planning prompt (NO model call) ────
+  // Verbatim kickoff template with Q4 pre-filled from last week's real bundle.
+  var _suggestPrompt = null;   // assembled text (null → not open)
+
+  function _feelWord(f) {
+    return f === 'hard' ? 'felt hard' : f === 'ok' ? 'felt ok' : f === 'easy' ? 'felt easy' : '';
+  }
+  function _statusWord(status) {
+    if (status === 'done_auto' || status === 'done_manual') return 'done';
+    if (status === 'missed') return 'missed';
+    if (status === 'needs_review') return 'needs-review';
+    return 'planned';
+  }
+
+  // One compact line per planned session for the pre-filled Q4 block.
+  function _lastWeekLine(p) {
+    var when = _fmtDayDate(p.planned_date);
+    var label = (p.name || p.session_type || 'session');
+    var planned = (_plannedMeta(p) || '').trim();
+    var parts = ['- ' + when + ' — ' + label + (p.session_type ? ' (' + p.session_type + ')' : '')];
+    if (planned) parts.push('planned: ' + planned);
+    parts.push('status: ' + _statusWord(p.status));
+    var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
+    if (isDone && p.actual && p.actual.meta) parts.push('actual: ' + p.actual.meta);
+    if (isDone && p.actual && p.actual.feeling) parts.push(_feelWord(p.actual.feeling));
+    return parts.join('; ');
+  }
+
+  // Build the assembled prompt: template verbatim, with the Q4 line replaced by
+  // a pre-filled last-week block. Untagged completed sessions get an explicit
+  // "ask how it felt" instruction so the interview gap is filled only for them.
+  function _buildSuggestPrompt(lastBundle, lastMon, lastSun) {
+    var sessions = (lastBundle && Array.isArray(lastBundle.sessions)) ? lastBundle.sessions.slice() : [];
+    sessions.sort(function (a, b) { return String(a.planned_date).localeCompare(String(b.planned_date)); });
+
+    var lines = [];
+    var untaggedAsks = [];
+    sessions.forEach(function (p) {
+      lines.push(_lastWeekLine(p));
+      var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
+      if (isDone && !(p.actual && p.actual.feeling)) {
+        untaggedAsks.push('  - ' + _fmtDayDate(p.planned_date) + ' — ' + (p.name || p.session_type || 'session'));
+      }
+    });
+
+    var block = '4. **Last week\'s plan and how it felt** (pre-filled from perf-coach — ' +
+      _fmtDayDate(_iso(lastMon)) + ' to ' + _fmtDayDate(_iso(lastSun)) + '):\n';
+    if (lines.length) {
+      block += lines.join('\n') + '\n';
+    } else {
+      block += '- (no planned sessions recorded last week)\n';
+    }
+    if (untaggedAsks.length) {
+      block += '\n   Before finalizing, ASK me how each of these COMPLETED but un-rated ' +
+        'sessions felt (I have not tagged them yet):\n' + untaggedAsks.join('\n') + '\n';
+    }
+
+    // Substitute the template's optional Q4 line (item 4 of the intake list)
+    // with the pre-filled block. Anchor on the literal "4. *(Optional)*" line
+    // and replace through the end of its paragraph.
+    var tpl = KICKOFF_PROMPT_TEMPLATE;
+    var q4Re = /4\. \*\(Optional\)\* \*\*Paste last week's plan and how it felt\*\*[\s\S]*?too easy\/hard\)\.\n/;
+    if (q4Re.test(tpl)) {
+      return tpl.replace(q4Re, block);
+    }
+    // Fallback: if the anchor ever drifts, append the block rather than drop it.
+    return tpl + '\n\n' + block;
+  }
+
+  function _openSuggest() {
+    _panel.open = 'suggest';
+    _suggestPrompt = null;
+    _detail = null;
+    _renderDetailSection();
+    _renderAddSection();
+    var el = document.getElementById('plan-detail-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Previous week Mon–Sun relative to today.
+    var lastMon = _addDays(_mondayOf(new Date()), -7);
+    var lastSun = _addDays(lastMon, 6);
+    _api('GET', '/api/planned-sessions?from=' + _iso(lastMon) + '&to=' + _iso(lastSun))
+      .then(function (bundle) {
+        _suggestPrompt = _buildSuggestPrompt(bundle, lastMon, lastSun);
+        _renderDetailSection();
+      })
+      .catch(function () {
+        // Even on fetch failure, hand back the blank template so the user is
+        // never stuck (they can still fill Q4 by hand).
+        _suggestPrompt = KICKOFF_PROMPT_TEMPLATE;
+        _renderDetailSection();
+      });
+  }
+  function _closeSuggest() { _panel.open = null; _suggestPrompt = null; _renderDetailSection(); }
+
+  function _suggestHtml() {
+    var loading = _suggestPrompt == null;
+    return '<div class="pl-card pl-panelcard">' +
+      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Suggest sessions — planning prompt</span>' +
+        '<button class="pl-closepanel" id="pl-sug-close">✕</button></div>' +
+      '<div class="pl-infobanner" style="margin-bottom:12px;">This assembles a <b>copyable prompt</b> — the canonical kickoff template with last week’s results pre-filled. Copy it into a Claude chat, answer the questions, then paste the JSON it hands back into <b>+ Add week → Bulk JSON</b>. No plan is generated here.</div>' +
+      (loading
+        ? '<div class="pl-loading">Assembling prompt from last week’s plan…</div>'
+        : '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Planning prompt (copy into a new Claude chat)</span>' +
+            '<button class="pl-copybtn" id="pl-sug-copy">Copy</button></div>' +
+            '<pre id="pl-sug-pre">' + esc(_suggestPrompt) + '</pre></div>') +
+      '</div>';
+  }
+
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
+    if (_panel.open === 'suggest') {
+      host.innerHTML = _suggestHtml();
+      var sclose = document.getElementById('pl-sug-close');
+      if (sclose) sclose.onclick = _closeSuggest;
+      var scopy = document.getElementById('pl-sug-copy');
+      if (scopy) scopy.onclick = function () {
+        var pre = document.getElementById('pl-sug-pre');
+        _copyText(pre ? pre.textContent : (_suggestPrompt || ''), scopy);
+      };
+      return;
+    }
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
     var isRun = p.session_type === 'run';
@@ -856,10 +1236,28 @@
     var s = p.structure || {}, exs = Array.isArray(s.exercises) ? s.exercises : [];
     var focus = s.focus || '';
     var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
-    var exHtml = exs.length ? exs.map(function (x) {
+    function _exRow(x) {
       var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
       return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
-    }).join('') : (focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>');
+    }
+    var exHtml;
+    if (!exs.length) {
+      exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
+    } else if (exs.some(function (x) { return x && x.block; })) {
+      // Group by the pasted-back `block` label (Warm-up / Heavy compound /
+      // Superset 1 / … / Accessories), preserving order of first appearance.
+      var order = [];
+      exs.forEach(function (x) {
+        var b = (x && x.block) ? x.block : 'Other';
+        if (order.indexOf(b) === -1) order.push(b);
+      });
+      exHtml = order.map(function (b) {
+        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
+        return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
+      }).join('');
+    } else {
+      exHtml = exs.map(_exRow).join('');
+    }
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
@@ -952,6 +1350,31 @@
     '.plan-panel .pl-diffline{font-size:9.5px;color:var(--pl-muted);font-family:var(--pl-mono);margin-top:6px;line-height:1.4;}',
     '.plan-panel .pl-unlink{margin-top:4px;font-size:9.5px;color:var(--pl-faint);background:none;border:none;cursor:pointer;padding:0;}',
     '.plan-panel .pl-unlink:hover{color:var(--pl-red);}',
+    // Quick-tag feeling row: faint icons until one is picked, then only it shows.
+    '.plan-panel .pl-feelrow{display:flex;gap:4px;margin-top:5px;align-items:center;}',
+    '.plan-panel .pl-feel-btn{background:none;border:none;padding:0 2px;font-size:14px;line-height:1;cursor:pointer;opacity:0.32;filter:grayscale(0.6);transition:opacity .12s,filter .12s,transform .12s;}',
+    '.plan-panel .pl-feel-btn:hover{opacity:0.75;filter:grayscale(0);}',
+    '.plan-panel .pl-feel-btn.is-on{opacity:1;filter:none;transform:scale(1.12);}',
+    '.plan-panel .pl-feel-btn.is-hidden{display:none;}',
+    // 24h attach/override picker.
+    '.plan-panel .pl-matchbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px;}',
+    '.plan-panel .pl-pickbtn{font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-pickbtn:hover{text-decoration:underline;}',
+    '.plan-panel .pl-pick-attach{margin-top:6px;font-weight:600;}',
+    '.plan-panel .pl-picker{margin-top:6px;}',
+    '.plan-panel .pl-pickerlist{display:flex;flex-direction:column;gap:4px;}',
+    '.plan-panel .pl-pickrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;text-align:left;width:100%;}',
+    '.plan-panel .pl-pickrow:hover{border-color:var(--pl-run);}',
+    '.plan-panel .pl-pickrow.is-sel{border-color:var(--pl-run);background:#eef3ff;}',
+    '.plan-panel .pl-pickrow-badge{font-size:8px;font-weight:800;text-transform:uppercase;padding:1px 4px;border-radius:4px;color:#fff;}',
+    '.plan-panel .pl-pickrow-badge.run{background:var(--pl-run);}.plan-panel .pl-pickrow-badge.lift{background:var(--pl-lift);}',
+    '.plan-panel .pl-pickrow-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.plan-panel .pl-pickrow-meta{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;white-space:nowrap;}',
+    '.plan-panel .pl-pickconfirm{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;color:var(--pl-muted);}',
+    '.plan-panel .pl-picker-empty{font-size:10px;color:var(--pl-faint);font-style:italic;padding:4px 2px;}',
+    // "View full workout →" deep link.
+    '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
@@ -965,8 +1388,6 @@
     '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
     '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
     '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
-    '.plan-panel .pl-soonbtn{position:relative;opacity:0.7;cursor:not-allowed;}',
-    '.plan-panel .pl-soontag{font-size:8px;font-weight:800;background:var(--pl-amberSoft);color:var(--pl-amber);padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle;}',
     '.plan-panel .pl-modetoggle{display:flex;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:9px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;}',
     '.plan-panel .pl-modetoggle button{font-size:12px;font-weight:600;color:var(--pl-muted);background:none;border:none;padding:6px 13px;border-radius:7px;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-modetoggle button.on{background:#fff;color:var(--pl-ink);box-shadow:0 1px 2px rgba(0,0,0,0.06);}',
@@ -1026,6 +1447,9 @@
     '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    // Exercises grouped by pasted-back `block` label.
+    '.plan-panel .pl-exblock{margin-bottom:12px;}',
+    '.plan-panel .pl-exblock-h{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-faint);margin-bottom:5px;}',
     '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}'
   ].join('');
 
