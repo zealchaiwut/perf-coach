@@ -136,6 +136,19 @@
     while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
   }
 
+  // Measure the chart's real rendered width so the SVG viewBox is built to match
+  // (1 unit ≈ 1 real pixel). The SVG is width:100%, so its own bounding box is
+  // the true content width (no card padding) — this is what keeps mobile labels
+  // at their nominal px instead of the ~3× downscale from a hardcoded 1140-unit
+  // viewBox. Falls back to the parent width, floored at 280 (e.g. tab hidden).
+  function measureChartW(svg) {
+    var w = svg && svg.getBoundingClientRect ? svg.getBoundingClientRect().width : 0;
+    if (!w && svg && svg.parentElement) {
+      w = svg.parentElement.getBoundingClientRect().width;
+    }
+    return Math.max(280, Math.round(w || 0));
+  }
+
   // ── Plan ID ───────────────────────────────────────────────────────────────
   function _ensurePlanId(cb) {
     if (_planId) {
@@ -368,7 +381,22 @@
       _hideProjNow();
     }
 
-    var W = 1140, H = 200, p = { l: 54, r: 30, t: 14, b: 26 };
+    // Responsive sizing: build the coordinate space to the measured render
+    // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
+    var W = measureChartW(svg);
+    var mobile = W < 480;
+    var H = mobile ? 240 : 200;
+    // Trim l/r on mobile so the plot area isn't tiny inside the narrow card.
+    var p = mobile
+      ? { l: 46, r: 16, t: 14, b: 30 }
+      : { l: 54, r: 30, t: 14, b: 26 };
+    // viewBox + CSS height must move together, else it letterboxes.
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.style.height = H + "px";
+    // Floor every label at 10px (several are 8–9 today → unreadable on mobile).
+    var FS = function (n) { return Math.max(10, n); };
+    // Thicker data lines on mobile.
+    var LWmain = mobile ? 2.8 : 2.4;
 
     // ── Tight y-domain ────────────────────────────────────────────────────────
     // Early low-fitness history estimates can be wildly large (e.g. 7h for a
@@ -434,7 +462,7 @@
     ticks.forEach(function (v) {
       svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
       var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10,
+        x: p.l - 8, y: y(v) + 3, "font-size": FS(10),
         "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
       });
       lab.textContent = fmtTime(Math.round(v));
@@ -467,7 +495,7 @@
       .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
     if (histPts.length)
       svg.appendChild(E("path", {
-        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": 2.4,
+        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": LWmain,
       }));
 
     // projection center (dashed)
@@ -481,7 +509,7 @@
     if (projPts.length)
       svg.appendChild(E("path", {
         d: Path(projPts), fill: "none", stroke: "#4f6ef7",
-        "stroke-width": 2.4, "stroke-dasharray": "5 4",
+        "stroke-width": LWmain, "stroke-dasharray": "5 4",
       }));
 
     // goal line
@@ -491,7 +519,7 @@
         stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
       }));
       var gl = E("text", {
-        x: p.l + 4, y: y(goalSec) - 5, "font-size": 9,
+        x: p.l + 4, y: y(goalSec) - 5, "font-size": FS(9),
         "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
       });
       gl.textContent = "A goal " + fmtTime(goalSec);
@@ -504,7 +532,7 @@
       stroke: "#cbd5e1", "stroke-dasharray": "3 3",
     }));
     var nt = E("text", {
-      x: nowX + 3, y: p.t + 8, "font-size": 8, "font-family": "JetBrains Mono",
+      x: nowX + 3, y: p.t + 8, "font-size": FS(8), "font-family": "JetBrains Mono",
       fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
     });
     nt.textContent = "NOW";
@@ -528,7 +556,7 @@
         "stroke-opacity": 0.6,
       }));
       var t = E("text", {
-        x: mx, y: H - 7, "font-size": 9, "font-family": "JetBrains Mono",
+        x: mx, y: H - 7, "font-size": FS(9), "font-family": "JetBrains Mono",
         fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
       });
       t.textContent = m.priority || "•";
@@ -886,7 +914,18 @@
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
-    var W = 1140, H = 300, p = { l: 44, r: 20, t: 12, b: 28 };
+    // Responsive sizing: match the measured render width (1 unit ≈ 1px). This
+    // card sits in a 2-col row on desktop (~half width) and full width on mobile,
+    // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
+    var W = measureChartW(svg);
+    var mobile = W < 480;
+    var H = mobile ? 260 : 300;
+    var p = mobile
+      ? { l: 36, r: 14, t: 12, b: 30 }
+      : { l: 44, r: 20, t: 12, b: 28 };
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.style.height = H + "px";
+    var FS = function (n) { return Math.max(10, n); };
     var vmin = -25, vmax = 10;
     // widen range if data exceeds defaults
     formCurve.forEach(function (pt) {
@@ -918,7 +957,7 @@
         x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
       }));
       var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10, "font-family": "JetBrains Mono",
+        x: p.l - 8, y: y(v) + 3, "font-size": FS(10), "font-family": "JetBrains Mono",
         fill: "#9aa3b8", "text-anchor": "end",
       });
       lab.textContent = Math.round(v);
@@ -930,16 +969,16 @@
       return [x(i, N), y(pt.form)];
     });
     svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": 1.8,
+      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": mobile ? 2.4 : 1.8,
       "stroke-linejoin": "round",
     }));
 
-    // date ticks: first, ~mid, last
+    // date ticks: first, ~mid, last (3 — kept sparse so mobile isn't crowded).
     var idxs = [0, Math.floor(N * 0.6), N - 1];
     idxs.forEach(function (i, k) {
       var xx = x(i, N);
       var t = E("text", {
-        x: xx, y: H - 8, "font-size": 10, "font-family": "JetBrains Mono",
+        x: xx, y: H - 8, "font-size": FS(10), "font-family": "JetBrains Mono",
         fill: "#9aa3b8",
         "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
       });
@@ -1939,6 +1978,19 @@
     }
     refresh();
   }
+
+  // Redraw both charts on viewport resize / rotation so they adapt (they're
+  // drawn once on load otherwise). Debounced ~150ms; both fns guard internally
+  // (they return early when their SVG or data is missing), and each call is
+  // wrapped so a not-yet-loaded chart can't break the other.
+  var _resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(function () {
+      try { renderTimeCurve(); } catch (e) {}
+      try { renderFormCurve(); } catch (e) {}
+    }, 150);
+  });
 
   window.TrainingProjection = { init: init };
 })();
