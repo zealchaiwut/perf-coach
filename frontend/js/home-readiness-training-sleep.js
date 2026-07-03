@@ -337,7 +337,12 @@
       chartHTML = _twBarChart(tw.daily_load);
     }
 
-    el.innerHTML = header + statsHTML + chartHTML;
+    // Link out to the Log tab's Weekly Volume (8-week TSS-bars + distance-line)
+    // chart — no second copy of that chart built here (home v2).
+    var trendLinkHTML =
+      '<a class="tw-trendlink" href="/log#volume-chart-card">View 8-week trend &#8594;</a>';
+
+    el.innerHTML = header + statsHTML + chartHTML + trendLinkHTML;
   }
 
   /* ── Sleep Card ─────────────────────────────────────────────────────────── */
