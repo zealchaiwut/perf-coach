@@ -737,7 +737,7 @@ def list_weight_entries(
 ):
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     if from_date is None and to_date is None:
         from_d = today - _timedelta(days=89)
         to_d = today
