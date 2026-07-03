@@ -110,18 +110,25 @@
       align-items: start;
     }
     /* Wide (>=1000px, unqualified — the base rule above is the widest
-       breakpoint, so no media query needed here). */
-    #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 3; }
-    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 2; }
-    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 2; }
-    #home-training-card      { grid-column: 5 / span 4; grid-row: 3 / span 2; }
-    #home-sleep-card         { grid-column: 1 / span 4; grid-row: 4 / span 2; }
-    #home-perf-container     { grid-column: 5 / span 4; grid-row: 5 / span 2; }
-    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 6 / span 2; }
-    #home-habits-widget      { grid-column: 5 / span 4; grid-row: 7 / span 2; }
-    /* Readiness is the only 3-row-tall widget at Wide/Medium/Narrow, so a
-       small packing gap is expected next to it (e.g. below Next+Recent /
-       Performance at Wide) — not a bug, don't try to eliminate it. */
+       breakpoint, so no media query needed here).
+       Row spans below are sized from *measured* rendered content height
+       (Playwright, 1120px viewport, real user data) rather than the
+       original design spec's row counts — the spec's numbers undersized
+       Readiness/Training/Habits/Weight, which overflowed their track and
+       visually overlapped the widget below (caught during live
+       verification, most severely at Narrow's 90px rows). Same
+       measured-height fix applied at all three grid breakpoints. */
+    #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 4; }
+    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 3; }
+    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 3; }
+    #home-training-card      { grid-column: 5 / span 4; grid-row: 4 / span 3; }
+    #home-sleep-card         { grid-column: 1 / span 4; grid-row: 5 / span 2; }
+    #home-perf-container     { grid-column: 5 / span 4; grid-row: 7 / span 2; }
+    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 7 / span 3; }
+    #home-habits-widget      { grid-column: 5 / span 4; grid-row: 9 / span 3; }
+    /* Performance is padded to match Next+Recent's row-3 height so the two
+       top-right cards share a bottom edge — the extra space inside
+       Performance's own box is an intentional, expected gap, not a bug. */
 
     @media (max-width: 999px) {
       #home-dashboard-grid {
@@ -129,14 +136,18 @@
         grid-auto-rows: 100px;
         gap: 14px;
       }
-      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 3; }
-      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 2; }
-      #home-performance-card   { grid-column: 5 / span 2; grid-row: 3 / span 2; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 4 / span 2; }
-      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 5 / span 2; }
-      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 6 / span 2; }
-      #home-perf-container     { grid-column: 1 / span 3; grid-row: 8 / span 2; }
-      #home-weight-widget      { grid-column: 4 / span 3; grid-row: 8 / span 2; }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
+      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 3; }
+      #home-performance-card   { grid-column: 5 / span 2; grid-row: 4  / span 2; }
+      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 6  / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 3; }
+      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 8  / span 3; }
+      #home-perf-container     { grid-column: 1 / span 3; grid-row: 11 / span 2; }
+      #home-weight-widget      { grid-column: 4 / span 3; grid-row: 11 / span 4; }
+      /* PRs/Weight stay paired side by side (spec's "3x2 paired" intent) —
+         Weight's real content needs more height than PRs at this width, so
+         the pair no longer shares a bottom edge; that height mismatch is
+         expected, not an overlap bug. */
     }
 
     @media (max-width: 759px) {
@@ -158,14 +169,14 @@
         grid-auto-rows: 90px;
         gap: 10px;
       }
-      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 3; }
-      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 4  / span 2; }
-      #home-performance-card   { grid-column: 3 / span 2; grid-row: 4  / span 2; }
-      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 6  / span 2; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 8  / span 2; }
-      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 10 / span 2; }
-      #home-perf-container     { grid-column: 1 / span 4; grid-row: 12 / span 2; }
-      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 14 / span 2; }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
+      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 3; }
+      #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 3; }
+      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 8  / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 10 / span 3; }
+      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 13 / span 3; }
+      #home-perf-container     { grid-column: 1 / span 4; grid-row: 16 / span 2; }
+      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 18 / span 4; }
     }
 
     @media (max-width: 479px) {
