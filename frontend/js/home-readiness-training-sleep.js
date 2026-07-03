@@ -483,7 +483,10 @@
       '<div class="nw-sep"></div>' +
       '<div class="nw-worksub">' +
         '<div class="nw-subhead">Recent workout</div>' +
-        '<a href="/log">View all &#8594;</a>' +
+        '<span style="display:inline-flex;align-items:center;gap:10px;">' +
+          '<a href="/training?return=/home">Log workout</a>' +
+          '<a href="/log">View all &#8594;</a>' +
+        '</span>' +
       '</div>' +
       '<div id="home-recent-workout-section" class="nw-loading">Loading…</div>'
     );
