@@ -138,7 +138,21 @@ information about.
       if (!_weekStart) _weekStart = _mondayOf(new Date());
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
-      _loadWeek();
+      _loadWeek(function () {
+        if (_pendingOpenId) {
+          var id = _pendingOpenId;
+          _pendingOpenId = null;
+          _openDetailById(id);
+        }
+      });
+    },
+    // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
+    // week to the session's date and flag it to open once init()'s own
+    // _loadWeek resolves. Call BEFORE switching to the Plan tab, so init()
+    // (triggered by the tab switch) picks up the right _weekStart/_pendingOpenId.
+    openSession: function (sessionId, dateIso) {
+      if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
+      _pendingOpenId = sessionId;
     }
   };
 
@@ -193,16 +207,35 @@ information about.
   }
 
   // ── Load / reload the week ──────────────────────────────────────────────────
-  function _loadWeek() {
+  function _loadWeek(onDone) {
     var from = _iso(_weekStart), to = _iso(_addDays(_weekStart, 6));
     var host = document.getElementById('plan-week-list');
     if (host) host.innerHTML = '<div class="pl-loading">Loading week…</div>';
     _api('GET', '/api/planned-sessions?from=' + from + '&to=' + to)
-      .then(function (data) { _bundle = data; _renderWeekList(); })
+      .then(function (data) {
+        _bundle = data;
+        _renderWeekList();
+        // Keep an open detail panel in sync with the freshly loaded bundle
+        // (a mutation triggered from inside the panel doesn't otherwise
+        // refresh it, since it renders from _detail, not _bundle).
+        if (_detail) {
+          var updated = null;
+          (_bundle.days || []).forEach(function (d) {
+            (d.planned || []).forEach(function (p) { if (p.id === _detail.id) updated = p; });
+          });
+          _detail = updated;
+          _renderDetailSection();
+        }
+        if (onDone) onDone();
+      })
       .catch(function () {
         if (host) host.innerHTML = '<div class="pl-loading">Could not load the week.</div>';
       });
   }
+
+  // Set by openSession() before the tab switch triggers init(); consumed once
+  // the resulting week load resolves (see init() below).
+  var _pendingOpenId = null;
 
   // ── Render shell ────────────────────────────────────────────────────────────
   function _renderAll() {
@@ -222,10 +255,8 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="Assemble a planning prompt pre-filled with last week\'s results — copy it into a Claude chat">✨ Suggest sessions</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-addweek">+ Add week</button>' +
-          '<button class="pl-btn pl-dark" id="pl-addsession">+ Add session</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
+          '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
@@ -237,12 +268,7 @@ information about.
       '</div>';
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
-    document.getElementById('pl-addweek').onclick = function () { _openAdd('bulk'); };
-    document.getElementById('pl-addsession').onclick = function () { _openAdd('single'); };
-    document.getElementById('pl-suggest').onclick = function () { _openSuggest(); };
-    document.getElementById('pl-dlprompt').onclick = function () {
-      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
-    };
+    document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
     if (_bundle) _renderWeekList();
   }
 
@@ -267,11 +293,13 @@ information about.
     _wireWeekEvents();
   }
 
-  function _statusTag(status) {
+  function _statusTag(status, hasActual) {
     if (status === 'missed') return '<span class="pl-stat-tag missed">MISSED</span>';
     if (status === 'needs_review') return '<span class="pl-stat-tag review">NEEDS REVIEW</span>';
     if (status === 'done_auto') return '<span class="pl-stat-tag done">AUTO-MATCHED</span>';
-    if (status === 'done_manual') return '<span class="pl-stat-tag done">MANUALLY LINKED</span>';
+    if (status === 'done_manual') return hasActual
+      ? '<span class="pl-stat-tag done">MANUALLY LINKED</span>'
+      : '<span class="pl-stat-tag done">COMPLETED (no data)</span>';
     return '';
   }
 
@@ -336,17 +364,17 @@ information about.
       var actMeta = p.actual ? p.actual.meta : '';
       var mwid = p.matched_workout_id || (p.actual && p.actual.id) || '';
       var feel = p.actual ? p.actual.feeling : null;
-      body = '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
-        ' → Actual ' + esc(actMeta) + '</div>' +
+      var diffLine = p.actual
+        ? '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
+          ' → Actual ' + esc(actMeta) + '</div>'
+        : '<div class="pl-diffline pl-diffline--manual">Marked complete manually — no workout data attached</div>';
+      body = diffLine +
         _viewFullLinkHtml(mwid) +
         _feelRowHtml(mwid, feel) +
         '<div class="pl-matchbtns">' +
-          '<button class="pl-unlink" data-unlink="' + p.id + '">unlink match</button>' +
-          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">Change matched workout</button>' +
+          '<button class="pl-unlink" data-unlink="' + p.id + '">' + (mwid ? 'unlink match' : 'revert to planned') + '</button>' +
+          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">' + (mwid ? 'Change matched workout' : 'Attach a workout') + '</button>' +
         '</div>' +
-        '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
-    } else if (p.status === 'planned' || p.status === 'missed') {
-      body = '<button class="pl-pickbtn pl-pick-attach" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach a recent workout</button>' +
         '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
     } else if (p.status === 'needs_review') {
       var day2 = day;
@@ -364,7 +392,7 @@ information about.
         (draggable ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _statusTag(p.status) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
       '<div class="pl-sm">' + esc(meta) + '</div>' + body +
     '</div>';
@@ -489,6 +517,35 @@ information about.
         var newDate = row.getAttribute('data-date');
         _mutate('PATCH', '/api/planned-sessions/' + _dragCtx, { planned_date: newDate });
         _dragCtx = null;
+      });
+    });
+  }
+
+  // Detail-panel event wiring — attach/mark-done/mark-missed, and the same
+  // 24h picker used in the week pane (see _togglePicker below).
+  function _wireDetailEvents(host) {
+    host.querySelectorAll('[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _togglePicker(host, b.getAttribute('data-pick'), b.getAttribute('data-pick-mode'));
+      });
+    });
+    host.querySelectorAll('[data-missed]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-missed') + '/miss');
+      });
+    });
+    host.querySelectorAll('[data-markdone]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-markdone') + '/mark-done');
+      });
+    });
+    host.querySelectorAll('[data-unlink]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-unlink') + '/unmatch');
       });
     });
   }
@@ -903,6 +960,7 @@ information about.
   function _bulkJSONHtml() {
     return '<div class="pl-jsontools">' +
         '<button class="pl-btn pl-ghost" id="pl-bj-dl">⬇ Download template</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-bj-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-bj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste an array of sessions — one file for the whole week, full block/exercise detail.</div>' +
@@ -913,6 +971,9 @@ information about.
   }
   function _wireBulkJSON() {
     document.getElementById('pl-bj-dl').onclick = function () { _downloadFile('perf-coach-week-template.json', JSON.stringify(tplBulkWeek, null, 2)); };
+    document.getElementById('pl-bj-dlprompt').onclick = function () {
+      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
+    };
     document.getElementById('pl-bj-up').onchange = function () { _readFileInto(this, 'pl-bj-ta'); };
     document.getElementById('pl-bj-cancel').onclick = _closeAdd;
     document.getElementById('pl-bj-val').onclick = function () { _previewBulkJSON(); };
@@ -1163,6 +1224,7 @@ information about.
       var text = pre ? pre.textContent : '';
       _copyText(text, copyBtn);
     };
+    _wireDetailEvents(host);
   }
 
   function _fmtDur(min) { return min != null ? (min + ' min') : '—'; }
@@ -1183,6 +1245,18 @@ information about.
     '</div>';
   }
 
+  // Attach/mark-complete/mark-missed actions, shown in the detail panel for
+  // unresolved sessions (planned/missed). Wired by _wireDetailEvents.
+  function _detailStatusActionsHtml(p) {
+    if (p.status !== 'planned' && p.status !== 'missed') return '';
+    return '<div class="pl-detactions">' +
+        '<button class="pl-btn pl-ghost pl-tiny" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach a recent workout</button>' +
+        '<button class="pl-btn pl-lime pl-tiny" data-markdone="' + p.id + '">✓ Mark as completed</button>' +
+        (p.status === 'planned' ? '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">Mark as missed</button>' : '') +
+      '</div>' +
+      '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
+  }
+
   function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
   function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
 
@@ -1201,6 +1275,7 @@ information about.
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
       _runTiles(p) +
       '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Structure</div><div class="pl-seg2">' + segs + '</div></div>' +
@@ -1263,6 +1338,7 @@ information about.
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailStatusActionsHtml(p) +
       '<div class="pl-dettiles">' +
         '<div class="pl-dettile"><div class="l">Type</div><div class="v" style="font-size:14px;">' + typeLabel + '</div></div>' +
         (focus ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
@@ -1305,10 +1381,12 @@ information about.
     '.plan-panel .pl-sectitle{font-size:11px;font-weight:800;letter-spacing:0.07em;color:var(--pl-faint);text-transform:uppercase;}',
     '.plan-panel .pl-chead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}',
     '.plan-panel .pl-btn{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);font-family:inherit;}',
+    '.plan-panel .pl-btn:disabled{opacity:0.42;cursor:not-allowed;}',
     '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
     '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
+    '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-loading{font-size:12.5px;color:var(--pl-faint);padding:14px 0;}',
     '.plan-panel .pl-infobanner{background:#f2f5ff;border:1px solid #e0e7ff;border-radius:11px;padding:10px 14px;font-size:12px;color:#3f4a7a;}',
@@ -1348,6 +1426,7 @@ information about.
     '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;border-left-color:var(--pl-green)!important;}',
     '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;border-left-color:var(--pl-amber)!important;cursor:default;}',
     '.plan-panel .pl-diffline{font-size:9.5px;color:var(--pl-muted);font-family:var(--pl-mono);margin-top:6px;line-height:1.4;}',
+    '.plan-panel .pl-diffline--manual{font-style:italic;}',
     '.plan-panel .pl-unlink{margin-top:4px;font-size:9.5px;color:var(--pl-faint);background:none;border:none;cursor:pointer;padding:0;}',
     '.plan-panel .pl-unlink:hover{color:var(--pl-red);}',
     // Quick-tag feeling row: faint icons until one is picked, then only it shows.
@@ -1360,7 +1439,6 @@ information about.
     '.plan-panel .pl-matchbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px;}',
     '.plan-panel .pl-pickbtn{font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-pickbtn:hover{text-decoration:underline;}',
-    '.plan-panel .pl-pick-attach{margin-top:6px;font-weight:600;}',
     '.plan-panel .pl-picker{margin-top:6px;}',
     '.plan-panel .pl-pickerlist{display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-pickrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;text-align:left;width:100%;}',
@@ -1448,8 +1526,9 @@ information about.
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
     // Exercises grouped by pasted-back `block` label.
-    '.plan-panel .pl-exblock{margin-bottom:12px;}',
-    '.plan-panel .pl-exblock-h{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-faint);margin-bottom:5px;}',
+    '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
+    '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
+    '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-muted);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--pl-line);}',
     '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}'
   ].join('');
 

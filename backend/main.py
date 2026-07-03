@@ -7190,6 +7190,21 @@ def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
         return JSONResponse(_planned_session_dict(row))
 
 
+@app.post("/api/planned-sessions/{ps_id}/mark-done")
+def mark_done_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    """Manually mark a session complete with no linked workout data — for when
+    sync never captured it (e.g. the watch wasn't started). Distinct from
+    /match, which always links a real Workout row."""
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "done_manual"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
 @app.post("/api/planned-sessions/reconcile")
 def reconcile_planned_sessions(user: User = Depends(resolve_user)):
     """Run the planned-session matcher on demand for the current user."""
