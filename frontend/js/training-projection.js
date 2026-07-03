@@ -16,8 +16,6 @@
   // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
   // savePlanSettings then POSTs to create one (fixes "Training plan not found").
   var _planEntityId = null;
-  // Per-race readiness cache: raceId -> readiness response (or null if none).
-  var _raceReadiness = {};
   // Athlete current performance scores (GET /api/athletes/{id}/performance).
   // Null until loaded; only rendered when .state === "scored".
   var _athletePerf = null;
@@ -1102,23 +1100,6 @@
       .join("");
   }
 
-  // ── Data loading ──────────────────────────────────────────────────────────
-  function loadReadiness(done) {
-    if (!_primaryRace) {
-      _readiness = null;
-      if (done) done();
-      return;
-    }
-    apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
-      _readiness = data;
-      // Cache under the race id so renderRaceCards can surface the Estimated
-      // column for the primary race (also drives the form/time curves).
-      _raceReadiness[_primaryRace.id] = data;
-      if (done) done();
-    });
-  }
-
-
   // ── Plan settings ─────────────────────────────────────────────────────────
   function _validateSettingsInputs() {
     var rampIn = document.getElementById("plan-ramp-rate-input");
@@ -1258,13 +1239,12 @@
       b_race_recalibration_date: proj.b_race_recalibration_date,
       building_baseline: proj.building_baseline,
     };
-    // Synthetic readiness for the primary race — drives the time/form curves.
-    _readiness = {
-      building_baseline: proj.building_baseline,
-      form_curve: proj.form_curve,
-      projected_form: proj.projected_form,
-      time_curve: proj.time_curve,
-    };
+    // Primary-race readiness now rides the cached bundle (folded server-side),
+    // so the tab needs no separate /api/races/{id}/readiness call. Carries the
+    // full readiness (time_curve, form_curve, on_track, specificity_progress,
+    // building_baseline, projected_form). Null when there is no primary race —
+    // renderTimeCurve/FormCurve/SpecBars all guard on that and degrade cleanly.
+    _readiness = bundle.readiness || null;
 
     renderCalibration(bundle.calibration || {});
     renderAll();
