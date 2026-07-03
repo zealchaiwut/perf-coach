@@ -4672,6 +4672,8 @@
   var calCurrentMonth = null;   // Date at the 1st of displayed month
   var calSelectedDate = null;   // ISO date string of the highlighted cell
   var calDayData      = {};     // date → { types: string[], totalTss: number }
+  var calPlannedData  = {};     // date → [{ type: session_type, status }, ...] (from Plan)
+  var calPlannedMonthKey = null; // 'YYYY-MM' currently loaded into calPlannedData
 
   var CAL_MONTH_NAMES = [
     'January','February','March','April','May','June',
@@ -4700,6 +4702,57 @@
     t = (t || '').toLowerCase();
     if (t === 'run' || t === 'bike') return 'run';
     return 'lift'; // strength/lift/wod → violet
+  }
+
+  // Planned-session tags (issue: see Plan sessions on the Log calendar).
+  // Bucket run vs everything else (strength/plyo → "Strength", same family
+  // split as the existing dots) and fetch on demand per displayed month.
+  function _calPlannedFamily(t) {
+    return (t || '').toLowerCase() === 'run' ? 'run' : 'lift';
+  }
+  function _calPlannedLabel(fam) { return fam === 'run' ? 'Run' : 'Strength'; }
+  function _calIsDoneStatus(s) { return s === 'done_auto' || s === 'done_manual'; }
+
+  function _calFetchPlanned(year, month) {
+    var key = year + '-' + pad(month + 1);
+    if (calPlannedMonthKey === key) return;
+    var from = key + '-01';
+    var to = key + '-' + pad(new Date(year, month + 1, 0).getDate());
+    fetch('/api/planned-sessions?from=' + from + '&to=' + to)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        calPlannedData = {};
+        (data && data.days || []).forEach(function (day) {
+          (day.planned || []).forEach(function (p) {
+            if (p.session_type === 'rest') return;
+            if (!calPlannedData[day.date]) calPlannedData[day.date] = [];
+            calPlannedData[day.date].push({ type: p.session_type, status: p.status });
+          });
+        });
+        calPlannedMonthKey = key;
+        renderCalendar();
+      })
+      .catch(function () {});
+  }
+
+  // Per-day tag HTML: one tag per family (run/lift), "done" wins over
+  // "planned" if a day has more than one session in the same family.
+  function _calPlannedTagsHtml(dateStr) {
+    var pd = calPlannedData[dateStr];
+    if (!pd || !pd.length) return '';
+    var byFam = {};
+    pd.forEach(function (p) {
+      var fam = _calPlannedFamily(p.type);
+      var done = _calIsDoneStatus(p.status);
+      if (!byFam[fam] || (done && !byFam[fam].done)) byFam[fam] = { done: done };
+    });
+    var html = '';
+    ['run', 'lift'].forEach(function (fam) {
+      if (!byFam[fam]) return;
+      html += '<div class="lrx-caltag ' + fam + (byFam[fam].done ? ' done' : ' planned') + '">[' +
+        _calPlannedLabel(fam) + ']</div>';
+    });
+    return html;
   }
 
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
@@ -4754,6 +4807,7 @@
     var todayStr = pad(now.getFullYear()) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     var lastDayNum = new Date(year, month + 1, 0).getDate();
     var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+    _calFetchPlanned(year, month); // async; re-renders itself once loaded
 
     // Week starts Monday.
     var firstDow    = new Date(year, month, 1).getDay();
@@ -4816,7 +4870,8 @@
               if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
             });
           }
-          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots + '</td>';
+          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots +
+            _calPlannedTagsHtml(dStr) + '</td>';
           dayNum++;
         }
       }
@@ -4832,6 +4887,8 @@
       '<div class="lrx-callegend">' +
         '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
         '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
+        '<span><span class="lrx-caltag run done" style="margin:0 5px 0 0;">[Run]</span>Plan session — done</span>' +
+        '<span><span class="lrx-caltag run planned" style="margin:0 5px 0 0;">[Run]</span>Plan session — not yet done</span>' +
         '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
       '</div>';
     el.innerHTML = html;
