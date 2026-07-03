@@ -507,7 +507,16 @@
 .rd4-lap-row--work td { background: #eef2ff; }
 .rd4-lap-row--rest td { background: #f8fafc; color: #64748b; }
 .rd4-lap-row--pair-alt.rd4-lap-row--work td { background: #fdf2f8; }
-.rd4-lap-idcell { display: flex; align-items: center; gap: 6px; }
+/* Must NOT be display:flex — that pulls the <td> out of the table's column
+   layout, collapsing it to content width and leaving a transparent gap before
+   the next column (the "white strip"). Keep it a table-cell; lay the lap number
+   + Set/rest badge out inline instead. */
+.rd4-lap-idcell { white-space: nowrap; }
+.rd4-lap-idcell .rd4-lap-num,
+.rd4-lap-idcell .rd4-set-badge,
+.rd4-lap-idcell .rd4-rest-badge { vertical-align: middle; }
+.rd4-lap-idcell .rd4-set-badge,
+.rd4-lap-idcell .rd4-rest-badge { margin-left: 6px; }
 .rd4-lap-num { font-weight: 700; }
 .rd4-set-badge {
   font-size: 0.5625rem;
