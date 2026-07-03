@@ -675,6 +675,16 @@
     );
   }
 
+  // Priority/type badge. Checkpoints get a distinct "CP" text badge (teal) so
+  // they never read as a C-priority race; races keep the A/B/C letter square.
+  function _priorityBadge(isCheckpoint, priority) {
+    if (isCheckpoint) {
+      return '<span class="pm-rclet pm-rclet--cp">CP</span>';
+    }
+    return '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>";
+  }
+
   // Build a full-width UPCOMING card (Goal + Estimated columns).
   function _buildUpcomingCard(r) {
     var isCheckpoint = r.type === "checkpoint";
@@ -698,8 +708,7 @@
 
     var head =
       '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      _priorityBadge(isCheckpoint, priority) +
       '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
@@ -771,8 +780,7 @@
 
     var head =
       '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      _priorityBadge(isCheckpoint, priority) +
       '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
@@ -1373,6 +1381,10 @@
     // Races always use distance; checkpoints follow the toggle.
     _show("plan-modal-distance-field", !byDuration);
     _show("plan-modal-duration-field", byDuration);
+    // Goal-time field: a distance-defined checkpoint takes a goal time exactly
+    // like a race (pace derives from the distance); a duration-defined
+    // checkpoint has no distance, so hide the goal (the duration is the target).
+    if (isCheckpoint) _show("plan-modal-goal-field", !byDuration);
   }
 
   function _setCheckpointMeasure(measure) {

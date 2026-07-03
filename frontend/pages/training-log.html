@@ -4923,6 +4923,16 @@
         justify-content: center;
         flex-shrink: 0;
       }
+      /* Checkpoint "CP" badge — a teal pill, distinct from the A/B/C letter
+         squares so it never reads as a C-priority race. The compound selector
+         also wins over the mobile .pm-rclet width override. */
+      .plan-merged .pm-rclet.pm-rclet--cp {
+        width: auto;
+        min-width: 24px;
+        padding: 0 6px;
+        background: #0d9488;
+        letter-spacing: 0.02em;
+      }
       .plan-merged .pm-rcname {
         font-size: 14px;
         font-weight: 700;
