@@ -52,9 +52,16 @@
       letter-spacing: -0.01em;
     }
 
-    /* ---- PAGE ---- */
+    /* ---- PAGE ----
+       Widened from 760px (home v2 layout follow-up #2): the unified dashboard
+       grid below needs real desktop width to pack 3-4 widgets per row —
+       760px only ever fit 2 columns of a sane card width, so the auto-fit
+       grid's column count is capped by THIS max-width, not just its own
+       minmax floor. 1320 fits 4 columns of minmax(280px,1fr) + 16px gaps
+       (4*280 + 3*16 = 1168 <= 1320 - 2*28 padding = 1264) at 1280-1440
+       viewport widths. */
     .page {
-      max-width: 760px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 28px;
     }
@@ -73,27 +80,28 @@
       font-size: 14px;
     }
 
-    /* ---- ROWS ---- */
-    #home-training-row { margin-bottom: 16px; }
-    /* Recent workouts | Sleep — 2-up (home v2 layout follow-up; used to be
-       [Performance 2fr | Recent workouts+Performance+Sleep stack 1fr] before
-       Performance/Personal-records moved into #home-compact-row above). */
-    #home-lower-row {
+    /* ---- DASHBOARD GRID (home v2 layout follow-up #2) ----
+       One unified auto-fill grid replaces the previous patchwork of separate
+       row containers (#home-top-row / #home-compact-row / #home-lower-row —
+       all removed, along with #home-right-stack removed earlier). All
+       dashboard widgets are direct children so they pack edge-to-edge and
+       reflow 3-4 per row at desktop widths instead of being pinned into
+       fixed 1fr-1fr / 3x1fr / full-width rows. #home-log-today-strip,
+       #body-modifier-guardrail, #strava-stale-banner, and #row-log stay
+       OUTSIDE this grid (banners moved to sit together above the grid so
+       they don't have to interrupt a single continuous grid flow). */
+    #home-dashboard-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 16px;
       margin-bottom: 16px;
       align-items: start;
     }
-    /* Next workout | Performance | Personal records — compact 3-up (home v2
-       layout follow-up), same gap/margin convention as #home-top-row/
-       #home-lower-row. */
-    #home-compact-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 16px;
-      align-items: start;
+    /* Weight (has a form) and Training (4-stat grid + 7-day chart) need more
+       than one tile's width. */
+    #home-weight-widget,
+    #home-training-card {
+      grid-column: span 2;
     }
 
     /* ---- CARD ---- */
@@ -408,11 +416,17 @@
     /* ---- CARD HEADER (shared) ---- */
     .card-head {
       display: flex; align-items: center; justify-content: space-between;
+      /* Narrower tiles (home v2 unified grid, ~280-340px) can't always fit
+         title + trailing link on one line — wrap instead of letting them
+         crowd/touch ("PerformanceView trends →"). row-gap keeps the wrapped
+         link from sitting flush under the title. */
+      flex-wrap: wrap;
+      row-gap: 4px;
       margin-bottom: 14px;
     }
-    .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+    .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; min-width: 0; }
     .card-head .ttl i { font-size: 17px; color: var(--text-tertiary); }
-    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; }
+    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
     .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
 
     /* ---- PERFORMANCE CARD ---- */
@@ -1292,8 +1306,9 @@
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
 
-      #home-lower-row { grid-template-columns: 1fr; }
-      #home-compact-row { grid-template-columns: 1fr; }
+      #home-dashboard-grid { grid-template-columns: 1fr; }
+      #home-weight-widget,
+      #home-training-card { grid-column: span 1; }
 
       .workout-desktop-only { display: none; }
 
@@ -1452,14 +1467,6 @@
     }
     .lts-cta-btn i { font-size: 15px; }
 
-    /* ---- HOME TOP ROW (habits widget left + future right) ---- */
-    #home-top-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 16px;
-      align-items: start;
-    }
 
     /* ---- HABITS WIDGET (home-habits-widget) ---- */
     #home-habits-widget {
@@ -1561,9 +1568,6 @@
       /* Strip: stack on narrow */
       .lts-inner { flex-wrap: wrap; gap: 10px; }
       .lts-cta-btn { width: 100%; justify-content: center; }
-
-      /* Home top row: stack on mobile */
-      #home-top-row { grid-template-columns: 1fr; }
 
       .hw-wheel-svg { width: 88px; height: 88px; }
     }
@@ -1974,36 +1978,27 @@
   <!-- Log-today strip (rendered by JS) -->
   <div id="home-log-today-strip"></div>
 
-  <!-- Top 2-up row: habits widget (left) + future widget (right) -->
-  <div id="home-top-row">
-    <div id="home-habits-widget" class="card"></div>
-    <div id="home-top-row-right"></div>
-  </div>
-
+  <!-- Banners — stay outside the dashboard grid below, in their own full-width
+       block, so they don't have to interrupt a single continuous grid flow. -->
   <div id="body-modifier-guardrail"></div>
-
-  <!-- Compact 3-up row: Next workout | Performance | Personal records
-       (home v2 layout follow-up — these three were too sparse full-width /
-       stacked; grouping them uses the page width better). -->
-  <div id="home-compact-row">
-    <div id="home-next-workout-card" class="card"></div>
-    <div id="home-performance-card" class="card"></div>
-    <div id="home-perf-container"></div>
-  </div>
-
-  <!-- Row 2: Weight (full-width) -->
-  <div id="home-weight-widget" style="margin-bottom:16px;"></div>
-
-  <!-- Strava stale banner (shown when sync is needed) -->
   <div id="strava-stale-banner"></div>
 
-  <!-- Lower row 1: This week's training (full-width) -->
-  <div id="home-training-row">
+  <!-- Unified dashboard grid (home v2 layout follow-up #2). Replaces the
+       previous #home-top-row / #home-compact-row / #home-lower-row row
+       wrappers — one auto-fill grid, all widgets as direct children, packs
+       3-4 per row on desktop. Order: habits, readiness, next workout,
+       performance, weight (span 2), personal records, training (span 2),
+       recent workouts, sleep. Each widget still finds its own container by
+       the SAME element id it always used — only the parent/grid-column
+       changed. -->
+  <div id="home-dashboard-grid">
+    <div id="home-habits-widget" class="card"></div>
+    <div id="home-top-row-right"></div>
+    <div id="home-next-workout-card" class="card"></div>
+    <div id="home-performance-card" class="card"></div>
+    <div id="home-weight-widget"></div>
+    <div id="home-perf-container"></div>
     <div id="home-training-card" class="card"></div>
-  </div>
-
-  <!-- Lower row 2: Recent Workouts | Sleep (2-up) -->
-  <div id="home-lower-row">
     <div id="home-workouts-container"></div>
     <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
