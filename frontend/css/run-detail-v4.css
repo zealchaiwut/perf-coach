@@ -507,7 +507,16 @@
 .rd4-lap-row--work td { background: #eef2ff; }
 .rd4-lap-row--rest td { background: #f8fafc; color: #64748b; }
 .rd4-lap-row--pair-alt.rd4-lap-row--work td { background: #fdf2f8; }
-.rd4-lap-idcell { display: flex; align-items: center; gap: 6px; }
+/* Must NOT be display:flex — that pulls the <td> out of the table's column
+   layout, collapsing it to content width and leaving a transparent gap before
+   the next column (the "white strip"). Keep it a table-cell; lay the lap number
+   + Set/rest badge out inline instead. */
+.rd4-lap-idcell { white-space: nowrap; }
+.rd4-lap-idcell .rd4-lap-num,
+.rd4-lap-idcell .rd4-set-badge,
+.rd4-lap-idcell .rd4-rest-badge { vertical-align: middle; }
+.rd4-lap-idcell .rd4-set-badge,
+.rd4-lap-idcell .rd4-rest-badge { margin-left: 6px; }
 .rd4-lap-num { font-weight: 700; }
 .rd4-set-badge {
   font-size: 0.5625rem;
@@ -698,15 +707,17 @@
    first bar no longer overlaps them. The whole chart (bars + HR overlay + axis)
    shifts together, staying mutually aligned; the labels are pulled left into
    the gutter (see .rd4-gl-lbl). */
-.rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; margin-left: 42px; }
+.rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; padding-left: 42px; }
 .rd4-chart2-bars { position: relative; z-index: 1; height: 100%; }
 .rd4-cbar2 { display: block; margin: 0 1.5px; border-radius: 3px 3px 0 0; min-height: 4px; }
 /* Labeled value gridlines (pace / power) for the combined laps chart. */
 .rd4-gl { position: absolute; left: 0; right: 0; border-top: 1px dotted rgba(13,30,67,0.14); }
+/* Labels sit in the chart's own left padding gutter (left:0..~38), right-aligned
+   toward the bars which start at 42 — inside the card, no external margin. */
 .rd4-gl-lbl {
-  position: absolute; left: -40px; top: -7px; width: 36px; text-align: right;
+  position: absolute; left: 0; top: -7px; width: 38px; text-align: right;
   font-size: 11px; line-height: 1; color: #5c6886;
-  background: rgba(255,255,255,0.82); padding: 0 2px;
+  padding: 0 4px 0 0;
   font-variant-numeric: tabular-nums;
 }
 .rd4-cbar2--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
@@ -728,12 +739,20 @@
 }
 .rd4-cell2--work-alt .rd4-cbar-rep { color: #be185d; }
 
-.rd4-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.rd4-axis2 { margin-top: 4px; }
-/* flex:1 makes each lap number spread to sit centered under its bar (bars get
-   flex:1 inline); without it the numbers bunch at the left, misaligned. */
+/* Span exactly the bars area (past the 42px y-label gutter). EXPLICIT width is
+   required: this SVG has a 1:1 viewBox, so with height:100% and auto width the
+   browser sizes it to its aspect ratio (~130px) and ignores right:0 — collapsing
+   the HR coordinate space and shoving every dot left. calc(100% - 42px) (100% =
+   the padded chart's full width) makes it exactly the bars width at left:42. */
+.rd4-hr-svg { position: absolute; top: 0; left: 42px; width: calc(100% - 42px); height: 100%; z-index: 2; overflow: visible; pointer-events: none; }
+/* The axis + legend are SIBLINGS of .rd4-chart2 (which owns the 42px y-label
+   gutter as padding), so they must reproduce that 42px inset themselves to line
+   up with the bars — the bars start at 42, so the axis does too. flex:1 spreads
+   each number centered under its bar. The legend sits at the card's left edge
+   (no gutter), so it gets no inset. */
+.rd4-axis2 { margin-top: 4px; padding-left: 42px; }
 .rd4-axis2 .rd4-cell2 { flex: 1 0 0; text-align: center; font-size: 11px; color: #5c6886; font-variant-numeric: tabular-nums; }
-.rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; margin-left: -42px; font-size: 12px; color: #5c6886; }
+.rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; font-size: 12px; color: #5c6886; }
 .rd4-chart2-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .rd4-swatch2 { width: 14px; height: 10px; border-radius: 2px; }
 
