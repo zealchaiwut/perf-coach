@@ -698,15 +698,17 @@
    first bar no longer overlaps them. The whole chart (bars + HR overlay + axis)
    shifts together, staying mutually aligned; the labels are pulled left into
    the gutter (see .rd4-gl-lbl). */
-.rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; margin-left: 42px; }
+.rd4-chart2 { position: relative; height: 130px; margin-bottom: 4px; padding-left: 42px; }
 .rd4-chart2-bars { position: relative; z-index: 1; height: 100%; }
 .rd4-cbar2 { display: block; margin: 0 1.5px; border-radius: 3px 3px 0 0; min-height: 4px; }
 /* Labeled value gridlines (pace / power) for the combined laps chart. */
 .rd4-gl { position: absolute; left: 0; right: 0; border-top: 1px dotted rgba(13,30,67,0.14); }
+/* Labels sit in the chart's own left padding gutter (left:0..~38), right-aligned
+   toward the bars which start at 42 — inside the card, no external margin. */
 .rd4-gl-lbl {
-  position: absolute; left: -40px; top: -7px; width: 36px; text-align: right;
+  position: absolute; left: 0; top: -7px; width: 38px; text-align: right;
   font-size: 11px; line-height: 1; color: #5c6886;
-  background: rgba(255,255,255,0.82); padding: 0 2px;
+  padding: 0 4px 0 0;
   font-variant-numeric: tabular-nums;
 }
 .rd4-cbar2--z2 { outline: 2px solid #14b8a6; outline-offset: -2px; }
@@ -728,7 +730,9 @@
 }
 .rd4-cell2--work-alt .rd4-cbar-rep { color: #be185d; }
 
-.rd4-hr-svg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* left:42 so the HR line spans the bars area (past the y-label gutter), staying
+   aligned with the bars + x-axis rather than the full padded box. */
+.rd4-hr-svg { position: absolute; top: 0; right: 0; bottom: 0; left: 42px; z-index: 2; height: 100%; overflow: visible; pointer-events: none; }
 .rd4-axis2 { margin-top: 4px; }
 /* flex:1 makes each lap number spread to sit centered under its bar (bars get
    flex:1 inline); without it the numbers bunch at the left, misaligned. */
