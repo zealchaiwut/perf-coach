@@ -681,6 +681,7 @@ function openInlineEdit(row, entryId, currentWeight, currentDate) {
       if (idx !== -1) {
         _recentEntries[idx] = { ..._recentEntries[idx], weight_kg: updated.weight_kg };
       }
+      row.removeEventListener('keydown', onEscape);
       renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
     } catch (e) {
       if (e.message === 'conflict') {
