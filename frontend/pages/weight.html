@@ -2063,6 +2063,10 @@
               <span class="hcb-label">LOG WEIGHT</span>
               <span class="hcb-date" id="hcb-date"></span>
             </div>
+            <div id="unit-toggle" class="unit-toggle" style="display:flex;gap:4px;margin-bottom:8px">
+              <button class="unit-btn active" data-unit="kg" type="button">kg</button>
+              <button class="unit-btn" data-unit="lb" type="button">lb</button>
+            </div>
             <!-- Stepper (shown when not yet logged today, or while editing) -->
             <div id="stepper-wrap">
               <div class="et-field" style="margin-bottom:8px">
@@ -2101,6 +2105,9 @@
                   +
                 </button>
               </div>
+              <button class="same-as-last-btn" id="same-as-last-btn" type="button" hidden>
+                Log same as last
+              </button>
               <button class="log-submit-btn" id="log-submit-btn" type="button">
                 Log -- kg
               </button>
