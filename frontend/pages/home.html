@@ -1907,6 +1907,35 @@
       text-decoration: none;
     }
 
+    /* ---- PERFORMANCE CARD (home-performance-card) ----
+       Distinct "hperf-" prefix — #home-perf-container's "Personal records"
+       card already owns the "perf-" prefix; unrelated widget, same-name
+       coincidence only, do not collide with or touch it. */
+    .hperf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hperf-tile {
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 11px;
+      padding: 11px 13px;
+    }
+    .hperf-lbl {
+      font-size: 9px; font-weight: 800; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .hperf-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 24px; font-weight: 800; line-height: 1; margin-top: 5px;
+    }
+    .hperf-tile--e .hperf-val { color: var(--green); }
+    .hperf-tile--s .hperf-val { color: var(--orange-text); }
+    .hperf-dash { color: var(--text-tertiary); }
+    .hperf-delta { font-size: 10.5px; font-family: 'JetBrains Mono', monospace; margin-top: 4px; font-weight: 600; }
+    .hperf-delta--up   { color: var(--green); }
+    .hperf-delta--down { color: var(--red); }
+    .hperf-delta--flat { color: var(--text-tertiary); }
+    .hperf-msg, .hperf-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; line-height: 1.5; }
+    .hperf-msg a { color: #2b4ca8; text-decoration: none; }
+
     /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
     @media (max-width: 640px) {
       .rd-ctl-row  { gap: 6px; }
@@ -1916,6 +1945,7 @@
       .rd-ctl-stat { font-size: 8px; }
       .nw-name     { font-size: 12.5px; }
       .nw-meta     { font-size: 10px; }
+      .hperf-val   { font-size: 20px; }
     }
   </style>
 </head>
@@ -1957,6 +1987,7 @@
     <div id="home-perf-container"></div>
     <div id="home-right-stack">
       <div id="home-workouts-container"></div>
+      <div id="home-performance-card" class="card"></div>
       <div id="home-sleep-card" class="card sleep-card"></div>
     </div>
   </div>

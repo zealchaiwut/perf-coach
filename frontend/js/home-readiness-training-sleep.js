@@ -507,13 +507,123 @@
       });
   }
 
+  /* ── Performance (Endurance/Speed) widget (home v2) ─────────────────────── */
+  /* ⚠️ Single source of truth: GET /api/athletes/{id}/performance — the SAME
+     endpoint the Performance tab and Plan tab's projection cards read. Do not
+     compute or mock a score here. */
+
+  // Block-delta — DUPLICATED exactly from training-performance.js's private
+  // _blockDelta (~line 226-248, not exported). Finds the latest trend point
+  // whose date is ~28 days before the last date, by DATE via the parallel
+  // trend_dates array (the trend is step-like/irregular, so an index offset
+  // is wrong — see the source comment). Returns null (hide the pill) when no
+  // such point exists.
+  function _hpfBlockDelta(trend, trendDates) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
+    var last = trend[trend.length - 1];
+    if (last == null) return null;
+
+    var base = null;
+    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
+      var lastMs = Date.parse(trendDates[trendDates.length - 1] + 'T00:00:00');
+      var cutoff = lastMs - 28 * 86400000; // ~4 weeks back
+      for (var i = trend.length - 1; i >= 0; i--) {
+        var ms = Date.parse(trendDates[i] + 'T00:00:00');
+        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
+      }
+      if (base == null) return null;
+    } else {
+      base = trend[0];
+    }
+    if (base == null) return null;
+    return Math.round(last - base);
+  }
+
+  function _hpfTileHtml(label, cls, data) {
+    if (!data || typeof data !== 'object' || data.score == null) {
+      return '<div class="hperf-tile hperf-tile--' + cls + '">' +
+        '<div class="hperf-lbl">' + label + '</div>' +
+        '<div class="hperf-val hperf-dash">—</div>' +
+      '</div>';
+    }
+    var score = Math.round(data.score);
+    var trend = Array.isArray(data.trend) ? data.trend : [];
+    var delta = _hpfBlockDelta(trend, data.trend_dates);
+    var deltaHtml = '';
+    if (delta !== null) {
+      var dcls = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
+      var dtxt = delta > 0
+        ? '&#8593; +' + delta + ' this block'
+        : delta < 0
+          ? '&#8595; &minus;' + Math.abs(delta) + ' this block'
+          : 'flat this block';
+      deltaHtml = '<div class="hperf-delta hperf-delta--' + dcls + '">' + dtxt + '</div>';
+    }
+    return '<div class="hperf-tile hperf-tile--' + cls + '">' +
+      '<div class="hperf-lbl">' + label + '</div>' +
+      '<div class="hperf-val">' + score + '</div>' +
+      deltaHtml +
+    '</div>';
+  }
+
+  function renderPerformanceCard(el, athleteId) {
+    if (!el) return;
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-chart-line"></i>Performance</div>' +
+        '<a href="/log#performance">View trends &#8594;</a>' +
+      '</div>';
+    el.innerHTML = header + '<div class="hperf-loading">Loading…</div>';
+
+    if (!athleteId) {
+      el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      return;
+    }
+
+    fetch('/api/athletes/' + athleteId + '/performance')
+      .then(function (r) {
+        return r.json().then(function (d) { return d; }).catch(function () { return null; });
+      })
+      .then(function (data) {
+        var state = data && typeof data === 'object' ? data.state : null;
+
+        if (state === 'scored') {
+          el.innerHTML = header +
+            '<div class="hperf-grid">' +
+              _hpfTileHtml('Endurance', 'e', data.endurance) +
+              _hpfTileHtml('Speed', 's', data.speed) +
+            '</div>';
+          return;
+        }
+        // Mirror the Performance tab's own phrasing for these sub-states
+        // (frontend/pages/training-log.html .perf-threshold-hint / .perf-bb-reason).
+        if (state === 'needs_thresholds') {
+          el.innerHTML = header +
+            '<div class="hperf-msg">To compute your score, set your FTP, threshold HR, ' +
+              'and threshold pace in <a href="/settings#thresholds">Settings → Thresholds</a>.</div>';
+          return;
+        }
+        if (state === 'building_baseline') {
+          var reason = (data && data.reason) || 'Keep training: your baseline is building.';
+          el.innerHTML = header + '<div class="hperf-msg">' + esc(reason) + '</div>';
+          return;
+        }
+        el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      })
+      .catch(function () {
+        el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      });
+  }
+
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
 
-  function render(summary) {
+  function render(summary, userId) {
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
     var nwEl  = document.getElementById('home-next-workout-card');
+    var pfEl  = document.getElementById('home-performance-card');
 
     if (rdEl) {
       if (!rdEl.classList.contains('card')) {
@@ -541,8 +651,13 @@
     if (nwEl) {
       renderNextWorkoutCard(nwEl);
     }
+    if (pfEl) {
+      renderPerformanceCard(pfEl, userId);
+    }
   }
 
-  /* Expose for home.js to call with pre-fetched summary */
+  /* Expose for home.js to call with pre-fetched summary (+ the session user
+     id, needed for the Performance widget's /api/athletes/{id}/performance
+     call — home.js resolves it via fetchCurrentUser() before this runs). */
   window.HomeRTS = { render: render };
 })();
