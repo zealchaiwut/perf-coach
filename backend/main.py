@@ -15473,7 +15473,12 @@ def _plan_signature(session, user_id, plan) -> str:
         prefs_pace_stamp, prefs_updated_at,
     ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
+    # Bundle-shape version: bump when the cached bundle gains/changes a key so
+    # existing computed_cache rows (old shape) invalidate on deploy instead of
+    # being served stale. bundle-v2 = folded in the primary race's `readiness`.
+    _BUNDLE_VERSION = "bundle-v2"
     parts = [
+        _BUNDLE_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
         str(max_race), str(max_race_created), str(max_checkpoint_updated),
         str(prefs_stamp),
