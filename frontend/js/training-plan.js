@@ -256,7 +256,6 @@ information about.
         '</div>' +
         '<div class="pl-btnrow">' +
           '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
@@ -270,9 +269,6 @@ information about.
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
-    document.getElementById('pl-dlprompt').onclick = function () {
-      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
-    };
     if (_bundle) _renderWeekList();
   }
 
@@ -964,6 +960,7 @@ information about.
   function _bulkJSONHtml() {
     return '<div class="pl-jsontools">' +
         '<button class="pl-btn pl-ghost" id="pl-bj-dl">⬇ Download template</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-bj-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-bj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste an array of sessions — one file for the whole week, full block/exercise detail.</div>' +
@@ -974,6 +971,9 @@ information about.
   }
   function _wireBulkJSON() {
     document.getElementById('pl-bj-dl').onclick = function () { _downloadFile('perf-coach-week-template.json', JSON.stringify(tplBulkWeek, null, 2)); };
+    document.getElementById('pl-bj-dlprompt').onclick = function () {
+      _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
+    };
     document.getElementById('pl-bj-up').onchange = function () { _readFileInto(this, 'pl-bj-ta'); };
     document.getElementById('pl-bj-cancel').onclick = _closeAdd;
     document.getElementById('pl-bj-val').onclick = function () { _previewBulkJSON(); };
