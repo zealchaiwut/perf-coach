@@ -15616,6 +15616,12 @@ def _compute_plan_bundle(user) -> dict:
             next((r for r in races if r.race_type == "race"), None),
         )
         primary_time_curve = None
+        # Full readiness of the primary race, captured from the same
+        # _race_readiness_impl call the estimate loop already makes (reused, not
+        # recomputed) and folded into the bundle under "readiness" so the
+        # Projection tab renders time/form curves + on-track + specificity from
+        # ONE cached call instead of a separate ~1.5s /api/races/{id}/readiness.
+        primary_readiness = None
         primary_race_id = str(primary_race.id) if primary_race else None
         race_out = []
         for race in races:
@@ -15641,6 +15647,7 @@ def _compute_plan_bundle(user) -> dict:
                     and readiness
                 ):
                     primary_time_curve = readiness.get("time_curve")
+                    primary_readiness = readiness
                 if readiness and readiness.get("time_curve"):
                     proj = readiness["time_curve"].get("projection") or []
                     hist = readiness["time_curve"].get("history") or []
@@ -15678,6 +15685,11 @@ def _compute_plan_bundle(user) -> dict:
             "primary_race_id": primary_race_id,
             "time_curve": primary_time_curve,
         },
+        # Full primary-race readiness (time_curve, form_curve, on_track,
+        # specificity_progress, building_baseline, projected_form) so the
+        # Projection tab renders everything from this one cached bundle. Null
+        # when there is no upcoming primary race.
+        "readiness": primary_readiness,
         "races": race_out,
     }
 
