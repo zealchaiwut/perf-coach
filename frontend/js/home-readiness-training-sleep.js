@@ -1,6 +1,17 @@
 (function () {
   'use strict';
 
+  /* HTML escaping (XSS guard) for the user-generated strings the home v2
+     widgets echo — session names, error/reason text from the API. */
+  function esc(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   /* ── Compact Readiness Tile ─────────────────────────────────────────────── */
 
   var _RD_TILE_FACTOR_META = {
@@ -55,7 +66,115 @@
     );
   }
 
-  function renderReadinessTile(el, readiness) {
+  /* ── CTL/ATL/TSB training-load trio (home v2) ──────────────────────────────
+     Second section of the Readiness card, below the existing daily-signal
+     block. Ported from training-log.js's private _lrxReadStatus/_lrxMarkerPct/
+     _lrxTrendLine/_LRX_BAND/_LRX_TREND_COLOR (~line 682-711) — DUPLICATED, not
+     imported (that IIFE doesn't export them), at the exact same band
+     thresholds. Status colors are ported as literal hex (the --lrx-* CSS vars
+     they reference don't exist on this page) matching the Log tab's rendered
+     colors exactly. */
+  function _rdCtlStatus(metric, v) {
+    if (metric === 'ctl') {
+      if (v < 20) return { word: 'DETRAINING', color: '#d97706' };
+      if (v < 40) return { word: 'STEADY', color: '#6366f1' };
+      return { word: 'STRONG', color: '#16a34a' };
+    }
+    if (metric === 'atl') {
+      if (v < 25) return { word: 'LOW', color: '#16a34a' };
+      if (v < 45) return { word: 'MODERATE', color: '#6366f1' };
+      return { word: 'HIGH', color: '#d97706' };
+    }
+    // tsb
+    if (v < -10) return { word: 'OVERREACHED', color: '#d97706' };
+    if (v <= 5) return { word: 'OPTIMAL', color: '#16a34a' };
+    return { word: 'FRESH', color: '#4f6ef7' };
+  }
+
+  function _rdCtlMarkerPct(metric, v) {
+    var min = metric === 'tsb' ? -25 : 0;
+    var max = metric === 'tsb' ? 15 : 60;
+    var pct = ((v - min) / (max - min)) * 100;
+    return Math.max(2, Math.min(98, pct));
+  }
+
+  var _RD_CTL_BAND = {
+    ctl: 'linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)',
+    atl: 'linear-gradient(90deg,#22c55e,#eab308,#ef4444)',
+    tsb: 'linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)',
+  };
+  var _RD_CTL_TREND_COLOR = { ctl: '#4f6ef7', atl: '#dc2626', tsb: '#16a34a' };
+
+  function _rdCtlFmt(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return String(Math.round(v * 10) / 10);
+  }
+
+  /* Small sparkline (~100×24, matching the mock's .ctlspark) — same draw
+     algorithm as _lrxTrendLine, scaled down. */
+  function _rdCtlSpark(svgId, pts, color) {
+    var svg = document.getElementById(svgId);
+    if (!svg || !pts || pts.length < 2) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = 100, H = 24;
+    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    var d = pts
+      .map(function (v, i) {
+        var x = (i / (pts.length - 1)) * W;
+        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 4) - 2;
+        return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      })
+      .join(' ');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    var NS = 'http://www.w3.org/2000/svg';
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '1.6');
+    svg.appendChild(path);
+  }
+
+  function _rdCtlCardHtml(metric, val, abbr, label, sparkId) {
+    var st = _rdCtlStatus(metric, val);
+    var pct = _rdCtlMarkerPct(metric, val);
+    return '<div class="rd-ctl-card">' +
+      '<div class="rd-ctl-v">' + _rdCtlFmt(val) + '</div>' +
+      '<div class="rd-ctl-l">' + abbr + ' ' + label + '</div>' +
+      '<div class="rd-ctl-band" style="background:' + _RD_CTL_BAND[metric] + '">' +
+        '<div class="rd-ctl-mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
+      '<div class="rd-ctl-stat" style="color:' + st.color + '">' + st.word + '</div>' +
+      '<svg class="rd-ctl-spark" id="' + sparkId + '"></svg>' +
+    '</div>';
+  }
+
+  /* trainingLoad is the raw GET /api/readiness (no query params) response —
+     a SEPARATE fetch from the /api/home/summary that feeds the rest of this
+     tile (wired once in render(), see below). Returns '' when not yet loaded
+     (renderReadinessTile is still called immediately with the summary data,
+     so the daily-signal block isn't blocked on this extra request). */
+  function _rdCtlRowHtml(trainingLoad) {
+    if (!trainingLoad) return '';
+    if (trainingLoad.building_baseline) {
+      return '<div class="rd-ctl-bb">Still building your training-load baseline.</div>';
+    }
+    return '<div class="rd-ctl-row">' +
+      _rdCtlCardHtml('ctl', trainingLoad.ctl, 'CTL', 'Fitness', 'rd-ctl-spark-ctl') +
+      _rdCtlCardHtml('atl', trainingLoad.atl, 'ATL', 'Fatigue', 'rd-ctl-spark-atl') +
+      _rdCtlCardHtml('tsb', trainingLoad.tsb, 'TSB', 'Freshness', 'rd-ctl-spark-tsb') +
+    '</div>';
+  }
+
+  function _rdCtlDrawSparks(trainingLoad) {
+    if (!trainingLoad || trainingLoad.building_baseline) return;
+    var series = Array.isArray(trainingLoad.series) ? trainingLoad.series : [];
+    var last9 = series.slice(-9);
+    _rdCtlSpark('rd-ctl-spark-ctl', last9.map(function (d) { return d.ctl; }), _RD_CTL_TREND_COLOR.ctl);
+    _rdCtlSpark('rd-ctl-spark-atl', last9.map(function (d) { return d.atl; }), _RD_CTL_TREND_COLOR.atl);
+    _rdCtlSpark('rd-ctl-spark-tsb', last9.map(function (d) { return d.tsb; }), _RD_CTL_TREND_COLOR.tsb);
+  }
+
+  function renderReadinessTile(el, readiness, trainingLoad) {
     if (!el) return;
 
     var header =
@@ -64,18 +183,18 @@
         '<a href="/calendar">Log metrics &#8594;</a>' +
       '</div>';
 
+    var body;
+
     /* Null block — render minimal fallback without errors */
     if (!readiness) {
-      el.innerHTML = header +
+      body =
         '<div class="rd-tile-empty">' +
           '<p class="rd-tile-msg">No readiness data available.</p>' +
         '</div>';
-      return;
-    }
 
     /* logged === false → empty state */
-    if (!readiness.logged) {
-      el.innerHTML = header +
+    } else if (!readiness.logged) {
+      body =
         '<div class="rd-tile-empty">' +
           '<i class="ti ti-moon-stars rd-tile-icon"></i>' +
           '<p class="rd-tile-msg">No metrics logged yet today — log to see your readiness score</p>' +
@@ -83,37 +202,43 @@
             '<i class="ti ti-pencil-plus"></i> Log today\'s metrics' +
           '</a>' +
         '</div>';
-      return;
-    }
 
     /* logged === true → score ring + top 3 factors */
-    var score = readiness.score || 0;
-    var label = readiness.label || '';
-    var color = _rdRingColor(score);
-    var top_factors = readiness.top_factors || [];
+    } else {
+      var score = readiness.score || 0;
+      var label = readiness.label || '';
+      var color = _rdRingColor(score);
+      var top_factors = readiness.top_factors || [];
 
-    var factorsHTML = top_factors.slice(0, 3).map(function (f) {
-      var meta = _RD_TILE_FACTOR_META[f.factor] ||
-        { name: f.factor, fmt: function (v) { return String(v != null ? v : '—'); } };
-      var valStr = meta.fmt(f.value);
-      var arrow = f.impact === 'positive' ? '↑' : (f.impact === 'negative' ? '↓' : '→');
-      var arrowCls = f.impact === 'positive' ? 'rd-arrow--positive' :
-        (f.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
-      return '<div class="rd-tile-factor">' +
-        '<span class="rd-tile-factor-name">' + meta.name + '</span>' +
-        '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
-        '<span class="rd-tile-factor-val">' + valStr + '</span>' +
-      '</div>';
-    }).join('');
+      var factorsHTML = top_factors.slice(0, 3).map(function (f) {
+        var meta = _RD_TILE_FACTOR_META[f.factor] ||
+          { name: f.factor, fmt: function (v) { return String(v != null ? v : '—'); } };
+        var valStr = meta.fmt(f.value);
+        var arrow = f.impact === 'positive' ? '↑' : (f.impact === 'negative' ? '↓' : '→');
+        var arrowCls = f.impact === 'positive' ? 'rd-arrow--positive' :
+          (f.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
+        return '<div class="rd-tile-factor">' +
+          '<span class="rd-tile-factor-name">' + meta.name + '</span>' +
+          '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
+          '<span class="rd-tile-factor-val">' + valStr + '</span>' +
+        '</div>';
+      }).join('');
 
-    el.innerHTML = header +
-      '<div class="rd-tile-body">' +
-        '<div class="rd-tile-ring-wrap">' +
-          _rdRingSVG(score, color) +
-          '<div class="rd-tile-score-label" style="color:' + color + ';">' + label + '</div>' +
-        '</div>' +
-        '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
-      '</div>';
+      body =
+        '<div class="rd-tile-body">' +
+          '<div class="rd-tile-ring-wrap">' +
+            _rdRingSVG(score, color) +
+            '<div class="rd-tile-score-label" style="color:' + color + ';">' + label + '</div>' +
+          '</div>' +
+          '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
+        '</div>';
+    }
+
+    // CTL/ATL/TSB trio appended below the daily-signal block, inside the same
+    // card, in every branch above (it's a separate data source — training
+    // load exists whether or not today's wellness metrics were logged).
+    el.innerHTML = header + body + _rdCtlRowHtml(trainingLoad);
+    _rdCtlDrawSparks(trainingLoad);
   }
 
   /* ── Training Card ──────────────────────────────────────────────────────── */
@@ -280,7 +405,18 @@
       if (!rdEl.classList.contains('card')) {
         rdEl.className = 'card';
       }
-      renderReadinessTile(rdEl, summary && summary.readiness ? summary.readiness : null);
+      var readinessData = summary && summary.readiness ? summary.readiness : null;
+      // Render immediately from the summary data (daily signal), then again
+      // once the separate CTL/ATL/TSB fetch resolves — the trio is a second,
+      // independent data source (GET /api/readiness, no query params), so it
+      // shouldn't block the rest of this tile.
+      renderReadinessTile(rdEl, readinessData, null);
+      fetch('/api/readiness')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (trainingLoad) {
+          renderReadinessTile(rdEl, readinessData, trainingLoad);
+        })
+        .catch(function () { /* trio stays omitted; daily-signal block is unaffected */ });
     }
     if (twEl) {
       renderTrainingCard(twEl, summary && summary.training_week ? summary.training_week : null);
