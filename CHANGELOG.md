@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 87.2 — Weight timezone fix, chart tap-toggle, and inline-edit listener cleanup
+
+- #505: [follow-up] Unify list_weight_entries default range to Bangkok timezone
+- #536: [follow-up] Weight chart tap-to-show: touchend hides tooltip immediately
+- #537: [follow-up] Weight inline-edit: remove onEscape listener explicitly on save success
+
 ## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
 
 - #1162: Recalibrate score ceiling on B race entry
