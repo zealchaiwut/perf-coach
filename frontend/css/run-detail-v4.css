@@ -730,9 +730,12 @@
 }
 .rd4-cell2--work-alt .rd4-cbar-rep { color: #be185d; }
 
-/* left:42 so the HR line spans the bars area (past the y-label gutter), staying
-   aligned with the bars + x-axis rather than the full padded box. */
-.rd4-hr-svg { position: absolute; top: 0; right: 0; bottom: 0; left: 42px; z-index: 2; height: 100%; overflow: visible; pointer-events: none; }
+/* Span exactly the bars area (past the 42px y-label gutter). EXPLICIT width is
+   required: this SVG has a 1:1 viewBox, so with height:100% and auto width the
+   browser sizes it to its aspect ratio (~130px) and ignores right:0 — collapsing
+   the HR coordinate space and shoving every dot left. calc(100% - 42px) (100% =
+   the padded chart's full width) makes it exactly the bars width at left:42. */
+.rd4-hr-svg { position: absolute; top: 0; left: 42px; width: calc(100% - 42px); height: 100%; z-index: 2; overflow: visible; pointer-events: none; }
 /* The axis + legend are SIBLINGS of .rd4-chart2 (which owns the 42px y-label
    gutter as padding), so they must reproduce that 42px inset themselves to line
    up with the bars — the bars start at 42, so the axis does too. flex:1 spreads
