@@ -394,12 +394,121 @@
       '</div>';
   }
 
+  /* ── Next workout (home v2) ─────────────────────────────────────────────── */
+
+  var _NW_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var _NW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function _nwAddDaysISO(isoStr, n) {
+    var d = new Date(isoStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function _nwFmtDate(isoStr) {
+    var p = isoStr.split('-');
+    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    return _NW_DOW[d.getDay()] + ', ' + _NW_MONTHS[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  // Cheap structure summary — NOT the full Plan-tab structure renderer, just
+  // enough for a one-line meta string (e.g. "100min" / "5 exercises").
+  function _nwStructureSummary(structure) {
+    var s = structure || {};
+    if (Array.isArray(s.blocks) && s.blocks.length) {
+      var tot = 0;
+      s.blocks.forEach(function (b) {
+        var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
+        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+      });
+      return tot ? tot + 'min' : '';
+    }
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      return s.exercises.length + ' exercise' + (s.exercises.length > 1 ? 's' : '');
+    }
+    return '';
+  }
+
+  function _nwBadgeCls(sessionType) {
+    return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
+  }
+  function _nwBadgeLabel(sessionType) {
+    if (sessionType === 'strength') return 'Strength';
+    if (sessionType === 'plyo') return 'Plyo';
+    return 'Run';
+  }
+
+  // Iterate days[] in order; first day with a non-rest planned session wins.
+  // Prefer status==='planned' when a day has multiple sessions, else planned[0].
+  // Rest-only/empty days are skipped (kept scanning) rather than shown as the
+  // "next workout" — if nothing non-rest exists anywhere in the window, the
+  // caller falls through to the empty state.
+  function _nwFindNext(bundle) {
+    var days = (bundle && Array.isArray(bundle.days)) ? bundle.days : [];
+    for (var i = 0; i < days.length; i++) {
+      var planned = Array.isArray(days[i].planned) ? days[i].planned : [];
+      var nonRest = planned.filter(function (p) { return p.session_type !== 'rest'; });
+      if (!nonRest.length) continue;
+      var preferred = nonRest.find(function (p) { return p.status === 'planned'; });
+      return preferred || nonRest[0];
+    }
+    return null;
+  }
+
+  function _nwEmptyHtml() {
+    return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
+  }
+
+  function renderNextWorkoutCard(el) {
+    if (!el) return;
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-calendar-event"></i>Next workout</div>' +
+        '<a href="/log#plan">Plan &#8594;</a>' +
+      '</div>';
+    el.innerHTML = header + '<div class="nw-loading">Loading…</div>';
+
+    var today = _bangkokTodayStr();
+    var to = _nwAddDaysISO(today, 13);
+    fetch('/api/planned-sessions?from=' + today + '&to=' + to)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (bundle) {
+        var next = _nwFindNext(bundle);
+        if (!next) {
+          el.innerHTML = header + _nwEmptyHtml();
+          return;
+        }
+        var cls = _nwBadgeCls(next.session_type);
+        var label = _nwBadgeLabel(next.session_type);
+        var metaParts = [_nwFmtDate(next.planned_date)];
+        var summary = _nwStructureSummary(next.structure);
+        if (summary) metaParts.push(summary);
+
+        el.innerHTML = header +
+          '<a class="nw-row" href="/log#plan">' +
+            '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+            '<span class="nw-info">' +
+              '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
+              '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
+            '</span>' +
+            '<span class="nw-arrow">&#8594;</span>' +
+          '</a>';
+      })
+      .catch(function () {
+        el.innerHTML = header + _nwEmptyHtml();
+      });
+  }
+
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
 
   function render(summary) {
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
+    var nwEl  = document.getElementById('home-next-workout-card');
 
     if (rdEl) {
       if (!rdEl.classList.contains('card')) {
@@ -423,6 +532,9 @@
     }
     if (slpEl) {
       renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
+    }
+    if (nwEl) {
+      renderNextWorkoutCard(nwEl);
     }
   }
 

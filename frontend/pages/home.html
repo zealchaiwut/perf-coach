@@ -1865,6 +1865,38 @@
       line-height: 1.5;
     }
 
+    /* ---- NEXT WORKOUT CARD (home-next-workout-card) ---- */
+    .nw-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .nw-badge {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .nw-badge--run  { background: var(--blue-soft);   color: var(--blue-text); }
+    .nw-badge--lift { background: var(--purple-soft); color: var(--purple-text); }
+    .nw-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .nw-name {
+      font-size: 13.5px; font-weight: 700; color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nw-meta {
+      font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nw-arrow { font-size: 14px; color: #2b4ca8; font-weight: 700; flex-shrink: 0; }
+    .nw-empty, .nw-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; }
+    .nw-empty a { color: #2b4ca8; text-decoration: none; }
+
     /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
     @media (max-width: 640px) {
       .rd-ctl-row  { gap: 6px; }
@@ -1872,6 +1904,8 @@
       .rd-ctl-v    { font-size: 14px; }
       .rd-ctl-l    { font-size: 7px; }
       .rd-ctl-stat { font-size: 8px; }
+      .nw-name     { font-size: 12.5px; }
+      .nw-meta     { font-size: 10px; }
     }
   </style>
 </head>
@@ -1892,6 +1926,9 @@
     <div id="home-habits-widget" class="card"></div>
     <div id="home-top-row-right"></div>
   </div>
+
+  <!-- Next workout (full-width, home v2) -->
+  <div id="home-next-workout-card" class="card" style="margin-bottom:16px;"></div>
 
   <!-- Row 2: Weight (full-width) -->
   <div id="body-modifier-guardrail"></div>
