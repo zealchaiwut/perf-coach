@@ -236,10 +236,9 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="Assemble a planning prompt pre-filled with last week\'s results — copy it into a Claude chat">✨ Suggest sessions</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-ghost" id="pl-dlprompt" title="Download the blank weekly-plan kickoff prompt">⬇ Download planning prompt</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-addweek">+ Add week</button>' +
-          '<button class="pl-btn pl-dark" id="pl-addsession">+ Add session</button>' +
+          '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
@@ -251,9 +250,7 @@ information about.
       '</div>';
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
-    document.getElementById('pl-addweek').onclick = function () { _openAdd('bulk'); };
-    document.getElementById('pl-addsession').onclick = function () { _openAdd('single'); };
-    document.getElementById('pl-suggest').onclick = function () { _openSuggest(); };
+    document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
     document.getElementById('pl-dlprompt').onclick = function () {
       _downloadFile('weekly-plan-kickoff-prompt.md', KICKOFF_PROMPT_TEMPLATE, 'text/markdown');
     };
@@ -1365,6 +1362,7 @@ information about.
     '.plan-panel .pl-sectitle{font-size:11px;font-weight:800;letter-spacing:0.07em;color:var(--pl-faint);text-transform:uppercase;}',
     '.plan-panel .pl-chead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}',
     '.plan-panel .pl-btn{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);font-family:inherit;}',
+    '.plan-panel .pl-btn:disabled{opacity:0.42;cursor:not-allowed;}',
     '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
     '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
