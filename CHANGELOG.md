@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 87.4 — Weight-page unit toggle follow-ups and main.py import cleanup
+
+- #506: [follow-up] Move ZoneInfo and func imports to top-level in main.py
+- #510: [follow-up] Remove dead variable _cardBEntryNotes in weight.js
+- #512: [follow-up] _applyUnit() does not convert stepper displayed value on unit switch
+
 ## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
 
 - #1162: Recalibrate score ceiling on B race entry
