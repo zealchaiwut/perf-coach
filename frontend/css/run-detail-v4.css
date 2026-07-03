@@ -733,11 +733,14 @@
 /* left:42 so the HR line spans the bars area (past the y-label gutter), staying
    aligned with the bars + x-axis rather than the full padded box. */
 .rd4-hr-svg { position: absolute; top: 0; right: 0; bottom: 0; left: 42px; z-index: 2; height: 100%; overflow: visible; pointer-events: none; }
-.rd4-axis2 { margin-top: 4px; }
-/* flex:1 makes each lap number spread to sit centered under its bar (bars get
-   flex:1 inline); without it the numbers bunch at the left, misaligned. */
+/* The axis + legend are SIBLINGS of .rd4-chart2 (which owns the 42px y-label
+   gutter as padding), so they must reproduce that 42px inset themselves to line
+   up with the bars — the bars start at 42, so the axis does too. flex:1 spreads
+   each number centered under its bar. The legend sits at the card's left edge
+   (no gutter), so it gets no inset. */
+.rd4-axis2 { margin-top: 4px; padding-left: 42px; }
 .rd4-axis2 .rd4-cell2 { flex: 1 0 0; text-align: center; font-size: 11px; color: #5c6886; font-variant-numeric: tabular-nums; }
-.rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; margin-left: -42px; font-size: 12px; color: #5c6886; }
+.rd4-chart2-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; font-size: 12px; color: #5c6886; }
 .rd4-chart2-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .rd4-swatch2 { width: 14px; height: 10px; border-radius: 2px; }
 
