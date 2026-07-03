@@ -75,14 +75,26 @@
 
     /* ---- ROWS ---- */
     #home-training-row { margin-bottom: 16px; }
+    /* Recent workouts | Sleep — 2-up (home v2 layout follow-up; used to be
+       [Performance 2fr | Recent workouts+Performance+Sleep stack 1fr] before
+       Performance/Personal-records moved into #home-compact-row above). */
     #home-lower-row {
       display: grid;
-      grid-template-columns: 2fr 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 16px;
       margin-bottom: 16px;
       align-items: start;
     }
-    #home-right-stack { display: flex; flex-direction: column; gap: 16px; }
+    /* Next workout | Performance | Personal records — compact 3-up (home v2
+       layout follow-up), same gap/margin convention as #home-top-row/
+       #home-lower-row. */
+    #home-compact-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+      align-items: start;
+    }
 
     /* ---- CARD ---- */
     .card {
@@ -1281,6 +1293,7 @@
       .greeting p { font-size: 12.5px; }
 
       #home-lower-row { grid-template-columns: 1fr; }
+      #home-compact-row { grid-template-columns: 1fr; }
 
       .workout-desktop-only { display: none; }
 
@@ -1967,11 +1980,18 @@
     <div id="home-top-row-right"></div>
   </div>
 
-  <!-- Next workout (full-width, home v2) -->
-  <div id="home-next-workout-card" class="card" style="margin-bottom:16px;"></div>
+  <div id="body-modifier-guardrail"></div>
+
+  <!-- Compact 3-up row: Next workout | Performance | Personal records
+       (home v2 layout follow-up — these three were too sparse full-width /
+       stacked; grouping them uses the page width better). -->
+  <div id="home-compact-row">
+    <div id="home-next-workout-card" class="card"></div>
+    <div id="home-performance-card" class="card"></div>
+    <div id="home-perf-container"></div>
+  </div>
 
   <!-- Row 2: Weight (full-width) -->
-  <div id="body-modifier-guardrail"></div>
   <div id="home-weight-widget" style="margin-bottom:16px;"></div>
 
   <!-- Strava stale banner (shown when sync is needed) -->
@@ -1982,14 +2002,10 @@
     <div id="home-training-card" class="card"></div>
   </div>
 
-  <!-- Lower row 2: Performance (left) + [Recent Workouts + Sleep stacked] (right) -->
+  <!-- Lower row 2: Recent Workouts | Sleep (2-up) -->
   <div id="home-lower-row">
-    <div id="home-perf-container"></div>
-    <div id="home-right-stack">
-      <div id="home-workouts-container"></div>
-      <div id="home-performance-card" class="card"></div>
-      <div id="home-sleep-card" class="card sleep-card"></div>
-    </div>
+    <div id="home-workouts-container"></div>
+    <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped -->
