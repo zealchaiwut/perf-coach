@@ -15629,7 +15629,7 @@ def _compute_plan_bundle(user) -> dict:
 
     # Current athlete scores.
     try:
-        perf = _decode(get_athlete_performance(user=user)) or {}
+        perf = _decode(get_athlete_performance(str(user.id), user=user)) or {}
     except HTTPException:
         perf = {}
     p_state = perf.get("state")
