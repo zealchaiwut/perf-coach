@@ -138,7 +138,21 @@ information about.
       if (!_weekStart) _weekStart = _mondayOf(new Date());
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
-      _loadWeek();
+      _loadWeek(function () {
+        if (_pendingOpenId) {
+          var id = _pendingOpenId;
+          _pendingOpenId = null;
+          _openDetailById(id);
+        }
+      });
+    },
+    // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
+    // week to the session's date and flag it to open once init()'s own
+    // _loadWeek resolves. Call BEFORE switching to the Plan tab, so init()
+    // (triggered by the tab switch) picks up the right _weekStart/_pendingOpenId.
+    openSession: function (sessionId, dateIso) {
+      if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
+      _pendingOpenId = sessionId;
     }
   };
 
@@ -193,7 +207,7 @@ information about.
   }
 
   // ── Load / reload the week ──────────────────────────────────────────────────
-  function _loadWeek() {
+  function _loadWeek(onDone) {
     var from = _iso(_weekStart), to = _iso(_addDays(_weekStart, 6));
     var host = document.getElementById('plan-week-list');
     if (host) host.innerHTML = '<div class="pl-loading">Loading week…</div>';
@@ -212,11 +226,16 @@ information about.
           _detail = updated;
           _renderDetailSection();
         }
+        if (onDone) onDone();
       })
       .catch(function () {
         if (host) host.innerHTML = '<div class="pl-loading">Could not load the week.</div>';
       });
   }
+
+  // Set by openSession() before the tab switch triggers init(); consumed once
+  // the resulting week load resolves (see init() below).
+  var _pendingOpenId = null;
 
   // ── Render shell ────────────────────────────────────────────────────────────
   function _renderAll() {

@@ -4726,7 +4726,7 @@
           (day.planned || []).forEach(function (p) {
             if (p.session_type === 'rest') return;
             if (!calPlannedData[day.date]) calPlannedData[day.date] = [];
-            calPlannedData[day.date].push({ type: p.session_type, status: p.status });
+            calPlannedData[day.date].push({ id: p.id, type: p.session_type, status: p.status });
           });
         });
         calPlannedMonthKey = key;
@@ -4744,12 +4744,13 @@
     pd.forEach(function (p) {
       var fam = _calPlannedFamily(p.type);
       var done = _calIsDoneStatus(p.status);
-      if (!byFam[fam] || (done && !byFam[fam].done)) byFam[fam] = { done: done };
+      if (!byFam[fam] || (done && !byFam[fam].done)) byFam[fam] = { done: done, id: p.id };
     });
     var html = '';
     ['run', 'lift'].forEach(function (fam) {
       if (!byFam[fam]) return;
-      html += '<div class="lrx-caltag ' + fam + (byFam[fam].done ? ' done' : ' planned') + '">[' +
+      html += '<div class="lrx-caltag ' + fam + (byFam[fam].done ? ' done' : ' planned') +
+        '" data-plan-session="' + byFam[fam].id + '" data-plan-date="' + dateStr + '" title="Open in Plan">[' +
         _calPlannedLabel(fam) + ']</div>';
     });
     return html;
@@ -4887,8 +4888,8 @@
       '<div class="lrx-callegend">' +
         '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
         '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
-        '<span><span class="lrx-caltag run done" style="margin:0 5px 0 0;">[Run]</span>Plan session — done</span>' +
-        '<span><span class="lrx-caltag run planned" style="margin:0 5px 0 0;">[Run]</span>Plan session — not yet done</span>' +
+        '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
+        '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
         '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
       '</div>';
     el.innerHTML = html;
@@ -4928,6 +4929,16 @@
     var tbody = el.querySelector('tbody');
     if (tbody) {
       tbody.addEventListener('click', function (e) {
+        // Plan-session tag → deep link to Plan, skip the week-scope/scroll
+        // behavior below entirely (this is a navigation, not a scope click).
+        var tag = e.target.closest('.lrx-caltag');
+        if (tag) {
+          e.stopPropagation();
+          document.dispatchEvent(new CustomEvent('plan:open-session', {
+            detail: { sessionId: tag.getAttribute('data-plan-session'), date: tag.getAttribute('data-plan-date') }
+          }));
+          return;
+        }
         var cell = e.target.closest('td[data-date]');
         var rowEl = e.target.closest('.lrx-calrow');
         if (cell && cell.getAttribute('data-date')) {
