@@ -466,24 +466,44 @@
     return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
   }
 
+  /* Merged Next+Recent card (home v3, issue-spec Task 1). This function only
+     owns the "Next workout" sub-section (#home-next-workout-section); the
+     "Recent workout" sub-section (#home-recent-workout-section) is a sibling
+     placeholder built here but filled in by home.js's
+     loadRecentWorkoutsCard, which keeps each widget's data source/render
+     logic independent (own fetch vs. pre-fetched summary block) while
+     sharing one physical card. */
+  function _nwSkeletonHtml() {
+    return (
+      '<div class="nw-worksub">' +
+        '<div class="nw-subhead">Next workout</div>' +
+        '<a href="/log#plan">Plan &#8594;</a>' +
+      '</div>' +
+      '<div id="home-next-workout-section" class="nw-loading">Loading…</div>' +
+      '<div class="nw-sep"></div>' +
+      '<div class="nw-worksub">' +
+        '<div class="nw-subhead">Recent workout</div>' +
+        '<a href="/log">View all &#8594;</a>' +
+      '</div>' +
+      '<div id="home-recent-workout-section" class="nw-loading">Loading…</div>'
+    );
+  }
+
   function renderNextWorkoutCard(el) {
     if (!el) return;
 
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-calendar-event"></i>Next workout</div>' +
-        '<a href="/log#plan">Plan &#8594;</a>' +
-      '</div>';
-    el.innerHTML = header + '<div class="nw-loading">Loading…</div>';
+    el.innerHTML = _nwSkeletonHtml();
 
     var today = _bangkokTodayStr();
     var to = _nwAddDaysISO(today, 13);
     fetch('/api/planned-sessions?from=' + today + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (bundle) {
+        var sectionEl = document.getElementById('home-next-workout-section');
+        if (!sectionEl) return;
         var next = _nwFindNext(bundle);
         if (!next) {
-          el.innerHTML = header + _nwEmptyHtml();
+          sectionEl.innerHTML = _nwEmptyHtml();
           return;
         }
         var cls = _nwBadgeCls(next.session_type);
@@ -492,7 +512,7 @@
         var summary = _nwStructureSummary(next.structure);
         if (summary) metaParts.push(summary);
 
-        el.innerHTML = header +
+        sectionEl.innerHTML =
           '<a class="nw-row" href="/log#plan">' +
             '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
             '<span class="nw-info">' +
@@ -503,7 +523,8 @@
           '</a>';
       })
       .catch(function () {
-        el.innerHTML = header + _nwEmptyHtml();
+        var sectionEl = document.getElementById('home-next-workout-section');
+        if (sectionEl) sectionEl.innerHTML = _nwEmptyHtml();
       });
   }
 

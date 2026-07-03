@@ -276,7 +276,7 @@
     if (!card) {
       card = document.createElement('div');
       card.id = 'perf-card';
-      card.className = 'card';
+      card.className = 'card grp-training';
       row2.insertBefore(card, row2.firstChild);
     }
 
@@ -435,46 +435,28 @@
     '</div>';
   }
 
+  /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
+     Fills only its sub-section (#home-recent-workout-section), built by
+     home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
+     "Next workout" sub-section above it is that file's own concern. Data
+     source (summary.recent_workouts, pre-fetched by home.js's init()) and
+     empty state are unchanged from the old standalone card — only the
+     surrounding card/header markup and "show just the top entry" collapse
+     are new, per the merged-card spec. */
   function loadRecentWorkoutsCard(userId, workoutsBlock) {
-    var row2 = document.getElementById('home-workouts-container') ||
-               document.getElementById('row-2');
-    if (!row2) return;
-
-    var card = document.getElementById('workouts-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'workouts-card';
-      card.className = 'card workouts';
-      row2.appendChild(card);
-    }
-
-    card.innerHTML = UIStates.loadingHTML();
+    var sectionEl = document.getElementById('home-recent-workout-section');
+    if (!sectionEl) return;
 
     var workouts = (workoutsBlock && workoutsBlock.workouts) ? workoutsBlock.workouts : [];
 
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
-        '<span style="display:inline-flex;align-items:center;gap:10px;">' +
-          '<a class="rw-log-btn" href="/training?return=/home"><i class="ti ti-plus"></i>Log workout</a>' +
-          '<a href="/log">View all →</a>' +
-        '</span>' +
-      '</div>';
-
     if (!workouts.length) {
-      card.innerHTML = header +
+      sectionEl.innerHTML =
         '<div class="workouts-empty">No workouts yet — ' +
         '<a href="/training?return=/home">log your first</a>.</div>';
       return;
     }
 
-    var top4 = workouts.slice(0, 4);
-    var listHTML = '';
-    top4.forEach(function (w, i) {
-      listHTML += buildWorkoutRow(w, i === 3 ? 'workout-desktop-only' : '');
-    });
-
-    card.innerHTML = header + '<div class="list">' + listHTML + '</div>';
+    sectionEl.innerHTML = '<div class="list">' + buildWorkoutRow(workouts[0]) + '</div>';
   }
 
   /* ---- Log Today card ---- */
@@ -1112,7 +1094,7 @@
     var card = container.querySelector('.card.hww-card');
     if (!card) {
       card = document.createElement('div');
-      card.className = 'card hww-card';
+      card.className = 'card hww-card grp-weight';
       container.appendChild(card);
     }
 

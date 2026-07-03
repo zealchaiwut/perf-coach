@@ -44,6 +44,14 @@
       --orange-soft: #ffe1d4;
       --teal-text: #1e6438;
       --teal-soft: #d4f0e2;
+      /* Home v3 color grouping (Task 4) — paired tint stops following the
+         existing --bg-1/--bg-2, --hero-1/--hero-2, --sleep-1/--sleep-2
+         naming convention. Blue tint reuses the existing --shell-1/--shell-2
+         pair directly (no new tokens needed); amber tint is new since no
+         light/dark amber PAIR existed (--amber/--amber-soft are text/chip
+         colors, not a gradient pair). */
+      --amber-tint-1: #fffaf0;
+      --amber-tint-2: #fdecc8;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -84,23 +92,91 @@
       font-size: 14px;
     }
 
-    /* ---- DASHBOARD GRID (home v2 layout follow-up #2) ----
-       One unified auto-fill grid replaces the previous patchwork of separate
-       row containers (#home-top-row / #home-compact-row / #home-lower-row —
-       all removed, along with #home-right-stack removed earlier). All
-       dashboard widgets are direct children so they pack edge-to-edge and
-       reflow 3-4 per row at desktop widths instead of being pinned into
-       fixed 1fr-1fr / 3x1fr / full-width rows. #home-log-today-strip,
-       #body-modifier-guardrail, #strava-stale-banner, and #row-log stay
-       OUTSIDE this grid (banners moved to sit together above the grid so
-       they don't have to interrupt a single continuous grid flow). */
+    /* ---- DASHBOARD GRID (home v3 bento layouts) ----
+       Four explicit, hand-placed layouts (Wide/Medium/Narrow/Mobile) replace
+       the previous single fluid repeat(auto-fit,minmax(280px,1fr)) grid —
+       that auto-fit grid packed cards wherever they happened to fit, which
+       drifted at odd widths and gave no control over which widgets sit next
+       to each other. Each breakpoint below hand-places all 8 widgets by id
+       via grid-column/grid-row so the layout is exact and predictable at
+       every width. #home-log-today-strip, #body-modifier-guardrail,
+       #strava-stale-banner, and #row-log stay OUTSIDE this grid. */
     #home-dashboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      grid-auto-flow: dense;
-      gap: 16px;
+      grid-template-columns: repeat(8, 1fr);
+      grid-auto-rows: 100px;
+      gap: 14px;
       margin-bottom: 16px;
       align-items: start;
+    }
+    /* Wide (>=1000px, unqualified — the base rule above is the widest
+       breakpoint, so no media query needed here). */
+    #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 3; }
+    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 2; }
+    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 2; }
+    #home-training-card      { grid-column: 5 / span 4; grid-row: 3 / span 2; }
+    #home-sleep-card         { grid-column: 1 / span 4; grid-row: 4 / span 2; }
+    #home-perf-container     { grid-column: 5 / span 4; grid-row: 5 / span 2; }
+    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 6 / span 2; }
+    #home-habits-widget      { grid-column: 5 / span 4; grid-row: 7 / span 2; }
+    /* Readiness is the only 3-row-tall widget at Wide/Medium/Narrow, so a
+       small packing gap is expected next to it (e.g. below Next+Recent /
+       Performance at Wide) — not a bug, don't try to eliminate it. */
+
+    @media (max-width: 999px) {
+      #home-dashboard-grid {
+        grid-template-columns: repeat(6, 1fr);
+        grid-auto-rows: 100px;
+        gap: 14px;
+      }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 3; }
+      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 2; }
+      #home-performance-card   { grid-column: 5 / span 2; grid-row: 3 / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 4 / span 2; }
+      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 5 / span 2; }
+      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 6 / span 2; }
+      #home-perf-container     { grid-column: 1 / span 3; grid-row: 8 / span 2; }
+      #home-weight-widget      { grid-column: 4 / span 3; grid-row: 8 / span 2; }
+    }
+
+    @media (max-width: 759px) {
+      .page { padding: 14px; }
+      .card { padding: 12px; }
+      /* Third tighter-padding step (13px) — card-head's default 14px
+         margin-bottom is the next-biggest whitespace cost inside a
+         12px-padded card, so it gets pulled in a notch too. */
+      .card-head { margin-bottom: 13px; }
+      /* These 4 widgets set their own (id-selector) padding, which beats
+         the .card override above on specificity — restate it here so
+         Narrow's tighter padding actually reaches them too. */
+      #home-top-row-right,
+      #home-habits-widget,
+      #home-training-card,
+      #home-weight-widget .card { padding: 12px; }
+      #home-dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: 90px;
+        gap: 10px;
+      }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 3; }
+      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 4  / span 2; }
+      #home-performance-card   { grid-column: 3 / span 2; grid-row: 4  / span 2; }
+      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 6  / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 8  / span 2; }
+      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 10 / span 2; }
+      #home-perf-container     { grid-column: 1 / span 4; grid-row: 12 / span 2; }
+      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 14 / span 2; }
+    }
+
+    @media (max-width: 479px) {
+      #home-dashboard-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      /* DOM order (see markup below) already matches the required Mobile
+         stack order — flex just follows document order, no per-widget rule
+         needed here. */
     }
 
     /* Card affordance: hover lift conveys "this is interactive" (most tiles
@@ -134,18 +210,10 @@
       #home-dashboard-grid > *:nth-child(6) { animation-delay: 150ms; }
       #home-dashboard-grid > *:nth-child(7) { animation-delay: 180ms; }
       #home-dashboard-grid > *:nth-child(8) { animation-delay: 210ms; }
-      #home-dashboard-grid > *:nth-child(9) { animation-delay: 240ms; }
     }
     @keyframes hv2-tile-in {
       from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Weight (has a form) and Training (4-stat grid + 7-day chart) need more
-       than one tile's width. */
-    #home-weight-widget,
-    #home-training-card {
-      grid-column: span 2;
     }
 
     /* ---- CARD ---- */
@@ -157,6 +225,16 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* ---- HOME V3 COLOR GROUPING (Task 4) ----
+       Training cluster (Readiness/Next+Recent/Performance/Training/Personal
+       records/Habits) shares one light blue tint; Weight gets its own soft
+       amber tint. Sleep is untouched (keeps its own dark indigo background).
+       Habits follows the prose spec here, NOT the reference mock's separate
+       green .grp-habits class — the mock's own markup contradicted its
+       prose on this point; prose wins. */
+    .grp-training { background: linear-gradient(150deg, var(--shell-1), var(--shell-2)); }
+    .grp-weight   { background: linear-gradient(150deg, var(--amber-tint-1), var(--amber-tint-2)); }
 
     /* ---- READINESS HERO CARD ---- */
     .readiness {
@@ -1359,10 +1437,6 @@
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
 
-      #home-dashboard-grid { grid-template-columns: 1fr; }
-      #home-weight-widget,
-      #home-training-card { grid-column: span 1; }
-
       .workout-desktop-only { display: none; }
 
       /* Performance: hide desktop grid, show mobile blocks */
@@ -1628,7 +1702,9 @@
   <style>
     /* ---- READINESS TILE (compact, home-top-row-right) ---- */
     #home-top-row-right {
-      background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%);
+      /* background now comes from the .grp-training class (Task 4 — Home v3
+         color grouping) so Readiness matches the rest of the training
+         cluster instead of carrying its own one-off hero gradient. */
       border: 0;
       border-radius: 20px;
       padding: 20px 22px;
@@ -1935,7 +2011,31 @@
       line-height: 1.5;
     }
 
-    /* ---- NEXT WORKOUT CARD (home-next-workout-card) ---- */
+    /* ---- NEXT WORKOUT CARD (home-next-workout-card) ----
+       home v3 (Task 1): this card now holds two merged sub-sections (Next
+       workout / Recent workout), each with its own sub-head + link row
+       (.nw-worksub/.nw-subhead) and a thin divider (.nw-sep) between them —
+       "nw-" prefix kept for the whole card, not renamed to a shared
+       cross-widget name, since it's still this one card's own scoped
+       vocabulary. */
+    .nw-worksub {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .nw-subhead {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .nw-worksub a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
+    .nw-sep {
+      border-top: 1px solid var(--card-divider);
+      margin: 13px 0;
+    }
     .nw-row {
       display: flex;
       align-items: center;
@@ -2017,6 +2117,14 @@
       .nw-meta     { font-size: 10px; }
       .hperf-val   { font-size: 20px; }
     }
+
+    /* Mobile (<=479px, home v3): the daily-signal block (ring/score/hint/
+       4-tile factor row) stays visible — only the CTL/ATL/TSB trio, a denser
+       second data set below it, is dropped to keep the stacked mobile card
+       scannable. */
+    @media (max-width: 479px) {
+      .rd-ctl-row { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -2036,23 +2144,25 @@
   <div id="body-modifier-guardrail"></div>
   <div id="strava-stale-banner"></div>
 
-  <!-- Unified dashboard grid (home v2 layout follow-up #2). Replaces the
-       previous #home-top-row / #home-compact-row / #home-lower-row row
-       wrappers — one auto-fill grid, all widgets as direct children, packs
-       3-4 per row on desktop. Order: habits, readiness, next workout,
-       performance, weight (span 2), personal records, training (span 2),
-       recent workouts, sleep. Each widget still finds its own container by
-       the SAME element id it always used — only the parent/grid-column
-       changed. -->
+  <!-- Unified dashboard grid (home v3 bento layouts). Wide/Medium/Narrow
+       hand-place every widget by grid-column/grid-row (see CSS above), so
+       DOM order doesn't affect those three. Mobile (<=479px) switches to a
+       plain flex column and follows DOM order — this order (Readiness →
+       Next+Recent → Performance → Training → Personal records → Habits →
+       Weight → Sleep) IS the required Mobile stack order. Each widget still
+       finds its own container by the SAME element id it always used — only
+       the parent/grid-column/DOM-order changed. #home-workouts-container
+       (recent workouts) is gone: merged into #home-next-workout-card, see
+       home.js's loadRecentWorkoutsCard / home-readiness-training-sleep.js's
+       renderNextWorkoutCard. -->
   <div id="home-dashboard-grid">
-    <div id="home-habits-widget" class="card"></div>
-    <div id="home-top-row-right"></div>
-    <div id="home-next-workout-card" class="card"></div>
-    <div id="home-performance-card" class="card"></div>
-    <div id="home-weight-widget"></div>
+    <div id="home-top-row-right" class="grp-training"></div>
+    <div id="home-next-workout-card" class="card grp-training"></div>
+    <div id="home-performance-card" class="card grp-training"></div>
+    <div id="home-training-card" class="card grp-training"></div>
     <div id="home-perf-container"></div>
-    <div id="home-training-card" class="card"></div>
-    <div id="home-workouts-container"></div>
+    <div id="home-habits-widget" class="card grp-training"></div>
+    <div id="home-weight-widget"></div>
     <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
 
