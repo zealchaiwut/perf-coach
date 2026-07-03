@@ -1,6 +1,17 @@
 (function () {
   'use strict';
 
+  /* HTML escaping (XSS guard) for the user-generated strings the home v2
+     widgets echo — session names, error/reason text from the API. */
+  function esc(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   /* ── Compact Readiness Tile ─────────────────────────────────────────────── */
 
   var _RD_TILE_FACTOR_META = {
@@ -55,7 +66,115 @@
     );
   }
 
-  function renderReadinessTile(el, readiness) {
+  /* ── CTL/ATL/TSB training-load trio (home v2) ──────────────────────────────
+     Second section of the Readiness card, below the existing daily-signal
+     block. Ported from training-log.js's private _lrxReadStatus/_lrxMarkerPct/
+     _lrxTrendLine/_LRX_BAND/_LRX_TREND_COLOR (~line 682-711) — DUPLICATED, not
+     imported (that IIFE doesn't export them), at the exact same band
+     thresholds. Status colors are ported as literal hex (the --lrx-* CSS vars
+     they reference don't exist on this page) matching the Log tab's rendered
+     colors exactly. */
+  function _rdCtlStatus(metric, v) {
+    if (metric === 'ctl') {
+      if (v < 20) return { word: 'DETRAINING', color: '#d97706' };
+      if (v < 40) return { word: 'STEADY', color: '#6366f1' };
+      return { word: 'STRONG', color: '#16a34a' };
+    }
+    if (metric === 'atl') {
+      if (v < 25) return { word: 'LOW', color: '#16a34a' };
+      if (v < 45) return { word: 'MODERATE', color: '#6366f1' };
+      return { word: 'HIGH', color: '#d97706' };
+    }
+    // tsb
+    if (v < -10) return { word: 'OVERREACHED', color: '#d97706' };
+    if (v <= 5) return { word: 'OPTIMAL', color: '#16a34a' };
+    return { word: 'FRESH', color: '#4f6ef7' };
+  }
+
+  function _rdCtlMarkerPct(metric, v) {
+    var min = metric === 'tsb' ? -25 : 0;
+    var max = metric === 'tsb' ? 15 : 60;
+    var pct = ((v - min) / (max - min)) * 100;
+    return Math.max(2, Math.min(98, pct));
+  }
+
+  var _RD_CTL_BAND = {
+    ctl: 'linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)',
+    atl: 'linear-gradient(90deg,#22c55e,#eab308,#ef4444)',
+    tsb: 'linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)',
+  };
+  var _RD_CTL_TREND_COLOR = { ctl: '#4f6ef7', atl: '#dc2626', tsb: '#16a34a' };
+
+  function _rdCtlFmt(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return String(Math.round(v * 10) / 10);
+  }
+
+  /* Small sparkline (~100×24, matching the mock's .ctlspark) — same draw
+     algorithm as _lrxTrendLine, scaled down. */
+  function _rdCtlSpark(svgId, pts, color) {
+    var svg = document.getElementById(svgId);
+    if (!svg || !pts || pts.length < 2) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = 100, H = 24;
+    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    var d = pts
+      .map(function (v, i) {
+        var x = (i / (pts.length - 1)) * W;
+        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 4) - 2;
+        return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      })
+      .join(' ');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    var NS = 'http://www.w3.org/2000/svg';
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '1.6');
+    svg.appendChild(path);
+  }
+
+  function _rdCtlCardHtml(metric, val, abbr, label, sparkId) {
+    var st = _rdCtlStatus(metric, val);
+    var pct = _rdCtlMarkerPct(metric, val);
+    return '<div class="rd-ctl-card">' +
+      '<div class="rd-ctl-v">' + _rdCtlFmt(val) + '</div>' +
+      '<div class="rd-ctl-l">' + abbr + ' ' + label + '</div>' +
+      '<div class="rd-ctl-band" style="background:' + _RD_CTL_BAND[metric] + '">' +
+        '<div class="rd-ctl-mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
+      '<div class="rd-ctl-stat" style="color:' + st.color + '">' + st.word + '</div>' +
+      '<svg class="rd-ctl-spark" id="' + sparkId + '"></svg>' +
+    '</div>';
+  }
+
+  /* trainingLoad is the raw GET /api/readiness (no query params) response —
+     a SEPARATE fetch from the /api/home/summary that feeds the rest of this
+     tile (wired once in render(), see below). Returns '' when not yet loaded
+     (renderReadinessTile is still called immediately with the summary data,
+     so the daily-signal block isn't blocked on this extra request). */
+  function _rdCtlRowHtml(trainingLoad) {
+    if (!trainingLoad) return '';
+    if (trainingLoad.building_baseline) {
+      return '<div class="rd-ctl-bb">Still building your training-load baseline.</div>';
+    }
+    return '<div class="rd-ctl-row">' +
+      _rdCtlCardHtml('ctl', trainingLoad.ctl, 'CTL', 'Fitness', 'rd-ctl-spark-ctl') +
+      _rdCtlCardHtml('atl', trainingLoad.atl, 'ATL', 'Fatigue', 'rd-ctl-spark-atl') +
+      _rdCtlCardHtml('tsb', trainingLoad.tsb, 'TSB', 'Freshness', 'rd-ctl-spark-tsb') +
+    '</div>';
+  }
+
+  function _rdCtlDrawSparks(trainingLoad) {
+    if (!trainingLoad || trainingLoad.building_baseline) return;
+    var series = Array.isArray(trainingLoad.series) ? trainingLoad.series : [];
+    var last9 = series.slice(-9);
+    _rdCtlSpark('rd-ctl-spark-ctl', last9.map(function (d) { return d.ctl; }), _RD_CTL_TREND_COLOR.ctl);
+    _rdCtlSpark('rd-ctl-spark-atl', last9.map(function (d) { return d.atl; }), _RD_CTL_TREND_COLOR.atl);
+    _rdCtlSpark('rd-ctl-spark-tsb', last9.map(function (d) { return d.tsb; }), _RD_CTL_TREND_COLOR.tsb);
+  }
+
+  function renderReadinessTile(el, readiness, trainingLoad) {
     if (!el) return;
 
     var header =
@@ -64,18 +183,18 @@
         '<a href="/calendar">Log metrics &#8594;</a>' +
       '</div>';
 
+    var body;
+
     /* Null block — render minimal fallback without errors */
     if (!readiness) {
-      el.innerHTML = header +
+      body =
         '<div class="rd-tile-empty">' +
           '<p class="rd-tile-msg">No readiness data available.</p>' +
         '</div>';
-      return;
-    }
 
     /* logged === false → empty state */
-    if (!readiness.logged) {
-      el.innerHTML = header +
+    } else if (!readiness.logged) {
+      body =
         '<div class="rd-tile-empty">' +
           '<i class="ti ti-moon-stars rd-tile-icon"></i>' +
           '<p class="rd-tile-msg">No metrics logged yet today — log to see your readiness score</p>' +
@@ -83,37 +202,43 @@
             '<i class="ti ti-pencil-plus"></i> Log today\'s metrics' +
           '</a>' +
         '</div>';
-      return;
-    }
 
     /* logged === true → score ring + top 3 factors */
-    var score = readiness.score || 0;
-    var label = readiness.label || '';
-    var color = _rdRingColor(score);
-    var top_factors = readiness.top_factors || [];
+    } else {
+      var score = readiness.score || 0;
+      var label = readiness.label || '';
+      var color = _rdRingColor(score);
+      var top_factors = readiness.top_factors || [];
 
-    var factorsHTML = top_factors.slice(0, 3).map(function (f) {
-      var meta = _RD_TILE_FACTOR_META[f.factor] ||
-        { name: f.factor, fmt: function (v) { return String(v != null ? v : '—'); } };
-      var valStr = meta.fmt(f.value);
-      var arrow = f.impact === 'positive' ? '↑' : (f.impact === 'negative' ? '↓' : '→');
-      var arrowCls = f.impact === 'positive' ? 'rd-arrow--positive' :
-        (f.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
-      return '<div class="rd-tile-factor">' +
-        '<span class="rd-tile-factor-name">' + meta.name + '</span>' +
-        '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
-        '<span class="rd-tile-factor-val">' + valStr + '</span>' +
-      '</div>';
-    }).join('');
+      var factorsHTML = top_factors.slice(0, 3).map(function (f) {
+        var meta = _RD_TILE_FACTOR_META[f.factor] ||
+          { name: f.factor, fmt: function (v) { return String(v != null ? v : '—'); } };
+        var valStr = meta.fmt(f.value);
+        var arrow = f.impact === 'positive' ? '↑' : (f.impact === 'negative' ? '↓' : '→');
+        var arrowCls = f.impact === 'positive' ? 'rd-arrow--positive' :
+          (f.impact === 'negative' ? 'rd-arrow--negative' : 'rd-arrow--neutral');
+        return '<div class="rd-tile-factor">' +
+          '<span class="rd-tile-factor-name">' + meta.name + '</span>' +
+          '<span class="rd-arrow ' + arrowCls + '">' + arrow + '</span>' +
+          '<span class="rd-tile-factor-val">' + valStr + '</span>' +
+        '</div>';
+      }).join('');
 
-    el.innerHTML = header +
-      '<div class="rd-tile-body">' +
-        '<div class="rd-tile-ring-wrap">' +
-          _rdRingSVG(score, color) +
-          '<div class="rd-tile-score-label" style="color:' + color + ';">' + label + '</div>' +
-        '</div>' +
-        '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
-      '</div>';
+      body =
+        '<div class="rd-tile-body">' +
+          '<div class="rd-tile-ring-wrap">' +
+            _rdRingSVG(score, color) +
+            '<div class="rd-tile-score-label" style="color:' + color + ';">' + label + '</div>' +
+          '</div>' +
+          '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
+        '</div>';
+    }
+
+    // CTL/ATL/TSB trio appended below the daily-signal block, inside the same
+    // card, in every branch above (it's a separate data source — training
+    // load exists whether or not today's wellness metrics were logged).
+    el.innerHTML = header + body + _rdCtlRowHtml(trainingLoad);
+    _rdCtlDrawSparks(trainingLoad);
   }
 
   /* ── Training Card ──────────────────────────────────────────────────────── */
@@ -212,7 +337,12 @@
       chartHTML = _twBarChart(tw.daily_load);
     }
 
-    el.innerHTML = header + statsHTML + chartHTML;
+    // Link out to the Log tab's Weekly Volume (8-week TSS-bars + distance-line)
+    // chart — no second copy of that chart built here (home v2).
+    var trendLinkHTML =
+      '<a class="tw-trendlink" href="/log#volume-chart-card">View 8-week trend &#8594;</a>';
+
+    el.innerHTML = header + statsHTML + chartHTML + trendLinkHTML;
   }
 
   /* ── Sleep Card ─────────────────────────────────────────────────────────── */
@@ -269,18 +399,248 @@
       '</div>';
   }
 
+  /* ── Next workout (home v2) ─────────────────────────────────────────────── */
+
+  var _NW_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var _NW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function _nwAddDaysISO(isoStr, n) {
+    var d = new Date(isoStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function _nwFmtDate(isoStr) {
+    var p = isoStr.split('-');
+    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    return _NW_DOW[d.getDay()] + ', ' + _NW_MONTHS[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  // Cheap structure summary — NOT the full Plan-tab structure renderer, just
+  // enough for a one-line meta string (e.g. "100min" / "5 exercises").
+  function _nwStructureSummary(structure) {
+    var s = structure || {};
+    if (Array.isArray(s.blocks) && s.blocks.length) {
+      var tot = 0;
+      s.blocks.forEach(function (b) {
+        var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
+        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+      });
+      return tot ? tot + 'min' : '';
+    }
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      return s.exercises.length + ' exercise' + (s.exercises.length > 1 ? 's' : '');
+    }
+    return '';
+  }
+
+  function _nwBadgeCls(sessionType) {
+    return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
+  }
+  function _nwBadgeLabel(sessionType) {
+    if (sessionType === 'strength') return 'Strength';
+    if (sessionType === 'plyo') return 'Plyo';
+    return 'Run';
+  }
+
+  // Iterate days[] in order; first day with a non-rest planned session wins.
+  // Prefer status==='planned' when a day has multiple sessions, else planned[0].
+  // Rest-only/empty days are skipped (kept scanning) rather than shown as the
+  // "next workout" — if nothing non-rest exists anywhere in the window, the
+  // caller falls through to the empty state.
+  function _nwFindNext(bundle) {
+    var days = (bundle && Array.isArray(bundle.days)) ? bundle.days : [];
+    for (var i = 0; i < days.length; i++) {
+      var planned = Array.isArray(days[i].planned) ? days[i].planned : [];
+      var nonRest = planned.filter(function (p) { return p.session_type !== 'rest'; });
+      if (!nonRest.length) continue;
+      var preferred = nonRest.find(function (p) { return p.status === 'planned'; });
+      return preferred || nonRest[0];
+    }
+    return null;
+  }
+
+  function _nwEmptyHtml() {
+    return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
+  }
+
+  function renderNextWorkoutCard(el) {
+    if (!el) return;
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-calendar-event"></i>Next workout</div>' +
+        '<a href="/log#plan">Plan &#8594;</a>' +
+      '</div>';
+    el.innerHTML = header + '<div class="nw-loading">Loading…</div>';
+
+    var today = _bangkokTodayStr();
+    var to = _nwAddDaysISO(today, 13);
+    fetch('/api/planned-sessions?from=' + today + '&to=' + to)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (bundle) {
+        var next = _nwFindNext(bundle);
+        if (!next) {
+          el.innerHTML = header + _nwEmptyHtml();
+          return;
+        }
+        var cls = _nwBadgeCls(next.session_type);
+        var label = _nwBadgeLabel(next.session_type);
+        var metaParts = [_nwFmtDate(next.planned_date)];
+        var summary = _nwStructureSummary(next.structure);
+        if (summary) metaParts.push(summary);
+
+        el.innerHTML = header +
+          '<a class="nw-row" href="/log#plan">' +
+            '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+            '<span class="nw-info">' +
+              '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
+              '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
+            '</span>' +
+            '<span class="nw-arrow">&#8594;</span>' +
+          '</a>';
+      })
+      .catch(function () {
+        el.innerHTML = header + _nwEmptyHtml();
+      });
+  }
+
+  /* ── Performance (Endurance/Speed) widget (home v2) ─────────────────────── */
+  /* ⚠️ Single source of truth: GET /api/athletes/{id}/performance — the SAME
+     endpoint the Performance tab and Plan tab's projection cards read. Do not
+     compute or mock a score here. */
+
+  // Block-delta — DUPLICATED exactly from training-performance.js's private
+  // _blockDelta (~line 226-248, not exported). Finds the latest trend point
+  // whose date is ~28 days before the last date, by DATE via the parallel
+  // trend_dates array (the trend is step-like/irregular, so an index offset
+  // is wrong — see the source comment). Returns null (hide the pill) when no
+  // such point exists.
+  function _hpfBlockDelta(trend, trendDates) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
+    var last = trend[trend.length - 1];
+    if (last == null) return null;
+
+    var base = null;
+    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
+      var lastMs = Date.parse(trendDates[trendDates.length - 1] + 'T00:00:00');
+      var cutoff = lastMs - 28 * 86400000; // ~4 weeks back
+      for (var i = trend.length - 1; i >= 0; i--) {
+        var ms = Date.parse(trendDates[i] + 'T00:00:00');
+        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
+      }
+      if (base == null) return null;
+    } else {
+      base = trend[0];
+    }
+    if (base == null) return null;
+    return Math.round(last - base);
+  }
+
+  function _hpfTileHtml(label, cls, data) {
+    if (!data || typeof data !== 'object' || data.score == null) {
+      return '<div class="hperf-tile hperf-tile--' + cls + '">' +
+        '<div class="hperf-lbl">' + label + '</div>' +
+        '<div class="hperf-val hperf-dash">—</div>' +
+      '</div>';
+    }
+    var score = Math.round(data.score);
+    var trend = Array.isArray(data.trend) ? data.trend : [];
+    var delta = _hpfBlockDelta(trend, data.trend_dates);
+    var deltaHtml = '';
+    if (delta !== null) {
+      var dcls = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
+      var dtxt = delta > 0
+        ? '&#8593; +' + delta + ' this block'
+        : delta < 0
+          ? '&#8595; &minus;' + Math.abs(delta) + ' this block'
+          : 'flat this block';
+      deltaHtml = '<div class="hperf-delta hperf-delta--' + dcls + '">' + dtxt + '</div>';
+    }
+    return '<div class="hperf-tile hperf-tile--' + cls + '">' +
+      '<div class="hperf-lbl">' + label + '</div>' +
+      '<div class="hperf-val">' + score + '</div>' +
+      deltaHtml +
+    '</div>';
+  }
+
+  function renderPerformanceCard(el, athleteId) {
+    if (!el) return;
+
+    var header =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-chart-line"></i>Performance</div>' +
+        '<a href="/log#performance">View trends &#8594;</a>' +
+      '</div>';
+    el.innerHTML = header + '<div class="hperf-loading">Loading…</div>';
+
+    if (!athleteId) {
+      el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      return;
+    }
+
+    fetch('/api/athletes/' + athleteId + '/performance')
+      .then(function (r) {
+        return r.json().then(function (d) { return d; }).catch(function () { return null; });
+      })
+      .then(function (data) {
+        var state = data && typeof data === 'object' ? data.state : null;
+
+        if (state === 'scored') {
+          el.innerHTML = header +
+            '<div class="hperf-grid">' +
+              _hpfTileHtml('Endurance', 'e', data.endurance) +
+              _hpfTileHtml('Speed', 's', data.speed) +
+            '</div>';
+          return;
+        }
+        // Mirror the Performance tab's own phrasing for these sub-states
+        // (frontend/pages/training-log.html .perf-threshold-hint / .perf-bb-reason).
+        if (state === 'needs_thresholds') {
+          el.innerHTML = header +
+            '<div class="hperf-msg">To compute your score, set your FTP, threshold HR, ' +
+              'and threshold pace in <a href="/settings#thresholds">Settings → Thresholds</a>.</div>';
+          return;
+        }
+        if (state === 'building_baseline') {
+          var reason = (data && data.reason) || 'Keep training: your baseline is building.';
+          el.innerHTML = header + '<div class="hperf-msg">' + esc(reason) + '</div>';
+          return;
+        }
+        el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      })
+      .catch(function () {
+        el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      });
+  }
+
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
 
-  function render(summary) {
+  function render(summary, userId) {
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
+    var nwEl  = document.getElementById('home-next-workout-card');
+    var pfEl  = document.getElementById('home-performance-card');
 
     if (rdEl) {
       if (!rdEl.classList.contains('card')) {
         rdEl.className = 'card';
       }
-      renderReadinessTile(rdEl, summary && summary.readiness ? summary.readiness : null);
+      var readinessData = summary && summary.readiness ? summary.readiness : null;
+      // Render immediately from the summary data (daily signal), then again
+      // once the separate CTL/ATL/TSB fetch resolves — the trio is a second,
+      // independent data source (GET /api/readiness, no query params), so it
+      // shouldn't block the rest of this tile.
+      renderReadinessTile(rdEl, readinessData, null);
+      fetch('/api/readiness')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (trainingLoad) {
+          renderReadinessTile(rdEl, readinessData, trainingLoad);
+        })
+        .catch(function () { /* trio stays omitted; daily-signal block is unaffected */ });
     }
     if (twEl) {
       renderTrainingCard(twEl, summary && summary.training_week ? summary.training_week : null);
@@ -288,8 +648,16 @@
     if (slpEl) {
       renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
     }
+    if (nwEl) {
+      renderNextWorkoutCard(nwEl);
+    }
+    if (pfEl) {
+      renderPerformanceCard(pfEl, userId);
+    }
   }
 
-  /* Expose for home.js to call with pre-fetched summary */
+  /* Expose for home.js to call with pre-fetched summary (+ the session user
+     id, needed for the Performance widget's /api/athletes/{id}/performance
+     call — home.js resolves it via fetchCurrentUser() before this runs). */
   window.HomeRTS = { render: render };
 })();

@@ -1187,9 +1187,10 @@
         HomeStripHabits.render(summary);
       }
 
-      /* Readiness tile + training card + sleep card */
+      /* Readiness tile + training card + sleep card + next-workout +
+         performance widget (home v2) */
       if (window.HomeRTS) {
-        HomeRTS.render(summary);
+        HomeRTS.render(summary, userId);
       }
 
       /* Body-modifier guardrail warning (issue #1161) */
