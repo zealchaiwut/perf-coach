@@ -438,16 +438,32 @@
   /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
      Fills only its sub-section (#home-recent-workout-section), built by
      home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
-     "Next workout" sub-section above it is that file's own concern. Data
-     source (summary.recent_workouts, pre-fetched by home.js's init()) and
-     empty state are unchanged from the old standalone card — only the
-     surrounding card/header markup and "show just the top entry" collapse
-     are new, per the merged-card spec. */
+     "Next workout" sub-section above it is that file's own concern.
+
+     Data source is /api/home/summary's "recent_workouts" block, which is a
+     bare array (see backend _build_recent_workouts_block) — NOT
+     {workouts:[...]}. The previous code read workoutsBlock.workouts, which
+     is always undefined on an array, so this always rendered the empty
+     state regardless of real data (pre-existing bug, not introduced by the
+     merge — same wrong access was already in the old standalone card).
+     Also, that block's items are a lightweight summary shape (name,
+     workout_type, relative_day, summary) — not a full Workout row — so this
+     builds its own compact row instead of reusing buildWorkoutRow(), which
+     expects raw Workout fields (workout_date, distance_km, source, ...)
+     that this summary doesn't have. */
+  function _recentWorkoutBadgeCls(t) {
+    return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
+  }
+  function _recentWorkoutBadgeLabel(t) {
+    if (t === 'strength') return 'Strength';
+    if (t === 'plyo') return 'Plyo';
+    return 'Run';
+  }
   function loadRecentWorkoutsCard(userId, workoutsBlock) {
     var sectionEl = document.getElementById('home-recent-workout-section');
     if (!sectionEl) return;
 
-    var workouts = (workoutsBlock && workoutsBlock.workouts) ? workoutsBlock.workouts : [];
+    var workouts = Array.isArray(workoutsBlock) ? workoutsBlock : [];
 
     if (!workouts.length) {
       sectionEl.innerHTML =
@@ -456,7 +472,20 @@
       return;
     }
 
-    sectionEl.innerHTML = '<div class="list">' + buildWorkoutRow(workouts[0]) + '</div>';
+    var w = workouts[0];
+    var cls = _recentWorkoutBadgeCls(w.workout_type);
+    var label = _recentWorkoutBadgeLabel(w.workout_type);
+    var metaParts = [w.relative_day];
+    if (w.summary) metaParts.push(w.summary);
+
+    sectionEl.innerHTML =
+      '<div class="nw-row">' +
+        '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+        '<span class="nw-info">' +
+          '<span class="nw-name">' + esc(w.name || 'Workout') + '</span>' +
+          '<span class="nw-meta">' + esc(metaParts.filter(Boolean).join(' · ')) + '</span>' +
+        '</span>' +
+      '</div>';
   }
 
   /* ---- Log Today card ---- */

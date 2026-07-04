@@ -107,7 +107,12 @@
       grid-auto-rows: 100px;
       gap: 14px;
       margin-bottom: 16px;
-      align-items: start;
+      /* align-items defaults to stretch (not "start") so two cards sharing
+         the same grid-row span (e.g. Next+Recent / Performance) render at
+         the SAME height regardless of how much content each has — with
+         "start" every card shrank to its own content height, so a short
+         card (Performance, two small tiles) looked visibly shorter than its
+         taller neighbor even though both were assigned the same row span. */
     }
     /* Wide (>=1000px, unqualified — the base rule above is the widest
        breakpoint, so no media query needed here).
@@ -2091,6 +2096,10 @@
        card already owns the "perf-" prefix; unrelated widget, same-name
        coincidence only, do not collide with or touch it. */
     .hperf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    /* Card now stretches to match its neighbor's height (align-items:stretch
+       on the grid) — center the tiles in whatever extra height that leaves,
+       instead of leaving dead space pinned below them. */
+    #home-performance-card .hperf-grid { flex: 1; align-content: center; }
     .hperf-tile {
       background: var(--chip-bg);
       border: 1px solid var(--card-border);
