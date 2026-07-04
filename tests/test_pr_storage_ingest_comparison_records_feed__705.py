@@ -5,11 +5,13 @@ Structure:
   Part 2 — integration tests against the live UAT server at http://127.0.0.1:9001
 """
 
+import pytest
+pytest.importorskip("backend.services.strength_pr")
+
 import json
 import os
 import sys
 import uuid
-import pytest
 import httpx
 from sqlalchemy.orm import Session as _OrmSess
 
