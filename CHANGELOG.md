@@ -1,5 +1,39 @@
 # Changelog
 
+## Sprint 98 — Follow-up hardening: treadmill NGP wiring, plan-router API prefix, schema defaults, and bug fixes
+
+- #541: Dedicated endpoint for volume chart weekly aggregations
+- #551: Add SRI hash to Chart.js CDN script in training-log.html
+- #614: Validate strava_activity_url scheme before injecting into href in run-view
+- #616: Remove hardcoded fallback thresholds from get_user_thresholds in tss.py
+- #684: Move race priority/status defaults to DB schema or require caller to supply them
+- #751: Primary A-race selection may pick past race in training-plan.js
+- #752: Delete failure silently ignored in deleteEditing (training-plan.js)
+- #762: Fix downgrade() lap_type column handling in migration 145b95d5baf0
+- #780: Guard _update_duration_curves with try/except in reconcile_workouts
+- #796: fetch_and_detect_records uses overall-average pace curve, not per-duration bests
+- #800: Test file for unverified #705 in sprint branch may break test collection
+- #804: Standardise zone vocabulary: buried/neutral/fresh vs accumulated_fatigue/optimal/freshness
+- #815: Use per-user timezone in performance tab date helpers
+- #1026: Sanitize error reason in performance endpoint error response
+- #1041: Align backfill run-count filter with performance endpoint's exact workout_type match
+- #1042: Avoid leaking raw exception messages in performance endpoint error response
+- #1083: backfill_signals_for_athlete returns success dict on commit failure
+- #1120: Weekly summary re-queries workouts instead of reusing volume service
+- #1121: Monthly summary 424 trigger mismatches AC description
+- #1136: plan router: _check_plan_access equates plan_id with user_id
+- #1137: plan router: _resolve_user duplicates auth logic from main.py
+- #1138: plan router routes missing /api/ prefix
+- #1177: Reconcile plan_id convention between race and projection routes
+- #1187: Reconcile polarized-split default high band bound (10 vs 15)
+- #1188: Derive intensity rolling-window bar label from selected range
+- #1189: De-duplicate intensity rolling-window aggregation and fix N+1 query
+- #1197: Economy ceiling bonus params on projected_ctl_to_score_ceiling are never supplied by callers
+- #1208: Wire body modifier into production score/projection pipeline
+- #1210: Same-date weight upsert can still create duplicates
+- #1213: weight_ewma docstring drift: default span and alpha<=0 handling
+- #1219: Wire normalize_treadmill_signal into the activity-signal pipeline
+
 ## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
 
 - #1162: Recalibrate score ceiling on B race entry

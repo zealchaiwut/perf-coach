@@ -36,7 +36,7 @@ All primary keys are UUID (`gen_random_uuid()`). All timestamps are `timestamptz
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-Unique: `(user_id, entry_date, entry_time)` (nulls not distinct).
+Unique: `(user_id, entry_date, entry_time)` (nulls not distinct). Partial unique index `ix_weight_entries_user_date_null_time` on `(user_id, entry_date)` where `entry_time IS NULL` (Sprint 98 / #1210) — prevents duplicate same-date entries when no time is supplied (Postgres treats NULLs as distinct, so the base constraint alone did not catch this). Migration `4ad3bf3fff49`.
 
 ---
 
@@ -112,7 +112,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 
 ---
 
-## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90; temperature/humidity added Sprint 96)_
+## workouts _(zone2_minutes added Sprint 50; tss_method added Sprint 64; power/NP/cadence/stride added Sprint 70; speed/endurance signal columns added Sprint 90; temperature/humidity added Sprint 96; flat_equivalent_pace added Sprint 98)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -152,6 +152,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | endurance_signal_source | varchar(20) | nullable — `power_hr` / `speed_hr` |
 | temperature_c | float | nullable — ambient temperature (°C) for heat/humidity normalization (Sprint 96 / #1168) |
 | humidity_pct | float | nullable — relative humidity (0–100) for heat/humidity normalization (Sprint 96 / #1168) |
+| flat_equivalent_pace | float | nullable — flat-equivalent pace for treadmill activities, computed from `normalize_treadmill_signal` via the Minetti NGP formula; None for outdoor runs (Sprint 98 / #1219) |
 | created_at | timestamptz | |
 
 Child tables: `workout_exercises`, `workout_splits`.
@@ -326,7 +327,7 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 
 ---
 
-## stryd_activities _(streams_payload added Sprint 63)_
+## stryd_activities _(streams_payload added Sprint 63; grade_percent added Sprint 98)_
 
 Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 
@@ -343,6 +344,7 @@ Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 | form_metrics / power_zones / splits | jsonb | nullable |
 | streams_payload | jsonb | nullable — raw per-point streams (timestamp_list, total_power_list, etc.); used by reconcile to populate `activity_streams` |
 | raw_payload | jsonb | |
+| grade_percent | float | nullable — treadmill incline extracted from the raw payload's `average_incline`; present only for treadmill activities, None for outdoor runs (Sprint 98 / #1219). Migration `4753105d42ae` |
 | synced_at | timestamptz | |
 
 ---
@@ -535,13 +537,13 @@ User target race entries. `goal_pace_seconds_per_km` is derived from `goal_time_
 | goal_time_seconds | int | nullable; >0 |
 | goal_pace_seconds_per_km | int | nullable; derived from goal_time_seconds / distance_km |
 | actual_time_seconds | int | nullable; recorded after the race via `POST /api/races/{id}/calibrate` |
-| priority | varchar(10) | `A` / `B` / `C` |
-| status | varchar(20) | `planned` / `done` / `abandoned` |
+| priority | varchar(10) | `A` / `B` / `C`; server default `'A'` (Sprint 98 / #684) |
+| status | varchar(20) | `planned` / `done` / `abandoned`; server default `'planned'` (Sprint 98 / #684) |
 | race_type | varchar(20) | `race` / `checkpoint`; default `race` — distinguishes A-race targets from intermediate checkpoints |
 | created_at | timestamptz | |
-| updated_at | timestamptz | auto-updated on write |
+| updated_at | timestamptz | auto-updated on write; server default `now()` (Sprint 98 / #797) |
 
-Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head), `ba386d88fa17` (actual_time_seconds).
+Index: `ix_races_user_id`. Migrations: `ll2a3b4c5d6e` (initial), `mm3c4d5e6f7g` (race_type column), `nn4d5e6f7g8h` (merge head), `ba386d88fa17` (actual_time_seconds), `1c4afa2ab696` (priority/status server defaults), `f31dde78c681` (updated_at server default).
 
 ### Race calibration endpoints _(added Sprint 75)_
 
