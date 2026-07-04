@@ -970,10 +970,11 @@ function _clampStepperValue(v) {
   return Math.max(displayMin(), Math.min(displayMax(), v));
 }
 
-function _prefillStepper(weight) {
+function _prefillStepper(weightKg) {
   const input = document.getElementById('stepper-input');
   if (!input) return;
-  input.value = weight != null ? weight.toFixed(1) : '';
+  const displayVal = weightKg != null ? kgToDisplay(weightKg) : null;
+  input.value = displayVal != null ? displayVal.toFixed(1) : '';
   _updateLogBtnLabel();
 }
 
@@ -1103,7 +1104,7 @@ function _initCardB() {
     await _submitCardB(parseFloat(input.value));
   });
 
-  // Edit link: restore stepper with logged value
+  // Edit link: restore stepper with logged value (stored in kg)
   if (editBtn) {
     editBtn.addEventListener('click', () => {
       const logged = document.getElementById('logged-strip');
@@ -1126,36 +1127,17 @@ function _initCardB() {
   }
 }
 
-function _cardBSetLoggedState(entries, fallbackWeight) {
-  const today = todayISO();
-  const todayEntry = entries.find(e => e.entry_date === today);
-  if (todayEntry) {
-    _cardBEntryId = todayEntry.id;
-    const logged = document.getElementById('logged-strip');
-    if (logged) logged.dataset.weight = todayEntry.weight_kg;
-    _prefillStepper(todayEntry.weight_kg);
-    _showLoggedMode(todayEntry.weight_kg);
-    _lastEntryWeight = null;
-    _lastEntryWeightKg = null;
-    _updateSameAsLastBtn(true, null);
-  } else {
-    _cardBEntryId = null;
-    // Prefill stepper with most recent entry (fallback from chart stats)
-    if (fallbackWeight != null) _prefillStepper(fallbackWeight);
-    _showStepperMode();
-    _lastEntryWeightKg = fallbackWeight;
-    _lastEntryWeight = kgToDisplay(fallbackWeight);
-    _updateSameAsLastBtn(false, fallbackWeight);
-  }
-}
-
 function _updateSameAsLastBtn(todayLogged, lastWeightKg) {
   const btn = document.getElementById('same-as-last-btn');
   if (!btn) return;
   if (todayLogged || lastWeightKg == null) {
     btn.hidden = true;
+    _lastEntryWeight = null;
+    _lastEntryWeightKg = null;
     return;
   }
+  _lastEntryWeightKg = lastWeightKg;
+  _lastEntryWeight = kgToDisplay(lastWeightKg);
   btn.hidden = false;
   btn.textContent = `Log same as last (${_lastEntryWeight.toFixed(1)} ${unitLabel()})`;
 }
@@ -1188,14 +1170,42 @@ function _applyUnit() {
     input.max  = displayMax();
     input.step = _weightUnit === 'lb' ? 0.5 : 0.1;
     input.setAttribute('aria-label', `Weight in ${unitLabel()}`);
-  }
-  _updateLogBtnLabel();
 
-  // Refresh same-as-last button label using stored raw kg so display-unit value
-  // reflects the newly selected unit without requiring a new entry (#513 AC5).
+    // AC1/AC2/AC5: reconvert the stepper's displayed value to the new unit.
+    // Retrieve stored kg from logged-strip.dataset.weight and re-prefill so
+    // the display shows the correct lb or kg equivalent (#512).
+    const logged = document.getElementById('logged-strip');
+    const storedKg = logged ? parseFloat(logged.dataset.weight) : NaN;
+    if (!isNaN(storedKg)) {
+      _prefillStepper(storedKg);
+    } else {
+      // AC6: no stored weight (fresh state) — just update the button label
+      _updateLogBtnLabel();
+    }
+  }
+
+  // Refresh same-as-last button label using stored raw kg.
   if (_lastEntryWeightKg != null) {
-    _lastEntryWeight = kgToDisplay(_lastEntryWeightKg);
     _updateSameAsLastBtn(false, _lastEntryWeightKg);
+  }
+}
+
+function _cardBSetLoggedState(entries, fallbackWeight) {
+  const today = todayISO();
+  const todayEntry = entries.find(e => e.entry_date === today);
+  if (todayEntry) {
+    _cardBEntryId = todayEntry.id;
+    const logged = document.getElementById('logged-strip');
+    if (logged) logged.dataset.weight = todayEntry.weight_kg;
+    _prefillStepper(todayEntry.weight_kg);
+    _showLoggedMode(todayEntry.weight_kg);
+    _updateSameAsLastBtn(true, null);
+  } else {
+    _cardBEntryId = null;
+    // Prefill stepper with most recent entry (fallback from chart stats)
+    if (fallbackWeight != null) _prefillStepper(fallbackWeight);
+    _showStepperMode();
+    _updateSameAsLastBtn(false, fallbackWeight);
   }
 }
 
