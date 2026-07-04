@@ -291,7 +291,7 @@
 
     var header =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-barbell"></i>This Week\'s Training</div>' +
+        '<div class="ttl"><i class="ti ti-barbell"></i>Training</div>' +
         '<a href="/log">Training log &#8594;</a>' +
       '</div>';
 
@@ -445,65 +445,92 @@
     return 'Run';
   }
 
-  // Iterate days[] in order; first day with a non-rest planned session wins.
-  // Prefer status==='planned' when a day has multiple sessions, else planned[0].
-  // Rest-only/empty days are skipped (kept scanning) rather than shown as the
-  // "next workout" — if nothing non-rest exists anywhere in the window, the
-  // caller falls through to the empty state.
-  function _nwFindNext(bundle) {
+  // Iterate days[] in order, collecting up to `limit` upcoming non-rest
+  // sessions (one per day — prefer status==='planned' when a day has more
+  // than one, else planned[0]). Rest-only/empty days are skipped (kept
+  // scanning) rather than counted — if nothing non-rest exists anywhere in
+  // the window, the caller falls through to the empty state.
+  function _nwFindUpcoming(bundle, limit) {
     var days = (bundle && Array.isArray(bundle.days)) ? bundle.days : [];
-    for (var i = 0; i < days.length; i++) {
+    var out = [];
+    for (var i = 0; i < days.length && out.length < limit; i++) {
       var planned = Array.isArray(days[i].planned) ? days[i].planned : [];
       var nonRest = planned.filter(function (p) { return p.session_type !== 'rest'; });
       if (!nonRest.length) continue;
       var preferred = nonRest.find(function (p) { return p.status === 'planned'; });
-      return preferred || nonRest[0];
+      out.push(preferred || nonRest[0]);
     }
-    return null;
+    return out;
   }
 
   function _nwEmptyHtml() {
     return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
   }
 
+  /* Merged Next+Recent card (home v3, issue-spec Task 1). This function only
+     owns the "Next workout" sub-section (#home-next-workout-section); the
+     "Recent workout" sub-section (#home-recent-workout-section) is a sibling
+     placeholder built here but filled in by home.js's
+     loadRecentWorkoutsCard, which keeps each widget's data source/render
+     logic independent (own fetch vs. pre-fetched summary block) while
+     sharing one physical card. */
+  function _nwSkeletonHtml() {
+    return (
+      '<div class="nw-worksub">' +
+        '<div class="nw-subhead">Next workout</div>' +
+        '<a href="/log#plan">Plan &#8594;</a>' +
+      '</div>' +
+      '<div id="home-next-workout-section" class="nw-loading">Loading…</div>' +
+      '<div class="nw-sep"></div>' +
+      '<div class="nw-worksub">' +
+        '<div class="nw-subhead">Recent workout</div>' +
+        '<span style="display:inline-flex;align-items:center;gap:10px;">' +
+          '<a href="/training?return=/home">Log workout</a>' +
+          '<a href="/log">View all &#8594;</a>' +
+        '</span>' +
+      '</div>' +
+      '<div id="home-recent-workout-section" class="nw-loading">Loading…</div>'
+    );
+  }
+
   function renderNextWorkoutCard(el) {
     if (!el) return;
 
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-calendar-event"></i>Next workout</div>' +
-        '<a href="/log#plan">Plan &#8594;</a>' +
-      '</div>';
-    el.innerHTML = header + '<div class="nw-loading">Loading…</div>';
+    el.innerHTML = _nwSkeletonHtml();
 
     var today = _bangkokTodayStr();
     var to = _nwAddDaysISO(today, 13);
     fetch('/api/planned-sessions?from=' + today + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (bundle) {
-        var next = _nwFindNext(bundle);
-        if (!next) {
-          el.innerHTML = header + _nwEmptyHtml();
+        var sectionEl = document.getElementById('home-next-workout-section');
+        if (!sectionEl) return;
+        var upcoming = _nwFindUpcoming(bundle, 3);
+        if (!upcoming.length) {
+          sectionEl.innerHTML = _nwEmptyHtml();
           return;
         }
-        var cls = _nwBadgeCls(next.session_type);
-        var label = _nwBadgeLabel(next.session_type);
-        var metaParts = [_nwFmtDate(next.planned_date)];
-        var summary = _nwStructureSummary(next.structure);
-        if (summary) metaParts.push(summary);
 
-        el.innerHTML = header +
-          '<a class="nw-row" href="/log#plan">' +
-            '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
-            '<span class="nw-info">' +
-              '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
-              '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
-            '</span>' +
-            '<span class="nw-arrow">&#8594;</span>' +
-          '</a>';
+        sectionEl.innerHTML = upcoming.map(function (next) {
+          var cls = _nwBadgeCls(next.session_type);
+          var label = _nwBadgeLabel(next.session_type);
+          var metaParts = [_nwFmtDate(next.planned_date)];
+          var summary = _nwStructureSummary(next.structure);
+          if (summary) metaParts.push(summary);
+
+          return '<a class="nw-row" href="/log#plan">' +
+              '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+              '<span class="nw-info">' +
+                '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
+                '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
+              '</span>' +
+              '<span class="nw-arrow">&#8594;</span>' +
+            '</a>';
+        }).join('');
       })
       .catch(function () {
-        el.innerHTML = header + _nwEmptyHtml();
+        var sectionEl = document.getElementById('home-next-workout-section');
+        if (sectionEl) sectionEl.innerHTML = _nwEmptyHtml();
       });
   }
 

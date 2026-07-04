@@ -3365,6 +3365,7 @@ def _build_recent_workouts_block(uid, today_bkk):
             z2 = None
         result.append({
             "name": getattr(w, "name", None) or getattr(w, "workout_type", "Workout"),
+            "workout_type": getattr(w, "workout_type", None),
             "relative_day": _rel(w.workout_date),
             "summary": _summary(w),
             "zone2_minutes": z2,
