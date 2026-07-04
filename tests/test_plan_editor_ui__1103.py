@@ -164,7 +164,7 @@ def test_plan_modal_has_error_container(user_and_client):
 def test_create_race_via_plan_router(user_and_client):
     """AC3: POSTing to the plan router creates a race that is retrievable."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Test Marathon 1103",
         "date": "2027-06-15",
         "distance": 42.195,
@@ -176,18 +176,18 @@ def test_create_race_via_plan_router(user_and_client):
     assert data["type"] == "race"
     race_id = data["id"]
 
-    r2 = client.get(f"/plans/{user_id}/races")
+    r2 = client.get(f"/api/plans/{user_id}/races")
     assert r2.status_code == 200
     ids = [row["id"] for row in r2.json()]
     assert race_id in ids, "Created race not in list"
 
-    client.delete(f"/plans/{user_id}/races/{race_id}")
+    client.delete(f"/api/plans/{user_id}/races/{race_id}")
 
 
 def test_create_checkpoint_via_plan_router(user_and_client):
     """AC3: POSTing with type=checkpoint to plan router creates a checkpoint entry."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Mid-cycle check",
         "date": "2027-03-10",
         "distance": 10.0,
@@ -198,12 +198,12 @@ def test_create_checkpoint_via_plan_router(user_and_client):
     assert data["type"] == "checkpoint"
     cp_id = data["id"]
 
-    r2 = client.get(f"/plans/{user_id}/races")
+    r2 = client.get(f"/api/plans/{user_id}/races")
     types = {row["id"]: row["type"] for row in r2.json()}
     assert cp_id in types, "Created checkpoint not in list"
     assert types[cp_id] == "checkpoint"
 
-    client.delete(f"/plans/{user_id}/races/{cp_id}")
+    client.delete(f"/api/plans/{user_id}/races/{cp_id}")
 
 
 # ── AC4: GET returns both races and checkpoints ───────────────────────────────
@@ -211,13 +211,13 @@ def test_create_checkpoint_via_plan_router(user_and_client):
 def test_list_returns_races_and_checkpoints(user_and_client):
     """AC4: GET /plans/{plan_id}/races returns both type=race and type=checkpoint entries."""
     client, user_id = user_and_client
-    r1 = client.post(f"/plans/{user_id}/races", json={
+    r1 = client.post(f"/api/plans/{user_id}/races", json={
         "name": "A Race",
         "date": "2027-09-01",
         "distance": 21.1,
         "type": "race",
     })
-    r2 = client.post(f"/plans/{user_id}/races", json={
+    r2 = client.post(f"/api/plans/{user_id}/races", json={
         "name": "A Checkpoint",
         "date": "2027-07-01",
         "distance": 10.0,
@@ -228,7 +228,7 @@ def test_list_returns_races_and_checkpoints(user_and_client):
     race_id = r1.json()["id"]
     cp_id = r2.json()["id"]
 
-    resp = client.get(f"/plans/{user_id}/races")
+    resp = client.get(f"/api/plans/{user_id}/races")
     assert resp.status_code == 200
     entries = {row["id"]: row for row in resp.json()}
     assert race_id in entries, "Race not in list"
@@ -236,8 +236,8 @@ def test_list_returns_races_and_checkpoints(user_and_client):
     assert entries[race_id]["type"] == "race"
     assert entries[cp_id]["type"] == "checkpoint"
 
-    client.delete(f"/plans/{user_id}/races/{race_id}")
-    client.delete(f"/plans/{user_id}/races/{cp_id}")
+    client.delete(f"/api/plans/{user_id}/races/{race_id}")
+    client.delete(f"/api/plans/{user_id}/races/{cp_id}")
 
 
 # ── AC5: PATCH edits an entry ─────────────────────────────────────────────────
@@ -245,7 +245,7 @@ def test_list_returns_races_and_checkpoints(user_and_client):
 def test_patch_race_updates_name(user_and_client):
     """AC5: PATCHing a race updates the name; change is retrievable."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Original Name",
         "date": "2027-10-01",
         "distance": 5.0,
@@ -254,17 +254,17 @@ def test_patch_race_updates_name(user_and_client):
     assert r.status_code == 201, r.text
     race_id = r.json()["id"]
 
-    patch = client.patch(f"/plans/{user_id}/races/{race_id}", json={"name": "Updated Name"})
+    patch = client.patch(f"/api/plans/{user_id}/races/{race_id}", json={"name": "Updated Name"})
     assert patch.status_code == 200, f"Expected 200, got {patch.status_code}: {patch.text}"
     assert patch.json()["name"] == "Updated Name"
 
-    client.delete(f"/plans/{user_id}/races/{race_id}")
+    client.delete(f"/api/plans/{user_id}/races/{race_id}")
 
 
 def test_patch_race_updates_goal_time(user_and_client):
     """AC5: PATCHing goal_time_seconds updates the value."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Goal Time Race",
         "date": "2027-11-01",
         "distance": 42.195,
@@ -275,13 +275,13 @@ def test_patch_race_updates_goal_time(user_and_client):
     race_id = r.json()["id"]
 
     patch = client.patch(
-        f"/plans/{user_id}/races/{race_id}",
+        f"/api/plans/{user_id}/races/{race_id}",
         json={"goal_time_seconds": 13200},
     )
     assert patch.status_code == 200, f"Expected 200, got {patch.status_code}: {patch.text}"
     assert patch.json()["goal_time_seconds"] == 13200
 
-    client.delete(f"/plans/{user_id}/races/{race_id}")
+    client.delete(f"/api/plans/{user_id}/races/{race_id}")
 
 
 # ── AC6: DELETE removes entry ─────────────────────────────────────────────────
@@ -289,7 +289,7 @@ def test_patch_race_updates_goal_time(user_and_client):
 def test_delete_race_removes_from_list(user_and_client):
     """AC6: DELETE removes the race and it is absent from subsequent GET."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Race to Delete",
         "date": "2027-12-01",
         "distance": 10.0,
@@ -298,10 +298,10 @@ def test_delete_race_removes_from_list(user_and_client):
     assert r.status_code == 201, r.text
     race_id = r.json()["id"]
 
-    d = client.delete(f"/plans/{user_id}/races/{race_id}")
+    d = client.delete(f"/api/plans/{user_id}/races/{race_id}")
     assert d.status_code == 204, f"Expected 204, got {d.status_code}: {d.text}"
 
-    r2 = client.get(f"/plans/{user_id}/races")
+    r2 = client.get(f"/api/plans/{user_id}/races")
     ids = [row["id"] for row in r2.json()]
     assert race_id not in ids, "Deleted race still in list"
 
@@ -311,7 +311,7 @@ def test_delete_race_removes_from_list(user_and_client):
 def test_race_persists_across_requests(user_and_client):
     """AC7: A created race is present in subsequent GET requests (DB persistence)."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Persistent Race",
         "date": "2028-01-15",
         "distance": 21.1,
@@ -320,15 +320,15 @@ def test_race_persists_across_requests(user_and_client):
     assert r.status_code == 201, r.text
     race_id = r.json()["id"]
 
-    r2 = client.get(f"/plans/{user_id}/races")
+    r2 = client.get(f"/api/plans/{user_id}/races")
     ids = [row["id"] for row in r2.json()]
     assert race_id in ids, "Race not present on second GET"
 
-    r3 = client.get(f"/plans/{user_id}/races/{race_id}")
+    r3 = client.get(f"/api/plans/{user_id}/races/{race_id}")
     assert r3.status_code == 200
     assert r3.json()["name"] == "Persistent Race"
 
-    client.delete(f"/plans/{user_id}/races/{race_id}")
+    client.delete(f"/api/plans/{user_id}/races/{race_id}")
 
 
 # ── AC9: Validation ───────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ def test_race_persists_across_requests(user_and_client):
 def test_create_race_without_date_fails(user_and_client):
     """AC9: POST without date returns a validation error."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "No Date Race",
         "distance": 10.0,
         "type": "race",
@@ -347,7 +347,7 @@ def test_create_race_without_date_fails(user_and_client):
 def test_create_race_without_distance_fails(user_and_client):
     """AC9: POST without distance returns a validation error."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "No Distance Race",
         "date": "2028-02-01",
         "type": "race",
@@ -358,7 +358,7 @@ def test_create_race_without_distance_fails(user_and_client):
 def test_create_race_with_zero_distance_fails(user_and_client):
     """AC9: POST with distance=0 returns a validation error."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Zero Distance",
         "date": "2028-03-01",
         "distance": 0,
@@ -370,7 +370,7 @@ def test_create_race_with_zero_distance_fails(user_and_client):
 def test_create_race_with_invalid_date_fails(user_and_client):
     """AC9: POST with invalid date string returns a validation error."""
     client, user_id = user_and_client
-    r = client.post(f"/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{user_id}/races", json={
         "name": "Bad Date",
         "date": "not-a-date",
         "distance": 10.0,

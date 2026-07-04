@@ -32,7 +32,7 @@ from backend.services.training_load import (
     daily_tss_series as _daily_tss_series,
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 
 # ── Auth dependency ───────────────────────────────────────────────────────────

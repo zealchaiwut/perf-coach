@@ -347,7 +347,7 @@ def plan_client_and_plan_id():
     plan_id = r.json()["id"]
 
     # Create a race for this user (linked via user_id in races table)
-    r = auth.post(f"/plans/{user_id}/races", json={
+    r = auth.post(f"/api/plans/{user_id}/races", json={
         "date": "2027-01-15",
         "distance": 21.0975,
         "type": "race",
@@ -371,7 +371,7 @@ def test_ac9_unauthenticated_returns_401(plan_client_and_plan_id):
     import httpx
     _, plan_id, _ = plan_client_and_plan_id
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-        r = bare.get(f"/plans/{plan_id}/projection")
+        r = bare.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text}"
 
 
@@ -380,7 +380,7 @@ def test_ac8_nonexistent_plan_returns_404(plan_client_and_plan_id):
     """AC8: GET /plans/{non_existent_uuid}/projection returns 404."""
     auth, _, _ = plan_client_and_plan_id
     fake_id = str(uuid.uuid4())
-    r = auth.get(f"/plans/{fake_id}/projection")
+    r = auth.get(f"/api/plans/{fake_id}/projection")
     assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
 
 
@@ -388,7 +388,7 @@ def test_ac8_nonexistent_plan_returns_404(plan_client_and_plan_id):
 def test_ac2_response_has_ctl_atl_tsb_arrays(plan_client_and_plan_id):
     """AC2: Response includes ctl, atl, tsb arrays."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     body = r.json()
     for key in ("ctl", "atl", "tsb"):
@@ -400,7 +400,7 @@ def test_ac2_response_has_ctl_atl_tsb_arrays(plan_client_and_plan_id):
 def test_ac3_response_has_races_with_estimated_time(plan_client_and_plan_id):
     """AC3: races array contains estimated_time per entry."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     assert "races" in body, "Response must have races array"
@@ -412,7 +412,7 @@ def test_ac3_response_has_races_with_estimated_time(plan_client_and_plan_id):
 def test_ac4_response_has_races_with_half_equivalent(plan_client_and_plan_id):
     """AC4: races array contains half_equivalent per entry."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     for race_entry in body.get("races", []):
@@ -423,7 +423,7 @@ def test_ac4_response_has_races_with_half_equivalent(plan_client_and_plan_id):
 def test_ac5_response_has_band(plan_client_and_plan_id):
     """AC5: Response includes a band field."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     assert "band" in body, "Response must have a band field"
@@ -434,7 +434,7 @@ def test_ac5_response_has_band(plan_client_and_plan_id):
 def test_series_length_matches_plan_duration(plan_client_and_plan_id):
     """UAT3: CTL/ATL/TSB series length matches the plan duration (days to last race)."""
     auth, plan_id, user_id = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     # All three series must have the same length

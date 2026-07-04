@@ -171,7 +171,7 @@
   }
 
   function _planRaceUrl(raceId) {
-    return "/plans/" + _planId + "/races" + (raceId ? "/" + raceId : "");
+    return "/api/plans/" + _planId + "/races" + (raceId ? "/" + raceId : "");
   }
 
   // ── API calls ─────────────────────────────────────────────────────────────
