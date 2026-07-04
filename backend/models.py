@@ -76,6 +76,13 @@ class WeightEntry(Base):
             postgresql_nulls_not_distinct=True,
         ),
         Index("ix_weight_entries_user_entry_date", "user_id", "entry_date"),
+        Index(
+            "ix_weight_entries_user_date_null_time",
+            "user_id",
+            "entry_date",
+            unique=True,
+            postgresql_where=text("entry_time IS NULL"),
+        ),
         CheckConstraint(
             "source IN ('manual', 'imported', 'backfill')",
             name="ck_weight_entries_source_values",

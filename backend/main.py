@@ -801,11 +801,11 @@ class WeightEntryByDateIn(BaseModel):
 
 @app.put("/api/weight-entries/by-date")
 def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(resolve_user)):
-    """Upsert a daily bodyweight entry for a given date.
+    """Upsert a daily bodyweight entry for a given date (atomic).
 
-    If an entry (with entry_time=NULL) already exists for this user+date, it is
-    updated in-place.  Otherwise a new row is created.  Submitting twice for the
-    same date never creates a duplicate.
+    Uses INSERT ... ON CONFLICT DO UPDATE against the partial unique index
+    ix_weight_entries_user_date_null_time so concurrent requests are handled
+    safely by the DB with no SELECT-then-INSERT race window.
     """
     uid = user.id
 
@@ -821,26 +821,17 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
     if entry_date > _today_bkk() + _timedelta(days=1):
         raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
 
+    conflict_updates = {
+        "weight_kg": body.weight_kg,
+        "updated_at": _datetime.now(_timezone.utc),
+    }
+    if body.notes is not None:
+        conflict_updates["notes"] = body.notes
+
     with Session(engine) as session:
-        existing = (
-            session.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == uid,
-                WeightEntry.entry_date == entry_date,
-                WeightEntry.entry_time.is_(None),
-            )
-            .first()
-        )
-        if existing is not None:
-            existing.weight_kg = body.weight_kg
-            if body.notes is not None:
-                existing.notes = body.notes
-            existing.updated_at = _datetime.now(_timezone.utc)
-            session.commit()
-            session.refresh(existing)
-            return JSONResponse(_weight_entry_dict(existing))
-        else:
-            entry = WeightEntry(
+        stmt = (
+            _pg_insert(WeightEntry)
+            .values(
                 user_id=uid,
                 entry_date=entry_date,
                 entry_time=None,
@@ -848,10 +839,17 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
                 notes=body.notes,
                 source="manual",
             )
-            session.add(entry)
-            session.commit()
-            session.refresh(entry)
-            return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+            .on_conflict_do_update(
+                index_elements=["user_id", "entry_date"],
+                index_where=WeightEntry.entry_time.is_(None),
+                set_=conflict_updates,
+            )
+            .returning(WeightEntry.__table__.c.id)
+        )
+        row_id = session.execute(stmt).scalar_one()
+        session.commit()
+        entry = session.get(WeightEntry, row_id)
+        return JSONResponse(_weight_entry_dict(entry))
 
 
 @app.patch("/api/weight-entries/{entry_id}")
