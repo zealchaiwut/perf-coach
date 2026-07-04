@@ -1,12 +1,15 @@
 """Reconcile source activities (Strava, Stryd) into unified workout rows."""
 from __future__ import annotations
 
+import logging
 import uuid as _uuid
 from datetime import date, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import and_ as _and, or_ as _or
 from sqlalchemy.orm import Session as _Session, defer as _defer
+
+_log = logging.getLogger(__name__)
 
 
 _TOLERANCE = timedelta(minutes=5)
@@ -464,10 +467,15 @@ def reconcile_workouts(
     )
 
     # Update the per-athlete best-effort duration curve for touched runs only.
-    _update_duration_curves(
-        uid,
-        workout_ids=affected_workout_ids if incremental else None,
-    )
+    try:
+        _update_duration_curves(
+            uid,
+            workout_ids=affected_workout_ids if incremental else None,
+        )
+    except Exception:
+        _log.exception(
+            "Duration curve update failed for user %s; sync will still complete", uid
+        )
 
 
 def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
