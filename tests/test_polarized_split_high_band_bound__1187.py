@@ -14,7 +14,6 @@ Acceptance Criteria anchored:
 import pathlib
 import re
 
-import pytest
 
 from backend.services.polarized_split import check_polarized_split, _DEFAULT_BOUNDS
 
