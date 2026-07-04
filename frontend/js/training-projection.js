@@ -12,9 +12,10 @@
   var _modalPriority = "A";
   var _confirmCallback = null;
   var _planId = null;
-  // Distinct from _planId (the user id used in /plans/{userId}/races): this is the
-  // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
-  // savePlanSettings then POSTs to create one (fixes "Training plan not found").
+  // TrainingPlan entity UUID from GET /api/plans — used for all /api/plans/{id}/...
+  // race/checkpoint/projection URLs.  Null until loadPlanSettings() completes;
+  // the mutation buttons (Add/Edit/Delete) are only reachable after the page
+  // has loaded, so _planEntityId will be set by then.
   var _planEntityId = null;
   // Athlete current performance scores (GET /api/athletes/{id}/performance).
   // Null until loaded; only rendered when .state === "scored".
@@ -171,7 +172,7 @@
   }
 
   function _planRaceUrl(raceId) {
-    return "/plans/" + _planId + "/races" + (raceId ? "/" + raceId : "");
+    return "/api/plans/" + _planEntityId + "/races" + (raceId ? "/" + raceId : "");
   }
 
   // ── API calls ─────────────────────────────────────────────────────────────
@@ -1259,8 +1260,9 @@
   }
 
   function refresh() {
-    // Ensure _planId (user id) is set for Add/Edit/Delete mutation URLs, then
-    // pull the single computed bundle and render everything from it.
+    // _planId (user id) still drives _ensurePlanId for /api/plan/computed.
+    // _planEntityId (TrainingPlan UUID) is set by loadPlanSettings() and drives
+    // all /api/plans/{id}/races|checkpoints|projection calls.
     _ensurePlanId(function () {
       apiGet("/api/plan/computed", function (bundle) {
         applyBundle(bundle);

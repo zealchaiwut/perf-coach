@@ -677,7 +677,7 @@
         var plan = Array.isArray(plans) && plans.length ? plans[0] : null;
         if (!plan || !plan.id) { _renderProjEmpty(); return; }
         _planEntityId = plan.id;
-        return fetch('/plans/' + _planEntityId + '/projection', { credentials: 'same-origin' })
+        return fetch('/api/plans/' + _planEntityId + '/projection', { credentials: 'same-origin' })
           .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
           .then(function (data) { _renderProjection(data); });
       })
