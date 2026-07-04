@@ -115,7 +115,7 @@ def test_ac5_no_duplicate_route_registrations():
 
 @pytest.fixture(scope="module")
 def authed_client():
-    """Create a test user, authenticate, yield client + user_id. Cleanup after."""
+    """Create a test user, authenticate, create a training plan, yield (client, user_id, plan_id). Cleanup after."""
     _skip_if_no_db()
     uname = f"prefix1138_{uuid.uuid4().hex[:8]}"
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
@@ -140,7 +140,13 @@ def authed_client():
         cookies={"session": session_cookie, "csrf-token": csrf_token},
         headers={"X-CSRF-Token": csrf_token},
     )
-    yield client, user_id
+
+    # Create a TrainingPlan entity; _check_plan_access now requires a real plan UUID.
+    r = client.post("/api/plans", json={"name": "Test Plan 1138"})
+    assert r.status_code == 201, f"create plan failed: {r.text}"
+    plan_id = r.json()["id"]
+
+    yield client, user_id, plan_id
 
     client.close()
     with _OrmSess(_engine) as db:
@@ -151,9 +157,15 @@ def authed_client():
 
 
 def test_ac2_unprefixed_races_returns_404(authed_client):
-    """AC2: GET /plans/{plan_id}/races (un-prefixed) returns 404."""
-    client, user_id = authed_client
-    r = client.get(f"/plans/{user_id}/races")
+    """AC2: GET /plans/{plan_id}/races (un-prefixed) returns 404.
+
+    Uses a random non-existent plan UUID so the assertion holds on both the
+    old server (route exists but plan not found → 404 from _check_plan_access)
+    and the new server (route removed → 404 from FastAPI routing).
+    """
+    client, user_id, plan_id = authed_client
+    nonexistent = str(uuid.uuid4())
+    r = client.get(f"/plans/{nonexistent}/races")
     assert r.status_code == 404, (
         f"Expected 404 for un-prefixed /plans/{{id}}/races, got {r.status_code}. "
         "The old path must no longer be served."
@@ -162,8 +174,8 @@ def test_ac2_unprefixed_races_returns_404(authed_client):
 
 def test_ac2_prefixed_races_returns_200(authed_client):
     """AC2: GET /api/plans/{plan_id}/races returns 200."""
-    client, user_id = authed_client
-    r = client.get(f"/api/plans/{user_id}/races")
+    client, user_id, plan_id = authed_client
+    r = client.get(f"/api/plans/{plan_id}/races")
     assert r.status_code == 200, (
         f"Expected 200 for /api/plans/{{id}}/races, got {r.status_code}: {r.text}"
     )
@@ -172,10 +184,10 @@ def test_ac2_prefixed_races_returns_200(authed_client):
 
 def test_ac4_race_crud_works_at_api_prefix(authed_client):
     """AC4: Full race CRUD round-trip works at /api/plans/ prefix — same data, new URL."""
-    client, user_id = authed_client
+    client, user_id, plan_id = authed_client
 
     # Create
-    r = client.post(f"/api/plans/{user_id}/races", json={
+    r = client.post(f"/api/plans/{plan_id}/races", json={
         "date": "2027-09-01",
         "distance": 42.195,
         "type": "race",
@@ -188,29 +200,33 @@ def test_ac4_race_crud_works_at_api_prefix(authed_client):
     assert data["distance"] == pytest.approx(42.195, rel=1e-3)
 
     # Read list
-    r2 = client.get(f"/api/plans/{user_id}/races")
+    r2 = client.get(f"/api/plans/{plan_id}/races")
     assert r2.status_code == 200
     ids = [row["id"] for row in r2.json()]
     assert race_id in ids
 
     # Patch
-    r3 = client.patch(f"/api/plans/{user_id}/races/{race_id}", json={"name": "Updated 1138"})
+    r3 = client.patch(f"/api/plans/{plan_id}/races/{race_id}", json={"name": "Updated 1138"})
     assert r3.status_code == 200, f"patch failed: {r3.text}"
     assert r3.json()["name"] == "Updated 1138"
 
     # Delete
-    r4 = client.delete(f"/api/plans/{user_id}/races/{race_id}")
+    r4 = client.delete(f"/api/plans/{plan_id}/races/{race_id}")
     assert r4.status_code == 204, f"delete failed: {r4.text}"
 
     # Confirm gone
-    r5 = client.get(f"/api/plans/{user_id}/races/{race_id}")
+    r5 = client.get(f"/api/plans/{plan_id}/races/{race_id}")
     assert r5.status_code == 404
 
 
 def test_ac2_unprefixed_projection_returns_404(authed_client):
-    """AC2: GET /plans/{plan_id}/projection (un-prefixed) returns 404."""
-    client, user_id = authed_client
-    r = client.get(f"/plans/{user_id}/projection")
+    """AC2: GET /plans/{plan_id}/projection (un-prefixed) returns 404.
+
+    Uses a random non-existent plan UUID for the same reason as the races 404 test.
+    """
+    client, user_id, plan_id = authed_client
+    nonexistent = str(uuid.uuid4())
+    r = client.get(f"/plans/{nonexistent}/projection")
     assert r.status_code == 404, (
         f"Expected 404 for un-prefixed /plans/{{id}}/projection, got {r.status_code}."
     )
@@ -218,8 +234,8 @@ def test_ac2_unprefixed_projection_returns_404(authed_client):
 
 def test_ac4_projection_works_at_api_prefix(authed_client):
     """AC4: GET /api/plans/{plan_id}/projection returns 200 with ctl/atl/tsb/races/band."""
-    client, user_id = authed_client
-    r = client.get(f"/api/plans/{user_id}/projection")
+    client, user_id, plan_id = authed_client
+    r = client.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     body = r.json()
     for key in ("ctl", "atl", "tsb", "races", "band"):

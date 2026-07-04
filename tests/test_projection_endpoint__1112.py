@@ -66,7 +66,7 @@ def _skip_no_db():
 
 def test_ac7_plan_router_compiles():
     """AC7: python -m py_compile on routers/projection.py exits with code 0."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     assert router_path.exists()
     py_compile.compile(str(router_path), doraise=True)
 
@@ -280,7 +280,7 @@ def test_payload_ctl_rises_toward_load():
 
 def test_ac6_router_imports_projection_module():
     """AC6: routers/projection.py must import from backend.services.projection."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     assert "projection" in source, (
         "routers/projection.py must import from backend.services.projection"
@@ -289,7 +289,7 @@ def test_ac6_router_imports_projection_module():
 
 def test_ac6_router_handler_no_decay_math():
     """AC6: The projection endpoint handler must not hardcode EWMA decay calculations."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     # The router should not contain CTL/ATL decay arithmetic — that belongs in projection.py
     assert "CTL_DECAY" not in source or "import" in source, (
@@ -302,7 +302,7 @@ def test_ac6_router_handler_no_decay_math():
 
 def test_ac1_projection_endpoint_in_router():
     """AC1: routers/projection.py must contain a /projection route."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     assert "projection" in source, "routers/projection.py must define a /projection route"
     assert "@router.get" in source, "Plan router must have a GET handler"
@@ -346,8 +346,8 @@ def plan_client_and_plan_id():
     assert r.status_code == 201, f"create plan failed: {r.text}"
     plan_id = r.json()["id"]
 
-    # Create a race for this user (linked via user_id in races table)
-    r = auth.post(f"/api/plans/{user_id}/races", json={
+    # Create a race linked to the plan entity (plan_id is the TrainingPlan UUID)
+    r = auth.post(f"/api/plans/{plan_id}/races", json={
         "date": "2027-01-15",
         "distance": 21.0975,
         "type": "race",
