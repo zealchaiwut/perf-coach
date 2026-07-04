@@ -7319,7 +7319,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             _recompute_autofill(user.id, _week_start_bangkok(new_date))
         except Exception as _af_exc:
             _logging.getLogger(__name__).warning(
-                "autofill recompute failed for user %s week %s: %s", user.id, new_date, _af_exc
+                "autofill recompute failed for user %s week %s: %s", user.id, new_date, _af_exc, exc_info=True
             )
         return JSONResponse(status_code=201, content=_workout_dict(copy, new_exercises))
 
