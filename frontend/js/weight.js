@@ -147,7 +147,7 @@ function renderStreakAndAdherence(entries) {
   const adherence = _computeAdherence(entries);
 
   if (streakEl) {
-    streakEl.textContent = streak === 1 ? '1-day streak' : `${streak}-day streak`;
+    streakEl.textContent = streak === 0 ? 'No streak yet' : streak === 1 ? '1-day streak' : `${streak}-day streak`;
   }
   if (adherenceEl) {
     adherenceEl.textContent = `${adherence} / 14 days`;
