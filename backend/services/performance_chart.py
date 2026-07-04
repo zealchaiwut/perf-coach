@@ -70,6 +70,7 @@ def compute_performance_chart(
     zone_constants: dict[str, Any] | None,
     start_date: str,
     end_date: str,
+    body_modifier: float = 1.0,
 ) -> dict:
     """Compute aligned CTL/ATL/TSB/endurance/speed time series for a date range.
 
@@ -176,8 +177,8 @@ def compute_performance_chart(
     ]
 
     # Compute endurance and speed scores via the existing pure functions
-    endurance_result = compute_endurance_score(range_runs, preferences, zc)
-    speed_result = compute_speed_score(range_runs, preferences, zc)
+    endurance_result = compute_endurance_score(range_runs, preferences, zc, body_modifier=body_modifier)
+    speed_result = compute_speed_score(range_runs, preferences, zc, body_modifier=body_modifier)
 
     # Map per-run trend values back to calendar dates.
     # The trend array is ordered by qualifying-run order (same as input runs).

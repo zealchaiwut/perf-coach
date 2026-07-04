@@ -8906,6 +8906,10 @@ def get_performance_chart(
                 "decoupling_pct": None,
             })
 
+    # Derive body modifier for this user so scores reflect power-to-weight state.
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_body_modifier
+    _body_modifier = _get_body_modifier(uid)
+
     # Delegate to the pure computation function
     result = compute_performance_chart(
         daily_load_series=load_series,
@@ -8914,6 +8918,7 @@ def get_performance_chart(
         zone_constants=zc,
         start_date=start_date,
         end_date=end_date,
+        body_modifier=_body_modifier,
     )
 
     return JSONResponse(result)
@@ -14976,8 +14981,10 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         # Race VDOT-band perf point (pool point + decayed floor) — score re-anchor.
         with Session(engine) as _race_session:
             _race_perf = _latest_race_perf(_race_session, uid)
-        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf)
-        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf)
+        from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+        _bm = _get_bm(uid)
+        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
+        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
         if _performance_log.isEnabledFor(_logging.DEBUG):
             log_entry = _build_performance_log_entry(
@@ -15363,13 +15370,16 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
                 return score
             return None
 
+        from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_weekly
+        _bm_weekly = _get_bm_weekly(uid)
+
         runs_at_start = _build_run_list(ws)
-        endurance_start = _extract_score(compute_endurance_score(runs_at_start, preferences, zone_constants))
-        speed_start = _extract_score(compute_speed_score(runs_at_start, preferences, zone_constants))
+        endurance_start = _extract_score(compute_endurance_score(runs_at_start, preferences, zone_constants, body_modifier=_bm_weekly))
+        speed_start = _extract_score(compute_speed_score(runs_at_start, preferences, zone_constants, body_modifier=_bm_weekly))
 
         runs_at_end = _build_run_list(load_end)
-        endurance_end = _extract_score(compute_endurance_score(runs_at_end, preferences, zone_constants))
-        speed_end = _extract_score(compute_speed_score(runs_at_end, preferences, zone_constants))
+        endurance_end = _extract_score(compute_endurance_score(runs_at_end, preferences, zone_constants, body_modifier=_bm_weekly))
+        speed_end = _extract_score(compute_speed_score(runs_at_end, preferences, zone_constants, body_modifier=_bm_weekly))
 
         if endurance_start is not None and endurance_end is not None:
             endurance_score_change = round(endurance_end - endurance_start, 2)
@@ -16100,8 +16110,10 @@ def get_projection(user: User = Depends(resolve_user)):
                             "laps": laps,
                         })
 
-                    endurance_result = compute_endurance_score(runs, preferences, zone_constants)
-                    speed_result = compute_speed_score(runs, preferences, zone_constants)
+                    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
+                    _bm_proj = _get_bm_proj(user.id)
+                    endurance_result = compute_endurance_score(runs, preferences, zone_constants, body_modifier=_bm_proj)
+                    speed_result = compute_speed_score(runs, preferences, zone_constants, body_modifier=_bm_proj)
 
                     if isinstance(endurance_result, dict):
                         endurance_score = endurance_result.get("score")

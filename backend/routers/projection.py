@@ -486,6 +486,9 @@ async def get_plan_projection(
             (row.snapshot_date, row.economy_stimulus) for row in snap_rows
         ]
 
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_plan
+    _bm_plan = _get_bm_plan(user.id)
+
     payload = _proj.build_plan_projection_payload(
         start_ctl=start_ctl,
         start_atl=start_atl,
@@ -497,5 +500,6 @@ async def get_plan_projection(
         current_score=_current_score,
         stimulus_history=stimulus_history,
         reference_date=today,
+        body_modifier=_bm_plan,
     )
     return JSONResponse(payload)
