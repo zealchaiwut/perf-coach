@@ -1218,10 +1218,10 @@
     _races = Array.isArray(bundle.races) ? bundle.races : [];
     _primaryRace =
       _races.find(function (r) {
-        return r.type === "race" && r.priority === "A";
+        return r.type === "race" && r.priority === "A" && r.status !== "done";
       }) ||
       _races.find(function (r) {
-        return r.type === "race";
+        return r.type === "race" && r.status !== "done";
       }) ||
       null;
 
