@@ -227,7 +227,7 @@ def _already_enriched_ids(session: Session, ids: list) -> set:
     streams. Evaluated server-side with jsonb_path_exists so the (large)
     streams_payload JSONB never leaves Postgres — pulling it client-side just to
     check timestamp_list presence costs ~600 MB of heap per sync."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     return set(session.execute(
         select(StrydActivity.stryd_activity_id)
@@ -241,7 +241,7 @@ def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
     """IDs of this user's activities still missing per-point streams, newest
     first, excluding ``processed``. Same server-side predicate rationale as
     _already_enriched_ids."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     rows = session.execute(
         select(StrydActivity.stryd_activity_id)
