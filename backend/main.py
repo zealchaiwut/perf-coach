@@ -6586,6 +6586,9 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
+    if body.strava_activity_url is not None and body.strava_activity_url != "":
+        if not body.strava_activity_url.startswith("https://"):
+            raise HTTPException(status_code=422, detail="strava_activity_url must use the https scheme")
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -6748,6 +6751,9 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
             workout.source = body.source
         if 'strava_activity_url' in body.model_fields_set:
+            if body.strava_activity_url is not None and body.strava_activity_url != "":
+                if not body.strava_activity_url.startswith("https://"):
+                    raise HTTPException(status_code=422, detail="strava_activity_url must use the https scheme")
             workout.strava_activity_url = body.strava_activity_url
         if 'avg_power' in body.model_fields_set:
             workout.avg_power = body.avg_power
