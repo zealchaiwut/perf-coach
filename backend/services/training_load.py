@@ -327,7 +327,16 @@ def daily_update(
 
 
 def _classify_zone(tsb: float) -> str:
-    """Return the zone name for a single TSB value using named band constants."""
+    """Return the zone name for a single TSB value using named band constants.
+
+    Canonical zone vocabulary (authoritative for this codebase):
+        buried  — TSB below FORM_BURIED_CEILING (athlete is over-reached)
+        neutral — TSB at or above FORM_BURIED_CEILING and below FORM_FRESH_FLOOR
+        fresh   — TSB at or above FORM_FRESH_FLOOR (athlete is well-rested)
+
+    All callers that classify TSB zones (performance_curve, _rdns_classify_zone
+    in main.py, and any future additions) must use this vocabulary exclusively.
+    """
     if tsb < FORM_BURIED_CEILING:
         return "buried"
     if tsb >= FORM_FRESH_FLOOR:

@@ -100,7 +100,7 @@ def test_race_readiness__endpoint_exists_and_returns_200(client):
 
 
 def test_race_readiness__response_includes_form_curve(client):
-    """AC2: Response includes form_curve with zone labels (freshness, optimal, accumulated_fatigue)."""
+    """AC2: Response includes form_curve with zone labels (buried, neutral, fresh)."""
     user_id, client = _login_and_get_user_id(client)
     race_id = _ensure_test_race_with_sufficient_history(client, user_id)
 
@@ -114,7 +114,7 @@ def test_race_readiness__response_includes_form_curve(client):
     assert len(form_curve) > 0, "form_curve must not be empty"
 
     # Check zone labels in form_curve entries
-    valid_zones = {"freshness", "optimal", "accumulated_fatigue"}
+    valid_zones = {"buried", "neutral", "fresh"}
     for entry in form_curve:
         assert "date" in entry, "Each form_curve entry must have 'date'"
         assert "form" in entry, "Each form_curve entry must have 'form'"

@@ -13821,16 +13821,19 @@ def _rdns_cfg_int(key: str, default: int) -> int:
 def _rdns_classify_zone(tsb: float, buried_ceiling: float, fresh_floor: float) -> str:
     """Classify a TSB value into a zone using configurable thresholds.
 
+    Uses the canonical zone vocabulary defined in backend/services/training_load.py
+    (_classify_zone / performance_curve): buried / neutral / fresh.
+
     Zones:
-        accumulated_fatigue — TSB is below buried_ceiling (athlete is over-reached)
-        freshness           — TSB is at or above fresh_floor (athlete is well-rested)
-        optimal             — TSB is between the two thresholds
+        buried  — TSB is below buried_ceiling (athlete is over-reached)
+        fresh   — TSB is at or above fresh_floor (athlete is well-rested)
+        neutral — TSB is between the two thresholds
     """
     if tsb < buried_ceiling:
-        return "accumulated_fatigue"
+        return "buried"
     if tsb >= fresh_floor:
-        return "freshness"
-    return "optimal"
+        return "fresh"
+    return "neutral"
 
 
 _RACE_READINESS_UNSET = object()
