@@ -11,22 +11,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, validator
 
-from backend.auth import COOKIE_NAME, get_current_user
+from backend.auth import resolve_user
 from backend.models import User
 from backend.services import strength_sessions_service as _svc
 
 router = APIRouter()
 
 _VALID_PLYO_PHASES = ("intro", "build", "maintain")
-
-
-# ── Auth dependency ────────────────────────────────────────────────────────────
-
-async def _resolve_user(request: Request) -> User:
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return await get_current_user(request)
-    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _parse_session_id(session_id: str) -> _uuid.UUID:
@@ -202,14 +193,14 @@ class _PlyoPatchBody(BaseModel):
 
 @router.get("/api/strength-sessions")
 async def list_strength_sessions(request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sessions = _svc.list_strength_sessions(user_id=user.id)
     return JSONResponse(sessions)
 
 
 @router.get("/api/strength-sessions/{session_id}")
 async def get_strength_session(session_id: str, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     result = _svc.get_strength_session(session_id=sid, user_id=user.id)
     if result is None:
@@ -219,7 +210,7 @@ async def get_strength_session(session_id: str, request: Request):
 
 @router.post("/api/strength-sessions", status_code=201)
 async def create_strength_session(body: _StrengthCreateBody, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     result = _svc.create_strength_session(
         user_id=user.id,
         session_date=body.session_date,
@@ -236,7 +227,7 @@ async def create_strength_session(body: _StrengthCreateBody, request: Request):
 
 @router.patch("/api/strength-sessions/{session_id}")
 async def update_strength_session(session_id: str, body: _StrengthPatchBody, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     fields = body.dict(exclude_unset=True)
     result = _svc.update_strength_session(session_id=sid, user_id=user.id, fields=fields)
@@ -247,7 +238,7 @@ async def update_strength_session(session_id: str, body: _StrengthPatchBody, req
 
 @router.delete("/api/strength-sessions/{session_id}", status_code=204)
 async def delete_strength_session(session_id: str, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     deleted = _svc.delete_strength_session(session_id=sid, user_id=user.id)
     if not deleted:
@@ -259,14 +250,14 @@ async def delete_strength_session(session_id: str, request: Request):
 
 @router.get("/api/plyo-sessions")
 async def list_plyo_sessions(request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sessions = _svc.list_plyo_sessions(user_id=user.id)
     return JSONResponse(sessions)
 
 
 @router.get("/api/plyo-sessions/{session_id}")
 async def get_plyo_session(session_id: str, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     result = _svc.get_plyo_session(session_id=sid, user_id=user.id)
     if result is None:
@@ -276,7 +267,7 @@ async def get_plyo_session(session_id: str, request: Request):
 
 @router.post("/api/plyo-sessions", status_code=201)
 async def create_plyo_session(body: _PlyoCreateBody, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     result = _svc.create_plyo_session(
         user_id=user.id,
         session_date=body.session_date,
@@ -289,7 +280,7 @@ async def create_plyo_session(body: _PlyoCreateBody, request: Request):
 
 @router.patch("/api/plyo-sessions/{session_id}")
 async def update_plyo_session(session_id: str, body: _PlyoPatchBody, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     fields = body.dict(exclude_unset=True)
     result = _svc.update_plyo_session(session_id=sid, user_id=user.id, fields=fields)
@@ -300,7 +291,7 @@ async def update_plyo_session(session_id: str, body: _PlyoPatchBody, request: Re
 
 @router.delete("/api/plyo-sessions/{session_id}", status_code=204)
 async def delete_plyo_session(session_id: str, request: Request):
-    user = await _resolve_user(request)
+    user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     deleted = _svc.delete_plyo_session(session_id=sid, user_id=user.id)
     if not deleted:

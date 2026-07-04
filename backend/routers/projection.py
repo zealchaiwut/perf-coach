@@ -11,12 +11,12 @@ import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as _Session
 
-from backend.auth import COOKIE_NAME, get_current_user
+from backend.auth import resolve_user
 from backend.db import engine as _engine
 from backend.models import (
     Race as _Race,
@@ -33,15 +33,6 @@ from backend.services.training_load import (
 )
 
 router = APIRouter()
-
-
-# ── Auth dependency ───────────────────────────────────────────────────────────
-
-async def _resolve_user(request: Request) -> User:
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return await get_current_user(request)
-    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _parse_plan_id(plan_id: str) -> _uuid.UUID:
@@ -167,7 +158,7 @@ def _resolve_priority(race_type: str, priority: Optional[str]) -> str:
 # ── Race endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/plans/{plan_id}/races")
-async def list_races(plan_id: str, user: User = Depends(_resolve_user)):
+async def list_races(plan_id: str, user: User = Depends(resolve_user)):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
     return JSONResponse(_svc.list_races(pid))
@@ -177,7 +168,7 @@ async def list_races(plan_id: str, user: User = Depends(_resolve_user)):
 async def create_race(
     plan_id: str,
     body: _RaceCreateBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -232,7 +223,7 @@ async def create_race(
 async def get_race(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -248,7 +239,7 @@ async def patch_race(
     plan_id: str,
     race_id: str,
     body: _RacePatchBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -286,7 +277,7 @@ async def patch_race(
 async def delete_race(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -303,7 +294,7 @@ async def delete_race(
 async def list_checkpoints(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -319,7 +310,7 @@ async def create_checkpoint(
     plan_id: str,
     race_id: str,
     body: _CheckpointCreateBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -341,7 +332,7 @@ async def patch_checkpoint(
     race_id: str,
     checkpoint_id: str,
     body: _CheckpointPatchBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -372,7 +363,7 @@ async def delete_checkpoint(
     plan_id: str,
     race_id: str,
     checkpoint_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -393,7 +384,7 @@ _DEFAULT_PROJECTION_DAYS = 90
 @router.get("/plans/{plan_id}/projection")
 async def get_plan_projection(
     plan_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     """Return CTL/ATL/TSB projection, per-race estimates, and fitness band for a plan."""
     try:
