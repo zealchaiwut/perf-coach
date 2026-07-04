@@ -467,13 +467,10 @@
     return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
   }
 
-  /* Merged Next+Recent card (home v3, issue-spec Task 1). This function only
-     owns the "Next workout" sub-section (#home-next-workout-section); the
-     "Recent workout" sub-section (#home-recent-workout-section) is a sibling
-     placeholder built here but filled in by home.js's
-     loadRecentWorkoutsCard, which keeps each widget's data source/render
-     logic independent (own fetch vs. pre-fetched summary block) while
-     sharing one physical card. */
+  /* Skeleton for the merged Next+Recent card — both sub-headers and two empty
+     section placeholders (#home-next-workout-section /
+     #home-recent-workout-section). Both are filled by _nwFill once the planned
+     fetch resolves, so Next and Recent counts share one capacity budget. */
   function _nwSkeletonHtml() {
     return (
       '<div class="nw-worksub">' +
@@ -493,45 +490,90 @@
     );
   }
 
-  function renderNextWorkoutCard(el) {
+  /* One "Recent workout" row — same grid/markup as a Next row but a plain div
+     (no /plan link, no trailing arrow). recent items come from the home
+     summary block: {name, workout_type, relative_day, summary}. */
+  function _nwRecentRowHtml(w) {
+    var cls = _nwBadgeCls(w.workout_type);
+    var label = _nwBadgeLabel(w.workout_type);
+    var metaParts = [w.relative_day];
+    if (w.summary) metaParts.push(w.summary);
+    return '<div class="nw-row nw-row--recent">' +
+        '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+        '<span class="nw-info">' +
+          '<span class="nw-name">' + esc(w.name || 'Workout') + '</span>' +
+          '<span class="nw-meta">' + esc(metaParts.filter(Boolean).join(' · ')) + '</span>' +
+        '</span>' +
+      '</div>';
+  }
+
+  function _nwNextRowHtml(next) {
+    var cls = _nwBadgeCls(next.session_type);
+    var label = _nwBadgeLabel(next.session_type);
+    var metaParts = [_nwFmtDate(next.planned_date)];
+    var summary = _nwStructureSummary(next.structure);
+    if (summary) metaParts.push(summary);
+    return '<a class="nw-row" href="/log#plan">' +
+        '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+        '<span class="nw-info">' +
+          '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
+          '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
+        '</span>' +
+        '<span class="nw-arrow">&#8594;</span>' +
+      '</a>';
+  }
+
+  /* Decide how many Next vs Recent rows to show so the card fills its grid
+     track without overflowing. Capacity is measured from the (stretched) card
+     height at render time; Next is capped at half the card so a couple of
+     planned sessions can't crowd out the recent history (the common case is
+     few Next + many Recent). Returns {next, recent} counts. */
+  function _nwFillCounts(el, nextAvail, recentAvail) {
+    var h = el ? el.clientHeight : 0;
+    // Below ~260px the card isn't stretched (mobile flex column, or measured
+    // before layout settled) — fall back to a sensible fixed capacity.
+    var capacity = h < 260 ? 8
+      : Math.max(4, Math.min(12, Math.floor((h - 120) / 40)));
+    var next = Math.min(nextAvail, Math.floor(capacity / 2));
+    var recent = Math.min(recentAvail, capacity - next);
+    // Rule: Next may not exceed 50% of what's shown. When recent is plentiful
+    // this is already satisfied; when recent is scarce, shrink next to match so
+    // it never dominates (unless there's no recent at all to pair against).
+    if (recent > 0) next = Math.min(next, recent);
+    return { next: Math.max(next, nextAvail ? 1 : 0), recent: recent };
+  }
+
+  function renderNextWorkoutCard(el, recentWorkouts) {
     if (!el) return;
 
     el.innerHTML = _nwSkeletonHtml();
+    var recent = Array.isArray(recentWorkouts) ? recentWorkouts : [];
 
     var today = _bangkokTodayStr();
     var to = _nwAddDaysISO(today, 13);
     fetch('/api/planned-sessions?from=' + today + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (bundle) {
-        var sectionEl = document.getElementById('home-next-workout-section');
-        if (!sectionEl) return;
-        var upcoming = _nwFindUpcoming(bundle, 3);
-        if (!upcoming.length) {
-          sectionEl.innerHTML = _nwEmptyHtml();
-          return;
-        }
+      .then(function (bundle) { _nwFill(el, _nwFindUpcoming(bundle, 6), recent); })
+      .catch(function () { _nwFill(el, [], recent); });
+  }
 
-        sectionEl.innerHTML = upcoming.map(function (next) {
-          var cls = _nwBadgeCls(next.session_type);
-          var label = _nwBadgeLabel(next.session_type);
-          var metaParts = [_nwFmtDate(next.planned_date)];
-          var summary = _nwStructureSummary(next.structure);
-          if (summary) metaParts.push(summary);
+  function _nwFill(el, upcoming, recent) {
+    var nextSection = document.getElementById('home-next-workout-section');
+    var recentSection = document.getElementById('home-recent-workout-section');
 
-          return '<a class="nw-row" href="/log#plan">' +
-              '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
-              '<span class="nw-info">' +
-                '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
-                '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
-              '</span>' +
-              '<span class="nw-arrow">&#8594;</span>' +
-            '</a>';
-        }).join('');
-      })
-      .catch(function () {
-        var sectionEl = document.getElementById('home-next-workout-section');
-        if (sectionEl) sectionEl.innerHTML = _nwEmptyHtml();
-      });
+    var counts = _nwFillCounts(el, upcoming.length, recent.length);
+
+    if (nextSection) {
+      nextSection.innerHTML = counts.next
+        ? upcoming.slice(0, counts.next).map(_nwNextRowHtml).join('')
+        : _nwEmptyHtml();
+    }
+    if (recentSection) {
+      recentSection.innerHTML = counts.recent
+        ? recent.slice(0, counts.recent).map(_nwRecentRowHtml).join('')
+        : '<div class="workouts-empty">No workouts yet — ' +
+          '<a href="/training?return=/home">log your first</a>.</div>';
+    }
   }
 
   /* ── Performance (Endurance/Speed) widget (home v2) ─────────────────────── */
@@ -676,7 +718,7 @@
       renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
     }
     if (nwEl) {
-      renderNextWorkoutCard(nwEl);
+      renderNextWorkoutCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
     }
     if (pfEl) {
       renderPerformanceCard(pfEl, userId);

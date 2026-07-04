@@ -140,133 +140,11 @@
   }
 
 
-  /* ---- Recent Workouts card helpers ---- */
-
-  var WORKOUT_TYPE_ICON = {
-    run:      { cls: 'run',  icon: 'ti-run' },
-    ride:     { cls: 'bike', icon: 'ti-bike' },
-    bike:     { cls: 'bike', icon: 'ti-bike' },
-    cycle:    { cls: 'bike', icon: 'ti-bike' },
-    lift:     { cls: 'lift', icon: 'ti-barbell' },
-    strength: { cls: 'lift', icon: 'ti-barbell' },
-    wod:      { cls: 'wod',  icon: 'ti-flame' },
-    crossfit: { cls: 'wod',  icon: 'ti-flame' },
-  };
-
-  function workoutTypeIcon(type) {
-    return WORKOUT_TYPE_ICON[(type || '').toLowerCase()] || { cls: 'run', icon: 'ti-run' };
-  }
-
-  function fmtWorkoutDuration(seconds) {
-    if (seconds == null) return null;
-    var s = Math.round(seconds);
-    if (s < 3600) {
-      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    }
-    return Math.floor(s / 3600) + ':' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  }
-
-  function workoutDayOfWeek(isoStr) {
-    var p = isoStr.split('-');
-    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-  }
-
-  function buildWorkoutRow(w, extraCls) {
-    var ic = workoutTypeIcon(w.workout_type);
-
-    var titleText = esc(w.name);
-    if (w.distance_km != null) {
-      titleText += ' · ' + Number(w.distance_km).toFixed(1) + ' km';
-    }
-
-    var metaParts = [workoutDayOfWeek(w.workout_date)];
-    var dur = fmtWorkoutDuration(w.duration_seconds);
-    if (dur) metaParts.push(dur);
-    if (w.tss != null) metaParts.push('TSS ' + Math.round(w.tss));
-
-    var src = w.source || '';
-    var hasStrava = src.indexOf('strava') !== -1 || !!w.strava_activity_url;
-    var hasStryd  = src.indexOf('stryd')  !== -1;
-    var isManual  = !hasStrava && !hasStryd;
-
-    var badgesHTML = '';
-    if (isManual) {
-      badgesHTML = '<div class="src-badge manual" title="Manual"><i class="ti ti-pencil" style="font-size:12px;"></i></div>';
-    } else {
-      if (hasStryd)  badgesHTML += '<div class="src-badge stryd"  title="Stryd">S</div>';
-      if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
-    }
-
-    // Zone-2 badge (issue #441): minutes spent in Z2 when the backend reports it
-    var z2HTML = '';
-    if (w.zone2_minutes != null) {
-      z2HTML = '<div class="z2-badge" title="Zone 2 minutes">Z2 ' + w.zone2_minutes + '</div>';
-    }
-
-    return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
-      '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
-      '<div class="info">' +
-        '<div class="ttl">' + titleText + '</div>' +
-        '<div class="meta">' + metaParts.join(' · ') + '</div>' +
-      '</div>' +
-      z2HTML +
-      '<div class="sources">' + badgesHTML + '</div>' +
-    '</div>';
-  }
-
-  /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
-     Fills only its sub-section (#home-recent-workout-section), built by
-     home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
-     "Next workout" sub-section above it is that file's own concern.
-
-     Data source is /api/home/summary's "recent_workouts" block, which is a
-     bare array (see backend _build_recent_workouts_block) — NOT
-     {workouts:[...]}. The previous code read workoutsBlock.workouts, which
-     is always undefined on an array, so this always rendered the empty
-     state regardless of real data (pre-existing bug, not introduced by the
-     merge — same wrong access was already in the old standalone card).
-     Also, that block's items are a lightweight summary shape (name,
-     workout_type, relative_day, summary) — not a full Workout row — so this
-     builds its own compact row instead of reusing buildWorkoutRow(), which
-     expects raw Workout fields (workout_date, distance_km, source, ...)
-     that this summary doesn't have. */
-  function _recentWorkoutBadgeCls(t) {
-    return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
-  }
-  function _recentWorkoutBadgeLabel(t) {
-    if (t === 'strength') return 'Strength';
-    if (t === 'plyo') return 'Plyo';
-    return 'Run';
-  }
-  function loadRecentWorkoutsCard(userId, workoutsBlock) {
-    var sectionEl = document.getElementById('home-recent-workout-section');
-    if (!sectionEl) return;
-
-    var workouts = Array.isArray(workoutsBlock) ? workoutsBlock : [];
-
-    if (!workouts.length) {
-      sectionEl.innerHTML =
-        '<div class="workouts-empty">No workouts yet — ' +
-        '<a href="/training?return=/home">log your first</a>.</div>';
-      return;
-    }
-
-    sectionEl.innerHTML = workouts.map(function (w) {
-      var cls = _recentWorkoutBadgeCls(w.workout_type);
-      var label = _recentWorkoutBadgeLabel(w.workout_type);
-      var metaParts = [w.relative_day];
-      if (w.summary) metaParts.push(w.summary);
-
-      return '<div class="nw-row">' +
-          '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
-          '<span class="nw-info">' +
-            '<span class="nw-name">' + esc(w.name || 'Workout') + '</span>' +
-            '<span class="nw-meta">' + esc(metaParts.filter(Boolean).join(' · ')) + '</span>' +
-          '</span>' +
-        '</div>';
-    }).join('');
-  }
+  /* Recent workouts are now rendered by home-readiness-training-sleep.js's
+     renderNextWorkoutCard, which owns the whole merged "Next + Recent" card so
+     it can budget Next vs Recent rows against one shared capacity (see
+     _nwFill / _nwFillCounts there). home.js passes summary.recent_workouts in
+     via HomeRTS.render(summary, userId); it no longer fills the section here. */
 
   /* ---- Log Today card ---- */
 
@@ -993,9 +871,8 @@
       /* Personal records card (fetches its own data — see loadPerformanceCard) */
       loadPerformanceCard(userId);
 
-      /* Recent workouts card (fetches own data, uses summary.recent_workouts for context) */
-      var _workoutsBlock = summary.recent_workouts;
-      loadRecentWorkoutsCard(userId, _workoutsBlock);
+      /* Recent workouts are rendered inside the merged Next+Recent card by
+         HomeRTS.render (called just above with summary.recent_workouts). */
 
       initFastLogForm(userId);
 

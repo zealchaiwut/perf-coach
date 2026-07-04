@@ -272,6 +272,15 @@
     activeRowEl = row;
     row.classList.add("is-active");
 
+    // Mirror the highlight onto the matching calendar day cell (#5): read the
+    // deep-linked workout's date from its day-group and border that day in the
+    // month calendar too, so the same workout is flagged in both views.
+    var group = row.closest(".day-group");
+    var dateStr = group && group.dataset ? group.dataset.date : null;
+    if (dateStr && window.LogCalendar && window.LogCalendar.markDeepLinkedDay) {
+      window.LogCalendar.markDeepLinkedDay(dateStr);
+    }
+
     // Scroll after layout settles (two rAFs: one for the just-appended batches,
     // one for the drawer-open reflow). Use INSTANT scroll, not smooth: a smooth
     // scroll animating down the long list passes lazy-load sentinels, which
@@ -1231,7 +1240,7 @@
 
       var d = new Date(dateStr + 'T00:00:00');
       var dayGroup = document.createElement('div');
-      dayGroup.className = 'day-group';
+      dayGroup.className = 'day-group' + (dateStr === todayISO() ? ' is-today-group' : '');
       dayGroup.dataset.date = dateStr;
 
       var header = document.createElement('div');
@@ -4849,7 +4858,7 @@
       '</div>' +
       '<table class="lrx-cal"><thead><tr>';
     CAL_WEEKDAY_ABBR.forEach(function (a) { html += '<th>' + esc(a) + '</th>'; });
-    html += '<th class="wk">Week</th></tr></thead><tbody>';
+    html += '<th class="wk">Total</th></tr></thead><tbody>';
 
     dayNum = 1;
     for (var r2 = 0; r2 < rows; r2++) {
@@ -4871,7 +4880,9 @@
               if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
             });
           }
-          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots +
+          var todayCls = (dStr === todayStr) ? ' is-today' : '';
+          html += '<td class="cal-day' + todayCls + '" data-date="' + dStr + '">' +
+            '<span class="dnum">' + dayNum + '</span>' + dots +
             _calPlannedTagsHtml(dStr) + '</td>';
           dayNum++;
         }
@@ -4989,10 +5000,25 @@
   }
 
   // Public API for the summary card to query/mark scope.
+  // Border the calendar day cell for a deep-linked workout (#5). Clears any
+  // previous deep-link mark first so only one day is flagged at a time; a
+  // no-op when that date isn't in the currently displayed month.
+  function _calMarkDeepLinkedDay(dateStr) {
+    var el = document.getElementById('log-calendar');
+    if (!el) return;
+    el.querySelectorAll('.cal-day.deep-linked').forEach(function (c) {
+      c.classList.remove('deep-linked');
+    });
+    if (!dateStr) return;
+    var cell = el.querySelector('.cal-day[data-date="' + dateStr + '"]');
+    if (cell) cell.classList.add('deep-linked');
+  }
+
   window.LogCalendar = {
     getDisplayedMonth: _calMonthKey,
     markMonthScoped: _calMarkMonthScoped,
     clearScope: _calClearScope,
+    markDeepLinkedDay: _calMarkDeepLinkedDay,
   };
 
   function calScrollToDate(dateStr) {
