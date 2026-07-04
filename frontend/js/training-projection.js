@@ -1819,7 +1819,12 @@
       "This action cannot be undone.",
       function () {
         apiDelete(_planRaceUrl(rid), function (res) {
-          if (res.ok) refresh();
+          if (res.ok) {
+            refresh();
+          } else {
+            if (window.UIStates && UIStates.showToast)
+              UIStates.showToast("Delete failed. Please try again.", true);
+          }
         });
       },
     );
@@ -1839,7 +1844,12 @@
       "This action cannot be undone.",
       function () {
         apiDelete(_planRaceUrl(raceId), function (res) {
-          if (res.ok) refresh();
+          if (res.ok) {
+            refresh();
+          } else {
+            if (window.UIStates && UIStates.showToast)
+              UIStates.showToast("Delete failed. Please try again.", true);
+          }
         });
       },
     );
