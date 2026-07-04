@@ -15024,7 +15024,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 endurance=None,
                 speed=None,
                 generated_at=generated_at,
-                reason=str(exc) or "unexpected server error",
+                reason="unexpected server error",
             ),
         )
 
