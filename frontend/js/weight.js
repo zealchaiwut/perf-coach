@@ -26,6 +26,28 @@ function rangeFromDate(range) {
   return addDays(todayISO(), offsets[range] ?? -29);
 }
 
+// ── Unit system ───────────────────────────────────────────────────────────
+
+let _weightUnit = 'kg';  // 'kg' or 'lb'; persisted via localStorage('weight_unit')
+
+const KG_TO_LB = 2.20462;
+const LB_TO_KG = 0.453592;
+
+function kgToDisplay(kg) {
+  if (kg == null) return null;
+  return _weightUnit === 'lb' ? +(kg * KG_TO_LB) : kg;
+}
+
+function displayToKg(val) {
+  if (val == null) return null;
+  return _weightUnit === 'lb' ? +(val * LB_TO_KG) : val;
+}
+
+function unitLabel() { return _weightUnit; }
+
+function displayMin() { return _weightUnit === 'lb' ? Math.round(20 * KG_TO_LB) : 20; }
+function displayMax() { return _weightUnit === 'lb' ? Math.round(300 * KG_TO_LB) : 300; }
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 let _userId = null;
@@ -36,6 +58,8 @@ let _recentEntries = [];     // entries for last 14 days
 let _historySummary = null;  // last /api/weight-targets/history-summary response
 let _rangeAbortController = null;
 let _rangeFetchSeq = 0;
+let _lastEntryWeight = null;   // most recent logged weight in display units — drives same-as-last btn
+let _lastEntryWeightKg = null; // raw kg of the same entry — needed to re-derive display value on unit switch
 
 // ── API helpers ────────────────────────────────────────────────────────────
 
@@ -123,7 +147,7 @@ function renderStreakAndAdherence(entries) {
   const adherence = _computeAdherence(entries);
 
   if (streakEl) {
-    streakEl.textContent = streak === 1 ? '1-day streak' : `${streak}-day streak`;
+    streakEl.textContent = streak === 0 ? 'No streak yet' : streak === 1 ? '1-day streak' : `${streak}-day streak`;
   }
   if (adherenceEl) {
     adherenceEl.textContent = `${adherence} / 14 days`;
@@ -970,17 +994,19 @@ function _showLoggedMode(weightKg) {
   if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
 }
 
-async function _submitCardB(weightKg) {
+async function _submitCardB(displayVal) {
   const errEl = document.getElementById('hcb-error');
   const btn   = document.getElementById('log-submit-btn');
   if (errEl) errEl.textContent = '';
   showPageError('');
 
-  if (isNaN(weightKg) || weightKg < 20 || weightKg > 300) {
-    if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
+  const dMin = displayMin(), dMax = displayMax();
+  if (isNaN(displayVal) || displayVal < dMin || displayVal > dMax) {
+    if (errEl) errEl.textContent = `Enter a valid weight (${dMin}–${dMax} ${unitLabel()}).`;
     return;
   }
 
+  const weightKg = displayToKg(displayVal);
   if (btn) btn.disabled = true;
 
   const dateInput = document.getElementById('log-date-input');
@@ -1088,6 +1114,17 @@ function _initCardB() {
       input.focus();
     });
   }
+
+  // Same-as-last: one-tap log of the previous entry weight
+  const sameAsLastBtn = document.getElementById('same-as-last-btn');
+  if (sameAsLastBtn) {
+    sameAsLastBtn.addEventListener('click', async () => {
+      if (_lastEntryWeight == null) return;
+      sameAsLastBtn.disabled = true;
+      await _submitCardB(_lastEntryWeight);
+      sameAsLastBtn.disabled = false;
+    });
+  }
 }
 
 function _cardBSetLoggedState(entries, fallbackWeight) {
@@ -1099,11 +1136,68 @@ function _cardBSetLoggedState(entries, fallbackWeight) {
     if (logged) logged.dataset.weight = todayEntry.weight_kg;
     _prefillStepper(todayEntry.weight_kg);
     _showLoggedMode(todayEntry.weight_kg);
+    _updateSameAsLastBtn(true, null);
   } else {
     _cardBEntryId = null;
     // Prefill stepper with most recent entry (fallback from chart stats)
     if (fallbackWeight != null) _prefillStepper(fallbackWeight);
     _showStepperMode();
+    _updateSameAsLastBtn(false, fallbackWeight);
+  }
+}
+
+function _updateSameAsLastBtn(todayLogged, lastWeightKg) {
+  const btn = document.getElementById('same-as-last-btn');
+  if (!btn) return;
+  if (todayLogged || lastWeightKg == null) {
+    btn.hidden = true;
+    _lastEntryWeight = null;
+    _lastEntryWeightKg = null;
+    return;
+  }
+  _lastEntryWeightKg = lastWeightKg;
+  // Store display-unit value so _submitCardB receives a display value, not raw kg.
+  // Without this, lb mode double-converts: displayToKg(70 kg) = 31.75 kg (#513).
+  _lastEntryWeight = kgToDisplay(lastWeightKg);
+  btn.hidden = false;
+  btn.textContent = `Log same as last (${_lastEntryWeight.toFixed(1)} ${unitLabel()})`;
+}
+
+function _initUnitToggle() {
+  const stored = localStorage.getItem('weight_unit');
+  if (stored === 'lb' || stored === 'kg') _weightUnit = stored;
+
+  const toggle = document.getElementById('unit-toggle');
+  if (!toggle) return;
+
+  toggle.querySelectorAll('.unit-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.unit === _weightUnit);
+    btn.addEventListener('click', () => {
+      if (btn.dataset.unit === _weightUnit) return;
+      _weightUnit = btn.dataset.unit;
+      localStorage.setItem('weight_unit', _weightUnit);
+      toggle.querySelectorAll('.unit-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      _applyUnit();
+    });
+  });
+}
+
+function _applyUnit() {
+  const input = document.getElementById('stepper-input');
+  if (input) {
+    input.min  = displayMin();
+    input.max  = displayMax();
+    input.step = _weightUnit === 'lb' ? 0.5 : 0.1;
+    input.setAttribute('aria-label', `Weight in ${unitLabel()}`);
+  }
+  _updateLogBtnLabel();
+
+  // Refresh same-as-last button label using stored raw kg so display-unit value
+  // reflects the newly selected unit without requiring a new entry (#513 AC5).
+  if (_lastEntryWeightKg != null) {
+    _updateSameAsLastBtn(false, _lastEntryWeightKg);
   }
 }
 
@@ -1601,6 +1695,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  _initUnitToggle();
   _initCardB();
   _initRangeTabs();
   _initModeToggle();
