@@ -134,6 +134,32 @@ def delete_strength_session(session_id: _uuid.UUID, user_id: _uuid.UUID) -> bool
         return True
 
 
+def create_strength_sessions_batch(
+    user_id: _uuid.UUID,
+    exercises: list[dict],
+) -> list[dict]:
+    with Session(engine) as db:
+        rows = []
+        for ex in exercises:
+            row = StrengthSession(
+                user_id=user_id,
+                session_date=_date.fromisoformat(ex["session_date"]),
+                exercise_name=ex.get("exercise_name"),
+                sets=ex.get("sets"),
+                reps=ex.get("reps"),
+                load=ex.get("load"),
+                load_unit=ex.get("load_unit"),
+                session_rpe=ex.get("session_rpe"),
+                duration_minutes=ex.get("duration_minutes"),
+            )
+            db.add(row)
+            rows.append(row)
+        db.commit()
+        for r in rows:
+            db.refresh(r)
+        return [_strength_to_dict(r) for r in rows]
+
+
 # ── Plyo session operations ────────────────────────────────────────────────────
 
 def list_plyo_sessions(user_id: _uuid.UUID) -> list[dict]:
@@ -207,3 +233,25 @@ def delete_plyo_session(session_id: _uuid.UUID, user_id: _uuid.UUID) -> bool:
         db.delete(row)
         db.commit()
         return True
+
+
+def create_plyo_sessions_batch(
+    user_id: _uuid.UUID,
+    exercises: list[dict],
+) -> list[dict]:
+    with Session(engine) as db:
+        rows = []
+        for ex in exercises:
+            row = PlyoSession(
+                user_id=user_id,
+                session_date=_date.fromisoformat(ex["session_date"]),
+                exercise_name=ex.get("exercise_name"),
+                foot_contacts=ex["foot_contacts"],
+                plyo_phase=ex["plyo_phase"],
+            )
+            db.add(row)
+            rows.append(row)
+        db.commit()
+        for r in rows:
+            db.refresh(r)
+        return [_plyo_to_dict(r) for r in rows]
