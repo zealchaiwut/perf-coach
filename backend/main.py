@@ -13056,16 +13056,19 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
 
     with Session(engine) as session:
         race_type_val = body.race_type if body.race_type in _RACE_TYPE_VALUES else "race"
-        race = Race(
+        race_kwargs: dict = dict(
             user_id=user.id,
             name=body.name if body.name is not None else "",
             race_date=race_date,
             distance_km=body.distance_km,
             goal_time_seconds=body.goal_time_seconds,
-            priority=body.priority if body.priority is not None else "A",
-            status=body.status if body.status is not None else "planned",
             race_type=race_type_val,
         )
+        if body.priority is not None:
+            race_kwargs["priority"] = body.priority
+        if body.status is not None:
+            race_kwargs["status"] = body.status
+        race = Race(**race_kwargs)
         race.goal_pace_seconds_per_km = pace
         session.add(race)
         session.commit()

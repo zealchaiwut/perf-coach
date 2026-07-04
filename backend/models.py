@@ -926,9 +926,9 @@ class Race(Base):
     """Target finish time in seconds; NULL if no goal is set."""
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
     """Derived goal pace (goal_time_seconds / distance_km); always set via compute_goal_pace."""
-    priority = Column(String(10), nullable=False)
+    priority = Column(String(10), nullable=False, server_default=text("'A'"))
     """Race importance tier — one of RACE_PRIORITY_VALUES ('A', 'B', 'C')."""
-    status = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'planned'"))
     """Lifecycle status — one of RACE_STATUS_VALUES ('planned', 'done', 'abandoned')."""
     race_type = Column(String(20), nullable=False, server_default="race")
     """Classification of the effort — one of RACE_TYPE_VALUES ('race', 'checkpoint')."""
