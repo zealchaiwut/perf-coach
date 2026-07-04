@@ -747,10 +747,11 @@
 
   function renderSourceStrip(workout, strydPresent) {
     var parts = [];
-    if (workout.strava_activity_url) {
+    var _stravaUrl = workout.strava_activity_url;
+    if (_stravaUrl && _stravaUrl.startsWith('https://')) {
       parts.push(
         '<a class="rv-src-link" href="' +
-          esc(workout.strava_activity_url) +
+          esc(_stravaUrl) +
           '" target="_blank" rel="noopener">View on Strava</a>',
       );
     }
