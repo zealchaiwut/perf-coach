@@ -451,18 +451,12 @@ from backend.auth import (  # noqa: E402
     read_admin_cookie,
     read_session_cookie,
     require_admin,
+    resolve_user,
     set_admin_cookie,
     set_csrf_cookie,
     set_session,
     verify_password,
 )
-
-async def resolve_user(request: Request) -> User:
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return await get_current_user(request)
-    raise HTTPException(status_code=401, detail="Not authenticated")
-
 
 _LOCKOUT_MAX_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
@@ -15021,7 +15015,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         _performance_log.exception("unexpected error in performance endpoint")
         return JSONResponse(
             status_code=500,
