@@ -10,7 +10,6 @@ Acceptance criteria verified:
 - AC5: Single A-race scenarios (past or future alone) work correctly — no regression.
 """
 import pathlib
-import re
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _JS_PATH = _ROOT / "frontend" / "js" / "training-projection.js"
