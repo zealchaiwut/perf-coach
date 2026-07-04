@@ -122,39 +122,34 @@ def test_d_estimate_tss_reads_ftp_from_user_preferences():
         _drop_user(uid)
 
 
-# ── (e) Falls back to defaults when row missing or ftp_w null ─────────────────
+# ── (e) Returns None when row missing or threshold fields null (issue #616) ────
 
-def test_e_falls_back_to_defaults_when_row_missing(caplog):
-    """AC (e-1): No user_preferences row → uses default FTP_W=280, logs warning."""
+def test_e_returns_none_when_row_missing(caplog):
+    """AC (e-1/#616): No user_preferences row → (None, 'none'); no hardcoded default used."""
     uid = _make_user("up_e1")
     try:
         with engine.connect() as conn:
-            # power=FTP_W → IF=1.0 → TSS=100 confirms default was used
             workout = _MockWorkout(avg_power_w=FTP_W)
             with caplog.at_level(logging.WARNING, logger="backend.services.tss"):
                 tss, method = estimate_tss_for_workout(workout, user_id=uid, db=conn)
-        assert method == "power"
-        assert tss == 100
-        assert any("default" in r.message.lower() or "preferences" in r.message.lower()
-                   for r in caplog.records)
+        assert tss is None
+        assert method == "none"
+        assert any("preferences" in r.message.lower() for r in caplog.records)
     finally:
         _drop_user(uid)
 
 
-def test_e_falls_back_to_defaults_when_ftp_w_null(caplog):
-    """AC (e-2): user_preferences row present but ftp_w=NULL → uses default FTP_W=280."""
+def test_e_returns_none_when_ftp_w_null():
+    """AC (e-2/#616): user_preferences row with ftp_w=NULL → (None, 'none'); no fallback default."""
     uid = _make_user("up_e2")
     try:
         with engine.begin() as conn:
             _insert_prefs(conn, uid, ftp_w=None)
         with engine.connect() as conn:
             workout = _MockWorkout(avg_power_w=FTP_W)
-            with caplog.at_level(logging.WARNING, logger="backend.services.tss"):
-                tss, method = estimate_tss_for_workout(workout, user_id=uid, db=conn)
-        assert method == "power"
-        assert tss == 100
-        assert any("default" in r.message.lower() or "null" in r.message.lower()
-                   for r in caplog.records)
+            tss, method = estimate_tss_for_workout(workout, user_id=uid, db=conn)
+        assert tss is None
+        assert method == "none"
     finally:
         _drop_user(uid)
 
