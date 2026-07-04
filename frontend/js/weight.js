@@ -1127,17 +1127,16 @@ function _initCardB() {
   }
 }
 
+// View-only: reads _lastEntryWeight but never assigns it. Callers own the
+// _lastEntryWeight / _lastEntryWeightKg state and must set it before calling
+// (see _cardBSetLoggedState and _applyUnit).
 function _updateSameAsLastBtn(todayLogged, lastWeightKg) {
   const btn = document.getElementById('same-as-last-btn');
   if (!btn) return;
-  if (todayLogged || lastWeightKg == null) {
+  if (todayLogged || lastWeightKg == null || _lastEntryWeight == null) {
     btn.hidden = true;
-    _lastEntryWeight = null;
-    _lastEntryWeightKg = null;
     return;
   }
-  _lastEntryWeightKg = lastWeightKg;
-  _lastEntryWeight = kgToDisplay(lastWeightKg);
   btn.hidden = false;
   btn.textContent = `Log same as last (${_lastEntryWeight.toFixed(1)} ${unitLabel()})`;
 }
@@ -1184,8 +1183,10 @@ function _applyUnit() {
     }
   }
 
-  // Refresh same-as-last button label using stored raw kg.
+  // Refresh same-as-last button label using stored raw kg; re-derive the
+  // display-unit value here since _updateSameAsLastBtn no longer owns state.
   if (_lastEntryWeightKg != null) {
+    _lastEntryWeight = kgToDisplay(_lastEntryWeightKg);
     _updateSameAsLastBtn(false, _lastEntryWeightKg);
   }
 }
@@ -1199,12 +1200,16 @@ function _cardBSetLoggedState(entries, fallbackWeight) {
     if (logged) logged.dataset.weight = todayEntry.weight_kg;
     _prefillStepper(todayEntry.weight_kg);
     _showLoggedMode(todayEntry.weight_kg);
+    _lastEntryWeight = null;
+    _lastEntryWeightKg = null;
     _updateSameAsLastBtn(true, null);
   } else {
     _cardBEntryId = null;
     // Prefill stepper with most recent entry (fallback from chart stats)
     if (fallbackWeight != null) _prefillStepper(fallbackWeight);
     _showStepperMode();
+    _lastEntryWeightKg = fallbackWeight != null ? fallbackWeight : null;
+    _lastEntryWeight = kgToDisplay(_lastEntryWeightKg);
     _updateSameAsLastBtn(false, fallbackWeight);
   }
 }
